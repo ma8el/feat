@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "id": "7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c",
+  "updated_at": "2026-08-04T10:02:00Z",
+  "status": "approved",
+  "completion_summary": "Added the export job and its retry policy.",
+  "requested_at": "2026-08-04T10:00:00Z",
+  "decided_at": "2026-08-04T10:02:00Z",
+  "repositories": [
+    {
+      "repository_id": "core",
+      "base_commit": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+      "head_commit": "0011223344556677889900aabbccddeeff001122",
+      "changed_files": 7,
+      "insertions": 214,
+      "deletions": 36,
+      "dirty": true,
+      "summarized_at": "2026-08-04T10:01:00Z"
+    },
+    {
+      "repository_id": "schema",
+      "base_commit": "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c",
+      "changed_files": 1,
+      "insertions": 9,
+      "deletions": 0,
+      "dirty": false,
+      "summarized_at": "2026-08-04T10:01:00Z"
+    }
+  ],
+  "checks": [
+    {
+      "id": "unit",
+      "repository_id": "core",
+      "status": "passed",
+      "reporter": "provider",
+      "detail": "42 passed",
+      "ran_at": "2026-08-04T09:59:00Z"
+    }
+  ]
+}

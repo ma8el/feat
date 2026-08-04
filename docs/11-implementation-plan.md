@@ -2,7 +2,11 @@
 
 The plan uses ordered vertical slices. Every slice must leave the repository buildable and tested. Do not implement roadmap features while completing v0.1.
 
+A slice carries a status line once work on it has started; a slice without one has not been started. A slice is complete only when every one of its acceptance criteria has been verified, not when its work items look done.
+
 ## Slice 0 — Repository bootstrap
+
+Status: **complete**, 2026-08-04
 
 ### Outcome
 
@@ -25,7 +29,25 @@ A buildable Apache-2.0 Go project with CLI skeleton and documented development c
 - `feat --help` shows the intended top-level command model.
 - No project-specific path or service name is compiled into the binary.
 
+### Delivered
+
+All four acceptance criteria pass on macOS with Go 1.26. `make check` runs the tidy, format, lint, test, and build sequence.
+
+Every command in the v0 surface is registered and returns a typed error naming the slice that delivers it, so no subcommand can report success it has not earned. The surface itself is pinned by a golden file.
+
+Three rules from `CLAUDE.md` are enforced mechanically rather than by review attention, and each was verified to fail against an injected violation:
+
+- import boundaries, as `depguard` rules in `.golangci.yml`; a change to those rules is an architectural change;
+- the prohibition on hard-coded reference-project identifiers, as an AST test over every Go string literal, with exemptions recorded in a reviewable denylist rather than in `//nolint` comments;
+- the argument-vector rule, as an AST test over every `exec.Command` call.
+
+Package layout gained `internal/cli`, `internal/paths`, `internal/version`, and `internal/guard`. See ADR-025 in [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md); the package list in [06-technical-architecture.md](06-technical-architecture.md) was updated in the same change.
+
+CI builds, vets, tests, and lints on macOS and Linux, and pins the linter version through `.golangci-version`. Verified green on the slice 0 pull request.
+
 ## Slice 1 — Domain and file storage
+
+Status: **complete**, 2026-08-04
 
 ### Outcome
 
@@ -47,6 +69,28 @@ Versioned project/task aggregates can be created, transitioned, persisted, and r
 - Crash simulation never leaves a partially replaced snapshot as current.
 - Event replay ignores only an incomplete final line.
 - Storage code contains no daemon/TUI dependencies.
+
+### Delivered
+
+All five acceptance criteria pass, each with a test named for it.
+
+`internal/domain` holds the entities, the four state dimensions, the invariants, and three error classes (`ErrInvalid`, `ErrInvalidTransition`, `ErrInvariant`), each reachable through `errors.Is` with the details through `errors.As`. It imports only the standard library.
+
+The workflow transition table is pinned against the documented lifecycle by a test that also proves the shape a "Stop means complete" defect would take: no state reaches `ready_for_review` or `approved` without passing through an explicit review request. Transitions additionally check the preconditions of the target state, so the error says what is missing rather than that something is.
+
+`internal/store` defines the interfaces and the storage error classes. `internal/store/fs` implements them over the layout in [06-technical-architecture.md](06-technical-architecture.md), with per-record write serialization, atomic replacement, and validation of every aggregate on the way in and on the way out.
+
+Three properties are checked directly rather than by inspection:
+
+- crash simulation interrupts an atomic replacement at each of its four points and asserts which snapshot is current afterwards, and a second test runs readers against a writer to catch a replacement that wrote in place;
+- an event log is read back under nine different shapes of damage, of which exactly one — an unterminated final record — is ignored rather than reported, and appending afterwards discards the partial record instead of joining it to the next one;
+- the round-trip test is backed by a reflection check that the fixtures leave no persisted field at its zero value, so a field the mapping forgets cannot round-trip by being absent from both sides.
+
+The migration mechanism carries no migrations, because there is one version of each document. It is exercised with a synthetic schema change instead, since the first real migration should not be the first one ever run. Golden files pin the stored format, so changing it fails in `go test` where the fix is a schema version and a migration.
+
+Storage independence is enforced by the `storage-stays-independent` and `domain-stays-provider-neutral` `depguard` rules that slice 0 installed.
+
+Package layout gained `internal/store/storetest`. See ADR-026 in [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md); [03-domain-model.md](03-domain-model.md) and [06-technical-architecture.md](06-technical-architecture.md) were updated in the same change.
 
 ## Slice 2 — Daemon and local API
 

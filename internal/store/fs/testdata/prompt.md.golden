@@ -1,0 +1,8 @@
+# Add a scheduled export job
+
+Export the daily report to the configured bucket.
+
+## Acceptance criteria
+
+- the job runs once per day
+- a failure is retried three times

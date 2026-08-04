@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "id": "7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c",
+  "updated_at": "2026-08-04T10:00:00Z",
+  "project_id": "example",
+  "title": "Add a scheduled export job",
+  "source": {
+    "kind": "markdown",
+    "reference": "/srv/briefs/example.md"
+  },
+  "workflow": "review_requested",
+  "attention": "possibly_waiting",
+  "created_at": "2026-08-04T09:30:00Z",
+  "repositories": [
+    {
+      "repository_id": "core",
+      "access": "read_write",
+      "base_ref": "origin/main",
+      "base_commit": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+      "branch": "feat/7f3a1c2e-add-a-scheduled-export-job",
+      "worktree_path": "/srv/state/worktrees/example/7f3a1c2e/core",
+      "container_path": "/src/core",
+      "observation": {
+        "dirty": true,
+        "ahead": 3,
+        "behind": 1,
+        "merged": false,
+        "changed_files": 7,
+        "observed_at": "2026-08-04T09:50:00Z"
+      }
+    },
+    {
+      "repository_id": "schema",
+      "access": "read_only",
+      "base_ref": "origin/main",
+      "base_commit": "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c",
+      "worktree_path": "/srv/state/worktrees/example/7f3a1c2e/schema",
+      "container_path": "/src/schema",
+      "observation": {
+        "dirty": false,
+        "ahead": 0,
+        "behind": 2,
+        "merged": true,
+        "changed_files": 0,
+        "observed_at": "2026-08-04T09:50:00Z"
+      }
+    }
+  ],
+  "session": {
+    "provider": "claude",
+    "execution_mode": "devcontainer",
+    "tmux": {
+      "socket": "/run/feat/tmux.sock",
+      "session": "$2",
+      "window": "@7",
+      "pane": "%11"
+    },
+    "provider_session_id": "01J8Z5R2M9WQ6K3T4B7C8D9E0F",
+    "process": "idle",
+    "control_path": "/srv/state/control/example/7f3a1c2e",
+    "last_event_sequence": 12,
+    "created_at": "2026-08-04T09:35:00Z",
+    "last_activity_at": "2026-08-04T10:00:00Z"
+  },
+  "runtime": {
+    "provider": "compose",
+    "identity": "feat-example-7f3a1c2e",
+    "compose_files": [
+      "/srv/repositories/core/compose.yaml"
+    ],
+    "static_overrides": [
+      "/srv/repositories/core/compose.override.yaml"
+    ],
+    "generated_override_path": "/srv/state/runtime/example/7f3a1c2e/compose.generated.yaml",
+    "env_files": [
+      "/srv/repositories/core/.env"
+    ],
+    "services": [
+      "web",
+      "worker"
+    ],
+    "ports": [
+      {
+        "service": "web",
+        "container_port": 8080,
+        "host_port": 18080
+      }
+    ],
+    "networks": [
+      "feat-example-7f3a1c2e_default"
+    ],
+    "volumes": [
+      "feat-example-7f3a1c2e_cache"
+    ],
+    "state": "running",
+    "health": "healthy",
+    "external_resources": [
+      {
+        "id": "reporting-store",
+        "kind": "postgres",
+        "lifecycle": "external",
+        "selector": "example_7f3a1c2e"
+      }
+    ],
+    "observed_at": "2026-08-04T09:56:00Z"
+  }
+}
