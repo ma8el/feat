@@ -23,6 +23,11 @@ const (
 	// ExitNotImplemented reports a command that exists in the v0 command
 	// surface but is delivered by a later implementation slice.
 	ExitNotImplemented = 3
+	// ExitNotRunning reports that a command needed a daemon and none was
+	// running. It is separate from ExitError because an absent daemon is a state
+	// a script may want to act on, not a failure of the command: `systemctl
+	// is-active` makes the same distinction (ADR-027).
+	ExitNotRunning = 4
 	// ExitInterrupted reports that the process was cancelled by a signal.
 	ExitInterrupted = 130
 )
@@ -54,6 +59,14 @@ func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return ExitNotImplemented
 	}
 
+	var notRunning *NotRunningError
+	if errors.As(err, &notRunning) {
+		// The command already printed what it observed on stdout, so this adds
+		// only what the user can do about it.
+		reportf(stderr, "feat: %v\n", notRunning)
+		return ExitNotRunning
+	}
+
 	if errors.Is(err, context.Canceled) {
 		return ExitInterrupted
 	}
@@ -74,3 +87,7 @@ func reportf(stderr io.Writer, format string, args ...any) {
 func interactive() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 }
+
+// terminalStderr reports whether standard error is a terminal, which decides
+// whether the foreground daemon mirrors its log there.
+func terminalStderr() bool { return term.IsTerminal(int(os.Stderr.Fd())) }

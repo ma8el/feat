@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/ui"
 	"github.com/ma8el/feat/internal/version"
 )
@@ -14,6 +15,32 @@ type Options struct {
 	// Interactive reports whether a full-screen TUI can be started. When
 	// false, the root command renders a plain-text health summary instead.
 	Interactive bool
+	// Layout locates the daemon's socket, state, and runtime directories. A nil
+	// value resolves them from the process environment, which is what the real
+	// binary wants; a test supplies its own so that it never reaches the
+	// developer's own daemon.
+	Layout *paths.Layout
+}
+
+// environment is what commands need from the process: where Feat's directories
+// are, whether a full-screen TUI is possible, and which build this is.
+type environment struct {
+	build       version.Info
+	interactive bool
+	layout      *paths.Layout
+}
+
+// resolve returns the path layout, resolving it from the environment unless one
+// was supplied.
+func (e *environment) resolve() (paths.Layout, error) {
+	if e.layout != nil {
+		return *e.layout, nil
+	}
+	current, err := paths.Current()
+	if err != nil {
+		return paths.Layout{}, err
+	}
+	return paths.Resolve(current)
 }
 
 const rootLong = `Feat is a terminal-native control plane for running feature work through
@@ -31,6 +58,12 @@ slice that delivers them.`
 
 // NewRootCommand builds the full feat command tree.
 func NewRootCommand(opts Options) *cobra.Command {
+	env := &environment{
+		build:       version.Get(),
+		interactive: opts.Interactive,
+		layout:      opts.Layout,
+	}
+
 	root := &cobra.Command{
 		Use:   "feat",
 		Short: "Terminal-native control plane for parallel coding-agent tasks",
@@ -43,13 +76,17 @@ func NewRootCommand(opts Options) *cobra.Command {
 		SilenceErrors: true,
 
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			info := version.Get()
+			// Opening the dashboard starts the daemon when none is running
+			// (ADR-008); see describeDaemon for what a non-interactive run does
+			// instead.
+			daemonLine, socket := env.describeDaemon(cmd)
 			return ui.RunHealth(cmd.Context(), ui.Health{
-				Version:   info.Version,
-				Commit:    info.Commit,
-				GoVersion: info.GoVersion,
-				Platform:  info.Platform(),
-				Daemon:    "not implemented (slice 2)",
+				Version:   env.build.Version,
+				Commit:    env.build.Commit,
+				GoVersion: env.build.GoVersion,
+				Platform:  env.build.Platform(),
+				Daemon:    daemonLine,
+				Socket:    socket,
 			}, cmd.OutOrStdout(), opts.Interactive)
 		},
 	}
@@ -73,7 +110,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		newRuntimeCommand(),
 		newCleanupCommand(),
 		newDoctorCommand(),
-		newDaemonCommand(),
+		newDaemonCommand(env),
 		newVersionCommand(),
 	)
 
@@ -194,37 +231,6 @@ func newDoctorCommand() *cobra.Command {
 		Args:  checkArgs(cobra.NoArgs),
 		RunE:  notImplemented(3, "YAML project configuration and doctor"),
 	}
-}
-
-func newDaemonCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "daemon",
-		Short: "Control the local daemon",
-		Long: `The daemon owns orchestration, reconciliation, and event publication, and is
-the only writer of persistent state. Opening the dashboard starts it
-automatically; these commands control it explicitly.`,
-	}
-	cmd.AddCommand(
-		&cobra.Command{
-			Use:   "start",
-			Short: "Start the local daemon",
-			Args:  checkArgs(cobra.NoArgs),
-			RunE:  notImplemented(2, "daemon and local API"),
-		},
-		&cobra.Command{
-			Use:   "stop",
-			Short: "Stop the local daemon",
-			Args:  checkArgs(cobra.NoArgs),
-			RunE:  notImplemented(2, "daemon and local API"),
-		},
-		&cobra.Command{
-			Use:   "status",
-			Short: "Report local daemon status",
-			Args:  checkArgs(cobra.NoArgs),
-			RunE:  notImplemented(2, "daemon and local API"),
-		},
-	)
-	return cmd
 }
 
 func newVersionCommand() *cobra.Command {

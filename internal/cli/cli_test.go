@@ -3,11 +3,58 @@ package cli
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ma8el/feat/internal/daemon"
+	"github.com/ma8el/feat/internal/paths"
 )
 
+// isolate points path resolution at a temporary directory.
+//
+// Without it these tests would read, and `feat daemon` would write, the
+// directories of whoever is running them: a unit test must never reach the
+// developer's own daemon.
+func isolate(t *testing.T) paths.Layout {
+	t.Helper()
+
+	root := t.TempDir()
+	t.Setenv(paths.EnvRuntimeOverride, shortDir(t))
+	t.Setenv(paths.EnvDataHome, filepath.Join(root, "state"))
+	t.Setenv(paths.EnvConfigHome, filepath.Join(root, "config"))
+
+	current, err := paths.Current()
+	if err != nil {
+		t.Fatalf("paths.Current: %v", err)
+	}
+	layout, err := paths.Resolve(current)
+	if err != nil {
+		t.Fatalf("paths.Resolve: %v", err)
+	}
+	return layout
+}
+
+// shortDir returns a temporary directory with a short path.
+//
+// t.TempDir() embeds the test's name, which on macOS pushes a socket path past
+// the platform's limit — the limit paths.Resolve checks, so this would otherwise
+// fail before the test began.
+func shortDir(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.MkdirTemp("", "feat")
+	if err != nil {
+		t.Fatalf("creating a temporary directory: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 func TestExecuteExitCodes(t *testing.T) {
+	isolate(t)
+
 	tests := []struct {
 		name string
 		args []string
@@ -23,11 +70,17 @@ func TestExecuteExitCodes(t *testing.T) {
 		{"missing required argument", []string{"attach"}, ExitUsage},
 		{"too many arguments", []string{"attach", "one", "two"}, ExitUsage},
 		{"unknown subcommand argument", []string{"task", "list", "extra"}, ExitUsage},
+		{"unknown log level", []string{"daemon", "status", "--log-level", "loud"}, ExitUsage},
 
-		{"daemon start", []string{"daemon", "start"}, ExitNotImplemented},
+		{"project add", []string{"project", "add"}, ExitNotImplemented},
 		{"doctor", []string{"doctor"}, ExitNotImplemented},
 		{"attach with a task", []string{"attach", "abc123"}, ExitNotImplemented},
 		{"runtime start", []string{"runtime", "start", "abc123"}, ExitNotImplemented},
+
+		// An absent daemon is a state a script may act on, not a failure of the
+		// command.
+		{"daemon status without a daemon", []string{"daemon", "status"}, ExitNotRunning},
+		{"daemon stop without a daemon", []string{"daemon", "stop"}, ExitNotRunning},
 	}
 
 	for _, test := range tests {
@@ -47,12 +100,14 @@ func TestExecuteExitCodes(t *testing.T) {
 // error must say what is missing and where to look, not merely that something
 // failed.
 func TestNotImplementedErrorIsActionable(t *testing.T) {
+	isolate(t)
+
 	var stdout, stderr bytes.Buffer
 
-	Execute(context.Background(), []string{"daemon", "start"}, &stdout, &stderr)
+	Execute(context.Background(), []string{"project", "add"}, &stdout, &stderr)
 
 	message := stderr.String()
-	for _, want := range []string{"feat daemon start", "slice 2", "docs/11-implementation-plan.md"} {
+	for _, want := range []string{"feat project add", "slice 3", "docs/11-implementation-plan.md"} {
 		if !strings.Contains(message, want) {
 			t.Errorf("error message does not mention %q:\n%s", want, message)
 		}
@@ -73,6 +128,8 @@ func TestUsageErrorPrintsUsage(t *testing.T) {
 }
 
 func TestDashboardRendersHealthWithoutATerminal(t *testing.T) {
+	isolate(t)
+
 	var stdout, stderr bytes.Buffer
 
 	if code := Execute(context.Background(), nil, &stdout, &stderr); code != ExitOK {
@@ -84,5 +141,25 @@ func TestDashboardRendersHealthWithoutATerminal(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("health output does not mention %q:\n%s", want, out)
 		}
+	}
+}
+
+// TestDashboardDoesNotStartADaemonWithoutATerminal pins the rule that opening
+// the dashboard starts a daemon (ADR-008) while printing a summary does not.
+// Piping `feat` into another command, or running it in CI, must not leave a
+// background process behind.
+func TestDashboardDoesNotStartADaemonWithoutATerminal(t *testing.T) {
+	layout := isolate(t)
+
+	var stdout, stderr bytes.Buffer
+	if code := Execute(context.Background(), nil, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("exit code = %d, stderr: %s", code, stderr.String())
+	}
+
+	if daemon.Answering(layout.Socket) {
+		t.Error("a non-interactive dashboard started a daemon")
+	}
+	if !strings.Contains(stdout.String(), "no daemon is running") {
+		t.Errorf("the summary does not report the daemon's absence:\n%s", stdout.String())
 	}
 }

@@ -94,6 +94,10 @@ Package layout gained `internal/store/storetest`. See ADR-026 in [10-decisions-a
 
 ## Slice 2 — Daemon and local API
 
+Status: **complete**, 2026-08-04
+
+The design decisions this slice started from are recorded in ADR-027 in [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md), including which two acceptance criteria this slice can only verify structurally, and why.
+
 ### Outcome
 
 The binary can start a background daemon and clients can query health/state over a protected Unix socket.
@@ -113,6 +117,33 @@ The binary can start a background daemon and clients can query health/state over
 - A stale socket is diagnosed and safely recovered.
 - State events arrive through SSE in order.
 - No TCP listener is opened.
+
+### Delivered
+
+All five acceptance criteria pass, each with a test named for it. Two of them are verified structurally rather than behaviourally, as ADR-027 records in advance: slice 2 has no writer of persistent state and no publisher of domain events, because the endpoints that create something to change arrive with slices 3 and 6.
+
+- Two clients querying concurrently is checked twice: in process, with overlapping reads from two clients over one socket, and as two operating-system processes in an opt-in test that builds the binary and runs `feat daemon start`, two concurrent clients, and `feat daemon stop`. CI runs the opt-in test on both platforms.
+- Socket permissions are asserted on the socket, the lock, the endpoint record, and the runtime directory, because a private socket inside a world-writable directory is not private.
+- Stale-socket recovery is checked from both sides: a socket left behind by a daemon that is gone is reclaimed and the reclaim is logged, and a socket that still answers while the lock is free makes the second daemon refuse rather than disconnect the first one's clients.
+- Event order is checked through the real bus, the real SSE endpoint, a real socket, and the real client parser, with two subscribers receiving the same 40 events in the same order. Only the publisher is a fixture.
+- The absence of a TCP listener is an AST test over every Go file in the repository, tests included, rather than an observation of one code path.
+
+`internal/paths`, which ADR-025 left to whichever of slice 2 and 3 needed it first, resolves the configuration, state, and runtime directories from an explicitly passed environment. It creates nothing, which is checked, so a command that only prints a path leaves nothing behind. It rejects a socket path longer than the platform allows, which is otherwise reported by `bind` as "invalid argument", and refuses to expand another user's home directory.
+
+`internal/daemon` owns the process. Ownership is an advisory lock the kernel releases on death, plus a connect probe, so the three questions a PID file cannot answer are answered separately: whether a daemon is alive, whether a socket is stale, and whether something else is serving the path. It also validates the runtime directory before binding, because the fallback location is shared with other users.
+
+`internal/api` serves the wire types, and they are a third representation, separate from the domain and from the stored documents; golden files pin every response body. `internal/client` is transport only. The stream reports its own health: it opens with a hello, answers a resume attempt with an explicit resync rather than a pretended replay, and ends a subscriber that fell behind with a `stream_lost` item, so lost events are reported instead of silently missing.
+
+`internal/cli` gains `daemon start`, `stop`, `status`, and a hidden `run`, plus exit code 4 for "no daemon is running". Two rules became mechanical, and each was verified to fail against an injected violation: no TCP listener anywhere in the repository, and only the daemon imports storage.
+
+Four findings changed the design during implementation:
+
+- an override of the socket path alone would separate the socket from the lock that proves who owns it, so `FEAT_RUNTIME_DIR` moves the whole directory instead; ADR-027 was amended in the same change;
+- graceful shutdown had to end event streams first and then close whatever had not drained, because net/http leaves an unused connection alone for several seconds and every shutdown would otherwise wait for it;
+- `feat` without a terminal reports the daemon's absence rather than starting one, so printing a summary in a pipe or in CI does not leave a background process behind;
+- a spawned daemon refuses to spawn another. The test suite found this by invoking the foreground command's own handler, which turned one process into a growing tree of them.
+
+Package layout gained no new package. `internal/paths`, `internal/daemon`, `internal/api`, and `internal/client` were all reserved by earlier slices. See ADR-027; [06-technical-architecture.md](06-technical-architecture.md) and [README.md](README.md) were updated in the same change.
 
 ## Slice 3 — YAML project configuration and doctor
 
@@ -339,6 +370,7 @@ Feat recovers honestly and removes only resources the user explicitly selected.
 ### Work
 
 - Reconcile snapshots, tmux, worktrees, Compose, control messages, and review state.
+- Write and reconcile the durable daemon record `daemon.json`, deferred from slice 2 because this is the first slice that reads one (ADR-027).
 - Report missing/orphaned/inconsistent resources.
 - Build cleanup-plan API with stable token/IDs.
 - Separate containers/networks, volumes, worktrees, and branches.

@@ -1,0 +1,331 @@
+package cli
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/ma8el/feat/internal/client"
+	"github.com/ma8el/feat/internal/daemon"
+)
+
+// foregroundCommand is the argument vector that makes this binary run a daemon
+// in the foreground. `feat daemon start` spawns it, and a later launchd or
+// systemd unit invokes it directly (ADR-027).
+func foregroundCommand(level string) []string {
+	return []string{"daemon", "run", "--log-level", level}
+}
+
+// printf writes one line of command output.
+//
+// A failed write to standard output is not something a command can act on, and
+// reporting it would need another write to the stream that just failed, so the
+// error is dropped deliberately here rather than at each call.
+func printf(out io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(out, format, args...)
+}
+
+func newDaemonCommand(env *environment) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "daemon",
+		Short: "Control the local daemon",
+		Long: `The daemon owns orchestration, reconciliation, and event publication, and is
+the only reader and writer of persistent state. Opening the dashboard starts it
+automatically; these commands control it explicitly.
+
+It listens on a Unix-domain socket owned by the current user. There is no
+network listener.`,
+	}
+	cmd.AddCommand(
+		newDaemonStartCommand(env),
+		newDaemonStopCommand(env),
+		newDaemonStatusCommand(env),
+		newDaemonRunCommand(env),
+	)
+	return cmd
+}
+
+func newDaemonStartCommand(env *environment) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start the local daemon",
+		Long: `Start the daemon in the background and wait until it answers.
+
+Starting a daemon while one is already running is not an error: the running one
+is reported instead. A socket left behind by a daemon that is gone is reclaimed
+after checking that nothing is serving on it.`,
+		Args: checkArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			layout, err := env.resolve()
+			if err != nil {
+				return err
+			}
+			level, err := logLevel(cmd)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+
+			if status := daemon.Inspect(layout); status.Running() {
+				if status.HasEndpoint {
+					printf(out, "a feat daemon is already running: pid %d on %s\n",
+						status.Endpoint.PID, status.Endpoint.Socket)
+				} else {
+					printf(out, "a feat daemon is already answering on %s\n", layout.Socket)
+				}
+				return nil
+			}
+
+			endpoint, err := daemon.Spawn(cmd.Context(), layout, daemon.SpawnOptions{
+				Args: foregroundCommand(level.String()),
+			})
+			if err != nil {
+				return err
+			}
+
+			printf(out, "daemon started: pid %d on %s\n", endpoint.PID, endpoint.Socket)
+			printf(out, "log: %s\n", layout.LogFile())
+			return nil
+		},
+	}
+	addLogLevelFlag(cmd)
+	return cmd
+}
+
+func newDaemonStopCommand(env *environment) *cobra.Command {
+	return &cobra.Command{
+		Use:   "stop",
+		Short: "Stop the local daemon",
+		Long: `Ask the daemon to shut down and wait until it stops answering.
+
+Shutdown is graceful: in-flight requests finish and event streams are closed.
+Tasks, worktrees, containers, and tmux sessions are left exactly as they are;
+stopping the daemon is not a cleanup.`,
+		Args: checkArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			layout, err := env.resolve()
+			if err != nil {
+				return err
+			}
+
+			endpoint, err := daemon.Stop(cmd.Context(), layout, 0)
+			if err != nil {
+				if errors.Is(err, daemon.ErrNotRunning) {
+					return &NotRunningError{Detail: err.Error(), Socket: layout.Socket}
+				}
+				return err
+			}
+
+			printf(cmd.OutOrStdout(), "daemon stopped: pid %d\n", endpoint.PID)
+			return nil
+		},
+	}
+}
+
+func newDaemonStatusCommand(env *environment) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Report local daemon status",
+		Long: `Report whether a daemon is running, which build it is, and what it owns.
+
+The exit code is 0 when a daemon is running and 4 when none is, so a script can
+tell the two apart without reading the output.`,
+		Args: checkArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			layout, err := env.resolve()
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+
+			status := daemon.Inspect(layout)
+			if !status.Running() {
+				printf(out, "%s\n", status.Diagnose())
+				printf(out, "socket: %s\n", layout.Socket)
+				printf(out, "log:    %s\n", layout.LogFile())
+				return &NotRunningError{Socket: layout.Socket}
+			}
+
+			health, err := client.New(layout.Socket).Health(cmd.Context())
+			if err != nil {
+				// Something is accepting connections but not serving the API.
+				// That is worth reporting exactly, not smoothing over.
+				return fmt.Errorf("a process is listening on %s but did not answer: %w", layout.Socket, err)
+			}
+
+			fields := [][2]string{
+				{"status", health.Status},
+				{"api", health.APIVersion},
+				{"version", health.Daemon.Version},
+				{"commit", health.Daemon.Commit},
+				{"platform", health.Daemon.Platform},
+				{"pid", fmt.Sprint(health.Daemon.PID)},
+				{"uptime", uptime(health.Daemon.StartedAt)},
+				{"socket", health.Daemon.Socket},
+				{"state", health.State.Directory},
+				{"projects", fmt.Sprint(health.State.Projects)},
+				{"log", layout.LogFile()},
+			}
+			for _, field := range fields {
+				printf(out, "%-9s %s\n", field[0], field[1])
+			}
+			if health.Detail != "" {
+				printf(out, "detail:   %s\n", health.Detail)
+			}
+			if note := buildSkew(env, health.Daemon.Version); note != "" {
+				printf(out, "\n%s\n", note)
+			}
+			return nil
+		},
+	}
+}
+
+func newDaemonRunCommand(env *environment) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "Run the daemon in the foreground",
+		Long: `Run the daemon in this process until it is interrupted.
+
+This is the process that ` + "`feat daemon start`" + ` spawns, and the command a
+service manager should invoke. It is hidden from help because it is not the way
+a person starts a daemon.`,
+		// Hidden, but still pinned by the command-surface golden file: hidden is
+		// not the same as unpublished (ADR-027).
+		Hidden: true,
+		Args:   checkArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			layout, err := env.resolve()
+			if err != nil {
+				return err
+			}
+			level, err := logLevel(cmd)
+			if err != nil {
+				return err
+			}
+
+			// A person running the daemon in a terminal expects to see it
+			// working. A daemon started in the background has its standard
+			// error redirected into the same log file, so writing there too
+			// would record everything twice.
+			log, err := daemon.OpenLog(layout, level, terminalStderr())
+			if err != nil {
+				return err
+			}
+			defer func() { _ = log.Close() }()
+
+			return daemon.Run(cmd.Context(), daemon.Options{
+				Layout: layout,
+				Build: daemon.Build{
+					Version:   env.build.Version,
+					Commit:    env.build.Commit,
+					GoVersion: env.build.GoVersion,
+					Platform:  env.build.Platform(),
+				},
+				Logger: log.Logger,
+			})
+		},
+	}
+	addLogLevelFlag(cmd)
+	return cmd
+}
+
+// addLogLevelFlag adds the shared log-level flag. `daemon start` carries it too,
+// because it passes the value to the daemon it spawns.
+func addLogLevelFlag(cmd *cobra.Command) {
+	cmd.Flags().String("log-level", "info", "daemon log level: debug, info, warn, or error")
+}
+
+// logLevel reads the log-level flag.
+func logLevel(cmd *cobra.Command) (slog.Level, error) {
+	value, err := cmd.Flags().GetString("log-level")
+	if err != nil {
+		return 0, err
+	}
+
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(value)); err != nil {
+		return 0, &usageError{
+			cmd: cmd,
+			err: fmt.Errorf("--log-level must be debug, info, warn, or error, not %q", value),
+		}
+	}
+	return level, nil
+}
+
+// uptime renders how long a daemon has been running, at second resolution.
+func uptime(startedAt time.Time) string {
+	if startedAt.IsZero() {
+		return "unknown"
+	}
+	elapsed := time.Since(startedAt).Round(time.Second)
+	if elapsed < 0 {
+		// The daemon's clock and this one disagree; reporting a negative uptime
+		// would be worse than admitting it.
+		return "unknown"
+	}
+	return elapsed.String()
+}
+
+// buildSkew reports a running daemon built from a different version than the
+// client asking, which during development is the difference between "my change
+// does nothing" and "my change is not running yet".
+func buildSkew(env *environment, daemonVersion string) string {
+	if daemonVersion == "" || daemonVersion == env.build.Version {
+		return ""
+	}
+	return fmt.Sprintf(
+		"this client is %s and the running daemon is %s;\nrun `feat daemon stop` and `feat daemon start` to run the new build",
+		env.build.Version, daemonVersion)
+}
+
+// describeDaemon renders the daemon's state for the dashboard, starting one when
+// the dashboard is interactive.
+//
+// Opening the dashboard starts the daemon it needs (ADR-008). A non-interactive
+// `feat`, in a pipe or in CI, reports what it observes instead: printing a
+// summary should not start a background process as a side effect.
+func (e *environment) describeDaemon(cmd *cobra.Command) (line, socket string) {
+	layout, err := e.resolve()
+	if err != nil {
+		return "unavailable: " + err.Error(), ""
+	}
+	socket = layout.Socket
+
+	status := daemon.Inspect(layout)
+	if !status.Running() {
+		if !e.interactive {
+			return status.Diagnose(), socket
+		}
+		if _, err := daemon.Spawn(cmd.Context(), layout, daemon.SpawnOptions{
+			Args: foregroundCommand(slog.LevelInfo.String()),
+		}); err != nil {
+			return "could not be started: " + firstLine(err.Error()), socket
+		}
+	}
+
+	health, err := client.New(layout.Socket).Health(cmd.Context())
+	if err != nil {
+		return "not answering: " + firstLine(err.Error()), socket
+	}
+
+	line = fmt.Sprintf("%s (pid %d, up %s)", health.Status, health.Daemon.PID, uptime(health.Daemon.StartedAt))
+	if health.Daemon.Version != e.build.Version {
+		line += ", build " + health.Daemon.Version
+	}
+	return line, health.Daemon.Socket
+}
+
+// firstLine keeps a multi-line failure, such as a quoted daemon log, from
+// breaking a single-line summary. The full error is available from
+// `feat daemon status`.
+func firstLine(message string) string {
+	if index := strings.IndexByte(message, '\n'); index >= 0 {
+		return message[:index] + " (see feat daemon status)"
+	}
+	return message
+}

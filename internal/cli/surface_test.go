@@ -83,11 +83,17 @@ func localFlagNames(cmd *cobra.Command) []string {
 // delivers reports which slice that is, instead of failing vaguely or, worse,
 // reporting success.
 func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
-	// Commands that slice 0 actually implements. Their RunE is not invoked
-	// here: the root command opens the dashboard.
+	// Commands that are implemented. Their RunE is not invoked here: the root
+	// command opens the dashboard, and the daemon commands start, stop, and
+	// inspect a background process. Leaving one of them out of this list would
+	// make this test run it.
 	implemented := map[string]bool{
-		"feat":         true,
-		"feat version": true,
+		"feat":               true,
+		"feat version":       true,
+		"feat daemon start":  true,
+		"feat daemon stop":   true,
+		"feat daemon status": true,
+		"feat daemon run":    true,
 	}
 
 	var walk func(cmd *cobra.Command)

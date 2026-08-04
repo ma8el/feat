@@ -10,11 +10,14 @@ replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: pre-alpha.** Slice 0 of the
-> [implementation plan](docs/11-implementation-plan.md) is complete: the
-> repository has its package skeleton, the full command surface, and its
-> development and CI commands. Subcommands are registered but not implemented;
-> each one reports the slice that will deliver it. Nothing here is usable yet.
+> **Status: pre-alpha.** Slices 0 to 2 of the
+> [implementation plan](docs/11-implementation-plan.md) are complete: the
+> repository has its package skeleton, the full command surface, its development
+> and CI commands, a versioned domain model with file-backed storage, and a
+> local daemon serving a JSON API and a state-event stream over a Unix-domain
+> socket. `feat daemon start|stop|status` works. The commands that create a task
+> are registered but not implemented; each one reports the slice that will
+> deliver it. Nothing here is usable for real work yet.
 
 ## Documentation
 
@@ -66,6 +69,12 @@ mechanically rather than by review attention alone:
   [`internal/guard/testdata/reference-identifiers.txt`](internal/guard/testdata/reference-identifiers.txt).
 - **No shell interpolation** for Git, tmux, or Docker Compose, checked by an
   AST test over every `exec.Command` call.
+- **No TCP listener or dial**, checked by an AST test over every `net` and
+  `net/http` call in the repository, tests included. The local API is a
+  Unix-domain socket only.
+- **Only the daemon reaches persistent state**, checked by an import test over
+  every non-test file, so a package added later is covered without anyone
+  remembering to extend the lint configuration.
 - **The command surface** is pinned by a golden file, so the published command
   model cannot drift silently. Update it with `make golden`.
 

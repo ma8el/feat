@@ -103,6 +103,33 @@ linters:
               desc: the daemon is the only reader and writer of persistent state
             - pkg: github.com/ma8el/feat/internal/tmux
 
+        # ADR-027: internal/api is the transport and internal/client is its
+        # counterpart. Neither may read persistent state or drive an adapter,
+        # and neither may import the daemon: the daemon implements the API's
+        # Service interface, so the dependency points the other way.
+        transport-stays-transport:
+          files:
+            - "**/internal/api/**"
+            - "**/internal/client/**"
+            # Tests may use the shared fixtures in internal/store/storetest, as
+            # the same rule in internal/guard allows. Production code may not.
+            - "!$test"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/daemon
+              desc: the daemon implements the API's Service interface, not the reverse
+            - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/control
+            - pkg: github.com/ma8el/feat/internal/execution
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/project
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/tmux
+            - pkg: github.com/charmbracelet
+              desc: the transport carries state; rendering it is the TUI's job
+
         # The CLI is a client too, but it may start the daemon, so
         # internal/daemon is deliberately absent from this list.
         cli-is-a-client:
@@ -182,6 +209,17 @@ linters:
       - path: _test\.go
         linters:
           - gosec
+
+      # The daemon opens the files internal/paths resolved, in a directory whose
+      # ownership and mode it validated first, and starts exactly one process:
+      # this binary, running its own foreground command. Both are the purpose of
+      # these files, and gosec cannot see the validation that precedes them. The
+      # exemption is recorded here rather than in //nolint comments so that it
+      # stays visible in one reviewable place (ADR-025).
+      - path: internal/daemon/(endpoint|logging|spawn|platform_unix)\.go
+        linters:
+          - gosec
+        text: G304|G204
 
 formatters:
   enable:
