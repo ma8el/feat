@@ -2,7 +2,11 @@
 
 The plan uses ordered vertical slices. Every slice must leave the repository buildable and tested. Do not implement roadmap features while completing v0.1.
 
+A slice carries a status line once work on it has started; a slice without one has not been started. A slice is complete only when every one of its acceptance criteria has been verified, not when its work items look done.
+
 ## Slice 0 — Repository bootstrap
+
+Status: **complete**, 2026-08-04
 
 ### Outcome
 
@@ -24,6 +28,22 @@ A buildable Apache-2.0 Go project with CLI skeleton and documented development c
 - `go build ./cmd/feat` produces one binary.
 - `feat --help` shows the intended top-level command model.
 - No project-specific path or service name is compiled into the binary.
+
+### Delivered
+
+All four acceptance criteria pass on macOS with Go 1.26. `make check` runs the tidy, format, lint, test, and build sequence.
+
+Every command in the v0 surface is registered and returns a typed error naming the slice that delivers it, so no subcommand can report success it has not earned. The surface itself is pinned by a golden file.
+
+Three rules from `CLAUDE.md` are enforced mechanically rather than by review attention, and each was verified to fail against an injected violation:
+
+- import boundaries, as `depguard` rules in `.golangci.yml`; a change to those rules is an architectural change;
+- the prohibition on hard-coded reference-project identifiers, as an AST test over every Go string literal, with exemptions recorded in a reviewable denylist rather than in `//nolint` comments;
+- the argument-vector rule, as an AST test over every `exec.Command` call.
+
+Package layout gained `internal/cli`, `internal/paths`, `internal/version`, and `internal/guard`. See ADR-025 in [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md); the package list in [06-technical-architecture.md](06-technical-architecture.md) was updated in the same change.
+
+CI builds, vets, tests, and lints on macOS and Linux, and pins the linter version through `.golangci-version`. Verified green on the slice 0 pull request.
 
 ## Slice 1 — Domain and file storage
 

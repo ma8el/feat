@@ -10,10 +10,11 @@ replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: pre-alpha.** This repository currently contains the specification
-> and a project skeleton. Subcommands are registered but not implemented; each
-> one reports the implementation slice that will deliver it. Nothing here is
-> usable yet.
+> **Status: pre-alpha.** Slice 0 of the
+> [implementation plan](docs/11-implementation-plan.md) is complete: the
+> repository has its package skeleton, the full command surface, and its
+> development and CI commands. Subcommands are registered but not implemented;
+> each one reports the slice that will deliver it. Nothing here is usable yet.
 
 ## Documentation
 
