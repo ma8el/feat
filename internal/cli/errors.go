@@ -39,6 +39,27 @@ func notImplemented(slice int, outcome string) func(*cobra.Command, []string) er
 	}
 }
 
+// NotRunningError reports that a command needed a running daemon and found
+// none.
+//
+// It carries its own exit code because "nothing is running" is a state rather
+// than a failure: a script that starts a daemon only when it has to should not
+// have to parse output to find that out.
+type NotRunningError struct {
+	// Detail explains the situation when there is more to say than that no
+	// daemon is running, such as a record left behind by a process that is gone.
+	Detail string
+	// Socket is where a daemon would be listening.
+	Socket string
+}
+
+func (e *NotRunningError) Error() string {
+	if e.Detail != "" {
+		return e.Detail + "; start one with `feat daemon start`"
+	}
+	return "no feat daemon is running on " + e.Socket + "; start one with `feat daemon start`"
+}
+
 // usageError marks an argument or flag error so that Execute can report the
 // usage exit code and print the command's usage text.
 type usageError struct {

@@ -1,0 +1,219 @@
+package daemon
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"time"
+
+	"github.com/ma8el/feat/internal/api"
+	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/paths"
+	"github.com/ma8el/feat/internal/store"
+	"github.com/ma8el/feat/internal/store/fs"
+)
+
+// Server timeouts.
+const (
+	// readHeaderTimeout bounds how long a client may take to send its request
+	// headers.
+	readHeaderTimeout = 10 * time.Second
+	// idleTimeout closes a connection that is between requests. It does not
+	// apply during a response, so it does not cut an event stream.
+	idleTimeout = 2 * time.Minute
+	// shutdownTimeout bounds draining in-flight requests. Event streams are
+	// ended first, so this only covers ordinary requests.
+	shutdownTimeout = 5 * time.Second
+)
+
+// Options configure a daemon.
+type Options struct {
+	// Layout locates the state directory and the runtime directory. It is
+	// required.
+	Layout paths.Layout
+	// Build identifies this binary in health responses and in the endpoint
+	// record.
+	Build Build
+	// Logger receives the daemon's log. A nil logger discards it.
+	Logger *slog.Logger
+	// Now supplies the current time. A nil value uses the wall clock.
+	Now func() time.Time
+	// EventBuffer is how many events one client may fall behind before its
+	// stream is ended. Zero uses the default.
+	EventBuffer int
+	// Heartbeat is the event-stream keepalive interval. Zero uses the default.
+	Heartbeat time.Duration
+	// Ready is called once the daemon is listening and its endpoint record is
+	// published. It lets a caller wait for readiness without polling.
+	Ready func(Endpoint)
+}
+
+// Daemon is the local orchestration process.
+//
+// It owns persistent state, publishes state events, and serves the local API
+// over a Unix-domain socket. Clients — the TUI and the CLI — reach it through
+// that socket and never touch the state directory themselves (ADR-008).
+type Daemon struct {
+	opts    Options
+	logger  *slog.Logger
+	now     func() time.Time
+	store   store.Store
+	bus     *Bus
+	service *service
+}
+
+// New prepares a daemon: it opens the state store but claims nothing in the
+// runtime directory, so constructing one does not interfere with a daemon that
+// is already running.
+func New(opts Options) (*Daemon, error) {
+	if opts.Layout.State == "" || opts.Layout.Runtime == "" {
+		return nil, fmt.Errorf("daemon options need a resolved path layout")
+	}
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
+
+	state, err := fs.Open(opts.Layout.State)
+	if err != nil {
+		return nil, err
+	}
+
+	bus := NewBus(opts.EventBuffer)
+	return &Daemon{
+		opts:   opts,
+		logger: logger,
+		now:    now,
+		store:  state,
+		bus:    bus,
+		service: &service{
+			store:  state,
+			bus:    bus,
+			layout: opts.Layout,
+			build:  opts.Build,
+			logger: logger,
+		},
+	}, nil
+}
+
+// Publish records a state change on the event stream and returns its stream
+// sequence.
+//
+// It is how a later slice reports what it changed: the writer publishes after it
+// has persisted, so a client that reacts to an event finds the state the event
+// describes.
+func (d *Daemon) Publish(event domain.Event) uint64 { return d.service.Publish(event) }
+
+// Store returns the persistent state. It is the daemon's own store, and the
+// daemon is its only writer.
+func (d *Daemon) Store() store.Store { return d.store }
+
+// Serve claims the runtime directory and serves the local API until the context
+// is cancelled.
+//
+// Shutdown is deliberate rather than abrupt: event streams are ended first, so
+// that draining in-flight requests does not wait for connections that are meant
+// to stay open, and ownership is released last, so no other daemon can claim the
+// socket while this one is still answering on it.
+func (d *Daemon) Serve(ctx context.Context) (err error) {
+	ownership, err := Acquire(d.opts.Layout, d.opts.Build, d.now(), d.logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, ownership.Release())
+	}()
+
+	// The endpoint is what health reports about the process, and it exists only
+	// once ownership is established. Nothing is serving yet, so this is not a
+	// concurrent write.
+	d.service.endpoint = ownership.Endpoint()
+
+	// Request contexts derive from this one, so cancelling it ends the event
+	// streams. Without it, Shutdown would wait for every connected client.
+	streams, endStreams := context.WithCancel(context.Background())
+	defer endStreams()
+
+	server := &http.Server{
+		Handler: api.NewHandler(api.Options{
+			Service:   d.service,
+			Logger:    d.logger,
+			Heartbeat: d.opts.Heartbeat,
+		}),
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
+		// ReadTimeout and WriteTimeout stay unset on purpose: both apply to a
+		// whole request or response, and an event stream is meant to outlive any
+		// bound worth setting. Ordinary responses set their own write deadline
+		// in internal/api.
+		BaseContext: func(net.Listener) context.Context { return streams },
+		ErrorLog:    slog.NewLogLogger(d.logger.Handler(), slog.LevelWarn),
+	}
+
+	endpoint := ownership.Endpoint()
+	d.logger.Info("daemon listening",
+		slog.String("socket", endpoint.Socket),
+		slog.Int("pid", endpoint.PID),
+		slog.String("version", endpoint.Version),
+		slog.String("state", d.opts.Layout.State))
+	if d.opts.Ready != nil {
+		d.opts.Ready(endpoint)
+	}
+
+	serving := make(chan error, 1)
+	go func() { serving <- server.Serve(ownership.Listener()) }()
+
+	select {
+	case serveErr := <-serving:
+		// The listener failed on its own. A closed server here means something
+		// else shut it down, which is not an error.
+		if errors.Is(serveErr, http.ErrServerClosed) {
+			return nil
+		}
+		return fmt.Errorf("serving the local API on %s: %w", endpoint.Socket, serveErr)
+
+	case <-ctx.Done():
+		d.logger.Info("daemon shutting down", slog.String("reason", context.Cause(ctx).Error()))
+	}
+
+	endStreams()
+
+	drain, cancelDrain := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancelDrain()
+
+	shutdownErr := server.Shutdown(drain)
+	if errors.Is(shutdownErr, context.DeadlineExceeded) {
+		// In-flight requests had their chance. What is left is a connection that
+		// never sent a request, or a client that stopped reading its response,
+		// and neither is worth keeping a daemon alive for: net/http leaves an
+		// unused connection alone for several seconds, which would otherwise
+		// make every shutdown wait for it.
+		d.logger.Warn("closing connections that did not finish draining",
+			slog.Duration("grace", shutdownTimeout))
+		shutdownErr = server.Close()
+	}
+	// Serve always returns once Shutdown has been called, so this cannot block
+	// indefinitely.
+	<-serving
+
+	if shutdownErr != nil {
+		return fmt.Errorf("shutting down the local API: %w", shutdownErr)
+	}
+	return nil
+}
+
+// Run prepares a daemon and serves until the context is cancelled.
+func Run(ctx context.Context, opts Options) error {
+	instance, err := New(opts)
+	if err != nil {
+		return err
+	}
+	return instance.Serve(ctx)
+}

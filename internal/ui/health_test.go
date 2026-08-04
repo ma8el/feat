@@ -15,7 +15,8 @@ func testHealth() Health {
 		Commit:    "abc1234",
 		GoVersion: "go1.26.0",
 		Platform:  "darwin/arm64",
-		Daemon:    "not implemented (slice 2)",
+		Daemon:    "ok (pid 4242, up 3m0s)",
+		Socket:    "/run/feat/feat.sock",
 	}
 }
 
@@ -27,7 +28,7 @@ func TestRunHealthWritesPlainTextWhenNotInteractive(t *testing.T) {
 	}
 
 	got := out.String()
-	for _, want := range []string{"v0.0.1", "abc1234", "go1.26.0", "darwin/arm64", "not implemented (slice 2)"} {
+	for _, want := range []string{"v0.0.1", "abc1234", "go1.26.0", "darwin/arm64", "ok (pid 4242, up 3m0s)", "/run/feat/feat.sock"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q:\n%s", want, got)
 		}

@@ -1,6 +1,6 @@
 # Feat Product Specification
 
-Status: accepted product direction; implementation started, slices 0 and 1 complete, slice 2 in progress  
+Status: accepted product direction; implementation started, slices 0 to 2 complete  
 Working name: **Feat**  
 Primary CLI: `feat`  
 Initial implementation language: Go  

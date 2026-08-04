@@ -139,7 +139,7 @@ $XDG_RUNTIME_DIR/feat/     or $TMPDIR/feat-<uid>, or /tmp/feat-<uid>
   endpoint.json
 ```
 
-The directory resolves in that order and is owner-only. A candidate that is a symlink, is owned by another user, or is writable by others fails with an actionable message rather than moving to the next candidate, because two locations would mean two daemons each believing it owns the machine. `endpoint.json` records the running daemon's process identifier, socket path, build version, and start time, and `daemon.lock` carries the advisory lock that makes that record's liveness verifiable. `FEAT_SOCKET` overrides the socket path, which is also checked against the platform's socket-path length limit.
+The directory resolves in that order and is owner-only. A candidate that is a symlink, is owned by another user, or is writable by others fails with an actionable message rather than moving to the next candidate, because two locations would mean two daemons each believing it owns the machine. `endpoint.json` records the running daemon's process identifier, socket path, build version, and start time, and `daemon.lock` carries the advisory lock that makes that record's liveness verifiable. `FEAT_RUNTIME_DIR` moves all three together; the resolved socket path is checked against the platform's socket-path length limit, which is 104 bytes on macOS and 108 on Linux.
 
 Storage rules:
 

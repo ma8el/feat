@@ -2,7 +2,8 @@ feat
 feat attach <task>
 feat cleanup <task>
 feat daemon
-feat daemon start
+feat daemon run [--log-level]
+feat daemon start [--log-level]
 feat daemon status
 feat daemon stop
 feat doctor

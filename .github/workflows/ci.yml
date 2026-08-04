@@ -40,6 +40,14 @@ jobs:
       - name: Test
         run: go test -race ./...
 
+      # Slice 2 acceptance: two client processes query the daemon concurrently.
+      # The opt-in tests build the binary and run it, which unit tests must not,
+      # so they are a separate step rather than a separate workflow.
+      - name: Test with the real binary
+        run: go test -race -run 'TestBinary' ./...
+        env:
+          FEAT_INTEGRATION: "1"
+
       # Slice 0 acceptance: one binary, and `feat --help` shows the intended
       # command model. The command surface itself is pinned by a golden test.
       - name: Build the binary

@@ -20,7 +20,12 @@ type Health struct {
 	Commit    string
 	GoVersion string
 	Platform  string
-	Daemon    string
+	// Daemon is a one-line description of the local daemon's state, already
+	// rendered by the caller: the UI is a client and does not reach the daemon
+	// itself.
+	Daemon string
+	// Socket is where the daemon listens, or is expected to.
+	Socket string
 }
 
 // RunHealth renders the health screen.
@@ -98,6 +103,9 @@ func renderHealth(h Health, styled bool) string {
 		{"go", h.GoVersion},
 		{"platform", h.Platform},
 		{"daemon", h.Daemon},
+	}
+	if h.Socket != "" {
+		fields = append(fields, [2]string{"socket", h.Socket})
 	}
 
 	if !styled {
