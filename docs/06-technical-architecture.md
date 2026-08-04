@@ -72,7 +72,7 @@ internal/guard               repository-wide invariant tests, no runtime code
 
 Adapters are compiled into the binary initially. Interfaces must avoid leaking implementation types so a future external plugin protocol remains possible.
 
-`internal/cli`, `internal/paths`, `internal/version`, and `internal/guard` were added during slice 0; see ADR-025. `internal/store/storetest` was added during slice 1; see ADR-026. Import boundaries between these packages are enforced by `depguard` rules in `.golangci.yml`.
+`internal/cli`, `internal/paths`, `internal/version`, and `internal/guard` were added during slice 0; see ADR-025. `internal/store/storetest` was added during slice 1; see ADR-026. `internal/paths` is implemented by slice 2, which also denies storage to `internal/api` and `internal/client`; see ADR-027. Import boundaries between these packages are enforced by `depguard` rules in `.golangci.yml`.
 
 ## Local API
 
@@ -104,7 +104,9 @@ POST   /v1/tasks/{task_id}/cleanup/execute
 
 The local socket is user-owned and mode-restricted. Destructive API requests use task/resource IDs and a server-produced cleanup plan token rather than arbitrary filesystem paths.
 
-SSE events carry domain state changes, not raw terminal streams or secrets.
+Task endpoints address a task by its identifier alone, as the command surface does. The daemon resolves the owning project, which storage addresses explicitly; see ADR-026 and ADR-027.
+
+SSE events carry domain state changes, not raw terminal streams or secrets. Subscribers have bounded queues: publication never blocks the daemon, and a subscriber that falls behind receives a terminal event and is disconnected rather than silently losing events. Stream resume is not supported in v0.1, so a reconnecting client re-reads current state.
 
 ## File-backed storage
 
@@ -118,7 +120,7 @@ State directory:
 
 ```text
 ~/.local/share/feat/
-  daemon.json
+  logs/daemon.log
   projects/<project-id>/project.json
   projects/<project-id>/tasks/<task-id>/task.json
   projects/<project-id>/tasks/<task-id>/prompt.md
@@ -126,7 +128,18 @@ State directory:
   projects/<project-id>/tasks/<task-id>/review.json
 ```
 
-Runtime socket/PID data uses the operating system's user runtime directory with a documented fallback.
+A durable daemon record, `daemon.json` at the state root, is introduced by slice 12, the first slice that reads one. Until then daemon liveness lives only in the runtime directory, so that a record which must not outlive the machine cannot; see ADR-027.
+
+Runtime ownership data uses the operating system's user runtime directory:
+
+```text
+$XDG_RUNTIME_DIR/feat/     or $TMPDIR/feat-<uid>, or /tmp/feat-<uid>
+  feat.sock
+  daemon.lock
+  endpoint.json
+```
+
+The directory resolves in that order and is owner-only. A candidate that is a symlink, is owned by another user, or is writable by others fails with an actionable message rather than moving to the next candidate, because two locations would mean two daemons each believing it owns the machine. `endpoint.json` records the running daemon's process identifier, socket path, build version, and start time, and `daemon.lock` carries the advisory lock that makes that record's liveness verifiable. `FEAT_SOCKET` overrides the socket path, which is also checked against the platform's socket-path length limit.
 
 Storage rules:
 

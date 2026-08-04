@@ -94,6 +94,10 @@ Package layout gained `internal/store/storetest`. See ADR-026 in [10-decisions-a
 
 ## Slice 2 — Daemon and local API
 
+Status: **in progress**, 2026-08-04
+
+The design decisions this slice starts from are recorded in ADR-027 in [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md), including which two acceptance criteria this slice can only verify structurally, and why.
+
 ### Outcome
 
 The binary can start a background daemon and clients can query health/state over a protected Unix socket.
@@ -339,6 +343,7 @@ Feat recovers honestly and removes only resources the user explicitly selected.
 ### Work
 
 - Reconcile snapshots, tmux, worktrees, Compose, control messages, and review state.
+- Write and reconcile the durable daemon record `daemon.json`, deferred from slice 2 because this is the first slice that reads one (ADR-027).
 - Report missing/orphaned/inconsistent resources.
 - Build cleanup-plan API with stable token/IDs.
 - Separate containers/networks, volumes, worktrees, and branches.

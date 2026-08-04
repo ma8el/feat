@@ -1,6 +1,6 @@
 # Feat Product Specification
 
-Status: accepted product direction; implementation started, slice 0 complete  
+Status: accepted product direction; implementation started, slices 0 and 1 complete, slice 2 in progress  
 Working name: **Feat**  
 Primary CLI: `feat`  
 Initial implementation language: Go  
@@ -59,9 +59,12 @@ feat runtime stop <task>
 feat cleanup <task>
 feat doctor
 feat daemon start|stop|status
+feat daemon run
 ```
 
 `feat` without arguments opens the dashboard. `feat implement` opens task preparation and does not start an agent until the user confirms the final task brief and repository selection.
+
+`feat daemon run` is the foreground daemon that `feat daemon start` spawns, and the command a later launchd/systemd unit invokes. It is hidden from help because `feat daemon start` is the user-facing entry point; see ADR-027.
 
 ## Release boundary
 
