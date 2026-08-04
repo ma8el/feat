@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Verify the module is tidy
+        run: go mod tidy -diff
+
+      - name: Build all packages
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race ./...
+
+      # Slice 0 acceptance: one binary, and `feat --help` shows the intended
+      # command model. The command surface itself is pinned by a golden test.
+      - name: Build the binary
+        run: go build -o feat ./cmd/feat
+
+      - name: Show the command surface
+        run: ./feat --help
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      # .golangci-version is the single source for the pinned linter version,
+      # shared with the Makefile.
+      - name: Read the pinned golangci-lint version
+        id: pinned
+        run: echo "version=$(cat .golangci-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: ${{ steps.pinned.outputs.version }}
+          args: --timeout=5m
+
+      # `golangci-lint run` does not check formatters in v2, so formatting needs
+      # its own step. The action puts the pinned binary on PATH.
+      - name: Check formatting
+        run: golangci-lint fmt --diff
