@@ -60,6 +60,7 @@ tidy-check: ## Fail when go.mod or go.sum is untidy
 .PHONY: golden
 golden: ## Rewrite golden test files
 	go test ./internal/cli -run TestCommandSurface -update
+	go test ./internal/store/fs -run TestStoredFormat -update
 
 .PHONY: tools
 tools: $(GOLANGCI) ## Install the pinned developer tools into bin/

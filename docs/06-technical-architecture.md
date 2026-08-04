@@ -46,6 +46,7 @@ internal/config              YAML loading, merging, validation
 internal/paths               configuration/state/runtime directory resolution
 internal/store               storage interfaces
 internal/store/fs            JSON/JSONL/Markdown implementation
+internal/store/storetest     deterministic fixtures, test support only
 internal/daemon              orchestration services and lifecycle
 internal/api                 HTTP handlers, DTOs, SSE
 internal/client              Unix-socket API client
@@ -71,7 +72,7 @@ internal/guard               repository-wide invariant tests, no runtime code
 
 Adapters are compiled into the binary initially. Interfaces must avoid leaking implementation types so a future external plugin protocol remains possible.
 
-`internal/cli`, `internal/paths`, `internal/version`, and `internal/guard` were added during slice 0; see ADR-025. Import boundaries between these packages are enforced by `depguard` rules in `.golangci.yml`.
+`internal/cli`, `internal/paths`, `internal/version`, and `internal/guard` were added during slice 0; see ADR-025. `internal/store/storetest` was added during slice 1; see ADR-026. Import boundaries between these packages are enforced by `depguard` rules in `.golangci.yml`.
 
 ## Local API
 
@@ -131,11 +132,14 @@ Storage rules:
 
 - every schema has a version;
 - snapshots are written to a temporary file, fsynced where appropriate, and atomically renamed;
+- the document a migration replaces is retained as `<file>.v<version>.bak`;
 - the daemon serializes writes;
-- events append in order;
-- recovery ignores only an incomplete final JSONL record;
+- events append in order and carry a log-assigned sequence number;
+- recovery ignores only an incomplete final JSONL record, and the next append discards it;
 - derived resource samples are not persisted continuously;
 - a storage repository interface allows a later SQLite backend.
+
+The task brief is stored as Markdown in `prompt.md` rather than inside the snapshot, and is written before it, so an interrupted save never leaves a snapshot referring to a brief that was never written.
 
 ## Project configuration merge
 

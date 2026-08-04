@@ -75,7 +75,7 @@ Properties:
 
 ### AgentSession
 
-One native coding-agent session owned by a task.
+One native coding-agent session owned by a task. Attention state belongs to the task, not to the session; see ADR-026.
 
 Properties:
 
@@ -84,7 +84,6 @@ Properties:
 - tmux server/session/window/pane identity;
 - provider-native session ID when available;
 - process state;
-- attention state;
 - control-workspace path;
 - last observed event sequence;
 - creation and last-activity timestamps.

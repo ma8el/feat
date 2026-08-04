@@ -47,6 +47,8 @@ CI builds, vets, tests, and lints on macOS and Linux, and pins the linter versio
 
 ## Slice 1 — Domain and file storage
 
+Status: **complete**, 2026-08-04
+
 ### Outcome
 
 Versioned project/task aggregates can be created, transitioned, persisted, and recovered without external tools.
@@ -67,6 +69,28 @@ Versioned project/task aggregates can be created, transitioned, persisted, and r
 - Crash simulation never leaves a partially replaced snapshot as current.
 - Event replay ignores only an incomplete final line.
 - Storage code contains no daemon/TUI dependencies.
+
+### Delivered
+
+All five acceptance criteria pass, each with a test named for it.
+
+`internal/domain` holds the entities, the four state dimensions, the invariants, and three error classes (`ErrInvalid`, `ErrInvalidTransition`, `ErrInvariant`), each reachable through `errors.Is` with the details through `errors.As`. It imports only the standard library.
+
+The workflow transition table is pinned against the documented lifecycle by a test that also proves the shape a "Stop means complete" defect would take: no state reaches `ready_for_review` or `approved` without passing through an explicit review request. Transitions additionally check the preconditions of the target state, so the error says what is missing rather than that something is.
+
+`internal/store` defines the interfaces and the storage error classes. `internal/store/fs` implements them over the layout in [06-technical-architecture.md](06-technical-architecture.md), with per-record write serialization, atomic replacement, and validation of every aggregate on the way in and on the way out.
+
+Three properties are checked directly rather than by inspection:
+
+- crash simulation interrupts an atomic replacement at each of its four points and asserts which snapshot is current afterwards, and a second test runs readers against a writer to catch a replacement that wrote in place;
+- an event log is read back under nine different shapes of damage, of which exactly one — an unterminated final record — is ignored rather than reported, and appending afterwards discards the partial record instead of joining it to the next one;
+- the round-trip test is backed by a reflection check that the fixtures leave no persisted field at its zero value, so a field the mapping forgets cannot round-trip by being absent from both sides.
+
+The migration mechanism carries no migrations, because there is one version of each document. It is exercised with a synthetic schema change instead, since the first real migration should not be the first one ever run. Golden files pin the stored format, so changing it fails in `go test` where the fix is a schema version and a migration.
+
+Storage independence is enforced by the `storage-stays-independent` and `domain-stays-provider-neutral` `depguard` rules that slice 0 installed.
+
+Package layout gained `internal/store/storetest`. See ADR-026 in [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md); [03-domain-model.md](03-domain-model.md) and [06-technical-architecture.md](06-technical-architecture.md) were updated in the same change.
 
 ## Slice 2 — Daemon and local API
 
