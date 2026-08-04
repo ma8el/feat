@@ -1,0 +1,193 @@
+# Lint configuration for Feat.
+#
+# The depguard rules below are the executable form of the architectural and
+# security rules in CLAUDE.md. Changing one of them is a change to the
+# architecture, not a lint preference.
+#
+# The pinned linter version lives in .golangci-version, which the Makefile and
+# CI both read.
+
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - depguard
+    - errorlint
+    - gosec
+    - misspell
+    - nolintlint
+    - revive
+    - unconvert
+
+  settings:
+    depguard:
+      rules:
+        # "Keep domain types independent of Claude, tmux, Docker, GitHub,
+        # GitLab, and Bubble Tea." The domain is the one package that must stay
+        # portable across every adapter we add later.
+        domain-stays-provider-neutral:
+          files:
+            - "**/internal/domain/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal
+              desc: the domain depends on nothing inside feat; adapters depend on the domain
+            - pkg: github.com/charmbracelet
+              desc: the domain must not know about the TUI
+            - pkg: github.com/spf13
+              desc: the domain must not know about the CLI
+            - pkg: os/exec
+              desc: the domain describes state; adapters run processes
+
+        # Configuration validation must be testable without a host environment,
+        # so it may not reach for Git, tmux, Docker, or a terminal.
+        config-stays-testable:
+          files:
+            - "**/internal/config/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+              desc: configuration describes the agent; it does not drive it
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/execution
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/store
+            - pkg: github.com/ma8el/feat/internal/tmux
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+            - pkg: github.com/spf13/cobra
+
+        # "Storage code contains no daemon/TUI dependencies"
+        # (docs/11-implementation-plan.md, slice 1 acceptance criteria).
+        storage-stays-independent:
+          files:
+            - "**/internal/store/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/cli
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/execution
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/tmux
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+            - pkg: github.com/spf13/cobra
+
+        # The TUI is a client. It renders daemon state and never touches
+        # persistent state or an adapter directly.
+        ui-is-a-client:
+          files:
+            - "**/internal/ui/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/control
+            - pkg: github.com/ma8el/feat/internal/daemon
+              desc: the TUI reaches the daemon over the socket, not in process
+            - pkg: github.com/ma8el/feat/internal/execution
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/project
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/tmux
+
+        # The CLI is a client too, but it may start the daemon, so
+        # internal/daemon is deliberately absent from this list.
+        cli-is-a-client:
+          files:
+            - "**/internal/cli/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/control
+            - pkg: github.com/ma8el/feat/internal/execution
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/tmux
+
+        # ADR-013: invoke the Docker Compose CLI. Linking a Docker SDK would
+        # make it far easier to accidentally grant the agent Docker reach.
+        no-docker-sdk:
+          files:
+            - $all
+          deny:
+            - pkg: github.com/docker
+              desc: use the Docker Compose CLI through argument vectors (ADR-013)
+            - pkg: github.com/moby
+              desc: use the Docker Compose CLI through argument vectors (ADR-013)
+
+        # Spawning processes belongs in adapters, where the argument-vector and
+        # capability rules are stated and tested.
+        process-execution-stays-in-adapters:
+          files:
+            - $all
+            - "!$test"
+            - "!**/internal/agent/**"
+            - "!**/internal/cli/**"
+            - "!**/internal/daemon/**"
+            - "!**/internal/execution/**"
+            - "!**/internal/git/**"
+            - "!**/internal/notify/**"
+            - "!**/internal/project/**"
+            - "!**/internal/resources/**"
+            - "!**/internal/review/**"
+            - "!**/internal/runtime/**"
+            - "!**/internal/tmux/**"
+          deny:
+            - pkg: os/exec
+              desc: run processes from an adapter package, using an argument vector
+
+    revive:
+      rules:
+        - name: context-as-argument
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+
+  exclusions:
+    generated: lax
+    rules:
+      # Test fixtures use permissive file modes and predictable paths on
+      # purpose; neither reaches a user's machine.
+      - path: _test\.go
+        linters:
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/ma8el/feat

@@ -1,0 +1,304 @@
+# Functional Specification
+
+Requirement keywords use MUST, SHOULD, and MAY in their conventional normative sense.
+
+## Project management
+
+### FR-PROJ-001 — Register local projects
+
+Feat MUST register a project from a local YAML configuration without copying repository contents.
+
+### FR-PROJ-002 — Multi-repository projects
+
+A project MUST support several Git repositories with independent host paths, container paths, base branches, remotes, and default access modes.
+
+### FR-PROJ-003 — Primary workspace
+
+A project MUST identify a primary editable repository/workspace used as the default task working directory.
+
+### FR-PROJ-004 — Validation
+
+`feat doctor` MUST validate:
+
+- configuration schema and unknown fields;
+- repository paths and Git status;
+- required host executables;
+- tmux availability;
+- Docker Compose availability when configured;
+- configured Compose files and service names;
+- agent executable and user identity in the selected execution environment;
+- optional `gh` and `glab` installation/authentication in the environment where Claude will use them;
+- review commands.
+
+It MUST redact secret values and SHOULD show resolved paths and commands.
+
+## Task preparation
+
+### FR-TASK-001 — Ad hoc prompt
+
+The user MUST be able to create a task from an interactively entered prompt.
+
+### FR-TASK-002 — Markdown source
+
+The user MUST be able to create a task from a Markdown file.
+
+### FR-TASK-003 — Draft before launch
+
+Task creation MUST have a draft stage containing:
+
+- title and final task brief;
+- repository access selection;
+- resolved base references/commits;
+- proposed branches and worktree paths;
+- agent execution profile;
+- runtime profile;
+- required checks and review commands.
+
+Feat MUST NOT create worktrees, containers, or agent sessions until the user confirms the draft.
+
+### FR-TASK-004 — External tickets
+
+Post-v0 ticket adapters SHOULD provide selectable ticket lists and immutable task snapshots. Comments MUST be excluded by default and MAY be selected.
+
+### FR-TASK-005 — Snapshot changes
+
+If an external ticket changes after task creation, Feat SHOULD notify the user and MUST NOT silently change active agent context.
+
+## Git and worktrees
+
+### FR-GIT-001 — Fetch without pull
+
+Feat MUST fetch configured remotes before resolving task bases when network access is available. It MUST NOT automatically pull or mutate the user's ordinary checkout.
+
+### FR-GIT-002 — Base policy
+
+Base resolution MUST support at least remote-tracking, local branch, current commit, and explicit ref policies. The default SHOULD be the configured remote-tracking default branch.
+
+### FR-GIT-003 — Dirty source checkout
+
+Uncommitted changes in the ordinary checkout MUST NOT automatically block task creation when the selected base commit can be resolved independently.
+
+### FR-GIT-004 — Branch and worktree
+
+Every read-write task repository MUST receive a generated branch and task worktree. Names and paths MUST be configurable with sane defaults.
+
+### FR-GIT-005 — Read-only source
+
+Every selected read-only source repository SHOULD receive a reproducible task worktree and MUST be mounted read-only into a devcontainer. Stable non-task infrastructure checkouts MAY be used read-only when configured explicitly.
+
+### FR-GIT-006 — Full Git in agent
+
+The devcontainer execution mode MUST permit full Git access when configured. Documentation MUST disclose that native Git worktrees share repository metadata and therefore do not isolate Git refs from the agent.
+
+### FR-GIT-007 — Optional commits
+
+Feat MUST support committed and uncommitted agent changes. It MUST NOT require or create commits automatically in v0.
+
+## Agent execution
+
+### FR-AGENT-001 — Adapter boundary
+
+Agent behavior MUST be implemented through a provider adapter. Claude Code is the only required v0 adapter.
+
+### FR-AGENT-002 — Execution profiles
+
+The architecture MUST support `host` and `devcontainer` execution modes. v0.1 requires devcontainer; public v0 requires both.
+
+### FR-AGENT-003 — Native interface
+
+Feat MUST launch and attach to the native interactive Claude Code terminal instead of reimplementing it.
+
+### FR-AGENT-004 — One session per task
+
+Feat MUST create one primary agent session per task. Two tasks MUST NOT share a worktree or runtime.
+
+### FR-AGENT-005 — Control workspace
+
+Every task MUST receive a dedicated control workspace with schema-validated inbox, outbox, task brief, and report locations.
+
+### FR-AGENT-006 — Structured state
+
+The Claude adapter MUST use provider hooks and explicit control messages for state changes where supported. Terminal-output heuristics MUST NOT be the sole source of review completion.
+
+### FR-AGENT-007 — Idle state
+
+A provider end-of-turn signal SHOULD become `idle` after a configurable short grace period. Notifications SHOULD be suppressed while the user is attached.
+
+### FR-AGENT-008 — Review request
+
+Semantic review completion MUST require an explicit provider event or control message. An ordinary idle/Stop event MUST NOT become `ready_for_review`.
+
+### FR-AGENT-009 — Revision
+
+Submitting a new user prompt in a review state SHOULD conservatively transition the task to `working` or `changes_requested` until the provider emits a new review request.
+
+### FR-AGENT-010 — Provider CLIs
+
+Projects MAY grant Claude access to `gh` and/or `glab` within its execution environment. Feat SHOULD validate CLI authentication. Provider access MUST NOT imply Docker access.
+
+## tmux execution
+
+### FR-TMUX-001 — Dedicated server
+
+Feat MUST use a dedicated tmux server/socket so managed sessions do not collide with ordinary user sessions.
+
+### FR-TMUX-002 — Topology
+
+The default mapping is one tmux session per project and one window per task.
+
+### FR-TMUX-003 — Panes
+
+Every task window MUST have one managed agent pane and MAY have one on-demand shell pane in the same execution environment and primary workspace.
+
+### FR-TMUX-004 — User configuration
+
+Feat SHOULD preserve the user's tmux configuration and keybindings. It MUST identify managed objects through tmux user options/stable metadata rather than indexes or names alone.
+
+### FR-TMUX-005 — Attach/detach
+
+The dashboard MUST support attaching to a task window and returning after detach without losing daemon state.
+
+## Runtime management
+
+### FR-RUN-001 — Runtime independence
+
+Agent execution and application runtime MUST be modeled separately.
+
+### FR-RUN-002 — Compose CLI
+
+The initial runtime adapter MUST invoke the installed Docker Compose CLI rather than mounting Docker access into the agent or talking directly to Docker Engine APIs.
+
+### FR-RUN-003 — Compose inputs
+
+v0 MUST support configured base Compose files plus a generated task override. A static user override MAY also be included.
+
+### FR-RUN-004 — Generated identity
+
+The generated override/runtime invocation MUST provide a unique Compose project name and task worktree mounts. Explicit `container_name` overrides SHOULD be avoided.
+
+### FR-RUN-005 — Manual lifecycle
+
+v0 MUST provide create/start/stop/status/logs/destroy actions. Application services MUST start only by explicit user action in v0.
+
+### FR-RUN-006 — Logs
+
+Feat MUST allow the user to open normal `docker compose logs` output. It need not aggregate or persist logs.
+
+### FR-RUN-007 — Health
+
+Feat SHOULD use native Compose health state where available and otherwise report `running, health unknown`.
+
+### FR-RUN-008 — External resources
+
+The runtime model MUST allow external/shared resources such as pre-existing staging PostgreSQL databases. v0 need not provision or destroy them.
+
+### FR-RUN-009 — Agent runtime request
+
+Post-v0, Claude MAY write a `runtime_requested` control message. The daemon MUST validate it and require user approval before executing any host Docker operation.
+
+### FR-RUN-010 — Automated phases
+
+Post-v0 project rules MAY start or stop configured services on lifecycle transitions. Task-level overrides remain an open design question.
+
+## Dashboard and notifications
+
+### FR-UI-001 — Global dashboard
+
+The dashboard SHOULD show active tasks across projects with project drill-down.
+
+### FR-UI-002 — Task row
+
+Each task row MUST show task ID/title, repositories, agent state, attention state, runtime state, verification state, elapsed time, resource usage, and changed-file count. PR state is not required.
+
+### FR-UI-003 — Task detail
+
+Task detail MUST expose the task brief, repository/base mapping, tmux target, runtime services, completion/check summary, and actions. It need not reproduce the last Claude response.
+
+### FR-UI-004 — Notifications
+
+v0.1 MUST support TUI attention badges and macOS desktop notifications for significant idle/failure/review transitions. Linux desktop notifications are required for public v0 where supported.
+
+### FR-UI-005 — Resource metrics
+
+The dashboard MUST show whole-machine available resources and per-task environment totals. Per-container metrics MAY appear in a secondary view. Feat MUST NOT enforce a concurrency limit in v0.
+
+## Review
+
+### FR-REV-001 — Repository grouping
+
+Review MUST group changes by repository and compare each repository against its recorded base commit.
+
+### FR-REV-002 — External commands
+
+v0 MUST provide shortcuts for configurable diff, editor, and optional Git status commands. It need not render diffs internally.
+
+### FR-REV-003 — Editor
+
+The editor command MUST default to `$EDITOR` and execute in the selected task repository. The reference configuration uses Neovim.
+
+### FR-REV-004 — Review decision
+
+The user MUST be able to leave pending, approve, or attach to the agent with revision instructions.
+
+## Persistence and recovery
+
+### FR-STATE-001 — File storage
+
+v0 MUST persist user-edited configuration as YAML, task/project snapshots as versioned JSON, task briefs as Markdown, and event history as JSON Lines.
+
+### FR-STATE-002 — Atomicity
+
+The daemon MUST be the sole state writer. Snapshot writes MUST use atomic replacement. Event readers MUST tolerate an incomplete final JSON Lines record after a crash.
+
+### FR-STATE-003 — Reconciliation
+
+Startup MUST reconcile persisted tasks with tmux, Git worktrees, Compose projects, control workspaces, and review state.
+
+### FR-STATE-004 — No automatic restart
+
+Feat MUST NOT automatically restart stopped containers after recovery.
+
+## Cleanup
+
+### FR-CLEAN-001 — Resolve targets
+
+Feat MUST enumerate the exact task-owned resources before cleanup.
+
+### FR-CLEAN-002 — Separate destructive classes
+
+Stopping/removing containers, removing volumes, removing worktrees, and deleting branches MUST be separate choices.
+
+### FR-CLEAN-003 — Dirty/unmerged protection
+
+Dirty worktrees, unpushed commits, and unmerged branches MUST produce explicit warnings and confirmation.
+
+### FR-CLEAN-004 — Volume retention
+
+Volumes MUST be retained by default in initial versions.
+
+### FR-CLEAN-005 — No age deletion
+
+Feat MUST NOT automatically delete resources based only on age.
+
+## Provider publication and remote control
+
+### FR-PUB-001 — Provider adapters
+
+Post-v0 provider support SHOULD cover GitLab first for company dogfooding and GitHub as the primary public integration.
+
+### FR-PUB-002 — PR/MR mapping
+
+Publication SHOULD create at most one PR/MR per changed repository and preserve a parent task relationship.
+
+### FR-PUB-003 — Merge
+
+Feat MUST NOT merge automatically in initial provider integrations.
+
+### FR-REMOTE-001 — Privacy
+
+A future hosted relay MUST NOT persist source code or terminal transcripts and SHOULD use end-to-end encryption between daemon and paired client.
+
+### FR-REMOTE-002 — Offline state
+
+A future client MAY retain last-known non-sensitive state. It SHOULD NOT queue terminal input while the host is offline initially.
+

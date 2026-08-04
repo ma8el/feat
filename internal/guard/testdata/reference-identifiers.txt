@@ -1,0 +1,39 @@
+# Identifiers that must never be compiled into the feat binary.
+#
+# CLAUDE.md scope rule 3: do not hard-code the reference project's repository
+# names, paths, Compose services, or database behaviour. docs/08-v0-scope.md
+# repeats this: v0.1 may use hand-authored project YAML, but nothing
+# project-specific may reach the domain model or the binary.
+#
+# Directives, one per line:
+#
+#   substring: <text>   fails when a Go string literal contains <text>
+#   exact:     <text>   fails when a Go string literal equals <text>
+#   allow:     <prefix> exempts repository-relative paths starting with <prefix>
+#
+# Matching is case-sensitive and applies to string literals only, so package
+# documentation may still discuss these concepts in prose.
+#
+# Exemptions belong here rather than in a //nolint comment, so that every
+# deliberate use stays visible in one reviewable place.
+
+# Absolute and home-relative host paths. No machine-specific path belongs in
+# source; paths come from configuration.
+substring: /Users/
+substring: /home/
+substring: ~/projects
+
+# The reference project's container mount root.
+substring: /workspace/
+
+# The reference project's external staging database selector and the dedicated
+# Claude configuration volume from the example configuration.
+substring: FEATURE_DATABASE
+substring: feat-claude-config
+
+# The reference project's repository IDs and Compose service names. Matched
+# exactly so that ordinary English usage in longer strings is unaffected.
+exact: dashboard
+exact: database
+exact: frontend
+exact: backend
