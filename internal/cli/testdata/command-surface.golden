@@ -1,0 +1,20 @@
+feat
+feat attach <task>
+feat cleanup <task>
+feat daemon
+feat daemon start
+feat daemon status
+feat daemon stop
+feat doctor
+feat implement [--file]
+feat project
+feat project add
+feat project list
+feat project show <project>
+feat review <task>
+feat runtime
+feat runtime start <task>
+feat runtime stop <task>
+feat task
+feat task list
+feat version
