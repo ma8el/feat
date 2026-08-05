@@ -10,16 +10,20 @@ replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: pre-alpha.** Slices 0 to 3 of the
+> **Status: pre-alpha.** Slices 0 to 4 of the
 > [implementation plan](docs/11-implementation-plan.md) are complete: the
 > repository has its package skeleton, the full command surface, its development
 > and CI commands, a versioned domain model with file-backed storage, a local
 > daemon serving a JSON API and a state-event stream over a Unix-domain socket,
-> and YAML project configuration with diagnostics.
+> YAML project configuration with diagnostics, and the Git and worktree
+> lifecycle that gives a task its branches and worktrees across several
+> repositories.
 > `feat daemon start|stop|status`, `feat doctor`, and
 > `feat project add|list|show` work. The commands that create a task are
 > registered but not implemented; each one reports the slice that will deliver
-> it. Nothing here is usable for real work yet.
+> it, and slice 6 is the one that will let you confirm a task draft and reach
+> the Git lifecycle from the command line. Nothing here is usable for real work
+> yet.
 
 ## Configuring a project
 

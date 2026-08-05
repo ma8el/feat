@@ -10,6 +10,7 @@ import (
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
 	"github.com/ma8el/feat/internal/store"
@@ -30,8 +31,11 @@ type Build struct {
 // and writer of persistent state (ADR-008), and confining it to one type is what
 // makes that checkable rather than aspirational.
 type service struct {
-	store  store.Store
-	bus    *Bus
+	store store.Store
+	bus   *Bus
+	// git creates and observes task worktrees. It is the only adapter the
+	// service holds, because it is the only one slice 4 delivers.
+	git    *git.Git
 	layout paths.Layout
 	// env is the environment configuration is resolved against: the user who
 	// owns the daemon, not whoever sent the request.

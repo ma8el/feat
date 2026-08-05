@@ -200,6 +200,10 @@ Package layout gained no new package: `internal/config` and `internal/project` w
 
 ## Slice 4 — Git and worktree lifecycle
 
+Status: **complete**, 2026-08-05
+
+The design decisions this slice started from are recorded in ADR-029 in [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md).
+
 ### Outcome
 
 A confirmed task draft creates correct coordinated branches/worktrees across selected repositories.
@@ -223,6 +227,29 @@ A confirmed task draft creates correct coordinated branches/worktrees across sel
 - Read-only and read-write selections are recorded correctly.
 - Failure halfway through creation leaves a recoverable record and no unidentified worktree.
 - Tests cover unsafe/broad path rejection.
+
+### Delivered
+
+All six acceptance criteria pass, each with a test named for it. Four of them are about Git's own behaviour rather than about Feat's, so they are verified against real repositories in opt-in tests named `TestReal…`; CI runs them on macOS and Linux. The unit tests use a fake runner and pin the argument vectors, because a fake can prove that a value lands in one element of a vector and cannot prove that a flag exists.
+
+`internal/git` is the adapter. It imports the standard library, `internal/domain`, and `internal/paths`, and a new `git-stays-an-adapter` `depguard` rule denies it configuration and storage: it takes final names, because the placeholder vocabulary belongs to `internal/config`, and it writes nothing, because the daemon does. `internal/config` gained `Expand`, `Values`, `Uses`, `Slug`, and `StaticPrefix` to keep that vocabulary in one place.
+
+Task preparation is plan, record, apply, and the order is the recoverability criterion rather than an implementation detail. `daemon.PrepareTask` resolves every base to an immutable commit and proposes every branch and path without creating anything, writes that plan onto the task and leaves `draft`, and only then creates one repository at a time, recording an observation of each before the next begins. A test asserts the ordering from inside the creation itself: when Git is asked to make a worktree, the snapshot on disk must already name it. So a failure at any point leaves a record naming a superset of what exists, which a second test checks against the state a restarted daemon would read, and a third checks against real Git by requiring every directory under the task root and every worktree Git has registered to be one the record names.
+
+Nothing is undone when a launch fails half way through. A worktree that exists may already have been entered or written to, and tidying up a failed launch is a destructive act the user did not ask for; the task becomes `failed`, which the workflow can resume from.
+
+Whether a worktree exists is observed rather than stored, so the stored format is unchanged and no migration was needed: the recorded branch and path are desired state, and a `GitObservation` is what Feat saw. A repository with no observation is one nothing has confirmed.
+
+Four properties are checked directly rather than by inspection:
+
+- a dirty ordinary checkout is compared byte for byte — porcelain status, HEAD, the checked-out branch, and the stash list — before and after a task is prepared beside it, because a stray `pull`, `stash`, or `checkout` would show up in exactly one of them;
+- remote base resolution is checked where the three candidate commits differ: what the checkout has, what its remote-tracking ref had before the fetch, and what a second clone pushed. The recorded base must be the third, and the user's own branch must not have moved;
+- unsafe paths are a table of nine, each a directory Feat would later remove, and every one is rejected before any Git command runs. The same check refuses a recorded path during cleanup planning, because a record that decides what gets deleted has stopped being a record;
+- a name that Git would read as an option — `--upload-pack=…` in place of a remote — is refused rather than passed, which the argument-vector rule does not cover on its own.
+
+Slice 4 adds no endpoint, no command, and no TUI: the command surface and its golden file are unchanged, and slice 6 confirms a draft by calling `PrepareTask`. Preparation is, however, the first production code that appends to a task's event log and publishes to the event stream, which makes part of slice 2's structurally verified criterion behavioural.
+
+Package layout gained no new package: `internal/git` was reserved by slice 0. See ADR-029; [06-technical-architecture.md](06-technical-architecture.md) was updated in the same change.
 
 ## Slice 5 — tmux execution backend
 

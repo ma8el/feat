@@ -288,6 +288,24 @@ func (a DefaultAccess) CanBeReadWrite() bool {
 	return a == DefaultAccessReadWrite || a == DefaultAccessSelectable
 }
 
+// Permits reports whether a task may bind the repository with the given access.
+//
+// Read-only is always available: taking less than the default is a choice a task
+// may always make. Read-write is not, and the asymmetry is the point — a
+// repository a project declared read-only must not become writable because one
+// task asked. The modes that say nothing about writing, because they leave the
+// repository out of a task by default, permit either once the user has
+// explicitly selected the repository.
+func (a DefaultAccess) Permits(access TaskAccess) bool {
+	if !a.Valid() || !access.Valid() {
+		return false
+	}
+	if access == TaskAccessReadOnly {
+		return true
+	}
+	return a != DefaultAccessReadOnly
+}
+
 // TaskAccess is the access one task has to one repository. A binding is either
 // editable or not; the richer configuration modes are resolved into this during
 // task preparation.
