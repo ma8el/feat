@@ -84,6 +84,34 @@ linters:
             - pkg: github.com/charmbracelet
             - pkg: github.com/spf13/cobra
 
+        # ADR-029: the Git adapter works on domain types and final names. It
+        # never learns the shape of a YAML file — the daemon expands templates,
+        # because the placeholder vocabulary belongs to configuration — and it
+        # never reaches persistent state, because the daemon records what the
+        # adapter creates.
+        git-stays-an-adapter:
+          files:
+            - "**/internal/git/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/cli
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/config
+              desc: the daemon expands templates and hands the adapter final names
+            - pkg: github.com/ma8el/feat/internal/control
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/execution
+            - pkg: github.com/ma8el/feat/internal/project
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/tmux
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+            - pkg: github.com/spf13/cobra
+
         # The TUI is a client. It renders daemon state and never touches
         # persistent state or an adapter directly.
         ui-is-a-client:
@@ -232,6 +260,18 @@ linters:
         linters:
           - gosec
         text: G304|G204
+
+      # internal/git runs Git, which is the package's whole purpose, always as
+      # an argument vector and never through a shell. The directories it
+      # creates above a task worktree are traversable on purpose: they hold
+      # repository working trees rather than secrets, and in devcontainer
+      # execution a second user has to reach the mount through them. Both are
+      # recorded here rather than in //nolint comments, for the reason ADR-025
+      # gives.
+      - path: internal/git/(runner|apply)\.go
+        linters:
+          - gosec
+        text: G204|G301
 
 formatters:
   enable:

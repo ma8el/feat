@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/paths"
 )
 
 // Patterns for names that belong to another tool's namespace.
@@ -19,18 +20,6 @@ var (
 	// environmentNamePattern is what a POSIX shell accepts as a variable name.
 	environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
-
-// broadPaths are directories a task worktree root must never resolve to.
-//
-// Cleanup removes worktree directories, so a root that resolves to a shared
-// directory turns a routine cleanup into a destructive one. The check is on the
-// resolved path, not on the template, because a template is only as safe as
-// what it expands to.
-var broadPaths = []string{
-	"/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/media", "/mnt",
-	"/opt", "/private", "/root", "/sbin", "/srv", "/sys", "/tmp", "/usr",
-	"/Users", "/var",
-}
 
 // Validate reports every rule the resolved configuration breaks.
 //
@@ -198,7 +187,7 @@ func (c *Config) validateWorktreeRoot(found *problems, p probe) {
 	// path, so that part is what has to belong to Feat. Checking the expanded
 	// path alone would accept "/var/{task_id}/work", which puts Feat's
 	// directories in a system location one placeholder deeper down.
-	if prefix := staticPrefix(c.Git.WorktreeRoot); contains(broadPaths, prefix) || depth(prefix) < 2 {
+	if prefix := StaticPrefix(c.Git.WorktreeRoot); paths.Broad(prefix) {
 		found.add(field, fmt.Sprintf(
 			"is rooted at %q, which is a shared directory: Feat creates and removes task worktrees under this root, so its fixed part must be a directory Feat owns",
 			prefix))
@@ -571,12 +560,14 @@ func overlaps(a, b string) bool {
 	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
 
-// staticPrefix returns the fixed leading directory of a path template:
+// StaticPrefix returns the fixed leading directory of a path template:
 // everything before the first placeholder, cut back to the last separator.
 //
 // It is the deepest directory Feat can know it will create things under, which
-// is the directory whose ownership matters.
-func staticPrefix(template string) string {
+// is the directory whose ownership matters. Validation checks it here, and the
+// Git adapter requires every worktree it creates to descend from it, so the
+// directory a user allowed and the directory Feat writes to are the same one.
+func StaticPrefix(template string) string {
 	index := strings.IndexByte(template, '{')
 	if index < 0 {
 		return filepath.Clean(template)
@@ -589,15 +580,6 @@ func staticPrefix(template string) string {
 		return string(filepath.Separator)
 	}
 	return filepath.Clean(head)
-}
-
-// depth counts the path components below the filesystem root.
-func depth(value string) int {
-	trimmed := strings.Trim(filepath.ToSlash(value), "/")
-	if trimmed == "" {
-		return 0
-	}
-	return len(strings.Split(trimmed, "/"))
 }
 
 // isRoot reports whether a container user is the superuser, by name or by id.

@@ -139,6 +139,37 @@ func TestPrimaryRepositoryAccess(t *testing.T) {
 	}
 }
 
+// TestTaskAccessCannotExceedTheConfiguredDefault checks the asymmetry a task's
+// repository selection rests on.
+//
+// Taking less access than the project configured is always available to a task.
+// Taking more is not: a repository a project declared read-only must not become
+// writable because one task asked for it.
+func TestTaskAccessCannotExceedTheConfiguredDefault(t *testing.T) {
+	writable := map[DefaultAccess]bool{
+		DefaultAccessReadWrite:      true,
+		DefaultAccessSelectable:     true,
+		DefaultAccessStableReadOnly: true,
+		DefaultAccessOmitted:        true,
+		DefaultAccessReadOnly:       false,
+	}
+	for access, want := range writable {
+		if got := access.Permits(TaskAccessReadWrite); got != want {
+			t.Errorf("%s permits a read-write task binding: got %t, want %t", access, got, want)
+		}
+		if !access.Permits(TaskAccessReadOnly) {
+			t.Errorf("%s refuses a read-only task binding, and less access is always available", access)
+		}
+	}
+
+	if DefaultAccess("invented").Permits(TaskAccessReadOnly) {
+		t.Error("an undocumented default access mode permitted a binding")
+	}
+	if DefaultAccessReadWrite.Permits(TaskAccess("invented")) {
+		t.Error("an undocumented task access mode was permitted")
+	}
+}
+
 func allWorkflowStates() []WorkflowState {
 	states := make([]WorkflowState, 0, len(workflowTransitions))
 	for state := range workflowTransitions {

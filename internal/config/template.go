@@ -64,6 +64,165 @@ var (
 	taskScopedPlaceholders = []string{PlaceholderTaskID, PlaceholderTaskKey}
 )
 
+// Values are the values Feat substitutes for the placeholders of a template.
+//
+// A field left empty is a value this expansion does not have. Using a
+// placeholder whose value is empty is an error rather than a silent gap,
+// because an empty expansion is how two tasks end up sharing one branch or one
+// directory.
+type Values struct {
+	// ProjectID is the project identifier.
+	ProjectID string
+	// TaskID is the task's UUID.
+	TaskID string
+	// TaskKey is the task's human-facing short identifier.
+	TaskKey string
+	// RepositoryID is the repository identifier.
+	RepositoryID string
+	// Slug is the short slug derived from the task title.
+	Slug string
+	// RepositoryPath is the absolute path of a task worktree.
+	RepositoryPath string
+	// BaseCommit is the immutable base commit recorded for a task repository.
+	BaseCommit string
+	// Branch is the generated task branch.
+	Branch string
+}
+
+// value returns the substitution for one placeholder name.
+func (v Values) value(name string) (string, bool) {
+	switch name {
+	case PlaceholderProjectID:
+		return v.ProjectID, true
+	case PlaceholderTaskID:
+		return v.TaskID, true
+	case PlaceholderTaskKey:
+		return v.TaskKey, true
+	case PlaceholderRepositoryID:
+		return v.RepositoryID, true
+	case PlaceholderSlug:
+		return v.Slug, true
+	case PlaceholderRepositoryPath:
+		return v.RepositoryPath, true
+	case PlaceholderBaseCommit:
+		return v.BaseCommit, true
+	case PlaceholderBranch:
+		return v.Branch, true
+	default:
+		return "", false
+	}
+}
+
+// Expand fills a template's placeholders.
+//
+// The vocabulary is the same closed one validation checks, and it is checked
+// again here: a template reaches this function from a configuration that was
+// validated, and the day the two disagree, expansion should fail rather than
+// produce a name containing a literal "{repo}".
+//
+// Expansion is not recursive. A value that happens to contain braces is
+// substituted once and never looked at again, so no expanded value can
+// introduce a placeholder.
+func Expand(template string, values Values) (string, error) {
+	// A stray brace is a mistyped placeholder, and it is checked against the
+	// template rather than against the result: a substituted value may contain
+	// a brace of its own, and that value has already been decided.
+	if stripped := placeholderPattern.ReplaceAllString(template, ""); strings.ContainsAny(stripped, "{}") {
+		return "", fmt.Errorf("%q contains an unmatched %q or %q: a placeholder is written {name}",
+			template, "{", "}")
+	}
+
+	var failure error
+	expanded := placeholderPattern.ReplaceAllStringFunc(template, func(match string) string {
+		name := strings.Trim(match, "{}")
+		value, known := values.value(name)
+		switch {
+		case !known:
+			if failure == nil {
+				failure = fmt.Errorf("%q uses the placeholder %q, which Feat does not expand: the placeholders are %s",
+					template, match, list(allPlaceholders()))
+			}
+		case value == "":
+			if failure == nil {
+				failure = fmt.Errorf("%q uses the placeholder %q, and this expansion has no value for it",
+					template, match)
+			}
+		}
+		return value
+	})
+	if failure != nil {
+		return "", failure
+	}
+	return expanded, nil
+}
+
+// Uses reports whether a template contains one particular placeholder.
+//
+// The worktree root is the caller: a root that already names the repository
+// expands to one directory per repository, and a root that does not needs the
+// repository appended, or every repository of a task would share one worktree.
+func Uses(template, placeholder string) bool {
+	return contains(placeholders(template), placeholder)
+}
+
+// slugSeparator joins the words of a slug. It is safe in a branch name, in a
+// path, and in a Compose project name, which is more than can be said for most
+// characters a task title contains.
+const slugSeparator = "-"
+
+// slugLimit bounds a slug. A branch name has room for a title, but not for a
+// whole paragraph pasted into one.
+const slugLimit = 40
+
+// Slug derives a short, safe slug from a task title.
+//
+// Everything outside the lowercase ASCII alphanumerics becomes a separator,
+// runs of separators collapse, and the result is cut to slugLimit at a
+// separator where possible. A title with nothing to keep — one written entirely
+// in a non-Latin script, for instance — produces "task", because the branch
+// template still has to expand to something, and the task key beside it is what
+// makes the name unique.
+func Slug(title string) string {
+	var b strings.Builder
+	b.Grow(len(title))
+
+	separated := false
+	for _, r := range strings.ToLower(title) {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			if separated && b.Len() > 0 {
+				b.WriteString(slugSeparator)
+			}
+			separated = false
+			b.WriteRune(r)
+		default:
+			separated = true
+		}
+	}
+
+	slug := b.String()
+	if len(slug) > slugLimit {
+		slug = slug[:slugLimit]
+		if cut := strings.LastIndex(slug, slugSeparator); cut > 0 {
+			slug = slug[:cut]
+		}
+	}
+	if slug == "" {
+		return "task"
+	}
+	return slug
+}
+
+// allPlaceholders returns every placeholder name, for an error message that has
+// to name the vocabulary without knowing which template it came from.
+func allPlaceholders() []string {
+	return []string{
+		PlaceholderProjectID, PlaceholderTaskID, PlaceholderTaskKey,
+		PlaceholderRepositoryID, PlaceholderSlug, PlaceholderRepositoryPath,
+		PlaceholderBaseCommit, PlaceholderBranch,
+	}
+}
+
 // probe supplies representative values for checking what a template produces.
 //
 // Every value Feat substitutes is an identifier it has already validated, so

@@ -11,6 +11,7 @@ import (
 
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/store"
 	"github.com/ma8el/feat/internal/store/fs"
@@ -41,6 +42,10 @@ type Options struct {
 	// the home directory a leading "~" expands to. A zero value resolves the
 	// running process's environment.
 	Environment paths.Environment
+	// Git runs the Git commands that create and observe task worktrees. A nil
+	// value drives the real Git executable; a test supplies its own so that it
+	// can arrange failures a real repository makes hard to produce.
+	Git git.Runner
 	// Logger receives the daemon's log. A nil logger discards it.
 	Logger *slog.Logger
 	// Now supplies the current time. A nil value uses the wall clock.
@@ -111,6 +116,7 @@ func New(opts Options) (*Daemon, error) {
 		service: &service{
 			store:  state,
 			bus:    bus,
+			git:    git.New(opts.Git),
 			layout: opts.Layout,
 			env:    env,
 			build:  opts.Build,
