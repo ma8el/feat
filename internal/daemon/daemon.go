@@ -15,6 +15,7 @@ import (
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/store"
 	"github.com/ma8el/feat/internal/store/fs"
+	"github.com/ma8el/feat/internal/tmux"
 )
 
 // Server timeouts.
@@ -46,6 +47,9 @@ type Options struct {
 	// value drives the real Git executable; a test supplies its own so that it
 	// can arrange failures a real repository makes hard to produce.
 	Git git.Runner
+	// Tmux runs non-interactive control commands against the dedicated terminal
+	// server. A nil value drives the real tmux executable.
+	Tmux tmux.Runner
 	// Logger receives the daemon's log. A nil logger discards it.
 	Logger *slog.Logger
 	// Now supplies the current time. A nil value uses the wall clock.
@@ -107,6 +111,10 @@ func New(opts Options) (*Daemon, error) {
 	}
 
 	bus := NewBus(opts.EventBuffer)
+	terminals, err := tmux.New(opts.Layout.TmuxSocket(), opts.Tmux)
+	if err != nil {
+		return nil, err
+	}
 	return &Daemon{
 		opts:   opts,
 		logger: logger,
@@ -114,14 +122,15 @@ func New(opts Options) (*Daemon, error) {
 		store:  state,
 		bus:    bus,
 		service: &service{
-			store:  state,
-			bus:    bus,
-			git:    git.New(opts.Git),
-			layout: opts.Layout,
-			env:    env,
-			build:  opts.Build,
-			now:    now,
-			logger: logger,
+			store:     state,
+			bus:       bus,
+			git:       git.New(opts.Git),
+			terminals: terminals,
+			layout:    opts.Layout,
+			env:       env,
+			build:     opts.Build,
+			now:       now,
+			logger:    logger,
 		},
 	}, nil
 }
@@ -158,6 +167,14 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 	// once ownership is established. Nothing is serving yet, so this is not a
 	// concurrent write.
 	d.service.endpoint = ownership.Endpoint()
+
+	// tmux outlives the daemon. Reconcile after taking runtime ownership (so
+	// the dedicated socket's parent is known safe) and before clients can read
+	// state. A failed observation must not make the recovery UI unavailable;
+	// it is logged and the daemon still serves the last recorded state.
+	if reconcileErr := d.service.reconcileTmux(ctx); reconcileErr != nil {
+		d.logger.ErrorContext(ctx, "reconciling tmux terminals", slog.Any("error", reconcileErr))
+	}
 
 	// Request contexts derive from this one, so cancelling it ends the event
 	// streams. Without it, Shutdown would wait for every connected client.

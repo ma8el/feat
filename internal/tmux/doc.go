@@ -5,7 +5,8 @@
 // collide with the user's ordinary sessions.
 //
 // Default topology: one Feat-owned server, one session per project, one window
-// per task, pane 0 for the native agent, and an optional pane 1 task shell.
+// per task, one tagged native-agent pane, and an optional tagged task shell.
+// Their user-visible indexes are presentation, not identity.
 //
 // Rules this package must enforce:
 //
@@ -19,8 +20,10 @@
 //     inferred from terminal text;
 //   - daemon startup rediscovers existing tagged sessions and windows.
 //
-// The adapter sits behind the internal/execution interface even though no
-// alternative backend is required before v1.
+// Execution-environment adapters supply this adapter with a final command
+// vector and working directory. tmux owns terminal persistence and attachment;
+// it does not implement or import the execution-environment interface
+// (ADR-030).
 //
 // Delivered by slice 5.
 package tmux

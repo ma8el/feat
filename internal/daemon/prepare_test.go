@@ -14,6 +14,7 @@ import (
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/git"
+	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/store"
 )
 
@@ -170,6 +171,7 @@ type preparation struct {
 	ref     store.TaskRef
 	state   string
 	home    string
+	env     paths.Environment
 }
 
 // arrangeTask registers the fixture project and stores a draft ready to be
@@ -230,6 +232,7 @@ func arrangeTaskWith(t *testing.T, fake *fakeGit, body string) *preparation {
 		ref:     store.Ref(task),
 		state:   layout.State,
 		home:    env.Home,
+		env:     env,
 	}
 }
 

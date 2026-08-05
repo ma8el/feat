@@ -22,7 +22,7 @@ LDFLAGS := -X '$(MODULE)/internal/version.version=$(VERSION)' \
 .DEFAULT_GOAL := help
 
 .PHONY: check
-check: tidy-check fmt-check lint test build ## Run everything CI runs
+check: tidy-check fmt-check lint test test-real build ## Run everything CI runs
 
 .PHONY: build
 build: ## Build the feat binary into bin/
@@ -36,6 +36,10 @@ run: build ## Build and open the dashboard
 .PHONY: test
 test: ## Run unit tests with the race detector
 	go test -race ./...
+
+.PHONY: test-real
+test-real: ## Run opt-in integration tests against installed real tools
+	FEAT_INTEGRATION=1 go test -race -run 'TestBinary|TestReal' ./...
 
 .PHONY: lint
 lint: $(GOLANGCI) ## Run golangci-lint, including the architectural depguard rules

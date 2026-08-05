@@ -10,16 +10,21 @@ replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: pre-alpha.** Slices 0 to 4 of the
-> [implementation plan](docs/11-implementation-plan.md) are complete: the
+> **Status: pre-alpha.** Slices 0, 1, 2, 4, and 5 of the
+> [implementation plan](docs/11-implementation-plan.md) are complete; Slice 3's
+> implementation is delivered but its company target-machine check is still
+> outstanding. The
 > repository has its package skeleton, the full command surface, its development
 > and CI commands, a versioned domain model with file-backed storage, a local
 > daemon serving a JSON API and a state-event stream over a Unix-domain socket,
 > YAML project configuration with diagnostics, and the Git and worktree
 > lifecycle that gives a task its branches and worktrees across several
-> repositories.
+> repositories. It also has a dedicated tmux backend with tagged stable
+> identity, native attachment, shell-pane creation, and daemon-restart
+> reconciliation.
 > `feat daemon start|stop|status`, `feat doctor`, and
-> `feat project add|list|show` work. The commands that create a task are
+> `feat project add|list|show` work. `feat attach` works for a recorded task
+> terminal, but no command creates one yet. The commands that create a task are
 > registered but not implemented; each one reports the slice that will deliver
 > it, and slice 6 is the one that will let you confirm a task draft and reach
 > the Git lifecycle from the command line. Nothing here is usable for real work
@@ -67,9 +72,9 @@ in order, starting with [`docs/README.md`](docs/README.md).
 
 ## Development
 
-Requirements: Go as pinned in [`go.mod`](go.mod), plus `make`. Later slices add
-runtime prerequisites (Git, tmux, and the Docker Compose CLI); `feat doctor`
-will check them once it exists.
+Requirements: Go as pinned in [`go.mod`](go.mod), `make`, Git, and tmux. Projects
+that use a devcontainer or application runtime also need the Docker Compose CLI.
+`feat doctor` checks the tools required by a project's configuration.
 
 ```sh
 make check    # everything CI runs: tidy, format, lint, test, build

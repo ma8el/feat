@@ -1,6 +1,15 @@
 package domain
 
-import "time"
+import (
+	"regexp"
+	"time"
+)
+
+var (
+	tmuxSessionIDPattern = regexp.MustCompile(`^\$[0-9]+$`)
+	tmuxWindowIDPattern  = regexp.MustCompile(`^@[0-9]+$`)
+	tmuxPaneIDPattern    = regexp.MustCompile(`^%[0-9]+$`)
+)
 
 // AgentSession is the one native coding-agent session a task owns.
 //
@@ -46,6 +55,34 @@ type TmuxTarget struct {
 	Pane string
 }
 
+// Validate reports whether the target contains tmux's immutable object IDs.
+// Display names and numeric indexes are deliberately not accepted as stored
+// identity (FR-TMUX-004).
+func (t TmuxTarget) Validate(task TaskID) error {
+	id := task.String()
+	if !isAbsPath(t.Socket) {
+		return &ValidationError{Entity: "agent session", ID: id, Field: "tmux.socket", Reason: "must be absolute, but is " + quote(t.Socket)}
+	}
+	for _, field := range []struct {
+		name    string
+		value   string
+		pattern *regexp.Regexp
+		kind    string
+	}{
+		{"session", t.Session, tmuxSessionIDPattern, "$session id"},
+		{"window", t.Window, tmuxWindowIDPattern, "@window id"},
+		{"pane", t.Pane, tmuxPaneIDPattern, "%pane id"},
+	} {
+		if !field.pattern.MatchString(field.value) {
+			return &ValidationError{
+				Entity: "agent session", ID: id, Field: "tmux." + field.name,
+				Reason: "must be a stable tmux " + field.kind + ", but is " + quote(field.value),
+			}
+		}
+	}
+	return nil
+}
+
 // NewAgentSession creates a session in the starting process state.
 func NewAgentSession(provider string, mode ExecutionMode, target TmuxTarget, controlPath string, now time.Time) (*AgentSession, error) {
 	session := &AgentSession{
@@ -79,6 +116,20 @@ func (s *AgentSession) Observe(state ProcessState, now time.Time) error {
 	}
 	s.Process = state
 	s.LastActivityAt = normalizeTime(now)
+	return nil
+}
+
+// ReconcileTerminal records the stable target and process state observed from
+// tmux after a daemon restart. Both are observations: user renames and window
+// indexes never alter task identity.
+func (s *AgentSession) ReconcileTerminal(target TmuxTarget, state ProcessState, task TaskID, now time.Time) error {
+	if err := target.Validate(task); err != nil {
+		return err
+	}
+	if err := s.Observe(state, now); err != nil {
+		return err
+	}
+	s.Tmux = target
 	return nil
 }
 
@@ -123,6 +174,9 @@ func (s *AgentSession) Validate(task TaskID) error {
 			Field:  "process",
 			Reason: "must be a documented process state, but is " + quote(string(s.Process)),
 		}
+	}
+	if err := s.Tmux.Validate(task); err != nil {
+		return err
 	}
 	if s.ControlPath != "" && !isAbsPath(s.ControlPath) {
 		return &ValidationError{

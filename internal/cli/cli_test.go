@@ -75,7 +75,7 @@ func TestExecuteExitCodes(t *testing.T) {
 		{"project add without a project", []string{"project", "add"}, ExitUsage},
 
 		{"implement", []string{"implement"}, ExitNotImplemented},
-		{"attach with a task", []string{"attach", "abc123"}, ExitNotImplemented},
+		{"attach without a daemon", []string{"attach", "abc123"}, ExitNotRunning},
 		{"runtime start", []string{"runtime", "start", "abc123"}, ExitNotImplemented},
 
 		// A machine with nothing configured is diagnosable and not broken.

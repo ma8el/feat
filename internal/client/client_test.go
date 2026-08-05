@@ -108,6 +108,28 @@ func TestHealthIsDecoded(t *testing.T) {
 	}
 }
 
+func TestAttachInfoIsRequestedAndDecoded(t *testing.T) {
+	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		want := "/v1/tasks/12345678-1234-4234-8234-123456789abc/attach-info"
+		if r.URL.Path != want {
+			t.Errorf("path = %q, want %q", r.URL.Path, want)
+		}
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %q, want POST", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"socket":"/run/feat/tmux.sock","session":"$3","window":"@8","pane":"%13"}`)
+	}))
+
+	info, err := caller.AttachInfo(context.Background(), "12345678-1234-4234-8234-123456789abc")
+	if err != nil {
+		t.Fatalf("AttachInfo: %v", err)
+	}
+	if info.Socket != "/run/feat/tmux.sock" || info.Session != "$3" || info.Window != "@8" || info.Pane != "%13" {
+		t.Errorf("AttachInfo = %+v", info)
+	}
+}
+
 func TestErrorResponsesBecomeStatusErrors(t *testing.T) {
 	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

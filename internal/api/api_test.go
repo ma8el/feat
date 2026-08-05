@@ -135,6 +135,23 @@ func (f *fakeService) Task(_ context.Context, id domain.TaskID) (*domain.Task, e
 	return nil, fmt.Errorf("%w: no task %s in any registered project", ErrNotFound, id)
 }
 
+func (f *fakeService) AttachInfo(_ context.Context, id domain.TaskID) (AttachInfo, error) {
+	if err := f.check(); err != nil {
+		return AttachInfo{}, err
+	}
+	for _, task := range f.tasks {
+		if task.ID == id && task.Session != nil {
+			return AttachInfo{
+				Socket:  task.Session.Tmux.Socket,
+				Session: task.Session.Tmux.Session,
+				Window:  task.Session.Tmux.Window,
+				Pane:    task.Session.Tmux.Pane,
+			}, nil
+		}
+	}
+	return AttachInfo{}, fmt.Errorf("%w: task %s has no agent terminal", ErrNotFound, id)
+}
+
 func (f *fakeService) Subscribe(context.Context) (<-chan Event, error) {
 	if err := f.check(); err != nil {
 		return nil, err
@@ -188,6 +205,17 @@ func TestResponseBodies(t *testing.T) {
 	}
 }
 
+func TestAttachInfoResponseUsesStableTmuxIDs(t *testing.T) {
+	handler := NewHandler(Options{Service: newFakeService()})
+	response := request(t, handler, http.MethodPost,
+		"/v1/tasks/"+storetest.TaskID.String()+"/attach-info")
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body: %s", response.Code, response.Body.String())
+	}
+	compare(t, "attach-info.golden", response.Body.String())
+}
+
 // compare checks output against a golden file.
 func compare(t *testing.T, name, got string) {
 	t.Helper()
@@ -233,6 +261,10 @@ func TestErrorResponses(t *testing.T) {
 		},
 		{
 			"malformed task id", http.MethodGet, "/v1/tasks/not-a-uuid",
+			http.StatusBadRequest, CodeInvalid,
+		},
+		{
+			"malformed attach task id", http.MethodPost, "/v1/tasks/not-a-uuid/attach-info",
 			http.StatusBadRequest, CodeInvalid,
 		},
 		{"wrong method", http.MethodPost, "/v1/health", http.StatusMethodNotAllowed, CodeNotAllowed},
