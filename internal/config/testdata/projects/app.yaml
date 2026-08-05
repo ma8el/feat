@@ -1,0 +1,101 @@
+# A complete, valid project configuration.
+#
+# The repository names here are deliberately generic: nothing about the
+# reference project may reach the binary or its tests (CLAUDE.md scope rule 3).
+version: 1
+
+project:
+  id: app
+  name: Example Application
+  primary_repository: api
+
+repositories:
+  api:
+    host_path: ~/repos/app/api
+    container_path: /srv/api
+    default_branch: main
+    remote: origin
+    default_access: read_write
+
+  web:
+    host_path: ~/repos/app/web
+    container_path: /srv/web
+    default_branch: main
+    remote: origin
+    default_access: selectable
+
+  infra:
+    name: Container definitions
+    host_path: ~/repos/app/infra
+    container_path: /srv/infra
+    default_branch: main
+    remote: origin
+    default_access: stable_read_only
+
+git:
+  base_policy: remote
+  fetch_before_task: true
+  branch_template: "feat/{task_key}-{slug}"
+  worktree_root: "~/.local/share/feat/worktrees/{project_id}/{task_id}"
+
+agent:
+  provider: claude
+  execution:
+    mode: devcontainer
+    compose_files:
+      - ~/repos/app/infra/docker-compose.yml
+    service: dev
+    user: developer
+    working_directory: /srv/api
+    control_path: /feat
+
+  claude:
+    config_volume: example-claude-config
+    idle_grace_period: 5s
+
+  capabilities:
+    docker: denied
+    network: unrestricted
+    git: full
+    github_cli: optional
+    gitlab_cli: required
+
+runtime:
+  provider: compose
+  start_policy: manual
+  compose_files:
+    - ~/repos/app/api/docker-compose.yml
+  static_overrides: []
+  env_files:
+    - ~/repos/app/api/.env
+  project_name_template: "feat-{project_id}-{task_id}"
+  services:
+    - app
+    - worker
+  external_resources:
+    staging_db:
+      type: postgres
+      lifecycle: external
+      selector_variable: FEAT_STAGING_SCHEMA
+
+review:
+  diff:
+    command: ["git", "diff", "{base_commit}"]
+  editor:
+    command: ["nvim", "{repository_path}"]
+  status:
+    command: ["git", "status", "--short", "--branch"]
+
+checks:
+  api:
+    - id: test
+      command: ["pytest"]
+      execution: agent
+
+notifications:
+  desktop: true
+  idle_grace_period: 5s
+  suppress_while_attached: true
+
+resources:
+  sample_interval: 2s

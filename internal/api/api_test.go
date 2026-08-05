@@ -33,6 +33,10 @@ type fakeService struct {
 	failWith error
 	// panicWith is raised by every read when set.
 	panicWith string
+	// unconfigured are projects with no configuration file.
+	unconfigured map[domain.ProjectID]bool
+	// unregistrable are projects whose configuration does not validate.
+	unregistrable map[domain.ProjectID]bool
 }
 
 func newFakeService() *fakeService {
@@ -49,8 +53,10 @@ func newFakeService() *fakeService {
 			},
 			State: State{Directory: "/state/feat", Projects: 1},
 		},
-		projects: []*domain.Project{storetest.Project()},
-		tasks:    []*domain.Task{storetest.Task()},
+		projects:      []*domain.Project{storetest.Project()},
+		tasks:         []*domain.Task{storetest.Task()},
+		unconfigured:  map[domain.ProjectID]bool{},
+		unregistrable: map[domain.ProjectID]bool{},
 	}
 }
 
@@ -85,6 +91,29 @@ func (f *fakeService) Project(_ context.Context, id domain.ProjectID) (*domain.P
 		}
 	}
 	return nil, fmt.Errorf("%w: no project %s is registered", ErrNotFound, id)
+}
+
+// RegisterProject records a project from a fixture, so that the transport can
+// be tested without a configuration directory or a store.
+func (f *fakeService) RegisterProject(_ context.Context, id domain.ProjectID) (RegisteredProject, error) {
+	if err := f.check(); err != nil {
+		return RegisteredProject{}, err
+	}
+	if f.unconfigured[id] {
+		return RegisteredProject{}, fmt.Errorf("%w: no configuration for %s", ErrNotFound, id)
+	}
+	if f.unregistrable[id] {
+		return RegisteredProject{}, fmt.Errorf("%w: %s has a problem", ErrInvalid, id)
+	}
+	for _, project := range f.projects {
+		if project.ID == id {
+			return RegisteredProject{Project: project, Created: false}, nil
+		}
+	}
+	registered := storetest.Project()
+	registered.ID = id
+	f.projects = append(f.projects, registered)
+	return RegisteredProject{Project: registered, Created: true}, nil
 }
 
 func (f *fakeService) Tasks(context.Context) ([]*domain.Task, error) {

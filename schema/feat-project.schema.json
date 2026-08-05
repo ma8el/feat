@@ -1,0 +1,404 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ma8el/feat/schema/feat-project.schema.json",
+  "title": "Feat project configuration",
+  "description": "One project's configuration, as authored in ~/.config/feat/projects/<project-id>.yaml. The file name must match project.id. This schema is a draft for editor support; feat doctor performs the semantic validation, and some of its rules cannot be expressed here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "project", "repositories", "agent"],
+  "properties": {
+    "version": {
+      "description": "Configuration schema version. This build understands 1 only.",
+      "const": 1
+    },
+    "project": { "$ref": "#/$defs/project" },
+    "repositories": {
+      "description": "Git repositories participating in the project, keyed by project-local identifier.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/safeIdentifier" },
+      "additionalProperties": { "$ref": "#/$defs/repository" }
+    },
+    "git": { "$ref": "#/$defs/git" },
+    "agent": { "$ref": "#/$defs/agent" },
+    "runtime": { "$ref": "#/$defs/runtime" },
+    "review": { "$ref": "#/$defs/review" },
+    "checks": {
+      "description": "Verification commands per repository, keyed by repository identifier.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/safeIdentifier" },
+      "additionalProperties": {
+        "type": "array",
+        "items": { "$ref": "#/$defs/check" }
+      }
+    },
+    "notifications": { "$ref": "#/$defs/notifications" },
+    "resources": { "$ref": "#/$defs/resources" }
+  },
+
+  "$defs": {
+    "safeIdentifier": {
+      "description": "An identifier that is safe in paths, branch names, tmux metadata, and Compose project names.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+    },
+
+    "duration": {
+      "description": "A Go duration such as \"5s\", \"250ms\", or \"1m30s\".",
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$"
+    },
+
+    "path": {
+      "description": "A host path. A leading \"~\" expands to the home directory of the user running the daemon.",
+      "type": "string",
+      "minLength": 1
+    },
+
+    "containerPath": {
+      "description": "An absolute path inside the agent's execution environment.",
+      "type": "string",
+      "pattern": "^/.*"
+    },
+
+    "command": {
+      "description": "An external command as an argument vector. The first element is the program and is never templated; later elements may contain {placeholders}.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "The program followed by its arguments.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "primary_repository"],
+      "properties": {
+        "id": {
+          "description": "Identifies the project locally. It must match the file name.",
+          "$ref": "#/$defs/safeIdentifier"
+        },
+        "name": {
+          "description": "Display name. Defaults to the identifier.",
+          "type": "string"
+        },
+        "primary_repository": {
+          "description": "The editable repository a task works in by default. It must be one a task can edit.",
+          "$ref": "#/$defs/safeIdentifier"
+        }
+      }
+    },
+
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host_path", "default_access"],
+      "properties": {
+        "name": {
+          "description": "Display name. Defaults to the repository identifier.",
+          "type": "string"
+        },
+        "host_path": {
+          "description": "The ordinary checkout on this machine.",
+          "$ref": "#/$defs/path"
+        },
+        "container_path": {
+          "description": "Where task worktrees are mounted in the devcontainer. Required for every repository a task can select when agent.execution.mode is \"devcontainer\", and container paths must not overlap.",
+          "$ref": "#/$defs/containerPath"
+        },
+        "default_branch": {
+          "description": "The branch a base policy resolves against. Defaults to \"main\".",
+          "type": "string"
+        },
+        "remote": {
+          "description": "The Git remote fetched before a base is resolved. Defaults to \"origin\".",
+          "type": "string"
+        },
+        "default_access": {
+          "description": "How the repository takes part in a task by default. Required rather than defaulted: whether an agent may write to a repository is not a decision to make on the user's behalf.",
+          "enum": ["read_write", "read_only", "selectable", "stable_read_only", "omitted"]
+        }
+      }
+    },
+
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base_policy": {
+          "description": "How a task's base commit is resolved. Feat records the resulting commit, not the ref.",
+          "enum": ["remote", "local", "current", "explicit"],
+          "default": "remote"
+        },
+        "fetch_before_task": {
+          "description": "Fetch configured remotes before resolving bases. Fetching never changes the ordinary checkout.",
+          "type": "boolean",
+          "default": true
+        },
+        "branch_template": {
+          "description": "Generates task branch names. It must contain {task_id} or {task_key}, or two tasks would share a branch. Placeholders: {project_id}, {task_id}, {task_key}, {repository_id}, {slug}.",
+          "type": "string",
+          "default": "feat/{task_key}-{slug}"
+        },
+        "worktree_root": {
+          "description": "Generates the directory holding a task's worktrees. It must contain {task_id} or {task_key}, must not be rooted at a shared directory, and must not overlap a repository checkout: Feat removes worktrees under this root during cleanup. Placeholders: {project_id}, {task_id}, {task_key}, {repository_id}.",
+          "type": "string"
+        }
+      }
+    },
+
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["execution"],
+      "properties": {
+        "provider": {
+          "description": "The agent adapter. Claude Code is the only provider in v0.",
+          "enum": ["claude"],
+          "default": "claude"
+        },
+        "execution": { "$ref": "#/$defs/execution" },
+        "claude": { "$ref": "#/$defs/claude" },
+        "capabilities": { "$ref": "#/$defs/capabilities" }
+      }
+    },
+
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "description": "Where the agent runs. \"host\" has no container boundary; \"devcontainer\" runs the agent in a configured Compose service. The remaining fields in this object apply to \"devcontainer\" only and are rejected under \"host\".",
+          "enum": ["host", "devcontainer"]
+        },
+        "compose_files": {
+          "description": "The Compose files defining the devcontainer.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/path" }
+        },
+        "service": {
+          "description": "The Compose service the agent runs in.",
+          "type": "string"
+        },
+        "user": {
+          "description": "The container user the agent runs as. It must not be root.",
+          "type": "string"
+        },
+        "working_directory": {
+          "description": "The agent's working directory inside the devcontainer. It must be inside a repository's container_path. Defaults to the primary repository's container_path.",
+          "$ref": "#/$defs/containerPath"
+        },
+        "control_path": {
+          "description": "Where the task control workspace is mounted. It must not overlap a repository mount.",
+          "$ref": "#/$defs/containerPath",
+          "default": "/feat"
+        }
+      }
+    },
+
+    "claude": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "config_volume": {
+          "description": "A dedicated Docker volume for Claude's configuration, which keeps one interactive login out of the user's own ~/.claude.",
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"
+        },
+        "idle_grace_period": {
+          "description": "How long an end-of-turn signal waits before the task is reported idle. Idle never means complete.",
+          "$ref": "#/$defs/duration",
+          "default": "5s"
+        }
+      }
+    },
+
+    "capabilities": {
+      "description": "What the agent's environment may reach. The capabilities are independent: full Git access and an authenticated provider CLI say nothing about Docker. Three of them accept one value each, because Feat has no mechanism that varies them, and recording another value would be a promise the binary does not keep.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "docker": {
+          "description": "The agent never receives a Docker socket or a Docker CLI that reaches the host; only the trusted host runs Docker Compose.",
+          "const": "denied",
+          "default": "denied"
+        },
+        "network": {
+          "description": "Feat does not implement network restriction and does not claim data-loss prevention.",
+          "const": "unrestricted",
+          "default": "unrestricted"
+        },
+        "git": {
+          "description": "A native Git worktree shares repository metadata with the agent, which Feat does not restrict.",
+          "const": "full",
+          "default": "full"
+        },
+        "github_cli": {
+          "description": "Whether gh is expected in the agent's environment. \"optional\" reports availability; \"required\" fails task launch when it is missing.",
+          "enum": ["disabled", "optional", "required"],
+          "default": "disabled"
+        },
+        "gitlab_cli": {
+          "description": "Whether glab is expected in the agent's environment.",
+          "enum": ["disabled", "optional", "required"],
+          "default": "disabled"
+        }
+      }
+    },
+
+    "runtime": {
+      "description": "The application services a task may run. Omit this object for a project with no application runtime.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compose_files", "services"],
+      "properties": {
+        "provider": {
+          "description": "The runtime adapter. Docker Compose is the only provider in v0.",
+          "enum": ["compose"],
+          "default": "compose"
+        },
+        "start_policy": {
+          "description": "When services start. In v0 they start by explicit user action only.",
+          "const": "manual",
+          "default": "manual"
+        },
+        "compose_files": {
+          "description": "The base Compose files defining the application services.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/path" }
+        },
+        "static_overrides": {
+          "description": "User-authored override files, applied after the base files and before Feat's generated task override.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/path" }
+        },
+        "env_files": {
+          "description": "Host-side environment files passed to Docker Compose by path. Feat records the paths and never reads their contents.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/path" }
+        },
+        "project_name_template": {
+          "description": "Generates the Compose project name, which is what makes a runtime action affect one task and no other. It must contain {task_id} or {task_key}, and must expand to a name Compose accepts. Placeholders: {project_id}, {task_id}, {task_key}.",
+          "type": "string",
+          "default": "feat-{project_id}-{task_id}"
+        },
+        "services": {
+          "description": "The services Feat manages for a task.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "external_resources": {
+          "description": "Resources Feat references but never provisions or destroys, such as a pre-existing staging database. A name here must not also appear in services.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/externalResource" }
+        }
+      }
+    },
+
+    "externalResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "lifecycle"],
+      "properties": {
+        "type": {
+          "description": "What the resource is, such as the database engine.",
+          "type": "string"
+        },
+        "lifecycle": {
+          "description": "Who owns the resource. Only \"external\" exists in v0: Feat binds to it and never creates or destroys it.",
+          "const": "external"
+        },
+        "selector_variable": {
+          "description": "The environment variable a task uses to select its share of the resource. Its value is generated per task and is not a secret.",
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        }
+      }
+    },
+
+    "review": {
+      "description": "External commands review opens. Feat renders no diffs itself in v0. Command arguments may contain {project_id}, {task_id}, {task_key}, {repository_id}, {repository_path}, {base_commit}, and {branch}.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "diff": {
+          "description": "Compares a repository against its recorded base commit. Defaults to git diff {base_commit}.",
+          "$ref": "#/$defs/command"
+        },
+        "editor": {
+          "description": "Opens a repository for editing. Defaults to $EDITOR with {repository_path}.",
+          "$ref": "#/$defs/command"
+        },
+        "status": {
+          "description": "Shows a repository's Git status. Defaults to git status --short --branch.",
+          "$ref": "#/$defs/command"
+        }
+      }
+    },
+
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "command", "execution"],
+      "properties": {
+        "id": {
+          "description": "Identifies the check within its repository.",
+          "$ref": "#/$defs/safeIdentifier"
+        },
+        "command": {
+          "description": "The check's argument vector.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "execution": {
+          "description": "Where the check runs.",
+          "enum": ["agent", "host"]
+        }
+      }
+    },
+
+    "notifications": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "desktop": {
+          "description": "Enable desktop notifications.",
+          "type": "boolean",
+          "default": true
+        },
+        "idle_grace_period": {
+          "description": "How long idle waits before it is worth reporting.",
+          "$ref": "#/$defs/duration",
+          "default": "5s"
+        },
+        "suppress_while_attached": {
+          "description": "Suppress notifications for a task the user is already attached to.",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sample_interval": {
+          "description": "How often whole-machine and per-task resources are sampled. Sampling is observational and never blocks task creation.",
+          "$ref": "#/$defs/duration",
+          "default": "2s"
+        }
+      }
+    }
+  }
+}

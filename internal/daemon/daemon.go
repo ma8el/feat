@@ -37,6 +37,10 @@ type Options struct {
 	// Build identifies this binary in health responses and in the endpoint
 	// record.
 	Build Build
+	// Environment is what project configuration is resolved against, chiefly
+	// the home directory a leading "~" expands to. A zero value resolves the
+	// running process's environment.
+	Environment paths.Environment
 	// Logger receives the daemon's log. A nil logger discards it.
 	Logger *slog.Logger
 	// Now supplies the current time. A nil value uses the wall clock.
@@ -86,6 +90,17 @@ func New(opts Options) (*Daemon, error) {
 		return nil, err
 	}
 
+	// Configuration is resolved against the daemon's own environment, so that a
+	// "~" in project YAML is the user who owns the daemon.
+	env := opts.Environment
+	if env.Home == "" {
+		current, err := paths.Current()
+		if err != nil {
+			return nil, err
+		}
+		env = current
+	}
+
 	bus := NewBus(opts.EventBuffer)
 	return &Daemon{
 		opts:   opts,
@@ -97,7 +112,9 @@ func New(opts Options) (*Daemon, error) {
 			store:  state,
 			bus:    bus,
 			layout: opts.Layout,
+			env:    env,
 			build:  opts.Build,
+			now:    now,
 			logger: logger,
 		},
 	}, nil

@@ -1,0 +1,377 @@
+package config_test
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/ma8el/feat/internal/config"
+)
+
+// loadReplacing edits the complete fixture and loads the result.
+func loadReplacing(t *testing.T, old, replacement string) (*config.Config, error) {
+	t.Helper()
+	base := fixture(t, "app.yaml")
+	body := strings.Replace(base, old, replacement, 1)
+	if body == base && old != "" {
+		t.Fatalf("the fixture no longer contains %q", old)
+	}
+	dir := write(t, "app.yaml", body)
+	opts, _ := testOptions(t, nil)
+	return config.Load(dir, "app", opts)
+}
+
+// TestValidationRejectsUnsafeConfiguration checks the rules that keep a
+// configuration from producing resources the user did not ask for.
+//
+// Each case names the configuration path the problem must be reported against,
+// because a rejection that does not say which value is wrong leaves the user to
+// bisect their own file.
+func TestValidationRejectsUnsafeConfiguration(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		old, new string
+		path     string
+		contains string
+	}{
+		"unknown schema version": {
+			old: "version: 1", new: "version: 2",
+			path: "version", contains: "schema version 1",
+		},
+		"project id is unsafe": {
+			old: "  id: app", new: "  id: ../escape",
+			path: "project.id", contains: "lowercase",
+		},
+		"primary repository is not a repository": {
+			old: "  primary_repository: api", new: "  primary_repository: missing",
+			path: "project.primary_repository", contains: "not one of this project's repositories",
+		},
+		"primary repository cannot be edited": {
+			old: "  primary_repository: api", new: "  primary_repository: infra",
+			path: "project.primary_repository", contains: "must be one a task can edit",
+		},
+		"access mode is missing": {
+			old: "    default_access: read_write\n", new: "",
+			path: "repositories.api.default_access", contains: "how the repository takes part",
+		},
+		"access mode is not a mode": {
+			old: "    default_access: read_write", new: "    default_access: writable",
+			path: "repositories.api.default_access", contains: "not an access mode",
+		},
+		"container path is relative": {
+			old: "    container_path: /srv/api", new: "    container_path: srv/api",
+			path: "repositories.api.container_path", contains: "absolute path inside the execution environment",
+		},
+		"container paths overlap": {
+			old: "    container_path: /srv/web", new: "    container_path: /srv/api/inner",
+			path: "repositories.web.container_path", contains: "cannot be mounted inside one another",
+		},
+		"base policy is unknown": {
+			old: "  base_policy: remote", new: "  base_policy: whatever",
+			path: "git.base_policy", contains: "not a base policy",
+		},
+		"branch template uses an unknown placeholder": {
+			old: `  branch_template: "feat/{task_key}-{slug}"`, new: `  branch_template: "feat/{ticket}-{task_key}"`,
+			path: "git.branch_template", contains: "does not expand",
+		},
+		"branch template is not task scoped": {
+			old: `  branch_template: "feat/{task_key}-{slug}"`, new: `  branch_template: "feat/{project_id}"`,
+			path: "git.branch_template", contains: "two tasks share it",
+		},
+		"branch template expands to an invalid ref": {
+			old: `  branch_template: "feat/{task_key}-{slug}"`, new: `  branch_template: "feat/../{task_key}"`,
+			path: "git.branch_template", contains: "Git rejects",
+		},
+		"branch template has a stray brace": {
+			old: `  branch_template: "feat/{task_key}-{slug}"`, new: `  branch_template: "feat/{task_key-{slug}"`,
+			path: "git.branch_template", contains: "unmatched",
+		},
+		"agent provider is unsupported": {
+			old: "  provider: claude", new: "  provider: codex",
+			path: "agent.provider", contains: "only agent this version supports",
+		},
+		"execution user is root": {
+			old: "    user: developer", new: "    user: root",
+			path: "agent.execution.user", contains: "non-root",
+		},
+		"execution user is uid zero": {
+			old: "    user: developer", new: `    user: "0:0"`,
+			path: "agent.execution.user", contains: "non-root",
+		},
+		"working directory is not mounted": {
+			old: "    working_directory: /srv/api", new: "    working_directory: /elsewhere",
+			path: "agent.execution.working_directory", contains: "not inside any repository",
+		},
+		"control path shadows a repository": {
+			old: "    control_path: /feat", new: "    control_path: /srv/api/control",
+			path: "agent.execution.control_path", contains: "must be separate from every repository",
+		},
+		"docker capability is granted": {
+			old: "    docker: denied", new: "    docker: allowed",
+			path: "agent.capabilities.docker", contains: "never receives a Docker socket",
+		},
+		"network capability is restricted": {
+			old: "    network: unrestricted", new: "    network: allowlist",
+			path: "agent.capabilities.network", contains: "does not implement network restriction",
+		},
+		"provider cli level is unknown": {
+			old: "    gitlab_cli: required", new: "    gitlab_cli: maybe",
+			path: "agent.capabilities.gitlab_cli", contains: "not a capability level",
+		},
+		"runtime start policy is automatic": {
+			old: "  start_policy: manual", new: "  start_policy: automatic",
+			path: "runtime.start_policy", contains: "explicit user action",
+		},
+		"runtime project name is not task scoped": {
+			old: `  project_name_template: "feat-{project_id}-{task_id}"`, new: `  project_name_template: "feat-{project_id}"`,
+			path: "runtime.project_name_template", contains: "two tasks share it",
+		},
+		"runtime project name is invalid for compose": {
+			old: `  project_name_template: "feat-{project_id}-{task_id}"`, new: `  project_name_template: "Feat/{task_id}"`,
+			path: "runtime.project_name_template", contains: "Docker Compose rejects",
+		},
+		"external resource is also a managed service": {
+			old: "    staging_db:", new: "    worker:",
+			path: "runtime.external_resources.worker", contains: "must not be one it starts",
+		},
+		"external resource is owned by feat": {
+			old: "      lifecycle: external", new: "      lifecycle: managed",
+			path: "runtime.external_resources.staging_db.lifecycle", contains: "never provisions or destroys",
+		},
+		"selector variable is not an environment name": {
+			old: "      selector_variable: FEAT_STAGING_SCHEMA", new: "      selector_variable: 9-schema",
+			path: "runtime.external_resources.staging_db.selector_variable", contains: "environment variable name",
+		},
+		"review command uses an unknown placeholder": {
+			old: `    command: ["git", "diff", "{base_commit}"]`, new: `    command: ["git", "diff", "{base}"]`,
+			path: "review.diff.command[2]", contains: "does not expand",
+		},
+		"review program is a placeholder": {
+			old: `    command: ["nvim", "{repository_path}"]`, new: `    command: ["{editor}", "{repository_path}"]`,
+			path: "review.editor.command", contains: "program to run is fixed",
+		},
+		"check names an unknown repository": {
+			old: "checks:\n  api:", new: "checks:\n  absent:",
+			path: "checks.absent", contains: "not one of this project's repositories",
+		},
+		"check execution is unknown": {
+			old: "      execution: agent", new: "      execution: somewhere",
+			path: "checks.api[0].execution", contains: "where the check runs",
+		},
+		"config volume is not a volume name": {
+			old: "    config_volume: example-claude-config", new: "    config_volume: not/a/volume",
+			path: "agent.claude.config_volume", contains: "volume name",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := loadReplacing(t, testCase.old, testCase.new)
+			invalid := configError(t, err)
+
+			problem := problemAt(t, invalid, testCase.path)
+			if !strings.Contains(problem.Reason, testCase.contains) {
+				t.Errorf("problem at %s is %q, which does not explain %q",
+					testCase.path, problem.Reason, testCase.contains)
+			}
+		})
+	}
+}
+
+// TestWorktreeRootMustBeADirectoryFeatOwns checks the rule that protects the
+// only configured path Feat later deletes from.
+func TestWorktreeRootMustBeADirectoryFeatOwns(t *testing.T) {
+	const field = "git.worktree_root"
+	const original = `  worktree_root: "~/.local/share/feat/worktrees/{project_id}/{task_id}"`
+
+	for name, testCase := range map[string]struct {
+		root     string
+		contains string
+	}{
+		"filesystem root":         {root: "/", contains: "must contain"},
+		"shared temp directory":   {root: "/tmp", contains: "must contain"},
+		"one level below root":    {root: "/{task_id}", contains: "shared directory"},
+		"system directory":        {root: "/var/{task_id}/work", contains: "shared directory"},
+		"inside a checkout":       {root: "~/repos/app/api/{task_id}", contains: "overlaps the checkout"},
+		"relative":                {root: "worktrees/{task_id}", contains: "absolute"},
+		"no per-task placeholder": {root: "~/worktrees/{project_id}", contains: "two tasks share it"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := loadReplacing(t, original, `  worktree_root: "`+testCase.root+`"`)
+			invalid := configError(t, err)
+
+			problem := problemAt(t, invalid, field)
+			if testCase.contains != "" && !strings.Contains(problem.Reason, testCase.contains) {
+				t.Errorf("problem is %q, which does not explain %q", problem.Reason, testCase.contains)
+			}
+		})
+	}
+}
+
+// TestHostExecutionRejectsDevcontainerFields checks that configuration which
+// would be silently ignored is refused instead.
+//
+// A user who configured a service and a non-root user must not be left
+// believing their agent runs in a container when the mode says it does not.
+func TestHostExecutionRejectsDevcontainerFields(t *testing.T) {
+	base := fixture(t, "app.yaml")
+	body := strings.Replace(base, "    mode: devcontainer", "    mode: host", 1)
+	dir := write(t, "app.yaml", body)
+	opts, _ := testOptions(t, nil)
+
+	_, err := config.Load(dir, "app", opts)
+	invalid := configError(t, err)
+
+	for _, path := range []string{
+		"agent.execution.compose_files",
+		"agent.execution.service",
+		"agent.execution.user",
+		"agent.execution.control_path",
+		"agent.execution.working_directory",
+	} {
+		problem := problemAt(t, invalid, path)
+		if !strings.Contains(problem.Reason, "host") {
+			t.Errorf("problem at %s is %q, which does not mention the execution mode", path, problem.Reason)
+		}
+	}
+}
+
+// TestDevcontainerRequiresContainerPaths checks that a repository a task can
+// select has somewhere to be mounted.
+func TestDevcontainerRequiresContainerPaths(t *testing.T) {
+	_, err := loadReplacing(t, "    container_path: /srv/web\n", "")
+	invalid := configError(t, err)
+
+	problem := problemAt(t, invalid, "repositories.web.container_path")
+	if !strings.Contains(problem.Reason, "devcontainer") {
+		t.Errorf("problem is %q, which does not say why a container path is needed", problem.Reason)
+	}
+}
+
+// TestEveryProblemIsReportedTogether checks that validation collects problems
+// rather than stopping at the first.
+//
+// A configuration file is edited by hand. Finding four mistakes one round trip
+// at a time is four times the work of seeing them together.
+func TestEveryProblemIsReportedTogether(t *testing.T) {
+	base := fixture(t, "app.yaml")
+	body := base
+	for _, replacement := range [][2]string{
+		{"  base_policy: remote", "  base_policy: whatever"},
+		{"    docker: denied", "    docker: allowed"},
+		{"    user: developer", "    user: root"},
+		{"  start_policy: manual", "  start_policy: automatic"},
+	} {
+		body = strings.Replace(body, replacement[0], replacement[1], 1)
+	}
+	dir := write(t, "app.yaml", body)
+	opts, _ := testOptions(t, nil)
+
+	_, err := config.Load(dir, "app", opts)
+	invalid := configError(t, err)
+
+	if len(invalid.Problems) != 4 {
+		t.Errorf("reported %d problems, want 4:\n%s", len(invalid.Problems), invalid)
+	}
+	for _, path := range []string{
+		"agent.capabilities.docker",
+		"agent.execution.user",
+		"git.base_policy",
+		"runtime.start_policy",
+	} {
+		problemAt(t, invalid, path)
+	}
+}
+
+// TestFileNameMustMatchProjectIdentifier keeps two answers to one question out
+// of the configuration directory.
+func TestFileNameMustMatchProjectIdentifier(t *testing.T) {
+	dir := write(t, "other.yaml", fixture(t, "app.yaml"))
+	opts, _ := testOptions(t, nil)
+
+	_, err := config.LoadFile(filepath.Join(dir, "other.yaml"), opts)
+	invalid := configError(t, err)
+
+	problem := problemAt(t, invalid, "project.id")
+	if !strings.Contains(problem.Reason, "other.yaml") {
+		t.Errorf("problem is %q, which does not name the file", problem.Reason)
+	}
+}
+
+// TestOneProjectIsConfiguredOnce rejects a project configured by two files,
+// rather than picking one by a rule the user has no reason to know.
+func TestOneProjectIsConfiguredOnce(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"app.yaml", "app.yml"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("version: 1\n"), 0o600); err != nil {
+			t.Fatalf("writing %s: %v", name, err)
+		}
+	}
+
+	_, err := config.Find(dir, "app")
+	if err == nil {
+		t.Fatal("expected two configuration files to be reported")
+	}
+	if !strings.Contains(err.Error(), "configured twice") {
+		t.Errorf("error is %q, which does not explain the ambiguity", err)
+	}
+}
+
+// TestMissingConfigurationIsDistinguishable checks that "no such project" is
+// its own error, because it needs a different action from the user than a file
+// that is present and wrong.
+func TestMissingConfigurationIsDistinguishable(t *testing.T) {
+	opts, _ := testOptions(t, nil)
+
+	_, err := config.Load(t.TempDir(), "absent", opts)
+	if !errors.Is(err, config.ErrNotFound) {
+		t.Fatalf("error is %v, want one matching config.ErrNotFound", err)
+	}
+	if !strings.Contains(err.Error(), "absent.yaml") {
+		t.Errorf("error is %q, which does not say where the file belongs", err)
+	}
+}
+
+// TestProjectIdentifierCannotEscapeTheConfigurationDirectory checks that a
+// caller-supplied identifier is validated before it is joined into a path.
+func TestProjectIdentifierCannotEscapeTheConfigurationDirectory(t *testing.T) {
+	for _, id := range []string{"../escape", "..", "/etc/passwd", "a/b", ""} {
+		if _, err := config.File(t.TempDir(), id); err == nil {
+			t.Errorf("identifier %q was accepted as a path component", id)
+		}
+		if _, err := config.Find(t.TempDir(), id); err == nil {
+			t.Errorf("identifier %q was accepted by Find", id)
+		}
+	}
+}
+
+// TestListSkipsFilesThatAreNotProjects checks that the configuration directory
+// stays the user's own directory.
+func TestListSkipsFilesThatAreNotProjects(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"app.yaml", "other.yml", "notes.txt", "Draft.yaml", ".hidden.yaml"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("version: 1\n"), 0o600); err != nil {
+			t.Fatalf("writing %s: %v", name, err)
+		}
+	}
+
+	ids, err := config.List(dir)
+	if err != nil {
+		t.Fatalf("listing configured projects: %v", err)
+	}
+	if want := []string{"app", "other"}; !equal(ids, want) {
+		t.Errorf("configured projects = %v, want %v", ids, want)
+	}
+}
+
+// TestListOfMissingDirectoryIsEmpty checks that a machine with no configuration
+// yet reports no projects rather than an error, so `feat doctor` can run before
+// anything exists.
+func TestListOfMissingDirectoryIsEmpty(t *testing.T) {
+	ids, err := config.List(filepath.Join(t.TempDir(), "absent"))
+	if err != nil {
+		t.Fatalf("listing an absent configuration directory: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("configured projects = %v, want none", ids)
+	}
+}

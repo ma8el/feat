@@ -9,7 +9,7 @@ feat daemon stop
 feat doctor
 feat implement [--file]
 feat project
-feat project add
+feat project add <project>
 feat project list
 feat project show <project>
 feat review <task>

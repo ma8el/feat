@@ -147,6 +147,10 @@ Package layout gained no new package. `internal/paths`, `internal/daemon`, `inte
 
 ## Slice 3 — YAML project configuration and doctor
 
+Status: **awaiting verification on the target machine**, 2026-08-05
+
+Four of the five acceptance criteria pass, each with a test named for it. The second — that the company project configuration validates on the target machine — needs the reference project and the machine it lives on, so it is verified by running `feat doctor` there rather than in this repository. The design decisions this slice started from, and the evidence that produced them, are recorded in ADR-028 in [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md).
+
 ### Outcome
 
 The real project can be represented in YAML and validated without launching work.
@@ -168,6 +172,31 @@ The real project can be represented in YAML and validated without launching work
 - Missing tools/files/services produce actionable diagnostics.
 - Secret file contents never appear in diagnostics.
 - Repository/container-path mappings are printed accurately.
+
+### Delivered
+
+`internal/config` loads configuration in three stages, because they fail for different reasons and are fixed in different ways: `Parse` decodes strictly, `Resolve` expands `~` and fills defaults into the configuration itself, and `Validate` reports every rule the result breaks rather than the first. A configuration file is edited by hand, so finding four mistakes one round trip at a time is four times the work of seeing them together.
+
+Unknown fields and duplicate keys are rejected with a line, a column, and the surrounding text, which the decoder already knows; the same mechanism locates semantic problems, so `agent.execution.user must not be root` is printed against the line that says `user: root`. The decoder is `goccy/go-yaml`, chosen for that and for being maintained; see ADR-028.
+
+The package asks the host no questions. Whether a path exists, holds a Git repository, or names a real Compose service is diagnostics, and lives in `internal/project`. That line is what keeps a configuration loadable on a machine where a repository is temporarily missing, which is the machine `feat doctor` is most useful on.
+
+Four validation rules protect resources rather than shape:
+
+- every template that names a per-task resource must contain `{task_id}` or `{task_key}`, or two tasks share a branch, a worktree, or a Compose project;
+- placeholder vocabularies are closed, so a name Feat does not expand cannot survive into a branch name, a path, or a command argument, and an argument-vector's program may not be templated at all;
+- `git.worktree_root` is checked against its fixed leading directory as well as its expansion, because Feat creates and removes worktrees under that directory and `/var/{task_id}/work` is a system location one placeholder deeper down;
+- configuration that a mode would silently ignore is rejected rather than ignored, so a user who configured a service and a non-root user is never left believing their agent is in a container when the mode says it is not.
+
+`feat doctor` runs in the client process and changes nothing: no daemon, no registration, and no state, which a test asserts. Findings carry a severity and an action, and every problem must name one. A check this build cannot run is reported as `skipped` and names the slice that delivers it — the checks FR-PROJ-004 asks for inside the agent's execution environment are the first users of that, because nothing starts that environment before slice 8. A diagnostic that claims a check it did not run is worse than no diagnostic.
+
+Secret file contents never appear because they are never read. Environment files are examined by path and metadata, and the only Compose command used is `config --services`; plain `docker compose config` renders the resolved project including values taken from those files, and a test fails if it is ever invoked. The acceptance test uses an environment file with mode `000`, so an implementation that opened it could not pass by accident.
+
+Registering a project is the first write the local API carries. `POST /v1/projects` takes an identifier and nothing else, and the daemon resolves the file from its own configuration directory, so no caller-supplied path crosses the socket. That makes slice 2's structurally verified sole-writer criterion behavioural: a test registers through the socket and finds the snapshot in the daemon's state directory. Registration is idempotent, keeps the original registration time, and leaves nothing behind when the configuration is rejected.
+
+`feat project add <project>` changes the command surface slice 0 pinned, and `feat doctor` exits 1 when it finds an error. Both are recorded in ADR-028 and in the golden file. `schema/feat-project.schema.json` is hand-written and held to the Go types by a drift test that checks both directions, verified against an injected violation each way; `docs/examples/project.yaml` is validated by the test suite, so the file a new user copies cannot drift from what Feat accepts.
+
+Package layout gained no new package: `internal/config` and `internal/project` were reserved by slice 0. See ADR-028; [06-technical-architecture.md](06-technical-architecture.md), [07-configuration-model.md](07-configuration-model.md), and [README.md](../README.md) were updated in the same change.
 
 ## Slice 4 — Git and worktree lifecycle
 

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -88,6 +89,14 @@ func (c *Client) Project(ctx context.Context, id string) (api.Project, error) {
 	return fetch[api.Project](ctx, c, "/projects/"+url.PathEscape(id))
 }
 
+// RegisterProject records a project from its configuration file.
+//
+// Only the identifier is sent. The daemon reads the configuration from the
+// directory it resolved for itself, so a client never hands it a path.
+func (c *Client) RegisterProject(ctx context.Context, id string) (api.Registration, error) {
+	return send[api.Registration](ctx, c, "/projects", api.RegisterProject{ProjectID: id})
+}
+
 // Tasks returns every task of every project.
 func (c *Client) Tasks(ctx context.Context) ([]api.Task, error) {
 	return fetch[[]api.Task](ctx, c, "/tasks")
@@ -123,6 +132,43 @@ func fetch[T any](ctx context.Context, c *Client, path string) (T, error) {
 		return payload, fmt.Errorf("reading the daemon's response to %s: %w", path, err)
 	}
 	return payload, nil
+}
+
+// send performs one POST and decodes the response.
+func send[T any](ctx context.Context, c *Client, path string, payload any) (T, error) {
+	var result T
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return result, fmt.Errorf("building a request for %s: %w", path, err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"http://"+host+"/"+api.Version+path, bytes.NewReader(body))
+	if err != nil {
+		return result, fmt.Errorf("building a request for %s: %w", path, err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	response, err := c.http.Do(request)
+	if err != nil {
+		return result, c.describe(err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, response.Body)
+		_ = response.Body.Close()
+	}()
+
+	if err := failed(response, path); err != nil {
+		return result, err
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, maxResponseBody)).Decode(&result); err != nil {
+		return result, fmt.Errorf("reading the daemon's response to %s: %w", path, err)
+	}
+	return result, nil
 }
 
 // get issues a GET request against the local API.
