@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/goccy/go-yaml v1.19.2
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
 	golang.org/x/term v0.45.0

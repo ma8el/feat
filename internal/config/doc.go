@@ -1,21 +1,42 @@
-// Package config loads, merges, and validates the YAML project configuration
+// Package config loads, resolves, and validates the YAML project configuration
 // described in docs/07-configuration-model.md.
 //
-// Dependency rule: config depends on the standard library, a YAML decoder, and
-// internal/domain only. It must not import adapter, daemon, api, or ui
-// packages, so that validation stays testable without a host environment.
+// Dependency rule: config depends on the standard library, a YAML decoder,
+// internal/domain, and internal/paths only. It must not import adapter, daemon,
+// api, or ui packages, so that validation stays testable without a host
+// environment.
 //
-// Rules this package must enforce:
+// Loading is three stages, kept separate because they fail for different
+// reasons and are fixed in different ways:
+//
+//   - Parse decodes the document strictly. An unknown field and a repeated key
+//     are errors rather than values silently ignored, and the decoder reports
+//     the line, the column, and the surrounding text.
+//   - Resolve expands a leading "~", makes paths absolute, and fills defaults
+//     into the configuration itself, so that `feat project show` prints the
+//     values Feat will act on rather than the text of the file.
+//   - Validate reports every rule the result breaks rather than the first,
+//     because a configuration file is edited by hand.
+//
+// This package checks shape and safety; it never asks the host a question.
+// Whether a path exists, holds a Git repository, or names a real Compose
+// service is diagnostics, and that lives in internal/project. The line between
+// them is what keeps a configuration loadable on a machine where a repository
+// is temporarily missing, which is the machine `feat doctor` is most useful on.
+//
+// Rules this package enforces:
 //
 //   - unknown YAML fields fail with a useful location and message;
 //   - IDs, branch templates, and runtime project-name templates produce safe
 //     names, and worktree roots cannot resolve to a broad unsafe path;
-//   - container paths are absolute and non-overlapping unless explicitly
-//     allowed;
+//   - container paths are absolute and non-overlapping;
 //   - configuration may reference secret file paths but never contains copied
-//     secret values, and redaction applies to all resolved output;
+//     secret values: this package records the path of an environment file and
+//     never opens it, so resolved output has nothing to redact;
 //   - capabilities are explicit and independent: Git and provider CLI access
-//     never imply Docker access.
+//     never imply Docker access, and the three capabilities Feat cannot
+//     actually vary accept only the value Feat delivers.
 //
-// Delivered by slice 3.
+// Delivered by slice 3. See ADR-028 in
+// docs/10-decisions-and-open-questions.md.
 package config

@@ -72,10 +72,19 @@ func TestExecuteExitCodes(t *testing.T) {
 		{"unknown subcommand argument", []string{"task", "list", "extra"}, ExitUsage},
 		{"unknown log level", []string{"daemon", "status", "--log-level", "loud"}, ExitUsage},
 
-		{"project add", []string{"project", "add"}, ExitNotImplemented},
-		{"doctor", []string{"doctor"}, ExitNotImplemented},
+		{"project add without a project", []string{"project", "add"}, ExitUsage},
+
+		{"implement", []string{"implement"}, ExitNotImplemented},
 		{"attach with a task", []string{"attach", "abc123"}, ExitNotImplemented},
 		{"runtime start", []string{"runtime", "start", "abc123"}, ExitNotImplemented},
+
+		// A machine with nothing configured is diagnosable and not broken.
+		{"doctor on an empty machine", []string{"doctor"}, ExitOK},
+
+		// A project with no configuration file is a failure of the command,
+		// unlike an absent daemon, which is a state.
+		{"project add without a configuration", []string{"project", "add", "absent"}, ExitError},
+		{"project show without a configuration", []string{"project", "show", "absent"}, ExitError},
 
 		// An absent daemon is a state a script may act on, not a failure of the
 		// command.
@@ -87,7 +96,7 @@ func TestExecuteExitCodes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
-			got := Execute(context.Background(), test.args, &stdout, &stderr)
+			got := execute(context.Background(), Options{Runner: workingHost{}}, test.args, &stdout, &stderr)
 			if got != test.want {
 				t.Errorf("exit code = %d, want %d\nstdout: %s\nstderr: %s",
 					got, test.want, stdout.String(), stderr.String())
@@ -104,10 +113,10 @@ func TestNotImplementedErrorIsActionable(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 
-	Execute(context.Background(), []string{"project", "add"}, &stdout, &stderr)
+	Execute(context.Background(), []string{"implement"}, &stdout, &stderr)
 
 	message := stderr.String()
-	for _, want := range []string{"feat project add", "slice 3", "docs/11-implementation-plan.md"} {
+	for _, want := range []string{"feat implement", "slice 6", "docs/11-implementation-plan.md"} {
 		if !strings.Contains(message, want) {
 			t.Errorf("error message does not mention %q:\n%s", want, message)
 		}

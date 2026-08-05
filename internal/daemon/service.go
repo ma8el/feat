@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/ma8el/feat/internal/api"
+	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/paths"
+	"github.com/ma8el/feat/internal/project"
 	"github.com/ma8el/feat/internal/store"
 )
 
@@ -27,11 +30,15 @@ type Build struct {
 // and writer of persistent state (ADR-008), and confining it to one type is what
 // makes that checkable rather than aspirational.
 type service struct {
-	store    store.Store
-	bus      *Bus
-	layout   paths.Layout
+	store  store.Store
+	bus    *Bus
+	layout paths.Layout
+	// env is the environment configuration is resolved against: the user who
+	// owns the daemon, not whoever sent the request.
+	env      paths.Environment
 	build    Build
 	endpoint Endpoint
+	now      func() time.Time
 	logger   *slog.Logger
 }
 
@@ -82,6 +89,78 @@ func (s *service) Project(ctx context.Context, id domain.ProjectID) (*domain.Pro
 		return nil, translate(err, "no project "+id.String()+" is registered")
 	}
 	return project, nil
+}
+
+// RegisterProject reads a project's configuration and records it.
+//
+// It is the first write the local API carries. The daemon does the reading as
+// well as the writing: the request names a project, and the file is the one at
+// the documented location under the configuration directory this daemon
+// resolved, so a client cannot point the daemon at a file of its choosing.
+//
+// Registration is idempotent. Re-registering picks up an edited configuration
+// and keeps the original registration time, because a user who edits their YAML
+// expects the record to follow it. Tasks that are already running are
+// unaffected: their configuration was resolved into a launch snapshot when they
+// were launched (docs/07-configuration-model.md).
+func (s *service) RegisterProject(ctx context.Context, id domain.ProjectID) (api.RegisteredProject, error) {
+	cfg, err := config.Load(s.layout.ProjectConfigDir(), id.String(), s.configOptions())
+	if err != nil {
+		return api.RegisteredProject{}, translateConfig(err)
+	}
+
+	existing, err := s.store.Projects().Load(ctx, id)
+	switch {
+	case err == nil:
+		updated, err := project.Update(existing, cfg, s.now())
+		if err != nil {
+			return api.RegisteredProject{}, fmt.Errorf("%w: %w", api.ErrInvalid, err)
+		}
+		if err := s.store.Projects().Save(ctx, updated); err != nil {
+			return api.RegisteredProject{}, err
+		}
+		s.logger.InfoContext(ctx, "project updated",
+			slog.String("project", id.String()), slog.String("configuration", cfg.Path()))
+		return api.RegisteredProject{Project: updated, Created: false}, nil
+
+	case errors.Is(err, store.ErrNotFound):
+		registered, err := project.FromConfig(cfg, s.now())
+		if err != nil {
+			return api.RegisteredProject{}, fmt.Errorf("%w: %w", api.ErrInvalid, err)
+		}
+		if err := s.store.Projects().Save(ctx, registered); err != nil {
+			return api.RegisteredProject{}, err
+		}
+		s.logger.InfoContext(ctx, "project registered",
+			slog.String("project", id.String()), slog.String("configuration", cfg.Path()))
+		return api.RegisteredProject{Project: registered, Created: true}, nil
+
+	default:
+		return api.RegisteredProject{}, err
+	}
+}
+
+// configOptions returns the settings configuration is resolved against.
+//
+// The daemon's own environment supplies them, so that a resolved "~" is the
+// user who owns the daemon rather than whoever asked.
+func (s *service) configOptions() config.Options {
+	return config.Options{Env: s.env, StateDir: s.layout.State}
+}
+
+// translateConfig maps a configuration failure onto the API vocabulary.
+//
+// A missing file and an invalid one are different states with different
+// remedies: one is a file to write, and the other is a file to fix.
+func translateConfig(err error) error {
+	if errors.Is(err, config.ErrNotFound) {
+		return fmt.Errorf("%w: %w", api.ErrNotFound, err)
+	}
+	var invalid *config.Error
+	if errors.As(err, &invalid) {
+		return fmt.Errorf("%w: %w", api.ErrInvalid, invalid)
+	}
+	return err
 }
 
 // Tasks returns every task of every project, in project order.

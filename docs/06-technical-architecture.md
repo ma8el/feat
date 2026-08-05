@@ -74,6 +74,8 @@ Adapters are compiled into the binary initially. Interfaces must avoid leaking i
 
 `internal/cli`, `internal/paths`, `internal/version`, and `internal/guard` were added during slice 0; see ADR-025. `internal/store/storetest` was added during slice 1; see ADR-026. `internal/paths` is implemented by slice 2, which also denies storage to `internal/api` and `internal/client`; see ADR-027. Import boundaries between these packages are enforced by `depguard` rules in `.golangci.yml`.
 
+`internal/config` and `internal/project` are implemented by slice 3, which draws one boundary between them: `internal/config` decides whether a configuration is well formed and safe, and asks the host nothing; `internal/project` asks the host and reports what it found. A configuration therefore stays loadable on a machine where a repository is temporarily missing, which is the machine `feat doctor` is most useful on. See ADR-028.
+
 ## Local API
 
 The API is versioned from the beginning but is not promised stable before v1.
@@ -84,9 +86,9 @@ Minimum endpoints:
 GET    /v1/health
 GET    /v1/events                         SSE
 GET    /v1/projects
-POST   /v1/projects
+POST   /v1/projects                       registers a project by identifier
 GET    /v1/projects/{project_id}
-POST   /v1/projects/{project_id}/doctor
+POST   /v1/projects/{project_id}/doctor   deferred; see ADR-028
 GET    /v1/tasks
 POST   /v1/task-drafts
 PUT    /v1/task-drafts/{draft_id}
@@ -102,7 +104,7 @@ POST   /v1/tasks/{task_id}/cleanup/plan
 POST   /v1/tasks/{task_id}/cleanup/execute
 ```
 
-The local socket is user-owned and mode-restricted. Destructive API requests use task/resource IDs and a server-produced cleanup plan token rather than arbitrary filesystem paths.
+The local socket is user-owned and mode-restricted. Destructive API requests use task/resource IDs and a server-produced cleanup plan token rather than arbitrary filesystem paths. `POST /v1/projects` follows the same rule for the same reason: it carries a project identifier, and the daemon resolves the configuration file from the directory it resolved for itself, so the file that is validated is the file it will read again later.
 
 Task endpoints address a task by its identifier alone, as the command surface does. The daemon resolves the owning project, which storage addresses explicitly; see ADR-026 and ADR-027.
 

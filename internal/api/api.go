@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -16,10 +18,12 @@ import (
 
 // Service is what the API needs from the daemon.
 //
-// Every method is a read: slice 2 serves state and the event stream, and the
-// endpoints that change the world arrive with the slices that can create
-// something to change. The interface is declared here so that the transport can
-// be tested with a fake and the daemon can implement it without a cycle.
+// All but one method is a read. Registering a project is the first write the
+// local API carries, and it goes through the daemon for the reason ADR-008
+// gives: the daemon is the only writer of persistent state, so a client that
+// wrote the project snapshot itself would be a second one. The interface is
+// declared here so that the transport can be tested with a fake and the daemon
+// can implement it without a cycle.
 type Service interface {
 	// Health reports what the daemon knows about itself. It answers even when
 	// part of the state is unreadable, saying so in the report.
@@ -28,6 +32,14 @@ type Service interface {
 	Projects(ctx context.Context) ([]*domain.Project, error)
 	// Project returns one project, or an error matching ErrNotFound.
 	Project(ctx context.Context, id domain.ProjectID) (*domain.Project, error)
+	// RegisterProject reads the project's configuration file, validates it, and
+	// records the project. It is idempotent: registering a project that is
+	// already registered re-reads its configuration and updates the record,
+	// which is what a user who edited their YAML expects.
+	//
+	// It returns an error matching ErrNotFound when no configuration file
+	// exists, and one matching ErrInvalid when the file does not validate.
+	RegisterProject(ctx context.Context, id domain.ProjectID) (RegisteredProject, error)
 	// Tasks returns every task of every project, ordered by project and task.
 	Tasks(ctx context.Context) ([]*domain.Task, error)
 	// Task returns one task addressed by task identifier alone, resolving the
@@ -79,7 +91,10 @@ func NewHandler(opts Options) http.Handler {
 	// JSON error shape as everything else rather than net/http's plain text.
 	mux.Handle("/v1/health", get(server.health))
 	mux.Handle("/v1/events", get(server.events))
-	mux.Handle("/v1/projects", get(server.projects))
+	mux.Handle("/v1/projects", route(map[string]http.HandlerFunc{
+		http.MethodGet:  server.projects,
+		http.MethodPost: server.registerProject,
+	}))
 	mux.Handle("/v1/projects/{project_id}", get(server.project))
 	mux.Handle("/v1/tasks", get(server.tasks))
 	mux.Handle("/v1/tasks/{task_id}", get(server.task))
@@ -145,6 +160,44 @@ func (s *server) project(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newProject(project))
 }
 
+// registerProject records a project from its configuration file.
+//
+// The request carries the project identifier and nothing else. The daemon reads
+// the file from the configuration directory it resolved for itself, so no
+// caller-supplied filesystem path crosses the socket, and the file Feat
+// validates is the one at the documented location rather than one a client
+// pointed it at (docs/05-security-model.md, local daemon API).
+func (s *server) registerProject(w http.ResponseWriter, r *http.Request) {
+	var request RegisterProject
+	if err := decodeBody(r, &request); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	id := domain.ProjectID(request.ProjectID)
+	if err := id.Validate(); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	registered, err := s.service.RegisterProject(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	// 201 for a project Feat did not have, 200 for one it re-read. A user who
+	// runs the command twice should be able to tell which happened.
+	status := http.StatusOK
+	if registered.Created {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, Registration{
+		Project: newProject(registered.Project),
+		Created: registered.Created,
+	})
+}
+
 func (s *server) tasks(w http.ResponseWriter, r *http.Request) {
 	tasks, err := s.service.Tasks(r.Context())
 	if err != nil {
@@ -180,20 +233,64 @@ func (s *server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	writeJSON(w, status, errorEnvelope{Error: Error{Code: code, Message: message}})
 }
 
-// get rejects any method other than GET, and answers HEAD as net/http does, by
-// running the handler and discarding the body.
+// get serves one handler on GET, and on HEAD as net/http does, by running the
+// handler and discarding the body.
 func get(handler http.HandlerFunc) http.Handler {
+	return route(map[string]http.HandlerFunc{http.MethodGet: handler})
+}
+
+// route dispatches by method.
+//
+// A method the endpoint does not serve is answered in the same JSON shape as
+// every other failure, with the methods it does serve, rather than with
+// net/http's plain text.
+func route(handlers map[string]http.HandlerFunc) http.Handler {
+	allowed := make([]string, 0, len(handlers)+1)
+	for method := range handlers {
+		allowed = append(allowed, method)
+	}
+	if _, ok := handlers[http.MethodGet]; ok {
+		allowed = append(allowed, http.MethodHead)
+	}
+	sort.Strings(allowed)
+	allow := strings.Join(allowed, ", ")
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
+		method := r.Method
+		if method == http.MethodHead {
+			method = http.MethodGet
+		}
+		handler, ok := handlers[method]
+		if !ok {
+			w.Header().Set("Allow", allow)
 			writeJSON(w, http.StatusMethodNotAllowed, errorEnvelope{Error: Error{
 				Code:    CodeNotAllowed,
-				Message: r.Method + " is not allowed on " + r.URL.Path + "; this endpoint serves GET",
+				Message: r.Method + " is not allowed on " + r.URL.Path + "; this endpoint serves " + allow,
 			}})
 			return
 		}
 		handler(w, r)
 	})
+}
+
+// decodeBody reads a JSON request body strictly.
+//
+// A field the daemon does not know is an error rather than a value silently
+// ignored, for the same reason the YAML decoder rejects one: a client that
+// asked for something Feat did not do should be told, not left to assume.
+func decodeBody(r *http.Request, payload any) error {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(payload); err != nil {
+		return fmt.Errorf("%w: the request body is not the expected JSON: %w", ErrInvalid, err)
+	}
+	// A second document in the body means the client sent something other than
+	// the one object this endpoint accepts.
+	if decoder.More() {
+		return fmt.Errorf("%w: the request body carries more than one JSON document", ErrInvalid)
+	}
+	return nil
 }
 
 // notFound answers an unrouted path in the same shape as every other error.

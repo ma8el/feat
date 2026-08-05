@@ -75,6 +75,34 @@ type HealthReport struct {
 	Degraded string
 }
 
+// RegisterProject is the body of POST /v1/projects.
+//
+// It carries an identifier rather than a path or a document: the daemon reads
+// the configuration from the directory it resolved, so a client cannot point it
+// at another file, and the file that is validated is the one that will be read
+// again later.
+type RegisterProject struct {
+	// ProjectID names the project, and therefore its configuration file.
+	ProjectID string `json:"project_id"`
+}
+
+// Registration is the response of POST /v1/projects.
+type Registration struct {
+	// Project is the registered project as it is now recorded.
+	Project Project `json:"project"`
+	// Created reports whether the project was new. It is false when an already
+	// registered project's configuration was re-read.
+	Created bool `json:"created"`
+}
+
+// RegisteredProject is what the daemon reports after registering a project.
+type RegisteredProject struct {
+	// Project is the recorded project.
+	Project *domain.Project
+	// Created reports whether the project was new to Feat.
+	Created bool
+}
+
 // Project is a registered project.
 type Project struct {
 	ID                string       `json:"id"`

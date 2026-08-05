@@ -1,0 +1,160 @@
+# An example Feat project configuration.
+#
+# Save it as ~/.config/feat/projects/<project-id>.yaml. The file name must match
+# project.id, so this file belongs at ~/.config/feat/projects/app.yaml.
+#
+# Then:
+#
+#   feat doctor              validates this file and checks the host
+#   feat project add app     registers the project with the daemon
+#   feat project show app    prints the configuration Feat will act on
+#
+# Every field with a default is shown here with its default value, so that the
+# file doubles as a reference. A minimal configuration needs only version,
+# project, repositories, and agent.execution.mode.
+#
+# Editors that understand JSON Schema can be pointed at
+# schema/feat-project.schema.json in this repository.
+
+version: 1
+
+project:
+  id: app
+  # Defaults to the identifier.
+  name: Example Application
+  # Where a task works by default. It must be a repository a task can edit.
+  primary_repository: api
+
+repositories:
+  # An ordinary editable repository.
+  api:
+    host_path: ~/repos/app/api
+    # Where task worktrees are mounted in the devcontainer. Required for every
+    # selectable repository when agent.execution.mode is "devcontainer".
+    container_path: /srv/api
+    default_branch: main
+    remote: origin
+    default_access: read_write
+
+  # A repository the user chooses per task: omitted, read-only, or read-write.
+  store:
+    host_path: ~/repos/app/store
+    container_path: /srv/store
+    default_branch: main
+    remote: origin
+    default_access: selectable
+
+  # A repository that is normally used read-only from its ordinary checkout,
+  # such as the one defining the devcontainer itself.
+  infra:
+    name: Container definitions
+    host_path: ~/repos/app/infra
+    container_path: /srv/infra
+    default_branch: main
+    remote: origin
+    default_access: stable_read_only
+
+git:
+  # remote resolves the base from the remote-tracking branch after a fetch.
+  # Feat records the resulting commit, not the ref, and it never changes for
+  # the lifetime of the task. Also available: local, current, explicit.
+  base_policy: remote
+  # Fetching never changes your ordinary checkout.
+  fetch_before_task: true
+  # Must contain {task_id} or {task_key}, or two tasks would share a branch.
+  branch_template: "feat/{task_key}-{slug}"
+  # Feat creates and removes task worktrees under this root, so the fixed part
+  # of the path must be a directory Feat owns.
+  worktree_root: "~/.local/share/feat/worktrees/{project_id}/{task_id}"
+
+agent:
+  provider: claude
+
+  execution:
+    # "devcontainer" runs the agent as a non-root user in a Compose service.
+    # "host" runs it directly in the primary task worktree, with no container
+    # boundary, and rejects the fields below.
+    mode: devcontainer
+    compose_files:
+      - ~/repos/app/infra/docker-compose.yml
+    service: dev
+    # Must not be root.
+    user: developer
+    # Defaults to the primary repository's container_path.
+    working_directory: /srv/api
+    # Where the task control workspace is mounted. It must not overlap a
+    # repository mount.
+    control_path: /feat
+
+  claude:
+    # A dedicated volume, so one interactive login is not the user's own
+    # ~/.claude being exposed to every task container.
+    config_volume: feat-claude
+    # An end-of-turn signal becomes idle after this. Idle never means complete.
+    idle_grace_period: 5s
+
+  capabilities:
+    # These three accept one value each. Feat has no mechanism that varies
+    # them, so any other value would be a promise the binary does not keep.
+    docker: denied
+    network: unrestricted
+    git: full
+    # disabled, optional, or required. "required" fails task launch when the
+    # CLI is missing from the agent's environment.
+    github_cli: optional
+    gitlab_cli: disabled
+
+# Omit this section entirely for a project with no application services.
+runtime:
+  provider: compose
+  # In v0 services start only when you ask them to.
+  start_policy: manual
+  compose_files:
+    - ~/repos/app/api/docker-compose.yml
+  static_overrides: []
+  # Passed to Docker Compose by path. Feat never reads their contents, and
+  # never copies a value out of them into anything it generates.
+  env_files:
+    - ~/repos/app/api/.env
+  # Must contain {task_id} or {task_key}: the Compose project name is what
+  # makes a runtime action affect one task and no other.
+  project_name_template: "feat-{project_id}-{task_id}"
+  services:
+    - app
+    - worker
+  # Resources Feat binds to but never creates or destroys, such as a shared
+  # staging database. They are never included in a destroy plan.
+  external_resources:
+    staging_db:
+      type: postgres
+      lifecycle: external
+      # Generated per task. It is not a secret.
+      selector_variable: FEAT_STAGING_SCHEMA
+
+review:
+  # The first element is the program and is never templated. Arguments may use
+  # {repository_path}, {base_commit}, {branch}, {project_id}, {repository_id},
+  # {task_id}, and {task_key}.
+  diff:
+    command: ["git", "diff", "{base_commit}"]
+  # Defaults to $EDITOR with {repository_path}.
+  editor:
+    command: ["nvim", "{repository_path}"]
+  status:
+    command: ["git", "status", "--short", "--branch"]
+
+# Verification commands, per repository.
+checks:
+  api:
+    - id: test
+      command: ["pytest"]
+      # agent runs it in the agent's environment; host runs it on this machine.
+      execution: agent
+
+notifications:
+  desktop: true
+  idle_grace_period: 5s
+  suppress_while_attached: true
+
+resources:
+  sample_interval: 2s

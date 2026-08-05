@@ -5,7 +5,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/paths"
+	"github.com/ma8el/feat/internal/project"
 	"github.com/ma8el/feat/internal/ui"
 	"github.com/ma8el/feat/internal/version"
 )
@@ -20,14 +22,25 @@ type Options struct {
 	// binary wants; a test supplies its own so that it never reaches the
 	// developer's own daemon.
 	Layout *paths.Layout
+	// Environment is what a leading "~" in project configuration expands
+	// against, and where a default such as $EDITOR is read from. A nil value
+	// uses the process environment.
+	Environment *paths.Environment
+	// Runner runs the commands `feat doctor` uses to inspect the host. A nil
+	// value runs them on the real host; a test supplies its own so that its
+	// result does not depend on which tools happen to be installed.
+	Runner project.Runner
 }
 
 // environment is what commands need from the process: where Feat's directories
-// are, whether a full-screen TUI is possible, and which build this is.
+// are, whose home directory a path expands against, whether a full-screen TUI
+// is possible, and which build this is.
 type environment struct {
 	build       version.Info
 	interactive bool
 	layout      *paths.Layout
+	process     *paths.Environment
+	runner      project.Runner
 }
 
 // resolve returns the path layout, resolving it from the environment unless one
@@ -36,11 +49,33 @@ func (e *environment) resolve() (paths.Layout, error) {
 	if e.layout != nil {
 		return *e.layout, nil
 	}
-	current, err := paths.Current()
+	current, err := e.current()
 	if err != nil {
 		return paths.Layout{}, err
 	}
 	return paths.Resolve(current)
+}
+
+// current returns the process environment paths are resolved against.
+func (e *environment) current() (paths.Environment, error) {
+	if e.process != nil {
+		return *e.process, nil
+	}
+	return paths.Current()
+}
+
+// project returns everything a project command needs: where the configuration
+// lives, and what its paths and defaults resolve against.
+func (e *environment) project() (paths.Layout, config.Options, error) {
+	layout, err := e.resolve()
+	if err != nil {
+		return paths.Layout{}, config.Options{}, err
+	}
+	current, err := e.current()
+	if err != nil {
+		return paths.Layout{}, config.Options{}, err
+	}
+	return layout, config.Options{Env: current, StateDir: layout.State}, nil
 }
 
 const rootLong = `Feat is a terminal-native control plane for running feature work through
@@ -62,6 +97,8 @@ func NewRootCommand(opts Options) *cobra.Command {
 		build:       version.Get(),
 		interactive: opts.Interactive,
 		layout:      opts.Layout,
+		process:     opts.Environment,
+		runner:      opts.Runner,
 	}
 
 	root := &cobra.Command{
@@ -103,13 +140,13 @@ func NewRootCommand(opts Options) *cobra.Command {
 
 	root.AddCommand(
 		newImplementCommand(),
-		newProjectCommand(),
+		newProjectCommand(env),
 		newTaskCommand(),
 		newAttachCommand(),
 		newReviewCommand(),
 		newRuntimeCommand(),
 		newCleanupCommand(),
-		newDoctorCommand(),
+		newDoctorCommand(env),
 		newDaemonCommand(env),
 		newVersionCommand(),
 	)
@@ -127,34 +164,6 @@ brief and repository selection are confirmed.`,
 		RunE: notImplemented(6, "task preparation and initial TUI"),
 	}
 	cmd.Flags().String("file", "", "read the task brief from a Markdown file")
-	return cmd
-}
-
-func newProjectCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "project",
-		Short: "Manage registered projects",
-	}
-	cmd.AddCommand(
-		&cobra.Command{
-			Use:   "add",
-			Short: "Register a project from its YAML configuration",
-			Args:  checkArgs(cobra.NoArgs),
-			RunE:  notImplemented(3, "YAML project configuration and doctor"),
-		},
-		&cobra.Command{
-			Use:   "list",
-			Short: "List registered projects",
-			Args:  checkArgs(cobra.NoArgs),
-			RunE:  notImplemented(3, "YAML project configuration and doctor"),
-		},
-		&cobra.Command{
-			Use:   "show <project>",
-			Short: "Show a project's resolved configuration",
-			Args:  checkArgs(cobra.ExactArgs(1)),
-			RunE:  notImplemented(3, "YAML project configuration and doctor"),
-		},
-	)
 	return cmd
 }
 
@@ -221,15 +230,6 @@ resources explicitly selected. Volumes are retained unless chosen, and dirty or
 unmerged work requires explicit confirmation.`,
 		Args: checkArgs(cobra.ExactArgs(1)),
 		RunE: notImplemented(12, "reconciliation and cleanup"),
-	}
-}
-
-func newDoctorCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "doctor",
-		Short: "Diagnose host prerequisites and project configuration",
-		Args:  checkArgs(cobra.NoArgs),
-		RunE:  notImplemented(3, "YAML project configuration and doctor"),
 	}
 }
 

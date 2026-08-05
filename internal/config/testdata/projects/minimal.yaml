@@ -1,0 +1,18 @@
+# The smallest configuration Feat accepts.
+#
+# Everything omitted here has a default, and `feat project show` prints the
+# defaults Feat filled in rather than leaving the user to guess them.
+version: 1
+
+project:
+  id: minimal
+  primary_repository: only
+
+repositories:
+  only:
+    host_path: ~/repos/only
+    default_access: read_write
+
+agent:
+  execution:
+    mode: host

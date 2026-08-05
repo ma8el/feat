@@ -84,9 +84,10 @@ func localFlagNames(cmd *cobra.Command) []string {
 // reporting success.
 func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
 	// Commands that are implemented. Their RunE is not invoked here: the root
-	// command opens the dashboard, and the daemon commands start, stop, and
-	// inspect a background process. Leaving one of them out of this list would
-	// make this test run it.
+	// command opens the dashboard, the daemon commands start, stop, and inspect
+	// a background process, and the project and doctor commands read the
+	// running user's configuration directory. Leaving one of them out of this
+	// list would make this test run it.
 	implemented := map[string]bool{
 		"feat":               true,
 		"feat version":       true,
@@ -94,6 +95,10 @@ func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
 		"feat daemon stop":   true,
 		"feat daemon status": true,
 		"feat daemon run":    true,
+		"feat doctor":        true,
+		"feat project add":   true,
+		"feat project list":  true,
+		"feat project show":  true,
 	}
 
 	var walk func(cmd *cobra.Command)

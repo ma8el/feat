@@ -10,14 +10,39 @@ replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: pre-alpha.** Slices 0 to 2 of the
+> **Status: pre-alpha.** Slices 0 to 3 of the
 > [implementation plan](docs/11-implementation-plan.md) are complete: the
 > repository has its package skeleton, the full command surface, its development
-> and CI commands, a versioned domain model with file-backed storage, and a
-> local daemon serving a JSON API and a state-event stream over a Unix-domain
-> socket. `feat daemon start|stop|status` works. The commands that create a task
-> are registered but not implemented; each one reports the slice that will
-> deliver it. Nothing here is usable for real work yet.
+> and CI commands, a versioned domain model with file-backed storage, a local
+> daemon serving a JSON API and a state-event stream over a Unix-domain socket,
+> and YAML project configuration with diagnostics.
+> `feat daemon start|stop|status`, `feat doctor`, and
+> `feat project add|list|show` work. The commands that create a task are
+> registered but not implemented; each one reports the slice that will deliver
+> it. Nothing here is usable for real work yet.
+
+## Configuring a project
+
+A project is one YAML file, one per project, named after the project's
+identifier:
+
+```sh
+$EDITOR ~/.config/feat/projects/myproject.yaml   # see docs/examples/project.yaml
+feat doctor                                      # validate it and check the host
+feat daemon start
+feat project add myproject                       # register it
+feat project show myproject                      # what Feat will act on
+```
+
+`feat doctor` changes nothing and needs no daemon, so it is the first thing to
+run. It reports what it checked, what it found, and what to do about it, and a
+check this build cannot run yet is reported as skipped rather than passing.
+
+[`docs/examples/project.yaml`](docs/examples/project.yaml) is a commented
+example showing every field with its default; the semantics are in
+[docs/07-configuration-model.md](docs/07-configuration-model.md).
+[`schema/feat-project.schema.json`](schema/feat-project.schema.json) is a draft
+JSON Schema for editor support.
 
 ## Documentation
 
@@ -77,6 +102,10 @@ mechanically rather than by review attention alone:
   remembering to extend the lint configuration.
 - **The command surface** is pinned by a golden file, so the published command
   model cannot drift silently. Update it with `make golden`.
+- **The JSON Schema and the configuration structs** are compared in both
+  directions, so a field that exists in one and not the other fails in
+  `go test` rather than in a user's editor. The documented example is validated
+  by the same suite.
 
 ## License
 

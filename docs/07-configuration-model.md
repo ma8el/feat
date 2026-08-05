@@ -11,6 +11,8 @@ YAML is selected because Feat configuration is hierarchical and users of the run
 
 Feat must parse YAML with strict unknown-field rejection and publish a JSON Schema for editor support. `feat doctor` performs semantic validation.
 
+Strictness covers both ways a hand-edited file silently loses a value: a field Feat does not know, and a key given twice. Rejection reports the line, the column, and the surrounding text. The schema is published at `schema/feat-project.schema.json` and a documented example at `docs/examples/project.yaml`; both are held to the implementation by tests. See ADR-028.
+
 ## Local configuration
 
 Initial location:
@@ -18,6 +20,8 @@ Initial location:
 ```text
 ~/.config/feat/projects/<project-id>.yaml
 ```
+
+The file name carries the project identifier and must match `project.id`, so that one project is never described by two answers to the same question. `.yml` is accepted; a project configured by both extensions is an error rather than a preference.
 
 v0.1 is local-only. A later optional `.feat.yaml` may hold shareable repository conventions, but absolute machine paths and credential references remain local.
 
@@ -158,7 +162,11 @@ Each provider capability supports:
 - `optional`: `doctor` reports availability/authentication but does not fail.
 - `required`: task launch fails validation when executable/authentication is absent.
 
-Validation occurs inside the same execution environment where Claude will run the command.
+Validation occurs inside the same execution environment where Claude will run the command, and therefore arrives with slice 8. Until then `feat doctor` reports these checks as skipped rather than passing.
+
+### Capabilities Feat cannot vary
+
+`docker`, `network`, and `git` accept one value each — `denied`, `unrestricted`, and `full`. Feat has no mechanism that grants an agent Docker, restricts its network, or limits its Git access, so any other value would record a promise the binary does not keep. The declaration is still made, because the execution adapter checks the running container against it. See ADR-028.
 
 ### Runtime ownership
 
@@ -209,17 +217,20 @@ It should not contain copied secrets or unnecessary `container_name` fields.
 At minimum:
 
 - IDs match a documented safe pattern.
-- Project and repository IDs are unique.
+- Project and repository IDs are unique, and the file name matches the project ID.
 - Primary repository exists and can be read-write.
 - Host paths resolve to expected Git repositories/Compose files.
-- Container paths are absolute and non-overlapping unless explicitly allowed.
-- Branch and runtime templates produce safe names.
-- Worktree roots cannot resolve to a broad unsafe path.
+- Container paths are absolute and non-overlapping unless explicitly allowed, and the control path overlaps none of them.
+- Branch and runtime templates produce safe names, use only known placeholders, and contain a per-task placeholder so that two tasks cannot share a branch or a Compose project.
+- Worktree roots cannot resolve to a broad unsafe path, cannot be rooted at one, and cannot overlap a repository checkout.
 - Devcontainer user is non-root when the policy requires it.
-- Docker capability is denied for the company profile.
-- Command arrays contain a non-empty executable.
-- Runtime destroy never targets external resources.
-- Unknown fields fail validation.
+- Docker capability is denied.
+- Command arrays contain a non-empty executable, and the executable itself is never a placeholder.
+- Runtime destroy never targets external resources, so an external resource may not also be a managed service.
+- Unknown fields fail validation, as do repeated keys.
+- Configuration that the selected execution mode would ignore is rejected rather than ignored.
+
+Whether a configured path exists, holds a Git repository, or names a real Compose service is a host question and belongs to `feat doctor`, not to loading: a configuration must stay loadable on the machine whose repository is missing.
 
 ## State schema policy
 

@@ -1,6 +1,6 @@
 # Feat Product Specification
 
-Status: accepted product direction; implementation started, slices 0 to 2 complete  
+Status: accepted product direction; implementation started, slices 0 to 3 complete  
 Working name: **Feat**  
 Primary CLI: `feat`  
 Initial implementation language: Go  
@@ -49,8 +49,9 @@ The long-term destination is ticket-to-PR/MR execution. The initial wedge is nar
 feat
 feat implement
 feat implement --file task.md
-feat project add
+feat project add <project>
 feat project list
+feat project show <project>
 feat task list
 feat attach <task>
 feat review <task>
@@ -63,6 +64,8 @@ feat daemon run
 ```
 
 `feat` without arguments opens the dashboard. `feat implement` opens task preparation and does not start an agent until the user confirms the final task brief and repository selection.
+
+`feat project add` takes the project's identifier, which is also its configuration file's name; the daemon reads the file from the configuration directory rather than from a path a caller supplies. See ADR-028.
 
 `feat daemon run` is the foreground daemon that `feat daemon start` spawns, and the command a later launchd/systemd unit invokes. It is hidden from help because `feat daemon start` is the user-facing entry point; see ADR-027.
 

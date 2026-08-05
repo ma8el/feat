@@ -37,7 +37,16 @@ const (
 // It never calls os.Exit so that tests can drive the whole command surface in
 // process.
 func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	root := NewRootCommand(Options{Interactive: interactive()})
+	return execute(ctx, Options{Interactive: interactive()}, args, stdout, stderr)
+}
+
+// execute runs the command tree with explicit options.
+//
+// It exists so that a test can supply its own path layout and command runner
+// instead of the process's, and still go through the exit-code mapping the real
+// binary uses.
+func execute(ctx context.Context, opts Options, args []string, stdout, stderr io.Writer) int {
+	root := NewRootCommand(opts)
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
@@ -57,6 +66,14 @@ func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if errors.As(err, &notImplemented) {
 		reportf(stderr, "feat: %v\n", notImplemented)
 		return ExitNotImplemented
+	}
+
+	var diagnosis *diagnosisError
+	if errors.As(err, &diagnosis) {
+		// The report is already on stdout. What is added here is the one line
+		// that says the exit code was deliberate.
+		reportf(stderr, "feat: %v\n", diagnosis)
+		return ExitError
 	}
 
 	var notRunning *NotRunningError

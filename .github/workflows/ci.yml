@@ -40,11 +40,15 @@ jobs:
       - name: Test
         run: go test -race ./...
 
+      # The opt-in tests use the real tools: they build and run the binary, and
+      # they drive real Git and real Docker Compose. Unit tests must do neither,
+      # so these are a separate step rather than a separate workflow.
+      #
       # Slice 2 acceptance: two client processes query the daemon concurrently.
-      # The opt-in tests build the binary and run it, which unit tests must not,
-      # so they are a separate step rather than a separate workflow.
-      - name: Test with the real binary
-        run: go test -race -run 'TestBinary' ./...
+      # Slice 3: the diagnostic commands are argument vectors a fake runner
+      # cannot check, so they are also run against the tools themselves.
+      - name: Test with the real tools
+        run: go test -race -run 'TestBinary|TestReal' ./...
         env:
           FEAT_INTEGRATION: "1"
 
