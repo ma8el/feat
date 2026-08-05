@@ -32,6 +32,7 @@ const (
 const (
 	dirName         = "feat"
 	socketName      = "feat.sock"
+	tmuxSocketName  = "tmux.sock"
 	lockName        = "daemon.lock"
 	endpointName    = "endpoint.json"
 	logsDirName     = "logs"
@@ -100,6 +101,13 @@ func (l Layout) EndpointFile() string { return filepath.Join(l.Runtime, endpoint
 // LogFile returns the path of the daemon log.
 func (l Layout) LogFile() string { return filepath.Join(l.State, logsDirName, daemonLogName) }
 
+// TmuxSocket returns the dedicated tmux server socket.
+//
+// It shares the owner-only runtime directory with the daemon's ephemeral
+// ownership files, but it has a different lifetime: stopping the daemon leaves
+// tmux and every task terminal running (ADR-030).
+func (l Layout) TmuxSocket() string { return filepath.Join(l.Runtime, tmuxSocketName) }
+
 // Resolve returns the layout the environment implies.
 //
 // Configuration and state follow the XDG base directory specification, which
@@ -127,6 +135,9 @@ func Resolve(env Environment) (Layout, error) {
 		Socket:  filepath.Join(runtimeDir, socketName),
 	}
 	if err := checkSocketPath(layout.Socket, env.goos()); err != nil {
+		return Layout{}, err
+	}
+	if err := checkSocketPath(layout.TmuxSocket(), env.goos()); err != nil {
 		return Layout{}, err
 	}
 	return layout, nil

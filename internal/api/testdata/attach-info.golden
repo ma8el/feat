@@ -1,0 +1,6 @@
+{
+  "socket": "/run/feat/tmux.sock",
+  "session": "$2",
+  "window": "@7",
+  "pane": "%11"
+}

@@ -41,14 +41,29 @@ jobs:
         run: go test -race ./...
 
       # The opt-in tests use the real tools: they build and run the binary, and
-      # they drive real Git and real Docker Compose. Unit tests must do neither,
+      # they drive real Git, tmux, and Docker Compose. Unit tests must do none,
       # so these are a separate step rather than a separate workflow.
       #
       # Slice 2 acceptance: two client processes query the daemon concurrently.
       # Slice 3: the diagnostic commands are argument vectors a fake runner
       # cannot check, so they are also run against the tools themselves.
+      - name: Install tmux when the runner image does not provide it
+        shell: bash
+        run: |
+          if command -v tmux >/dev/null 2>&1; then
+            exit 0
+          fi
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install --yes tmux
+          else
+            brew install tmux
+          fi
+
       - name: Test with the real tools
-        run: go test -race -run 'TestBinary|TestReal' ./...
+        run: |
+          tmux -V
+          go test -race -run 'TestBinary|TestReal' ./...
         env:
           FEAT_INTEGRATION: "1"
 

@@ -96,6 +96,7 @@ func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
 		"feat daemon status": true,
 		"feat daemon run":    true,
 		"feat doctor":        true,
+		"feat attach":        true,
 		"feat project add":   true,
 		"feat project list":  true,
 		"feat project show":  true,

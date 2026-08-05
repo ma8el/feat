@@ -213,6 +213,17 @@ type Tmux struct {
 	Pane    string `json:"pane,omitempty"`
 }
 
+// AttachInfo is the response of POST /v1/tasks/{task_id}/attach-info.
+//
+// The client invokes native tmux with these stable IDs. No display name or
+// numeric index crosses the API because either may change under user config.
+type AttachInfo struct {
+	Socket  string `json:"socket"`
+	Session string `json:"session"`
+	Window  string `json:"window"`
+	Pane    string `json:"pane"`
+}
+
 // Runtime is a task's application runtime.
 //
 // It carries what the dashboard and the runtime commands need in v0. Slice 9

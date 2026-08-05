@@ -30,6 +30,10 @@ type Options struct {
 	// value runs them on the real host; a test supplies its own so that its
 	// result does not depend on which tools happen to be installed.
 	Runner project.Runner
+	// Attacher yields this process's terminal to native tmux. A nil value runs
+	// the installed tmux client; tests inject one so they never take over the
+	// test process's terminal.
+	Attacher TerminalAttacher
 }
 
 // environment is what commands need from the process: where Feat's directories
@@ -41,6 +45,7 @@ type environment struct {
 	layout      *paths.Layout
 	process     *paths.Environment
 	runner      project.Runner
+	attacher    TerminalAttacher
 }
 
 // resolve returns the path layout, resolving it from the environment unless one
@@ -99,6 +104,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		layout:      opts.Layout,
 		process:     opts.Environment,
 		runner:      opts.Runner,
+		attacher:    opts.Attacher,
 	}
 
 	root := &cobra.Command{
@@ -142,7 +148,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		newImplementCommand(),
 		newProjectCommand(env),
 		newTaskCommand(),
-		newAttachCommand(),
+		newAttachCommand(env),
 		newReviewCommand(),
 		newRuntimeCommand(),
 		newCleanupCommand(),
@@ -179,15 +185,6 @@ func newTaskCommand() *cobra.Command {
 		RunE:  notImplemented(6, "task preparation and initial TUI"),
 	})
 	return cmd
-}
-
-func newAttachCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "attach <task>",
-		Short: "Attach to a task's agent terminal",
-		Args:  checkArgs(cobra.ExactArgs(1)),
-		RunE:  notImplemented(5, "tmux execution backend"),
-	}
 }
 
 func newReviewCommand() *cobra.Command {

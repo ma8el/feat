@@ -132,6 +132,9 @@ func TestResolveRuntimeOverride(t *testing.T) {
 	if got, want := layout.EndpointFile(), "/somewhere/else/endpoint.json"; got != want {
 		t.Errorf("EndpointFile = %q, want %q", got, want)
 	}
+	if got, want := layout.TmuxSocket(), "/somewhere/else/tmux.sock"; got != want {
+		t.Errorf("TmuxSocket = %q, want %q", got, want)
+	}
 }
 
 func TestResolveRejectsRelativeRuntimeOverride(t *testing.T) {
@@ -216,7 +219,7 @@ func TestResolveCreatesNothing(t *testing.T) {
 
 	for _, path := range []string{
 		layout.Config, layout.State, layout.Runtime, layout.Socket,
-		layout.ProjectConfigDir(), layout.LockFile(), layout.EndpointFile(), layout.LogFile(),
+		layout.ProjectConfigDir(), layout.LockFile(), layout.EndpointFile(), layout.LogFile(), layout.TmuxSocket(),
 	} {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s exists after Resolve; err = %v", path, err)
@@ -232,6 +235,7 @@ func TestLayoutPaths(t *testing.T) {
 		{"LogFile", layout.LogFile(), "/s/feat/logs/daemon.log"},
 		{"LockFile", layout.LockFile(), "/r/feat/daemon.lock"},
 		{"EndpointFile", layout.EndpointFile(), "/r/feat/endpoint.json"},
+		{"TmuxSocket", layout.TmuxSocket(), "/r/feat/tmux.sock"},
 	} {
 		if test.got != test.want {
 			t.Errorf("%s = %q, want %q", test.name, test.got, test.want)

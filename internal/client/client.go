@@ -107,6 +107,12 @@ func (c *Client) Task(ctx context.Context, id string) (api.Task, error) {
 	return fetch[api.Task](ctx, c, "/tasks/"+url.PathEscape(id))
 }
 
+// AttachInfo resolves the task's live native tmux target. The client process,
+// not the daemon, attaches so the user's terminal streams stay native.
+func (c *Client) AttachInfo(ctx context.Context, id string) (api.AttachInfo, error) {
+	return send[api.AttachInfo](ctx, c, "/tasks/"+url.PathEscape(id)+"/attach-info", struct{}{})
+}
+
 // fetch performs one GET and decodes the response.
 func fetch[T any](ctx context.Context, c *Client, path string) (T, error) {
 	var payload T

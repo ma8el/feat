@@ -269,6 +269,38 @@ func TestTaskOwnsOneSessionAndOneRuntime(t *testing.T) {
 	}
 }
 
+func TestAgentSessionRequiresStableTmuxObjectIDs(t *testing.T) {
+	valid := TmuxTarget{Socket: "/run/feat/tmux.sock", Session: "$1", Window: "@3", Pane: "%5"}
+	if err := valid.Validate(testTask); err != nil {
+		t.Fatalf("valid target: %v", err)
+	}
+
+	for name, mutate := range map[string]func(*TmuxTarget){
+		"relative socket": func(target *TmuxTarget) { target.Socket = "tmux.sock" },
+		"session name":    func(target *TmuxTarget) { target.Session = "example" },
+		"window index":    func(target *TmuxTarget) { target.Window = "3" },
+		"pane index":      func(target *TmuxTarget) { target.Pane = "1" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			target := valid
+			mutate(&target)
+			if err := target.Validate(testTask); !errors.Is(err, ErrInvalid) {
+				t.Errorf("Validate(%+v) error = %v, want ErrInvalid", target, err)
+			}
+		})
+	}
+
+	session := testSession(t)
+	reconciled := TmuxTarget{Socket: "/run/feat/tmux.sock", Session: "$9", Window: "@11", Pane: "%13"}
+	when := origin.Add(time.Minute)
+	if err := session.ReconcileTerminal(reconciled, ProcessRunning, testTask, when); err != nil {
+		t.Fatalf("ReconcileTerminal: %v", err)
+	}
+	if session.Tmux != reconciled || session.Process != ProcessRunning || session.LastActivityAt != when {
+		t.Errorf("reconciled session = %+v", session)
+	}
+}
+
 // TestBindingRulesAreEnforced checks the rules a repository binding carries: no
 // repository twice, a branch only where the agent may write, and absolute paths.
 func TestBindingRulesAreEnforced(t *testing.T) {

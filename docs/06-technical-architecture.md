@@ -221,7 +221,10 @@ Requirements:
 - inspect process existence without interpreting semantic completion from terminal text;
 - reconcile existing managed sessions on daemon startup.
 
-The tmux adapter is behind an internal execution interface even though no alternative backend is required before v1.
+The tmux adapter and the execution-environment adapters are separate boundaries.
+Execution adapters construct an argument vector and working directory for a
+host or devcontainer command; tmux keeps that command attached to a persistent
+terminal. Neither implements the other. See ADR-030.
 
 ## Agent adapter contract
 
@@ -373,4 +376,3 @@ Working model:
 - non-sensitive push signals contain no task text;
 - source and transcripts are not persisted by the service;
 - local/LAN web access remains open source.
-

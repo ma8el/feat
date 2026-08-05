@@ -18,12 +18,11 @@ import (
 
 // Service is what the API needs from the daemon.
 //
-// All but one method is a read. Registering a project is the first write the
-// local API carries, and it goes through the daemon for the reason ADR-008
-// gives: the daemon is the only writer of persistent state, so a client that
-// wrote the project snapshot itself would be a second one. The interface is
-// declared here so that the transport can be tested with a fake and the daemon
-// can implement it without a cycle.
+// Most methods are reads. Registration and live-target reconciliation may
+// update persistent observations, and both go through the daemon for the reason
+// ADR-008 gives: the daemon is the only writer of persistent state. The
+// interface is declared here so that the transport can be tested with a fake
+// and the daemon can implement it without a cycle.
 type Service interface {
 	// Health reports what the daemon knows about itself. It answers even when
 	// part of the state is unreadable, saying so in the report.
@@ -45,6 +44,9 @@ type Service interface {
 	// Task returns one task addressed by task identifier alone, resolving the
 	// owning project, or an error matching ErrNotFound (ADR-027).
 	Task(ctx context.Context, id domain.TaskID) (*domain.Task, error)
+	// AttachInfo resolves a task's live, tagged tmux target. The client uses the
+	// returned stable IDs to attach its own terminal to native tmux.
+	AttachInfo(ctx context.Context, id domain.TaskID) (AttachInfo, error)
 	// Subscribe returns the event stream for one client. The channel is closed
 	// when the context ends, or when the subscriber fell too far behind, which
 	// the caller reports as a lost stream.
@@ -98,6 +100,9 @@ func NewHandler(opts Options) http.Handler {
 	mux.Handle("/v1/projects/{project_id}", get(server.project))
 	mux.Handle("/v1/tasks", get(server.tasks))
 	mux.Handle("/v1/tasks/{task_id}", get(server.task))
+	mux.Handle("/v1/tasks/{task_id}/attach-info", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.attachInfo,
+	}))
 	mux.Handle("/", http.HandlerFunc(notFound))
 
 	return server.recoverPanic(server.logRequests(limitBody(mux)))
@@ -220,6 +225,21 @@ func (s *server) task(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, newTask(task))
+}
+
+func (s *server) attachInfo(w http.ResponseWriter, r *http.Request) {
+	id := domain.TaskID(r.PathValue("task_id"))
+	if err := id.Validate(); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	info, err := s.service.AttachInfo(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
 }
 
 // fail writes the error response and logs the cause of an unexplained failure,

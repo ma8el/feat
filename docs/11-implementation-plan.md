@@ -253,6 +253,11 @@ Package layout gained no new package: `internal/git` was reserved by slice 0. Se
 
 ## Slice 5 — tmux execution backend
 
+Status: **complete**, 2026-08-05
+
+The design decisions this slice started from are recorded in ADR-030 in
+[10-decisions-and-open-questions.md](10-decisions-and-open-questions.md).
+
 ### Outcome
 
 Feat can create, discover, attach to, and reconcile persistent task terminals.
@@ -274,6 +279,24 @@ Feat can create, discover, attach to, and reconcile persistent task terminals.
 - Detaching returns cleanly to the caller.
 - Daemon restart rediscovers existing tagged sessions/windows.
 - Shell pane opens in the configured primary workspace.
+
+### Delivered
+
+All five acceptance criteria pass against tmux 3.7b on macOS, under the race detector. The opt-in `TestReal…` suite creates both an ordinary tmux server and the Feat-owned server, loads a user configuration with non-default window and pane indexes plus automatic rename, changes display names and indexes after creation, adds an untagged user pane, and still rediscovers the same `$session`, `@window`, and `%pane` IDs. CI runs the same real-tool suite on macOS and Linux and now checks that tmux is present rather than silently skipping these criteria.
+
+`internal/tmux` is a terminal-persistence adapter, not a second execution-environment adapter. It accepts a validated program vector and absolute working directory, always supplies the dedicated `<runtime>/tmux.sock`, permits normal user configuration, and applies only Feat ownership/persistence options. A new `tmux-stays-an-adapter` depguard rule limits it to the standard library and `internal/domain`; configuration, storage, Compose, Claude, and host/devcontainer command construction remain outside it.
+
+Sessions, windows, and panes carry versioned `@feat_*` metadata at their own scopes. Display names and indexes are never read as identity. Metadata becomes discoverable only after the persistence options are in place, and a returned setup failure removes only the exact new pane/window/session. Once a target is fully tagged it is retained on a later failure so daemon startup can recover it; an interrupted partial session cannot block retry through a display-name collision because display names are left to tmux.
+
+Panes are created without a command and tagged before the caller's program replaces the holder shell, so `remain-on-exit` and ownership are in place before that program can exit. `TestRealCommandThatExitsImmediatelyStaysObservable` starts `/usr/bin/false` as both the agent and the shell command and requires a live terminal reporting a failed process with exit status 1; against the earlier order the same test fails with the server or the pane already gone. The review evidence and the retention rule this narrows are recorded in the ADR-030 amendment.
+
+The daemon creates or finds task terminals, records stable targets and observed process state, and reconciles the dedicated server before it accepts API requests. Reconciliation repairs stale stored IDs from live metadata, records a reconciliation event, marks a missing recorded pane stopped without inventing a restart, and reports conflicting or orphaned tagged resources rather than guessing. `TestRealDaemonRestartRediscoversTaggedTerminal` corrupts the stored target, constructs a fresh daemon instance, and proves the live target is restored. `internal/tmux/tmuxtest` supplies a fake tmux server so the same orchestration runs without tmux installed: the ordinary path, a refused creation failing the task explainably, a repaired stale target, a missing terminal marked stopped without any restart command being issued, a conflicting project reported rather than adopted, and an orphaned terminal reported without failing recovery. Those branches decide whether a half-finished lifecycle is recoverable, so they run in the default `go test ./...` rather than only under `FEAT_INTEGRATION`.
+
+`POST /v1/tasks/{task_id}/attach-info` resolves the target from live metadata. `feat attach <task>` calls that endpoint and then runs the native tmux client with the caller's streams; it removes only the outer `TMUX`/`TMUX_PANE` identity so attachment also works from an ordinary tmux session. A real control-mode client verifies that native detach returns cleanly. The API response has a golden test, and the CLI validates every returned stable ID before starting tmux.
+
+The on-demand shell seam is implemented and idempotent. It takes its command and primary workspace from the caller, creates at most one tagged shell pane, and leaves the execution-profile decision to slices 6 and 8. The real test reads tmux's observed pane path and proves it is the supplied primary workspace. Slice 6 connects this seam to the user-facing shell action when task launch gains its production caller.
+
+Package layout gained no new package: `internal/tmux` was reserved by slice 0. See ADR-030; [06-technical-architecture.md](06-technical-architecture.md), [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md), and [README.md](../README.md) were updated in the same change.
 
 ## Slice 6 — Task preparation and initial TUI
 
@@ -426,6 +449,7 @@ Feat recovers honestly and removes only resources the user explicitly selected.
 ### Work
 
 - Reconcile snapshots, tmux, worktrees, Compose, control messages, and review state.
+- Decide the quarantine policy deferred from slice 5 (ADR-030): one damaged resource must not make every healthy one unusable. For tmux that means discovery reporting a broken terminal while still returning the rest, and it settles the working-directory validation whose failure mode is the same blast radius.
 - Write and reconcile the durable daemon record `daemon.json`, deferred from slice 2 because this is the first slice that reads one (ADR-027).
 - Report missing/orphaned/inconsistent resources.
 - Build cleanup-plan API with stable token/IDs.
@@ -438,6 +462,7 @@ Feat recovers honestly and removes only resources the user explicitly selected.
 - Daemon/computer restart loses no task identity.
 - Stopped containers are not restarted.
 - Orphan resources are reported before adoption/removal.
+- One damaged or unreadable resource does not make unrelated healthy ones unusable.
 - Volumes remain unless explicitly chosen.
 - Broad path or non-task resource deletion is rejected.
 - Dirty/unmerged resources require explicit confirmation.
@@ -495,4 +520,3 @@ A new macOS/Linux user can use Feat outside the reference project.
 - Never expose Docker to the agent to simplify implementation.
 - Never replace structured agent events with terminal scraping as the semantic source of truth.
 - Update the decision log when evidence changes an accepted design.
-

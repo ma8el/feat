@@ -14,6 +14,7 @@ import (
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
 	"github.com/ma8el/feat/internal/store"
+	"github.com/ma8el/feat/internal/tmux"
 )
 
 // Build identifies the running binary. It is passed in rather than read from the
@@ -33,10 +34,11 @@ type Build struct {
 type service struct {
 	store store.Store
 	bus   *Bus
-	// git creates and observes task worktrees. It is the only adapter the
-	// service holds, because it is the only one slice 4 delivers.
-	git    *git.Git
-	layout paths.Layout
+	// Adapters operate on host resources; the service supplies resolved inputs
+	// and remains the only persistent-state writer.
+	git       *git.Git
+	terminals *tmux.Tmux
+	layout    paths.Layout
 	// env is the environment configuration is resolved against: the user who
 	// owns the daemon, not whoever sent the request.
 	env      paths.Environment

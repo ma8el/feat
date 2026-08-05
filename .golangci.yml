@@ -112,6 +112,33 @@ linters:
             - pkg: github.com/charmbracelet
             - pkg: github.com/spf13/cobra
 
+        # ADR-030: tmux owns persistent terminal topology and accepts final
+        # command vectors. Execution environments construct those vectors; the
+        # daemon records targets. The adapter therefore needs only domain IDs
+        # and target types, never configuration, storage, or another adapter.
+        tmux-stays-an-adapter:
+          files:
+            - "**/internal/tmux/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/cli
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/config
+            - pkg: github.com/ma8el/feat/internal/control
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/execution
+              desc: execution adapters supply final commands; tmux preserves their terminals
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/project
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+            - pkg: github.com/spf13/cobra
+
         # The TUI is a client. It renders daemon state and never touches
         # persistent state or an adapter directly.
         ui-is-a-client:
