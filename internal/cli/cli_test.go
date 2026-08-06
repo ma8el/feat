@@ -74,9 +74,16 @@ func TestExecuteExitCodes(t *testing.T) {
 
 		{"project add without a project", []string{"project", "add"}, ExitUsage},
 
-		{"implement", []string{"implement"}, ExitNotImplemented},
+		{"review", []string{"review", "abc123"}, ExitNotImplemented},
 		{"attach without a daemon", []string{"attach", "abc123"}, ExitNotRunning},
 		{"runtime start", []string{"runtime", "start", "abc123"}, ExitNotImplemented},
+
+		// Preparation and the task list need a daemon, which is a state rather
+		// than a failure. Preparation additionally needs a terminal, because
+		// nothing is created until the user confirms it, and the test process
+		// has none: an absent daemon is found first either way.
+		{"implement without a daemon", []string{"implement"}, ExitError},
+		{"task list without a daemon", []string{"task", "list"}, ExitNotRunning},
 
 		// A machine with nothing configured is diagnosable and not broken.
 		{"doctor on an empty machine", []string{"doctor"}, ExitOK},
@@ -113,10 +120,10 @@ func TestNotImplementedErrorIsActionable(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 
-	Execute(context.Background(), []string{"implement"}, &stdout, &stderr)
+	Execute(context.Background(), []string{"review", "abc123"}, &stdout, &stderr)
 
 	message := stderr.String()
-	for _, want := range []string{"feat implement", "slice 6", "docs/11-implementation-plan.md"} {
+	for _, want := range []string{"feat review", "slice 11", "docs/11-implementation-plan.md"} {
 		if !strings.Contains(message, want) {
 			t.Errorf("error message does not mention %q:\n%s", want, message)
 		}

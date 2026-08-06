@@ -41,8 +41,14 @@ type EventType string
 // separate: a process going idle and a task becoming ready for review are
 // different events, and no reader should have to infer one from the other.
 const (
-	// EventTaskCreated records a confirmed task.
+	// EventTaskCreated records a new task record, which begins as a draft.
+	// Confirmation is a workflow transition and is recorded as one.
 	EventTaskCreated EventType = "task_created"
+	// EventTaskUpdated records a change to a draft's editable shape: its title,
+	// its brief, its repository selection, or the plan resolved for it. Only a
+	// draft can produce one, because a task's shape is frozen when it leaves
+	// draft.
+	EventTaskUpdated EventType = "task_updated"
 	// EventWorkflowChanged records a workflow state transition.
 	EventWorkflowChanged EventType = "task_workflow_changed"
 	// EventAttentionChanged records an attention state change.
@@ -63,7 +69,7 @@ const (
 // Valid reports whether the type is documented.
 func (t EventType) Valid() bool {
 	switch t {
-	case EventTaskCreated, EventWorkflowChanged, EventAttentionChanged,
+	case EventTaskCreated, EventTaskUpdated, EventWorkflowChanged, EventAttentionChanged,
 		EventRepositoryObserved, EventProcessChanged, EventRuntimeChanged,
 		EventReviewChanged, EventReconciled:
 		return true

@@ -92,10 +92,10 @@ func TestBinaryLifecycle(t *testing.T) {
 		go func() {
 			defer clients.Done()
 			out, code := run(t, "task", "list")
-			// Task listing arrives with slice 6, so an unimplemented exit code
-			// is the expected answer; what matters is that the process ran
-			// against a live daemon without disturbing it.
-			if code != 3 {
+			// The daemon has no tasks, so an empty list is the expected
+			// answer; what matters is that the process read from a live daemon
+			// without disturbing it.
+			if code != 0 {
 				outputs <- "task list: unexpected exit\n" + out
 			}
 		}()

@@ -300,6 +300,11 @@ Package layout gained no new package: `internal/tmux` was reserved by slice 0. S
 
 ## Slice 6 — Task preparation and initial TUI
 
+Status: **complete**, 2026-08-06
+
+The design decisions this slice started from are recorded in ADR-031 in
+[10-decisions-and-open-questions.md](10-decisions-and-open-questions.md).
+
 ### Outcome
 
 The user can prepare, confirm, launch, list, and inspect local/Markdown tasks from the dashboard.
@@ -320,6 +325,28 @@ The user can prepare, confirm, launch, list, and inspect local/Markdown tasks fr
 - Confirming launches the previously displayed snapshot.
 - Task list contains required v0 fields except integrations not yet implemented.
 - Several task drafts and live tasks can coexist.
+
+### Delivered
+
+All four acceptance criteria pass, each with a test named for it, and each is checked at the adapter rather than at the outcome where it can be: that no Git command created a worktree and no tmux command ran is a stronger statement than that no directory exists.
+
+Task preparation is plan, confirm, apply. ADR-029 recorded that slice 6 would confirm a draft by calling `PrepareTask`, which resolves and creates in one step; that turned out to break the second acceptance criterion silently, because a `remote` base policy fetches during planning and a fetch between the screen the user reads and the key they press moves the commit the task starts from. `POST /v1/task-drafts/{id}/plan` now records the proposal on the draft and leaves it a draft, and `POST /v1/task-drafts/{id}/launch` carries a fingerprint of what was displayed and refuses anything else. The fingerprint is computed from the stored task rather than kept beside it, so the stored format is unchanged and no migration was needed. `TestConfirmingLaunchesTheDisplayedSnapshot` moves the remote between the two calls and requires the worktrees to be created at the commits that were shown.
+
+A draft is a task in `draft` state, which the domain already modelled, so `{draft_id}` is a task identifier and drafts survive a daemon restart and appear in the task list as the drafts they are. Cancelling one archives the record: nothing was created for a draft, and the record explains what the user started and decided against. Two endpoints beyond the documented list carry this — the plan and the cancellation — and ADR-031 records why each is its own request.
+
+Editing a draft keeps what was resolved for a repository whose selection did not change, and discards it for one that was added, dropped, or given different access. Resolving fetches, so making a user re-resolve every repository because they fixed a typo in the title would put a network call behind an edit that changed nothing about where the task starts. Editing the brief therefore leaves the plan intact and still changes the fingerprint, which is the case the fingerprint exists for: the brief is what the agent receives, every commit is unchanged, and nothing else would notice.
+
+Slice 6 starts no agent. The Claude adapter arrives with slice 7 and the devcontainer with slice 8, so launch opens the task terminal with the user's `$SHELL` in the primary task worktree and the task rests in `preparing`. `preparing` to `working` is the edge slice 7 takes when Claude actually starts, so no task reports a running agent session that is really a shell. The dashboard and the task detail say so in words rather than by omission, and the two required task-row fields no slice has delivered — verification state and resource usage — render as absent and name the slice that fills them, which is the rule ADR-028 established for `feat doctor`.
+
+`POST /v1/tasks/{task_id}/shell` takes a task identifier and nothing to execute: the daemon builds the command, because a program a caller chose would be a program the daemon runs on its owner's behalf. A test sends a body naming one and requires it to be refused rather than ignored. The same check now covers `attach-info`.
+
+`internal/ui` gained the dashboard, the task detail, and the preparation screen behind a `Backend` interface, so every screen's behaviour is tested against a fake without a socket, a daemon, or tmux. The three things the TUI has to launch — native tmux attach, a task shell, and `$EDITOR` — are `tea.ExecCommand` values built in `internal/cli`, so the TUI names no `os/exec` type and the rule that keeps process execution in adapters stays mechanical. `github.com/charmbracelet/bubbles` was added for the text input and text area, which [06-technical-architecture.md](06-technical-architecture.md) already anticipated.
+
+The dashboard subscribes to the daemon's event stream and re-reads state on every event rather than applying the event itself, because the stream reports what changed and the snapshot is what it changed to; deriving one from the other would give the dashboard a second, divergent copy. A periodic read is the backstop for a stream that ended, which v0.1 answers by re-reading rather than resuming (ADR-027). This makes slice 2's structurally verified event-ordering criterion fully behavioural: a draft created, resolved, launched, and cancelled publishes the sequence a client reads.
+
+`feat implement` gains `--project`, which changes the command surface slice 0 pinned; the golden file, [README.md](README.md), and ADR-031 moved in the same change. The flag pre-fills rather than making the command headless: confirmation is required before anything is created, so a terminal is required, and preparation reports an absent daemon rather than starting one. An imported Markdown brief is read by the client and sent as content, so no caller-supplied filesystem path crosses the socket.
+
+Package layout gained no new package. See ADR-031; [06-technical-architecture.md](06-technical-architecture.md) and [README.md](README.md) were updated in the same change.
 
 ## Slice 7 — Control workspace and Claude adapter
 

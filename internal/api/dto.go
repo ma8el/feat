@@ -103,6 +103,112 @@ type RegisteredProject struct {
 	Created bool
 }
 
+// CreateDraft is the body of POST /v1/task-drafts.
+//
+// The brief arrives as content rather than as a path. A Markdown import is read
+// by the client, so the daemon never opens a file a caller named, which is the
+// rule POST /v1/projects follows for the same reason (ADR-028).
+type CreateDraft struct {
+	// ProjectID names the project the task belongs to.
+	ProjectID string `json:"project_id"`
+	// Title is the short human-facing name.
+	Title string `json:"title"`
+	// Brief is the task brief in Markdown. It may be empty while the user is
+	// still writing it; launching requires one.
+	Brief string `json:"brief"`
+	// Source records where the brief came from: a typed prompt or an imported
+	// Markdown file.
+	Source Source `json:"source"`
+}
+
+// UpdateDraft is the body of PUT /v1/task-drafts/{draft_id}.
+//
+// It replaces the draft's editable shape rather than patching it, because that
+// is what the preparation screen holds: a whole draft the user edits and saves.
+type UpdateDraft struct {
+	Title string `json:"title"`
+	Brief string `json:"brief"`
+	// Repositories is the repository selection, replacing the previous one.
+	Repositories []DraftRepository `json:"repositories"`
+}
+
+// DraftRepository is one repository's selected part in a task.
+type DraftRepository struct {
+	RepositoryID string `json:"repository_id"`
+	// Access is read_write or read_only. A repository the project configures
+	// read-only cannot be selected read-write.
+	Access string `json:"access"`
+	// Ref is the revision to start from, for a project whose base policy is
+	// explicit. Every other policy ignores it.
+	Ref string `json:"ref,omitempty"`
+}
+
+// LaunchDraft is the body of POST /v1/task-drafts/{draft_id}/launch.
+type LaunchDraft struct {
+	// Fingerprint is the one the plan the user confirmed carried. A draft that
+	// changed since then produces a different fingerprint and the launch is
+	// refused, so what is created is what was displayed (ADR-031).
+	Fingerprint string `json:"fingerprint"`
+}
+
+// DraftRequest is what the daemon needs to record a new draft.
+//
+// Like RegisteredProject, it is the interface's own shape rather than the wire
+// shape: the handler validates every identifier before the daemon sees it, so a
+// malformed one never reaches a filesystem path (ADR-027).
+type DraftRequest struct {
+	// Project owns the task.
+	Project domain.ProjectID
+	// Title is the short human-facing name.
+	Title string
+	// Brief is the task brief in Markdown.
+	Brief string
+	// Source records where the brief came from.
+	Source domain.TaskSource
+}
+
+// DraftUpdate replaces a draft's editable shape.
+type DraftUpdate struct {
+	Title string
+	Brief string
+	// Repositories is the repository selection, replacing the previous one.
+	Repositories []DraftSelection
+}
+
+// DraftSelection is one repository's selected part in a task.
+type DraftSelection struct {
+	// Repository identifies the repository within the project.
+	Repository domain.RepositoryID
+	// Access is the access the task should have to it.
+	Access domain.TaskAccess
+	// Ref is the revision an explicit base policy reads.
+	Ref string
+}
+
+// ResolvedDraft is what the daemon reports after resolving a draft.
+type ResolvedDraft struct {
+	// Task is the draft as it is now recorded.
+	Task *domain.Task
+	// Notes are what happened while resolving that did not stop the task.
+	Notes []string
+	// Fingerprint identifies this exact draft.
+	Fingerprint string
+}
+
+// DraftPlan is the response of POST /v1/task-drafts/{draft_id}/plan.
+type DraftPlan struct {
+	// Task is the draft as it is now recorded, carrying every resolved base and
+	// every proposed branch and worktree path.
+	Task Task `json:"task"`
+	// Notes are what happened while resolving that the user should know about
+	// without it stopping the task, such as a fetch that failed while an older
+	// remote-tracking ref was still available.
+	Notes []string `json:"notes"`
+	// Fingerprint identifies this exact draft, and is what launching carries
+	// back.
+	Fingerprint string `json:"fingerprint"`
+}
+
 // Project is a registered project.
 type Project struct {
 	ID                string       `json:"id"`

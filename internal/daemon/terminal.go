@@ -15,8 +15,8 @@ import (
 
 // PrepareTerminal creates or rediscovers the persistent terminal of a
 // confirmed task. The final command comes from an execution-environment or
-// agent adapter; slice 5 uses deterministic placeholder commands in tests and
-// does not pull either later adapter forward (ADR-030).
+// agent adapter; until those arrive it is the task shell that launch supplies
+// (ADR-030, ADR-031).
 func (s *service) PrepareTerminal(ctx context.Context, ref store.TaskRef, command tmux.CommandSpec) (*domain.Task, error) {
 	if err := ref.Validate(); err != nil {
 		return nil, err
@@ -25,14 +25,26 @@ func (s *service) PrepareTerminal(ctx context.Context, ref store.TaskRef, comman
 	if err != nil {
 		return nil, translate(err, "no task "+ref.Task.String()+" in project "+ref.Project.String())
 	}
-	if task.Workflow != domain.WorkflowPreparing && task.Workflow != domain.WorkflowFailed {
-		return nil, fmt.Errorf("%w: task %s is %s, and its terminal is created only after confirmation",
-			api.ErrInvalid, task.ID, task.Workflow)
-	}
 
 	cfg, err := config.Load(s.layout.ProjectConfigDir(), ref.Project.String(), s.configOptions())
 	if err != nil {
 		return nil, translateConfig(err)
+	}
+	return s.ensureTerminal(ctx, task, cfg, command)
+}
+
+// ensureTerminal creates or rediscovers a confirmed task's terminal and records
+// what it observed.
+//
+// It takes the task rather than loading one, because launch has already loaded
+// it, transitioned it, and created its worktrees. Re-reading it here would put a
+// second reader between the transition and the terminal it belongs to.
+func (s *service) ensureTerminal(
+	ctx context.Context, task *domain.Task, cfg *config.Config, command tmux.CommandSpec,
+) (*domain.Task, error) {
+	if task.Workflow != domain.WorkflowPreparing && task.Workflow != domain.WorkflowFailed {
+		return nil, fmt.Errorf("%w: task %s is %s, and its terminal is created only after confirmation",
+			api.ErrInvalid, task.ID, task.Workflow)
 	}
 
 	terminal, err := s.terminals.EnsureTask(ctx, task.ProjectID, task.ID, command)
@@ -85,18 +97,44 @@ func (s *service) PrepareTerminal(ctx context.Context, ref store.TaskRef, comman
 	return task, nil
 }
 
-// OpenShell creates or finds the task's tagged shell pane. Command construction
-// belongs to the execution adapter; slice 6 connects this seam to the user
-// action once task launch has a caller.
-func (s *service) OpenShell(ctx context.Context, ref store.TaskRef, command tmux.CommandSpec) (tmux.Terminal, error) {
-	task, err := s.store.Tasks().Load(ctx, ref)
+// OpenShell creates or finds the task's tagged shell pane.
+//
+// The daemon builds the command rather than accepting one: a program a caller
+// chose would be a program the daemon runs on its owner's behalf, and the local
+// API takes identifiers rather than things to execute
+// (docs/05-security-model.md, local daemon API). The adapter still receives a
+// resolved command, as ADR-030 requires; slice 8 replaces the host shell with
+// one inside the execution environment.
+func (s *service) OpenShell(ctx context.Context, id domain.TaskID) (api.AttachInfo, error) {
+	task, err := s.Task(ctx, id)
 	if err != nil {
-		return tmux.Terminal{}, translate(err, "no task "+ref.Task.String()+" in project "+ref.Project.String())
+		return api.AttachInfo{}, err
 	}
 	if task.Session == nil {
-		return tmux.Terminal{}, fmt.Errorf("%w: task %s has no agent terminal", api.ErrInvalid, task.ID)
+		return api.AttachInfo{}, fmt.Errorf("%w: task %s has no terminal to open a shell beside", api.ErrInvalid, id)
 	}
-	return s.terminals.EnsureShell(ctx, task.ProjectID, task.ID, command)
+	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
+	if err != nil {
+		return api.AttachInfo{}, translateConfig(err)
+	}
+
+	command, err := s.agentCommand(cfg, task)
+	if err != nil {
+		return api.AttachInfo{}, fmt.Errorf("%w: %w", api.ErrInvalid, err)
+	}
+	terminal, err := s.terminals.EnsureShell(ctx, task.ProjectID, task.ID, command)
+	if err != nil {
+		return api.AttachInfo{}, err
+	}
+	if terminal.Shell == nil {
+		return api.AttachInfo{}, fmt.Errorf("the shell pane of task %s was created but not reported by tmux", id)
+	}
+	return api.AttachInfo{
+		Socket:  terminal.Target.Socket,
+		Session: terminal.Target.Session,
+		Window:  terminal.Target.Window,
+		Pane:    terminal.Shell.ID,
+	}, nil
 }
 
 // AttachInfo returns a live, metadata-resolved native tmux target.

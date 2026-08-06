@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -53,15 +52,23 @@ func DefaultSelection(cfg *config.Config) []Selection {
 	return selection
 }
 
-// PrepareTask creates the Git resources of a confirmed task draft.
+// PrepareTask records a selection, resolves it, and creates the Git resources
+// of the resulting plan.
+//
+// It is the Git half of a launch, run end to end with the confirmation supplied
+// by the plan that was just resolved. `LaunchDraft` is the same half preceded by
+// the user's own confirmation and followed by the task terminal; the API drives
+// the steps separately because between the plan a user reads and the key they
+// press a fetch can move a remote-tracking ref, and the task would then start
+// from a commit nobody was shown (ADR-031).
 //
 // The order is what makes an interruption survivable, and it is the reason this
 // lives in the daemon rather than in the Git adapter:
 //
 //  1. plan, which resolves every base to an immutable commit and proposes every
 //     branch and worktree path without creating anything;
-//  2. record the plan on the task and leave draft, so that every resource that
-//     could exist afterwards is already written down;
+//  2. record the plan on the task, so that every resource that could exist
+//     afterwards is already written down, and leave draft on confirmation;
 //  3. create them one repository at a time, recording each before the next
 //     begins.
 //
@@ -70,75 +77,37 @@ func DefaultSelection(cfg *config.Config) []Selection {
 // worktree that was created may already have been written to, and removing it to
 // tidy up a failed launch is a destructive act the user did not ask for. The
 // task is left failed, which the workflow can resume from.
-//
-// The endpoint that calls this arrives with slice 6, together with the draft it
-// confirms.
 func (s *service) PrepareTask(ctx context.Context, ref store.TaskRef, selection []Selection) (*domain.Task, error) {
-	task, err := s.store.Tasks().Load(ctx, ref)
+	task, cfg, err := s.loadDraft(ctx, ref)
 	if err != nil {
-		return nil, translate(err, "no task "+ref.Task.String()+" in project "+ref.Project.String())
-	}
-	if task.Workflow != domain.WorkflowDraft {
-		return nil, fmt.Errorf("%w: task %s is %s, and only a draft can be prepared",
-			api.ErrInvalid, task.ID, task.Workflow)
+		return nil, err
 	}
 	if task.Brief == "" {
 		// Checked before anything is fetched: a task that cannot launch should
 		// not cause network calls on the user's repositories first.
 		return nil, fmt.Errorf("%w: task %s has no brief", api.ErrInvalid, task.ID)
 	}
-
-	if _, err := s.store.Projects().Load(ctx, ref.Project); err != nil {
-		return nil, translate(err, "no project "+ref.Project.String()+" is registered")
-	}
-	cfg, err := config.Load(s.layout.ProjectConfigDir(), ref.Project.String(), s.configOptions())
-	if err != nil {
-		return nil, translateConfig(err)
-	}
-
-	request, err := gitRequest(cfg, task, selection)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", api.ErrInvalid, err)
-	}
-
-	plan, err := s.git.Plan(ctx, request)
-	if err != nil {
-		// Planning creates nothing, so a task whose plan does not hold is still a
-		// draft the user can change (FR-TASK-003).
+	if err := s.selectRepositories(task, cfg, selection, s.now()); err != nil {
 		return nil, err
 	}
-	for _, note := range plan.Notes {
-		s.logger.WarnContext(ctx, "preparing task",
-			slog.String("task", task.ID.String()),
-			slog.String("repository", note.Repository.String()),
-			slog.String("note", note.Summary))
-	}
-
-	if err := s.recordPlan(ctx, task, plan); err != nil {
+	if err := s.store.Tasks().Save(ctx, task); err != nil {
 		return nil, err
 	}
 
-	journal := &taskJournal{service: s, task: task, ref: ref}
-	if _, applyErr := s.git.Apply(ctx, plan, journal); applyErr != nil {
-		if err := s.transition(ctx, task, domain.WorkflowFailed, applyErr.Error()); err != nil {
-			return nil, errors.Join(applyErr, err)
-		}
-		return task, applyErr
+	plan, err := s.planDraft(ctx, ref)
+	if err != nil {
+		return nil, err
 	}
-
-	s.logger.InfoContext(ctx, "task repositories prepared",
-		slog.String("project", ref.Project.String()),
-		slog.String("task", task.ID.String()),
-		slog.Int("repositories", len(plan.Repositories)))
-	return task, nil
+	prepared, _, err := s.confirmDraft(ctx, ref, plan.Fingerprint)
+	return prepared, err
 }
 
-// recordPlan writes the plan onto the task and leaves draft.
+// recordPlan writes the plan onto the task, which stays a draft.
 //
 // This is the record that makes a later failure recoverable, so it is saved
-// before anything is created. Leaving draft in the same step is what freezes it:
-// the base commits, branches, and paths a user confirmed are the ones the task
-// keeps for its whole life (invariant 8).
+// before anything is created. The task stays a draft because nothing has been
+// confirmed yet: the base commits, branches, and paths become immutable when the
+// user confirms them and the task leaves draft (invariant 8).
 func (s *service) recordPlan(ctx context.Context, task *domain.Task, plan *git.Plan) error {
 	now := s.now()
 
@@ -160,10 +129,7 @@ func (s *service) recordPlan(ctx context.Context, task *domain.Task, plan *git.P
 			return err
 		}
 	}
-	if err := s.store.Tasks().Save(ctx, task); err != nil {
-		return err
-	}
-	return s.transition(ctx, task, domain.WorkflowPreparing, "")
+	return s.store.Tasks().Save(ctx, task)
 }
 
 // transition moves the task to a workflow state, persists it, and records the

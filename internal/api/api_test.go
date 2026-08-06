@@ -152,6 +152,102 @@ func (f *fakeService) AttachInfo(_ context.Context, id domain.TaskID) (AttachInf
 	return AttachInfo{}, fmt.Errorf("%w: task %s has no agent terminal", ErrNotFound, id)
 }
 
+func (f *fakeService) OpenShell(_ context.Context, id domain.TaskID) (AttachInfo, error) {
+	if err := f.check(); err != nil {
+		return AttachInfo{}, err
+	}
+	for _, task := range f.tasks {
+		if task.ID == id && task.Session != nil {
+			// A shell is a second pane in the same window, so only the pane
+			// differs from the agent target.
+			return AttachInfo{
+				Socket:  task.Session.Tmux.Socket,
+				Session: task.Session.Tmux.Session,
+				Window:  task.Session.Tmux.Window,
+				Pane:    "%9",
+			}, nil
+		}
+	}
+	return AttachInfo{}, fmt.Errorf("%w: task %s has no terminal to open a shell beside", ErrNotFound, id)
+}
+
+// CreateDraft records a draft from a fixture, so the transport can be tested
+// without a store, a configuration directory, or Git.
+func (f *fakeService) CreateDraft(_ context.Context, request DraftRequest) (*domain.Task, error) {
+	if err := f.check(); err != nil {
+		return nil, err
+	}
+	draft := storetest.Draft()
+	draft.ProjectID = request.Project
+	draft.Title = request.Title
+	draft.Brief = request.Brief
+	draft.Source = request.Source
+	f.tasks = append(f.tasks, draft)
+	return draft, nil
+}
+
+func (f *fakeService) UpdateDraft(ctx context.Context, id domain.TaskID, request DraftUpdate) (*domain.Task, error) {
+	draft, err := f.draft(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	draft.Title = request.Title
+	draft.Brief = request.Brief
+	draft.Repositories = nil
+	for _, selected := range request.Repositories {
+		draft.Repositories = append(draft.Repositories, domain.TaskRepository{
+			RepositoryID: selected.Repository,
+			Access:       selected.Access,
+			BaseRef:      selected.Ref,
+		})
+	}
+	return draft, nil
+}
+
+func (f *fakeService) PlanDraft(ctx context.Context, id domain.TaskID) (ResolvedDraft, error) {
+	draft, err := f.draft(ctx, id)
+	if err != nil {
+		return ResolvedDraft{}, err
+	}
+	return ResolvedDraft{
+		Task:        draft,
+		Notes:       []string{"fetching origin failed, so the base is resolved from the last fetched state"},
+		Fingerprint: "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+	}, nil
+}
+
+func (f *fakeService) LaunchDraft(ctx context.Context, id domain.TaskID, fingerprint string) (*domain.Task, error) {
+	draft, err := f.draft(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if fingerprint == "" {
+		return nil, fmt.Errorf("%w: task %s changed after the plan you confirmed was displayed", ErrInvalid, id)
+	}
+	return draft, nil
+}
+
+func (f *fakeService) CancelDraft(ctx context.Context, id domain.TaskID) (*domain.Task, error) {
+	draft, err := f.draft(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	draft.Workflow = domain.WorkflowArchived
+	return draft, nil
+}
+
+func (f *fakeService) draft(ctx context.Context, id domain.TaskID) (*domain.Task, error) {
+	task, err := f.Task(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if task.Workflow != domain.WorkflowDraft {
+		return nil, fmt.Errorf("%w: task %s is %s, and only a draft can be prepared",
+			ErrInvalid, id, task.Workflow)
+	}
+	return task, nil
+}
+
 func (f *fakeService) Subscribe(context.Context) (<-chan Event, error) {
 	if err := f.check(); err != nil {
 		return nil, err
@@ -168,6 +264,19 @@ func request(t *testing.T, handler http.Handler, method, path string) *httptest.
 
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(method, path, nil))
+	return recorder
+}
+
+// requestBody runs one request that carries a JSON body.
+func requestBody(
+	t *testing.T, handler http.Handler, method, path, body string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(recorder, request)
 	return recorder
 }
 
@@ -214,6 +323,116 @@ func TestAttachInfoResponseUsesStableTmuxIDs(t *testing.T) {
 		t.Fatalf("status = %d, body: %s", response.Code, response.Body.String())
 	}
 	compare(t, "attach-info.golden", response.Body.String())
+}
+
+func TestShellResponseUsesStableTmuxIDs(t *testing.T) {
+	handler := NewHandler(Options{Service: newFakeService()})
+	response := request(t, handler, http.MethodPost,
+		"/v1/tasks/"+storetest.TaskID.String()+"/shell")
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body: %s", response.Code, response.Body.String())
+	}
+	compare(t, "shell.golden", response.Body.String())
+}
+
+// TestDraftResponseBodies pins the task-draft surface.
+//
+// The four requests are the preparation lifecycle in order: record a draft,
+// edit it, resolve it, and confirm it. Each response is a published surface for
+// the same reason the rest are (ADR-027).
+func TestDraftResponseBodies(t *testing.T) {
+	draft := storetest.DraftID.String()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		status int
+	}{
+		{
+			name: "draft-created", method: http.MethodPost, path: "/v1/task-drafts",
+			body: `{"project_id":"example","title":"Add a scheduled export job",` +
+				`"brief":"Export the daily report.","source":{"kind":"prompt"}}`,
+			status: http.StatusCreated,
+		},
+		{
+			name: "draft-updated", method: http.MethodPut, path: "/v1/task-drafts/" + draft,
+			body: `{"title":"Add a scheduled export job","brief":"Export the daily report.",` +
+				`"repositories":[{"repository_id":"core","access":"read_write"}]}`,
+			status: http.StatusOK,
+		},
+		{
+			name: "draft-plan", method: http.MethodPost, path: "/v1/task-drafts/" + draft + "/plan",
+			status: http.StatusOK,
+		},
+		{
+			name: "draft-launched", method: http.MethodPost, path: "/v1/task-drafts/" + draft + "/launch",
+			body:   `{"fingerprint":"0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0"}`,
+			status: http.StatusOK,
+		},
+		{
+			name: "draft-cancelled", method: http.MethodDelete, path: "/v1/task-drafts/" + draft,
+			status: http.StatusOK,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// A handler per case, so one case's fixture mutation cannot decide
+			// what the next one records.
+			service := newFakeService()
+			service.tasks = append(service.tasks, storetest.Draft())
+			handler := NewHandler(Options{Service: service})
+
+			response := requestBody(t, handler, test.method, test.path, test.body)
+			if response.Code != test.status {
+				t.Fatalf("status = %d, want %d, body: %s",
+					response.Code, test.status, response.Body.String())
+			}
+			compare(t, test.name+".golden", response.Body.String())
+		})
+	}
+}
+
+// TestLaunchingWithoutTheDisplayedPlanIsRefused is the transport half of the
+// slice 6 criterion that confirming launches the snapshot that was displayed.
+//
+// The daemon compares the fingerprint; what the transport has to get right is
+// that a refusal is a request error the user can act on rather than a failure
+// they cannot.
+func TestLaunchingWithoutTheDisplayedPlanIsRefused(t *testing.T) {
+	service := newFakeService()
+	service.tasks = append(service.tasks, storetest.Draft())
+	handler := NewHandler(Options{Service: service})
+
+	response := requestBody(t, handler, http.MethodPost,
+		"/v1/task-drafts/"+storetest.DraftID.String()+"/launch", `{"fingerprint":""}`)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body: %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "changed after the plan") {
+		t.Errorf("body = %s, want the reason the launch was refused", response.Body.String())
+	}
+}
+
+// TestShellTakesNoCommandFromTheCaller checks that the endpoint carries an
+// identifier rather than something to execute.
+//
+// The daemon runs commands on its owner's behalf, so a body naming a program
+// must be rejected rather than ignored: a client that asked for something Feat
+// did not do should be told.
+func TestShellTakesNoCommandFromTheCaller(t *testing.T) {
+	handler := NewHandler(Options{Service: newFakeService()})
+
+	response := requestBody(t, handler, http.MethodPost,
+		"/v1/tasks/"+storetest.TaskID.String()+"/shell", `{"program":"/bin/sh"}`)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body: %s", response.Code, response.Body.String())
+	}
 }
 
 // compare checks output against a golden file.

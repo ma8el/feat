@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -44,9 +45,28 @@ type Service interface {
 	// Task returns one task addressed by task identifier alone, resolving the
 	// owning project, or an error matching ErrNotFound (ADR-027).
 	Task(ctx context.Context, id domain.TaskID) (*domain.Task, error)
+	// CreateDraft records a new task draft and creates nothing else. No
+	// worktree, branch, terminal, or container exists until the draft is
+	// confirmed (FR-TASK-003).
+	CreateDraft(ctx context.Context, request DraftRequest) (*domain.Task, error)
+	// UpdateDraft replaces a draft's title, brief, and repository selection.
+	UpdateDraft(ctx context.Context, id domain.TaskID, request DraftUpdate) (*domain.Task, error)
+	// PlanDraft resolves every selected repository's base and proposes the
+	// branches and worktree paths the task would receive, creating nothing. The
+	// fingerprint it returns is what launching carries back.
+	PlanDraft(ctx context.Context, id domain.TaskID) (ResolvedDraft, error)
+	// LaunchDraft confirms a draft and creates what the fingerprint describes.
+	// A draft that changed since the plan was displayed is refused.
+	LaunchDraft(ctx context.Context, id domain.TaskID, fingerprint string) (*domain.Task, error)
+	// CancelDraft abandons a draft, archiving the record.
+	CancelDraft(ctx context.Context, id domain.TaskID) (*domain.Task, error)
 	// AttachInfo resolves a task's live, tagged tmux target. The client uses the
 	// returned stable IDs to attach its own terminal to native tmux.
 	AttachInfo(ctx context.Context, id domain.TaskID) (AttachInfo, error)
+	// OpenShell creates or finds the task's tagged shell pane and returns its
+	// target. The daemon builds the command; the request carries an identifier
+	// and nothing to execute.
+	OpenShell(ctx context.Context, id domain.TaskID) (AttachInfo, error)
 	// Subscribe returns the event stream for one client. The channel is closed
 	// when the context ends, or when the subscriber fell too far behind, which
 	// the caller reports as a lost stream.
@@ -102,6 +122,22 @@ func NewHandler(opts Options) http.Handler {
 	mux.Handle("/v1/tasks/{task_id}", get(server.task))
 	mux.Handle("/v1/tasks/{task_id}/attach-info", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.attachInfo,
+	}))
+	mux.Handle("/v1/tasks/{task_id}/shell", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.shell,
+	}))
+	mux.Handle("/v1/task-drafts", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.createDraft,
+	}))
+	mux.Handle("/v1/task-drafts/{draft_id}", route(map[string]http.HandlerFunc{
+		http.MethodPut:    server.updateDraft,
+		http.MethodDelete: server.cancelDraft,
+	}))
+	mux.Handle("/v1/task-drafts/{draft_id}/plan", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.planDraft,
+	}))
+	mux.Handle("/v1/task-drafts/{draft_id}/launch", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.launchDraft,
 	}))
 	mux.Handle("/", http.HandlerFunc(notFound))
 
@@ -213,9 +249,8 @@ func (s *server) tasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) task(w http.ResponseWriter, r *http.Request) {
-	id := domain.TaskID(r.PathValue("task_id"))
-	if err := id.Validate(); err != nil {
-		s.fail(w, r, err)
+	id, ok := s.taskID(w, r, "task_id")
+	if !ok {
 		return
 	}
 
@@ -228,8 +263,11 @@ func (s *server) task(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) attachInfo(w http.ResponseWriter, r *http.Request) {
-	id := domain.TaskID(r.PathValue("task_id"))
-	if err := id.Validate(); err != nil {
+	id, ok := s.taskID(w, r, "task_id")
+	if !ok {
+		return
+	}
+	if err := decodeEmptyBody(r); err != nil {
 		s.fail(w, r, err)
 		return
 	}
@@ -240,6 +278,175 @@ func (s *server) attachInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, info)
+}
+
+// shell opens or finds the task's shell pane.
+//
+// The request carries a task identifier and nothing else. The daemon decides
+// which program runs and where, because a caller-supplied command would be a
+// command the daemon runs on its owner's behalf.
+func (s *server) shell(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "task_id")
+	if !ok {
+		return
+	}
+	if err := decodeEmptyBody(r); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	info, err := s.service.OpenShell(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+// createDraft records a new task draft.
+//
+// Nothing on the host is created here. FR-TASK-003 puts every worktree, branch,
+// terminal, and container behind the confirmation that launch carries.
+func (s *server) createDraft(w http.ResponseWriter, r *http.Request) {
+	var request CreateDraft
+	if err := decodeBody(r, &request); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	project := domain.ProjectID(request.ProjectID)
+	if err := project.Validate(); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	draft, err := s.service.CreateDraft(r.Context(), DraftRequest{
+		Project: project,
+		Title:   request.Title,
+		Brief:   request.Brief,
+		Source: domain.TaskSource{
+			Kind:      domain.SourceKind(request.Source.Kind),
+			Reference: request.Source.Reference,
+		},
+	})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, newTask(draft))
+}
+
+func (s *server) updateDraft(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "draft_id")
+	if !ok {
+		return
+	}
+	var request UpdateDraft
+	if err := decodeBody(r, &request); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	selection := make([]DraftSelection, 0, len(request.Repositories))
+	for _, selected := range request.Repositories {
+		repository := domain.RepositoryID(selected.RepositoryID)
+		if err := repository.Validate(); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		selection = append(selection, DraftSelection{
+			Repository: repository,
+			Access:     domain.TaskAccess(selected.Access),
+			Ref:        selected.Ref,
+		})
+	}
+
+	draft, err := s.service.UpdateDraft(r.Context(), id, DraftUpdate{
+		Title:        request.Title,
+		Brief:        request.Brief,
+		Repositories: selection,
+	})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newTask(draft))
+}
+
+// planDraft resolves the draft's bases and proposes its branches and paths.
+//
+// It is a request of its own because it fetches: a network call against the
+// user's repositories should follow a key they pressed rather than a field they
+// edited (ADR-031).
+func (s *server) planDraft(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "draft_id")
+	if !ok {
+		return
+	}
+
+	resolved, err := s.service.PlanDraft(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	notes := resolved.Notes
+	if notes == nil {
+		// Always a list rather than null, so a client can iterate the response
+		// without a nil check.
+		notes = []string{}
+	}
+	writeJSON(w, http.StatusOK, DraftPlan{
+		Task:        newTask(resolved.Task),
+		Notes:       notes,
+		Fingerprint: resolved.Fingerprint,
+	})
+}
+
+func (s *server) launchDraft(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "draft_id")
+	if !ok {
+		return
+	}
+	var request LaunchDraft
+	if err := decodeBody(r, &request); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	task, err := s.service.LaunchDraft(r.Context(), id, request.Fingerprint)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newTask(task))
+}
+
+func (s *server) cancelDraft(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "draft_id")
+	if !ok {
+		return
+	}
+
+	draft, err := s.service.CancelDraft(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newTask(draft))
+}
+
+// taskID reads and validates a task identifier from the path.
+//
+// It is validated before it reaches the daemon, so a malformed one can never be
+// joined into a filesystem path.
+func (s *server) taskID(w http.ResponseWriter, r *http.Request, name string) (domain.TaskID, bool) {
+	id := domain.TaskID(r.PathValue(name))
+	if err := id.Validate(); err != nil {
+		s.fail(w, r, err)
+		return "", false
+	}
+	return id, true
 }
 
 // fail writes the error response and logs the cause of an unexplained failure,
@@ -307,6 +514,31 @@ func decodeBody(r *http.Request, payload any) error {
 	}
 	// A second document in the body means the client sent something other than
 	// the one object this endpoint accepts.
+	if decoder.More() {
+		return fmt.Errorf("%w: the request body carries more than one JSON document", ErrInvalid)
+	}
+	return nil
+}
+
+// decodeEmptyBody accepts a request that carries no instructions.
+//
+// An endpoint that takes only an identifier must not silently ignore a body
+// asking for something else. The daemon runs commands on its owner's behalf, so
+// a caller that sent a program to run should be told that Feat does not take
+// one rather than left believing it did.
+func decodeEmptyBody(r *http.Request) error {
+	var empty struct{}
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&empty); err != nil {
+		// No body at all means the same thing as an empty one, so `curl -X
+		// POST` works as well as the client does.
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		return fmt.Errorf("%w: this endpoint takes no request body: %w", ErrInvalid, err)
+	}
 	if decoder.More() {
 		return fmt.Errorf("%w: the request body carries more than one JSON document", ErrInvalid)
 	}
