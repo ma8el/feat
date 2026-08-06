@@ -76,6 +76,8 @@ Adapters are compiled into the binary initially. Interfaces must avoid leaking i
 
 `internal/git` is implemented by slice 4, which denies it `internal/config` and `internal/store`: it works on domain types and final names, the daemon expands templates, and the daemon records what it creates. See ADR-029. `internal/paths` gained the shared-directory list in the same change, so configuration validation and the adapter that creates and removes directories ask one question of one list.
 
+`internal/agent`, `internal/agent/claude`, and `internal/control` are implemented by slice 7 under the boundary ADR-029 established for Git: the adapters receive final values and read neither configuration nor persistent state, and `agent-stays-an-adapter` and `control-stays-a-protocol` `depguard` rules make that mechanical. The provider adapter returns a launch specification expressed in the terms the agent's own environment uses, and the daemon supplies how the agent sees its worktrees and control directory — host paths while execution is host-native, container paths once slice 8 supplies them. That is the seam through which slice 8 replaces the environment without touching the provider adapter. See ADR-032.
+
 `internal/config` and `internal/project` are implemented by slice 3, which draws one boundary between them: `internal/config` decides whether a configuration is well formed and safe, and asks the host nothing; `internal/project` asks the host and reports what it found. A configuration therefore stays loadable on a machine where a repository is temporarily missing, which is the machine `feat doctor` is most useful on. See ADR-028.
 
 ## Local API
@@ -136,7 +138,13 @@ State directory:
   projects/<project-id>/tasks/<task-id>/prompt.md
   projects/<project-id>/tasks/<task-id>/events.jsonl
   projects/<project-id>/tasks/<task-id>/review.json
+  control/<project-id>/<task-id>/
 ```
+
+The task control workspace is under the state directory but outside the
+per-task snapshot directory, because it is the one tree an agent writes to and
+it is mounted into the agent's execution environment. Its layout is in the
+control workspace protocol below.
 
 A durable daemon record, `daemon.json` at the state root, is introduced by slice 12, the first slice that reads one. Until then daemon liveness lives only in the runtime directory, so that a record which must not outlive the machine cannot; see ADR-027.
 
@@ -302,20 +310,37 @@ External resources such as pre-existing staging databases are configuration bind
 
 ## Control workspace protocol
 
-Host layout:
+Host layout, under the state directory but outside the per-task snapshot
+directory, so that the tree mounted into an agent container holds the protocol
+and nothing else — no snapshot, no event log, no stored brief (ADR-032):
 
 ```text
-<task>/control/
-  task.md
-  context/
-  inbox/
-  outbox/
-  reports/
+~/.local/share/feat/control/<project-id>/<task-id>/
+  task.md            host-written, agent-read: the confirmed brief
+  context/           host-written, agent-read
+  inbox/             host-written, agent-read
+  outbox/            agent-written, host-read
+  reports/           agent-written, host-read
+  agent/             host-only, mounted read-only where it is mounted at all
 ```
 
 The container mount path is configurable, with `/feat` as a reasonable default.
 
-Messages are versioned JSON documents written by atomic rename. The daemon validates:
+`agent/` holds what the provider adapter generates — settings, hook scripts, the
+report helper — and the record of which events have been processed. Keeping it
+host-only means deduplication never requires the host to write into the
+directory the agent owns, which in turn leaves the outbox intact as an audit
+trail until cleanup.
+
+Messages are versioned JSON documents written by atomic rename. The daemon
+polls for them rather than watching the filesystem: notification does not cross
+a bind mount reliably on every supported platform, and a watcher that works on
+the host and silently never fires in a container would hide the failure in the
+configuration that matters most. A document that does not parse is retried for a
+bounded number of polls before it is recorded as malformed, because a write in
+progress and a malformed document are different things.
+
+The daemon validates:
 
 - schema version;
 - task ID;

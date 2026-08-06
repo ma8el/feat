@@ -138,6 +138,59 @@ func (s *Server) Ran(command string) bool {
 	return false
 }
 
+// Launch is one program started in a pane, with the working directory it was
+// started in.
+type Launch struct {
+	// Pane is the tmux pane identifier.
+	Pane string
+	// Directory is the working directory the pane was given.
+	Directory string
+	// Command is the program followed by its arguments.
+	Command []string
+}
+
+// Program returns the executable, or an empty string for an empty launch.
+func (l Launch) Program() string {
+	if len(l.Command) == 0 {
+		return ""
+	}
+	return l.Command[0]
+}
+
+// Launches returns every program started in a pane, in order.
+//
+// It reads the recorded calls rather than the panes, because a test about what
+// was launched wants the arguments as they were passed: whether a launch
+// carried the right flags is a different question from what the pane is running
+// now.
+func (s *Server) Launches() []Launch {
+	var launches []Launch
+	for _, call := range s.Calls() {
+		if len(call) == 0 || call[0] != "respawn-pane" {
+			continue
+		}
+		index := indexOf(call, "-c")
+		if index < 0 || index+2 > len(call) {
+			continue
+		}
+		launches = append(launches, Launch{
+			Pane:      value(call, "-t"),
+			Directory: call[index+1],
+			Command:   append([]string(nil), call[index+2:]...),
+		})
+	}
+	return launches
+}
+
+// Launched returns the first program started in a pane.
+func (s *Server) Launched() (Launch, bool) {
+	launches := s.Launches()
+	if len(launches) == 0 {
+		return Launch{}, false
+	}
+	return launches[0], true
+}
+
 // Sockets returns the socket every call was sent to.
 func (s *Server) Sockets() []string {
 	s.mu.Lock()

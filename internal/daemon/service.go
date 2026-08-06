@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
+	"github.com/ma8el/feat/internal/agent"
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/config"
+	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/paths"
@@ -38,15 +41,48 @@ type service struct {
 	// and remains the only persistent-state writer.
 	git       *git.Git
 	terminals *tmux.Tmux
-	layout    paths.Layout
+	agent     agent.Adapter
+	// runner executes probe commands where the agent runs. Slice 8 replaces it
+	// with one that reaches inside the configured container.
+	runner agent.Runner
+	layout paths.Layout
 	// env is the environment configuration is resolved against: the user who
 	// owns the daemon, not whoever sent the request.
-	env      paths.Environment
-	build    Build
-	endpoint Endpoint
-	now      func() time.Time
-	logger   *slog.Logger
+	env paths.Environment
+	// hostAgent reports that the daemon was started with the opt-in that
+	// launches an agent on this host even where the project configures a
+	// container. It is read from the daemon's own environment and never from a
+	// request: a caller that could move the agent outside its configured
+	// boundary would be granting itself a capability (ADR-032).
+	hostAgent bool
+	build     Build
+	endpoint  Endpoint
+	now       func() time.Time
+	logger    *slog.Logger
+
+	// idle holds the pending end-of-turn transitions, one per task.
+	idle *idleTimers
+	// startup holds the pending "has not reported starting" notices, one per
+	// task. It is separate from idle because the two mean different things and
+	// a task can never be waiting on both.
+	startup *idleTimers
+	// workspaces caches one control workspace per task, because each holds the
+	// record of what it has already applied.
+	workspaceMu sync.Mutex
+	workspaces  map[domain.TaskID]*control.Workspace
+	// pollNow asks the control poller to read immediately.
+	pollNow chan struct{}
 }
+
+// EnvHostAgent opts a daemon in to launching agents on this host even for a
+// project that configures a container.
+//
+// It is deliberately an environment variable of the daemon rather than a flag
+// on a request or a field in project configuration. Devcontainer execution
+// arrives with slice 8; until then a project that asks for a container gets the
+// task shell and a message naming that slice, unless the person who started the
+// daemon said otherwise. See ADR-032.
+const EnvHostAgent = "FEAT_HOST_AGENT"
 
 var _ api.Service = (*service)(nil)
 
@@ -65,6 +101,7 @@ func (s *service) Health(ctx context.Context) (api.HealthReport, error) {
 			PID:       s.endpoint.PID,
 			StartedAt: s.endpoint.StartedAt,
 			Socket:    s.endpoint.Socket,
+			HostAgent: s.hostAgent,
 		},
 		State: api.State{Directory: s.layout.State},
 	}

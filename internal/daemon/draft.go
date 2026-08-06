@@ -244,14 +244,18 @@ func (s *service) LaunchDraft(ctx context.Context, id domain.TaskID, fingerprint
 		return task, err
 	}
 
-	command, err := s.agentCommand(cfg, task)
+	plan, err := s.planLaunch(ctx, cfg, task)
 	if err != nil {
+		// Nothing has been started. The worktrees exist, because they were
+		// created before this point and ADR-029 does not undo a partial launch,
+		// but no terminal and no session were created for an agent that could
+		// not run.
 		if transitionErr := s.transition(ctx, task, domain.WorkflowFailed, err.Error()); transitionErr != nil {
 			return nil, errors.Join(err, transitionErr)
 		}
 		return task, err
 	}
-	return s.ensureTerminal(ctx, task, cfg, command)
+	return s.ensureTerminal(ctx, task, cfg, plan)
 }
 
 // confirmDraft verifies the confirmation and creates the draft's Git resources.
@@ -571,14 +575,14 @@ func recordedPlan(cfg *config.Config, task *domain.Task) (*git.Plan, error) {
 	return plan, nil
 }
 
-// agentCommand is the program the task's agent pane runs.
+// shellCommand is a plain terminal in the task's own worktree.
 //
-// Slice 6 has no agent adapter and no execution environment: Claude arrives with
-// slice 7 and the devcontainer with slice 8. What it can honestly provide is a
-// terminal in the task's own worktree, so the pane runs the user's shell and the
-// task stays preparing. Nothing reports a running agent, and preparing to
-// working is the transition slice 7 makes when one starts (ADR-031).
-func (s *service) agentCommand(cfg *config.Config, task *domain.Task) (tmux.CommandSpec, error) {
+// It is what a task gets when no agent is started: a project that configures a
+// container, on a daemon that was not opted in to host execution, waits for
+// slice 8 rather than being given an agent somewhere it did not ask for. The
+// pane is real, so attach and shell work, and the task stays preparing because
+// nothing is running that could be called an agent session (ADR-031, ADR-032).
+func (s *service) shellCommand(cfg *config.Config, task *domain.Task) (tmux.CommandSpec, error) {
 	directory, err := primaryWorktree(cfg, task)
 	if err != nil {
 		return tmux.CommandSpec{}, err

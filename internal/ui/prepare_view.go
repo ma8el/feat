@@ -186,19 +186,23 @@ func (p prepareModel) reviewView() string {
 
 // agentProfile describes what the task's terminal will run.
 //
-// It says the honest thing rather than the eventual thing: slice 6 opens a
-// shell in the task worktree, and the agent adapter that replaces it arrives
-// with slice 7 (ADR-031).
+// It says the honest thing rather than the eventual thing. A host-mode project
+// gets a Claude session; a devcontainer project gets a shell until slice 8 can
+// start its container, and the screen says which one is about to happen rather
+// than leaving the user to find out afterwards (ADR-031, ADR-032).
 func agentProfile(task api.Task) string {
-	mode := "host"
+	devcontainer := false
 	for _, binding := range task.Repositories {
 		if binding.ContainerPath != "" {
-			mode = "devcontainer"
+			devcontainer = true
 			break
 		}
 	}
-	return "a task shell in the primary worktree  " +
-		mutedStyle.Render("("+agentSlice+"; project execution mode is "+mode+")")
+	if devcontainer {
+		return "a task shell in the primary worktree  " + mutedStyle.Render("("+containerSlice+")")
+	}
+	return "a Claude session in the primary worktree  " +
+		mutedStyle.Render("(host execution, with no container boundary around the agent)")
 }
 
 func (p prepareModel) hints() string {

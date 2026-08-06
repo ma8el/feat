@@ -162,7 +162,7 @@ Each provider capability supports:
 - `optional`: `doctor` reports availability/authentication but does not fail.
 - `required`: task launch fails validation when executable/authentication is absent.
 
-Validation occurs inside the same execution environment where Claude will run the command, and therefore arrives with slice 8. Until then `feat doctor` reports these checks as skipped rather than passing.
+Validation occurs inside the same execution environment where Claude will run the command. Slice 7 therefore validates them for host execution, where that environment is the host, and slice 8 validates them for devcontainer execution once there is a container to run them in. A check this build cannot run is reported as skipped rather than passing, and names the slice that delivers it (ADR-028, ADR-032).
 
 ### Capabilities Feat cannot vary
 

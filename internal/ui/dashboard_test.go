@@ -46,6 +46,47 @@ func liveTask() api.Task {
 	}
 }
 
+// TestVerificationIsShownAsAClaimRatherThanAResult checks the honesty of the
+// column ADR-032 narrowed.
+//
+// An agent-reported result and a provider-enforced one are different facts, and
+// the dashboard shows checks the agent asserted about its own work. Rendering
+// them as though something had verified them would tell the user what Feat does
+// not know.
+func TestVerificationIsShownAsAClaimRatherThanAResult(t *testing.T) {
+	reported := liveTask()
+	reported.Verification = &api.Verification{
+		Source: "agent", Passed: 2, Failed: 1,
+		Summary: "Added the export job; one test still fails.", ReportedAt: dashboardOrigin,
+	}
+
+	model := dashboard(newFakeBackend(), reported)
+	list := model.View()
+	if !strings.Contains(list, "2/3") {
+		t.Errorf("the task list does not show the reported counts:\n%s", list)
+	}
+	if !strings.Contains(list, "~") {
+		t.Errorf("the task list does not mark the result as the agent's claim:\n%s", list)
+	}
+
+	model.selected = reported.ID
+	model.screen = screenDetail
+	detail := model.View()
+
+	for _, want := range []string{"2 passed", "1 failed", "reported by the agent", "one test still fails"} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("the detail view does not show %q:\n%s", want, detail)
+		}
+	}
+
+	// A task whose agent has reported nothing shows nothing, rather than a row
+	// of zeroes claiming that nothing failed.
+	silent := dashboard(newFakeBackend(), liveTask()).View()
+	if strings.Contains(silent, "0/0") {
+		t.Errorf("a task that reported no checks was rendered as having run zero:\n%s", silent)
+	}
+}
+
 func pendingDraft() api.Task {
 	return api.Task{
 		ID: "2c4e6a80-1b3d-4f52-8a7c-9e0d1f2a3b4c", Key: "2c4e6a80",
@@ -121,8 +162,10 @@ func TestTheDetailViewNamesTheSlicesItIsWaitingOn(t *testing.T) {
 		// FR-UI-003's required content.
 		"Export the daily report", "core", "origin/main", "1a2b3c4d5e6f",
 		"feat/7f3a1c2e-add-a-scheduled-export-job", "$0", "@3", "%7",
-		// And what it cannot fill yet.
-		"slice 7", "slice 10",
+		// And what it cannot fill yet. Slice 7 delivers the agent-reported half
+		// of verification, so what remains outstanding is the gate that runs the
+		// project's configured checks, which needs slice 8's environment.
+		"slice 8", "slice 10",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the detail view does not show %q:\n%s", want, view)

@@ -10,7 +10,7 @@ replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: pre-alpha.** Slices 0, 1, 2, and 4 to 6 of the
+> **Status: pre-alpha.** Slices 0, 1, 2, and 4 to 7 of the
 > [implementation plan](docs/11-implementation-plan.md) are complete; Slice 3's
 > implementation is delivered but its company target-machine check is still
 > outstanding. The repository has its package skeleton, the full command
@@ -22,14 +22,19 @@ environment. A task may span several repositories.
 > tmux backend with tagged stable identity, native attachment, shell-pane
 > creation, and daemon-restart reconciliation.
 >
-> You can now prepare, confirm, launch, list, and inspect a task: `feat` opens
-> the dashboard, `feat implement` opens task preparation, and `feat attach`
-> yields your terminal to a task's own. **No agent runs yet.** A launched task's
-> terminal holds a shell in its worktree and the task rests in `preparing`;
-> slice 7 adds the Claude adapter and slice 8 runs it in the devcontainer.
-> Runtime, review, and cleanup commands are registered but not implemented, and
-> each reports the slice that delivers it. Nothing here is usable for real work
-> yet.
+> You can prepare, confirm, launch, list, and inspect a task: `feat` opens the
+> dashboard, `feat implement` opens task preparation, and `feat attach` yields
+> your terminal to a task's own. **A task now runs a real Claude Code session**
+> for a project configured with `mode: host`, reports its lifecycle through a
+> task control workspace, and goes idle only after a grace period — idle never
+> means done, and only an explicit request from the agent reaches review.
+>
+> A project configured for a devcontainer still gets a shell in its worktree
+> rather than an agent, because slice 8 is what starts the container; set
+> `FEAT_HOST_AGENT=1` in the daemon's environment to run Claude directly on your
+> host instead, with no container boundary around it. Runtime, review, and
+> cleanup commands are registered but not implemented, and each reports the
+> slice that delivers it. Nothing here is usable for real work yet.
 
 ## Preparing a task
 
@@ -49,6 +54,19 @@ feat            # the dashboard: every task, across every project
 feat task list  # the same, without a terminal
 feat attach <task>
 ```
+
+Confirming launches Claude Code in the task's primary worktree with the brief
+you accepted. Attaching hands your terminal to that session: it is the native
+Claude interface, with your own configuration, keybindings, and checked-in
+`CLAUDE.md` still applying. Detaching returns you to the dashboard and leaves
+the session running.
+
+Feat watches the session through hooks and a per-task control workspace, so the
+dashboard distinguishes states the terminal alone cannot: a finished turn
+becomes `idle` after a short grace period and never means the work is done, and
+a task reaches review only when the agent explicitly asks for it. The first
+launch in a new worktree waits for Claude's own workspace-trust prompt; Feat
+says a task is waiting rather than answering on your behalf.
 
 ## Configuring a project
 

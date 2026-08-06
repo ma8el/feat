@@ -1,0 +1,183 @@
+package agent
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/ma8el/feat/internal/control"
+	"github.com/ma8el/feat/internal/domain"
+)
+
+// Adapter is one coding-agent provider.
+//
+// The four methods are the contract in docs/06-technical-architecture.md. None
+// of them exposes a provider type: an adapter receives resolved values and
+// returns normalized ones, so that adding a provider changes no caller and a
+// future external plugin protocol stays possible (ADR-024).
+type Adapter interface {
+	// ID is the provider identifier recorded on the agent session.
+	ID() string
+	// Validate reports whether the environment can run this provider. It is
+	// called before anything is created, so that a task whose agent could never
+	// start does not leave a terminal and a session record behind.
+	Validate(ctx context.Context, env Environment) error
+	// Prepare generates whatever the provider needs outside the repositories
+	// and returns how to launch it. It writes only into the host-only area of
+	// the control workspace it is given.
+	Prepare(ctx context.Context, req PrepareRequest) (LaunchSpec, error)
+	// ParseEvent normalizes one provider-native control message. It reports
+	// false when the message carries a provider event this build does not act
+	// on, which is not an error: a provider may emit more than Feat models.
+	ParseEvent(ctx context.Context, message control.Message) (Event, bool, error)
+}
+
+// Environment describes where an agent will run and how to ask it questions.
+//
+// Slice 7 fills it for the trusted host. Slice 8 fills the same structure for a
+// Compose service, which is the whole reason validation takes an environment
+// rather than reaching for the host itself: a check that ran in the wrong place
+// answers a question nobody asked.
+type Environment struct {
+	// Mode is where the agent runs.
+	Mode domain.ExecutionMode
+	// OutsideConfiguredBoundary reports that the agent will run somewhere other
+	// than where the project configured it. It exists so that a message can say
+	// so rather than implying a boundary that is not there.
+	OutsideConfiguredBoundary bool
+	// Runner executes probe commands in that environment. It is required.
+	Runner Runner
+	// GitHubCLI and GitLabCLI are the configured capability levels, already
+	// resolved from configuration by the daemon.
+	GitHubCLI CapabilityLevel
+	GitLabCLI CapabilityLevel
+}
+
+// CapabilityLevel is how strictly a provider CLI is required.
+type CapabilityLevel string
+
+// Capability levels, from docs/07-configuration-model.md.
+const (
+	// CapabilityDisabled means Feat neither expects nor validates the CLI.
+	CapabilityDisabled CapabilityLevel = "disabled"
+	// CapabilityOptional means its absence is reported and tolerated.
+	CapabilityOptional CapabilityLevel = "optional"
+	// CapabilityRequired means launch fails when it is absent or
+	// unauthenticated.
+	CapabilityRequired CapabilityLevel = "required"
+)
+
+// Runner runs one command inside an agent execution environment.
+//
+// It is an interface for the reason git.Runner and tmux.Runner are: a test can
+// arrange an unauthenticated CLI, a missing executable, or a hanging probe
+// without needing a machine that has one.
+type Runner interface {
+	// Run executes the command and returns what it produced. A command that
+	// runs and fails is not an error; a command that could not be started is.
+	Run(ctx context.Context, command Command) (Output, error)
+}
+
+// Command is one probe executed in an agent environment.
+//
+// It is an argument vector rather than a string, so nothing is ever handed to a
+// shell to re-split (CLAUDE.md architectural rules).
+type Command struct {
+	// Program is the executable.
+	Program string
+	// Arguments are its arguments, each already a single vector element.
+	Arguments []string
+	// Directory is where it runs. An empty value means the environment's
+	// default.
+	Directory string
+}
+
+// Output is what a probe produced.
+type Output struct {
+	// Stdout and Stderr are the captured streams.
+	Stdout string
+	Stderr string
+	// ExitCode is the process exit status.
+	ExitCode int
+}
+
+// Succeeded reports whether the probe exited cleanly.
+func (o Output) Succeeded() bool { return o.ExitCode == 0 }
+
+// PrepareRequest is everything an adapter needs to generate a launch.
+type PrepareRequest struct {
+	// Task is the confirmed task. Its shape is frozen, so the brief here is the
+	// brief the user accepted.
+	Task *domain.Task
+	// Workspace says how the agent will see its own filesystem.
+	Workspace Workspace
+	// Control is the host-side control workspace. An adapter writes generated
+	// files into its host-only area and nowhere else.
+	Control *control.Workspace
+	// Environment is where the agent will run.
+	Environment Environment
+}
+
+// Workspace tells an adapter how the agent will see its own filesystem.
+//
+// Every path here is expressed in the agent's terms rather than the host's.
+// While execution is host-native the two are the same; once slice 8 runs the
+// agent in a container they are not, and the adapter is written against this
+// structure so that it never has to know which case it is in.
+type Workspace struct {
+	// WorkingDirectory is where the agent starts, as the agent sees it. It is
+	// the task's primary worktree.
+	WorkingDirectory string
+	// ControlPath is the control workspace, as the agent sees it.
+	ControlPath string
+}
+
+// Validate reports whether the workspace is usable.
+func (w Workspace) Validate() error {
+	for _, field := range []struct{ name, value string }{
+		{"working directory", w.WorkingDirectory},
+		{"control path", w.ControlPath},
+	} {
+		if field.value == "" {
+			return fmt.Errorf("the agent %s must not be empty", field.name)
+		}
+		if !strings.HasPrefix(field.value, "/") {
+			return fmt.Errorf("the agent %s must be absolute, but is %q", field.name, field.value)
+		}
+	}
+	return nil
+}
+
+// LaunchSpec is how to start an agent, expressed in the terms its own
+// environment uses.
+//
+// The daemon turns it into something a terminal can run: today by using the
+// values directly on the host, and from slice 8 by wrapping them in a command
+// that enters the configured container. Neither is the adapter's business.
+type LaunchSpec struct {
+	// Program is the agent executable.
+	Program string
+	// Arguments are its arguments.
+	Arguments []string
+	// Directory is the working directory, as the agent sees it.
+	Directory string
+	// Environment is the additional environment, as KEY=VALUE, that the agent
+	// process needs. It never carries a secret.
+	Environment []string
+}
+
+// Validate reports whether the specification can be launched.
+func (s LaunchSpec) Validate() error {
+	if s.Program == "" {
+		return fmt.Errorf("the agent launch specification names no program")
+	}
+	if !strings.HasPrefix(s.Directory, "/") {
+		return fmt.Errorf("the agent working directory must be absolute, but is %q", s.Directory)
+	}
+	for _, value := range s.Environment {
+		if !strings.Contains(value, "=") {
+			return fmt.Errorf("the agent environment entry %q is not KEY=VALUE", value)
+		}
+	}
+	return nil
+}
