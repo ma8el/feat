@@ -107,6 +107,20 @@ func TestValidationRejectsUnsafeConfiguration(t *testing.T) {
 			old: "    control_path: /feat", new: "    control_path: /srv/api/control",
 			path: "agent.execution.control_path", contains: "must be separate from every repository",
 		},
+		"claude config path shadows a repository": {
+			old:  "    config_volume: example-claude-config",
+			new:  "    config_volume: example-claude-config\n    config_path: /srv/api/.claude",
+			path: "agent.claude.config_path", contains: "must not be mounted inside a repository",
+		},
+		"claude config path shadows the control workspace": {
+			old:  "    config_volume: example-claude-config",
+			new:  "    config_volume: example-claude-config\n    config_path: /feat/claude",
+			path: "agent.claude.config_path", contains: "overlaps the control workspace",
+		},
+		"claude config path has no volume to mount": {
+			old: "    config_volume: example-claude-config", new: "    config_path: /feat-claude",
+			path: "agent.claude.config_path", contains: "names no volume to mount there",
+		},
 		"docker capability is granted": {
 			old: "    docker: denied", new: "    docker: allowed",
 			path: "agent.capabilities.docker", contains: "never receives a Docker socket",

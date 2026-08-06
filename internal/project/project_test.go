@@ -12,6 +12,7 @@ import (
 	"github.com/ma8el/feat/internal/agent/claude"
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
 )
@@ -416,27 +417,42 @@ func TestInvalidConfigurationIsReportedWithItsLocation(t *testing.T) {
 // TestUncheckableChecksAreSkippedRatherThanPassed keeps `feat doctor` honest
 // about its own coverage.
 //
-// FR-PROJ-004 asks for checks inside the agent's execution environment, which
-// nothing in this build can start. Reporting them as passing would be worse
-// than not reporting them at all.
+// FR-PROJ-004 asks for checks inside the agent's execution environment. For a
+// devcontainer project with no task running there is no container to look
+// inside, and `feat doctor` will not start one to answer a question — a command
+// that reports on a machine should not change it. Reporting them as passing
+// would be worse than not reporting them at all.
 func TestUncheckableChecksAreSkippedRatherThanPassed(t *testing.T) {
 	w := arrange(t)
 	report := w.diagnose(t)
 	findings := w.only(t, report).Findings
 
+	// These need a container, and each says so and says what to do about it.
 	for _, check := range []string{
 		"agent.executable",
 		"agent.execution.user",
 		"agent.capabilities.gitlab_cli",
-		"checks.api.test",
 	} {
 		found := finding(t, findings, check)
 		if found.Severity != project.SeveritySkipped {
 			t.Errorf("%s is %q, want skipped", check, found.Severity)
 		}
-		if !strings.Contains(found.Action, "slice 8") {
-			t.Errorf("%s does not say when it will be checked: %q", check, found.Action)
+		if !strings.Contains(found.Summary, "no container of this project is running") {
+			t.Errorf("%s does not say why it was skipped: %q", check, found.Summary)
 		}
+		if !strings.Contains(found.Action, "launch a task") {
+			t.Errorf("%s does not say what would let it run: %q", check, found.Action)
+		}
+	}
+
+	// A configured check runs in the agent's environment through a gate no slice
+	// has delivered yet, so this one still names the slice that will.
+	gate := finding(t, findings, "checks.api.test")
+	if gate.Severity != project.SeveritySkipped {
+		t.Errorf("checks.api.test is %q, want skipped", gate.Severity)
+	}
+	if !strings.Contains(gate.Action, "slice 11") {
+		t.Errorf("checks.api.test does not say when it will be checked: %q", gate.Action)
 	}
 
 	// An optional provider CLI is skipped for the same reason as the rest: this
@@ -468,6 +484,10 @@ func hostMode(t *testing.T, w *world) {
     user: developer
     working_directory: /srv/api
     control_path: /feat`, "    mode: host")
+	// A Claude configuration volume needs a container to be mounted into, so a
+	// host-mode project that declared one is rejected rather than quietly given
+	// the user's own ~/.claude (ADR-033).
+	rewrite(t, w, "    config_volume: example-claude-config\n", "")
 	w.runner.output["claude --version"] = claude.Verified() + " (Claude Code)"
 	w.runner.output["gh auth status"] = "Logged in"
 	w.runner.output["glab auth status"] = "Logged in"
@@ -812,5 +832,81 @@ func TestDiagnosisSurvivesAnUnreadableConfigurationDirectory(t *testing.T) {
 	}
 	if !strings.Contains(found.Summary, "absent.yaml") {
 		t.Errorf("summary %q does not say where the file belongs", found.Summary)
+	}
+}
+
+// TestALiveContainerIsCheckedInsteadOfBeingSkipped is the slice 8 half of
+// FR-PROJ-004.
+//
+// The requirement is worded around the environment where the agent runs. Once a
+// task of the project has a container, that environment exists and the checks
+// stop being skipped — asked of the container, as the agent's own user, rather
+// than of this machine.
+func TestALiveContainerIsCheckedInsteadOfBeingSkipped(t *testing.T) {
+	w := arrange(t)
+
+	// A container carrying Feat's ownership labels, which is how a diagnostic
+	// with no daemon and no state directory finds one.
+	w.runner.output["docker ps --filter label="+compose.LabelOwner+"="+compose.OwnerValue+
+		" --filter label="+compose.LabelProject+"=app --format {{.ID}}"] = "c0ffee\n"
+	w.runner.output["docker exec --user developer c0ffee claude --version"] =
+		claude.Verified() + " (Claude Code)"
+	w.runner.output["docker exec --user developer c0ffee id -u"] = "1000\n"
+	w.runner.output["docker exec --user developer c0ffee glab --version"] = "glab 1.42.0"
+	w.runner.output["docker exec --user developer c0ffee glab auth status"] = "Logged in"
+
+	findings := w.only(t, w.diagnose(t)).Findings
+
+	for _, check := range []string{"agent.executable", "agent.execution.user", "agent.capabilities.gitlab_cli"} {
+		found := finding(t, findings, check)
+		if found.Severity == project.SeveritySkipped {
+			t.Errorf("%s was skipped although a container of the project is running: %q", check, found.Summary)
+		}
+	}
+	if user := finding(t, findings, "agent.execution.user"); !strings.Contains(user.Summary, "uid 1000") {
+		t.Errorf("the agent's identity was not read from the container: %q", user.Summary)
+	}
+}
+
+// TestARootAgentInALiveContainerFailsDoctor checks the answer configuration
+// cannot give.
+//
+// A project may name a non-root user that the image resolves to uid 0. The
+// configuration is then valid and the container still breaks the security
+// model, and only the running container can say so.
+func TestARootAgentInALiveContainerFailsDoctor(t *testing.T) {
+	w := arrange(t)
+
+	w.runner.output["docker ps --filter label="+compose.LabelOwner+"="+compose.OwnerValue+
+		" --filter label="+compose.LabelProject+"=app --format {{.ID}}"] = "c0ffee\n"
+	w.runner.output["docker exec --user developer c0ffee claude --version"] =
+		claude.Verified() + " (Claude Code)"
+	w.runner.output["docker exec --user developer c0ffee id -u"] = "0\n"
+
+	found := finding(t, w.only(t, w.diagnose(t)).Findings, "agent.execution.user")
+	if found.Severity != project.SeverityError {
+		t.Errorf("a root agent is %q, want an error", found.Severity)
+	}
+	if !strings.Contains(found.Summary, "uid 0") {
+		t.Errorf("the finding does not say what was observed: %q", found.Summary)
+	}
+}
+
+// TestDoctorStartsNoContainer is ADR-028's rule, kept as the checks moved
+// inside one.
+//
+// A diagnostic that started a container to answer a question would make a
+// command that changes nothing change something, and it would do it on a machine
+// the user was asking about rather than acting on.
+func TestDoctorStartsNoContainer(t *testing.T) {
+	w := arrange(t)
+	w.diagnose(t)
+
+	for _, call := range w.runner.calls {
+		for _, forbidden := range []string{"docker compose up", "docker run", "docker start", "docker create"} {
+			if strings.HasPrefix(call, forbidden) {
+				t.Errorf("feat doctor ran %q, which creates or starts a container", call)
+			}
+		}
 	}
 }

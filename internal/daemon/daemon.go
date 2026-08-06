@@ -15,6 +15,7 @@ import (
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/store"
@@ -54,10 +55,15 @@ type Options struct {
 	// Tmux runs non-interactive control commands against the dedicated terminal
 	// server. A nil value drives the real tmux executable.
 	Tmux tmux.Runner
-	// Agent runs probe commands where the agent will run: today the trusted
-	// host, and from slice 8 the configured container. A nil value probes this
-	// host.
+	// Agent runs probe commands for a host-native agent. A devcontainer project
+	// probes inside its own container instead, through the execution
+	// environment. A nil value probes this host.
 	Agent agent.Runner
+	// Docker runs the container commands that create and observe a task's
+	// devcontainer. A nil value drives the real Docker CLI; a test supplies its
+	// own so that a container that refuses to start, or turns out to run as
+	// root, can be arranged without a machine in that state.
+	Docker compose.Runner
 	// Timer schedules the idle grace period. A nil value uses the wall clock.
 	Timer Timer
 	// PollInterval is how often control workspaces are read. Zero uses the
@@ -158,6 +164,7 @@ func New(opts Options) (*Daemon, error) {
 			terminals:  terminals,
 			agent:      claude.New(),
 			runner:     probe,
+			docker:     opts.Docker,
 			layout:     opts.Layout,
 			env:        env,
 			hostAgent:  hostAgent,

@@ -173,6 +173,7 @@ func launch(t *testing.T, fixture string, runner *agenttest.Runner, hostAgent bo
 		Git:         arranged.fake,
 		Tmux:        server,
 		Agent:       runner,
+		Docker:      workingDocker(),
 		Timer:       timer,
 		Now:         func() time.Time { return reconcileTime },
 	})
@@ -647,31 +648,45 @@ func TestMissingRequiredGitLabAuthenticationPreventsLaunch(t *testing.T) {
 	}
 }
 
-func TestADevcontainerProjectIsNotGivenAHostAgentByDefault(t *testing.T) {
+// TestADevcontainerProjectRunsItsAgentInTheContainer is the boundary the
+// security model exists to describe: the agent runs where the project put it.
+//
+// Claude is started, but never on this host. The command the terminal runs
+// enters the task's own Compose project, and the session records that it is a
+// devcontainer session rather than a host one.
+func TestADevcontainerProjectRunsItsAgentInTheContainer(t *testing.T) {
 	live := launch(t, prepareFixture, installed(), false)
 
-	// Slice 8 runs the agent in the container this project configures. Until
-	// then the honest thing is a shell, not an agent somewhere the project did
-	// not ask for.
 	launched, ok := live.tmux.Launched()
-	if ok && launched.Program() == claude.Executable {
-		t.Error("a devcontainer project launched Claude on the host without the opt-in")
+	if !ok {
+		t.Fatal("a devcontainer project launched nothing")
 	}
+	if launched.Program() == claude.Executable {
+		t.Error("a devcontainer project launched Claude directly on the host")
+	}
+	if !strings.Contains(strings.Join(launched.Command, " "), "--project-name feat-agent-app-") {
+		t.Errorf("the launch does not enter the task's own Compose project: %v", launched.Command)
+	}
+
 	task := live.task(t)
-	if task.Workflow != domain.WorkflowPreparing {
-		t.Errorf("workflow = %q, want preparing: no agent is running", task.Workflow)
-	}
 	if task.Session.ExecutionMode != domain.ExecutionDevcontainer {
 		t.Errorf("execution mode = %q, want the configured devcontainer", task.Session.ExecutionMode)
 	}
+	if task.Session.Execution == nil {
+		t.Fatal("the session records no execution environment")
+	}
+	if task.Session.Execution.User == "root" {
+		t.Error("the recorded agent user is root")
+	}
 
-	// Nothing was generated for an agent that was not started.
+	// The control workspace exists now, because there is an agent to report
+	// through it.
 	workspace, err := control.Open(live.service.layout.ControlRoot(), "app", live.ref.Task, control.Options{})
 	if err != nil {
 		t.Fatalf("opening the control workspace: %v", err)
 	}
-	if workspace.Exists() {
-		t.Error("a control workspace was created for a task with no agent")
+	if !workspace.Exists() {
+		t.Error("no control workspace was created for a launched agent")
 	}
 }
 

@@ -18,6 +18,7 @@ const (
 	defaultRemote              = "origin"
 	defaultBranch              = "main"
 	defaultControlPath         = "/feat"
+	defaultClaudeConfigPath    = "/feat-claude"
 	defaultProjectNameTemplate = "feat-{project_id}-{task_id}"
 	defaultIdleGracePeriod     = "5s"
 	defaultSampleInterval      = "2s"
@@ -151,6 +152,12 @@ func (c *Config) resolveAgent(opts Options) error {
 	if execution.Devcontainer() {
 		if execution.ControlPath == "" {
 			execution.ControlPath = defaultControlPath
+		}
+		// Only where there is a volume to mount. Defaulting a path for a
+		// configuration that mounts nothing would put a value in `feat project
+		// show` that nothing ever uses.
+		if c.Agent.Claude.ConfigVolume != "" && c.Agent.Claude.ConfigPath == "" {
+			c.Agent.Claude.ConfigPath = defaultClaudeConfigPath
 		}
 		// The agent starts where the user works: the primary repository's mount
 		// point. A project that wants another directory says so.

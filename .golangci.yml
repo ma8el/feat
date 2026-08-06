@@ -168,6 +168,37 @@ linters:
             - pkg: github.com/charmbracelet
             - pkg: github.com/spf13/cobra
 
+        # ADR-033: an execution environment receives final values — absolute
+        # Compose files, a project name, a service, a user, mounts, and labels —
+        # and reads neither configuration nor persistent state. It also knows no
+        # provider: the agent adapter describes a launch in its own environment's
+        # terms, and the execution adapter wraps that launch without reading it.
+        execution-stays-an-adapter:
+          files:
+            - "**/internal/execution/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+              desc: an execution environment wraps a launch; it never interprets one
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/cli
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/config
+              desc: the daemon reads configuration and hands the adapter final values
+            - pkg: github.com/ma8el/feat/internal/control
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/project
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/runtime
+              desc: the agent's environment and the application runtime are separate concepts
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/tmux
+              desc: an execution adapter builds a command; the terminal backend runs it
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+            - pkg: github.com/spf13/cobra
+
         control-stays-a-protocol:
           files:
             - "**/internal/control/**"
@@ -349,6 +380,19 @@ linters:
       # precedes it, so both exemptions are recorded here rather than in
       # //nolint comments, for the reason ADR-025 gives.
       - path: internal/(control/(poll|workspace)|agent/runner)\.go
+        linters:
+          - gosec
+        text: G304|G204
+
+      # internal/execution/compose runs Docker, which is the package's whole
+      # purpose, always as an argument vector and never through a shell, and
+      # writes the generated override into a directory the daemon resolved.
+      # Only the trusted host ever runs Docker; the agent's container receives
+      # neither a socket nor a client, which this package refuses a launch over.
+      # gosec sees the variable and not the validation, so the exemption is
+      # recorded here rather than in //nolint comments, for the reason ADR-025
+      # gives.
+      - path: internal/execution/compose/(runner|override)\.go
         linters:
           - gosec
         text: G304|G204

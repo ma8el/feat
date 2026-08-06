@@ -30,15 +30,16 @@ const (
 
 // Names inside the resolved directories.
 const (
-	dirName         = "feat"
-	socketName      = "feat.sock"
-	tmuxSocketName  = "tmux.sock"
-	lockName        = "daemon.lock"
-	endpointName    = "endpoint.json"
-	logsDirName     = "logs"
-	daemonLogName   = "daemon.log"
-	projectsDirName = "projects"
-	controlDirName  = "control"
+	dirName          = "feat"
+	socketName       = "feat.sock"
+	tmuxSocketName   = "tmux.sock"
+	lockName         = "daemon.lock"
+	endpointName     = "endpoint.json"
+	logsDirName      = "logs"
+	daemonLogName    = "daemon.log"
+	projectsDirName  = "projects"
+	controlDirName   = "control"
+	executionDirName = "execution"
 )
 
 // Environment is the process state path resolution depends on.
@@ -113,6 +114,19 @@ func (l Layout) LogFile() string { return filepath.Join(l.State, logsDirName, da
 // the identifiers first. This package joins constants only, which is what keeps
 // it a standard-library leaf.
 func (l Layout) ControlRoot() string { return filepath.Join(l.State, controlDirName) }
+
+// ExecutionRoot returns the directory holding generated execution inputs.
+//
+// It sits beside the control root rather than inside a task's snapshot
+// directory, for two reasons. The snapshot directory holds the documents the
+// store owns, and a file an execution adapter writes is not one of them; and
+// what a task's container mounts is decided here, so it must be somewhere the
+// agent never sees — unlike the control workspace, this tree is not mounted
+// anywhere (ADR-033).
+//
+// The per-task path below this one is built by the daemon, which validates the
+// identifiers first, exactly as internal/control does beneath ControlRoot.
+func (l Layout) ExecutionRoot() string { return filepath.Join(l.State, executionDirName) }
 
 // TmuxSocket returns the dedicated tmux server socket.
 //

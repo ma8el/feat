@@ -147,9 +147,9 @@ Package layout gained no new package. `internal/paths`, `internal/daemon`, `inte
 
 ## Slice 3 — YAML project configuration and doctor
 
-Status: **awaiting verification on the target machine**, 2026-08-05
+Status: **complete**, 2026-08-06
 
-Four of the five acceptance criteria pass, each with a test named for it. The second — that the company project configuration validates on the target machine — needs the reference project and the machine it lives on, so it is verified by running `feat doctor` there rather than in this repository. The design decisions this slice started from, and the evidence that produced them, are recorded in ADR-028 in [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md).
+All five acceptance criteria pass, each with a test named for it. The second — that the company project configuration validates on the target machine — needed the reference project and the machine it lives on, and was verified during slice 8 by running `feat doctor` there: both of that machine's projects validate, and the devcontainer one now describes a container that exists. The design decisions this slice started from, and the evidence that produced them, are recorded in ADR-028 in [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md).
 
 ### Outcome
 
@@ -418,6 +418,13 @@ Package layout gained no new package: `internal/agent`, `internal/agent/claude`,
 
 ## Slice 8 — Devcontainer execution
 
+Status: **complete**, 2026-08-06
+
+The design decisions this slice started from are recorded in ADR-033 in
+[10-decisions-and-open-questions.md](10-decisions-and-open-questions.md),
+including the three amendments it makes to the documented execution interface
+and the correction it makes to ADR-032's promise about the completion gate.
+
 ### Outcome
 
 Claude runs inside the real non-root devcontainer with correct multi-repository mounts and no Docker access.
@@ -441,6 +448,101 @@ Claude runs inside the real non-root devcontainer with correct multi-repository 
 - Docker socket is absent and host Docker cannot be controlled from the agent.
 - Full Git and required `glab` access work.
 - Three task devcontainers and Claude sessions can run concurrently.
+
+### Delivered
+
+All six acceptance criteria pass, and every one of them is checked by running a
+command inside a real container rather than by reading what Feat generated. That
+distinction is the slice's main lesson: the defect that mattered most left
+everything Feat generates correct.
+
+Claude now runs where the project puts it. The daemon resolves configuration into
+an execution specification, `internal/execution/compose` writes a generated
+override and brings the service up, every probe runs inside the container as the
+agent's own user, and only then does the task get a terminal whose pane enters
+that container. The shell action opens a shell in the same place, so the pane a
+user opens beside their agent is the environment their agent is in.
+
+`internal/execution` is the interface and `internal/execution/compose` the
+adapter, under the boundary ADR-029 set for Git and an `execution-stays-an-adapter`
+`depguard` rule verified against an injected violation. The adapter receives
+final values and reads neither configuration nor persistent state, so the two
+adapters never learn about each other: the daemon wraps the environment's probe
+runner as the agent adapter's runner, and the Claude adapter is unchanged from
+slice 7 — it was already written against "how the agent sees its own filesystem",
+and this slice fills that structure with the container's paths.
+
+Three properties are checked at the adapter rather than at the outcome:
+
+- the generated override is pinned by a golden file, because every line of it is
+  a decision about what the agent can reach;
+- `container_name` and published `ports` are reset for the agent service, which
+  is what makes acceptance criterion 6 possible at all — both are global, so a
+  base file carrying either can be brought up exactly once. Measured against
+  Docker Compose 5.1.4, along with merge-by-target and `--project-directory`
+  behaviour, before any of it was relied on;
+- a launch that a container refuses leaves the task `failed`, having run no tmux
+  command, with a message naming what to change. Seven such refusals have a test
+  each, and they run in the default `go test ./...` against a fake Docker,
+  because whether a half-finished launch is recoverable should not depend on the
+  tester's machine.
+
+Five defects were found by running the real thing rather than by reasoning about
+it, and each is now a test. Two were Feat reading a correct answer wrongly:
+Docker Compose reports an absent executable on standard output, so every "is this
+tool installed" probe answered "yes" — a container missing `mktemp` would have
+launched an agent that could never report; and a file a program could not open
+was read as a missing program. One was a message: a failed `up` reported its
+first line, which is "Image … Building", so a precise mount error in the user's
+own Compose file reached them as progress.
+
+The most important one is that **a task worktree is not a repository inside the
+container**. Its `.git` is a file naming the main checkout's Git directory by
+absolute host path, and nothing mounted it, so every Git command failed with "not
+a git repository" while the container, the mounts, the user, and every recorded
+state were exactly right — `agent.capabilities.git: full`, FR-GIT-006, and half
+of criterion 5 all false at once, with nothing Feat observes to say so. Each task
+repository's Git directory is now mounted at its host path with the access its
+worktree has. Finding it also closed a gap in the rule beside it: the check that
+refuses a mount of an ordinary checkout caught a parent directory and missed a
+child, so `<checkout>/src` would have exposed the working copy unnoticed.
+
+Verified against the reference project's own devcontainer, with `feat doctor`
+green on both its projects — which also settles the slice 3 acceptance criterion
+outstanding since 2026-08-05. In a real task container: the two task worktrees at
+their configured container paths with the selected access, the read-only one
+refusing a write; the stable repository mounted read-only from its ordinary
+checkout; uid 1000, not root; no Docker socket and no Docker client; a real
+commit made in the task worktree and the working copy unreachable; and three
+tasks running side by side in three containers with three worktrees. `gh` is
+installed in that image and deliberately logged out, so criterion 5's provider
+half is verified as the refusal — a project that requires a CLI its environment
+cannot authenticate fails launch with a message naming the remedy, reported from
+inside the container. The positive required-CLI path is recorded as not verified
+rather than reported as passing.
+
+Two findings belong to the reference project rather than to Feat, and both now
+produce an explanation in Feat's terms instead of the container runtime's: a
+Compose file that mounts something *inside* a repository mount is satisfied by
+the ordinary checkout and not by a task worktree, which holds only what Git
+tracks; and a named volume nested inside a repository the task selected read-only
+cannot be created.
+
+`feat doctor` stops naming a slice for its devcontainer checks. It probes inside
+a container that Feat's ownership labels identify as a live task container of the
+project, and reports `skipped` with the condition otherwise — it still starts
+nothing, because a command that reports on a machine should not change it. The
+one configuration addition is `agent.claude.config_path`, and `config_volume`
+became genuinely optional: a project that supplies Claude's configuration through
+its own Compose files gets nothing mounted over it.
+
+Package layout gained no new package: `internal/execution` and
+`internal/execution/compose` were reserved by slice 0. `internal/paths` gained the
+execution root. See ADR-033; [03-domain-model.md](03-domain-model.md),
+[05-security-model.md](05-security-model.md),
+[06-technical-architecture.md](06-technical-architecture.md), and
+[07-configuration-model.md](07-configuration-model.md) were updated in the same
+change.
 
 ## Slice 9 — Manual application runtime
 
@@ -500,6 +602,12 @@ The user can review every changed repository against the correct immutable base 
 - Expand/execute configured diff, editor, and status commands.
 - Add approve/pending/revise actions.
 - Preserve review state across restart.
+- Implement the provider-native completion gate that runs the project's
+  configured `checks` in the agent's execution environment and returns a failure
+  to the native agent loop, reaching `verifying` and `verification_failed`.
+  Deferred from ADR-032, which promised it for slice 8; slice 8 delivers the
+  environment the gate needs but never listed the gate itself, and ADR-033
+  moves it here rather than leaving a promise no slice schedules.
 
 ### Acceptance criteria
 
@@ -507,6 +615,9 @@ The user can review every changed repository against the correct immutable base 
 - Neovim opens in the selected task repository.
 - Commands cannot escape configured task paths through unvalidated placeholders.
 - Approval does not stop or destroy runtime automatically.
+- A failed configured check returns the task to the agent loop and never reaches
+  `ready_for_review`; an agent-reported result is still distinguishable from a
+  gated one.
 
 ## Slice 12 — Reconciliation and cleanup
 

@@ -208,9 +208,14 @@
       "additionalProperties": false,
       "properties": {
         "config_volume": {
-          "description": "A dedicated Docker volume for Claude's configuration, which keeps one interactive login out of the user's own ~/.claude.",
+          "description": "A dedicated Docker volume for Claude's configuration, which keeps one interactive login out of the user's own ~/.claude. Optional: without it Feat mounts nothing and leaves the provider's configuration to the project's own Compose files.",
           "type": "string",
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"
+        },
+        "config_path": {
+          "description": "Where config_volume is mounted in the devcontainer, and the value of CLAUDE_CONFIG_DIR. It must not overlap a repository mount or the control path.",
+          "$ref": "#/$defs/containerPath",
+          "default": "/feat-claude"
         },
         "idle_grace_period": {
           "description": "How long an end-of-turn signal waits before the task is reported idle. Idle never means complete.",

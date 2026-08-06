@@ -10,10 +10,9 @@ replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: pre-alpha.** Slices 0, 1, 2, and 4 to 7 of the
-> [implementation plan](docs/11-implementation-plan.md) are complete; Slice 3's
-> implementation is delivered but its company target-machine check is still
-> outstanding. The repository has its package skeleton, the full command
+> **Status: pre-alpha.** Slices 0 to 8 of the
+> [implementation plan](docs/11-implementation-plan.md) are complete. The
+> repository has its package skeleton, the full command
 > surface, its development and CI commands, a versioned domain model with
 > file-backed storage, a local daemon serving a JSON API and a state-event
 > stream over a Unix-domain socket, YAML project configuration with
@@ -25,16 +24,21 @@ environment. A task may span several repositories.
 > You can prepare, confirm, launch, list, and inspect a task: `feat` opens the
 > dashboard, `feat implement` opens task preparation, and `feat attach` yields
 > your terminal to a task's own. **A task now runs a real Claude Code session**
-> for a project configured with `mode: host`, reports its lifecycle through a
+> in a devcontainer or on the host, reports its lifecycle through a
 > task control workspace, and goes idle only after a grace period — idle never
 > means done, and only an explicit request from the agent reaches review.
 >
-> A project configured for a devcontainer still gets a shell in its worktree
-> rather than an agent, because slice 8 is what starts the container; set
-> `FEAT_HOST_AGENT=1` in the daemon's environment to run Claude directly on your
-> host instead, with no container boundary around it. Runtime, review, and
-> cleanup commands are registered but not implemented, and each reports the
-> slice that delivers it. Nothing here is usable for real work yet.
+> A project configured for a devcontainer now runs its agent inside one: Feat
+> starts the configured Compose service, mounts each task worktree at the
+> container path its repository configures, mounts the task's control workspace,
+> and launches Claude there as the configured non-root user. It refuses to start
+> an agent in a container that has a Docker socket, a Docker client, or a mount
+> of your ordinary checkout, and each task gets its own Compose project so tasks
+> run side by side. Set `FEAT_HOST_AGENT=1` in the daemon's environment to run
+> Claude directly on your host instead, with no container boundary around it.
+> Runtime, review, and cleanup commands are registered but not implemented, and
+> each reports the slice that delivers it. Nothing here is usable for real work
+> yet.
 
 ## Preparing a task
 

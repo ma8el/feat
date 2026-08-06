@@ -41,6 +41,11 @@ func liveTask() api.Task {
 		Session: &api.Session{
 			Provider: "claude", ExecutionMode: "devcontainer", Process: "running",
 			Tmux: api.Tmux{Socket: "/run/feat/tmux.sock", Session: "$0", Window: "@3", Pane: "%7"},
+			Execution: &api.Execution{
+				Provider: "compose", Identity: "feat-agent-example-7f3a1c2e",
+				Service: "dev", User: "coder",
+				Container: "9f8e7d6c5b4a", Running: true, Status: "Up 4 minutes",
+			},
 		},
 		CreatedAt: dashboardOrigin, UpdatedAt: dashboardOrigin,
 	}
@@ -162,10 +167,32 @@ func TestTheDetailViewNamesTheSlicesItIsWaitingOn(t *testing.T) {
 		// FR-UI-003's required content.
 		"Export the daily report", "core", "origin/main", "1a2b3c4d5e6f",
 		"feat/7f3a1c2e-add-a-scheduled-export-job", "$0", "@3", "%7",
-		// And what it cannot fill yet. Slice 7 delivers the agent-reported half
-		// of verification, so what remains outstanding is the gate that runs the
-		// project's configured checks, which needs slice 8's environment.
-		"slice 8", "slice 10",
+		// And what it cannot fill yet. Slice 7 delivered the agent-reported half
+		// of verification and slice 8 the environment, so what remains
+		// outstanding is the gate that runs a project's configured checks, which
+		// is slice 11's, and resource usage, which is slice 10's.
+		"slice 11", "slice 10",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the detail view does not show %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestTheDetailViewShowsWhereTheAgentRuns checks that a containerised session
+// says so, and says enough to be acted on.
+//
+// The identity is what a user needs to inspect or clean up the container
+// themselves; the user is the boundary the security model describes, and a
+// boundary nobody can see is one nobody can check.
+func TestTheDetailViewShowsWhereTheAgentRuns(t *testing.T) {
+	model := dashboard(newFakeBackend(), liveTask())
+	model.selected = liveTask().ID
+	model.screen = screenDetail
+
+	view := model.View()
+	for _, want := range []string{
+		"feat-agent-example-7f3a1c2e", "dev", "coder", "no Docker access", "container_name",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the detail view does not show %q:\n%s", want, view)

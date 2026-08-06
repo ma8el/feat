@@ -186,10 +186,9 @@ func (p prepareModel) reviewView() string {
 
 // agentProfile describes what the task's terminal will run.
 //
-// It says the honest thing rather than the eventual thing. A host-mode project
-// gets a Claude session; a devcontainer project gets a shell until slice 8 can
-// start its container, and the screen says which one is about to happen rather
-// than leaving the user to find out afterwards (ADR-031, ADR-032).
+// It says where the agent will run before anything is created, because that is
+// the difference the security model is about and the user is the one confirming
+// it (ADR-031, ADR-033).
 func agentProfile(task api.Task) string {
 	devcontainer := false
 	for _, binding := range task.Repositories {
@@ -199,7 +198,9 @@ func agentProfile(task api.Task) string {
 		}
 	}
 	if devcontainer {
-		return "a task shell in the primary worktree  " + mutedStyle.Render("("+containerSlice+")")
+		return "a Claude session in this project's devcontainer  " +
+			mutedStyle.Render("(your task worktrees are mounted at their container paths, "+
+				"and the agent gets no Docker access)")
 	}
 	return "a Claude session in the primary worktree  " +
 		mutedStyle.Render("(host execution, with no container boundary around the agent)")

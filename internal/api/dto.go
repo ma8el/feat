@@ -338,10 +338,39 @@ type Session struct {
 	// Process is the observed process state. Idle never means complete.
 	Process     string `json:"process"`
 	ControlPath string `json:"control_path,omitempty"`
+	// Execution is the isolated environment the session runs in, or null when it
+	// runs on this host and there is nothing to identify.
+	Execution *Execution `json:"execution"`
 	// LastEventSequence is the last control event Feat processed.
 	LastEventSequence uint64    `json:"last_event_sequence"`
 	CreatedAt         time.Time `json:"created_at"`
 	LastActivityAt    time.Time `json:"last_activity_at"`
+}
+
+// Execution is the isolated environment one agent session runs in.
+//
+// It is a separate concept from Runtime even when both are Compose projects:
+// this is how the agent runs, and that is the application the user tests.
+type Execution struct {
+	// Provider identifies the execution adapter, such as the Compose adapter.
+	Provider string `json:"provider"`
+	// Identity is what makes an action affect one task's environment and no
+	// other's, which for the Compose adapter is the project name.
+	Identity string `json:"identity"`
+	// Service is the service the agent runs in.
+	Service string `json:"service"`
+	// User is the identity the agent runs as, which is never root.
+	User string `json:"user"`
+	// Container is the observed container, empty when none was observed.
+	Container string `json:"container,omitempty"`
+	// Running is whether the environment was observed to be up.
+	Running bool `json:"running"`
+	// Status is what the environment itself called its state.
+	Status string `json:"status,omitempty"`
+	// Health is the observed health, which is separate from running.
+	Health string `json:"health,omitempty"`
+	// ObservedAt is when the last four fields were established.
+	ObservedAt time.Time `json:"observed_at,omitzero"`
 }
 
 // Tmux locates a session's terminal. These are execution references, never task
@@ -535,9 +564,33 @@ func newSession(session *domain.AgentSession) *Session {
 		ProviderSessionID: session.ProviderSessionID,
 		Process:           string(session.Process),
 		ControlPath:       session.ControlPath,
+		Execution:         newExecution(session.Execution),
 		LastEventSequence: session.LastEventSequence,
 		CreatedAt:         session.CreatedAt,
 		LastActivityAt:    session.LastActivityAt,
+	}
+}
+
+// newExecution renders the agent's execution environment.
+//
+// The identity, service, and user are what Feat asked for; the container and its
+// state are what it saw. A client can tell them apart, because a task whose
+// container has gone is a different thing from one that was never given a
+// container (docs/03-domain-model.md).
+func newExecution(environment *domain.ExecutionEnvironment) *Execution {
+	if environment == nil {
+		return nil
+	}
+	return &Execution{
+		Provider:   environment.Provider,
+		Identity:   environment.Identity,
+		Service:    environment.Service,
+		User:       environment.User,
+		Container:  environment.Container,
+		Running:    environment.Running,
+		Status:     environment.Status,
+		Health:     string(environment.Health),
+		ObservedAt: environment.ObservedAt,
 	}
 }
 
