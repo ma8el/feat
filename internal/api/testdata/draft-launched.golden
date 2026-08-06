@@ -1,0 +1,28 @@
+{
+  "id": "2c4e6a80-1b3d-4f52-8a7c-9e0d1f2a3b4c",
+  "key": "2c4e6a80",
+  "project_id": "example",
+  "title": "Add a scheduled export job",
+  "brief": "# Add a scheduled export job\n\nExport the daily report to the configured bucket.\n\n## Acceptance criteria\n\n- the job runs once per day\n- a failure is retried three times\n",
+  "source": {
+    "kind": "prompt"
+  },
+  "workflow": "draft",
+  "attention": "none",
+  "repositories": [
+    {
+      "repository_id": "core",
+      "access": "read_write",
+      "base_ref": "origin/main",
+      "base_commit": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+      "branch": "feat/2c4e6a80-add-a-scheduled-export-job",
+      "worktree_path": "/srv/state/worktrees/example/2c4e6a80/core",
+      "container_path": "/src/core",
+      "observation": null
+    }
+  ],
+  "session": null,
+  "runtime": null,
+  "created_at": "2026-08-04T09:30:00Z",
+  "updated_at": "2026-08-04T09:33:00Z"
+}

@@ -32,9 +32,14 @@ type TerminalAttacher interface {
 
 type hostAttacher struct{}
 
-func (hostAttacher) Attach(ctx context.Context, info api.AttachInfo, stdin io.Reader, stdout, stderr io.Writer) error {
+// attachCommand builds the native tmux client for one resolved target.
+//
+// It is shared by `feat attach` and by the dashboard's attach and shell
+// actions, so that there is one place where a target becomes a command and one
+// place where that target is validated.
+func attachCommand(ctx context.Context, info api.AttachInfo) (*exec.Cmd, error) {
 	if err := validateAttachInfo(info); err != nil {
-		return err
+		return nil, err
 	}
 
 	// tmux accepts a full stable target for attach. No name or numeric index is
@@ -44,10 +49,18 @@ func (hostAttacher) Attach(ctx context.Context, info api.AttachInfo, stdin io.Re
 	// #nosec G204 -- tmux is a fixed executable; every dynamic target component
 	// is validated above and passed as its own argument, never through a shell.
 	command := exec.CommandContext(ctx, "tmux", "-S", info.Socket, "attach-session", "-t", target)
+	command.Env = outsideTmux(command.Environ())
+	return command, nil
+}
+
+func (hostAttacher) Attach(ctx context.Context, info api.AttachInfo, stdin io.Reader, stdout, stderr io.Writer) error {
+	command, err := attachCommand(ctx, info)
+	if err != nil {
+		return err
+	}
 	command.Stdin = stdin
 	command.Stdout = stdout
 	command.Stderr = stderr
-	command.Env = outsideTmux(command.Environ())
 
 	if err := command.Run(); err != nil {
 		if ctx.Err() != nil {

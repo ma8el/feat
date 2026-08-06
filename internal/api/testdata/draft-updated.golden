@@ -1,0 +1,23 @@
+{
+  "id": "2c4e6a80-1b3d-4f52-8a7c-9e0d1f2a3b4c",
+  "key": "2c4e6a80",
+  "project_id": "example",
+  "title": "Add a scheduled export job",
+  "brief": "Export the daily report.",
+  "source": {
+    "kind": "prompt"
+  },
+  "workflow": "draft",
+  "attention": "none",
+  "repositories": [
+    {
+      "repository_id": "core",
+      "access": "read_write",
+      "observation": null
+    }
+  ],
+  "session": null,
+  "runtime": null,
+  "created_at": "2026-08-04T09:30:00Z",
+  "updated_at": "2026-08-04T09:33:00Z"
+}

@@ -10,25 +10,45 @@ replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: pre-alpha.** Slices 0, 1, 2, 4, and 5 of the
+> **Status: pre-alpha.** Slices 0, 1, 2, and 4 to 6 of the
 > [implementation plan](docs/11-implementation-plan.md) are complete; Slice 3's
 > implementation is delivered but its company target-machine check is still
-> outstanding. The
-> repository has its package skeleton, the full command surface, its development
-> and CI commands, a versioned domain model with file-backed storage, a local
-> daemon serving a JSON API and a state-event stream over a Unix-domain socket,
-> YAML project configuration with diagnostics, and the Git and worktree
-> lifecycle that gives a task its branches and worktrees across several
-> repositories. It also has a dedicated tmux backend with tagged stable
-> identity, native attachment, shell-pane creation, and daemon-restart
-> reconciliation.
-> `feat daemon start|stop|status`, `feat doctor`, and
-> `feat project add|list|show` work. `feat attach` works for a recorded task
-> terminal, but no command creates one yet. The commands that create a task are
-> registered but not implemented; each one reports the slice that will deliver
-> it, and slice 6 is the one that will let you confirm a task draft and reach
-> the Git lifecycle from the command line. Nothing here is usable for real work
+> outstanding. The repository has its package skeleton, the full command
+> surface, its development and CI commands, a versioned domain model with
+> file-backed storage, a local daemon serving a JSON API and a state-event
+> stream over a Unix-domain socket, YAML project configuration with
+> diagnostics, and the Git and worktree lifecycle that gives a task its
+> branches and worktrees across several repositories. It also has a dedicated
+> tmux backend with tagged stable identity, native attachment, shell-pane
+> creation, and daemon-restart reconciliation.
+>
+> You can now prepare, confirm, launch, list, and inspect a task: `feat` opens
+> the dashboard, `feat implement` opens task preparation, and `feat attach`
+> yields your terminal to a task's own. **No agent runs yet.** A launched task's
+> terminal holds a shell in its worktree and the task rests in `preparing`;
+> slice 7 adds the Claude adapter and slice 8 runs it in the devcontainer.
+> Runtime, review, and cleanup commands are registered but not implemented, and
+> each reports the slice that delivers it. Nothing here is usable for real work
 > yet.
+
+## Preparing a task
+
+```sh
+feat implement                       # or: feat implement --file task.md
+feat implement --project myproject   # when several are registered
+```
+
+Preparation asks what the task is, which repositories it may read and write,
+and then shows what Feat resolved: each repository's immutable base commit, the
+branch and worktree it would create, and anything it wants to warn you about.
+Nothing exists until you confirm that screen, and confirming creates exactly
+what it showed — a draft edited in between is refused rather than launched.
+
+```sh
+feat            # the dashboard: every task, across every project
+feat task list  # the same, without a terminal
+feat attach <task>
+```
 
 ## Configuring a project
 

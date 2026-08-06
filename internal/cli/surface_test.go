@@ -100,6 +100,8 @@ func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
 		"feat project add":   true,
 		"feat project list":  true,
 		"feat project show":  true,
+		"feat implement":     true,
+		"feat task list":     true,
 	}
 
 	var walk func(cmd *cobra.Command)

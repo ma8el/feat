@@ -73,9 +73,22 @@ type fakeGit struct {
 	// failAdd makes creating a worktree fail once its path ends in this
 	// repository identifier.
 	failAdd string
+	// resolved is the commit remote-tracking bases resolve to. Changing it
+	// between a plan and a launch is what a fetch that picked up new commits
+	// would do.
+	resolved string
 }
 
-func newFakeGit() *fakeGit { return &fakeGit{worktrees: make(map[string][]string)} }
+func newFakeGit() *fakeGit {
+	return &fakeGit{worktrees: make(map[string][]string), resolved: planned}
+}
+
+// resolveTo moves the commit every remote-tracking base resolves to.
+func (f *fakeGit) resolveTo(commit string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resolved = commit
+}
 
 func (f *fakeGit) vectors() []string {
 	f.mu.Lock()
@@ -113,7 +126,9 @@ func (f *fakeGit) Run(_ context.Context, dir string, args ...string) (string, er
 		// never collides and a base policy that is not remote is visibly
 		// unresolvable.
 		if strings.HasPrefix(args[len(args)-1], "refs/remotes/") {
-			return planned, nil
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			return f.resolved, nil
 		}
 		return "", &git.ExitError{Args: args, Dir: dir, Code: 1}
 
@@ -556,9 +571,19 @@ func TestAPlanThatCannotBeAppliedLeavesTheTaskADraft(t *testing.T) {
 	if recorded.Workflow != domain.WorkflowDraft {
 		t.Errorf("the task is %s, want a draft the user can still change", recorded.Workflow)
 	}
-	if len(recorded.Repositories) != 0 {
-		t.Errorf("the draft recorded %d bindings from a plan that never applied",
-			len(recorded.Repositories))
+	// The selection survives, because it is the user's own answer to which
+	// repositories the task is about and they should not have to give it again.
+	// What must not survive is a resolved plan: no base commit, no branch, and
+	// no worktree path, because none of them was resolved.
+	if len(recorded.Repositories) != len(selection()) {
+		t.Errorf("the draft records %d repositories, want the %d the user selected",
+			len(recorded.Repositories), len(selection()))
+	}
+	for _, binding := range recorded.Repositories {
+		if binding.BaseCommit != "" || binding.Branch != "" || binding.WorktreePath != "" {
+			t.Errorf("repository %s recorded %+v from a plan that never resolved",
+				binding.RepositoryID, binding)
+		}
 	}
 }
 

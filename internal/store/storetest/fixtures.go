@@ -20,6 +20,10 @@ const (
 	SecondaryRepositoryID = domain.RepositoryID("schema")
 	// TaskID is the fixture task.
 	TaskID = domain.TaskID("7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c")
+	// DraftID is a fixture task that is still a draft, so that the states before
+	// and after confirmation can both be exercised. A draft is a task in draft
+	// state rather than an entity of its own (ADR-031).
+	DraftID = domain.TaskID("2c4e6a80-1b3d-4f52-8a7c-9e0d1f2a3b4c")
 )
 
 // Base commits recorded for the fixture task. They are immutable for the
@@ -123,6 +127,30 @@ func Task() *domain.Task {
 	must(task.AttachRuntime(Runtime(), after(25)))
 	must(task.TransitionTo(domain.WorkflowReviewRequested, after(30)))
 	must(task.SetAttention(domain.AttentionPossiblyWaiting, after(30)))
+
+	return task
+}
+
+// Draft returns a fixture task that has been resolved but not confirmed.
+//
+// It is what the preparation screen shows just before the user confirms: a
+// brief, a repository selection, resolved immutable bases, and proposed
+// branches and worktree paths — none of which exists on the host yet, because
+// nothing is created before confirmation (FR-TASK-003).
+func Draft() *domain.Task {
+	task, err := domain.NewTask(DraftID, ProjectID, "Add a scheduled export job",
+		domain.TaskSource{Kind: domain.SourcePrompt}, Origin)
+	must(err)
+
+	must(task.SetBrief(Brief, after(1)))
+	must(task.Bind(domain.TaskRepository{
+		RepositoryID:  PrimaryRepositoryID,
+		Access:        domain.TaskAccessReadWrite,
+		Branch:        "feat/2c4e6a80-add-a-scheduled-export-job",
+		WorktreePath:  "/srv/state/worktrees/example/2c4e6a80/core",
+		ContainerPath: "/src/core",
+	}, after(2)))
+	must(task.ResolveBase(PrimaryRepositoryID, "origin/main", PrimaryBaseCommit, after(3)))
 
 	return task
 }

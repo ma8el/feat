@@ -2,10 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ma8el/feat/internal/client"
 	"github.com/ma8el/feat/internal/config"
+	"github.com/ma8el/feat/internal/daemon"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
 	"github.com/ma8el/feat/internal/ui"
@@ -34,6 +37,10 @@ type Options struct {
 	// the installed tmux client; tests inject one so they never take over the
 	// test process's terminal.
 	Attacher TerminalAttacher
+	// Now supplies the current time, which elapsed columns are measured
+	// against. A nil value reads the wall clock; a test supplies its own so
+	// that its output does not change between runs.
+	Now func() time.Time
 }
 
 // environment is what commands need from the process: where Feat's directories
@@ -46,6 +53,15 @@ type environment struct {
 	process     *paths.Environment
 	runner      project.Runner
 	attacher    TerminalAttacher
+	now         func() time.Time
+}
+
+// clock returns the time source elapsed columns are measured against.
+func (e *environment) clock() func() time.Time {
+	if e.now != nil {
+		return e.now
+	}
+	return time.Now
 }
 
 // resolve returns the path layout, resolving it from the environment unless one
@@ -105,6 +121,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		process:     opts.Environment,
 		runner:      opts.Runner,
 		attacher:    opts.Attacher,
+		now:         opts.Now,
 	}
 
 	root := &cobra.Command{
@@ -123,14 +140,40 @@ func NewRootCommand(opts Options) *cobra.Command {
 			// (ADR-008); see describeDaemon for what a non-interactive run does
 			// instead.
 			daemonLine, socket := env.describeDaemon(cmd)
-			return ui.RunHealth(cmd.Context(), ui.Health{
-				Version:   env.build.Version,
-				Commit:    env.build.Commit,
-				GoVersion: env.build.GoVersion,
-				Platform:  env.build.Platform(),
-				Daemon:    daemonLine,
-				Socket:    socket,
-			}, cmd.OutOrStdout(), opts.Interactive)
+			if !opts.Interactive {
+				// A run with no terminal reports what it observed rather than
+				// opening a screen nobody can read (ADR-027).
+				return ui.RunHealth(cmd.Context(), ui.Health{
+					Version:   env.build.Version,
+					Commit:    env.build.Commit,
+					GoVersion: env.build.GoVersion,
+					Platform:  env.build.Platform(),
+					Daemon:    daemonLine,
+					Socket:    socket,
+				}, cmd.OutOrStdout(), false)
+			}
+
+			layout, err := env.resolve()
+			if err != nil {
+				return err
+			}
+			if status := daemon.Inspect(layout); !status.Running() {
+				// describeDaemon starts one; if there still is none, the
+				// dashboard has nothing to show and says so.
+				return &NotRunningError{Socket: layout.Socket}
+			}
+
+			caller := client.New(layout.Socket)
+			defer caller.Close()
+			current, err := env.current()
+			if err != nil {
+				return err
+			}
+
+			return ui.Run(cmd.Context(), ui.Options{
+				Backend: &backend{client: caller, env: current},
+				Daemon:  ui.Daemon{Version: env.build.Version, Socket: layout.Socket},
+			})
 		},
 	}
 
@@ -145,9 +188,9 @@ func NewRootCommand(opts Options) *cobra.Command {
 	})
 
 	root.AddCommand(
-		newImplementCommand(),
+		newImplementCommand(env),
 		newProjectCommand(env),
-		newTaskCommand(),
+		newTaskCommand(env),
 		newAttachCommand(env),
 		newReviewCommand(),
 		newRuntimeCommand(),
@@ -158,33 +201,6 @@ func NewRootCommand(opts Options) *cobra.Command {
 	)
 
 	return root
-}
-
-func newImplementCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "implement",
-		Short: "Prepare and launch a task",
-		Long: `Open task preparation. Feat does not start an agent until the final task
-brief and repository selection are confirmed.`,
-		Args: checkArgs(cobra.NoArgs),
-		RunE: notImplemented(6, "task preparation and initial TUI"),
-	}
-	cmd.Flags().String("file", "", "read the task brief from a Markdown file")
-	return cmd
-}
-
-func newTaskCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "task",
-		Short: "Inspect tasks",
-	}
-	cmd.AddCommand(&cobra.Command{
-		Use:   "list",
-		Short: "List tasks across all projects",
-		Args:  checkArgs(cobra.NoArgs),
-		RunE:  notImplemented(6, "task preparation and initial TUI"),
-	})
-	return cmd
 }
 
 func newReviewCommand() *cobra.Command {

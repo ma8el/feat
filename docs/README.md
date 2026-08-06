@@ -1,6 +1,6 @@
 # Feat Product Specification
 
-Status: accepted product direction; implementation started, slices 0 to 3 complete  
+Status: accepted product direction; implementation started, slices 0 to 6 complete  
 Working name: **Feat**  
 Primary CLI: `feat`  
 Initial implementation language: Go  
@@ -22,7 +22,7 @@ Feat is a terminal-native development control plane for running feature work thr
 10. [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md)
 11. [11-implementation-plan.md](11-implementation-plan.md)
 
-The root [CLAUDE.md](CLAUDE.md) is the implementation contract for Claude Code. It intentionally points back to these documents instead of duplicating the specification.
+The root [CLAUDE.md](../CLAUDE.md) is the implementation contract for Claude Code. It intentionally points back to these documents instead of duplicating the specification.
 
 ## Product thesis
 
@@ -49,6 +49,7 @@ The long-term destination is ticket-to-PR/MR execution. The initial wedge is nar
 feat
 feat implement
 feat implement --file task.md
+feat implement --project <project>
 feat project add <project>
 feat project list
 feat project show <project>
@@ -63,7 +64,7 @@ feat daemon start|stop|status
 feat daemon run
 ```
 
-`feat` without arguments opens the dashboard. `feat implement` opens task preparation and does not start an agent until the user confirms the final task brief and repository selection.
+`feat` without arguments opens the dashboard. `feat implement` opens task preparation and creates nothing until the user confirms the final task brief and repository selection. Confirming creates exactly what was displayed: a draft that changed since the plan was shown is refused rather than launched, and `--project` preselects the project without removing the confirmation. See ADR-031.
 
 `feat project add` takes the project's identifier, which is also its configuration file's name; the daemon reads the file from the configuration directory rather than from a path a caller supplies. See ADR-028.
 

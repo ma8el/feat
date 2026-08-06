@@ -113,6 +113,45 @@ func (c *Client) AttachInfo(ctx context.Context, id string) (api.AttachInfo, err
 	return send[api.AttachInfo](ctx, c, "/tasks/"+url.PathEscape(id)+"/attach-info", struct{}{})
 }
 
+// Shell opens or finds the task's shell pane and returns its target.
+//
+// Only the task is named. The daemon decides which program runs and where, so
+// no client hands it something to execute.
+func (c *Client) Shell(ctx context.Context, id string) (api.AttachInfo, error) {
+	return send[api.AttachInfo](ctx, c, "/tasks/"+url.PathEscape(id)+"/shell", struct{}{})
+}
+
+// CreateDraft records a new task draft and creates nothing else.
+//
+// An imported Markdown brief is read by this process and sent as content: the
+// daemon never opens a file a caller named.
+func (c *Client) CreateDraft(ctx context.Context, request api.CreateDraft) (api.Task, error) {
+	return send[api.Task](ctx, c, "/task-drafts", request)
+}
+
+// UpdateDraft replaces a draft's title, brief, and repository selection.
+func (c *Client) UpdateDraft(ctx context.Context, id string, request api.UpdateDraft) (api.Task, error) {
+	return replace[api.Task](ctx, c, "/task-drafts/"+url.PathEscape(id), request)
+}
+
+// PlanDraft resolves the draft's bases and proposes its branches and worktree
+// paths, creating nothing.
+func (c *Client) PlanDraft(ctx context.Context, id string) (api.DraftPlan, error) {
+	return send[api.DraftPlan](ctx, c, "/task-drafts/"+url.PathEscape(id)+"/plan", struct{}{})
+}
+
+// LaunchDraft confirms a draft, carrying the fingerprint of the plan that was
+// displayed so that what is created is what the user saw.
+func (c *Client) LaunchDraft(ctx context.Context, id, fingerprint string) (api.Task, error) {
+	return send[api.Task](ctx, c, "/task-drafts/"+url.PathEscape(id)+"/launch",
+		api.LaunchDraft{Fingerprint: fingerprint})
+}
+
+// CancelDraft abandons a draft.
+func (c *Client) CancelDraft(ctx context.Context, id string) (api.Task, error) {
+	return remove[api.Task](ctx, c, "/task-drafts/"+url.PathEscape(id))
+}
+
 // fetch performs one GET and decodes the response.
 func fetch[T any](ctx context.Context, c *Client, path string) (T, error) {
 	var payload T
@@ -142,22 +181,43 @@ func fetch[T any](ctx context.Context, c *Client, path string) (T, error) {
 
 // send performs one POST and decodes the response.
 func send[T any](ctx context.Context, c *Client, path string, payload any) (T, error) {
+	return submit[T](ctx, c, http.MethodPost, path, payload)
+}
+
+// replace performs one PUT and decodes the response.
+func replace[T any](ctx context.Context, c *Client, path string, payload any) (T, error) {
+	return submit[T](ctx, c, http.MethodPut, path, payload)
+}
+
+// remove performs one DELETE and decodes the response.
+func remove[T any](ctx context.Context, c *Client, path string) (T, error) {
+	return submit[T](ctx, c, http.MethodDelete, path, nil)
+}
+
+// submit performs one request that carries a body and decodes the response.
+func submit[T any](ctx context.Context, c *Client, method, path string, payload any) (T, error) {
 	var result T
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return result, fmt.Errorf("building a request for %s: %w", path, err)
+	var reader io.Reader
+	if payload != nil {
+		body, err := json.Marshal(payload)
+		if err != nil {
+			return result, fmt.Errorf("building a request for %s: %w", path, err)
+		}
+		reader = bytes.NewReader(body)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"http://"+host+"/"+api.Version+path, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, method,
+		"http://"+host+"/"+api.Version+path, reader)
 	if err != nil {
 		return result, fmt.Errorf("building a request for %s: %w", path, err)
 	}
-	request.Header.Set("Content-Type", "application/json")
+	if reader != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
 
 	response, err := c.http.Do(request)
 	if err != nil {
