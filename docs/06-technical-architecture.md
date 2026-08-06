@@ -78,6 +78,8 @@ Adapters are compiled into the binary initially. Interfaces must avoid leaking i
 
 `internal/agent`, `internal/agent/claude`, and `internal/control` are implemented by slice 7 under the boundary ADR-029 established for Git: the adapters receive final values and read neither configuration nor persistent state, and `agent-stays-an-adapter` and `control-stays-a-protocol` `depguard` rules make that mechanical. The provider adapter returns a launch specification expressed in the terms the agent's own environment uses, and the daemon supplies how the agent sees its worktrees and control directory — host paths while execution is host-native, container paths once slice 8 supplies them. That is the seam through which slice 8 replaces the environment without touching the provider adapter. See ADR-032.
 
+`internal/execution` and `internal/execution/compose` are implemented by slice 8 under the same rule, with an `execution-stays-an-adapter` `depguard` rule. The daemon resolves configuration into an execution specification, wraps the environment's probe runner as the agent adapter's runner, and turns the adapter's launch specification into a host command the terminal backend runs. The two adapters therefore never import each other, and slice 14 replaces the environment without touching either. See ADR-033.
+
 `internal/config` and `internal/project` are implemented by slice 3, which draws one boundary between them: `internal/config` decides whether a configuration is well formed and safe, and asks the host nothing; `internal/project` asks the host and reports what it found. A configuration therefore stays loadable on a machine where a repository is temporarily missing, which is the machine `feat doctor` is most useful on. See ADR-028.
 
 ## Local API
@@ -138,8 +140,15 @@ State directory:
   projects/<project-id>/tasks/<task-id>/prompt.md
   projects/<project-id>/tasks/<task-id>/events.jsonl
   projects/<project-id>/tasks/<task-id>/review.json
+  execution/<project-id>/<task-id>/compose.override.yaml
   control/<project-id>/<task-id>/
 ```
+
+The generated execution override sits beside the control workspace rather than
+inside it, and outside the per-task snapshot directory. It decides what the
+agent's own container mounts, so it must be somewhere the agent never sees; and
+the snapshot directory holds the documents the storage interface owns, which a
+file written by an execution adapter is not.
 
 The task control workspace is under the state directory but outside the
 per-task snapshot directory, because it is the one tree an agent writes to and
@@ -275,13 +284,25 @@ Conceptual interface:
 ```go
 type ExecutionEnvironment interface {
     Validate(ctx context.Context) error
-    Prepare(ctx context.Context, task Task) error
-    Command(ctx context.Context, spec CommandSpec) (*exec.Cmd, error)
-    Shell(ctx context.Context, task Task) (*exec.Cmd, error)
-    Observe(ctx context.Context, task Task) (ExecutionState, error)
-    Destroy(ctx context.Context, task Task) error
+    Prepare(ctx context.Context) error
+    Command(ctx context.Context, command Command) (Invocation, error)
+    Run(ctx context.Context, command Command) (Output, error)
+    Observe(ctx context.Context) (State, error)
 }
 ```
+
+Slice 8 amends the conceptual interface in three places, and ADR-033 records
+why. `Command` returns an argument vector rather than an `*exec.Cmd`, because
+the terminal backend constructs the process and an `*exec.Cmd` returned here
+would be a process nobody runs. `Run` is added, because validation asks an
+environment questions rather than attaching a terminal to it. `Shell` is folded
+into `Command`, because the daemon already decides what a task shell is.
+`Destroy` is not implemented before slice 12, which owns what is retained and
+what requires confirmation.
+
+An environment is constructed from final values — absolute Compose files, a
+project name, a service, a user, mounts, and labels — and reads neither
+configuration nor persistent state, as the Git and agent adapters do.
 
 ### Host execution
 
@@ -290,6 +311,43 @@ Runs Claude directly in the primary task worktree. It provides convenience and n
 ### Devcontainer execution
 
 The host Compose adapter starts the configured service and executes Claude as the configured non-root user. It mounts task worktrees at project-defined container paths plus the control workspace. It never mounts a Docker socket.
+
+The agent's Compose project is `feat-agent-{project_id}-{task_id}`, which is
+generated rather than configured: it is Feat's own resource, and its prefix
+cannot collide with a project the user brings up by hand from the same files.
+`--project-directory` stays pinned at the first configured Compose file, so that
+file's relative sources and build contexts keep resolving while the generated
+override lives under the state directory.
+
+Compose merges a service's `volumes` by target path, so the generated override
+takes over whatever the base files mounted at a configured `container_path`
+rather than adding a second mount beside it. A `container_path` that disagrees
+with the base file is therefore a configuration error and not a preference: the
+agent would otherwise hold its task worktree *and* the user's ordinary checkout.
+
+Each task repository's Git directory is mounted at the same absolute path it has
+on the host, with the access its worktree has. A task worktree is not a
+repository on its own: its `.git` is a file naming the main checkout's
+`.git/worktrees/<name>`, so without that directory every Git command inside the
+container fails and full Git access is false while everything else looks correct.
+The exposure is repository metadata, which the security model accepts by name;
+the working copy stays unreachable, because the checkout's directory holds
+nothing else in the container.
+
+Two things are established by observing the started container rather than by
+reading the resolved Compose configuration, which would render the values of the
+project's environment files: that no mount is a Docker socket, and that no mount
+exposes a configured repository's working copy — the checkout itself, anything
+containing it, or anything inside it other than that Git directory. Both refuse
+the launch.
+Write access to the control workspace and to the task worktrees is probed inside
+the container as the configured user for the same reason — a uid that cannot
+write across a bind mount produces a session that reports nothing at all.
+
+Minimum supported Docker Compose version is 2.24, for the `!reset` tag that
+removes a base file's `container_name` and published `ports` from the agent
+service. Both are global to the daemon or the host and would otherwise make two
+concurrent task containers impossible.
 
 ## Runtime adapter
 

@@ -88,8 +88,13 @@ agent:
 
   claude:
     # A dedicated volume, so one interactive login is not the user's own
-    # ~/.claude being exposed to every task container.
+    # ~/.claude being exposed to every task container. Optional: leave it out
+    # and Feat mounts nothing, leaving Claude's configuration to your own
+    # Compose files.
     config_volume: feat-claude
+    # Where that volume is mounted, and the value of CLAUDE_CONFIG_DIR. It must
+    # not overlap a repository mount or the control path.
+    config_path: /feat-claude
     # An end-of-turn signal becomes idle after this. Idle never means complete.
     idle_grace_period: 5s
 

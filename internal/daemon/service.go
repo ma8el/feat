@@ -13,6 +13,7 @@ import (
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
@@ -42,9 +43,13 @@ type service struct {
 	git       *git.Git
 	terminals *tmux.Tmux
 	agent     agent.Adapter
-	// runner executes probe commands where the agent runs. Slice 8 replaces it
-	// with one that reaches inside the configured container.
+	// runner executes probe commands for a host-native agent. A devcontainer
+	// task probes inside its own container instead, through the execution
+	// environment the launch built.
 	runner agent.Runner
+	// docker runs the container commands a devcontainer task needs. A nil value
+	// drives the real Docker CLI.
+	docker compose.Runner
 	layout paths.Layout
 	// env is the environment configuration is resolved against: the user who
 	// owns the daemon, not whoever sent the request.

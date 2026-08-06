@@ -33,12 +33,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
@@ -257,4 +260,187 @@ func renderSelection(selection []Selection) string {
 		rendered = append(rendered, fmt.Sprintf("%s:%s", one.Repository, one.Access))
 	}
 	return strings.Join(rendered, ", ")
+}
+
+// TestManualDevcontainer launches real tasks in the project's real devcontainer
+// and reports what the containers turned out to be.
+//
+// It is the slice 8 acceptance probe. Everything it drives is real: Git, tmux,
+// Docker, and Claude. Task records go to a temporary state directory, but the
+// worktrees, the containers, and the tmux windows are not temporary, so it
+// prints the commands that undo them.
+//
+//	FEAT_PROJECT=jobharbor-dev FEAT_REPOS=api:rw,frontend:ro FEAT_APPLY=1 \
+//	  go test -tags manual -run TestManualDevcontainer ./internal/daemon/ -v
+//
+// FEAT_TASKS=3 launches three at once, which is the concurrency criterion.
+func TestManualDevcontainer(t *testing.T) {
+	project := os.Getenv("FEAT_PROJECT")
+	if project == "" {
+		t.Skip("set FEAT_PROJECT to the identifier of a project in ~/.config/feat/projects")
+	}
+
+	env, err := paths.Current()
+	if err != nil {
+		t.Fatalf("resolving the environment: %v", err)
+	}
+	real, err := paths.Resolve(env)
+	if err != nil {
+		t.Fatalf("resolving the layout: %v", err)
+	}
+
+	// The user's own configuration, and state of our own so that a probe leaves
+	// no task behind. The runtime directory is ours too, so the tmux server this
+	// starts is not the one a running daemon owns.
+	layout := paths.Layout{Config: real.Config, State: t.TempDir(), Runtime: t.TempDir()}
+	layout.Socket = filepath.Join(layout.Runtime, "feat.sock")
+
+	instance, err := New(Options{Layout: layout, Environment: env, Build: testBuild})
+	if err != nil {
+		t.Fatalf("preparing the daemon: %v", err)
+	}
+	service := instance.service
+	ctx := context.Background()
+
+	if _, err := service.RegisterProject(ctx, domain.ProjectID(project)); err != nil {
+		t.Fatalf("registering the project:\n%v", err)
+	}
+	cfg, err := config.Load(layout.ProjectConfigDir(), project, service.configOptions())
+	if err != nil {
+		t.Fatalf("loading the project configuration:\n%v", err)
+	}
+	if !cfg.Agent.Execution.Devcontainer() {
+		t.Fatalf("project %s does not run its agent in a devcontainer", project)
+	}
+
+	selected, err := manualSelection(cfg)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	count := 1
+	if raw := os.Getenv("FEAT_TASKS"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			count = parsed
+		}
+	}
+
+	fmt.Printf("\nproject   %s (%s)\nservice   %s as %s\nselection %s\ntasks     %d\n\n",
+		cfg.Project.Name, project, cfg.Agent.Execution.Service, cfg.Agent.Execution.User,
+		renderSelection(selected), count)
+
+	if os.Getenv("FEAT_APPLY") == "" {
+		fmt.Printf("nothing was created. Set FEAT_APPLY=1 to launch, which creates worktrees, " +
+			"containers, and tmux windows.\n")
+		return
+	}
+
+	var launched []*domain.Task
+	for i := range count {
+		task := manualLaunch(t, service, project, selected, i+1)
+		if task != nil {
+			launched = append(launched, task)
+		}
+	}
+
+	fmt.Printf("\n=== what the containers turned out to be ===\n")
+	for _, task := range launched {
+		manualReport(t, service, task)
+	}
+
+	fmt.Printf("\nundo:\n")
+	for _, task := range launched {
+		if task.Session != nil && task.Session.Execution != nil {
+			fmt.Printf("  docker compose --project-name %s --project-directory %s --file %s --file %s down\n",
+				task.Session.Execution.Identity, filepath.Dir(task.Session.Execution.Files[0]),
+				strings.Join(task.Session.Execution.Files, " --file "),
+				task.Session.Execution.GeneratedOverridePath)
+		}
+		for _, binding := range task.Repositories {
+			repository, ok := cfg.Repository(binding.RepositoryID.String())
+			if !ok || binding.WorktreePath == "" {
+				continue
+			}
+			fmt.Printf("  git -C %s worktree remove --force %s\n", repository.HostPath, binding.WorktreePath)
+			if binding.Branch != "" {
+				fmt.Printf("  git -C %s branch -D %s\n", repository.HostPath, binding.Branch)
+			}
+		}
+	}
+	fmt.Printf("  tmux -S %s kill-server\n", layout.TmuxSocket())
+}
+
+// manualLaunch drives one task through the whole preparation and launch.
+func manualLaunch(t *testing.T, service *service, project string, selected []Selection, n int) *domain.Task {
+	t.Helper()
+	ctx := context.Background()
+
+	title := fmt.Sprintf("Slice 8 devcontainer probe %d", n)
+	draft, err := service.CreateDraft(ctx, api.DraftRequest{
+		Project: domain.ProjectID(project), Title: title,
+		Brief:  "A probe of devcontainer execution. Read your task brief and then report with feat-report.",
+		Source: domain.TaskSource{Kind: domain.SourcePrompt},
+	})
+	if err != nil {
+		t.Fatalf("creating the draft: %v", err)
+	}
+
+	update := api.DraftUpdate{Title: title, Brief: draft.Brief}
+	for _, selection := range selected {
+		update.Repositories = append(update.Repositories, api.DraftSelection{
+			Repository: selection.Repository, Access: selection.Access,
+		})
+	}
+	if _, err := service.UpdateDraft(ctx, draft.ID, update); err != nil {
+		t.Fatalf("selecting repositories: %v", err)
+	}
+	plan, err := service.PlanDraft(ctx, draft.ID)
+	if err != nil {
+		t.Fatalf("planning the draft: %v", err)
+	}
+
+	task, err := service.LaunchDraft(ctx, draft.ID, plan.Fingerprint)
+	if err != nil {
+		fmt.Printf("task %d (%s) could not launch:\n  %v\n", n, draft.Key(), err)
+		return nil
+	}
+	fmt.Printf("task %d  %s  %s\n", n, task.Key(), task.Workflow)
+	return task
+}
+
+// manualReport prints what the task's container is, which is the evidence the
+// acceptance criteria are about.
+func manualReport(t *testing.T, service *service, task *domain.Task) {
+	t.Helper()
+
+	if task.Session == nil || task.Session.Execution == nil {
+		fmt.Printf("\n%s: no execution environment was recorded\n", task.Key())
+		return
+	}
+	recorded := task.Session.Execution
+	fmt.Printf("\n%s  compose project %s\n  service %s as %s, container %s (%s)\n",
+		task.Key(), recorded.Identity, recorded.Service, recorded.User,
+		recorded.Container, recorded.Status)
+
+	environment, err := service.environmentFor(task)
+	if err != nil {
+		fmt.Printf("  the environment could not be rebuilt: %v\n", err)
+		return
+	}
+	report, err := environment.Inspect(context.Background(),
+		[]string{"/feat"})
+	if err != nil {
+		fmt.Printf("  the container could not be inspected: %v\n", err)
+		return
+	}
+
+	fmt.Printf("  uid %d (%s), docker client %q, missing tools %v, unwritable %v\n",
+		report.UID, report.User, report.DockerCLI, report.MissingTools, report.Unwritable)
+	for _, mount := range compose.Sources(report.Mounts) {
+		fmt.Printf("    mount %s\n", mount)
+	}
+	if err := environment.Check(report); err != nil {
+		fmt.Printf("  REFUSED: %v\n", err)
+	} else {
+		fmt.Printf("  every requirement is met\n")
+	}
 }

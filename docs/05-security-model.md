@@ -104,6 +104,8 @@ Full Git inside a native host worktree exposes shared repository metadata. The a
 
 This is an accepted v0 tradeoff. Feat must not describe it as strict repository-metadata isolation.
 
+Devcontainer execution makes the same exposure explicit rather than incidental: each task repository's Git directory is mounted into the container at its host path, because a task worktree is not a repository without it. The working copy is not mounted, and a container that turns out to mount one is refused. So the agent can commit, branch, and read history, and cannot reach the files the user is editing themselves.
+
 A future task-local Git metadata or clone backend may reduce this exposure.
 
 ## Network and data egress

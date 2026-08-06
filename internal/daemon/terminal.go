@@ -77,6 +77,11 @@ func (s *service) ensureTerminal(
 		if err != nil {
 			return nil, err
 		}
+		// The environment the launch prepared, recorded on the session the
+		// moment there is one to record it on. Until this point it exists and
+		// the task cannot name it, which is the window ADR-029's ordering
+		// narrows rather than closes.
+		session.Execution = plan.environment
 		if err := session.Observe(terminal.ProcessState(), s.now()); err != nil {
 			return nil, err
 		}
@@ -89,6 +94,9 @@ func (s *service) ensureTerminal(
 			return nil, err
 		}
 		task.Session.ControlPath = s.controlPath(task)
+		if plan.environment != nil {
+			task.Session.Execution = plan.environment
+		}
 	}
 
 	if err := s.store.Tasks().Save(ctx, task); err != nil {
@@ -145,9 +153,12 @@ func (s *service) OpenShell(ctx context.Context, id domain.TaskID) (api.AttachIn
 		return api.AttachInfo{}, translateConfig(err)
 	}
 
-	// A shell pane is a shell, whatever the agent pane is running. It opens in
-	// the same primary workspace, which is what FR-TMUX-003 asks for.
-	command, err := s.shellCommand(cfg, task)
+	// A shell pane is a shell, whatever the agent pane is running, and it opens
+	// in the same execution profile and primary workspace as the agent
+	// (FR-TMUX-003). For a task whose agent is in a container that means a shell
+	// in that container: a host shell beside a containerised agent would look
+	// like the agent's own environment and be a different machine.
+	command, err := s.taskShell(ctx, cfg, task)
 	if err != nil {
 		return api.AttachInfo{}, fmt.Errorf("%w: %w", api.ErrInvalid, err)
 	}

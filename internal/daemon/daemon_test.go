@@ -12,6 +12,8 @@ import (
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/client"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/execution/compose"
+	"github.com/ma8el/feat/internal/execution/compose/composetest"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/store/storetest"
 )
@@ -41,6 +43,13 @@ func serve(t *testing.T, opts Options) *running {
 	// about ordering.
 	if opts.Heartbeat == 0 {
 		opts.Heartbeat = -1
+	}
+	// No test drives the real Docker. A test that means to exercise a
+	// devcontainer arranges its own fake; one that does not gets a fake that
+	// refuses, so a launch reaching Docker by accident fails loudly here rather
+	// than creating a container on the machine running the suite.
+	if opts.Docker == nil {
+		opts.Docker = composetest.New().Missing(compose.Executable)
 	}
 
 	ready := make(chan Endpoint, 1)

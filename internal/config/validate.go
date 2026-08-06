@@ -225,6 +225,64 @@ func (c *Config) validateAgent(found *problems) {
 			"is %q, which Docker rejects as a volume name: it must start with a letter or digit and contain only letters, digits, %q, %q, and %q",
 			volume, "-", "_", "."))
 	}
+	c.validateClaudeConfigPath(found)
+}
+
+// validateClaudeConfigPath checks where the Claude configuration volume is
+// mounted.
+//
+// The path exists only to carry a volume, so configuring one without the other
+// is rejected rather than ignored, as every other field a mode would not use is
+// (ADR-028). Where it does apply, it is checked exactly as the control path is:
+// a mount that landed inside a repository would hide part of the repository
+// behind Claude's own state.
+func (c *Config) validateClaudeConfigPath(found *problems) {
+	claude := c.Agent.Claude
+	devcontainer := c.Agent.Execution.Devcontainer()
+
+	if !devcontainer {
+		for _, unused := range []struct {
+			path  string
+			unset bool
+		}{
+			{"agent.claude.config_volume", claude.ConfigVolume == ""},
+			{"agent.claude.config_path", claude.ConfigPath == ""},
+		} {
+			found.require(unused.unset, unused.path, fmt.Sprintf(
+				"applies only to %q execution, and agent.execution.mode is %q",
+				ModeDevcontainer, c.Agent.Execution.Mode))
+		}
+		return
+	}
+
+	if claude.ConfigPath == "" {
+		return
+	}
+	if claude.ConfigVolume == "" {
+		found.add("agent.claude.config_path", fmt.Sprintf(
+			"is %q, but agent.claude.config_volume names no volume to mount there: without a volume Feat mounts nothing and sets no CLAUDE_CONFIG_DIR",
+			claude.ConfigPath))
+		return
+	}
+	if !checkContainerPath(found, "agent.claude.config_path", claude.ConfigPath) {
+		return
+	}
+
+	if control := c.Agent.Execution.ControlPath; control != "" && overlaps(control, claude.ConfigPath) {
+		found.add("agent.claude.config_path", fmt.Sprintf(
+			"is %q, which overlaps the control workspace at %q: Claude's configuration and the task control workspace must be separate",
+			claude.ConfigPath, control))
+		return
+	}
+	for _, id := range c.RepositoryIDs() {
+		container := c.Repositories[id].ContainerPath
+		if container != "" && overlaps(container, claude.ConfigPath) {
+			found.add("agent.claude.config_path", fmt.Sprintf(
+				"is %q, which overlaps the mount of repository %s at %q: Claude's configuration must not be mounted inside a repository",
+				claude.ConfigPath, id, container))
+			return
+		}
+	}
 }
 
 func (c *Config) validateExecution(found *problems) {

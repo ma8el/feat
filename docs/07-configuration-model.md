@@ -79,6 +79,7 @@ agent:
 
   claude:
     config_volume: feat-claude-config
+    config_path: /feat-claude
     idle_grace_period: 5s
 
   capabilities:
@@ -154,6 +155,28 @@ Feat records the resulting commit, not merely the ref name.
 
 `devcontainer` requires Compose inputs, service, non-root user expectation, container working directory, and container control path. The configured Compose service may reference application files, but application runtime lifecycle remains separate.
 
+Every repository's `container_path` must be the path its Compose files already
+mount the repository at. Compose merges a service's mounts by target, so Feat's
+generated override replaces that mount with the task's worktree; a path that
+disagrees adds a second mount instead and leaves the agent holding the user's
+ordinary checkout as well as its own worktree. Feat refuses a launch whose
+container turns out to mount a configured repository checkout, but the
+configuration is where the mistake is fixed.
+
+### Claude configuration
+
+`agent.claude.config_volume` is optional. When it is set, Feat mounts that named
+volume at `agent.claude.config_path`, which defaults to `/feat-claude` and is
+validated like `control_path`, and sets `CLAUDE_CONFIG_DIR` to it — one
+interactive login shared by every task rather than the user's own `~/.claude`
+exposed to every container.
+
+When it is not set, Feat mounts nothing and sets nothing, and the provider's
+configuration is whatever the project's own Compose files provide. A project
+that mounts the user's host `~/.claude` itself is making the explicit choice
+[05-security-model.md](05-security-model.md) permits, and Feat does not
+second-guess it.
+
 ### Provider CLI capability
 
 Each provider capability supports:
@@ -211,6 +234,17 @@ The generated override may contain:
 - named-volume/network adjustments when configured.
 
 It should not contain copied secrets or unnecessary `container_name` fields.
+
+The agent execution override additionally resets `container_name` and `ports` on
+the agent service, unconditionally and in that document rather than by
+inspection. Both are global — a container name to the Docker daemon, a published
+port to the host — so a base file carrying either cannot be started twice, and
+one task per machine is not the product. The reset is stated in the task detail
+rather than done quietly, and it applies only to the service the agent runs in:
+published ports belong to the application runtime, which is a separate Compose
+project with its own identity.
+
+Resetting requires Docker Compose 2.24 or later, which `feat doctor` checks.
 
 ## Validation rules
 

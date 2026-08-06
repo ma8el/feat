@@ -11,6 +11,7 @@ import (
 	"github.com/ma8el/feat/internal/agent/claude"
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/execution/compose"
 )
 
 // The executables Feat drives on the trusted host.
@@ -20,9 +21,13 @@ const (
 	dockerExecutable = "docker"
 )
 
-// slice8 names the slice that delivers the checks this build cannot run, so
-// that a skipped finding says when it stops being skipped.
-const slice8 = "delivered by implementation slice 8, which runs the agent's execution environment"
+// gateSlice names the slice that delivers the gate running a project's
+// configured checks inside the agent's environment, so that a skipped finding
+// says when it stops being skipped.
+//
+// Slice 8 supplies the environment; the gate that runs checks in it is slice
+// 11's, which ADR-033 corrected after ADR-032 promised it here.
+const gateSlice = "delivered by implementation slice 11, which runs a project's configured checks"
 
 // checker collects findings for one project.
 type checker struct {
@@ -198,20 +203,94 @@ func (c *checker) checkExecution(ctx context.Context) {
 //
 // The requirement is worded around that environment for a reason: an
 // authenticated `glab` on the host says nothing about a container that has no
-// `glab` in it. So a host-mode project is checked here and now, and a
-// devcontainer project keeps the skipped findings until slice 8 can start one
-// (ADR-028, ADR-032). A check this build cannot run is never reported as
-// passing.
+// `glab` in it. A host-mode project is therefore checked on this machine, and a
+// devcontainer project is checked inside a container of its own that is already
+// running.
+//
+// `feat doctor` still starts nothing (ADR-028). A project with no live task has
+// no container to look inside, and that is reported as skipped with the reason —
+// not as passing, and no longer as a slice that has not arrived: from this build
+// on, whether the check can run is a fact about the machine rather than about
+// Feat (ADR-033).
 func (c *checker) checkAgentEnvironment(ctx context.Context) {
-	if c.config.Agent.Execution.Devcontainer() {
+	if !c.config.Agent.Execution.Devcontainer() {
+		c.checkAgentExecutable(ctx)
+		for _, capability := range providerCLIs(c.config) {
+			c.checkProviderCLI(ctx, capability)
+		}
+		return
+	}
+
+	container, found := c.agentContainer(ctx)
+	if !found {
 		c.skipAgentEnvironmentChecks()
 		return
 	}
 
+	// The same checks, asked of the container rather than of this machine. Only
+	// where the question is asked changes, which is the point: a diagnostic that
+	// asked a different question of a container would be a different diagnostic
+	// wearing the same name.
+	host := c.runner
+	c.runner = containerRunner{
+		host:      host,
+		container: container,
+		user:      c.config.Agent.Execution.User,
+	}
 	c.checkAgentExecutable(ctx)
 	for _, capability := range providerCLIs(c.config) {
 		c.checkProviderCLI(ctx, capability)
 	}
+	c.runner = host
+
+	c.checkContainerUser(ctx, container)
+}
+
+// agentContainer finds a live container belonging to a task of this project.
+//
+// It is found by Feat's own ownership labels rather than by reading state,
+// because `feat doctor` runs without a daemon and must not read the state
+// directory the daemon owns (ADR-028).
+func (c *checker) agentContainer(ctx context.Context) (string, bool) {
+	output, err := c.runner.Run(ctx, "", dockerExecutable, "ps",
+		"--filter", "label="+compose.LabelOwner+"="+compose.OwnerValue,
+		"--filter", "label="+compose.LabelProject+"="+c.config.Project.ID,
+		"--format", "{{.ID}}")
+	if err != nil {
+		return "", false
+	}
+	for line := range strings.SplitSeq(output, "\n") {
+		if id := strings.TrimSpace(line); id != "" {
+			return id, true
+		}
+	}
+	return "", false
+}
+
+// checkContainerUser reports the identity the agent would actually run as.
+//
+// Configuration already refuses a root user, so this is the question
+// configuration cannot answer: what the process turns out to be in the image the
+// project builds.
+func (c *checker) checkContainerUser(ctx context.Context, container string) {
+	const check = "agent.execution.user"
+	configured := c.config.Agent.Execution.User
+
+	output, err := c.runner.Run(ctx, "", dockerExecutable, "exec", "--user", configured, container, "id", "-u")
+	if err != nil {
+		c.warn(check, fmt.Sprintf("the identity of %q in the running container could not be read: %v",
+			configured, err),
+			"check that the image has that user")
+		return
+	}
+
+	uid := strings.TrimSpace(output)
+	if uid == "0" {
+		c.fail(check, fmt.Sprintf("%q is uid 0 in the running container, and the agent must not be root", configured),
+			"give the image a non-root user and name it in "+check)
+		return
+	}
+	c.ok(check, fmt.Sprintf("%s is uid %s in the running container", configured, uid))
 }
 
 // checkAgentExecutable reports whether the configured agent can be started.
@@ -298,18 +377,29 @@ func providerCLIs(cfg *config.Config) []providerCLI {
 	}
 }
 
-// skipAgentEnvironmentChecks records the checks this build cannot perform for a
-// devcontainer project.
+// noContainer is why the devcontainer checks did not run.
+//
+// It names the condition rather than a slice, because the check is deliverable
+// now and it is the state of the machine that decides whether it can run. The
+// action is what a user can actually do about it.
+const noContainer = "launch a task for this project and run `feat doctor` again; " +
+	"a task launch checks the same things in its own container before it starts an agent"
+
+// skipAgentEnvironmentChecks records the checks that need a container to look
+// inside when there is none.
 //
 // Reporting them as skipped rather than omitting them keeps `feat doctor`
-// honest about its own coverage: the checks are named, and so is the reason
-// they did not run.
+// honest about its own coverage: the checks are named, and so is the reason they
+// did not run. `feat doctor` never starts a container to answer them, because a
+// command that reports on a machine should not change it (ADR-028).
 func (c *checker) skipAgentEnvironmentChecks() {
+	reason := "no container of this project is running, so there is nothing to look inside"
+
 	c.skip("agent.executable",
-		"the agent executable is not checked inside the devcontainer in this build", slice8)
+		fmt.Sprintf("%s is not checked in the devcontainer: %s", claude.Executable, reason), noContainer)
 	c.skip("agent.execution.user",
-		fmt.Sprintf("the running process is not checked to be %q in this build", c.config.Agent.Execution.User),
-		slice8)
+		fmt.Sprintf("the running process is not checked to be %q: %s", c.config.Agent.Execution.User, reason),
+		noContainer)
 
 	for _, capability := range providerCLIs(c.config) {
 		if capability.level == config.CLIDisabled {
@@ -317,9 +407,9 @@ func (c *checker) skipAgentEnvironmentChecks() {
 			continue
 		}
 		c.skip(capability.field,
-			fmt.Sprintf("%s is %s, and its installation and authentication inside the devcontainer "+
-				"are not checked in this build", capability.tool, capability.level),
-			slice8)
+			fmt.Sprintf("%s is %s, and its installation and authentication in the devcontainer are not checked: %s",
+				capability.tool, capability.level, reason),
+			noContainer)
 	}
 }
 
@@ -454,8 +544,8 @@ func (c *checker) checkChecks() {
 		for _, check := range checks {
 			field := "checks." + repository + "." + check.ID
 			if check.Execution != config.ExecutionHost {
-				c.skip(field, fmt.Sprintf("%q runs in the agent's environment and is not checked in this build",
-					strings.Join(check.Command, " ")), slice8)
+				c.skip(field, fmt.Sprintf("%q runs in the agent's environment and is not checked here",
+					strings.Join(check.Command, " ")), gateSlice)
 				continue
 			}
 			c.lookUp(field, check.Command[0])

@@ -148,8 +148,17 @@ func (c *Config) describeAgent() Section {
 		}
 	}
 	if c.Agent.Claude.ConfigVolume != "" {
-		fields = append(fields, Field{Name: "claude.config_volume", Value: c.Agent.Claude.ConfigVolume,
-			Note: "dedicated volume; the user's own ~/.claude is not mounted"})
+		fields = append(fields,
+			Field{Name: "claude.config_volume", Value: c.Agent.Claude.ConfigVolume,
+				Note: "dedicated volume; the user's own ~/.claude is not mounted"},
+			Field{Name: "claude.config_path", Value: c.Agent.Claude.ConfigPath,
+				Note: "mounted here, and CLAUDE_CONFIG_DIR is set to it"},
+		)
+	} else if execution.Devcontainer() {
+		// Said rather than omitted: a user who expected a dedicated login should
+		// find out here, not from a container that turns out to hold their own.
+		fields = append(fields, Field{Name: "claude.config_volume", Value: "none",
+			Note: "Feat mounts no Claude configuration; the project's own Compose files supply it"})
 	}
 	fields = append(fields,
 		Field{Name: "claude.idle_grace_period", Value: c.Agent.Claude.IdleGracePeriod,

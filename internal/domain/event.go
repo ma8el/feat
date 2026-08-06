@@ -61,6 +61,16 @@ const (
 	EventRuntimeChanged EventType = "runtime_state_changed"
 	// EventReviewChanged records a review status change.
 	EventReviewChanged EventType = "review_state_changed"
+	// EventExecutionChanged records a change to the agent's execution
+	// environment: the identity it was given before it was created, and what was
+	// observed of it afterwards.
+	//
+	// It exists because the environment is created before the session that
+	// records it can exist — a session needs the terminal that runs inside the
+	// container — so the event log is where the identity of a container is
+	// written down first. An interruption between the two therefore still leaves
+	// a durable record naming what may exist (ADR-033).
+	EventExecutionChanged EventType = "agent_execution_changed"
 	// EventReconciled records that startup reconciliation compared desired and
 	// observed state for the task.
 	EventReconciled EventType = "task_reconciled"
@@ -71,7 +81,7 @@ func (t EventType) Valid() bool {
 	switch t {
 	case EventTaskCreated, EventTaskUpdated, EventWorkflowChanged, EventAttentionChanged,
 		EventRepositoryObserved, EventProcessChanged, EventRuntimeChanged,
-		EventReviewChanged, EventReconciled:
+		EventReviewChanged, EventExecutionChanged, EventReconciled:
 		return true
 	default:
 		return false

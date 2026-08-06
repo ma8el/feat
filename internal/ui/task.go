@@ -18,12 +18,9 @@ import (
 const (
 	// gateSlice explains what a verification column can and cannot mean today.
 	// A reported result is the agent's claim; a gate that runs the project's
-	// configured checks needs the environment slice 8 starts (ADR-032).
-	gateSlice     = "checks are the agent's own report; a gate that runs them arrives with slice 8"
+	// configured checks arrives with slice 11 (ADR-032, corrected by ADR-033).
+	gateSlice     = "checks are the agent's own report; a gate that runs them arrives with slice 11"
 	resourceSlice = "resource usage arrives with slice 10"
-	// containerSlice explains a task terminal that is not an agent session.
-	containerSlice = "this project runs its agent in a devcontainer, which arrives with slice 8; " +
-		"the terminal holds a shell"
 )
 
 // taskColumns is the task list, in the order FR-UI-002 lists the fields.
@@ -91,7 +88,7 @@ func verificationState(task api.Task) string {
 func verificationDetail(task api.Task) string {
 	if task.Verification == nil {
 		return absent + "  " + mutedStyle.Render("(the agent has reported no checks; "+
-			"a gate that runs the project's configured checks arrives with slice 8)")
+			"a gate that runs the project's configured checks arrives with slice 11)")
 	}
 	reported := *task.Verification
 

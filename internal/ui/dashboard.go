@@ -120,6 +120,11 @@ func (m Model) detailView() string {
 		}
 	}
 
+	if task.Session != nil && task.Session.Execution != nil {
+		out.WriteString("\n" + headingStyle.Render("environment") + "\n")
+		out.WriteString(executionDetail(*task.Session.Execution))
+	}
+
 	out.WriteString("\n" + headingStyle.Render("brief") + "\n")
 	out.WriteString(indent(task.Brief, "  ") + "\n")
 
@@ -130,6 +135,44 @@ func (m Model) detailView() string {
 		keyHint("x", "cancel draft"),
 		keyHint("q", "quit"),
 	))
+}
+
+// executionDetail renders the isolated environment the agent runs in.
+//
+// Three things are said rather than implied. The identity, because it is what a
+// user needs to inspect or clean up the container themselves. The user, because
+// a non-root agent is the boundary the security model describes and a claim
+// nobody can see is a claim nobody can check. And what the generated override
+// changed about the project's own service, because Feat editing somebody else's
+// Compose file quietly would be worse than not editing it at all (ADR-033).
+func executionDetail(environment api.Execution) string {
+	var out strings.Builder
+
+	out.WriteString(field("compose project", environment.Identity))
+	out.WriteString(field("service", environment.Service+"  "+
+		mutedStyle.Render("(running as "+environment.User+", with no Docker access)")))
+
+	state := "not observed"
+	switch {
+	case environment.Running && environment.Status != "":
+		state = environment.Status
+	case environment.Running:
+		state = "running"
+	case environment.Container != "":
+		state = "not running"
+	}
+	if environment.Container != "" {
+		state += "  " + mutedStyle.Render("("+environment.Container+")")
+	}
+	out.WriteString(field("container", state))
+
+	if environment.Health != "" && environment.Health != "unknown" {
+		out.WriteString(field("health", environment.Health))
+	}
+	out.WriteString(mutedStyle.Render(
+		"  Feat's generated override mounts this task's worktrees at their container paths and resets\n" +
+			"  container_name and published ports for this service, so tasks can run side by side\n"))
+	return out.String()
 }
 
 // repositoryTable renders the repository and base mapping FR-UI-003 requires.
@@ -202,7 +245,7 @@ func terminalNote(task api.Task) string {
 		return ""
 	}
 	if task.Workflow == "preparing" {
-		return containerSlice
+		return "the terminal is running; the agent has not reported starting yet"
 	}
 	if task.Session.ExecutionMode == "host" {
 		for _, binding := range task.Repositories {

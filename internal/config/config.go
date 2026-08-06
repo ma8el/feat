@@ -149,7 +149,15 @@ func (e ExecutionSection) Devcontainer() bool { return e.Mode == ModeDevcontaine
 type ClaudeSection struct {
 	// ConfigVolume is the dedicated Claude configuration volume, which keeps
 	// one interactive login out of the user's own ~/.claude.
+	//
+	// It is optional. Without it Feat mounts nothing and sets no
+	// CLAUDE_CONFIG_DIR, leaving the provider's configuration to whatever the
+	// project's own Compose files supply — which a project that deliberately
+	// mounts the user's ~/.claude is entitled to do (ADR-033).
 	ConfigVolume string `yaml:"config_volume"`
+	// ConfigPath is where ConfigVolume is mounted in the devcontainer, and the
+	// value of CLAUDE_CONFIG_DIR. It means nothing without a volume.
+	ConfigPath string `yaml:"config_path"`
 	// IdleGracePeriod is how long an end-of-turn signal waits before the task
 	// is reported idle. Idle never means complete.
 	IdleGracePeriod string `yaml:"idle_grace_period"`

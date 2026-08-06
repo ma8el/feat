@@ -10,22 +10,60 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ma8el/feat/internal/agent/claude"
 	"github.com/ma8el/feat/internal/api"
+	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/execution/compose/composetest"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/store"
 	"github.com/ma8el/feat/internal/tmux/tmuxtest"
 )
 
-// drafting is a daemon with a registered project, a fake Git, and a fake tmux
-// server, which is everything task preparation drives.
+// drafting is a daemon with a registered project and fake Git, tmux, and Docker,
+// which is everything task preparation and launch drive.
 type drafting struct {
 	service *service
 	git     *fakeGit
 	tmux    *tmuxtest.Server
+	docker  *composetest.Docker
 	layout  paths.Layout
 	env     paths.Environment
 	now     time.Time
+}
+
+// launched creates a draft, resolves it, and launches it, returning the task.
+//
+// The fixture project runs its agent in a container, so this drives the whole
+// devcontainer launch against the fake Docker: the specification, the generated
+// override, the start, the probes, and the agent command.
+func (d *drafting) launched(t *testing.T, title ...string) *domain.Task {
+	t.Helper()
+
+	name := "Add a rate limit"
+	if len(title) > 0 {
+		name = title[0]
+	}
+	draft := d.draft(t, name)
+	d.selectRepositories(t, draft.ID)
+	displayed := d.resolve(t, draft.ID)
+
+	task, err := d.service.LaunchDraft(context.Background(), draft.ID, displayed.Fingerprint)
+	if err != nil {
+		t.Fatalf("launching %q: %v", name, err)
+	}
+	return task
+}
+
+// config loads the fixture project's configuration as the daemon resolves it.
+func (d *drafting) config(t *testing.T) *config.Config {
+	t.Helper()
+
+	cfg, err := config.Load(d.layout.ProjectConfigDir(), "app", d.service.configOptions())
+	if err != nil {
+		t.Fatalf("loading the project configuration: %v", err)
+	}
+	return cfg
 }
 
 // arrangeDrafting registers the fixture project and returns a daemon whose two
@@ -36,14 +74,23 @@ func arrangeDrafting(t *testing.T) *drafting {
 	layout := testLayout(t)
 	env := configured(t, layout, "app", prepareFixture)
 	for _, name := range []string{"api", "store"} {
-		if err := os.MkdirAll(filepath.Join(env.Home, "repos", "app", name), 0o755); err != nil {
+		// With a .git directory, because a task worktree is only a repository
+		// while the main checkout's Git directory is reachable — which is what a
+		// containerised task has to mount (ADR-033).
+		if err := os.MkdirAll(filepath.Join(env.Home, "repos", "app", name, ".git"), 0o755); err != nil {
 			t.Fatalf("creating the checkout %s: %v", name, err)
 		}
 	}
 
 	fake := newFakeGit()
 	server := tmuxtest.New()
+	docker := workingDocker()
 	now := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
+
+	arranged := &drafting{
+		git: fake, tmux: server, docker: docker,
+		layout: layout, env: env, now: now,
+	}
 
 	instance, err := New(Options{
 		Layout:      layout,
@@ -51,8 +98,11 @@ func arrangeDrafting(t *testing.T) *drafting {
 		Build:       testBuild,
 		Git:         fake,
 		Tmux:        server,
-		Logger:      slog.New(slog.DiscardHandler),
-		Now:         func() time.Time { return now },
+		// Indirect, so a test can replace the fake after the daemon exists and
+		// still have the launch use it.
+		Docker: dockerFunc(func() *composetest.Docker { return arranged.docker }),
+		Logger: slog.New(slog.DiscardHandler),
+		Now:    func() time.Time { return now },
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -61,10 +111,8 @@ func arrangeDrafting(t *testing.T) *drafting {
 		t.Fatalf("registering the project: %v", err)
 	}
 
-	return &drafting{
-		service: instance.service, git: fake, tmux: server,
-		layout: layout, env: env, now: now,
-	}
+	arranged.service = instance.service
+	return arranged
 }
 
 // draft records a draft the way the preparation screen does.
@@ -543,18 +591,21 @@ func TestEveryTaskKeyInAProjectIsDistinct(t *testing.T) {
 	}
 }
 
-// TestTheTaskShellOpensInThePrimaryWorktree checks FR-TMUX-003: the task's
-// terminal starts in the project's primary workspace.
-func TestTheTaskShellOpensInThePrimaryWorktree(t *testing.T) {
+// TestTheTaskShellOpensInThePrimaryWorkspace checks FR-TMUX-003: the task's
+// terminal starts in the project's primary workspace, in the same execution
+// profile as the agent.
+//
+// For this project that profile is a container, so the primary workspace is the
+// container path the primary repository is mounted at, and the pane enters the
+// task's own Compose project to get there. A shell on the host would open in a
+// directory with the same files and a different everything else — no toolchain,
+// no dependencies, and the user's own credentials.
+func TestTheTaskShellOpensInThePrimaryWorkspace(t *testing.T) {
 	arranged := arrangeDrafting(t)
+	task := arranged.launched(t)
 
-	draft := arranged.draft(t, "Add a rate limit")
-	arranged.selectRepositories(t, draft.ID)
-	plan := arranged.resolve(t, draft.ID)
-
-	task, err := arranged.service.LaunchDraft(context.Background(), draft.ID, plan.Fingerprint)
-	if err != nil {
-		t.Fatalf("LaunchDraft: %v", err)
+	if _, err := arranged.service.OpenShell(context.Background(), task.ID); err != nil {
+		t.Fatalf("OpenShell: %v", err)
 	}
 
 	primary, ok := task.Repository("api")
@@ -562,15 +613,26 @@ func TestTheTaskShellOpensInThePrimaryWorktree(t *testing.T) {
 		t.Fatal("the launched task does not bind the primary repository")
 	}
 
-	var opened bool
+	// The pane is created empty and its command replaces the holder shell
+	// afterwards (ADR-030), so what the shell runs is the second respawn.
+	var shell string
 	for _, call := range arranged.tmux.Calls() {
 		joined := strings.Join(call, " ")
-		if strings.Contains(joined, primary.WorktreePath) {
-			opened = true
+		if strings.HasPrefix(joined, "respawn-pane") && !strings.Contains(joined, claude.Executable) {
+			shell = joined
 		}
 	}
-	if !opened {
-		t.Errorf("no tmux command named the primary worktree %s: %v",
-			primary.WorktreePath, arranged.tmux.Calls())
+	if shell == "" {
+		t.Fatalf("no shell pane ran a command: %v", arranged.tmux.Calls())
+	}
+
+	if !strings.Contains(shell, "--workdir "+primary.ContainerPath) {
+		t.Errorf("the shell did not open in the primary workspace %s: %s", primary.ContainerPath, shell)
+	}
+	if !strings.Contains(shell, "--project-name "+task.Session.Execution.Identity) {
+		t.Errorf("the shell did not enter the task's own container: %s", shell)
+	}
+	if strings.Contains(shell, primary.WorktreePath) {
+		t.Errorf("the shell ran against the host worktree path rather than inside the container: %s", shell)
 	}
 }

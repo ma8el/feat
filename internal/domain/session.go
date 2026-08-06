@@ -31,6 +31,10 @@ type AgentSession struct {
 	Process ProcessState
 	// ControlPath is the absolute host path of the task control workspace.
 	ControlPath string
+	// Execution records the environment the session runs in, when that is not
+	// this machine. It is nil for host execution, where the environment is the
+	// host and there is nothing to identify.
+	Execution *ExecutionEnvironment
 	// LastEventSequence is the sequence number of the last control event Feat
 	// processed, so a replay after a restart neither repeats nor skips one.
 	LastEventSequence uint64
@@ -38,6 +42,98 @@ type AgentSession struct {
 	CreatedAt time.Time
 	// LastActivityAt is when the session last produced an event.
 	LastActivityAt time.Time
+}
+
+// ExecutionEnvironment is the isolated environment one agent session runs in.
+//
+// It is a separate concept from RuntimeEnvironment even when both are Compose
+// projects: this is how the agent runs, and that is the application the user
+// tests. Keeping them apart is what lets Feat manage Docker on the host without
+// ever giving the agent Docker access.
+//
+// The first group of fields is what Feat asked for, recorded so that cleanup and
+// reconciliation resolve what a task owns rather than recomputing it from
+// configuration that may since have changed. The second group is what Feat saw,
+// and is never assumed from the first.
+type ExecutionEnvironment struct {
+	// Provider identifies the execution adapter, such as the Compose adapter.
+	Provider string
+	// Identity is the unique environment identity, which is the Compose project
+	// name for the Compose adapter. It is what makes an action affect one
+	// task's container and no other's.
+	Identity string
+	// Files are the configured inputs defining the environment, in order.
+	Files []string
+	// GeneratedOverridePath is the override Feat generated for this task. It
+	// carries mounts and generated non-secret variables, never copied secret
+	// values.
+	GeneratedOverridePath string
+	// Service is the service the agent runs in.
+	Service string
+	// User is the user the agent runs as, which must not be root.
+	User string
+
+	// Container is the observed container, empty when nothing was observed.
+	Container string
+	// Running is whether the environment was observed to be up.
+	Running bool
+	// Status is what the environment itself called its state, kept verbatim so
+	// the dashboard can quote the tool rather than paraphrase it.
+	Status string
+	// Health is the observed health, which is separate from running.
+	Health HealthState
+	// ObservedAt is when the last four fields were established.
+	ObservedAt time.Time
+}
+
+// Validate reports whether the execution environment is internally consistent.
+func (e *ExecutionEnvironment) Validate(task TaskID) error {
+	id := task.String()
+	for _, field := range []struct{ name, value string }{
+		{"provider", e.Provider},
+		{"identity", e.Identity},
+		{"service", e.Service},
+		{"user", e.User},
+	} {
+		if field.value == "" {
+			return &ValidationError{Entity: "execution environment", ID: id, Field: field.name,
+				Reason: "must not be empty"}
+		}
+	}
+	if isRootUser(e.User) {
+		// The security model requires a non-root agent, and a record saying
+		// otherwise would be a record of a rule being broken (invariant: the
+		// agent runs as the configured non-root user).
+		return &InvariantError{Entity: "execution environment", ID: id,
+			Rule:   "the agent runs as a non-root user",
+			Reason: "the recorded user is " + quote(e.User)}
+	}
+	if e.Health != "" && !e.Health.Valid() {
+		return &ValidationError{Entity: "execution environment", ID: id, Field: "health",
+			Reason: "must be a documented health state, but is " + quote(string(e.Health))}
+	}
+	if e.GeneratedOverridePath != "" && !isAbsPath(e.GeneratedOverridePath) {
+		return &ValidationError{Entity: "execution environment", ID: id, Field: "generated_override_path",
+			Reason: "must be absolute, but is " + quote(e.GeneratedOverridePath)}
+	}
+	return nil
+}
+
+// Observe records what an execution adapter saw.
+//
+// Every value here is an observation. A stopped environment found during
+// recovery is reported as stopped and never restarted (FR-STATE-004).
+func (e *ExecutionEnvironment) Observe(container string, running bool, status string, health HealthState, now time.Time) {
+	e.Container = container
+	e.Running = running
+	e.Status = status
+	e.Health = health
+	e.ObservedAt = normalizeTime(now)
+}
+
+// isRootUser reports whether a container user is the superuser.
+func isRootUser(user string) bool {
+	return user == "root" || user == "0" || user == "0:0"
 }
 
 // TmuxTarget locates a session's terminal on the Feat-owned tmux server.
@@ -184,6 +280,19 @@ func (s *AgentSession) Validate(task TaskID) error {
 			ID:     id,
 			Field:  "control_path",
 			Reason: "must be absolute, but is " + quote(s.ControlPath),
+		}
+	}
+	if s.Execution != nil {
+		if s.ExecutionMode == ExecutionHost {
+			return &InvariantError{
+				Entity: "agent session",
+				ID:     id,
+				Rule:   "a host session has no execution environment to identify",
+				Reason: "the session records the environment " + quote(s.Execution.Identity) + " and runs on the host",
+			}
+		}
+		if err := s.Execution.Validate(task); err != nil {
+			return err
 		}
 	}
 	if s.CreatedAt.IsZero() {

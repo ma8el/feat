@@ -1,0 +1,303 @@
+package compose_test
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/execution"
+	"github.com/ma8el/feat/internal/execution/compose"
+)
+
+// The opt-in tests below drive real Docker. They are the ones that can answer
+// the questions a fake cannot: whether Compose merges mounts the way the whole
+// design assumes, whether !reset really removes a container name and a published
+// port, and whether two containers built from one file can run at once.
+//
+// They run under FEAT_INTEGRATION, as every TestReal suite in this repository
+// does, and they skip when this machine has no Docker daemon — which macOS CI
+// runners do not. A skipped test says so rather than passing quietly.
+
+// realDocker reports whether this machine can run the tests below.
+func realDocker(t *testing.T) {
+	t.Helper()
+
+	if os.Getenv("FEAT_INTEGRATION") == "" {
+		t.Skip("set FEAT_INTEGRATION=1 to run the tests that drive real Docker")
+	}
+	if _, err := exec.LookPath(compose.Executable); err != nil {
+		t.Skip("Docker is not installed on this machine")
+	}
+	if err := exec.Command(compose.Executable, "info").Run(); err != nil {
+		t.Skip("no Docker daemon is reachable from this machine")
+	}
+}
+
+// realTask arranges one task's environment over the awkward fixture.
+//
+// The returned environment is torn down when the test ends, whatever it did:
+// a test that leaves containers behind on the machine running it has broken the
+// rule it exists to check.
+func realTask(t *testing.T, id domain.TaskID) (*compose.Environment, execution.Spec, string) {
+	t.Helper()
+
+	root := t.TempDir()
+	project := filepath.Join(root, "devcontainer")
+	worktree := filepath.Join(root, "worktrees", "api")
+	readOnly := filepath.Join(root, "worktrees", "store")
+	control := filepath.Join(root, "control")
+
+	for _, dir := range []string{project, worktree, readOnly, control, filepath.Join(project, "base-mount")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("creating %s: %v", dir, err)
+		}
+	}
+
+	fixture, err := os.ReadFile(filepath.Join("testdata", "devcontainer.yaml"))
+	if err != nil {
+		t.Fatalf("reading the fixture: %v", err)
+	}
+	composeFile := filepath.Join(project, "docker-compose.yml")
+	if err := os.WriteFile(composeFile, fixture, 0o600); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+
+	// A file in each place, so that what the container sees can be compared
+	// with what the host put there.
+	for name, dir := range map[string]string{
+		"task-worktree.txt": worktree, "read-only.txt": readOnly,
+		"control.txt": control, "base-mount.txt": filepath.Join(project, "base-mount"),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(name), 0o600); err != nil {
+			t.Fatalf("writing %s: %v", name, err)
+		}
+	}
+
+	spec := execution.Spec{
+		Project:          "app",
+		Task:             id,
+		Identity:         "feat-agent-app-" + string(id),
+		Files:            []string{composeFile},
+		Directory:        project,
+		OverridePath:     filepath.Join(root, "execution", "compose.override.yaml"),
+		Service:          "dev",
+		User:             "1000",
+		WorkingDirectory: "/srv/api",
+		Mounts: []execution.Mount{
+			{Source: worktree, Target: "/srv/api", Description: "the api task worktree"},
+			{Source: readOnly, Target: "/srv/store", ReadOnly: true, Description: "the store task worktree"},
+			{Source: control, Target: "/feat", Description: "the control workspace"},
+		},
+		ForbiddenSources: []string{filepath.Join(root, "repos", "api")},
+	}
+
+	environment, err := compose.New(spec, compose.Options{ReadyTimeout: 90 * time.Second})
+	if err != nil {
+		t.Fatalf("building the environment: %v", err)
+	}
+	t.Cleanup(func() {
+		// Only this task's own Compose project, named explicitly.
+		down := exec.Command(compose.Executable, "compose",
+			"--project-name", spec.Identity, "--project-directory", spec.Directory,
+			"--file", composeFile, "--file", spec.OverridePath,
+			"down", "--timeout", "1")
+		if output, err := down.CombinedOutput(); err != nil {
+			t.Logf("cleaning up %s: %v\n%s", spec.Identity, err, output)
+		}
+	})
+	return environment, spec, worktree
+}
+
+// inside runs a command in the container and returns its output.
+func inside(t *testing.T, environment *compose.Environment, program string, args ...string) execution.Output {
+	t.Helper()
+
+	output, err := environment.Run(context.Background(), execution.Command{Program: program, Arguments: args})
+	if err != nil {
+		t.Fatalf("running %s in the container: %v", program, err)
+	}
+	return output
+}
+
+// TestRealTaskWorktreesAppearAtTheirContainerPaths is acceptance criteria 1, 2,
+// and 3 against a real container.
+//
+// Each is checked from inside: the task's own files are where the configuration
+// said they would be, a read-only selection cannot be written to, and the agent's
+// process is not root. The last two are properties of the running system that no
+// amount of correct generated YAML would prove on its own.
+func TestRealTaskWorktreesAppearAtTheirContainerPaths(t *testing.T) {
+	realDocker(t)
+
+	environment, _, worktree := realTask(t, domain.NewTaskID())
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("preparing the environment: %v", err)
+	}
+
+	// Acceptance criterion 1: each worktree at its configured container path.
+	// The base file mounts something else at /srv/api, so this also proves the
+	// merge-by-target replacement the design depends on.
+	if got := inside(t, environment, "cat", "/srv/api/task-worktree.txt"); !got.Succeeded() {
+		t.Errorf("the task worktree is not mounted at /srv/api: %s", got.Stderr)
+	}
+	if got := inside(t, environment, "cat", "/srv/store/read-only.txt"); !got.Succeeded() {
+		t.Errorf("the read-only worktree is not mounted at /srv/store: %s", got.Stderr)
+	}
+	if got := inside(t, environment, "cat", "/feat/control.txt"); !got.Succeeded() {
+		t.Errorf("the control workspace is not mounted at /feat: %s", got.Stderr)
+	}
+	if got := inside(t, environment, "cat", "/srv/api/base-mount.txt"); got.Succeeded() {
+		t.Error("the base file's own mount is still at /srv/api, so the agent holds both it and the task worktree")
+	}
+
+	// Acceptance criterion 2 in its general form: a read-only selection is
+	// mounted read-only, and the container cannot write through it.
+	if got := inside(t, environment, "touch", "/srv/store/written-by-the-agent"); got.Succeeded() {
+		t.Error("a read-only mount was writable from inside the container")
+	}
+	// While the writable one genuinely is writable, or the agent could not work.
+	if got := inside(t, environment, "touch", "/srv/api/written-by-the-agent"); !got.Succeeded() {
+		t.Errorf("the task worktree is not writable from inside the container: %s", got.Stderr)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "written-by-the-agent")); err != nil {
+		t.Errorf("what the container wrote did not reach the host worktree: %v", err)
+	}
+
+	// Acceptance criterion 3: the agent's process is not root.
+	uid := strings.TrimSpace(inside(t, environment, "id", "-u").Stdout)
+	if uid == "0" {
+		t.Error("the agent runs as root in the container")
+	}
+	if uid != "1000" {
+		t.Errorf("the agent runs as uid %q, want the configured 1000", uid)
+	}
+}
+
+// TestRealTheAgentHasNoDockerAccess is acceptance criterion 4 against a real
+// container.
+//
+// Both halves are checked where they are true rather than where they were
+// configured: no Docker socket is mounted, and there is no client that could use
+// one. The report and its judgement are the same pair a launch refuses over.
+func TestRealTheAgentHasNoDockerAccess(t *testing.T) {
+	realDocker(t)
+
+	environment, _, _ := realTask(t, domain.NewTaskID())
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("preparing the environment: %v", err)
+	}
+
+	if got := inside(t, environment, "ls", "/var/run/docker.sock"); got.Succeeded() {
+		t.Error("a Docker socket is present in the agent's container")
+	}
+
+	report, err := environment.Inspect(context.Background(), []string{"/feat", "/srv/api"})
+	if err != nil {
+		t.Fatalf("inspecting the container: %v", err)
+	}
+	if report.DockerCLI != "" {
+		t.Errorf("the container has a Docker client at %s", report.DockerCLI)
+	}
+	for _, mount := range report.Mounts {
+		if strings.Contains(mount.Source, "docker.sock") || strings.Contains(mount.Destination, "docker.sock") {
+			t.Errorf("the container mounts %s at %s", mount.Source, mount.Destination)
+		}
+	}
+	if len(report.MissingTools) > 0 {
+		t.Errorf("the container is missing %v, which the generated hooks need", report.MissingTools)
+	}
+	if len(report.Unwritable) > 0 {
+		t.Errorf("the agent cannot write to %v", report.Unwritable)
+	}
+	if err := environment.Check(report); err != nil {
+		t.Errorf("a container that meets every requirement was refused: %v", err)
+	}
+}
+
+// TestRealThreeTasksRunSideBySide is acceptance criterion 6.
+//
+// The fixture carries a fixed container name and a published host port, both of
+// which are global and both of which would make the second container fail to
+// start. That is the whole reason the generated override resets them, and this
+// is what proves the reset works against the tool rather than against a golden
+// file (ADR-033 evidence 3).
+func TestRealThreeTasksRunSideBySide(t *testing.T) {
+	realDocker(t)
+
+	const tasks = 3
+	environments := make([]*compose.Environment, 0, tasks)
+	for range tasks {
+		environment, _, _ := realTask(t, domain.NewTaskID())
+		if err := environment.Prepare(context.Background()); err != nil {
+			t.Fatalf("preparing environment %d of %d: %v", len(environments)+1, tasks, err)
+		}
+		environments = append(environments, environment)
+	}
+
+	seen := make(map[string]bool, tasks)
+	for i, environment := range environments {
+		state, err := environment.Observe(context.Background())
+		if err != nil {
+			t.Fatalf("observing environment %d: %v", i+1, err)
+		}
+		if !state.Running {
+			t.Errorf("environment %d is not running: %s", i+1, state.Status)
+		}
+		if seen[state.Container] {
+			t.Errorf("environment %d shares container %s with another task", i+1, state.Container)
+		}
+		seen[state.Container] = true
+
+		// And each one holds its own task's files rather than another's.
+		if got := inside(t, environment, "cat", "/srv/api/task-worktree.txt"); !got.Succeeded() {
+			t.Errorf("environment %d does not have its own worktree: %s", i+1, got.Stderr)
+		}
+	}
+}
+
+// TestRealTheOverrideRemovesWhatWouldCollide checks the two !reset entries
+// directly, so that a failure says which one stopped working.
+//
+// A container name is global to the Docker daemon and a published port is global
+// to the host. Either surviving the merge would make the second task's launch
+// fail with a message about the first task's container.
+func TestRealTheOverrideRemovesWhatWouldCollide(t *testing.T) {
+	realDocker(t)
+
+	environment, spec, _ := realTask(t, domain.NewTaskID())
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("preparing the environment: %v", err)
+	}
+
+	state, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing: %v", err)
+	}
+
+	name, err := exec.Command(compose.Executable, "inspect", "--format", "{{.Name}}", state.Container).Output()
+	if err != nil {
+		t.Fatalf("inspecting the container: %v", err)
+	}
+	if strings.Contains(string(name), "feat-test-fixed-name") {
+		t.Errorf("the container kept the base file's container_name %q, so a second task could not start",
+			strings.TrimSpace(string(name)))
+	}
+	if !strings.Contains(string(name), spec.Identity) {
+		t.Errorf("the container name %q does not belong to this task's Compose project %q",
+			strings.TrimSpace(string(name)), spec.Identity)
+	}
+
+	ports, err := exec.Command(compose.Executable, "inspect", "--format", "{{json .NetworkSettings.Ports}}",
+		state.Container).Output()
+	if err != nil {
+		t.Fatalf("inspecting the container's ports: %v", err)
+	}
+	if strings.Contains(string(ports), "59317") {
+		t.Errorf("the container kept the base file's published port: %s", ports)
+	}
+}

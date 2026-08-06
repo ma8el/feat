@@ -58,15 +58,37 @@ type observationDocument struct {
 }
 
 type sessionDocument struct {
-	Provider          string       `json:"provider"`
-	ExecutionMode     string       `json:"execution_mode"`
-	Tmux              tmuxDocument `json:"tmux"`
-	ProviderSessionID string       `json:"provider_session_id,omitempty"`
-	Process           string       `json:"process"`
-	ControlPath       string       `json:"control_path,omitempty"`
-	LastEventSequence uint64       `json:"last_event_sequence"`
-	CreatedAt         time.Time    `json:"created_at"`
-	LastActivityAt    time.Time    `json:"last_activity_at"`
+	Provider          string             `json:"provider"`
+	ExecutionMode     string             `json:"execution_mode"`
+	Tmux              tmuxDocument       `json:"tmux"`
+	ProviderSessionID string             `json:"provider_session_id,omitempty"`
+	Process           string             `json:"process"`
+	ControlPath       string             `json:"control_path,omitempty"`
+	Execution         *executionDocument `json:"execution,omitempty"`
+	LastEventSequence uint64             `json:"last_event_sequence"`
+	CreatedAt         time.Time          `json:"created_at"`
+	LastActivityAt    time.Time          `json:"last_activity_at"`
+}
+
+// executionDocument records the environment an agent session runs in.
+//
+// It is absent for host execution, where the environment is the machine the
+// daemon is on and there is nothing to identify. The observed fields are written
+// as they were last seen and are never treated as current on the way back in:
+// reconciliation asks the environment (ADR-029's rule for worktrees, applied to
+// containers).
+type executionDocument struct {
+	Provider              string    `json:"provider"`
+	Identity              string    `json:"identity"`
+	Files                 []string  `json:"files,omitempty"`
+	GeneratedOverridePath string    `json:"generated_override_path,omitempty"`
+	Service               string    `json:"service"`
+	User                  string    `json:"user"`
+	Container             string    `json:"container,omitempty"`
+	Running               bool      `json:"running"`
+	Status                string    `json:"status,omitempty"`
+	Health                string    `json:"health,omitempty"`
+	ObservedAt            time.Time `json:"observed_at,omitzero"`
 }
 
 type tmuxDocument struct {
@@ -252,6 +274,7 @@ func encodeTask(task *domain.Task) taskDocument {
 			ProviderSessionID: task.Session.ProviderSessionID,
 			Process:           string(task.Session.Process),
 			ControlPath:       task.Session.ControlPath,
+			Execution:         encodeExecution(task.Session.Execution),
 			LastEventSequence: task.Session.LastEventSequence,
 			CreatedAt:         task.Session.CreatedAt.UTC(),
 			LastActivityAt:    task.Session.LastActivityAt.UTC(),
@@ -350,6 +373,7 @@ func decodeTask(document taskDocument, brief string) *domain.Task {
 			ProviderSessionID: document.Session.ProviderSessionID,
 			Process:           domain.ProcessState(document.Session.Process),
 			ControlPath:       document.Session.ControlPath,
+			Execution:         decodeExecution(document.Session.Execution),
 			LastEventSequence: document.Session.LastEventSequence,
 			CreatedAt:         document.Session.CreatedAt.UTC(),
 			LastActivityAt:    document.Session.LastActivityAt.UTC(),
@@ -359,6 +383,45 @@ func decodeTask(document taskDocument, brief string) *domain.Task {
 		task.Runtime = decodeRuntime(document.Runtime)
 	}
 	return task
+}
+
+// encodeExecution records the environment an agent session runs in.
+func encodeExecution(environment *domain.ExecutionEnvironment) *executionDocument {
+	if environment == nil {
+		return nil
+	}
+	return &executionDocument{
+		Provider:              environment.Provider,
+		Identity:              environment.Identity,
+		Files:                 append([]string(nil), environment.Files...),
+		GeneratedOverridePath: environment.GeneratedOverridePath,
+		Service:               environment.Service,
+		User:                  environment.User,
+		Container:             environment.Container,
+		Running:               environment.Running,
+		Status:                environment.Status,
+		Health:                string(environment.Health),
+		ObservedAt:            environment.ObservedAt.UTC(),
+	}
+}
+
+func decodeExecution(document *executionDocument) *domain.ExecutionEnvironment {
+	if document == nil {
+		return nil
+	}
+	return &domain.ExecutionEnvironment{
+		Provider:              document.Provider,
+		Identity:              document.Identity,
+		Files:                 append([]string(nil), document.Files...),
+		GeneratedOverridePath: document.GeneratedOverridePath,
+		Service:               document.Service,
+		User:                  document.User,
+		Container:             document.Container,
+		Running:               document.Running,
+		Status:                document.Status,
+		Health:                domain.HealthState(document.Health),
+		ObservedAt:            document.ObservedAt.UTC(),
+	}
 }
 
 func decodeObservation(document *observationDocument) *domain.GitObservation {

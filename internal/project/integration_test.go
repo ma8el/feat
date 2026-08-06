@@ -43,6 +43,9 @@ func TestRealGitRepositoryIsDiagnosed(t *testing.T) {
 		{"    user: developer\n", ""},
 		{"    working_directory: /srv/api\n", ""},
 		{"    control_path: /feat\n", ""},
+		// A Claude configuration volume needs a container to mount it into, so
+		// a host-mode project that declared one is rejected (ADR-033).
+		{"    config_volume: example-claude-config\n", ""},
 	})
 	dropRuntimeSection(t, w)
 

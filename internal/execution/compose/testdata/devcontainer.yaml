@@ -1,0 +1,25 @@
+# A devcontainer definition for the opt-in tests, deliberately awkward.
+#
+# It carries the two things that make a base file impossible to run twice, so
+# that the generated override's !reset entries are exercised against real Docker
+# rather than asserted against a golden file: a fixed container name, which is
+# global to the Docker daemon, and a published host port, which is global to the
+# host.
+#
+# It also mounts a directory at the path a task worktree will be mounted at, so
+# that Compose's merge-by-target behaviour is proved rather than assumed. That
+# is the mechanism the whole mount design rests on (ADR-033 evidence 2).
+services:
+  dev:
+    image: alpine:3.20
+    # A devcontainer service has to stay up: Feat starts it and then executes
+    # the agent inside it.
+    command: ["sleep", "infinity"]
+    # Not root. The image has no such account, and a numeric identity is enough:
+    # what the security model constrains is the uid the agent runs as.
+    user: "1000:1000"
+    container_name: feat-test-fixed-name
+    ports:
+      - "59317:80"
+    volumes:
+      - ./base-mount:/srv/api

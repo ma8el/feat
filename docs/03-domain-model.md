@@ -86,7 +86,14 @@ Properties:
 - process state;
 - control-workspace path;
 - last observed event sequence;
-- creation and last-activity timestamps.
+- creation and last-activity timestamps;
+- the execution environment the session runs in, when that is not the host: its
+  adapter, its identity, the exact inputs it was started from, the generated
+  override, the service and user, and the observed container. The identity is
+  recorded because cleanup and reconciliation must resolve what a task owns
+  rather than recompute it from configuration that may since have changed; the
+  container and its state are observations and are never assumed from the
+  record.
 
 ### RuntimeEnvironment
 

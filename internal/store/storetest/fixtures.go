@@ -178,9 +178,28 @@ func Session() *domain.AgentSession {
 	must(err)
 
 	session.ProviderSessionID = "01J8Z5R2M9WQ6K3T4B7C8D9E0F"
+	session.Execution = Execution()
 	must(session.Observe(domain.ProcessIdle, after(30)))
 	must(session.RecordEvent(12, after(30)))
 	return session
+}
+
+// Execution returns the fixture agent execution environment.
+//
+// The session it belongs to is a devcontainer one, so the environment is
+// present: a host session records none, which the domain enforces rather than
+// leaves to convention.
+func Execution() *domain.ExecutionEnvironment {
+	environment := &domain.ExecutionEnvironment{
+		Provider:              "compose",
+		Identity:              "feat-agent-example-7f3a1c2e",
+		Files:                 []string{"/srv/repositories/tooling/devcontainer.yaml"},
+		GeneratedOverridePath: "/srv/state/projects/example/tasks/7f3a1c2e/execution/compose.override.yaml",
+		Service:               "dev",
+		User:                  "coder",
+	}
+	environment.Observe("9f8e7d6c5b4a", true, "Up 4 minutes", domain.HealthHealthy, after(30))
+	return environment
 }
 
 // Runtime returns the fixture application runtime, including an external

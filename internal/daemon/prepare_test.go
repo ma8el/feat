@@ -207,7 +207,10 @@ func arrangeTaskWith(t *testing.T, fake *fakeGit, body string) *preparation {
 	// answers for the directories it is asked about rather than for any
 	// directory.
 	for _, name := range []string{"api", "store"} {
-		if err := os.MkdirAll(filepath.Join(env.Home, "repos", "app", name), 0o755); err != nil {
+		// With a .git directory, because a task worktree is only a repository
+		// while the main checkout's Git directory is reachable — which is what a
+		// containerised task has to mount (ADR-033).
+		if err := os.MkdirAll(filepath.Join(env.Home, "repos", "app", name, ".git"), 0o755); err != nil {
 			t.Fatalf("creating the checkout %s: %v", name, err)
 		}
 	}
