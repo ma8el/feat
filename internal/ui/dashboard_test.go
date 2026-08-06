@@ -329,14 +329,16 @@ func TestEventsCauseAReRead(t *testing.T) {
 	}
 
 	// tea.Batch returns a BatchMsg holding the commands it will run; one of
-	// them must be the read.
-	batch, ok := cmd().(tea.BatchMsg)
+	// them must be the read. They are run with a bound, because another of them
+	// waits for the next item on an event stream this test never opened, and a
+	// command that waits is the point rather than a fault.
+	batch, ok := run(cmd).(tea.BatchMsg)
 	if !ok {
-		t.Fatalf("an event produced %T, want a batch including a re-read", cmd())
+		t.Fatalf("an event produced %T, want a batch including a re-read", run(cmd))
 	}
 	var read bool
 	for _, command := range batch {
-		if _, isRead := command().(tasksMsg); isRead {
+		if _, isRead := run(command).(tasksMsg); isRead {
 			read = true
 		}
 	}

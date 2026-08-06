@@ -132,6 +132,40 @@ func TestMissingRefIsNotFoundRatherThanFailure(t *testing.T) {
 	}
 }
 
+// TestAGitCommandThatNeverRanIsNotADiagnosis checks that a machine's failure is
+// not reported as a fault in the user's checkout.
+//
+// `rev-parse --git-dir` answers one question, and it only answers it when it
+// runs. When it cannot be started — no executable, no file descriptors left, a
+// timeout — the honest report is that the question was not answered. Saying "not
+// a Git repository" sends the user to inspect a repository that is fine, and
+// that is what happened: descriptor exhaustion in the dashboard's event stream
+// surfaced as a healthy repository being declared not to be one.
+func TestAGitCommandThatNeverRanIsNotADiagnosis(t *testing.T) {
+	broken := errors.New("pipe: too many open files in system")
+
+	fake := newFakeGit()
+	fake.add("/repo", &fakeRepository{fail: map[string]error{"rev-parse": broken}})
+
+	err := New(fake).IsRepository(context.Background(), "/repo")
+	if err == nil {
+		t.Fatal("a Git command that could not run was reported as success")
+	}
+	if !errors.Is(err, broken) {
+		t.Errorf("the underlying failure was discarded: %v", err)
+	}
+	if strings.Contains(err.Error(), "is not a Git repository") {
+		t.Errorf("a command that never ran was reported as a verdict on the repository: %v", err)
+	}
+
+	// Git's own answer still reads as Git's own answer.
+	fake.add("/absent", &fakeRepository{missing: true})
+	err = New(fake).IsRepository(context.Background(), "/absent")
+	if err == nil || !strings.Contains(err.Error(), "is not a Git repository") {
+		t.Errorf("a directory Git rejected was reported as %v, want it named as not a repository", err)
+	}
+}
+
 // TestOptionLikeArgumentsAreRejected checks that a configured name cannot become
 // a Git option.
 //

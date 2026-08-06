@@ -344,6 +344,8 @@ Slice 6 starts no agent. The Claude adapter arrives with slice 7 and the devcont
 
 The dashboard subscribes to the daemon's event stream and re-reads state on every event rather than applying the event itself, because the stream reports what changed and the snapshot is what it changed to; deriving one from the other would give the dashboard a second, divergent copy. A periodic read is the backstop for a stream that ended, which v0.1 answers by re-reading rather than resuming (ADR-027). This makes slice 2's structurally verified event-ordering criterion fully behavioural: a draft created, resolved, launched, and cancelled publishes the sequence a client reads.
 
+**Amended during slice 7's end-to-end verification.** As delivered, the dashboard opened a *new* stream for each event instead of holding one open. Because the daemon opens every stream with a `hello` so a client learns the connection is live before anything happens, the answer to a connection was an event and the answer to an event was another connection: a self-sustaining loop running at the speed of the socket, leaking a connection, a goroutine, and a subscriber on each side every time round. It exhausted the machine's file descriptors within a minute — 169,286 streams in six minutes, a 53 MB daemon log — and then surfaced as unrelated-looking failures, including a task launch refused because a healthy repository was reported as not being a Git repository. The dashboard now opens one stream and reads it repeatedly; three tests pin it, the first of which fails against the original behaviour. Two lessons are recorded rather than implied: the fake event stream in the suite ended immediately, so a reconnect produced no event to reconnect for and the loop was invisible to every test; and `internal/git` now refuses to report a command that never ran as a verdict on the user's checkout, because "not a Git repository" sent the investigation to the wrong machine entirely.
+
 `feat implement` gains `--project`, which changes the command surface slice 0 pinned; the golden file, [README.md](README.md), and ADR-031 moved in the same change. The flag pre-fills rather than making the command headless: confirmation is required before anything is created, so a terminal is required, and preparation reports an absent daemon rather than starting one. An imported Markdown brief is read by the client and sent as content, so no caller-supplied filesystem path crosses the socket.
 
 Package layout gained no new package. See ADR-031; [06-technical-architecture.md](06-technical-architecture.md) and [README.md](README.md) were updated in the same change.
@@ -354,7 +356,7 @@ Status: **complete**, 2026-08-06
 
 The design decisions this slice started from are recorded in ADR-032 in
 [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md),
-together with the amendment three defects found by running a real task produced.
+together with the amendment four defects found by running a real task produced.
 
 ### Outcome
 
@@ -403,6 +405,8 @@ Four defects were found by running a task rather than by reasoning about one, an
 - the brief is outside the working directory, so every launch began by asking permission to read the document Feat wrote for it. The launch now grants tool access to the task's own control workspace and nothing else;
 - attention reached `needs_input` from a permission prompt and never left, because nothing cleared it. The end of a turn now does, since a turn cannot end while the agent is blocked on a dialog;
 - the flag granting that access takes a list, and it sat immediately before the prompt, so the prompt was read as a second directory. The session started, installed its hooks, reported that it had started, and then waited for a task it had never been given — with every signal Feat observes reporting success. That is the failure this slice is least able to see on its own, and it is why the opt-in real-CLI suite asserts which events a session produced rather than only that it ran.
+
+Running the slice end to end also found a defect that was not this slice's: the dashboard reconnected to the event stream on every event and exhausted the machine's file descriptors. It is described and fixed in slice 6's record above, where the behaviour it broke is described. It is worth noting here because of how it presented — the visible symptoms were a task launch failing with "the daemon could not complete the request" and a shell that could no longer open a pipe, neither of which points at a terminal user interface. A slice is verified by running it, and what running it finds is not always in the slice.
 
 `feat doctor` stops skipping the agent-executable and provider-CLI checks for a host-mode project, because FR-PROJ-004 words them around the environment the agent runs in and for host execution that environment is this machine. A devcontainer project keeps the skipped findings and keeps naming slice 8. [07-configuration-model.md](07-configuration-model.md) and ADR-028 said that validation arrives with slice 8 while this slice's work list required it; the contradiction is resolved in favour of "whichever slice can reach the environment", and both documents were corrected in the same change.
 
