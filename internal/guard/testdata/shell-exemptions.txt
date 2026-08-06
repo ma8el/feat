@@ -1,0 +1,25 @@
+# Files permitted to spawn a shell interpreter through os/exec.
+#
+# CLAUDE.md architectural rules: use argument vectors rather than interpolated
+# shell commands for Git, tmux, and Docker Compose. The rule exists because a
+# command handed to a shell is a command the shell may re-split, and a value
+# that reached it from configuration or from an agent would then be executable
+# text rather than data.
+#
+# Directives, one per line:
+#
+#   allow: <prefix>   exempts repository-relative paths starting with <prefix>
+#
+# Exemptions belong here rather than in a //nolint comment, so that every
+# deliberate use stays visible in one reviewable place (ADR-025). Each one must
+# say why the shell is the subject of the code rather than a convenience.
+
+# The generated Claude hooks and the report helper are POSIX shell scripts,
+# because Claude runs a hook by handing its command string to a shell. Their
+# tests run them the way Claude does, which means running a shell.
+#
+# Nothing interpolated reaches these invocations: the test executes a generated
+# script by path and feeds it a payload on standard input. What the scripts
+# themselves contain is checked by the same tests, which require them to print
+# nothing and always exit 0 (see hookScript in internal/agent/claude/hooks.go).
+allow: internal/agent/claude/claude_test.go

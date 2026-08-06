@@ -37,8 +37,18 @@ func New(runner Runner) *Git {
 func Host() *Git { return New(HostRunner{}) }
 
 // IsRepository reports whether dir is inside a Git repository.
+//
+// Only Git's own answer counts as an answer. A command that never ran — no
+// executable on the path, no file descriptors left to give it, a timeout — says
+// nothing about what is in dir, and reporting it as "not a Git repository" sends
+// the user to inspect a checkout that is fine. That is not hypothetical: file
+// descriptor exhaustion elsewhere in Feat surfaced here as a working repository
+// being declared not to be one.
 func (g *Git) IsRepository(ctx context.Context, dir string) error {
 	if _, err := g.runner.Run(ctx, dir, "rev-parse", "--git-dir"); err != nil {
+		if _, ran := exitCode(err); !ran {
+			return fmt.Errorf("cannot tell whether %s is a Git repository: %w", dir, err)
+		}
 		return fmt.Errorf("%s is not a Git repository: %w", dir, err)
 	}
 	return nil

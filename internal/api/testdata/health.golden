@@ -8,7 +8,8 @@
     "platform": "test/arch",
     "pid": 4242,
     "started_at": "2026-08-04T09:30:00Z",
-    "socket": "/run/feat/feat.sock"
+    "socket": "/run/feat/feat.sock",
+    "host_agent": false
   },
   "state": {
     "directory": "/state/feat",

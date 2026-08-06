@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ma8el/feat/internal/agent/claude"
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/paths"
@@ -455,6 +456,131 @@ func TestUncheckableChecksAreSkippedRatherThanPassed(t *testing.T) {
 }
 
 // rewrite edits the arranged configuration in place.
+// hostMode rewrites the fixture to run its agent on the host, which is the
+// environment this build can actually look inside.
+func hostMode(t *testing.T, w *world) {
+	t.Helper()
+
+	rewrite(t, w, `    mode: devcontainer
+    compose_files:
+      - ~/repos/app/infra/docker-compose.yml
+    service: dev
+    user: developer
+    working_directory: /srv/api
+    control_path: /feat`, "    mode: host")
+	w.runner.output["claude --version"] = claude.Verified() + " (Claude Code)"
+	w.runner.output["gh auth status"] = "Logged in"
+	w.runner.output["glab auth status"] = "Logged in"
+}
+
+// TestHostModeChecksTheEnvironmentTheAgentWillRunIn is the slice 7 half of
+// FR-PROJ-004.
+//
+// The requirement is worded around the environment where the agent runs, so a
+// host-mode project can be checked now and a devcontainer one cannot. What was
+// skipped before must genuinely run here, or the wording would be satisfied by
+// a check that never looks at anything.
+func TestHostModeChecksTheEnvironmentTheAgentWillRunIn(t *testing.T) {
+	w := arrange(t)
+	hostMode(t, w)
+	findings := w.only(t, w.diagnose(t)).Findings
+
+	for _, check := range []string{
+		"agent.executable",
+		"agent.capabilities.github_cli",
+		"agent.capabilities.gitlab_cli",
+	} {
+		found := finding(t, findings, check)
+		if found.Severity == project.SeveritySkipped {
+			t.Errorf("%s is still skipped for a host-mode project, where the environment is this machine", check)
+		}
+		if found.Severity != project.SeverityOK {
+			t.Errorf("%s is %q on a machine that has everything: %s", check, found.Severity, found.Summary)
+		}
+	}
+
+	// The container user is not a question a host-mode project asks at all, so
+	// reporting it either way would be inventing a check.
+	for _, found := range findings {
+		if found.Check == "agent.execution.user" {
+			t.Errorf("a host-mode project reported %s, which only a container has", found.Check)
+		}
+	}
+}
+
+func TestAMissingRequiredProviderCLIFailsDoctorAndAnOptionalOneWarns(t *testing.T) {
+	w := arrange(t)
+	hostMode(t, w)
+	w.runner.missing["glab"] = true
+	w.runner.missing["gh"] = true
+
+	findings := w.only(t, w.diagnose(t)).Findings
+
+	// The fixture makes glab required and gh optional, and the difference has to
+	// show: one stops a launch and the other does not.
+	required := finding(t, findings, "agent.capabilities.gitlab_cli")
+	if required.Severity != project.SeverityError {
+		t.Errorf("a missing required CLI is %q, want an error", required.Severity)
+	}
+	if !strings.Contains(required.Action, "install glab") {
+		t.Errorf("action = %q, want it to name the remedy", required.Action)
+	}
+
+	optional := finding(t, findings, "agent.capabilities.github_cli")
+	if optional.Severity != project.SeverityWarning {
+		t.Errorf("a missing optional CLI is %q, want a warning", optional.Severity)
+	}
+}
+
+func TestAnUnauthenticatedProviderCLIIsDistinguishedFromAnAbsentOne(t *testing.T) {
+	w := arrange(t)
+	hostMode(t, w)
+	w.runner.failing["glab auth status"] = true
+
+	found := finding(t, w.only(t, w.diagnose(t)).Findings, "agent.capabilities.gitlab_cli")
+	if found.Severity != project.SeverityError {
+		t.Errorf("an unauthenticated required CLI is %q, want an error", found.Severity)
+	}
+	// Installed and unauthenticated are different states with different
+	// remedies, and a diagnostic that conflated them would send the user to
+	// install something they already have.
+	if !strings.Contains(found.Summary, "not authenticated") {
+		t.Errorf("summary = %q, want it to say the tool is unauthenticated", found.Summary)
+	}
+	if !strings.Contains(found.Action, "glab auth login") {
+		t.Errorf("action = %q, want it to name the login command", found.Action)
+	}
+}
+
+func TestAnUnverifiedAgentVersionWarnsRatherThanFails(t *testing.T) {
+	w := arrange(t)
+	hostMode(t, w)
+	w.runner.output["claude --version"] = "99.0.1 (Claude Code)"
+
+	found := finding(t, w.only(t, w.diagnose(t)).Findings, "agent.executable")
+	if found.Severity != project.SeverityWarning {
+		t.Errorf("an unverified agent version is %q, want a warning: a new release is not an outage",
+			found.Severity)
+	}
+	if !strings.Contains(found.Summary, claude.Verified()) {
+		t.Errorf("summary = %q, want it to name the version this build was verified against", found.Summary)
+	}
+}
+
+func TestAMissingAgentExecutableFailsDoctor(t *testing.T) {
+	w := arrange(t)
+	hostMode(t, w)
+	w.runner.missing["claude"] = true
+
+	found := finding(t, w.only(t, w.diagnose(t)).Findings, "agent.executable")
+	if found.Severity != project.SeverityError {
+		t.Errorf("a missing agent executable is %q, want an error", found.Severity)
+	}
+	if !strings.Contains(found.Action, "install") {
+		t.Errorf("action = %q, want it to name the remedy", found.Action)
+	}
+}
+
 func rewrite(t *testing.T, w *world, old, replacement string) {
 	t.Helper()
 	file := filepath.Join(w.configDir, "app.yaml")

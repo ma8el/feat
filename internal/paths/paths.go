@@ -38,6 +38,7 @@ const (
 	logsDirName     = "logs"
 	daemonLogName   = "daemon.log"
 	projectsDirName = "projects"
+	controlDirName  = "control"
 )
 
 // Environment is the process state path resolution depends on.
@@ -100,6 +101,18 @@ func (l Layout) EndpointFile() string { return filepath.Join(l.Runtime, endpoint
 
 // LogFile returns the path of the daemon log.
 func (l Layout) LogFile() string { return filepath.Join(l.State, logsDirName, daemonLogName) }
+
+// ControlRoot returns the directory holding every task control workspace.
+//
+// It is under the state directory but outside the per-task snapshot directory:
+// a control workspace is the one tree an agent writes to, and it is mounted into
+// the agent's execution environment, so it must not carry a task's snapshot, its
+// event log, or its stored brief along with it (ADR-032).
+//
+// The per-task path below this one is built by internal/control, which validates
+// the identifiers first. This package joins constants only, which is what keeps
+// it a standard-library leaf.
+func (l Layout) ControlRoot() string { return filepath.Join(l.State, controlDirName) }
 
 // TmuxSocket returns the dedicated tmux server socket.
 //

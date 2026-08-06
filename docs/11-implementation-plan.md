@@ -344,11 +344,19 @@ Slice 6 starts no agent. The Claude adapter arrives with slice 7 and the devcont
 
 The dashboard subscribes to the daemon's event stream and re-reads state on every event rather than applying the event itself, because the stream reports what changed and the snapshot is what it changed to; deriving one from the other would give the dashboard a second, divergent copy. A periodic read is the backstop for a stream that ended, which v0.1 answers by re-reading rather than resuming (ADR-027). This makes slice 2's structurally verified event-ordering criterion fully behavioural: a draft created, resolved, launched, and cancelled publishes the sequence a client reads.
 
+**Amended during slice 7's end-to-end verification.** As delivered, the dashboard opened a *new* stream for each event instead of holding one open. Because the daemon opens every stream with a `hello` so a client learns the connection is live before anything happens, the answer to a connection was an event and the answer to an event was another connection: a self-sustaining loop running at the speed of the socket, leaking a connection, a goroutine, and a subscriber on each side every time round. It exhausted the machine's file descriptors within a minute — 169,286 streams in six minutes, a 53 MB daemon log — and then surfaced as unrelated-looking failures, including a task launch refused because a healthy repository was reported as not being a Git repository. The dashboard now opens one stream and reads it repeatedly; three tests pin it, the first of which fails against the original behaviour. Two lessons are recorded rather than implied: the fake event stream in the suite ended immediately, so a reconnect produced no event to reconnect for and the loop was invisible to every test; and `internal/git` now refuses to report a command that never ran as a verdict on the user's checkout, because "not a Git repository" sent the investigation to the wrong machine entirely.
+
 `feat implement` gains `--project`, which changes the command surface slice 0 pinned; the golden file, [README.md](README.md), and ADR-031 moved in the same change. The flag pre-fills rather than making the command headless: confirmation is required before anything is created, so a terminal is required, and preparation reports an absent daemon rather than starting one. An imported Markdown brief is read by the client and sent as content, so no caller-supplied filesystem path crosses the socket.
 
 Package layout gained no new package. See ADR-031; [06-technical-architecture.md](06-technical-architecture.md) and [README.md](README.md) were updated in the same change.
 
 ## Slice 7 — Control workspace and Claude adapter
+
+Status: **complete**, 2026-08-06
+
+The design decisions this slice started from are recorded in ADR-032 in
+[10-decisions-and-open-questions.md](10-decisions-and-open-questions.md),
+together with the amendment four defects found by running a real task produced.
 
 ### Outcome
 
@@ -374,6 +382,39 @@ Native Claude Code runs per task and Feat receives structured lifecycle events.
 - Duplicate/malformed/out-of-task control messages do not execute or duplicate transitions.
 - Review request is explicit and distinguishable from idle.
 - Missing required GitLab authentication prevents launch with an actionable message.
+
+### Delivered
+
+All six acceptance criteria pass, each with a test named for it, and each split between the layer that can prove the narrow claim and the layer that can prove the broad one: that no tmux command ran is a stronger statement than that no terminal exists, and that a table has no entry is a stronger statement than that one code path did not take it.
+
+Feat launches a native Claude Code session per task, receives its lifecycle through a file protocol, and normalizes it into the domain's four state dimensions. The whole pipeline was run against the real CLI: a task reaching `working` from a session start, `idle` only after the configured grace, `review_requested` from the generated report helper, and agent-attributed check results on the dashboard.
+
+`internal/control` is the protocol and knows no provider. The workspace is split by who writes to each part — `task.md`, `context/`, and `inbox/` host-written; `outbox/` and `reports/` agent-written; `agent/` host-only — so that slice 8 can mount the parts differently and so that recording a message as processed never requires the host to write into the directory the agent owns. Every rule the security model lists is checked before a message can change anything, and each has its own test: schema version, task ownership, event identity, type, size, path, and required capability. A `runtime_requested` message is recognised, recorded, and inert, which is what makes "capability validation" a claim about something that was refused rather than about nothing having been asked.
+
+Delivery is polling. Filesystem notification does not cross a bind mount reliably on every supported platform, and a watcher that worked on the host while silently never firing in a container would hide the failure in the slice 8 configuration that matters most. A document that does not parse is retried before it is called malformed, because a write in progress and a malformed document look identical to a reader and only one of them is the agent's mistake.
+
+`internal/agent` carries the neutral vocabulary and the seam that slice 8 replaces: an adapter is told how the agent will see its own filesystem and answers with a launch in those terms. `internal/agent/claude` holds every Claude-specific decision. Its flags and hook schemas were read out of the installed 2.1.220 binary rather than assumed, the adapter records the version it was checked against, and `feat doctor` warns when the installed one is outside that range — because the failure mode of a changed hook schema is a session that runs perfectly well and never reports again, and silence deserves a diagnosis rather than a mystery.
+
+The generated hooks are almost empty on purpose: each copies its payload into the outbox and exits, because parsing belongs in code that can be tested and because Claude gives a hook's standard output and exit status meaning. A `UserPromptSubmit` hook's standard output is injected into the model's context and a `Stop` hook exiting 2 blocks the agent, so a hook that printed or failed would change the session it exists to observe. Both properties are pinned by a test that runs the generated scripts under a real shell and requires the messages they produce to parse back into the events the daemon acts on.
+
+The claim that a Stop event never means completion is mechanical rather than aspirational. Normalization is a table, pinned by a test in the shape ADR-026 used for the workflow transition table, so the defect has to be introduced by editing the table that documents it. Its most important row is an absence: no end-of-turn path reaches a review state, and the one entry that does exists because an agent authored a message saying so.
+
+Four defects were found by running a task rather than by reasoning about one, and each is now a test:
+
+- a launched agent can be blocked before it emits anything, because Claude asks for workspace trust on every new task worktree and no hook fires while it waits. Feat showed a live process with no attention — a task that looked busy while nothing was happening. A launched agent that has not reported starting now says so, conservatively;
+- the brief is outside the working directory, so every launch began by asking permission to read the document Feat wrote for it. The launch now grants tool access to the task's own control workspace and nothing else;
+- attention reached `needs_input` from a permission prompt and never left, because nothing cleared it. The end of a turn now does, since a turn cannot end while the agent is blocked on a dialog;
+- the flag granting that access takes a list, and it sat immediately before the prompt, so the prompt was read as a second directory. The session started, installed its hooks, reported that it had started, and then waited for a task it had never been given — with every signal Feat observes reporting success. That is the failure this slice is least able to see on its own, and it is why the opt-in real-CLI suite asserts which events a session produced rather than only that it ran.
+
+Running the slice end to end also found a defect that was not this slice's: the dashboard reconnected to the event stream on every event and exhausted the machine's file descriptors. It is described and fixed in slice 6's record above, where the behaviour it broke is described. It is worth noting here because of how it presented — the visible symptoms were a task launch failing with "the daemon could not complete the request" and a shell that could no longer open a pipe, neither of which points at a terminal user interface. A slice is verified by running it, and what running it finds is not always in the slice.
+
+`feat doctor` stops skipping the agent-executable and provider-CLI checks for a host-mode project, because FR-PROJ-004 words them around the environment the agent runs in and for host execution that environment is this machine. A devcontainer project keeps the skipped findings and keeps naming slice 8. [07-configuration-model.md](07-configuration-model.md) and ADR-028 said that validation arrives with slice 8 while this slice's work list required it; the contradiction is resolved in favour of "whichever slice can reach the environment", and both documents were corrected in the same change.
+
+Devcontainer execution is still slice 8's, so a project that configures one gets ADR-031's shell and a message naming that slice. `FEAT_HOST_AGENT` in the daemon's own environment launches Claude on the host instead. It is deliberately not a request field or a client flag: a request that could move an agent outside its configured boundary would be a caller granting itself a capability. The daemon logs it, health reports it, the task detail says it, and the generated instructions tell the agent it is not contained.
+
+Verification is the agent's claim, recorded in the review aggregate that slice 1 built and attributed with the reporter field that was waiting for it, so no stored format changed and no migration was needed. The dashboard marks it as a claim; the gate that runs a project's configured checks needs slice 8's environment and the interface says so.
+
+Package layout gained no new package: `internal/agent`, `internal/agent/claude`, and `internal/control` were reserved by slice 0. Two `depguard` rules, `agent-stays-an-adapter` and `control-stays-a-protocol`, make their boundaries mechanical, and a third exemption list records the one file permitted to spawn a shell — the test whose subject is a shell script — verified to still fail against an injected violation elsewhere. See ADR-032; [06-technical-architecture.md](06-technical-architecture.md), [07-configuration-model.md](07-configuration-model.md), and [README.md](README.md) were updated in the same change.
 
 ## Slice 8 — Devcontainer execution
 
@@ -478,6 +519,7 @@ Feat recovers honestly and removes only resources the user explicitly selected.
 - Reconcile snapshots, tmux, worktrees, Compose, control messages, and review state.
 - Decide the quarantine policy deferred from slice 5 (ADR-030): one damaged resource must not make every healthy one unusable. For tmux that means discovery reporting a broken terminal while still returning the rest, and it settles the working-directory validation whose failure mode is the same blast radius.
 - Write and reconcile the durable daemon record `daemon.json`, deferred from slice 2 because this is the first slice that reads one (ADR-027).
+- Recover a dead agent session, deferred from slice 7 (ADR-032). Slice 7 records the exit status and marks the task `failed`; it never restarts or resumes, for the reason FR-STATE-004 gives for containers. Resuming belongs here because a dead agent pane is the same recovery question as a missing tmux window, a removed worktree, and a stopped Compose project, and answering it inside the agent adapter would set a recovery policy the slice that owns recovery had not chosen. Slice 7 captures the provider session ID from the session-start event before the process can fail, so the resume is available through the provider's own `--continue`/`--resume` rather than through a new session that has lost the task's history. Recovery stays an offered action, never an automatic restart.
 - Report missing/orphaned/inconsistent resources.
 - Build cleanup-plan API with stable token/IDs.
 - Separate containers/networks, volumes, worktrees, and branches.
@@ -488,6 +530,7 @@ Feat recovers honestly and removes only resources the user explicitly selected.
 
 - Daemon/computer restart loses no task identity.
 - Stopped containers are not restarted.
+- A failed agent session is resumed only by explicit user action, and resuming continues the recorded provider session rather than starting an empty one.
 - Orphan resources are reported before adoption/removal.
 - One damaged or unreadable resource does not make unrelated healthy ones unusable.
 - Volumes remain unless explicitly chosen.

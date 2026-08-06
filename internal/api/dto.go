@@ -52,6 +52,13 @@ type Daemon struct {
 	StartedAt time.Time `json:"started_at"`
 	// Socket is the path the daemon is listening on.
 	Socket string `json:"socket"`
+	// HostAgent reports that this daemon was started with the opt-in that runs
+	// agents on this host even where a project configures a container.
+	//
+	// It is reported because it changes what a task's isolation actually is, and
+	// a boundary that is not there should never have to be inferred from the
+	// absence of a message.
+	HostAgent bool `json:"host_agent"`
 }
 
 // State describes the daemon's persistent state directory.
@@ -258,10 +265,37 @@ type Task struct {
 	// Session is the task's agent session, or null before it is launched.
 	Session *Session `json:"session"`
 	// Runtime is the task's application runtime, or null when it has none.
-	Runtime   *Runtime  `json:"runtime"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Runtime *Runtime `json:"runtime"`
+	// Verification is what the agent reported about its own checks, or null
+	// when it has reported none. It is the agent's claim rather than a result
+	// anything enforced, which is why the source is part of it.
+	Verification *Verification `json:"verification"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
 }
+
+// Verification is a task's check results, attributed to whoever produced them.
+//
+// The attribution is the point. A provider-gated result was enforced and an
+// agent-reported one was asserted, and a dashboard that showed them alike would
+// tell the user something Feat does not know.
+type Verification struct {
+	// Source is who produced the results: "agent" for a result the agent
+	// claimed, "provider" for one a completion gate enforced. Only "agent"
+	// occurs in v0.1.
+	Source string `json:"source"`
+	// Passed, Failed, and Other count the results by outcome.
+	Passed int `json:"passed"`
+	Failed int `json:"failed"`
+	Other  int `json:"other"`
+	// Summary is the agent's account of what it did.
+	Summary string `json:"summary,omitempty"`
+	// ReportedAt is when the agent reported them.
+	ReportedAt time.Time `json:"reported_at"`
+}
+
+// Total counts every reported result.
+func (v Verification) Total() int { return v.Passed + v.Failed + v.Other }
 
 // Source records where a task brief came from.
 type Source struct {
@@ -390,8 +424,41 @@ func newProjects(projects []*domain.Project) []Project {
 	return out
 }
 
+// NewVerification summarises a review's checks for the dashboard.
+//
+// A review with no reported checks and no summary produces nothing, so that an
+// absent value is genuinely absent rather than a row of zeroes claiming that
+// nothing failed.
+func NewVerification(review *domain.Review) (Verification, bool) {
+	if review == nil || (len(review.Checks) == 0 && review.CompletionSummary == "") {
+		return Verification{}, false
+	}
+
+	verification := Verification{
+		Source:     string(domain.ReporterAgent),
+		Summary:    review.CompletionSummary,
+		ReportedAt: review.RequestedAt,
+	}
+	for _, check := range review.Checks {
+		// The strictest reporter present decides the label: a single asserted
+		// result means the set as a whole was not enforced.
+		if check.Reporter == domain.ReporterProvider && verification.Source != string(domain.ReporterAgent) {
+			verification.Source = string(domain.ReporterProvider)
+		}
+		switch check.Status {
+		case domain.CheckPassed:
+			verification.Passed++
+		case domain.CheckFailed:
+			verification.Failed++
+		default:
+			verification.Other++
+		}
+	}
+	return verification, true
+}
+
 // newTask maps a task onto the wire.
-func newTask(task *domain.Task) Task {
+func newTask(task *domain.Task, verification *Verification) Task {
 	repositories := make([]TaskRepository, 0, len(task.Repositories))
 	for _, binding := range task.Repositories {
 		repositories = append(repositories, TaskRepository{
@@ -420,15 +487,20 @@ func newTask(task *domain.Task) Task {
 		Repositories: repositories,
 		Session:      newSession(task.Session),
 		Runtime:      newRuntime(task.Runtime),
+		Verification: verification,
 		CreatedAt:    task.CreatedAt,
 		UpdatedAt:    task.UpdatedAt,
 	}
 }
 
-func newTasks(tasks []*domain.Task) []Task {
+func newTasks(tasks []*domain.Task, verifications map[string]Verification) []Task {
 	out := make([]Task, 0, len(tasks))
 	for _, task := range tasks {
-		out = append(out, newTask(task))
+		var verification *Verification
+		if reported, ok := verifications[task.ID.String()]; ok {
+			verification = &reported
+		}
+		out = append(out, newTask(task, verification))
 	}
 	return out
 }

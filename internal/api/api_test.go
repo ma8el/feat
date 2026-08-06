@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/store/storetest"
@@ -37,6 +38,8 @@ type fakeService struct {
 	unconfigured map[domain.ProjectID]bool
 	// unregistrable are projects whose configuration does not validate.
 	unregistrable map[domain.ProjectID]bool
+	// verifications are what each task's agent reported about its own checks.
+	verifications map[domain.TaskID]Verification
 }
 
 func newFakeService() *fakeService {
@@ -53,8 +56,14 @@ func newFakeService() *fakeService {
 			},
 			State: State{Directory: "/state/feat", Projects: 1},
 		},
-		projects:      []*domain.Project{storetest.Project()},
-		tasks:         []*domain.Task{storetest.Task()},
+		projects: []*domain.Project{storetest.Project()},
+		tasks:    []*domain.Task{storetest.Task()},
+		// The fixtures populate every field a payload can carry, so that a
+		// mapping the DTO forgets shows up as a zero value rather than as
+		// nothing at all.
+		verifications: map[domain.TaskID]Verification{
+			storetest.TaskID: verificationFixture(),
+		},
 		unconfigured:  map[domain.ProjectID]bool{},
 		unregistrable: map[domain.ProjectID]bool{},
 	}
@@ -133,6 +142,24 @@ func (f *fakeService) Task(_ context.Context, id domain.TaskID) (*domain.Task, e
 		}
 	}
 	return nil, fmt.Errorf("%w: no task %s in any registered project", ErrNotFound, id)
+}
+
+func (f *fakeService) Verification(_ context.Context, id domain.TaskID) (Verification, bool, error) {
+	reported, ok := f.verifications[id]
+	return reported, ok, nil
+}
+
+// verificationFixture is a fully populated agent report, so that every field of
+// the payload is exercised by the golden files and the mapping check.
+func verificationFixture() Verification {
+	return Verification{
+		Source:     "agent",
+		Passed:     3,
+		Failed:     1,
+		Other:      2,
+		Summary:    "Added the endpoint; one integration test still fails.",
+		ReportedAt: time.Date(2026, 8, 4, 9, 45, 0, 0, time.UTC),
+	}
 }
 
 func (f *fakeService) AttachInfo(_ context.Context, id domain.TaskID) (AttachInfo, error) {

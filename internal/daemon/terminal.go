@@ -13,10 +13,13 @@ import (
 	"github.com/ma8el/feat/internal/tmux"
 )
 
-// PrepareTerminal creates or rediscovers the persistent terminal of a
-// confirmed task. The final command comes from an execution-environment or
-// agent adapter; until those arrive it is the task shell that launch supplies
-// (ADR-030, ADR-031).
+// PrepareTerminal creates or rediscovers the persistent terminal of a confirmed
+// task, running a caller-supplied command in it.
+//
+// It is the seam ADR-030 left for the slices that decide what a task terminal
+// runs. Launch itself no longer goes through it: what a launch runs is chosen by
+// planLaunch, which knows whether an agent can start. What remains here is the
+// terminal lifecycle, exercised directly by the tests that own it.
 func (s *service) PrepareTerminal(ctx context.Context, ref store.TaskRef, command tmux.CommandSpec) (*domain.Task, error) {
 	if err := ref.Validate(); err != nil {
 		return nil, err
@@ -30,7 +33,12 @@ func (s *service) PrepareTerminal(ctx context.Context, ref store.TaskRef, comman
 	if err != nil {
 		return nil, translateConfig(err)
 	}
-	return s.ensureTerminal(ctx, task, cfg, command)
+	// A caller-supplied command is not an agent session: nothing will report a
+	// session start for it, so the task must not be recorded as working.
+	return s.ensureTerminal(ctx, task, cfg, launchPlan{
+		command: command,
+		mode:    domain.ExecutionMode(cfg.Agent.Execution.Mode),
+	})
 }
 
 // ensureTerminal creates or rediscovers a confirmed task's terminal and records
@@ -40,14 +48,14 @@ func (s *service) PrepareTerminal(ctx context.Context, ref store.TaskRef, comman
 // it, transitioned it, and created its worktrees. Re-reading it here would put a
 // second reader between the transition and the terminal it belongs to.
 func (s *service) ensureTerminal(
-	ctx context.Context, task *domain.Task, cfg *config.Config, command tmux.CommandSpec,
+	ctx context.Context, task *domain.Task, cfg *config.Config, plan launchPlan,
 ) (*domain.Task, error) {
 	if task.Workflow != domain.WorkflowPreparing && task.Workflow != domain.WorkflowFailed {
 		return nil, fmt.Errorf("%w: task %s is %s, and its terminal is created only after confirmation",
 			api.ErrInvalid, task.ID, task.Workflow)
 	}
 
-	terminal, err := s.terminals.EnsureTask(ctx, task.ProjectID, task.ID, command)
+	terminal, err := s.terminals.EnsureTask(ctx, task.ProjectID, task.ID, plan.command)
 	if err != nil {
 		if task.Workflow == domain.WorkflowPreparing {
 			if transitionErr := s.transition(ctx, task, domain.WorkflowFailed, err.Error()); transitionErr != nil {
@@ -61,9 +69,9 @@ func (s *service) ensureTerminal(
 	if task.Session == nil {
 		session, err := domain.NewAgentSession(
 			cfg.Agent.Provider,
-			domain.ExecutionMode(cfg.Agent.Execution.Mode),
+			plan.mode,
 			terminal.Target,
-			"",
+			s.controlPath(task),
 			s.now(),
 		)
 		if err != nil {
@@ -80,6 +88,7 @@ func (s *service) ensureTerminal(
 		if err := task.Session.ReconcileTerminal(terminal.Target, terminal.ProcessState(), task.ID, s.now()); err != nil {
 			return nil, err
 		}
+		task.Session.ControlPath = s.controlPath(task)
 	}
 
 	if err := s.store.Tasks().Save(ctx, task); err != nil {
@@ -94,6 +103,24 @@ func (s *service) ensureTerminal(
 		Detail: "tmux terminal " + terminal.Target.Session + "/" +
 			terminal.Target.Window + "/" + terminal.Target.Pane + " is available",
 	})
+	if plan.note != "" {
+		s.logger.InfoContext(ctx, "task terminal launched",
+			slog.String("task", task.ID.String()), slog.String("note", plan.note))
+	}
+
+	// The task stays preparing until the agent says it started. Nothing here
+	// claims a running agent: a shell is not one, and even a launched Claude has
+	// not begun until its own session-start event arrives (ADR-031, ADR-032).
+	if plan.agentStarted {
+		// A session-start event follows within seconds, and a user watching the
+		// dashboard should see the task reach working then rather than at
+		// whatever point in the polling interval they happened to launch.
+		s.nudge()
+		// And if it does not follow, the task must say so rather than sit there
+		// looking busy: an agent can be waiting for a person before it has
+		// emitted anything Feat could have heard.
+		s.armStartup(ctx, task)
+	}
 	return task, nil
 }
 
@@ -118,7 +145,9 @@ func (s *service) OpenShell(ctx context.Context, id domain.TaskID) (api.AttachIn
 		return api.AttachInfo{}, translateConfig(err)
 	}
 
-	command, err := s.agentCommand(cfg, task)
+	// A shell pane is a shell, whatever the agent pane is running. It opens in
+	// the same primary workspace, which is what FR-TMUX-003 asks for.
+	command, err := s.shellCommand(cfg, task)
 	if err != nil {
 		return api.AttachInfo{}, fmt.Errorf("%w: %w", api.ErrInvalid, err)
 	}

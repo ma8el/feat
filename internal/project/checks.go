@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ma8el/feat/internal/agent/claude"
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
 )
@@ -181,7 +182,7 @@ func (c *checker) checkExecution(ctx context.Context) {
 	execution := c.config.Agent.Execution
 	if !execution.Devcontainer() {
 		c.ok("agent.execution.mode", "host, with no container boundary around the agent")
-		c.skipAgentEnvironmentChecks()
+		c.checkAgentEnvironment(ctx)
 		return
 	}
 
@@ -189,40 +190,135 @@ func (c *checker) checkExecution(ctx context.Context) {
 	if files {
 		c.checkComposeService(ctx, "agent.execution.service", execution.ComposeFiles, execution.Service)
 	}
-	c.skipAgentEnvironmentChecks()
+	c.checkAgentEnvironment(ctx)
 }
 
-// skipAgentEnvironmentChecks records the checks FR-PROJ-004 asks for that this
-// build cannot perform.
+// checkAgentEnvironment performs the checks FR-PROJ-004 asks for inside the
+// environment where the agent runs, or records why it could not.
 //
-// Validating the agent executable, the container user, and provider CLI
-// authentication has to happen inside the environment where the agent will run
-// them, and nothing starts that environment until slice 8. Reporting them as
-// skipped rather than omitting them keeps `feat doctor` honest about its own
-// coverage: the checks are named, and so is the reason they did not run.
-func (c *checker) skipAgentEnvironmentChecks() {
-	c.skip("agent.executable", "the agent executable is not checked in this build", slice8)
+// The requirement is worded around that environment for a reason: an
+// authenticated `glab` on the host says nothing about a container that has no
+// `glab` in it. So a host-mode project is checked here and now, and a
+// devcontainer project keeps the skipped findings until slice 8 can start one
+// (ADR-028, ADR-032). A check this build cannot run is never reported as
+// passing.
+func (c *checker) checkAgentEnvironment(ctx context.Context) {
 	if c.config.Agent.Execution.Devcontainer() {
-		c.skip("agent.execution.user",
-			fmt.Sprintf("the running process is not checked to be %q in this build", c.config.Agent.Execution.User),
-			slice8)
+		c.skipAgentEnvironmentChecks()
+		return
 	}
 
-	for _, capability := range []struct {
-		field string
-		tool  string
-		level string
-	}{
-		{"agent.capabilities.github_cli", "gh", c.config.Agent.Capabilities.GitHubCLI},
-		{"agent.capabilities.gitlab_cli", "glab", c.config.Agent.Capabilities.GitLabCLI},
-	} {
+	c.checkAgentExecutable(ctx)
+	for _, capability := range providerCLIs(c.config) {
+		c.checkProviderCLI(ctx, capability)
+	}
+}
+
+// checkAgentExecutable reports whether the configured agent can be started.
+func (c *checker) checkAgentExecutable(ctx context.Context) {
+	const check = "agent.executable"
+
+	path, err := c.runner.Look(claude.Executable)
+	if errors.Is(err, ErrNotInstalled) {
+		c.fail(check, fmt.Sprintf("%s is not installed", claude.Executable),
+			"install Claude Code, or change agent.provider")
+		return
+	}
+	if err != nil {
+		c.fail(check, fmt.Sprintf("%s could not be resolved: %v", claude.Executable, err), "check the PATH")
+		return
+	}
+
+	output, err := c.runner.Run(ctx, "", claude.Executable, "--version")
+	if err != nil {
+		c.fail(check, fmt.Sprintf("%s does not run: %v", path, err),
+			"check the installation with `claude doctor`")
+		return
+	}
+
+	// A version outside the range this build's hooks were verified against is
+	// worth reporting rather than refusing: the failure mode of a changed hook
+	// schema is a session that runs well and never reports, and a warning that
+	// names the likely cause is what turns that silence into a diagnosis.
+	version := claude.ParseVersion(output)
+	if warning := version.Unverified(); warning != "" {
+		c.warn(check, warning,
+			"if tasks stop updating, compare the installed hook schema with this build's expectations")
+		return
+	}
+	c.ok(check, fmt.Sprintf("%s, version %s", path, version))
+}
+
+// checkProviderCLI reports whether a provider CLI is installed and
+// authenticated.
+func (c *checker) checkProviderCLI(ctx context.Context, capability providerCLI) {
+	if capability.level == config.CLIDisabled {
+		c.ok(capability.field, "disabled")
+		return
+	}
+
+	// An optional CLI that is absent is a note; a required one that is absent
+	// stops a launch, so `feat doctor` says so before the user finds out at
+	// launch time.
+	report := c.warn
+	if capability.level == config.CLIRequired {
+		report = c.fail
+	}
+
+	if _, err := c.runner.Look(capability.tool); errors.Is(err, ErrNotInstalled) {
+		report(capability.field,
+			fmt.Sprintf("%s is %s, and it is not installed", capability.tool, capability.level),
+			fmt.Sprintf("install %s, or set %s to disabled", capability.tool, capability.field))
+		return
+	} else if err != nil {
+		report(capability.field, fmt.Sprintf("%s could not be resolved: %v", capability.tool, err), "check the PATH")
+		return
+	}
+
+	if _, err := c.runner.Run(ctx, "", capability.tool, "auth", "status"); err != nil {
+		report(capability.field,
+			fmt.Sprintf("%s is %s, and it is not authenticated", capability.tool, capability.level),
+			fmt.Sprintf("run `%s auth login`", capability.tool))
+		return
+	}
+	c.ok(capability.field, fmt.Sprintf("%s is installed and authenticated", capability.tool))
+}
+
+// providerCLI is one configured provider-CLI capability.
+type providerCLI struct {
+	field string
+	tool  string
+	level string
+}
+
+func providerCLIs(cfg *config.Config) []providerCLI {
+	return []providerCLI{
+		{"agent.capabilities.github_cli", "gh", cfg.Agent.Capabilities.GitHubCLI},
+		{"agent.capabilities.gitlab_cli", "glab", cfg.Agent.Capabilities.GitLabCLI},
+	}
+}
+
+// skipAgentEnvironmentChecks records the checks this build cannot perform for a
+// devcontainer project.
+//
+// Reporting them as skipped rather than omitting them keeps `feat doctor`
+// honest about its own coverage: the checks are named, and so is the reason
+// they did not run.
+func (c *checker) skipAgentEnvironmentChecks() {
+	c.skip("agent.executable",
+		"the agent executable is not checked inside the devcontainer in this build", slice8)
+	c.skip("agent.execution.user",
+		fmt.Sprintf("the running process is not checked to be %q in this build", c.config.Agent.Execution.User),
+		slice8)
+
+	for _, capability := range providerCLIs(c.config) {
 		if capability.level == config.CLIDisabled {
 			c.ok(capability.field, "disabled")
 			continue
 		}
 		c.skip(capability.field,
-			fmt.Sprintf("%s is %s, and its installation and authentication are not checked in this build",
-				capability.tool, capability.level),
+			fmt.Sprintf("%s is %s, and its installation and authentication inside the devcontainer "+
+				"are not checked in this build", capability.tool, capability.level),
 			slice8)
 	}
 }

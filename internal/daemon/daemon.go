@@ -7,9 +7,13 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/ma8el/feat/internal/agent"
+	"github.com/ma8el/feat/internal/agent/claude"
 	"github.com/ma8el/feat/internal/api"
+	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/paths"
@@ -50,6 +54,15 @@ type Options struct {
 	// Tmux runs non-interactive control commands against the dedicated terminal
 	// server. A nil value drives the real tmux executable.
 	Tmux tmux.Runner
+	// Agent runs probe commands where the agent will run: today the trusted
+	// host, and from slice 8 the configured container. A nil value probes this
+	// host.
+	Agent agent.Runner
+	// Timer schedules the idle grace period. A nil value uses the wall clock.
+	Timer Timer
+	// PollInterval is how often control workspaces are read. Zero uses the
+	// default.
+	PollInterval time.Duration
 	// Logger receives the daemon's log. A nil logger discards it.
 	Logger *slog.Logger
 	// Now supplies the current time. A nil value uses the wall clock.
@@ -115,6 +128,23 @@ func New(opts Options) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	probe := opts.Agent
+	if probe == nil {
+		probe = agent.HostRunner{}
+	}
+	// The opt-in that lets an agent run outside the boundary its project
+	// configures is read here, from the daemon's own environment, and never from
+	// a request (ADR-032).
+	hostAgent := false
+	if env.Getenv != nil {
+		hostAgent = truthy(env.Getenv(EnvHostAgent))
+	}
+	if hostAgent {
+		logger.Warn("agents will run on this host rather than in a configured devcontainer",
+			slog.String("variable", EnvHostAgent))
+	}
+
 	return &Daemon{
 		opts:   opts,
 		logger: logger,
@@ -122,17 +152,38 @@ func New(opts Options) (*Daemon, error) {
 		store:  state,
 		bus:    bus,
 		service: &service{
-			store:     state,
-			bus:       bus,
-			git:       git.New(opts.Git),
-			terminals: terminals,
-			layout:    opts.Layout,
-			env:       env,
-			build:     opts.Build,
-			now:       now,
-			logger:    logger,
+			store:      state,
+			bus:        bus,
+			git:        git.New(opts.Git),
+			terminals:  terminals,
+			agent:      claude.New(),
+			runner:     probe,
+			layout:     opts.Layout,
+			env:        env,
+			hostAgent:  hostAgent,
+			build:      opts.Build,
+			now:        now,
+			logger:     logger,
+			idle:       newIdleTimers(opts.Timer),
+			startup:    newIdleTimers(opts.Timer),
+			workspaces: make(map[domain.TaskID]*control.Workspace),
+			pollNow:    make(chan struct{}, 1),
 		},
 	}, nil
+}
+
+// truthy reads an opt-in environment variable.
+//
+// Only an explicit affirmative counts. A variable someone exported empty, or
+// set to "0" while turning the option off, must not move an agent outside the
+// boundary its project configured.
+func truthy(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // Publish records a state change on the event stream and returns its stream
@@ -175,6 +226,24 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 	if reconcileErr := d.service.reconcileTmux(ctx); reconcileErr != nil {
 		d.logger.ErrorContext(ctx, "reconciling tmux terminals", slog.Any("error", reconcileErr))
 	}
+
+	// Control messages also outlive the daemon: an agent that ended a turn
+	// while Feat was stopped wrote a file, and that file is still there. Reading
+	// them before serving means a client's first request sees the state those
+	// messages describe rather than the state from before the restart. The idle
+	// grace period is measured from when the turn ended, so a turn that ended
+	// long ago becomes idle at once rather than restarting the clock.
+	d.service.pollControl(ctx)
+
+	poller := &controlPoller{}
+	poller.start(ctx, d.service, d.opts.PollInterval)
+	defer func() {
+		poller.stop()
+		// A pending transition must not fire into a daemon that has stopped and
+		// can no longer write what it decided.
+		d.service.idle.cancelAll()
+		d.service.startup.cancelAll()
+	}()
 
 	// Request contexts derive from this one, so cancelling it ends the event
 	// streams. Without it, Shutdown would wait for every connected client.

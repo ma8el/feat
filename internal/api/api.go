@@ -45,6 +45,13 @@ type Service interface {
 	// Task returns one task addressed by task identifier alone, resolving the
 	// owning project, or an error matching ErrNotFound (ADR-027).
 	Task(ctx context.Context, id domain.TaskID) (*domain.Task, error)
+	// Verification returns what the agent reported about its own checks, and
+	// false when it has reported none.
+	//
+	// It is separate from the task because it lives in the review aggregate,
+	// where docs/03-domain-model.md puts an agent-reported completion summary
+	// and agent-reported checks. Slice 11 fills the rest of that aggregate.
+	Verification(ctx context.Context, id domain.TaskID) (Verification, bool, error)
 	// CreateDraft records a new task draft and creates nothing else. No
 	// worktree, branch, terminal, or container exists until the draft is
 	// confirmed (FR-TASK-003).
@@ -245,7 +252,24 @@ func (s *server) tasks(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newTasks(tasks))
+	// One lookup per task rather than one for the list: the review lives in its
+	// own aggregate, and the number of tasks a user runs at once is small by
+	// construction. A task whose verification cannot be read is rendered without
+	// one, because a dashboard that failed entirely over a check summary would
+	// be worse than a dashboard missing a column.
+	verifications := make(map[string]Verification, len(tasks))
+	for _, task := range tasks {
+		reported, ok, err := s.service.Verification(r.Context(), task.ID)
+		if err != nil {
+			s.logger.WarnContext(r.Context(), "reading a task's reported verification",
+				slog.String("task", task.ID.String()), slog.Any("error", err))
+			continue
+		}
+		if ok {
+			verifications[task.ID.String()] = reported
+		}
+	}
+	writeJSON(w, http.StatusOK, newTasks(tasks, verifications))
 }
 
 func (s *server) task(w http.ResponseWriter, r *http.Request) {
@@ -259,7 +283,15 @@ func (s *server) task(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newTask(task))
+
+	var verification *Verification
+	if reported, ok, err := s.service.Verification(r.Context(), id); err != nil {
+		s.logger.WarnContext(r.Context(), "reading a task's reported verification",
+			slog.String("task", id.String()), slog.Any("error", err))
+	} else if ok {
+		verification = &reported
+	}
+	writeJSON(w, http.StatusOK, newTask(task, verification))
 }
 
 func (s *server) attachInfo(w http.ResponseWriter, r *http.Request) {
@@ -333,7 +365,7 @@ func (s *server) createDraft(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, newTask(draft))
+	writeJSON(w, http.StatusCreated, newTask(draft, nil))
 }
 
 func (s *server) updateDraft(w http.ResponseWriter, r *http.Request) {
@@ -370,7 +402,7 @@ func (s *server) updateDraft(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newTask(draft))
+	writeJSON(w, http.StatusOK, newTask(draft, nil))
 }
 
 // planDraft resolves the draft's bases and proposes its branches and paths.
@@ -397,7 +429,7 @@ func (s *server) planDraft(w http.ResponseWriter, r *http.Request) {
 		notes = []string{}
 	}
 	writeJSON(w, http.StatusOK, DraftPlan{
-		Task:        newTask(resolved.Task),
+		Task:        newTask(resolved.Task, nil),
 		Notes:       notes,
 		Fingerprint: resolved.Fingerprint,
 	})
@@ -419,7 +451,8 @@ func (s *server) launchDraft(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newTask(task))
+	// A task that has just launched has reported nothing yet.
+	writeJSON(w, http.StatusOK, newTask(task, nil))
 }
 
 func (s *server) cancelDraft(w http.ResponseWriter, r *http.Request) {
@@ -433,7 +466,7 @@ func (s *server) cancelDraft(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newTask(draft))
+	writeJSON(w, http.StatusOK, newTask(draft, nil))
 }
 
 // taskID reads and validates a task identifier from the path.

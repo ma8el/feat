@@ -102,7 +102,7 @@ func (m Model) detailView() string {
 	out.WriteString(field("attention", attentionState(task)))
 	out.WriteString(field("agent", agentDetail(task)))
 	out.WriteString(field("runtime", runtimeDetail(task)))
-	out.WriteString(field("verification", absent+"  "+mutedStyle.Render("("+verificationSlice+")")))
+	out.WriteString(field("verification", verificationDetail(task)))
 	out.WriteString(field("resources", absent+"  "+mutedStyle.Render("("+resourceSlice+")")))
 	out.WriteString(field("elapsed", elapsed(task, m.now())))
 	out.WriteString(field("source", sourceDetail(task.Source)))
@@ -115,7 +115,9 @@ func (m Model) detailView() string {
 		out.WriteString(field("tmux", task.Session.Tmux.Session+" "+
 			task.Session.Tmux.Window+" "+task.Session.Tmux.Pane))
 		out.WriteString(field("socket", task.Session.Tmux.Socket))
-		out.WriteString(mutedStyle.Render("  "+agentSlice) + "\n")
+		if note := terminalNote(task); note != "" {
+			out.WriteString(mutedStyle.Render("  "+note) + "\n")
+		}
 	}
 
 	out.WriteString("\n" + headingStyle.Render("brief") + "\n")
@@ -186,6 +188,31 @@ func agentDetail(task api.Task) string {
 		return absent + "  " + mutedStyle.Render("(no terminal yet)")
 	}
 	return fmt.Sprintf("%s, %s in %s", task.Session.Process, task.Session.Provider, task.Session.ExecutionMode)
+}
+
+// terminalNote explains a task terminal that is not what the project asked for.
+//
+// A task still preparing after its terminal exists is one whose pane holds a
+// shell rather than an agent, which happens when the project configures a
+// devcontainer this build cannot start. Saying so in words is the rule ADR-031
+// set: a value that was never measured is never displayed as one, and a
+// boundary that is not there is never implied by silence.
+func terminalNote(task api.Task) string {
+	if task.Session == nil {
+		return ""
+	}
+	if task.Workflow == "preparing" {
+		return containerSlice
+	}
+	if task.Session.ExecutionMode == "host" {
+		for _, binding := range task.Repositories {
+			if binding.ContainerPath != "" {
+				return "this project configures a devcontainer, and this session is running " +
+					"directly on this host instead"
+			}
+		}
+	}
+	return ""
 }
 
 func runtimeDetail(task api.Task) string {

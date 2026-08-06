@@ -139,6 +139,58 @@ linters:
             - pkg: github.com/charmbracelet
             - pkg: github.com/spf13/cobra
 
+        # ADR-032: the agent packages are adapters under the rule ADR-029
+        # established for Git. They receive final values — the daemon reads
+        # configuration and expands it — and they never reach persistent state,
+        # because the daemon records what they report. internal/control is a
+        # protocol implementation under the same rule: it owns a file format and
+        # knows nothing about who reads it.
+        agent-stays-an-adapter:
+          files:
+            - "**/internal/agent/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/cli
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/config
+              desc: the daemon reads configuration and hands the adapter final values
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/execution
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/project
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/tmux
+              desc: an agent adapter describes a launch; the terminal backend runs it
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+            - pkg: github.com/spf13/cobra
+
+        control-stays-a-protocol:
+          files:
+            - "**/internal/control/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+              desc: a provider adapter reads the protocol; the protocol knows no provider
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/cli
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/config
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/execution
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/project
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/tmux
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+            - pkg: github.com/spf13/cobra
+
         # The TUI is a client. It renders daemon state and never touches
         # persistent state or an adapter directly.
         ui-is-a-client:
@@ -284,6 +336,19 @@ linters:
       # these two exemptions are recorded here rather than in //nolint
       # comments, for the reason ADR-025 gives.
       - path: internal/(config/parse|project/runner)\.go
+        linters:
+          - gosec
+        text: G304|G204
+
+      # internal/control opens the files of a control workspace whose path is
+      # built from identifiers the domain validated, under a root the daemon
+      # resolved, and whose names it checked to be plain files in that one
+      # directory. internal/agent runs the probe commands that are the point of
+      # validating an execution environment, always as argument vectors and
+      # never through a shell. gosec sees the variable and not the check that
+      # precedes it, so both exemptions are recorded here rather than in
+      # //nolint comments, for the reason ADR-025 gives.
+      - path: internal/(control/(poll|workspace)|agent/runner)\.go
         linters:
           - gosec
         text: G304|G204

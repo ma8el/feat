@@ -16,9 +16,14 @@ import (
 // asks why a column is empty is told, and a reviewer can see which requirement
 // is still outstanding (FR-UI-002, FR-UI-003).
 const (
-	verificationSlice = "verification state arrives with slice 7, the Claude adapter"
-	resourceSlice     = "resource usage arrives with slice 10"
-	agentSlice        = "the agent pane runs a task shell; Claude arrives with slice 7"
+	// gateSlice explains what a verification column can and cannot mean today.
+	// A reported result is the agent's claim; a gate that runs the project's
+	// configured checks needs the environment slice 8 starts (ADR-032).
+	gateSlice     = "checks are the agent's own report; a gate that runs them arrives with slice 8"
+	resourceSlice = "resource usage arrives with slice 10"
+	// containerSlice explains a task terminal that is not an agent session.
+	containerSlice = "this project runs its agent in a devcontainer, which arrives with slice 8; " +
+		"the terminal holds a shell"
 )
 
 // taskColumns is the task list, in the order FR-UI-002 lists the fields.
@@ -48,13 +53,70 @@ func taskRow(task api.Task, now time.Time) []string {
 		agentState(task),
 		attentionState(task),
 		runtimeState(task),
-		// Verification and resources are the two required fields no slice has
-		// delivered yet.
-		absent,
+		verificationState(task),
 		changedFiles(task),
+		// Resource usage is the one required field no slice has delivered yet.
 		absent,
 		elapsed(task, now),
 	}
+}
+
+// verificationState renders a task's check results for the task list.
+//
+// A task whose agent has reported nothing shows nothing: an unmeasured value is
+// never rendered as a measured one, which is the rule ADR-028 established for
+// diagnostics and ADR-031 carried into the dashboard. What is rendered is a
+// count with a marker saying who produced it, because the column is narrow and
+// the distinction between a claimed result and an enforced one has to survive
+// the abbreviation.
+func verificationState(task api.Task) string {
+	if task.Verification == nil || task.Verification.Total() == 0 {
+		return absent
+	}
+	reported := *task.Verification
+
+	state := strconv.Itoa(reported.Passed) + "/" + strconv.Itoa(reported.Total())
+	if reported.Failed > 0 {
+		state = "✗ " + state
+	}
+	if reported.Source == "agent" {
+		// The tilde is the whole point of the column being honest: these results
+		// were asserted by the agent, not enforced by anything.
+		state = "~" + state
+	}
+	return state
+}
+
+// verificationDetail renders the same results with room to explain them.
+func verificationDetail(task api.Task) string {
+	if task.Verification == nil {
+		return absent + "  " + mutedStyle.Render("(the agent has reported no checks; "+
+			"a gate that runs the project's configured checks arrives with slice 8)")
+	}
+	reported := *task.Verification
+
+	var parts []string
+	if reported.Total() > 0 {
+		parts = append(parts, strconv.Itoa(reported.Passed)+" passed")
+		if reported.Failed > 0 {
+			parts = append(parts, strconv.Itoa(reported.Failed)+" failed")
+		}
+		if reported.Other > 0 {
+			parts = append(parts, strconv.Itoa(reported.Other)+" other")
+		}
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "no checks")
+	}
+
+	detail := strings.Join(parts, ", ")
+	if reported.Source == "agent" {
+		detail += "  " + mutedStyle.Render("(reported by the agent, not verified; "+gateSlice+")")
+	}
+	if reported.Summary != "" {
+		detail += "\n  " + mutedStyle.Render(reported.Summary)
+	}
+	return detail
 }
 
 // repositoryList names the repositories a task binds, marking the ones it may
