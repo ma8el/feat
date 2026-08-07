@@ -644,6 +644,162 @@ type ContainerResources struct {
 	MemoryBytes uint64  `json:"memory_bytes"`
 }
 
+// ReviewAction is one thing a user asks of a task's review.
+//
+// The vocabulary lives here because the endpoint path is what names them, as it
+// does for the runtime actions. Every one is an explicit request: no workflow
+// transition and no agent reaches any of them, and none of them touches a
+// container, a worktree, or a branch.
+type ReviewAction string
+
+// The review actions.
+const (
+	// ReviewObserve compares every repository against its recorded base and
+	// returns what review shows. It observes and records what it observed,
+	// which is why it is a POST.
+	ReviewObserve ReviewAction = "observe"
+	// ReviewApprove records the user's approval. It never stops or destroys a
+	// runtime; the offer to stop one is made in words (FR-REV-004, ADR-034).
+	ReviewApprove ReviewAction = "approve"
+	// ReviewRequestChanges sends the work back for revision.
+	ReviewRequestChanges ReviewAction = "changes"
+	// ReviewLeavePending undoes a decision, leaving the review open.
+	ReviewLeavePending ReviewAction = "pending"
+	// ReviewVerify runs the project's configured checks now. It is how a gate
+	// interrupted by a restart is run again, and recovery in Feat is an action a
+	// user takes rather than something that happens on its own.
+	ReviewVerify ReviewAction = "verify"
+)
+
+// Valid reports whether the action is one Feat performs.
+func (a ReviewAction) Valid() bool {
+	switch a {
+	case ReviewObserve, ReviewApprove, ReviewRequestChanges, ReviewLeavePending, ReviewVerify:
+		return true
+	default:
+		return false
+	}
+}
+
+// ReviewStatus is the response of every review action.
+type ReviewStatus struct {
+	// Task is the task as it is now recorded.
+	Task Task `json:"task"`
+	// Review is the decision, the agent's summary, and the check results.
+	Review Review `json:"review"`
+	// Repositories are the per-repository comparisons, each against that
+	// repository's own recorded base commit (FR-REV-001).
+	Repositories []ReviewRepository `json:"repositories"`
+	// Commands are the configured external commands, expanded for this task and
+	// checked. The client runs them with its own terminal.
+	Commands []ReviewCommand `json:"commands"`
+	// Notes are what a user should know: a repository that could not be read, a
+	// command that could not be expanded, or a count that means less than it
+	// looks like.
+	Notes []string `json:"notes"`
+}
+
+// Review is a task's review state on the wire.
+type Review struct {
+	// Status is the user's decision so far: pending, approved, or
+	// changes_requested.
+	Status string `json:"status"`
+	// Summary is the agent's own account of what it did, which is a claim.
+	Summary string `json:"summary,omitempty"`
+	// Checks are the results, each attributed to whoever produced it.
+	Checks []ReviewCheck `json:"checks"`
+	// Gated reports that a completion gate ran at least one of them. It is the
+	// difference between a verification and a claim about one.
+	Gated bool `json:"gated"`
+	// RequestedAt is when the agent asked for review, or null if it has not.
+	RequestedAt *time.Time `json:"requested_at"`
+	// DecidedAt is when the user decided, or null while the review is pending.
+	DecidedAt *time.Time `json:"decided_at"`
+}
+
+// ReviewCheck is one check result.
+type ReviewCheck struct {
+	ID           string `json:"id"`
+	RepositoryID string `json:"repository_id,omitempty"`
+	// Status is passed, failed, skipped, or unknown. Unknown is a check that
+	// did not report — one that could not be started, or that ran out of time —
+	// and it is deliberately not a failure.
+	Status string `json:"status"`
+	// Reporter is "agent" for a claimed result and "provider" for one a gate
+	// enforced.
+	Reporter string `json:"reporter"`
+	// Detail is what the check said about itself: the agent's words, or the
+	// tail of what the command printed.
+	Detail string     `json:"detail,omitempty"`
+	RanAt  *time.Time `json:"ran_at"`
+}
+
+// ReviewRepository is one repository's comparison against its recorded base.
+type ReviewRepository struct {
+	RepositoryID string `json:"repository_id"`
+	Access       string `json:"access"`
+	Branch       string `json:"branch,omitempty"`
+	WorktreePath string `json:"worktree_path"`
+	// BaseRef is the ref the base policy named and BaseCommit is what it
+	// resolved to. The commit is what every comparison uses, for the whole life
+	// of the task (invariant 8).
+	BaseRef    string `json:"base_ref"`
+	BaseCommit string `json:"base_commit"`
+	// HeadCommit is what the worktree has checked out, empty when the agent has
+	// not committed. Committing is optional (FR-GIT-007).
+	HeadCommit string `json:"head_commit,omitempty"`
+	// ChangedFiles counts tracked and untracked files that differ from the
+	// base; Insertions and Deletions count tracked lines only.
+	ChangedFiles int  `json:"changed_files"`
+	Insertions   int  `json:"insertions"`
+	Deletions    int  `json:"deletions"`
+	Dirty        bool `json:"dirty"`
+	// Ahead, Behind, and Merged come from the last observation: ahead of the
+	// recorded base, behind the base ref as it is now, and contained in it.
+	Ahead        int        `json:"ahead"`
+	Behind       int        `json:"behind"`
+	Merged       bool       `json:"merged"`
+	SummarizedAt *time.Time `json:"summarized_at"`
+}
+
+// The kinds of external command review opens (FR-REV-002, FR-REV-003).
+//
+// They are the wire values of internal/review's own kinds, named here because a
+// client reads them off a response rather than importing that package.
+const (
+	ReviewCommandKindDiff   = "diff"
+	ReviewCommandKindEditor = "editor"
+	ReviewCommandKindStatus = "status"
+)
+
+// ReviewCommand is one expanded external command.
+//
+// It is a command rather than output, as RuntimeCommand is: Feat renders no
+// diff of its own, and the client runs the user's own tools with the user's own
+// terminal (FR-REV-002, ADR-006).
+type ReviewCommand struct {
+	// Kind is diff, editor, or status.
+	Kind         string   `json:"kind"`
+	RepositoryID string   `json:"repository_id"`
+	Program      string   `json:"program"`
+	Arguments    []string `json:"arguments"`
+	// Directory is the task worktree the command runs in, which is checked
+	// before it is returned and checked again before it is run.
+	Directory string `json:"directory"`
+}
+
+// ReviewResult is what the daemon reports after a review action.
+type ReviewResult struct {
+	// Task is the task as it is now recorded.
+	Task *domain.Task
+	// Review is its review aggregate.
+	Review *domain.Review
+	// Commands are the expanded external commands.
+	Commands []ReviewCommand
+	// Notes are what could not be done, in terms a user can act on.
+	Notes []string
+}
+
 // RuntimeCommand is the response of POST
 // /v1/tasks/{task_id}/runtime/logs-info.
 //
@@ -705,11 +861,19 @@ func NewVerification(review *domain.Review) (Verification, bool) {
 		Summary:    review.CompletionSummary,
 		ReportedAt: review.RequestedAt,
 	}
+	if len(review.Checks) > 0 {
+		// The weakest reporter present decides the label: a set is enforced only
+		// if every result in it was, because one asserted result is enough to
+		// make "verified" a claim rather than a fact.
+		//
+		// This condition was unreachable until slice 11, when a gate first
+		// produced a provider result: it started from "agent" and only ever
+		// tested whether it was not "agent" (ADR-036 evidence 1).
+		verification.Source = string(domain.ReporterProvider)
+	}
 	for _, check := range review.Checks {
-		// The strictest reporter present decides the label: a single asserted
-		// result means the set as a whole was not enforced.
-		if check.Reporter == domain.ReporterProvider && verification.Source != string(domain.ReporterAgent) {
-			verification.Source = string(domain.ReporterProvider)
+		if check.Reporter != domain.ReporterProvider {
+			verification.Source = string(domain.ReporterAgent)
 		}
 		switch check.Status {
 		case domain.CheckPassed:
@@ -721,6 +885,109 @@ func NewVerification(review *domain.Review) (Verification, bool) {
 		}
 	}
 	return verification, true
+}
+
+// NewReviewStatus renders what a review action produced.
+//
+// The per-repository rows are built from the task and the review together,
+// because the two hold different halves of one answer: the binding says what the
+// task started from and where its worktree is, and the review says what was
+// found there. Joining them here rather than storing one inside the other is the
+// same choice ADR-026 made for the domain and the stored documents.
+func NewReviewStatus(result ReviewResult) ReviewStatus {
+	verification, ok := NewVerification(result.Review)
+	var reported *Verification
+	if ok {
+		reported = &verification
+	}
+
+	status := ReviewStatus{
+		Task:         newTask(result.Task, reported),
+		Review:       newReview(result.Review),
+		Repositories: newReviewRepositories(result.Task, result.Review),
+		Commands:     result.Commands,
+		Notes:        result.Notes,
+	}
+	if status.Commands == nil {
+		status.Commands = []ReviewCommand{}
+	}
+	if status.Notes == nil {
+		status.Notes = []string{}
+	}
+	return status
+}
+
+func newReview(review *domain.Review) Review {
+	if review == nil {
+		return Review{Status: string(domain.ReviewPending), Checks: []ReviewCheck{}}
+	}
+
+	checks := make([]ReviewCheck, 0, len(review.Checks))
+	for _, check := range review.Checks {
+		checks = append(checks, ReviewCheck{
+			ID:           check.ID,
+			RepositoryID: check.RepositoryID.String(),
+			Status:       string(check.Status),
+			Reporter:     string(check.Reporter),
+			Detail:       check.Detail,
+			RanAt:        moment(check.RanAt),
+		})
+	}
+	return Review{
+		Status:      string(review.Status),
+		Summary:     review.CompletionSummary,
+		Checks:      checks,
+		Gated:       review.Gated(),
+		RequestedAt: moment(review.RequestedAt),
+		DecidedAt:   moment(review.DecidedAt),
+	}
+}
+
+// newReviewRepositories renders one row per repository the task holds.
+//
+// A repository with no summary yet is still a row: it is part of the task, and
+// leaving it out would make a review of three repositories look like a review of
+// two.
+func newReviewRepositories(task *domain.Task, review *domain.Review) []ReviewRepository {
+	rows := make([]ReviewRepository, 0, len(task.Repositories))
+	for _, binding := range task.Repositories {
+		row := ReviewRepository{
+			RepositoryID: binding.RepositoryID.String(),
+			Access:       string(binding.Access),
+			Branch:       binding.Branch,
+			WorktreePath: binding.WorktreePath,
+			BaseRef:      binding.BaseRef,
+			BaseCommit:   binding.BaseCommit,
+		}
+		if binding.Observation != nil {
+			row.Ahead = binding.Observation.Ahead
+			row.Behind = binding.Observation.Behind
+			row.Merged = binding.Observation.Merged
+			row.ChangedFiles = binding.Observation.ChangedFiles
+			row.Dirty = binding.Observation.Dirty
+		}
+		if review != nil {
+			if change, found := review.Repository(binding.RepositoryID); found {
+				row.HeadCommit = change.HeadCommit
+				row.ChangedFiles = change.ChangedFiles
+				row.Insertions = change.Insertions
+				row.Deletions = change.Deletions
+				row.Dirty = change.Dirty
+				row.SummarizedAt = moment(change.SummarizedAt)
+			}
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+// moment renders a time that may not have happened as null rather than as the
+// zero time, which reads like a date in 1970.
+func moment(at time.Time) *time.Time {
+	if at.IsZero() {
+		return nil
+	}
+	return &at
 }
 
 // newTask maps a task onto the wire.

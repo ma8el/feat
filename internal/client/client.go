@@ -143,6 +143,16 @@ func (c *Client) Runtime(ctx context.Context, id string, action api.RuntimeActio
 	return send[api.RuntimeStatus](ctx, c, path, struct{}{})
 }
 
+// Review performs one review action and returns what the task's review shows.
+//
+// Every action takes an empty body: what a user asked for is in the path, and
+// the commands the response carries are the project's own, expanded by the
+// daemon (ADR-036).
+func (c *Client) Review(ctx context.Context, id string, action api.ReviewAction) (api.ReviewStatus, error) {
+	path := "/tasks/" + url.PathEscape(id) + "/review/" + url.PathEscape(string(action))
+	return send[api.ReviewStatus](ctx, c, path, struct{}{})
+}
+
 // RuntimeLogs returns the command that opens the task's normal Compose logs.
 //
 // The caller runs it with its own terminal, and checks it first: the daemon is

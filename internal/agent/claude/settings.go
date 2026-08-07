@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/ma8el/feat/internal/agent"
 )
@@ -76,7 +77,14 @@ func (a Adapter) generate(req agent.PrepareRequest) (generated, error) {
 		}
 	}
 	if err := req.Control.WriteAgentFile(
-		path.Join(binDir, reportHelper), []byte(reportScript(task, seen.outbox())), true,
+		path.Join(binDir, reportHelper), []byte(reportScript(reportOptions{
+			task:        task,
+			outbox:      seen.outbox(),
+			inbox:       seen.inbox(),
+			gate:        req.Gate.Configured,
+			acknowledge: seconds(req.Gate.Acknowledge),
+			verdict:     seconds(req.Gate.Verdict),
+		})), true,
 	); err != nil {
 		return generated{}, err
 	}
@@ -107,6 +115,7 @@ func (a Adapter) generate(req agent.PrepareRequest) (generated, error) {
 type agentPaths struct{ control string }
 
 func (p agentPaths) outbox() string   { return path.Join(p.control, "outbox") }
+func (p agentPaths) inbox() string    { return path.Join(p.control, "inbox") }
 func (p agentPaths) brief() string    { return path.Join(p.control, "task.md") }
 func (p agentPaths) settings() string { return path.Join(p.control, "agent", settingsFile) }
 func (p agentPaths) instructions() string {
@@ -166,6 +175,18 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
+// seconds renders a wait for the generated script, which counts in whole
+// seconds because `sleep` is the only clock a POSIX shell has.
+//
+// A wait of zero would make the helper give up before it had asked, so a
+// configured period shorter than a second becomes one.
+func seconds(d time.Duration) int {
+	if d <= time.Second {
+		return 1
+	}
+	return int(d.Round(time.Second) / time.Second)
+}
+
 // initialPrompt is the first user message of the session.
 //
 // It names the brief rather than carrying it. The brief can be a quarter of a
@@ -204,6 +225,20 @@ func systemPrompt(req agent.PrepareRequest, seen agentPaths) string {
 	b.WriteString("Report only checks you actually ran. status is passed, failed, or skipped, ")
 	b.WriteString("and Feat shows the result as your claim rather than as a verified one, ")
 	b.WriteString("so an honest \"skipped\" is more useful than an optimistic \"passed\".\n\n")
+
+	if req.Gate.Configured {
+		// The agent is told what will happen to its request, because a command
+		// that takes several minutes and then fails is a great deal easier to
+		// act on when it was expected.
+		b.WriteString("When you request review, Feat runs the project's own checks itself and the helper waits for them. ")
+		if req.Gate.Describe != "" {
+			b.WriteString(req.Gate.Describe + " ")
+		}
+		b.WriteString("If they pass, the task is ready for a human. If any of them fails, the helper exits non-zero ")
+		b.WriteString("and prints what failed: fix it and request review again. ")
+		b.WriteString("Feat records those results as its own, so there is no need to run them yourself first ")
+		b.WriteString("and no way to report a passing check that did not pass.\n\n")
+	}
 
 	fmt.Fprintf(&b, "The same helper takes completion_report and open_question. Use %s open_question with ",
 		seen.report())

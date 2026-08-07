@@ -42,6 +42,8 @@ type fakeRepository struct {
 	dirty map[string]string
 	// changed is the `diff --name-only` output of each worktree path.
 	changed map[string]string
+	// numstat is the `diff --numstat` output of each worktree path.
+	numstat map[string]string
 	// untracked is the `ls-files --others` output of each worktree path.
 	untracked map[string]string
 	// counts answers `rev-list --count`, keyed by the range.
@@ -76,7 +78,7 @@ func (f *fakeGit) add(dir string, repository *fakeRepository) *fakeRepository {
 		repository.refs = make(map[string]string)
 	}
 	for _, field := range []*map[string]string{
-		&repository.dirty, &repository.changed, &repository.untracked,
+		&repository.dirty, &repository.changed, &repository.numstat, &repository.untracked,
 	} {
 		if *field == nil {
 			*field = make(map[string]string)
@@ -162,6 +164,11 @@ func (f *fakeGit) Run(_ context.Context, dir string, args ...string) (string, er
 	case "status":
 		return repository.dirty[dir], nil
 	case "diff":
+		for _, arg := range args {
+			if arg == "--numstat" {
+				return repository.numstat[dir], nil
+			}
+		}
 		return repository.changed[dir], nil
 	case "ls-files":
 		return repository.untracked[dir], nil

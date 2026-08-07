@@ -82,6 +82,13 @@ Adapters are compiled into the binary initially. Interfaces must avoid leaking i
 
 `internal/execution` and `internal/execution/compose` are implemented by slice 8 under the same rule, with an `execution-stays-an-adapter` `depguard` rule. The daemon resolves configuration into an execution specification, wraps the environment's probe runner as the agent adapter's runner, and turns the adapter's launch specification into a host command the terminal backend runs. The two adapters therefore never import each other, and slice 14 replaces the environment without touching either. See ADR-033.
 
+`internal/review` is implemented by slice 11 under the same rule, with a
+`review-stays-a-policy` `depguard` rule. It receives final values — an expanded
+argument vector, the task's own worktree paths, a resolved check — and reads
+neither configuration nor persistent state. It is denied `internal/git` as well,
+because a change summary is Git's own answer and belongs to its adapter. See
+ADR-036.
+
 `internal/resources` and `internal/notify` are implemented by slice 10 under the
 same rule, with `resources-stays-an-adapter` and `notify-stays-a-policy`
 `depguard` rules. The observer receives process identifiers, a label selector,
@@ -120,7 +127,11 @@ POST   /v1/tasks/{task_id}/runtime/stop
 POST   /v1/tasks/{task_id}/runtime/status
 POST   /v1/tasks/{task_id}/runtime/destroy
 POST   /v1/tasks/{task_id}/runtime/logs-info
+POST   /v1/tasks/{task_id}/review/observe
 POST   /v1/tasks/{task_id}/review/approve
+POST   /v1/tasks/{task_id}/review/changes
+POST   /v1/tasks/{task_id}/review/pending
+POST   /v1/tasks/{task_id}/review/verify
 POST   /v1/tasks/{task_id}/cleanup/plan
 POST   /v1/tasks/{task_id}/cleanup/execute
 ```
@@ -143,6 +154,14 @@ confirmation; every other action takes none, for the reason the shell endpoint
 does. `logs-info` returns a command rather than output — Feat does not aggregate
 or persist logs (FR-RUN-006) — and the client checks the program it was handed
 before running it.
+
+The review endpoints follow the runtime's rule: one per action a user asks for,
+because the path is what names it. `observe` compares every repository against
+its own recorded base and records what it found, which is why it is a POST;
+`verify` runs the project's configured checks, which is also how a gate
+interrupted by a restart is run again. None of them carries a body — the
+decision is in the path, and the external commands the response returns are the
+project's own, expanded by the daemon and run by the client (ADR-036).
 
 `GET /v1/resources` returns the most recent sample rather than taking one. A
 sample is not persisted and is not part of a task's record, so it has its own
@@ -207,6 +226,13 @@ $XDG_RUNTIME_DIR/feat/     or $TMPDIR/feat-<uid>, or /tmp/feat-<uid>
 ```
 
 The directory resolves in that order and is owner-only. A candidate that is a symlink, is owned by another user, or is writable by others fails with an actionable message rather than moving to the next candidate, because two locations would mean two daemons each believing it owns the machine. `endpoint.json` records the running daemon's process identifier, socket path, build version, and start time, and `daemon.lock` carries the advisory lock that makes that record's liveness verifiable. `FEAT_RUNTIME_DIR` moves all three together; the resolved socket path is checked against the platform's socket-path length limit, which is 104 bytes on macOS and 108 on Linux.
+
+The daemon serialises one task's records with a per-task lock. Atomic writes
+make each write whole and do not make a load-change-save cycle safe against
+another one: the completion gate runs in the background for as long as a test
+suite takes, and everything that changes a task while it runs — a control
+message, an idle timer, a review action, a runtime action — takes that lock and
+re-reads what it locked (ADR-036).
 
 Storage rules:
 
@@ -286,6 +312,14 @@ Requirements:
 - inspect process existence without interpreting semantic completion from terminal text;
 - reconcile existing managed sessions on daemon startup.
 
+Every control invocation passes `tmux -u`. A tmux client whose locale is not
+UTF-8 replaces every non-printable character in the output of `-F` with an
+underscore, and every format Feat asks for is tab-separated — so without it a
+daemon started by a service manager, which has no locale, cannot parse the
+identifiers of a terminal it just created and discovers nothing. Interactive
+attachment does not pass it: there the client is the user's own terminal
+(ADR-036).
+
 The tmux adapter and the execution-environment adapters are separate boundaries.
 Execution adapters construct an argument vector and working directory for a
 host or devcontainer command; tmux keeps that command attached to a persistent
@@ -312,7 +346,8 @@ The Claude adapter:
 - installs supported provider hooks for session, prompt, stop/idle, task completion, and failure events;
 - writes normalized events to the control outbox;
 - does not treat a normal Stop event as task completion;
-- may enforce configured checks using provider-native completion hooks inside the devcontainer;
+- tells the agent whether a completion gate will answer its review requests, and
+  how it learns the verdict;
 - supports direct `gh`/`glab` usage when configured and authenticated.
 
 Implementation must verify exact supported Claude CLI flags and hook schemas against the installed/supported Claude Code version. Provider-specific flags must remain inside the adapter.
@@ -555,9 +590,56 @@ support where a standard notifier is available.
 
 ## Review commands
 
-Feat records each repository's base commit and exposes external command templates. Commands receive structured variables such as repository path, base commit, task ID, and branch. They are executed only after template expansion into an argument vector or an explicitly configured shell command with clear trust semantics.
+Feat records each repository's base commit and exposes external command
+templates. Commands receive structured variables such as repository path, base
+commit, task ID, and branch. The daemon expands them, because the placeholder
+vocabulary belongs to `internal/config`, which validates it; `internal/review`
+decides whether the result may run, and the client runs it with its own terminal.
+
+An expanded command may run only in one of its own task's recorded worktrees,
+and only when nothing in it was left unexpanded. That is one rule checked against
+one list rather than three commands checked separately, and the case it exists
+for is not an obviously dangerous path: another task's worktree is absolute,
+real, and safe, and it is still the wrong directory.
+
+The change summaries come from `internal/git`, because they are Git's own
+answers about a worktree. Insertions and deletions cover tracked changes only:
+reporting a line count for a file Git has never been told about would mean
+writing to the index, which no observation in that package does. The untracked
+files are counted and named as such rather than folded into one number.
 
 The TUI does not render source diffs in v0.
+
+## Completion gate
+
+A project's configured `checks` are run by the daemon when the agent explicitly
+requests review, and never at the end of a turn. Each check runs where its
+`execution` field says: inside the task's execution environment, or on the
+trusted host in the task worktree. Only repositories the task holds read-write
+are checked, and the rest are recorded as skipped with that reason.
+
+The daemon runs them rather than the agent, which is what makes a `provider`
+result evidence rather than a claim: the outbox is agent-writable by design, so
+anything delivered through it is something an agent could have authored.
+
+The failure returns to the native agent loop through the exit status of the
+helper the agent invoked. The generated helper waits for the daemon's verdict,
+written into the task's inbox, and exits non-zero with the failing output on
+standard error — so the model reads a failed tool call and carries on in the same
+turn. It is not a hook: Claude's only blocking hook fires at the end of every
+turn, and a gate built on it would either run the project's suite whenever the
+agent stopped speaking or need shell logic to work out whether a request was
+outstanding (ADR-036).
+
+A check that could not be started, or that exceeded its bound, is inconclusive
+rather than failed, and an inconclusive check does not pass the gate: a task
+reaching `ready_for_review` on the strength of a check nobody managed to run
+would claim a verification that did not happen. The bounds are fixed constants
+rather than configuration.
+
+A gate does not outlive the process that started it, so a task found in
+`verifying` at startup returns to `review_requested` with an event saying the
+checks were interrupted. Running them again is an action the user takes.
 
 ## Recovery
 

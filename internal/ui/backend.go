@@ -47,6 +47,10 @@ type Backend interface {
 	// observed. The dashboard never calls it on its own: v0 starts and stops
 	// application services only when the user asks (FR-RUN-005).
 	Runtime(ctx context.Context, id string, action api.RuntimeAction) (api.RuntimeStatus, error)
+	// Review performs one review action and returns what the task's review
+	// shows. Approving never stops or destroys anything; the offer to stop a
+	// runtime is made in words (FR-REV-004).
+	Review(ctx context.Context, id string, action api.ReviewAction) (api.ReviewStatus, error)
 
 	// AttachCommand yields this terminal to the task's agent pane until the
 	// user detaches.
@@ -55,7 +59,13 @@ type Backend interface {
 	ShellCommand(ctx context.Context, id string) (tea.ExecCommand, error)
 	// LogsCommand yields this terminal to the task's normal Compose logs.
 	LogsCommand(ctx context.Context, id string) (tea.ExecCommand, error)
-	// EditorCommand opens a file in the user's editor.
+	// ReviewCommand yields this terminal to one of the project's own review
+	// tools. The command was expanded and checked by the daemon and is checked
+	// again before it runs.
+	ReviewCommand(command api.ReviewCommand) (tea.ExecCommand, error)
+	// EditorCommand opens a file or directory in the user's editor. It is the
+	// fallback FR-REV-003 asks for when a project configures no editor command:
+	// $EDITOR belongs to this process's environment, not the daemon's.
 	EditorCommand(path string) (tea.ExecCommand, error)
 }
 

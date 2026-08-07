@@ -277,6 +277,40 @@ linters:
             - pkg: github.com/charmbracelet
             - pkg: github.com/spf13/cobra
 
+        # ADR-036: review decides whether an expanded command may run and runs a
+        # project's configured checks. The daemon expands the templates, because
+        # the placeholder vocabulary belongs to configuration, and the daemon
+        # records what a gate produced. The Git answers a review shows come from
+        # internal/git, so this package never learns what a worktree is beyond a
+        # path it was handed.
+        review-stays-a-policy:
+          files:
+            - "**/internal/review/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/cli
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/config
+              desc: the daemon expands templates and hands this package final values
+            - pkg: github.com/ma8el/feat/internal/control
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/execution
+              desc: a gate runs a command through a Runner; where that is is the daemon's to decide
+            - pkg: github.com/ma8el/feat/internal/git
+              desc: change summaries are Git's own answers and belong to its adapter
+            - pkg: github.com/ma8el/feat/internal/notify
+            - pkg: github.com/ma8el/feat/internal/project
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/resources
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/tmux
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+            - pkg: github.com/spf13/cobra
+
         # ADR-035: the notification policy decides what is worth interrupting
         # somebody for, in domain terms, and its platform adapters deliver. It
         # reads no configuration — the daemon resolves a project's settings into

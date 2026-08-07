@@ -192,7 +192,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		newProjectCommand(env),
 		newTaskCommand(env),
 		newAttachCommand(env),
-		newReviewCommand(),
+		newReviewCommand(env),
 		newRuntimeCommand(env),
 		newCleanupCommand(),
 		newDoctorCommand(env),
@@ -201,15 +201,6 @@ func NewRootCommand(opts Options) *cobra.Command {
 	)
 
 	return root
-}
-
-func newReviewCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "review <task>",
-		Short: "Review a task's changes against its recorded base commits",
-		Args:  checkArgs(cobra.ExactArgs(1)),
-		RunE:  notImplemented(11, "review and external commands"),
-	}
 }
 
 func newCleanupCommand() *cobra.Command {

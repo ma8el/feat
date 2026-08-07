@@ -839,6 +839,12 @@ were reserved by slice 0. See ADR-035;
 
 ## Slice 11 — Review and external commands
 
+Status: **complete**, 2026-08-07
+
+The design decisions this slice started from are recorded in ADR-036 in
+[10-decisions-and-open-questions.md](10-decisions-and-open-questions.md),
+together with the two defects that running it end to end produced.
+
 ### Outcome
 
 The user can review every changed repository against the correct immutable base using familiar tools.
@@ -866,6 +872,152 @@ The user can review every changed repository against the correct immutable base 
 - A failed configured check returns the task to the agent loop and never reaches
   `ready_for_review`; an agent-reported result is still distinguishable from a
   gated one.
+
+### Delivered
+
+All five acceptance criteria pass, each with a test named for it, and each
+checked where the narrow claim can be made: that a diff command carries one
+repository's own base is a stronger statement than that the numbers beside it
+were right, and that approving produced no container command at all is a
+stronger statement than that a container happens to still be running.
+
+A task's changes are grouped by repository and compared against the commit that
+repository started from. `internal/git` gained `Compare`, because a change
+summary is Git's own answer about a worktree, and it reports the two counts
+apart: files changed includes untracked ones, and the line counts do not, because
+counting a file Git has never been told about would mean writing to the index of
+the repository the user is working in. The screen and the printed summary say so
+rather than presenting one number derived from two definitions.
+
+`internal/review` decides whether an expanded command may run, under the boundary
+ADR-029 set for Git and a `review-stays-a-policy` `depguard` rule. The daemon
+expands the templates, because the placeholder vocabulary belongs to
+`internal/config`; this package checks what the expansion turned into. Slice
+11's third acceptance criterion is therefore one rule against one list, and its
+most important case is not an obviously dangerous path: another task's worktree
+is absolute, real, and a perfectly safe place for a command to run, and it is
+still the wrong one.
+
+The completion gate that ADR-032 promised for slice 8 and ADR-033 moved here is
+delivered. It is triggered by the explicit review request and never by an end of
+turn, and the daemon runs the checks itself: the outbox is agent-writable by
+design, so a result delivered through it is one an agent could have authored, and
+a `provider` label on such a result would be Feat claiming enforcement it never
+performed. Each check runs where its `execution` field says — the field has had
+no reader outside `feat doctor` since slice 3 — and a repository the task holds
+read-only is recorded as skipped with that reason rather than dropped.
+
+The failure returns to the running session as a failed command. The generated
+helper the agent uses to request review now waits for the daemon's verdict,
+written into the task's inbox, and exits non-zero with the failing output on
+standard error, so the model reads it and carries on in the same turn. It is
+deliberately not a hook: Claude's only blocking hook fires at the end of *every*
+turn, so a gate built on it would either run the project's suite whenever the
+agent stopped speaking or need shell logic to decide whether a request was
+outstanding — and ADR-032 made every generated hook inert precisely because a
+hook that blocks changes the session it observes. The wording in
+[06-technical-architecture.md](06-technical-architecture.md) and
+[02-user-workflows.md](02-user-workflows.md) is corrected rather than left
+describing a mechanism nothing implements.
+
+Three properties are decided once and pinned there:
+
+- a check that could not be started, or that exceeded its bound, is
+  inconclusive rather than failed, and an inconclusive check does not pass the
+  gate. A task reaching `ready_for_review` on the strength of a check nobody
+  managed to run would claim a verification that did not happen;
+- the verdict the agent reads is a versioned line-oriented document rather than
+  JSON, because the only thing that reads it is a shell script, and ADR-032's
+  reason for keeping parsing out of generated scripts applies to reading as much
+  as to writing;
+- what a gate produced and what an agent claimed are both kept, and they do not
+  read alike. `api.NewVerification` labelled every set of results as the agent's:
+  it started from "agent" and only ever tested whether it was not "agent", so
+  the condition was unreachable. It produced the right answer for ten slices
+  because every result was a claim; this is the first slice that produces
+  evidence, which is what turned dead code into an acceptance criterion.
+
+Two workflow edges were added, each with its reason in the table it lives in:
+`verification_failed` to `review_requested`, so an agent that fixed what the gate
+caught can ask again, and `verifying` to `review_requested`, so a gate a restart
+interrupted returns the task to where the request was rather than leaving it
+claiming that checks are running. Nothing new reaches a review state without an
+agent having asked, which the pinned "idle is not completion" test still holds.
+
+Approving decides the work and touches nothing else, which is checked by counting
+the commands it produces: none. It is also the first thing to exercise the offer
+slice 9 rendered for an approval no build could make.
+
+Verified against the real tools: real Git for the comparison, including a binary
+file Git reports without a line count and an untracked file that contributes
+none; and the generated helper under a real shell, answered the way the daemon
+answers it, failing and passing in turn.
+
+Verified again through the product rather than the package, with a daemon started
+from the built binary, a project registered through the socket, and a task
+launched, worked on, and reviewed as a user would. The agent asked for review
+through its own generated helper; the helper waited, and exited 1 with the
+failing check's own output and the worktree it ran in; the task was
+`verification_failed` with the result attributed to Feat rather than to the agent
+that had claimed the same check passed. With the check fixed, the same helper
+exited 0 and the task reached `ready_for_review` through `verifying`. A daemon
+restarted while the checks were running left the task back at `review_requested`
+saying why, and running them again by hand recovered it. `feat review` printed
+each repository against its own base, and the diff command it returned produced
+the task's own diff when run.
+
+**That run found two defects, and neither was reachable from this repository's
+own fakes.**
+
+The first is slice 5's. A tmux client whose locale is not UTF-8 replaces every
+non-printable character in the output of `-F` with an underscore, and every
+format `internal/tmux` uses is tab-separated — so a daemon started without `LANG`
+or `LC_ALL` cannot parse the identifiers of the terminal it has just created, and
+discovers nothing at all. Every task launch fails with `tmux returned
+"$0_@0_%0"`. An environment with no locale is what a process started by launchd
+or systemd gets, which is how slice 14 intends a daemon to run; the suite never
+saw it because `go test` inherits the developer's own environment. Every control
+invocation now passes `tmux -u`, attachment deliberately does not, and an opt-in
+test creates and rediscovers a terminal with every locale variable removed —
+which fails against the previous behaviour with exactly the message the product
+produced.
+
+The second is this slice's own, and it is the more interesting one: **the daemon
+is the only process that writes state and every write is atomic, and neither of
+those makes a load-change-save cycle safe against another one.** The completion
+gate is the first thing in Feat that writes one task's records from a second
+goroutine, and a gate finishing while the review request that started it was
+still comparing repositories left a task recorded as `ready_for_review` whose
+review held no checks at all — the workflow said the checks had passed and the
+record of what passed had been overwritten by a copy loaded a moment earlier.
+One task's records are now serialised by a per-task lock, held across a cycle
+rather than across an operation, and the gate re-reads everything after taking
+it, because a user who approved while the suite ran has decided and a gate must
+not undo that. The regression test forces the interleaving inside Git rather than
+racing for it, and fails against the behaviour it replaces.
+
+`feat doctor` stops naming a slice for a check that runs in the agent's
+environment and looks it up inside a live task container instead, reporting
+`skipped` with the condition otherwise — the rule ADR-033 set for every other
+question about that environment.
+
+`feat review <task>` opens the review screen in a terminal and prints the same
+comparison anywhere else, which is the split ADR-027 made for `feat` itself. The
+command surface does not change, so its golden file is untouched, and no
+configuration field is added. No stored format changes and the event vocabulary
+gains nothing, so no migration was needed.
+
+One thing the same run left open: a task that passes its gate reaches
+`ready_for_review` without the user being told, although this slice suppresses
+the earlier `review_requested` notification on the promise of exactly that one.
+The transition, the event, and the record are all correct, so it is the
+notification flow rather than this slice's states, and it is answered in slice 13
+where every condition gets the same walk against a real desktop.
+
+Package layout gained no new package: `internal/review` was reserved by slice 0.
+See ADR-036; [02-user-workflows.md](02-user-workflows.md),
+[06-technical-architecture.md](06-technical-architecture.md), and
+[README.md](../README.md) were updated in the same change.
 
 ## Slice 12 — Reconciliation and cleanup
 
@@ -924,6 +1076,32 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   the key from the identifier; ADR-027 makes the daemon resolve a task's owning
   project). An ambiguous prefix must be reported rather than guessed, which is
   the same rule ADR-029 applied to a colliding branch name.
+- Check the whole notification flow end to end, against a real desktop rather
+  than a fake notifier. A task that passes its completion gate reaches
+  `ready_for_review` and the user is not told: observed while exercising slice 11
+  by hand. The state, the event, and the review record are all correct, so what
+  is missing is the interruption rather than the transition.
+
+  It matters more than one absent notification, because slice 11 deliberately
+  drops the `review_requested` notification when a gate is about to run, on the
+  argument that the second interruption is the one that means something
+  (ADR-036). If the second one does not arrive, a gated task arrives more
+  quietly than an ungated one, and the suppression made things worse rather than
+  better.
+
+  Not diagnosed, because it is a flow rather than a rule: the state-to-condition
+  table is right (`notify.notifiableWorkflow` maps `ready_for_review`), so the
+  question is which of the layers between a transition and a desktop drops it.
+  The ones to walk are `finishGate`'s notify call, the suppress-while-attached
+  policy — a user who just told the agent to request review is by definition
+  attached to it — the startup catch-up gate in `notifyTask`, and the project's
+  own `notifications.desktop`. macOS also drops an unauthorised notification
+  without saying so, which is why this needs a real desktop to answer.
+
+  Deferred here rather than fixed in slice 11 because every condition deserves
+  the same walk. Slices 10 and 11 each added notifications with unit tests over a
+  fake notifier, and a fake notifier proves the daemon asked, not that anybody
+  was told.
 - Document known security limitations.
 - Measure manual coordination removed and false idle notifications.
 - Remove hard-coded assumptions discovered during dogfood.
@@ -932,6 +1110,9 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
 
 - Full v0.1 acceptance checklist passes.
 - No unresolved data-loss or cross-task runtime defect remains.
+- Every notifiable condition has been shown to reach a real desktop once, from
+  the state change that produces it, and each policy that drops one drops it for
+  a reason a user would recognise.
 - A task can be named by what a user can see, and a name that matches two tasks
   is reported rather than resolved to either.
 - A clean installation can reproduce the dogfood setup from documentation.

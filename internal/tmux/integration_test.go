@@ -405,3 +405,63 @@ func waitForWatched(
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// TestRealTerminalsWorkWithoutALocale pins the defect slice 11's end-to-end run
+// found in slice 5's adapter.
+//
+// A tmux client whose locale is not UTF-8 replaces every non-printable character
+// in the output of `-F` with an underscore, and every format this package uses
+// is tab-separated. Without the flag that forces UTF-8 output, creating a
+// terminal cannot parse the identifiers of the terminal it just created and
+// discovery finds nothing — so a daemon started by a service manager, which is
+// how a daemon is meant to run, could not launch a single task.
+//
+// The environment is emptied of every locale variable rather than set to a wrong
+// one, because that is what a sanitised environment looks like.
+func TestRealTerminalsWorkWithoutALocale(t *testing.T) {
+	server := realTmux(t)
+	ctx := context.Background()
+
+	for _, name := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
+		t.Setenv(name, "")
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("unsetting %s: %v", name, err)
+		}
+	}
+
+	adapter, err := New(server.socket, server.runner)
+	if err != nil {
+		t.Fatalf("building the adapter: %v", err)
+	}
+
+	terminal, err := adapter.EnsureTask(ctx, testProject, testTask,
+		CommandSpec{Program: "/bin/sh", Arguments: []string{"-c", "sleep 30"}, Directory: server.dir})
+	if err != nil {
+		t.Fatalf("creating a terminal without a locale: %v", err)
+	}
+	if !sessionIDPattern.MatchString(terminal.Target.Session) ||
+		!windowIDPattern.MatchString(terminal.Target.Window) ||
+		!paneIDPattern.MatchString(terminal.Target.Pane) {
+		t.Fatalf("the created terminal is %+v, want stable tmux identifiers", terminal.Target)
+	}
+
+	// And what was created can be found again, which is the half a substituted
+	// separator breaks silently: discovery would return nothing and every task
+	// would look like a task whose terminal had gone.
+	found, ok, err := adapter.Find(ctx, testProject, testTask)
+	if err != nil {
+		t.Fatalf("discovering without a locale: %v", err)
+	}
+	if !ok {
+		t.Fatal("a terminal created without a locale cannot be discovered")
+	}
+	if found.Target != terminal.Target {
+		t.Errorf("discovery found %+v, want the created %+v", found.Target, terminal.Target)
+	}
+	// The tail rather than the whole path: a temporary directory on macOS is
+	// reached through a symbolic link, and what this checks is that the field
+	// after the separator survived rather than what the kernel calls it.
+	if !strings.HasSuffix(found.Agent.Directory, filepath.Base(server.dir)) {
+		t.Errorf("the discovered working directory is %q, want the created %q", found.Agent.Directory, server.dir)
+	}
+}

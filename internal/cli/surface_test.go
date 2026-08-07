@@ -102,6 +102,10 @@ func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
 		"feat project show":  true,
 		"feat implement":     true,
 		"feat task list":     true,
+		// Review reaches the daemon and reads the task's worktrees. Invoking it
+		// here would ask the running user's daemon to observe one of their
+		// tasks.
+		"feat review": true,
 		// The runtime actions reach the daemon and act on one task's Compose
 		// project. Invoking one here would ask the running user's daemon to start
 		// or remove something.

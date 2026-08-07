@@ -13,6 +13,26 @@ import (
 // Executable is the terminal multiplexer Feat drives. It is never a shell.
 const Executable = "tmux"
 
+// utf8Flag makes tmux treat its output as UTF-8 whatever the environment says.
+//
+// It is not a preference. A tmux client whose locale is not UTF-8 replaces every
+// non-printable character in the output of `-F` with an underscore — a tab, a
+// newline, and a unit separator alike — and every format this package uses is
+// tab-separated. Without this flag a daemon started without LANG or LC_ALL
+// cannot parse the identifiers of the terminal it has just created, so every
+// task launch fails with "tmux returned …, want stable session, window, and pane
+// ids", and discovery finds nothing at all. Measured against tmux 3.7b; the
+// substitution follows the *client's* locale rather than the server's, which is
+// why the flag belongs here rather than on whatever starts the server.
+//
+// An environment with no locale is the ordinary case for a process started by a
+// service manager, which is how a daemon is meant to run. Found by running slice
+// 11 end to end; recorded in ADR-036.
+//
+// Interactive attachment deliberately does not pass it: there the client is the
+// user's own terminal, and what it can render is theirs to declare.
+const utf8Flag = "-u"
+
 const commandTimeout = 15 * time.Second
 
 // ErrServerNotRunning reports that the dedicated socket has no tmux server.
@@ -45,7 +65,7 @@ func (r HostRunner) Run(ctx context.Context, socket string, args ...string) (str
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	vector := append([]string{"-S", socket}, args...)
+	vector := append([]string{utf8Flag, "-S", socket}, args...)
 	// #nosec G204 -- Executable is a package constant and vector is passed
 	// directly to tmux without shell interpolation.
 	command := exec.CommandContext(ctx, Executable, vector...)

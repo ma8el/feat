@@ -57,10 +57,16 @@ const (
 //     ready_for_review, because that is the shape a Stop-means-complete bug
 //     would take.
 //   - review_requested to verifying to ready_for_review or verification_failed
-//     is the provider-native completion gate in docs/02-user-workflows.md §6.
-//     The direct edge from review_requested to ready_for_review covers a
-//     project with no configured checks, where there is nothing to verify;
-//     without a gate a task otherwise stays in review_requested.
+//     is the completion gate in docs/02-user-workflows.md §6. The direct edge
+//     from review_requested to ready_for_review covers a project with no
+//     configured checks, where there is nothing to verify; without a gate a
+//     task otherwise stays in review_requested.
+//   - verifying back to review_requested is a gate that did not finish, which a
+//     daemon restart produces. Without it the task would rest in verifying for
+//     ever, claiming that checks are running when nothing is (ADR-036).
+//   - verification_failed to review_requested is an agent that fixed what the
+//     gate caught and asked again. Without it a task whose checks failed once
+//     could never be reviewed again without a user typing something first.
 //   - review_requested and ready_for_review to approved or changes_requested
 //     are the review decisions in FR-REV-004; the edges back to working are the
 //     conservative revision transition in FR-AGENT-009.
@@ -76,9 +82,9 @@ var workflowTransitions = map[WorkflowState][]WorkflowState{
 	WorkflowPreparing:          {WorkflowWorking, WorkflowFailed},
 	WorkflowWorking:            {WorkflowReviewRequested, WorkflowFailed},
 	WorkflowReviewRequested:    {WorkflowVerifying, WorkflowReadyForReview, WorkflowChangesRequested, WorkflowApproved, WorkflowWorking, WorkflowFailed},
-	WorkflowVerifying:          {WorkflowReadyForReview, WorkflowVerificationFailed, WorkflowFailed},
+	WorkflowVerifying:          {WorkflowReadyForReview, WorkflowVerificationFailed, WorkflowReviewRequested, WorkflowFailed},
 	WorkflowReadyForReview:     {WorkflowApproved, WorkflowChangesRequested, WorkflowWorking, WorkflowFailed},
-	WorkflowVerificationFailed: {WorkflowWorking, WorkflowChangesRequested, WorkflowFailed},
+	WorkflowVerificationFailed: {WorkflowWorking, WorkflowReviewRequested, WorkflowChangesRequested, WorkflowFailed},
 	WorkflowChangesRequested:   {WorkflowWorking, WorkflowFailed},
 	WorkflowApproved:           {},
 	WorkflowFailed:             {WorkflowPreparing, WorkflowWorking},

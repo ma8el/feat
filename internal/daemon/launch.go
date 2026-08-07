@@ -157,6 +157,7 @@ func (s *service) planContainerAgent(
 		},
 		Control:     workspace,
 		Environment: env,
+		Gate:        s.gateFor(cfg, task),
 	})
 	if err != nil {
 		return launchPlan{}, err
@@ -276,6 +277,7 @@ func (s *service) planAgent(
 		},
 		Control:     workspace,
 		Environment: env,
+		Gate:        s.gateFor(cfg, task),
 	})
 	if err != nil {
 		return launchPlan{}, err

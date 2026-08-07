@@ -445,14 +445,19 @@ func TestUncheckableChecksAreSkippedRatherThanPassed(t *testing.T) {
 		}
 	}
 
-	// A configured check runs in the agent's environment through a gate no slice
-	// has delivered yet, so this one still names the slice that will.
+	// A configured check that the gate runs in the agent's environment is
+	// skipped for the same reason as the rest: from slice 11 on the gate exists,
+	// so what decides whether the check can be looked up is whether there is a
+	// container to look inside.
 	gate := finding(t, findings, "checks.api.test")
 	if gate.Severity != project.SeveritySkipped {
 		t.Errorf("checks.api.test is %q, want skipped", gate.Severity)
 	}
-	if !strings.Contains(gate.Action, "slice 11") {
-		t.Errorf("checks.api.test does not say when it will be checked: %q", gate.Action)
+	if !strings.Contains(gate.Summary, "no container of this project is running") {
+		t.Errorf("checks.api.test does not say why it was skipped: %q", gate.Summary)
+	}
+	if !strings.Contains(gate.Action, "launch a task") {
+		t.Errorf("checks.api.test does not say what would let it run: %q", gate.Action)
 	}
 
 	// An optional provider CLI is skipped for the same reason as the rest: this
