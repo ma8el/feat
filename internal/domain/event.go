@@ -74,6 +74,18 @@ const (
 	// EventReconciled records that startup reconciliation compared desired and
 	// observed state for the task.
 	EventReconciled EventType = "task_reconciled"
+	// EventNotificationSent records that Feat interrupted the user about this
+	// task, and why.
+	//
+	// A desktop notification is gone the moment it is dismissed, so without this
+	// there would be no record that Feat asked for somebody's attention. That
+	// matters twice: a user who half-saw one can find out what it was, and slice
+	// 13 has to measure how many idle notifications turned out to be false.
+	//
+	// It is deliberately not itself a notifiable change. Recording an event
+	// publishes it, and a notification that notified about itself would be a loop
+	// at the speed of the event bus.
+	EventNotificationSent EventType = "notification_sent"
 )
 
 // Valid reports whether the type is documented.
@@ -81,7 +93,7 @@ func (t EventType) Valid() bool {
 	switch t {
 	case EventTaskCreated, EventTaskUpdated, EventWorkflowChanged, EventAttentionChanged,
 		EventRepositoryObserved, EventProcessChanged, EventRuntimeChanged,
-		EventReviewChanged, EventExecutionChanged, EventReconciled:
+		EventReviewChanged, EventExecutionChanged, EventReconciled, EventNotificationSent:
 		return true
 	default:
 		return false

@@ -15,6 +15,9 @@ import (
 var (
 	testProject = domain.ProjectID("app")
 	testTask    = domain.TaskID("12345678-1234-4234-8234-123456789abc")
+	// otherTask is a second task of the same project, for the tests whose
+	// subject is that one task's terminal is not another's.
+	otherTask = domain.TaskID("87654321-4321-4321-8321-cba987654321")
 )
 
 type fakeSession struct {

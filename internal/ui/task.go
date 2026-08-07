@@ -10,38 +10,56 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// Slices that deliver the task fields v0 requires but this build cannot fill.
+// gateSlice explains what the verification column can and cannot mean today.
 //
-// They are named in the task detail rather than left blank, so that a user who
-// asks why a column is empty is told, and a reviewer can see which requirement
-// is still outstanding (FR-UI-002, FR-UI-003).
+// A reported result is the agent's claim; a gate that runs the project's
+// configured checks arrives with slice 11 (ADR-032, corrected by ADR-033). It is
+// named in the task detail rather than left blank, so that a user who asks why a
+// column is empty is told, and a reviewer can see which requirement is still
+// outstanding (FR-UI-002, FR-UI-003).
+const gateSlice = "checks are the agent's own report; a gate that runs them arrives with slice 11"
+
+// Attention badges.
+//
+// The badge is what makes attention readable across a screen of tasks: a user
+// scanning the dashboard is looking for the one task that stopped, and a column
+// of words all beginning with the same letters is not something an eye finds
+// (FR-UI-004).
 const (
-	// gateSlice explains what a verification column can and cannot mean today.
-	// A reported result is the agent's claim; a gate that runs the project's
-	// configured checks arrives with slice 11 (ADR-032, corrected by ADR-033).
-	gateSlice     = "checks are the agent's own report; a gate that runs them arrives with slice 11"
-	resourceSlice = "resource usage arrives with slice 10"
+	// badgeNeedsInput marks a task the provider reported as blocked on the user.
+	badgeNeedsInput = "●"
+	// badgeMaybe marks the conservative state: Feat cannot tell a finished turn
+	// from a question, so it says it may be waiting rather than that it is.
+	badgeMaybe = "◐"
 )
 
 // taskColumns is the task list, in the order FR-UI-002 lists the fields.
 //
 // PR state is deliberately absent: v0 does not require it in a task row.
+// The attention column is wide enough for its badge and its longest state
+// together, because truncating "possibly waiting" to "possibly wait…" would take
+// the conservative half of the distinction away and leave the word that reads
+// like certainty.
 var taskColumns = []column{
 	{title: "TASK", width: 8},
-	{title: "TITLE", width: 28},
+	{title: "TITLE", width: 26},
 	{title: "REPOSITORIES", width: 18},
 	{title: "WORKFLOW", width: 17},
 	{title: "AGENT", width: 8},
-	{title: "ATTENTION", width: 16},
+	{title: "ATTENTION", width: 18},
 	{title: "RUNTIME", width: 8},
 	{title: "CHECKS", width: 7},
 	{title: "FILES", width: 5},
-	{title: "RESOURCES", width: 9},
+	{title: "RESOURCES", width: 14},
 	{title: "ELAPSED", width: 7},
 }
 
 // taskRow renders one task as the columns above.
-func taskRow(task api.Task, now time.Time) []string {
+//
+// It is a method because the resource column comes from the dashboard's most
+// recent sample rather than from the task: a sample is an observation nobody
+// stores, taken on its own schedule, and it fails on its own (FR-UI-005).
+func (m Model) taskRow(task api.Task, now time.Time) []string {
 	return []string{
 		task.Key,
 		task.Title,
@@ -52,10 +70,30 @@ func taskRow(task api.Task, now time.Time) []string {
 		runtimeState(task),
 		verificationState(task),
 		changedFiles(task),
-		// Resource usage is the one required field no slice has delivered yet.
-		absent,
+		m.resourceCell(task),
 		elapsed(task, now),
 	}
+}
+
+// attentionSummary says how many tasks are waiting for the user.
+//
+// It is the badge for the whole screen. A user who has just come back to a
+// terminal wants to know whether anything needs them before they read anything
+// else, and counting rows is what this exists to save them.
+func attentionSummary(tasks []api.Task) string {
+	waiting := 0
+	for _, task := range tasks {
+		if task.Attention == "needs_input" || task.Attention == "possibly_waiting" {
+			waiting++
+		}
+	}
+	if waiting == 0 {
+		return ""
+	}
+	if waiting == 1 {
+		return badgeNeedsInput + " 1 task may need you"
+	}
+	return badgeNeedsInput + " " + strconv.Itoa(waiting) + " tasks may need you"
 }
 
 // verificationState renders a task's check results for the task list.
@@ -146,14 +184,19 @@ func agentState(task api.Task) string {
 }
 
 // attentionState renders whether the user may need to intervene.
+//
+// The badge carries the same distinction the state does. Needing input is
+// something the provider reported; possibly waiting is what Feat says when it
+// cannot tell a finished turn from a question, and rendering the two alike would
+// claim a certainty nothing measured.
 func attentionState(task api.Task) string {
 	switch task.Attention {
 	case "none":
-		return "—"
+		return absent
 	case "possibly_waiting":
-		return "possibly waiting"
+		return attentionStyle.Render(badgeMaybe) + " possibly waiting"
 	case "needs_input":
-		return "needs input"
+		return attentionStyle.Render(badgeNeedsInput) + " needs input"
 	default:
 		return task.Attention
 	}

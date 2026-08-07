@@ -82,6 +82,14 @@ type Service interface {
 	// RuntimeLogs returns the host command that opens the task's normal Compose
 	// logs. Feat does not aggregate or persist them (FR-RUN-006).
 	RuntimeLogs(ctx context.Context, id domain.TaskID) (RuntimeCommand, error)
+	// Resources returns the most recent resource sample.
+	//
+	// It reads what a background sampler collected rather than taking a sample:
+	// asking the container runtime what it is using costs between one and two
+	// seconds, and a metric that could slow a request would eventually be a
+	// metric that failed one. Sampling is observational and never blocks anything
+	// (FR-UI-005, ADR-035).
+	Resources(ctx context.Context) (ResourceReport, error)
 	// Subscribe returns the event stream for one client. The channel is closed
 	// when the context ends, or when the subscriber fell too far behind, which
 	// the caller reports as a lost stream.
@@ -133,6 +141,7 @@ func NewHandler(opts Options) http.Handler {
 		http.MethodPost: server.registerProject,
 	}))
 	mux.Handle("/v1/projects/{project_id}", get(server.project))
+	mux.Handle("/v1/resources", get(server.resources))
 	mux.Handle("/v1/tasks", get(server.tasks))
 	mux.Handle("/v1/tasks/{task_id}", get(server.task))
 	mux.Handle("/v1/tasks/{task_id}/attach-info", route(map[string]http.HandlerFunc{
@@ -261,6 +270,27 @@ func (s *server) registerProject(w http.ResponseWriter, r *http.Request) {
 		Project: newProject(registered.Project),
 		Created: registered.Created,
 	})
+}
+
+// resources returns the most recent resource sample.
+//
+// It is a GET because it changes nothing, and it changes nothing because it
+// reads a sample somebody else took. A metric that a request collected would be
+// a metric a request could be slowed or failed by, and metrics are the one thing
+// in Feat that must never do either (FR-UI-005).
+func (s *server) resources(w http.ResponseWriter, r *http.Request) {
+	report, err := s.service.Resources(r.Context())
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if report.Tasks == nil {
+		report.Tasks = []TaskResources{}
+	}
+	if report.Notes == nil {
+		report.Notes = []string{}
+	}
+	writeJSON(w, http.StatusOK, report)
 }
 
 func (s *server) tasks(w http.ResponseWriter, r *http.Request) {

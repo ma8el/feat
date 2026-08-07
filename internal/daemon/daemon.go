@@ -17,7 +17,9 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/git"
+	"github.com/ma8el/feat/internal/notify"
 	"github.com/ma8el/feat/internal/paths"
+	"github.com/ma8el/feat/internal/resources"
 	"github.com/ma8el/feat/internal/runtime"
 	"github.com/ma8el/feat/internal/store"
 	"github.com/ma8el/feat/internal/store/fs"
@@ -75,6 +77,18 @@ type Options struct {
 	// the default; a negative value disables observation, which only a test that
 	// pins what a poll would publish wants.
 	RuntimeInterval time.Duration
+	// Notifier delivers desktop notifications. A nil value uses this platform's,
+	// which on anything but macOS reports that it delivers nothing.
+	Notifier notify.Notifier
+	// Resources runs the commands that observe machine and container usage. A
+	// nil value runs them for real; a test supplies its own so that a machine
+	// whose load cannot be read, or a Docker that refuses, can be arranged
+	// without one.
+	Resources resources.Runner
+	// ResourceInterval overrides how often resources are sampled. Zero uses the
+	// projects' configured interval; a negative value disables sampling, which
+	// only a test that pins what a sample would collect wants.
+	ResourceInterval time.Duration
 	// Timer schedules the idle grace period. A nil value uses the wall clock.
 	Timer Timer
 	// PollInterval is how often control workspaces are read. Zero uses the
@@ -162,6 +176,17 @@ func New(opts Options) (*Daemon, error) {
 			slog.String("variable", EnvHostAgent))
 	}
 
+	notifier := opts.Notifier
+	if notifier == nil {
+		notifier = notify.Host()
+	}
+	// A build that cannot deliver says so once, at startup, rather than failing
+	// every time it is asked. The dashboard's attention badges are unaffected:
+	// they are rendered from task state and need no notifier at all.
+	if ok, reason := notifier.Available(); !ok {
+		logger.Info("desktop notifications are not available", slog.String("reason", reason))
+	}
+
 	return &Daemon{
 		opts:   opts,
 		logger: logger,
@@ -178,16 +203,21 @@ func New(opts Options) (*Daemon, error) {
 			docker:        opts.Docker,
 			runtimeDocker: opts.RuntimeDocker,
 
-			layout:     opts.Layout,
-			env:        env,
-			hostAgent:  hostAgent,
-			build:      opts.Build,
-			now:        now,
-			logger:     logger,
-			idle:       newIdleTimers(opts.Timer),
-			startup:    newIdleTimers(opts.Timer),
-			workspaces: make(map[domain.TaskID]*control.Workspace),
-			pollNow:    make(chan struct{}, 1),
+			layout:    opts.Layout,
+			env:       env,
+			hostAgent: hostAgent,
+			build:     opts.Build,
+			now:       now,
+			logger:    logger,
+			notifier:  notifier,
+			observer:  resourceObserver(opts),
+
+			resourceOverride: opts.ResourceInterval,
+			idle:             newIdleTimers(opts.Timer),
+			idleNotice:       newIdleTimers(opts.Timer),
+			startup:          newIdleTimers(opts.Timer),
+			workspaces:       make(map[domain.TaskID]*control.Workspace),
+			pollNow:          make(chan struct{}, 1),
 		},
 	}, nil
 }
@@ -255,6 +285,12 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 	// long ago becomes idle at once rather than restarting the clock.
 	d.service.pollControl(ctx)
 
+	// Everything above is catching up on what happened while the daemon was
+	// stopped. From here on a change is news, and news is what a notification is
+	// for: a restart that announced every turn that ended overnight would be
+	// interrupting the user about the past (ADR-035).
+	d.service.notifiable.Store(true)
+
 	poller := &controlPoller{}
 	poller.start(ctx, d.service, d.opts.PollInterval)
 
@@ -267,7 +303,21 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 		runtimes = &runtimePoller{}
 		runtimes.start(ctx, d.service, d.opts.RuntimeInterval)
 	}
+
+	// Resources are sampled on their own schedule too, and for a third reason:
+	// asking the container runtime what it is using costs a second or two, so a
+	// figure a request collected would be a request a metric could slow down.
+	// Sampling is observational and blocks nothing (FR-UI-005, ADR-035).
+	var samples *resourcePoller
+	if d.opts.ResourceInterval >= 0 {
+		samples = &resourcePoller{}
+		samples.start(ctx, d.service)
+	}
+
 	defer func() {
+		if samples != nil {
+			samples.stop()
+		}
 		if runtimes != nil {
 			runtimes.stop()
 		}
@@ -275,6 +325,7 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 		// A pending transition must not fire into a daemon that has stopped and
 		// can no longer write what it decided.
 		d.service.idle.cancelAll()
+		d.service.idleNotice.cancelAll()
 		d.service.startup.cancelAll()
 	}()
 

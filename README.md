@@ -10,7 +10,7 @@ replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: pre-alpha.** Slices 0 to 9 of the
+> **Status: pre-alpha.** Slices 0 to 10 of the
 > [implementation plan](docs/11-implementation-plan.md) are complete. The
 > repository has its package skeleton, the full command
 > surface, its development and CI commands, a versioned domain model with
@@ -40,8 +40,12 @@ environment. A task may span several repositories.
 > A task's **application services** are now yours to run from Feat: create,
 > start, stop, status, logs, and destroy, each under that task's own Compose
 > project. Nothing starts on its own and nothing stops because a task reached
-> review or approval. Review and cleanup commands are registered but not
-> implemented, and each reports the slice that delivers it. Nothing here is
+> review or approval.
+>
+> The dashboard now shows **what the machine has left** and what each task is
+> using, and Feat **tells you when a task may need you** — on macOS, through the
+> ordinary notification centre. Review and cleanup commands are registered but
+> not implemented, and each reports the slice that delivers it. Nothing here is
 > usable for real work yet.
 
 ## Preparing a task
@@ -107,6 +111,55 @@ declares external — a shared staging database, for instance — is never touch
 Feat allocates no ports in this version, so two tasks that both publish the same
 host port cannot both be up; the second one says so in those words rather than
 passing a Docker error through.
+
+## Knowing when to look
+
+The dashboard shows what the machine has left — load against its processor count,
+free memory, and free space on the filesystem Feat keeps its state on — and what
+each task's own containers and processes are using. Nothing is enforced: Feat
+never refuses a task because a machine looks busy, and a figure it could not
+measure is shown as absent rather than as zero.
+
+Load rather than a processor percentage, because macOS has no per-core
+utilisation figure Feat can read without linking C, and one measure on both
+platforms is worth more than two that look alike and are not. A task's container
+memory is what the container runtime reported, which on macOS is memory inside
+its own virtual machine, so it is shown beside the host-process figure rather
+than added into the machine's.
+
+Feat also tells you when a task may need you: an agent that has gone quiet, an
+explicit request for review, a failed check, a failed session, and failed
+application services. An idle notification waits twice — once for the agent's own
+grace period before the task is called idle, and again for
+`notifications.idle_grace_period` before it is worth interrupting you — and is
+dropped entirely while you are looking at that task's terminal, which Feat asks
+tmux rather than assuming from an earlier attach. The text names the task and
+says what happened; it never carries your brief, the agent's words, or anything
+from your configuration.
+
+```yaml
+notifications:
+  desktop: true                  # macOS in this version; Linux arrives with v0.2
+  idle_grace_period: 5s          # how long idle before you are told
+  suppress_while_attached: true
+```
+
+Desktop delivery is macOS-only in v0.1. Feat can tell you it handed a
+notification over; it cannot tell you one was shown, because macOS decides that
+per application and drops an unauthorised notification without saying so.
+
+A notification Feat sends is attributed to **Script Editor**, which is what
+`osascript` posts as. Depending on the macOS version that may or may not appear
+as an entry under System Settings › Notifications, so if you never see one, the
+setting is not always there to check and this is the answer:
+
+```sh
+log show --last 5m --predicate 'process == "usernoted"' --style compact \
+  | grep ScriptEditor2
+```
+
+`Presenting … as banner` means macOS showed it and the question is where you were
+looking; no line at all means it never arrived.
 
 ## Configuring a project
 

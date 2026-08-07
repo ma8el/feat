@@ -709,6 +709,12 @@ behaviour they replaced.
 
 ## Slice 10 — Notifications and resources
 
+Status: **complete**, 2026-08-07
+
+The design decisions this slice started from are recorded in ADR-035 in
+[10-decisions-and-open-questions.md](10-decisions-and-open-questions.md),
+together with the amendment that running it against a real daemon produced.
+
 ### Outcome
 
 The user can decide when to start more work and is notified when attention may be useful.
@@ -727,6 +733,109 @@ The user can decide when to start more work and is notified when attention may b
 - Resource collection failure degrades gracefully.
 - Idle notifications do not fire immediately or while attached.
 - Review/failure notifications identify the task without exposing secrets.
+
+### Delivered
+
+All four acceptance criteria pass, each with a test named for it, and each
+checked where the narrow claim can be made: that no observation command ran at
+all is a stronger statement than that a request happened to be fast, and that a
+type has no field for a task's brief is a stronger statement than that one
+message did not contain it.
+
+Six things were measured on the target machine before any of this was designed,
+and each of them decided something. `docker stats --no-stream` takes one to two
+seconds however it is asked, so sampling is a background loop with a cache and
+the local API serves the cache — a figure a request collected would be a request
+a metric could stall. A per-core utilisation percentage turns out not to be
+obtainable on macOS from Go without cgo, so Feat reports load average with the
+processor count on both platforms rather than a percentage on one and something
+differently defined on the other; `docs/04-functional-specification.md` and
+`docs/06-technical-architecture.md` were narrowed to say so rather than left
+promising something no build keeps. And `docker stats` measures a container's
+memory against the container runtime's own virtual machine on macOS, so a task's
+container and process memory are reported apart as well as together, and neither
+half is presented as a share of the machine above it.
+
+`internal/resources` is the observer and `internal/notify` the policy, both under
+the boundary ADR-029 set for Git, with two new `depguard` rules. The resource
+rule denies both Compose adapters and that denial is its point: an agent's
+container and an application's are the same thing to something that measures
+them, and a package able to tell them apart would eventually be asked to treat
+them differently. The notification rule denies configuration, the control
+protocol, and storage, which is what makes the fourth acceptance criterion a
+property of the code rather than a rule to remember — a `Subject` carries a task
+key, a title, and a project, and there is nothing to reach a brief, an agent's
+words, a path, or a configured value with. A test pins the fields it may hold.
+
+Three properties are decided at the policy and pinned there:
+
+- what is worth interrupting somebody for is two tables, in the shape ADR-026
+  used for the workflow transitions. Their most important property is an
+  absence: nothing maps an end of turn or an idle process to a notification;
+- one change produces one notification. A dying session moves both the process
+  and the workflow, and a user told twice about one death reads the second as
+  noise;
+- startup catch-up records without notifying, so restarting Feat in the morning
+  does not announce every turn that ended overnight.
+
+The two grace periods the configuration model has carried since slice 3 finally
+mean something, and they mean different things: the provider's decides when an
+ended turn becomes idle, and the notification's decides how long a task must have
+*been* idle before it is worth saying. Measuring both from the end of the turn
+was the other reading and would have let a short notification grace silently
+switch the notification off — a configuration that turns off the thing it
+configures. `notifications` and `resources` were parsed, resolved, and defaulted
+with no reader for seven slices; this is their first, which is why two of their
+four fields had to be given semantics here rather than found.
+
+Whether the user is attached is asked of tmux per window, through
+`window_active_clients`, which slice 5's discovery did not collect. It is an
+observation rather than a memory of an attach: a user who detached, or who
+switched to another task's window, stops watching without telling Feat anything,
+and a session-level answer would silence every task of a project the moment one
+of them was being looked at. Measured against tmux 3.7b, where it follows a
+window switch immediately.
+
+Verified against the real tools in an opt-in suite: real `vm_stat`, `sysctl`, and
+`statfs`; a real `ps` differenced across two samples over a process deliberately
+spinning between them; a real labelled container found through `docker ps` and
+measured through `docker stats`; a real `osascript` delivery; and a real
+control-mode tmux client that watches one task's window while another runs
+unwatched, and whose attention follows a window switch.
+
+Verified again through the product rather than the package, with a daemon started
+from the built binary, a project registered through the socket, and a task
+launched and driven by control messages written the way a hook writes them. The
+machine card's figures came back real; the task reported its own pane's process
+subtree; a turn ended at 10:35:51 became idle at 10:35:56 after the provider's
+five-second grace and produced a desktop notification at 10:35:59 after the
+project's three-second one; and a third turn that ended while a real tmux client
+was watching that task's window produced the idle transition and no notification,
+where the two before it produced both. The daemon ran for three minutes of
+two-second sampling and wrote not one warning.
+
+One thing found by hand rather than by reasoning is recorded as ADR-035 evidence
+11, and it is about verification rather than about Feat: the first attempt to
+show suppression attached a control-mode client without holding its standard
+input open, so tmux accepted it and it left at once. The notification was
+correctly delivered to an unwatched window, and the check looked as though it had
+proved the opposite of what it proved. The real verification held the client open
+and read `list-clients` before drawing any conclusion.
+
+`GET /v1/resources` is the one endpoint added, with a golden file, and the
+command surface does not change. No stored format changes: samples are not
+persisted, and the event vocabulary gains one additive type,
+`notification_sent` — recorded because a desktop notification is gone the moment
+it is dismissed, and because slice 13 has to measure how many idle notifications
+turned out to be false. It is deliberately not itself notifiable, which a test
+pins, since recording an event publishes it.
+
+Package layout gained no new package: `internal/resources` and `internal/notify`
+were reserved by slice 0. See ADR-035;
+[04-functional-specification.md](04-functional-specification.md),
+[06-technical-architecture.md](06-technical-architecture.md),
+[07-configuration-model.md](07-configuration-model.md), and
+[README.md](../README.md) were updated in the same change.
 
 ## Slice 11 — Review and external commands
 

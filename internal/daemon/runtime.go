@@ -12,6 +12,7 @@ import (
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/notify"
 	"github.com/ma8el/feat/internal/runtime"
 	"github.com/ma8el/feat/internal/runtime/compose"
 )
@@ -299,6 +300,14 @@ func (s *service) recordRuntime(
 			To:     string(record.State),
 			Detail: describeRuntime(record, action),
 		})
+		if from != record.State {
+			// Only a state that changed, and only one worth interrupting for. A
+			// stop is deliberately not one: v0 stops services when a user asks, so
+			// a stop is something they just did rather than news (FR-RUN-005).
+			if condition, ok := notify.ForRuntime(record.State); ok {
+				s.notifyTask(ctx, task, condition, 0)
+			}
+		}
 	}
 	for _, note := range notes {
 		s.logger.WarnContext(ctx, "a task's application services mount something unexpected",

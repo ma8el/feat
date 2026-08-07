@@ -300,3 +300,108 @@ func withoutTmux(environment []string) []string {
 	}
 	return out
 }
+
+// TestRealWindowClientsFollowTheUser checks the observation notification
+// suppression turns on.
+//
+// The question is "is the user looking at this task's terminal", and it has to
+// be answered per window: a user attached to a project's session is looking at
+// one of its tasks and not at the others. tmux answers it with
+// window_active_clients, which this measures against a real client and requires
+// to follow a window switch — because a signal that lagged behind the user would
+// silence the task they had just left (ADR-035).
+func TestRealWindowClientsFollowTheUser(t *testing.T) {
+	server := realTmux(t)
+	backend, _ := New(server.socket, server.runner)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	watched, err := backend.EnsureTask(ctx, testProject, testTask, CommandSpec{
+		Program: "/bin/sh", Arguments: []string{"-c", "sleep 60"}, Directory: server.dir,
+	})
+	if err != nil {
+		t.Fatalf("EnsureTask: %v", err)
+	}
+	other, err := backend.EnsureTask(ctx, testProject, otherTask, CommandSpec{
+		Program: "/bin/sh", Arguments: []string{"-c", "sleep 60"}, Directory: server.dir,
+	})
+	if err != nil {
+		t.Fatalf("EnsureTask for a second task: %v", err)
+	}
+
+	// Nobody is attached, so nobody is watching either task.
+	for _, terminal := range mustDiscover(ctx, t, backend) {
+		if terminal.Watched() {
+			t.Fatalf("task %s is reported as watched with no client attached", terminal.Task)
+		}
+	}
+
+	target := watched.Target.Session + ":" + watched.Target.Window + "." + watched.Target.Pane
+	client := exec.CommandContext(ctx, Executable, "-C", "-S", server.socket, "attach-session", "-t", target)
+	stdin, err := client.StdinPipe()
+	if err != nil {
+		t.Fatalf("attach stdin: %v", err)
+	}
+	defer func() { _ = stdin.Close() }()
+	var output bytes.Buffer
+	client.Stdout, client.Stderr = &output, &output
+	client.Env = withoutTmux(client.Environ())
+	if err := client.Start(); err != nil {
+		t.Fatalf("starting attach: %v", err)
+	}
+	defer func() {
+		_, _ = server.runner.Run(context.Background(), server.socket, "detach-client", "-s", watched.Target.Session)
+		_ = client.Wait()
+	}()
+
+	// The client attached to one task's window. That task is watched and the
+	// other one is not, which is the whole distinction.
+	waitForWatched(ctx, t, backend, watched.Task, true, &output)
+	for _, terminal := range mustDiscover(ctx, t, backend) {
+		if terminal.Task == other.Task && terminal.Watched() {
+			t.Fatalf("the second task is reported as watched while the client is on the first")
+		}
+	}
+
+	// The user switches to the other task. The answer follows them.
+	if _, err := server.runner.Run(ctx, server.socket, "select-window", "-t", other.Target.Window); err != nil {
+		t.Fatalf("selecting the other task's window: %v", err)
+	}
+	waitForWatched(ctx, t, backend, other.Task, true, &output)
+	waitForWatched(ctx, t, backend, watched.Task, false, &output)
+}
+
+// mustDiscover returns every managed terminal or fails the test.
+func mustDiscover(ctx context.Context, t *testing.T, backend *Tmux) []Terminal {
+	t.Helper()
+
+	terminals, err := backend.Discover(ctx)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	return terminals
+}
+
+// waitForWatched waits until a task's window reports the expected viewer state.
+//
+// tmux applies an attach and a window switch asynchronously to the client, so
+// the state is polled rather than read once.
+func waitForWatched(
+	ctx context.Context, t *testing.T, backend *Tmux, task domain.TaskID, want bool, output *bytes.Buffer,
+) {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		for _, terminal := range mustDiscover(ctx, t, backend) {
+			if terminal.Task == task && terminal.Watched() == want {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("task %s watched = %v was never reported\n%s", task, want, output.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}

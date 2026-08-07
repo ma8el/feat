@@ -133,10 +133,11 @@ func selectDraftRepositories(t *testing.T, service *service, arranged *preparati
 // session is a launched task, its daemon, and the fakes behind both.
 type session struct {
 	*preparation
-	service *service
-	timer   *testTimer
-	runner  *agenttest.Runner
-	tmux    *tmuxtest.Server
+	service  *service
+	timer    *testTimer
+	runner   *agenttest.Runner
+	tmux     *tmuxtest.Server
+	notifier *fakeNotifier
 }
 
 // installed is a runner describing a machine with Claude and an authenticated
@@ -151,10 +152,23 @@ func installed() *agenttest.Runner {
 // launch arranges a project, confirms its draft, and launches it.
 func launch(t *testing.T, fixture string, runner *agenttest.Runner, hostAgent bool) *session {
 	t.Helper()
+	return launchWith(t, fixture, runner, hostAgent, nil)
+}
+
+// launchWith is launch for a test that needs to change the daemon's options.
+//
+// Every launch installs a fake notifier, whatever else it changes. A test must
+// never reach the real desktop: a suite that showed a notification for every
+// task it launched would be a suite nobody could run twice.
+func launchWith(
+	t *testing.T, fixture string, runner *agenttest.Runner, hostAgent bool, adjust func(*Options),
+) *session {
+	t.Helper()
 
 	arranged := arrangeTaskWith(t, newFakeGit(), fixture)
 	server := tmuxtest.New()
 	timer := newTestTimer()
+	notifier := newFakeNotifier()
 
 	env := arranged.env
 	if hostAgent {
@@ -166,7 +180,7 @@ func launch(t *testing.T, fixture string, runner *agenttest.Runner, hostAgent bo
 		}
 	}
 
-	instance, err := New(Options{
+	options := Options{
 		Layout:      arranged.service.layout,
 		Environment: env,
 		Build:       testBuild,
@@ -174,9 +188,15 @@ func launch(t *testing.T, fixture string, runner *agenttest.Runner, hostAgent bo
 		Tmux:        server,
 		Agent:       runner,
 		Docker:      workingDocker(),
+		Notifier:    notifier,
 		Timer:       timer,
 		Now:         func() time.Time { return reconcileTime },
-	})
+	}
+	if adjust != nil {
+		adjust(&options)
+	}
+
+	instance, err := New(options)
 	if err != nil {
 		t.Fatalf("creating the daemon: %v", err)
 	}
@@ -196,7 +216,10 @@ func launch(t *testing.T, fixture string, runner *agenttest.Runner, hostAgent bo
 		t.Fatalf("launching the draft: %v", err)
 	}
 
-	return &session{preparation: arranged, service: service, timer: timer, runner: runner, tmux: server}
+	return &session{
+		preparation: arranged, service: service, timer: timer,
+		runner: runner, tmux: server, notifier: notifier,
+	}
 }
 
 // workspace returns the launched task's control workspace.

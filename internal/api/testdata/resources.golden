@@ -1,0 +1,41 @@
+{
+  "machine": {
+    "cores": 10,
+    "load": {
+      "one": 3.6,
+      "five": 3.46,
+      "fifteen": 3.76
+    },
+    "memory": {
+      "total_bytes": 17179869184,
+      "available_bytes": 4294967296
+    },
+    "disk": {
+      "path": "/state",
+      "total_bytes": 1000000000000,
+      "available_bytes": 400000000000
+    }
+  },
+  "tasks": [
+    {
+      "task_id": "7f3a1c2e-9b4d-4c81-8f2a-1d6b0c5e7a93",
+      "cpu_percent": 143.5,
+      "memory_bytes": 2684354560,
+      "container_bytes": 2147483648,
+      "process_bytes": 536870912,
+      "containers": [
+        {
+          "id": "f17a8623e8c2",
+          "name": "feat-agent-example-7f3a1c2e-dev",
+          "kind": "agent",
+          "cpu_percent": 12.5,
+          "memory_bytes": 2147483648
+        }
+      ],
+      "processes": 7
+    }
+  ],
+  "notes": [],
+  "collected_at": "2026-08-07T09:44:22Z",
+  "sampled": true
+}

@@ -2,7 +2,7 @@
 //
 // The policy is domain-driven and the delivery is platform-specific: macOS
 // desktop notifications in v0.1, Linux where a standard notifier exists in
-// v0.2, plus TUI badges.
+// v0.2, plus TUI badges the dashboard renders from task state.
 //
 // Notifiable conditions:
 //
@@ -18,5 +18,10 @@
 //   - notification text identifies the task without exposing secrets or task
 //     content that should stay local.
 //
-// Delivered by slice 10.
+// The second rule is a property of what this package can reach rather than a
+// filter over what it writes: Compose is given a task's key, title, and project
+// and has no way to name a brief, an agent's words, a path, a command, or a
+// configuration value.
+//
+// Delivered by slice 10. See ADR-035.
 package notify

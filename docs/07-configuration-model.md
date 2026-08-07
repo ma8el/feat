@@ -224,6 +224,36 @@ inspects the started containers and reports that in its own terms rather than
 refusing the start: the application runtime is inside the trusted host, so it is
 a correctness problem rather than a boundary breach (ADR-034).
 
+### Notifications and resource sampling
+
+Two grace periods exist and they are measured from different moments, which is
+what tells them apart.
+
+`agent.claude.idle_grace_period` decides when an ended turn becomes `idle`: a
+turn that ends and immediately continues is not a session waiting for anybody.
+`notifications.idle_grace_period` decides how long a task must have *been* idle
+before Feat interrupts the user about it, measured from that idle transition. So
+the dashboard reports idle after the first period and a desktop notification
+arrives after both, and a project that wants to be told only about a long silence
+raises the second one alone.
+
+Measuring both from the end of the turn was the other reading and is rejected: a
+notification grace shorter than the provider's would expire before the task was
+idle, and no notification would ever be delivered. See ADR-035.
+
+`notifications.desktop` turns desktop delivery off without touching the
+dashboard's own attention badges, which are rendered from task state.
+`notifications.suppress_while_attached` drops a notification about a task the
+user is already looking at, which Feat asks tmux per window rather than
+remembering that somebody once attached.
+
+`resources.sample_interval` is how often the machine and each task's containers
+and processes are observed. It is per-project configuration for a machine-wide
+measurement, so the shortest interval any registered project asks for is what the
+machine is asked for, floored at one second and at however long the previous
+sample took — asking the container runtime what it is using takes between one and
+two seconds whatever it is asked. Sampling never blocks a request or a task.
+
 ### Secrets
 
 Configuration may contain secret file paths but not copied secret values. Generated task overrides contain only generated non-secret values unless a future secret-provider interface explicitly handles otherwise.
