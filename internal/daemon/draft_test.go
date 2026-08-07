@@ -113,6 +113,12 @@ func arrangeConfigured(t *testing.T, fixture string) *drafting {
 		Build:       testBuild,
 		Git:         fake,
 		Tmux:        server,
+		// A host-native launch probes this runner rather than the machine the
+		// tests run on. The devcontainer fixture probes inside its container and
+		// never reaches it, but a fixture that switches execution to host would
+		// otherwise ask whether the developer's own laptop has Claude installed,
+		// and answer differently on a machine that does not.
+		Agent: installed(),
 		// Indirect, so a test can replace the fake after the daemon exists and
 		// still have the launch use it.
 		Docker:        dockerFunc(func() *composetest.Docker { return arranged.docker }),
