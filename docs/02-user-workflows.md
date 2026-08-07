@@ -103,9 +103,15 @@ Observable agent process state and semantic workflow state are separate.
 - If the user is attached, Feat suppresses the desktop idle notification.
 - `idle` does not claim that the task is complete or that Claude asked a question.
 - Claude explicitly emits `review_requested` through its adapter/control workspace.
-- If a provider-native completion gate runs configured checks successfully, the task becomes `ready_for_review`.
-- Without a completion gate, the UI shows `review_requested` with agent-reported verification.
-- A failed gate feeds its output back into the native Claude session and returns the task to `working` or `verification_failed` as appropriate.
+- If the project configures checks, Feat runs them itself — in the environment the
+  agent works in, or on the host where the check says so — and the task passes
+  through `verifying` to `ready_for_review` or `verification_failed`.
+- Without configured checks there is no gate: the UI shows `review_requested`
+  with the agent's own reported verification, marked as the claim it is.
+- A failed gate reaches the running session as a failed command: the helper the
+  agent used to request review exits non-zero with the failing output, so the
+  agent reads it and carries on in the same turn. The task rests in
+  `verification_failed` until it asks again or the user acts.
 
 ## 7. Manual runtime lifecycle in v0
 

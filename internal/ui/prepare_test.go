@@ -41,9 +41,18 @@ type fakeBackend struct {
 	// that nothing else ever asked for one.
 	runtimeCalls []string
 	logs         []string
+	// reviewCalls records every review action, for the same reason: approving a
+	// task must reach the daemon exactly once and must reach nothing else.
+	reviewCalls []string
+	// reviewRan records every external command a screen ran, so a test can
+	// assert which repository's tools were opened.
+	reviewRan []api.ReviewCommand
 
 	runtimeStatus api.RuntimeStatus
 	runtimeErr    error
+
+	reviewStatus api.ReviewStatus
+	reviewErr    error
 
 	resources   api.ResourceReport
 	resourceErr error
@@ -200,6 +209,25 @@ func (f *fakeBackend) Runtime(_ context.Context, id string, action api.RuntimeAc
 		return api.RuntimeStatus{}, f.runtimeErr
 	}
 	return f.runtimeStatus, nil
+}
+
+// Review records the action and answers with whatever the test arranged.
+func (f *fakeBackend) Review(_ context.Context, id string, action api.ReviewAction) (api.ReviewStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reviewCalls = append(f.reviewCalls, string(action)+" "+id)
+
+	if f.reviewErr != nil {
+		return api.ReviewStatus{}, f.reviewErr
+	}
+	return f.reviewStatus, nil
+}
+
+func (f *fakeBackend) ReviewCommand(command api.ReviewCommand) (tea.ExecCommand, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reviewRan = append(f.reviewRan, command)
+	return noopCommand{}, nil
 }
 
 func (f *fakeBackend) LogsCommand(_ context.Context, id string) (tea.ExecCommand, error) {

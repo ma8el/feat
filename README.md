@@ -10,7 +10,7 @@ replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: pre-alpha.** Slices 0 to 10 of the
+> **Status: pre-alpha.** Slices 0 to 11 of the
 > [implementation plan](docs/11-implementation-plan.md) are complete. The
 > repository has its package skeleton, the full command
 > surface, its development and CI commands, a versioned domain model with
@@ -44,9 +44,13 @@ environment. A task may span several repositories.
 >
 > The dashboard now shows **what the machine has left** and what each task is
 > using, and Feat **tells you when a task may need you** — on macOS, through the
-> ordinary notification centre. Review and cleanup commands are registered but
-> not implemented, and each reports the slice that delivers it. Nothing here is
-> usable for real work yet.
+> ordinary notification centre.
+>
+> **Review** is now real: every repository against the base commit it started
+> from, your own diff and editor commands, and a gate that runs the project's
+> configured checks before a task is called ready. The cleanup command is
+> registered but not implemented and reports the slice that delivers it. Nothing
+> here is usable for real work yet.
 
 ## Preparing a task
 
@@ -111,6 +115,44 @@ declares external — a shared staging database, for instance — is never touch
 Feat allocates no ports in this version, so two tasks that both publish the same
 host port cannot both be up; the second one says so in those words rather than
 passing a Docker error through.
+
+## Reviewing the work
+
+```sh
+feat review <task>   # or press v in the dashboard
+```
+
+Review groups the changes by repository and compares each one against the commit
+that repository started from, which never moves: however far the branch it came
+from has travelled since, what you see is what this task changed. Line counts
+cover tracked changes; an untracked file is counted as changed and said to be
+untracked, because counting its lines would mean adding it to your index.
+
+Feat renders no diff of its own. It opens the commands you configured, in the
+worktree of the repository you selected, and takes the terminal back when you
+leave them:
+
+```yaml
+review:
+  diff:
+    command: ["git", "diff", "{base_commit}"]
+  editor:
+    command: ["nvim", "{repository_path}"]   # or leave it out and Feat uses $EDITOR
+  status:
+    command: ["git", "status", "--short", "--branch"]
+```
+
+If the project configures `checks`, Feat runs them itself when the agent asks for
+review — in the environment the agent works in, or on your host where the check
+says so — and the task reaches `ready_for_review` only if they pass. A failure
+goes straight back to the running session as a failed command with the output
+attached, so the agent reads it and carries on. Results Feat ran are marked as
+its own; results the agent merely reported are marked as its claim, and the two
+never look alike.
+
+Approving records a decision and nothing else. Nothing is stopped, nothing is
+removed, and a task whose services are still running is offered the stop rather
+than given it.
 
 ## Knowing when to look
 

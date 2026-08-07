@@ -96,6 +96,24 @@ func (b *backend) LogsCommand(ctx context.Context, id string) (tea.ExecCommand, 
 	return execCommand{process}, nil
 }
 
+// Review performs one review action.
+func (b *backend) Review(ctx context.Context, id string, action api.ReviewAction) (api.ReviewStatus, error) {
+	return b.client.Review(ctx, id, action)
+}
+
+// ReviewCommand builds the process for one of the project's own review tools.
+//
+// It is checked here, where every other command the TUI runs is built, so the
+// TUI itself names no os/exec type (ADR-031) and there is one place where a
+// command the daemon returned becomes a process.
+func (b *backend) ReviewCommand(command api.ReviewCommand) (tea.ExecCommand, error) {
+	process, err := reviewCommand(command)
+	if err != nil {
+		return nil, err
+	}
+	return execCommand{process}, nil
+}
+
 // AttachCommand resolves the task's live terminal and returns the native tmux
 // client for it.
 func (b *backend) AttachCommand(ctx context.Context, id string) (tea.ExecCommand, error) {

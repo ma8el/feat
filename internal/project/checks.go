@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/ma8el/feat/internal/agent/claude"
@@ -20,14 +21,6 @@ const (
 	tmuxExecutable   = "tmux"
 	dockerExecutable = "docker"
 )
-
-// gateSlice names the slice that delivers the gate running a project's
-// configured checks inside the agent's environment, so that a skipped finding
-// says when it stops being skipped.
-//
-// Slice 8 supplies the environment; the gate that runs checks in it is slice
-// 11's, which ADR-033 corrected after ADR-032 promised it here.
-const gateSlice = "delivered by implementation slice 11, which runs a project's configured checks"
 
 // checker collects findings for one project.
 type checker struct {
@@ -61,7 +54,7 @@ func (c *checker) run(ctx context.Context) []Finding {
 	c.checkExecution(ctx)
 	c.checkRuntime(ctx)
 	c.checkReviewCommands()
-	c.checkChecks()
+	c.checkChecks(ctx)
 	c.checkCapabilities()
 	return c.findings
 }
@@ -538,19 +531,60 @@ func (c *checker) checkReviewCommands() {
 	}
 }
 
-// checkChecks checks the verification commands that run on the host.
-func (c *checker) checkChecks() {
-	for repository, checks := range c.config.Checks {
-		for _, check := range checks {
+// checkChecks checks the verification commands the completion gate runs.
+//
+// A check configured to run on the host is looked up here. One configured to run
+// in the agent's environment is looked up inside a live container of this
+// project, and reported as skipped when there is none — the rule ADR-033 set for
+// every other question about that environment: whether the check can run is a
+// fact about the machine rather than about which slice this build is.
+func (c *checker) checkChecks(ctx context.Context) {
+	container, found := "", false
+	if c.config.Agent.Execution.Devcontainer() {
+		container, found = c.agentContainer(ctx)
+	}
+
+	for _, repository := range checkedRepositories(c.config) {
+		for _, check := range c.config.Checks[repository] {
 			field := "checks." + repository + "." + check.ID
-			if check.Execution != config.ExecutionHost {
-				c.skip(field, fmt.Sprintf("%q runs in the agent's environment and is not checked here",
-					strings.Join(check.Command, " ")), gateSlice)
-				continue
+
+			switch {
+			case check.Execution == config.ExecutionHost:
+				c.lookUp(field, check.Command[0])
+
+			case !c.config.Agent.Execution.Devcontainer():
+				// The agent's environment is this host, so this is the same
+				// question asked of the same machine.
+				c.lookUp(field, check.Command[0])
+
+			case !found:
+				c.skip(field, fmt.Sprintf(
+					"%q runs in the agent's environment, and no container of this project is running, "+
+						"so there is nothing to look inside", strings.Join(check.Command, " ")), noContainer)
+
+			default:
+				host := c.runner
+				c.runner = containerRunner{
+					host:      host,
+					container: container,
+					user:      c.config.Agent.Execution.User,
+				}
+				c.lookUp(field, check.Command[0])
+				c.runner = host
 			}
-			c.lookUp(field, check.Command[0])
 		}
 	}
+}
+
+// checkedRepositories lists the repositories that configure checks, in a stable
+// order, so that a diagnostic reads the same way twice.
+func checkedRepositories(cfg *config.Config) []string {
+	names := make([]string, 0, len(cfg.Checks))
+	for repository := range cfg.Checks {
+		names = append(names, repository)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // lookUp reports whether a configured program is installed.

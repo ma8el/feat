@@ -65,6 +65,9 @@ func (s *service) Runtime(
 		return api.RuntimeResult{}, fmt.Errorf("%w: %q is not a runtime action", api.ErrInvalid, action)
 	}
 
+	// One task's records are changed by one goroutine at a time (ADR-036).
+	defer s.locks.lock(id)()
+
 	task, cfg, err := s.runtimeTask(ctx, id)
 	if err != nil {
 		return api.RuntimeResult{}, err

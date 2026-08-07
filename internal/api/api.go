@@ -82,6 +82,15 @@ type Service interface {
 	// RuntimeLogs returns the host command that opens the task's normal Compose
 	// logs. Feat does not aggregate or persist them (FR-RUN-006).
 	RuntimeLogs(ctx context.Context, id domain.TaskID) (RuntimeCommand, error)
+	// Review performs one review action and returns what the task's review
+	// shows: every repository compared against its own recorded base commit,
+	// the check results with who produced each one, and the configured external
+	// commands expanded for this task.
+	//
+	// No action starts, stops, or removes anything. Approval is a statement
+	// about the work, and the runtime the user was testing it in is theirs
+	// (FR-REV-004, ADR-034).
+	Review(ctx context.Context, id domain.TaskID, action ReviewAction) (ReviewResult, error)
 	// Resources returns the most recent resource sample.
 	//
 	// It reads what a background sampler collected rather than taking a sample:
@@ -158,6 +167,13 @@ func NewHandler(opts Options) http.Handler {
 	}))
 	mux.Handle("/v1/tasks/{task_id}/runtime/logs-info", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.runtimeLogs,
+	}))
+	// The review actions follow the same rule as the runtime's: an action Feat
+	// does not perform is a path that does not exist, rather than a request the
+	// daemon has to interpret. Observing is a POST because it observes and
+	// records what it observed.
+	mux.Handle("/v1/tasks/{task_id}/review/{action}", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.review,
 	}))
 	mux.Handle("/v1/task-drafts", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.createDraft,
@@ -447,6 +463,38 @@ func (s *server) runtime(w http.ResponseWriter, r *http.Request) {
 		Services: services,
 		Notes:    notes,
 	})
+}
+
+// review performs one review action and returns what the task's review shows.
+func (s *server) review(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "task_id")
+	if !ok {
+		return
+	}
+
+	action := ReviewAction(r.PathValue("action"))
+	if !action.Valid() {
+		writeJSON(w, http.StatusNotFound, errorEnvelope{Error: Error{
+			Code: CodeNotFound,
+			Message: "no review action " + strconv.Quote(string(action)) + "; the actions are observe, " +
+				"approve, changes, pending, and verify",
+		}})
+		return
+	}
+	// No review action carries a body. The decision is in the path, and a
+	// request that could name a command or a path would be a caller deciding
+	// what the daemon runs (ADR-034's rule for the shell endpoint).
+	if err := decodeEmptyBody(r); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	result, err := s.service.Review(r.Context(), id, action)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, NewReviewStatus(result))
 }
 
 // runtimeLogs returns the command that opens the task's normal Compose logs.

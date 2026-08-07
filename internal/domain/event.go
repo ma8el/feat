@@ -132,3 +132,6 @@ func (e Event) Validate() error {
 
 // formatUint renders a sequence number for an error message.
 func formatUint(value uint64) string { return strconv.FormatUint(value, 10) }
+
+// formatInt renders a count for an error message.
+func formatInt(value int) string { return strconv.Itoa(value) }

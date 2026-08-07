@@ -112,10 +112,18 @@ var effects = map[agent.EventKind]effect{
 	agent.KindReviewRequested: {
 		attention: domain.AttentionPossiblyWaiting, cancels: true,
 		workflow: func(current domain.WorkflowState) domain.WorkflowState {
-			if current == domain.WorkflowWorking {
+			switch current {
+			case domain.WorkflowWorking:
 				return domain.WorkflowReviewRequested
+			case domain.WorkflowVerificationFailed:
+				// The agent fixed what the completion gate caught and is asking
+				// again. Without this edge a task whose checks failed once could
+				// never be reviewed again without a person typing something
+				// first (ADR-036).
+				return domain.WorkflowReviewRequested
+			default:
+				return ""
 			}
-			return ""
 		},
 	},
 
@@ -229,6 +237,13 @@ func (s *service) applyAgentEvent(ctx context.Context, task *domain.Task, event 
 func (s *service) notifyChange(ctx context.Context, task *domain.Task, workflowMoved, processMoved bool) {
 	if workflowMoved {
 		if condition, ok := notify.ForWorkflow(task.Workflow); ok {
+			if condition == notify.ConditionReviewRequested && s.gateWillRun(task) {
+				// The gate is about to run the project's checks, so this task is
+				// not with the user yet. Telling them now and again when the
+				// checks finish would be two interruptions for one arrival, and
+				// the second one is the one that means something (ADR-036).
+				return
+			}
 			s.notifyTask(ctx, task, condition, 0)
 			return
 		}
@@ -322,6 +337,12 @@ func describeReport(event agent.Event) string {
 // again: an agent that wrote a malformed document should be told once rather
 // than have Feat retry it for ever.
 func (s *service) deliverControl(ctx context.Context, task *domain.Task) error {
+	// One task's records are changed by one goroutine at a time. A completion
+	// gate runs in the background for as long as a test suite takes, and a
+	// message that arrived while it ran would otherwise be applied to a copy of
+	// the task loaded before it started (ADR-036).
+	defer s.locks.lock(task.ID)()
+
 	workspace, err := s.controlWorkspace(task)
 	if err != nil {
 		return err
@@ -361,6 +382,15 @@ func (s *service) deliverControl(ctx context.Context, task *domain.Task) error {
 			// transient failure should be retried on the next poll.
 			failures = append(failures, fmt.Errorf("applying %s for task %s: %w", event.Kind, task.ID, err))
 			continue
+		}
+		if event.Kind == agent.KindReviewRequested {
+			// The completion gate, started here rather than inside the
+			// normalization above because it needs the message identifier: the
+			// agent is waiting on the helper it wrote that message with, and the
+			// verdict is named after it. It runs in the background, because a
+			// check is a test suite and every other task's messages would
+			// otherwise wait for it (ADR-036).
+			s.startGate(ctx, task, message.ID)
 		}
 		failures = append(failures, s.settle(ctx, workspace, message, control.OutcomeApplied, ""))
 	}
@@ -444,6 +474,8 @@ const startupGrace = 30 * time.Second
 
 // reportSilentStart records that a launched agent has not reported starting.
 func (s *service) reportSilentStart(ctx context.Context, id domain.TaskID) {
+	defer s.locks.lock(id)()
+
 	task, err := s.Task(ctx, id)
 	if err != nil {
 		s.logger.WarnContext(ctx, "a silent agent could not be loaded",
@@ -484,6 +516,8 @@ func (s *service) reportSilentStart(ctx context.Context, id domain.TaskID) {
 // a finished turn from a question, so it says it may be waiting rather than
 // that it is (docs/03-domain-model.md).
 func (s *service) becomeIdle(ctx context.Context, id domain.TaskID) {
+	defer s.locks.lock(id)()
+
 	task, err := s.Task(ctx, id)
 	if err != nil {
 		s.logger.WarnContext(ctx, "a task went idle and could not be loaded",

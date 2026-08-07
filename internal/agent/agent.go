@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
@@ -116,6 +117,34 @@ type PrepareRequest struct {
 	Control *control.Workspace
 	// Environment is where the agent will run.
 	Environment Environment
+	// Gate says whether a completion gate will answer this task's review
+	// requests.
+	Gate Gate
+}
+
+// Gate describes the completion gate an adapter has to tell the agent about.
+//
+// It is neutral on purpose. What a provider does with it is the provider's:
+// Claude's helper waits for the verdict and exits non-zero when a check failed,
+// so that the failure arrives as a failed tool call the model reads and carries
+// on from (ADR-036). A provider whose native loop offers something better can
+// use this same description differently.
+type Gate struct {
+	// Configured reports that the project has checks the gate will run for this
+	// task. When it is false a review request is recorded and answered at once,
+	// and the agent is told that a human decides from here.
+	Configured bool
+	// Acknowledge is how long the agent waits for the daemon to say it has the
+	// request at all. A daemon that is not running must not leave a session
+	// waiting for an hour.
+	Acknowledge time.Duration
+	// Verdict is how long the agent then waits for the answer. It is the gate's
+	// own bound plus enough slack that a gate which finished is never missed by
+	// the thing waiting for it.
+	Verdict time.Duration
+	// Describe is a sentence for the generated instructions, saying what will
+	// run. It names the checks so that an agent knows what it is waiting for.
+	Describe string
 }
 
 // Workspace tells an adapter how the agent will see its own filesystem.

@@ -70,6 +70,9 @@ type fakeGit struct {
 	// onAdd runs before a worktree is created, which is where a test can look
 	// at what the record already says.
 	onAdd func(path string)
+	// onDiff runs before a comparison answers, which is where a test can hold
+	// a review open and let something else write while it is in flight.
+	onDiff func()
 	// failAdd makes creating a worktree fail once its path ends in this
 	// repository identifier.
 	failAdd string
@@ -77,6 +80,13 @@ type fakeGit struct {
 	// between a plan and a launch is what a fetch that picked up new commits
 	// would do.
 	resolved string
+	// head is what a task worktree has checked out, empty when the agent has
+	// committed nothing.
+	head string
+	// changed and numstat are what a comparison against a recorded base finds:
+	// the changed file names and the per-file line counts.
+	changed string
+	numstat string
 }
 
 func newFakeGit() *fakeGit {
@@ -120,6 +130,17 @@ func (f *fakeGit) Run(_ context.Context, dir string, args ...string) (string, er
 	switch {
 	case args[0] == "rev-parse" && args[1] == "--git-dir":
 		return ".git", nil
+
+	case args[0] == "rev-parse" && strings.HasPrefix(args[len(args)-1], "HEAD"):
+		// What a task worktree has checked out. A fake with none answers the
+		// way a worktree with no commit does, which is the ordinary case while
+		// an agent is working: committing is optional (FR-GIT-007).
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.head == "" {
+			return "", &git.ExitError{Args: args, Dir: dir, Code: 1}
+		}
+		return f.head, nil
 
 	case args[0] == "rev-parse":
 		// Remote-tracking bases resolve; nothing else does, so a task branch
@@ -165,7 +186,23 @@ func (f *fakeGit) Run(_ context.Context, dir string, args ...string) (string, er
 		f.worktrees[dir] = append(f.worktrees[dir], path)
 		return "", nil
 
-	case args[0] == "status", args[0] == "diff", args[0] == "ls-files":
+	case args[0] == "diff":
+		f.mu.Lock()
+		hold := f.onDiff
+		f.mu.Unlock()
+		if hold != nil {
+			hold()
+		}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for _, arg := range args {
+			if arg == "--numstat" {
+				return f.numstat, nil
+			}
+		}
+		return f.changed, nil
+
+	case args[0] == "status", args[0] == "ls-files":
 		return "", nil
 
 	case args[0] == "rev-list":

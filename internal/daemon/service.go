@@ -20,6 +20,7 @@ import (
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
 	"github.com/ma8el/feat/internal/resources"
+	"github.com/ma8el/feat/internal/review"
 	"github.com/ma8el/feat/internal/runtime"
 	"github.com/ma8el/feat/internal/store"
 	"github.com/ma8el/feat/internal/tmux"
@@ -51,6 +52,9 @@ type service struct {
 	// task probes inside its own container instead, through the execution
 	// environment the launch built.
 	runner agent.Runner
+	// checks runs a completion gate's host checks. A nil value runs them as
+	// processes on this host.
+	checks review.Runner
 	// docker runs the container commands a devcontainer task needs. A nil value
 	// drives the real Docker CLI.
 	docker compose.Runner
@@ -103,6 +107,13 @@ type service struct {
 	// task. It is separate from idle because the two mean different things and
 	// a task can never be waiting on both.
 	startup *idleTimers
+	// gate records which tasks have a completion gate running, so that two
+	// review requests in quick succession do not run a project's test suite
+	// twice at once.
+	gate *gates
+	// locks serialise the read-modify-write cycles of one task's records, which
+	// the background gate made concurrent with everything else (ADR-036).
+	locks *taskLocks
 	// workspaces caches one control workspace per task, because each holds the
 	// record of what it has already applied.
 	workspaceMu sync.Mutex

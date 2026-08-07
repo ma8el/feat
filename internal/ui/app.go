@@ -42,6 +42,9 @@ type Options struct {
 	Project string
 	// Prepare opens task preparation immediately, which `feat implement` does.
 	Prepare bool
+	// Review opens the review screen for this task immediately, which
+	// `feat review <task>` does.
+	Review string
 	// Brief is an imported Markdown brief, read by the caller so that no path
 	// crosses the socket.
 	Brief string
@@ -59,6 +62,7 @@ const (
 	screenDetail
 	screenPrepare
 	screenRuntime
+	screenReview
 )
 
 // Model is the dashboard.
@@ -87,6 +91,9 @@ type Model struct {
 	// action observed, what is in flight, and whether a destroy is waiting for a
 	// confirmation.
 	runtime runtimeModel
+	// review is the review screen's own state: the comparison it was given, the
+	// repository under the cursor, and what is in flight.
+	review reviewModel
 
 	// events carries what the daemon's stream delivered. It is created once and
 	// read repeatedly, because receiving an event must cost a channel read
@@ -135,6 +142,14 @@ func New(opts Options) Model {
 	}
 	if opts.Prepare {
 		model.screen = screenPrepare
+	}
+	if opts.Review != "" {
+		// `feat review <task>` opens straight onto the review of the task it
+		// names. The comparison itself is asked for once the model starts, so
+		// that opening the screen and reading a worktree stay separate steps.
+		model.screen = screenReview
+		model.selected = opts.Review
+		model.review = reviewModel{task: opts.Review}
 	}
 	return model
 }
@@ -193,6 +208,9 @@ func (m Model) Init() tea.Cmd {
 	commands := []tea.Cmd{m.load(), m.loadResources(), m.connect(), m.awaitEvent(), tick()}
 	if m.screen == screenPrepare {
 		commands = append(commands, m.prepare.Init())
+	}
+	if m.screen == screenReview {
+		commands = append(commands, m.reviewAction(api.ReviewObserve))
 	}
 	return tea.Batch(commands...)
 }
@@ -337,6 +355,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case runtimeMsg:
 		return m.applyRuntime(message)
 
+	case reviewMsg:
+		return m.applyReview(message)
+
 	case tea.KeyMsg:
 		return m.key(message)
 	}
@@ -358,6 +379,9 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.screen == screenRuntime {
 		return m.runtimeKey(key)
+	}
+	if m.screen == screenReview {
+		return m.reviewKey(key)
 	}
 
 	switch key.String() {
@@ -407,6 +431,9 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "R":
 		return m.openRuntime()
+
+	case "v":
+		return m.openReview()
 
 	case "x":
 		return m.cancel()
@@ -570,6 +597,8 @@ func (m Model) View() string {
 		return m.detailView()
 	case screenRuntime:
 		return m.runtimeView()
+	case screenReview:
+		return m.reviewView()
 	default:
 		return m.dashboardView()
 	}

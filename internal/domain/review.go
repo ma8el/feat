@@ -132,12 +132,26 @@ type Check struct {
 	Status CheckStatus
 	// Reporter records who ran the check.
 	Reporter CheckReporter
-	// Detail is a short human-readable summary. It must not carry secrets,
-	// because review state reaches the dashboard and the event stream.
+	// Detail is what the check said about itself: an agent's own words for a
+	// reported result, and a bounded excerpt of the command's output for a
+	// gated one.
+	//
+	// It is shown on the review screen and stored in the task's review
+	// document, and it is deliberately never put into an event payload. A
+	// failing check prints whatever the project's own program prints, which is
+	// the one thing a person reviewing a failure needs and is not something
+	// Feat can promise anything about (ADR-036). Whoever fills it bounds it;
+	// MaxCheckDetail is the limit a stored review will accept.
 	Detail string
 	// RanAt is when the check ran, or the zero time if it has not.
 	RanAt time.Time
 }
+
+// MaxCheckDetail bounds the excerpt a check result carries.
+//
+// It is large enough for the tail of a failing test run, which is where the
+// reason usually is, and small enough that a review document stays a document.
+const MaxCheckDetail = 4 << 10
 
 // NewReview creates a pending review for a task.
 func NewReview(task TaskID, now time.Time) (*Review, error) {
@@ -167,6 +181,92 @@ func (r *Review) RecordRequest(summary string, checks []Check, now time.Time) er
 	r.RequestedAt = normalizeTime(now)
 	r.UpdatedAt = normalizeTime(now)
 	return nil
+}
+
+// RecordChecks records the results a completion gate produced.
+//
+// A check is identified by its repository and its identifier together, and a
+// result overwrites the one recorded for the same identity. What it deliberately
+// does not do is clear the rest: an agent's claim about a check the gate did not
+// run stays, marked as the claim it is, because removing it would be Feat
+// deciding that a report it did not verify never happened.
+//
+// The results a gate produces are attributed to the provider, and the caller may
+// not say otherwise: the difference between an enforced result and an asserted
+// one is the whole reason the field exists (FR-AGENT-006, ADR-036).
+func (r *Review) RecordChecks(checks []Check, now time.Time) error {
+	for _, check := range checks {
+		if check.Reporter != ReporterProvider {
+			return &ValidationError{
+				Entity: "review",
+				ID:     r.TaskID.String(),
+				Field:  "checks." + check.ID + ".reporter",
+				Reason: "must be " + quote(string(ReporterProvider)) +
+					" for a result the gate ran, but is " + quote(string(check.Reporter)),
+			}
+		}
+		if err := check.Validate(r.TaskID); err != nil {
+			return err
+		}
+	}
+
+	for _, check := range checks {
+		check.RanAt = normalizeTime(check.RanAt)
+		replaced := false
+		for i := range r.Checks {
+			if supersedes(check, r.Checks[i]) {
+				r.Checks[i] = check
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			r.Checks = append(r.Checks, check)
+		}
+	}
+	r.UpdatedAt = normalizeTime(now)
+	return nil
+}
+
+// supersedes reports whether a gated result replaces a recorded one.
+//
+// A check is identified by its repository and its identifier together, so two
+// repositories that both configure a check called "test" keep their own results.
+// The exception is a result recorded against no repository at all, which is what
+// an agent's claim looks like when it names a check by identifier alone: Feat
+// has now run the configured check of that identifier, and keeping the claim
+// beside the evidence would count one check twice and show a user a check that
+// both passed and failed.
+func supersedes(gated, recorded Check) bool {
+	if gated.ID != recorded.ID {
+		return false
+	}
+	return recorded.RepositoryID == gated.RepositoryID || recorded.RepositoryID == ""
+}
+
+// Gated reports whether a completion gate produced any of the recorded results.
+//
+// It is what tells a claim from an enforced result, and the answer is per review
+// rather than per check because that is the question the dashboard asks.
+func (r *Review) Gated() bool {
+	for _, check := range r.Checks {
+		if check.Reporter == ReporterProvider {
+			return true
+		}
+	}
+	return false
+}
+
+// FailedChecks returns the recorded results that failed, in the order they were
+// recorded.
+func (r *Review) FailedChecks() []Check {
+	var failed []Check
+	for _, check := range r.Checks {
+		if check.Status == CheckFailed {
+			failed = append(failed, check)
+		}
+	}
+	return failed
 }
 
 // SummarizeRepository records one repository's comparison against its base.
@@ -305,6 +405,15 @@ func (c Check) Validate(task TaskID) error {
 			ID:     task.String(),
 			Field:  "checks." + c.ID + ".reporter",
 			Reason: "must record whether the agent or the provider reported the result, but is " + quote(string(c.Reporter)),
+		}
+	}
+	if len(c.Detail) > MaxCheckDetail {
+		return &ValidationError{
+			Entity: "review",
+			ID:     task.String(),
+			Field:  "checks." + c.ID + ".detail",
+			Reason: "is " + formatInt(len(c.Detail)) + " bytes, and a check result carries an excerpt of at most " +
+				formatInt(MaxCheckDetail),
 		}
 	}
 	return nil

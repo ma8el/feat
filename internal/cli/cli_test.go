@@ -74,7 +74,9 @@ func TestExecuteExitCodes(t *testing.T) {
 
 		{"project add without a project", []string{"project", "add"}, ExitUsage},
 
-		{"review", []string{"review", "abc123"}, ExitNotImplemented},
+		// Review and attach both reach the daemon, so an absent one is the
+		// state each reports rather than a failure of the command.
+		{"review without a daemon", []string{"review", "abc123"}, ExitNotRunning},
 		{"attach without a daemon", []string{"attach", "abc123"}, ExitNotRunning},
 
 		// Every runtime action reaches the daemon, so an absent one is the state
@@ -128,10 +130,10 @@ func TestNotImplementedErrorIsActionable(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 
-	Execute(context.Background(), []string{"review", "abc123"}, &stdout, &stderr)
+	Execute(context.Background(), []string{"cleanup", "abc123"}, &stdout, &stderr)
 
 	message := stderr.String()
-	for _, want := range []string{"feat review", "slice 11", "docs/11-implementation-plan.md"} {
+	for _, want := range []string{"feat cleanup", "slice 12", "docs/11-implementation-plan.md"} {
 		if !strings.Contains(message, want) {
 			t.Errorf("error message does not mention %q:\n%s", want, message)
 		}

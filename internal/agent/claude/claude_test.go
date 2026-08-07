@@ -25,6 +25,11 @@ const (
 
 func prepared(t *testing.T, outsideBoundary bool) (agent.LaunchSpec, *control.Workspace) {
 	t.Helper()
+	return prepareWith(t, outsideBoundary, agent.Gate{})
+}
+
+func prepareWith(t *testing.T, outsideBoundary bool, gate agent.Gate) (agent.LaunchSpec, *control.Workspace) {
+	t.Helper()
 
 	workspace, err := control.Open(t.TempDir(), testProject, testTask, control.Options{})
 	if err != nil {
@@ -51,6 +56,7 @@ func prepared(t *testing.T, outsideBoundary bool) (agent.LaunchSpec, *control.Wo
 		},
 		Control:     workspace,
 		Environment: agent.Environment{Mode: domain.ExecutionHost, OutsideConfiguredBoundary: outsideBoundary},
+		Gate:        gate,
 	})
 	if err != nil {
 		t.Fatalf("preparing a launch: %v", err)
@@ -399,6 +405,154 @@ func TestReportHelperWritesAWellFormedMessage(t *testing.T) {
 		t.Errorf("check reporter = %q, want %q: a claimed result is not an enforced one",
 			event.Checks[0].Reporter, domain.ReporterAgent)
 	}
+}
+
+// TestAFailedGateReachesTheAgentAsAFailedCommand is slice 11's fifth acceptance
+// criterion at the provider adapter: a check the gate failed comes back to the
+// running session as a non-zero exit with the reason on standard error, which is
+// what the model reads and carries on from.
+//
+// It runs the generated helper under a real shell and answers it the way the
+// daemon does, because the whole mechanism is a script waiting for a file: a
+// test against the generated text would prove that Feat wrote what it meant to
+// write and nothing about whether a shell does what it says.
+func TestAFailedGateReachesTheAgentAsAFailedCommand(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skipf("no POSIX shell available: %v", err)
+	}
+
+	for _, testCase := range []struct {
+		name       string
+		status     string
+		report     string
+		wantFailed bool
+		wantText   string
+	}{
+		{
+			name:       "a check failed",
+			status:     control.VerificationFailed,
+			report:     "check test (api): failed\n  2 failed, 82 passed",
+			wantFailed: true,
+			wantText:   "2 failed, 82 passed",
+		},
+		{
+			name:     "every check passed",
+			status:   control.VerificationPassed,
+			report:   "2 passed",
+			wantText: "2 passed",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, workspace := prepareWith(t, false, agent.Gate{
+				Configured:  true,
+				Acknowledge: 10 * time.Second,
+				Verdict:     20 * time.Second,
+			})
+			helper := runnableHelper(t, workspace)
+
+			var stdout, stderr strings.Builder
+			command := exec.Command("/bin/sh", helper, "review_requested")
+			command.Stdin = strings.NewReader(`{"summary":"done"}`)
+			command.Stdout = &stdout
+			command.Stderr = &stderr
+			if err := command.Start(); err != nil {
+				t.Fatalf("starting the helper: %v", err)
+			}
+
+			// The daemon's half: read the request the helper wrote, then answer
+			// it where the helper is waiting.
+			request := awaitRequest(t, workspace)
+			if err := workspace.WriteVerification(request, control.Verification{
+				Status: control.VerificationAccepted,
+				Report: "running the project's checks",
+			}); err != nil {
+				t.Fatalf("acknowledging the request: %v", err)
+			}
+			if err := workspace.WriteVerification(request, control.Verification{
+				Status: testCase.status,
+				Report: testCase.report,
+			}); err != nil {
+				t.Fatalf("answering the request: %v", err)
+			}
+
+			err := command.Wait()
+			switch {
+			case testCase.wantFailed && err == nil:
+				t.Fatalf("the helper succeeded after a failed gate; stdout %q, stderr %q", stdout.String(), stderr.String())
+			case !testCase.wantFailed && err != nil:
+				t.Fatalf("the helper failed after a passing gate: %v; stderr %q", err, stderr.String())
+			}
+
+			// A failure has to reach the model, and standard error is where a
+			// failed command's reason is read from.
+			where := stdout.String()
+			if testCase.wantFailed {
+				where = stderr.String()
+			}
+			if !strings.Contains(where, testCase.wantText) {
+				t.Errorf("the helper reported %q, want it to carry %q", where, testCase.wantText)
+			}
+		})
+	}
+}
+
+// TestAHelperWithNoGateDoesNotWait checks that a project configuring no checks
+// gets the slice 7 helper: a review request is recorded and the command returns.
+//
+// The gate is the one thing in this session that can take minutes, and a session
+// that waited for a verdict nobody was going to write would hang on every review
+// request.
+func TestAHelperWithNoGateDoesNotWait(t *testing.T) {
+	_, workspace := prepared(t, false)
+
+	source, err := os.ReadFile(filepath.Join(workspace.AgentDir(), "bin", "feat-report"))
+	if err != nil {
+		t.Fatalf("reading the report helper: %v", err)
+	}
+	for _, waiting := range []string{"verification-", "waiting for the project's checks"} {
+		if strings.Contains(string(source), waiting) {
+			t.Errorf("the helper of a project with no configured checks waits for a verdict (%q)", waiting)
+		}
+	}
+}
+
+// runnableHelper writes the generated helper with the agent's paths replaced by
+// the host ones, so it can be run outside a container.
+func runnableHelper(t *testing.T, workspace *control.Workspace) string {
+	t.Helper()
+
+	source, err := os.ReadFile(filepath.Join(workspace.AgentDir(), "bin", "feat-report"))
+	if err != nil {
+		t.Fatalf("reading the report helper: %v", err)
+	}
+	local := strings.ReplaceAll(string(source), "'/feat/outbox'", "'"+workspace.OutboxDir()+"'")
+	local = strings.ReplaceAll(local, "'/feat/inbox'", "'"+workspace.InboxDir()+"'")
+
+	helper := filepath.Join(t.TempDir(), "feat-report")
+	if err := os.WriteFile(helper, []byte(local), 0o700); err != nil {
+		t.Fatalf("writing the runnable helper: %v", err)
+	}
+	return helper
+}
+
+// awaitRequest waits for the helper to write its review request and returns its
+// identifier, which is what the verdict is named after.
+func awaitRequest(t *testing.T, workspace *control.Workspace) string {
+	t.Helper()
+
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		pending, _, err := workspace.Pending()
+		if err != nil {
+			t.Fatalf("reading the outbox: %v", err)
+		}
+		if len(pending) > 0 {
+			return pending[0].ID
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("the helper wrote no review request")
+	return ""
 }
 
 func TestSessionStartFromAResumeIsNotANewSession(t *testing.T) {

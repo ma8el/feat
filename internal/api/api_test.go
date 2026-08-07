@@ -233,6 +233,31 @@ func (f *fakeService) Runtime(_ context.Context, id domain.TaskID, action Runtim
 }
 
 // RuntimeLogs returns the command the client would run.
+func (f *fakeService) Review(_ context.Context, id domain.TaskID, action ReviewAction) (ReviewResult, error) {
+	if err := f.check(); err != nil {
+		return ReviewResult{}, err
+	}
+	f.actions = append(f.actions, string(action))
+
+	for _, task := range f.tasks {
+		if task.ID == id {
+			return ReviewResult{
+				Task:   task,
+				Review: storetest.Review(),
+				Commands: []ReviewCommand{{
+					Kind:         "diff",
+					RepositoryID: storetest.PrimaryRepositoryID.String(),
+					Program:      "git",
+					Arguments:    []string{"diff", storetest.PrimaryBaseCommit},
+					Directory:    "/state/feat/worktrees/example/7f3a1c2e/api",
+				}},
+				Notes: []string{"api has 2 untracked file(s)"},
+			}, nil
+		}
+	}
+	return ReviewResult{}, fmt.Errorf("%w: no task %s", ErrNotFound, id)
+}
+
 func (f *fakeService) RuntimeLogs(_ context.Context, id domain.TaskID) (RuntimeCommand, error) {
 	if err := f.check(); err != nil {
 		return RuntimeCommand{}, err

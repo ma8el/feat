@@ -20,6 +20,7 @@ import (
 	"github.com/ma8el/feat/internal/notify"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/resources"
+	"github.com/ma8el/feat/internal/review"
 	"github.com/ma8el/feat/internal/runtime"
 	"github.com/ma8el/feat/internal/store"
 	"github.com/ma8el/feat/internal/store/fs"
@@ -62,6 +63,11 @@ type Options struct {
 	// probes inside its own container instead, through the execution
 	// environment. A nil value probes this host.
 	Agent agent.Runner
+	// Checks runs the configured checks a completion gate executes on the
+	// trusted host. A nil value runs them as processes here; a test supplies its
+	// own, because whether a gate reports what it ran should not depend on which
+	// tools the tester happens to have installed.
+	Checks review.Runner
 	// Docker runs the container commands that create and observe a task's
 	// devcontainer. A nil value drives the real Docker CLI; a test supplies its
 	// own so that a container that refuses to start, or turns out to run as
@@ -200,6 +206,7 @@ func New(opts Options) (*Daemon, error) {
 			terminals:     terminals,
 			agent:         claude.New(),
 			runner:        probe,
+			checks:        opts.Checks,
 			docker:        opts.Docker,
 			runtimeDocker: opts.RuntimeDocker,
 
@@ -216,6 +223,8 @@ func New(opts Options) (*Daemon, error) {
 			idle:             newIdleTimers(opts.Timer),
 			idleNotice:       newIdleTimers(opts.Timer),
 			startup:          newIdleTimers(opts.Timer),
+			gate:             newGates(),
+			locks:            newTaskLocks(),
 			workspaces:       make(map[domain.TaskID]*control.Workspace),
 			pollNow:          make(chan struct{}, 1),
 		},
@@ -276,6 +285,12 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 	if reconcileErr := d.service.reconcileTmux(ctx); reconcileErr != nil {
 		d.logger.ErrorContext(ctx, "reconciling tmux terminals", slog.Any("error", reconcileErr))
 	}
+
+	// A completion gate does not outlive the process that started it, so a task
+	// recorded as verifying is a task claiming that checks are running when
+	// nothing is. It goes back to where the review request was, with an event
+	// saying why; running them again is an action the user takes (ADR-036).
+	d.service.recoverGates(ctx)
 
 	// Control messages also outlive the daemon: an agent that ended a turn
 	// while Feat was stopped wrote a file, and that file is still there. Reading

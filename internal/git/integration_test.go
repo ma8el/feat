@@ -501,3 +501,82 @@ func TestRealCleanupPlanSeesDirtyAndUnmergedWork(t *testing.T) {
 		t.Errorf("the observation is %+v, want one commit ahead, dirty, and two changed files", observation)
 	}
 }
+
+// TestRealComparisonAgainstTheRecordedBase is slice 11's first acceptance
+// criterion against Git itself.
+//
+// The commit the task started from is what every number is measured against,
+// and the point of asking real Git is the parts a fake cannot decide: that
+// `--numstat` prints what the parser reads, that a binary file is reported as
+// "-" rather than as a line count, and that an untracked file is counted as
+// changed while contributing no lines — because counting its lines would mean
+// writing to the index.
+func TestRealComparisonAgainstTheRecordedBase(t *testing.T) {
+	requireGit(t)
+	f := realProject(t)
+
+	adapter := Host()
+	plan, err := adapter.Plan(context.Background(), f.req)
+	if err != nil {
+		t.Fatalf("planning: %v", err)
+	}
+	if _, err := adapter.Apply(context.Background(), plan, JournalFunc(
+		func(context.Context, Created) error { return nil },
+	)); err != nil {
+		t.Fatalf("applying: %v", err)
+	}
+
+	repository := plan.Repositories[0]
+	worktree := repository.WorktreePath
+
+	// Committed work: three lines added and the README's one line replaced.
+	write(t, worktree, "feature.go", "package feature\n\nfunc Feature() {}\n")
+	write(t, worktree, "README.md", "# api, rewritten\n")
+	write(t, worktree, "logo.bin", "\x00\x01\x02binary\x00")
+	git(t, worktree, "add", "feature.go", "README.md", "logo.bin")
+	git(t, worktree, "commit", "-m", "the agent's work")
+
+	// And work it has not committed, of both kinds.
+	write(t, worktree, "scratch.txt", "not committed\n")
+
+	comparison, err := adapter.Compare(context.Background(), ObserveRequest{
+		WorktreePath: worktree,
+		BaseRef:      repository.BaseRef,
+		BaseCommit:   repository.BaseCommit,
+	})
+	if err != nil {
+		t.Fatalf("comparing: %v", err)
+	}
+
+	head := git(t, worktree, "rev-parse", "HEAD")
+	if comparison.HeadCommit != head {
+		t.Errorf("head = %q, want %q", comparison.HeadCommit, head)
+	}
+	if comparison.HeadCommit == repository.BaseCommit {
+		t.Error("the head is the base, so the comparison would be of a task that did nothing")
+	}
+	// feature.go is three lines added; README.md is one added and one removed.
+	// logo.bin changed and is binary, so Git reports no line count for it and
+	// none is invented.
+	if comparison.Insertions != 4 || comparison.Deletions != 1 {
+		t.Errorf("counted +%d -%d, want +4 -1 with the binary file contributing no lines",
+			comparison.Insertions, comparison.Deletions)
+	}
+	if comparison.Untracked != 1 {
+		t.Errorf("counted %d untracked files, want the one that is there", comparison.Untracked)
+	}
+	if comparison.Observation.ChangedFiles != 4 {
+		t.Errorf("counted %d changed files, want the three committed and the one untracked",
+			comparison.Observation.ChangedFiles)
+	}
+	if !comparison.Observation.Dirty || comparison.Observation.Ahead != 1 {
+		t.Errorf("the observation is %+v, want dirty and one commit ahead", comparison.Observation)
+	}
+
+	// Comparing changed nothing: the index is untouched and the untracked file
+	// is still untracked, which is what --no-optional-locks and the absence of
+	// any writing command are for.
+	if status := git(t, worktree, "status", "--porcelain"); status != "?? scratch.txt" {
+		t.Errorf("the worktree status after comparing is %q, want the untracked file alone", status)
+	}
+}
