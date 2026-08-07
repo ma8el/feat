@@ -88,10 +88,19 @@ func readMemory(_ context.Context, _ Runner) (total, available uint64, err error
 }
 
 // diskUsage reports the size and free space of the filesystem holding a path.
+//
+// Linux types the block size as a signed integer, and a negative one would wrap
+// into an enormous block and report a filesystem larger than the machine. It
+// cannot happen on a working kernel, which is the reason to say so here rather
+// than to convert and hope: a figure this build cannot trust is reported as
+// unmeasured, which is what every other unavailable figure does (ADR-035).
 func diskUsage(path string) (total, available uint64, err error) {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(path, &stat); err != nil {
 		return 0, 0, err
+	}
+	if stat.Bsize <= 0 {
+		return 0, 0, fmt.Errorf("the filesystem holding %s reports a block size of %d", path, stat.Bsize)
 	}
 	block := uint64(stat.Bsize)
 	return stat.Blocks * block, stat.Bavail * block, nil

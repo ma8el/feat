@@ -1091,6 +1091,22 @@ real Docker rather than against its own fakes:
     outside the process therefore reports success while posting nothing, which is
     evidence 11's failure mode in a second form: a check that appears to have run.
     `-count=1` is part of the instruction for running these, not an optimisation.
+14. What a broken observation command can break is platform-shaped. macOS reads
+    load and memory through `sysctl` and `vm_stat`, which are processes, while
+    Linux reads both out of `/proc` and the disk through `statfs`, which are not.
+    A daemon test that failed every command therefore lost two machine figures on
+    one platform and none on the other, and its assertion that they were absent
+    passed on macOS for a reason that was never the acceptance criterion. It is
+    the tasks, whose sources run commands on both platforms, that carry the
+    property at the daemon; the machine's half belongs to `internal/resources`,
+    where an injected machine reader makes it platform-neutral. This is the third
+    form of the same failure — a check that looked like proof — and the first one
+    a machine caught rather than a person.
+15. `syscall.Statfs_t.Bsize` is signed on Linux and unsigned on macOS, so the
+    conversion `gosec` refuses under G115 exists on one platform only. A negative
+    block size cannot come from a working kernel, and it is reported as an
+    unmeasured filesystem rather than converted, which is what every other
+    figure this build cannot trust does.
 
 The end-to-end run is what settled the timing. A turn ended at 10:35:51, the task
 became idle at 10:35:56 after the provider's five-second grace, and the

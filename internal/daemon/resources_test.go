@@ -77,6 +77,16 @@ func TestMetricsNeverBlockTaskCreation(t *testing.T) {
 // an error would be a dashboard that showed nothing rather than what it has, and
 // the figures a broken machine can still report — its core count — are the ones
 // most worth having.
+//
+// What "fails entirely" can mean here is bounded by the platform, which is why
+// this test asserts absence on the tasks rather than on the machine. A broken
+// Runner breaks every source that runs a command, and the machine is not one of
+// them on every platform: Linux reads load and memory out of /proc and the disk
+// through statfs, so its machine figures are still there while macOS loses two
+// of the three. Asserting the macOS shape here passed for the wrong reason and
+// failed on Linux for the right one. That a source which did fail reports
+// nothing rather than zero is the same property, and internal/resources proves
+// it on both platforms with an injected machine reader.
 func TestASampleThatFailsEntirelyIsStillASample(t *testing.T) {
 	broken := &brokenResources{}
 	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
@@ -100,8 +110,16 @@ func TestASampleThatFailsEntirelyIsStillASample(t *testing.T) {
 	if report.Machine.Cores <= 0 {
 		t.Error("a degraded sample does not even report the machine's core count")
 	}
-	if report.Machine.Load != nil || report.Machine.Memory != nil {
-		t.Errorf("a sample reports figures it could not measure: %+v", report.Machine)
+	if len(report.Tasks) == 0 {
+		t.Fatal("a launched task is missing from a degraded sample entirely")
+	}
+	for _, task := range report.Tasks {
+		if task.CPUPercent != nil || task.MemoryBytes != nil {
+			t.Errorf("task %s reports figures nothing measured: %+v", task.TaskID, task)
+		}
+		if task.ContainerBytes != 0 || task.ProcessBytes != 0 || task.Processes != 0 {
+			t.Errorf("task %s reports a total nothing measured: %+v", task.TaskID, task)
+		}
 	}
 	if broken.ran() == 0 {
 		t.Error("the sample was never attempted")
