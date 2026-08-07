@@ -365,10 +365,103 @@ func TestRealComposeReportsWhatTheAggregationTableReads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("observing: %v", err)
 	}
-	if len(state.Services) != 1 || state.Services[0].Container == "" {
-		t.Fatalf("the observed services are %+v, want one with a container", state.Services)
+	if len(state.Services) != 3 || state.Services[0].Container == "" {
+		t.Fatalf("the observed services are %+v, want the managed one and the two Compose started with it",
+			state.Services)
 	}
+	// The one-shot dependency has exited by now, and the application is running
+	// all the same. A runtime that called itself degraded every time a migration
+	// succeeded would be a state people learn to ignore.
 	if state.Lifecycle != domain.RuntimeRunning {
-		t.Errorf("a running service was read as %q", state.Lifecycle)
+		t.Errorf("a running service was read as %q: %+v", state.Lifecycle, state.Services)
+	}
+}
+
+// TestRealStoppingReachesEverythingStartingStarted is the defect a real project
+// found, against the tool that produced it.
+//
+// A stop that named the managed services stopped what Feat had asked Compose for
+// and left what Compose had started to satisfy it: a database still up, still
+// holding its published port, and invisible to every status Feat printed. No
+// fixture would have shown it, because the fake answered for the services the
+// test named.
+func TestRealStoppingReachesEverythingStartingStarted(t *testing.T) {
+	realDocker(t)
+
+	services, spec, _ := realRuntime(t, domain.NewTaskID())
+	ctx := context.Background()
+
+	if _, err := services.Start(ctx); err != nil {
+		t.Fatalf("starting: %v", err)
+	}
+	// #nosec G204 -- asking Docker for the containers this test's project owns.
+	running, err := exec.Command(compose.Executable, "ps", "--quiet",
+		"--filter", "label=com.docker.compose.project="+spec.Identity).Output()
+	if err != nil {
+		t.Fatalf("listing the running containers: %v", err)
+	}
+	if len(strings.Fields(string(running))) < 2 {
+		t.Fatalf("the start left fewer than two containers running, so this test proves nothing: %s", running)
+	}
+
+	if _, err := services.Stop(ctx); err != nil {
+		t.Fatalf("stopping: %v", err)
+	}
+
+	// #nosec G204 -- the same query, after the stop.
+	left, err := exec.Command(compose.Executable, "ps", "--quiet",
+		"--filter", "label=com.docker.compose.project="+spec.Identity).Output()
+	if err != nil {
+		t.Fatalf("listing what is left running: %v", err)
+	}
+	if fields := strings.Fields(string(left)); len(fields) != 0 {
+		t.Errorf("%d containers of this task are still running after a stop: %v. What starting starts, "+
+			"stopping stops", len(fields), fields)
+	}
+}
+
+// TestRealTheGeneratedOverrideReachesADependency is the other half of that fix.
+//
+// A service the project does not manage keeps its own fixed container_name
+// unless the generated override resets it, and a fixed name is global to the
+// Docker daemon: the second task to start collides with the first over a
+// container neither of their projects names.
+func TestRealTheGeneratedOverrideReachesADependency(t *testing.T) {
+	realDocker(t)
+
+	first, firstSpec, _ := realRuntime(t, domain.NewTaskID())
+	second, _, _ := realRuntime(t, domain.NewTaskID())
+	ctx := context.Background()
+
+	if _, err := first.Start(ctx); err != nil {
+		t.Fatalf("starting the first task: %v", err)
+	}
+	if _, err := second.Start(ctx); err != nil {
+		t.Fatalf("starting the second task while the first is running: %v. A service the project does not "+
+			"manage kept a container name that is global to the Docker daemon", err)
+	}
+
+	// #nosec G204 -- inspecting the container of a service this test started.
+	named, err := exec.Command(compose.Executable, "ps", "--all", "--quiet",
+		"--filter", "name=feat-runtime-test-dependency").Output()
+	if err != nil {
+		t.Fatalf("looking for the fixed container name: %v", err)
+	}
+	if body := strings.TrimSpace(string(named)); body != "" {
+		t.Errorf("a container still carries the dependency's fixed name, so one task per machine is the "+
+			"product: %s", body)
+	}
+
+	// Both tasks' dependencies are labelled as theirs, which is what a later
+	// cleanup resolves them by.
+	// #nosec G204 -- the label filter for this test's own project.
+	owned, err := exec.Command(compose.Executable, "ps", "--all", "--quiet",
+		"--filter", "label=dev.feat.task="+firstSpec.Task.String()).Output()
+	if err != nil {
+		t.Fatalf("listing the first task's containers: %v", err)
+	}
+	if len(strings.Fields(string(owned))) != 3 {
+		t.Errorf("%d containers carry the first task's label, want 3: a resource Feat started and did not "+
+			"label is one a cleanup cannot find", len(strings.Fields(string(owned))))
 	}
 }

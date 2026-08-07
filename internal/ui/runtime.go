@@ -224,22 +224,40 @@ func (m Model) runtimeSummary(task api.Task) string {
 	out.WriteString(field("compose project", runtime.Identity))
 
 	if services := m.runtime.status.Services; len(services) > 0 {
+		// The source column appears only when there is something to say: a
+		// column reading "configured" all the way down is a column nobody reads.
+		dependencies := runtimeDependencies(services)
+
 		out.WriteString("\n" + headingStyle.Render("services") + "\n")
 		rows := make([][]string, 0, len(services))
 		for _, service := range services {
-			rows = append(rows, []string{
+			cells := []string{
 				service.Name,
 				valueOr(service.State, absent),
 				valueOr(service.Health, absent),
 				valueOr(service.Status, absent),
-			})
+			}
+			if dependencies {
+				cells = append(cells, runtimeSource(service))
+			}
+			rows = append(rows, cells)
 		}
-		out.WriteString(renderTable([]column{
+		columns := []column{
 			{title: "SERVICE", width: 16},
 			{title: "STATE", width: 10},
 			{title: "HEALTH", width: 9},
 			{title: "STATUS", width: 28},
-		}, rows) + "\n")
+		}
+		if dependencies {
+			columns = append(columns, column{title: "SOURCE", width: 11})
+		}
+		out.WriteString(renderTable(columns, rows) + "\n")
+
+		if dependencies {
+			out.WriteString(mutedStyle.Render(
+				"a dependency is a service Compose started because a configured one needs it; "+
+					"Feat starts, stops, and removes it with the rest") + "\n")
+		}
 	}
 
 	if len(runtime.Ports) > 0 {
@@ -273,6 +291,25 @@ func (m Model) runtimeSummary(task api.Task) string {
 		}
 	}
 	return out.String()
+}
+
+// runtimeDependencies reports whether anything in the task's Compose project is
+// there because a configured service needs it.
+func runtimeDependencies(services []api.RuntimeService) bool {
+	for _, service := range services {
+		if !service.Managed {
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeSource says where a service came from, in the user's terms.
+func runtimeSource(service api.RuntimeService) string {
+	if service.Managed {
+		return "configured"
+	}
+	return "dependency"
 }
 
 // approvalOffer is the fifth acceptance criterion of slice 9, in words.

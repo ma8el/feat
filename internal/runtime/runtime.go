@@ -83,7 +83,11 @@ type Spec struct {
 	// EnvFiles are host-side environment files, passed to the runtime by path so
 	// that Feat never reads a value out of one (docs/05-security-model.md).
 	EnvFiles []string
-	// Services are the services Feat manages for the task.
+	// Services are the services the project asked Feat to manage. They are what
+	// a create or a start targets, and they are not the whole of what exists:
+	// Compose also starts whatever they depend on, and everything it starts is
+	// in this task's Compose project. Every other action therefore addresses the
+	// project rather than this list (ADR-034).
 	Services []string
 	// Mounts are the task worktrees, at the container paths their repositories
 	// configure.
@@ -169,6 +173,11 @@ type ServiceState struct {
 	Health domain.HealthState
 	// ExitCode is the exit status of a container that has stopped.
 	ExitCode int
+	// Managed reports whether the project named this service. A service that is
+	// not managed is one Compose started because a managed one depends on it:
+	// Feat did not ask for it, it is in the task's Compose project because Feat
+	// acted, and it is stopped and removed with the rest.
+	Managed bool
 }
 
 // Running reports whether the service's container is up.

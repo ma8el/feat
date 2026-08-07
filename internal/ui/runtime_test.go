@@ -61,8 +61,10 @@ func TestTheRuntimeScreenShowsWhatTheTaskOwns(t *testing.T) {
 	backend.runtimeStatus = api.RuntimeStatus{
 		Task: task,
 		Services: []api.RuntimeService{
-			{Name: "api", Container: "c0ffee", State: "running", Status: "Up 2 minutes", Health: "unknown"},
-			{Name: "worker", State: "exited", Status: "Exited (0) 1 minute ago", Health: "unknown"},
+			{Name: "api", Container: "c0ffee", State: "running", Status: "Up 2 minutes",
+				Health: "unknown", Managed: true},
+			{Name: "worker", State: "exited", Status: "Exited (0) 1 minute ago",
+				Health: "unknown", Managed: true},
 		},
 	}
 
@@ -78,6 +80,35 @@ func TestTheRuntimeScreenShowsWhatTheTaskOwns(t *testing.T) {
 		"never created or destroyed",   // and what Feat will not touch at all
 		"staging_db",
 	} {
+		if !strings.Contains(view, required) {
+			t.Errorf("the runtime screen does not show %q:\n%s", required, view)
+		}
+	}
+}
+
+// TestTheScreenShowsWhatComposeStartedAlongTheWay keeps a container of the task
+// visible whether or not the project named the service.
+//
+// Compose starts what a configured service depends on, and Feat stops and
+// removes those with the rest, so the screen shows them and says where they came
+// from.
+func TestTheScreenShowsWhatComposeStartedAlongTheWay(t *testing.T) {
+	task := liveTask()
+	task.Runtime = runningRuntime()
+
+	backend := newFakeBackend()
+	backend.runtimeStatus = api.RuntimeStatus{
+		Task: task,
+		Services: []api.RuntimeService{
+			{Name: "api", Container: "c0ffee", State: "running", Status: "Up 2 minutes",
+				Health: "unknown", Managed: true},
+			{Name: "postgres", Container: "cafe", State: "running", Status: "Up 12 minutes",
+				Health: "healthy"},
+		},
+	}
+
+	view := runtimeScreen(t, backend, task).View()
+	for _, required := range []string{"postgres", "dependency", "configured", "removes it with the rest"} {
 		if !strings.Contains(view, required) {
 			t.Errorf("the runtime screen does not show %q:\n%s", required, view)
 		}

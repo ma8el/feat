@@ -28,8 +28,41 @@ func runtimeStatus() api.RuntimeStatus {
 			},
 		},
 		Services: []api.RuntimeService{
-			{Name: "api", Container: "c0ffee", State: "running", Status: "Up 2 seconds", Health: "unknown"},
+			{Name: "api", Container: "c0ffee", State: "running", Status: "Up 2 seconds",
+				Health: "unknown", Managed: true},
 		},
+	}
+}
+
+// TestADependencyIsShownAndSaidToBeOne keeps a container of the task in front of
+// the user whether or not the project named it.
+//
+// Compose starts what a configured service depends on, and Feat stops and
+// removes those with the rest. Printing only the configured ones is what let a
+// database run on unnoticed; printing them without saying where they came from
+// would leave a user wondering what Feat had invented.
+func TestADependencyIsShownAndSaidToBeOne(t *testing.T) {
+	status := runtimeStatus()
+	status.Services = append(status.Services, api.RuntimeService{
+		Name: "postgres", Container: "cafe", State: "running", Status: "Up 12 seconds", Health: "healthy",
+	})
+
+	var out bytes.Buffer
+	printRuntime(&out, status)
+	printed := out.String()
+
+	for _, required := range []string{"postgres", "dependency", "configured", "removes it with the rest"} {
+		if !strings.Contains(printed, required) {
+			t.Errorf("the summary does not mention %q:\n%s", required, printed)
+		}
+	}
+
+	// And a project that manages everything it defines is not given a column
+	// that would read "configured" all the way down.
+	out.Reset()
+	printRuntime(&out, runtimeStatus())
+	if strings.Contains(out.String(), "SOURCE") {
+		t.Errorf("a runtime with nothing to explain carries the column anyway:\n%s", out.String())
 	}
 }
 

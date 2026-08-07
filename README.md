@@ -93,6 +93,11 @@ feat runtime logs <task>      # the ordinary docker compose logs
 
 Press `R` in the dashboard for the same actions on the selected task.
 
+What you configure is what Feat starts; what your services need comes up with
+them. A database or a migration your services depend on is Compose's to start and
+the task's to own, so Feat shows it beside the rest, says it is there as a
+dependency, and stops and removes it with the others.
+
 The lifecycle is manual and stays that way. Nothing starts because a task was
 launched, nothing stops because it reached review, and approving a task offers
 to stop its services rather than doing it. Destroying removes that task's

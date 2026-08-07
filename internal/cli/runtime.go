@@ -254,14 +254,32 @@ func printRuntime(out io.Writer, status api.RuntimeStatus) {
 	printf(out, "compose project  %s\n", runtime.Identity)
 
 	if len(status.Services) > 0 {
+		// The source column appears only when there is something to say: most
+		// projects manage every service they define, and a column reading
+		// "configured" all the way down would be a column nobody reads.
+		dependencies := dependencies(status.Services)
+
 		rows := &table{}
-		rows.add("SERVICE", "STATE", "HEALTH", "STATUS")
+		if dependencies {
+			rows.add("SERVICE", "STATE", "HEALTH", "STATUS", "SOURCE")
+		} else {
+			rows.add("SERVICE", "STATE", "HEALTH", "STATUS")
+		}
 		for _, service := range status.Services {
-			rows.add(service.Name, valueOr(service.State, absent),
-				valueOr(service.Health, absent), valueOr(service.Status, absent))
+			cells := []string{service.Name, valueOr(service.State, absent),
+				valueOr(service.Health, absent), valueOr(service.Status, absent)}
+			if dependencies {
+				cells = append(cells, source(service))
+			}
+			rows.add(cells...)
 		}
 		printf(out, "\n")
 		rows.render(out, "")
+
+		if dependencies {
+			printf(out, "\na dependency is a service Compose started because a configured one needs it.\n")
+			printf(out, "It belongs to this task, and Feat starts, stops, and removes it with the rest.\n")
+		}
 	}
 
 	if len(runtime.Ports) > 0 {
@@ -287,6 +305,26 @@ func printRuntime(out io.Writer, status api.RuntimeStatus) {
 	for _, note := range status.Notes {
 		printf(out, "\nnote: %s\n", note)
 	}
+}
+
+// dependencies reports whether anything in the task's Compose project is there
+// because a configured service needs it.
+func dependencies(services []api.RuntimeService) bool {
+	for _, service := range services {
+		if !service.Managed {
+			return true
+		}
+	}
+	return false
+}
+
+// source says where a service came from, in the user's terms: the project's
+// configuration, or another service's needs.
+func source(service api.RuntimeService) string {
+	if service.Managed {
+		return "configured"
+	}
+	return "dependency"
 }
 
 // valueOr renders a value, or the absent marker when it is empty.

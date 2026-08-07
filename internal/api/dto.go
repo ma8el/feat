@@ -463,6 +463,11 @@ type RuntimeService struct {
 	Health string `json:"health"`
 	// ExitCode is the exit status of a service that has stopped.
 	ExitCode int `json:"exit_code,omitempty"`
+	// Managed reports whether the project's runtime.services names this one. A
+	// service that it does not name is one Compose started because a managed
+	// service depends on it; it belongs to this task's Compose project all the
+	// same, and Feat stops and removes it with the rest.
+	Managed bool `json:"managed"`
 }
 
 // RuntimeAction is one manual lifecycle action a user asked for.
@@ -511,9 +516,11 @@ type DestroyRuntime struct {
 type RuntimeStatus struct {
 	// Task is the task as it is now recorded, carrying its runtime.
 	Task Task `json:"task"`
-	// Services are what was observed, one entry per configured service. A
-	// service with no container is reported as one, because a runtime missing
-	// half its services is not a runtime that is running.
+	// Services are what was observed: one entry per configured service, so that
+	// a service with no container is reported as one — a runtime missing half
+	// its services is not a runtime that is running — followed by everything
+	// else in the task's Compose project, which is everything Compose started
+	// because a configured service depends on it.
 	Services []RuntimeService `json:"services"`
 	// Notes are what a user should know about what they just started, in Feat's
 	// terms rather than the container runtime's. They are observations of the

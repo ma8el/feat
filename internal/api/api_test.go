@@ -214,7 +214,14 @@ func (f *fakeService) Runtime(_ context.Context, id domain.TaskID, action Runtim
 			return RuntimeResult{
 				Task: task,
 				Services: []RuntimeService{
-					{Name: "api", Container: "c0ffee", State: "running", Status: "Up 2 seconds", Health: "unknown"},
+					{Name: "api", Container: "c0ffee", State: "running", Status: "Up 2 seconds",
+						Health: "unknown", Managed: true},
+					// A service the project does not name, which Compose started
+					// because a managed one depends on it. It is in the published
+					// body because it is in the task's Compose project, and Feat
+					// stops and removes it with the rest.
+					{Name: "postgres", Container: "cafe", State: "running", Status: "Up 12 seconds",
+						Health: "healthy"},
 				},
 			}, nil
 		}

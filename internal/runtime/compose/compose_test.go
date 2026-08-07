@@ -97,6 +97,72 @@ func TestTheGeneratedOverrideIsPinned(t *testing.T) {
 	}
 }
 
+// dependent arranges a project whose managed service needs two others, which is
+// the ordinary shape of an application: a database, a migration that must finish
+// first, and the service the project actually names.
+func dependent(t *testing.T) (*compose.Runtime, runtime.Spec, *runtimetest.Docker) {
+	t.Helper()
+
+	docker := runtimetest.New().
+		Answer("config --services", "postgres\nmigrate\napi\n").
+		Answer("ps --all --format json",
+			runtimetest.Container("api", "c1", "running", "Up 2 seconds")+"\n"+
+				runtimetest.Container("postgres", "c2", "running", "Up 12 seconds")+"\n"+
+				runtimetest.Container("migrate", "c3", "exited", "Exited (0) 10 seconds ago")).
+		Answer("inspect --type container --format {{json .Mounts}} c2", `[]`).
+		Answer("inspect --type container --format {{json .Mounts}} c3", `[]`)
+
+	services, spec := arrange(t, docker)
+	return services, spec, docker
+}
+
+// TestTheGeneratedOverrideCoversEveryServiceInTheProject pins what Feat writes
+// for a service it was not asked to manage.
+//
+// Compose starts whatever a managed service depends on, and everything it starts
+// lands in this task's project. A base file's fixed container_name is global to
+// the Docker daemon, so leaving one in place on a dependency puts the whole
+// project back to one task per machine — the thing the generated override exists
+// to prevent. What such a service gets is exactly that reset and the ownership
+// labels: the project did not ask Feat to manage it, so Feat redirects nothing
+// about it.
+func TestTheGeneratedOverrideCoversEveryServiceInTheProject(t *testing.T) {
+	services, spec, _ := dependent(t)
+
+	if _, err := services.Start(context.Background()); err != nil {
+		t.Fatalf("starting: %v", err)
+	}
+	written, err := os.ReadFile(spec.OverridePath)
+	if err != nil {
+		t.Fatalf("reading the generated override: %v", err)
+	}
+
+	golden := filepath.Join("testdata", "override-dependencies.golden")
+	if *update {
+		if err := os.WriteFile(golden, written, 0o600); err != nil {
+			t.Fatalf("updating the golden file: %v", err)
+		}
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("reading the golden file: %v", err)
+	}
+	if string(written) != string(want) {
+		t.Errorf("the generated override changed\n got:\n%s\nwant:\n%s", written, want)
+	}
+
+	// The properties the golden happens to show, said as themselves, so that a
+	// deliberate update to the document cannot quietly drop one.
+	document := string(written)
+	if count := strings.Count(document, "container_name: !reset null"); count != 3 {
+		t.Errorf("%d services have their container_name reset, want 3: a dependency keeping a fixed "+
+			"name is a second task that cannot start\n%s", count, document)
+	}
+	if strings.Contains(document, `"postgres":`+"\n    volumes:") {
+		t.Errorf("the override mounts a task worktree into a service the project does not manage:\n%s", document)
+	}
+}
+
 // TestTheOverrideResetsTheNameAndKeepsThePorts is the decision ADR-034 records,
 // as a test.
 //
@@ -244,7 +310,7 @@ func TestAskingARuntimeThatWasNeverCreated(t *testing.T) {
 		t.Errorf("the observed state is %q", state.Lifecycle)
 	}
 
-	vector, found := docker.Vector("ps --all --format json api")
+	vector, found := docker.Vector("ps --all --format json")
 	if !found {
 		t.Fatalf("no state was asked for: %v", docker.Calls())
 	}
@@ -279,12 +345,12 @@ func TestLogsOpenNormalComposeOutput(t *testing.T) {
 		t.Errorf("the logs command runs %s, want %s", invocation.Program, compose.Executable)
 	}
 	joined := strings.Join(invocation.Arguments, " ")
-	for _, required := range []string{"compose", "--project-name " + spec.Identity, "logs --follow api"} {
+	for _, required := range []string{"compose", "--project-name " + spec.Identity, "logs --follow"} {
 		if !strings.Contains(joined, required) {
 			t.Errorf("the logs command does not contain %q: %v", required, invocation.Arguments)
 		}
 	}
-	if docker.Ran("logs --follow api") {
+	if docker.Ran("logs --follow") {
 		t.Error("the adapter ran the logs command itself; the client runs it with its own terminal")
 	}
 }
@@ -318,6 +384,47 @@ func TestDestroyRetainsVolumesAndExternalResources(t *testing.T) {
 	}
 	if !slices.Contains(state.Volumes, "feat-app-11111111_pgdata") {
 		t.Errorf("destroy did not report the volume it retained: %v", state.Volumes)
+	}
+}
+
+// TestStoppingReachesEverythingStartingStarted is the defect a real project
+// found, as a test.
+//
+// A stop that named the managed services stopped exactly the containers Feat had
+// asked Compose for and left the ones Compose started to satisfy them: a
+// database still up, still holding its published port, absent from every status
+// Feat printed, and stopped by nothing short of a destroy. What starting brings
+// up, stopping takes down — so a stop names no service and addresses the task's
+// whole Compose project (ADR-034 evidence 12).
+func TestStoppingReachesEverythingStartingStarted(t *testing.T) {
+	services, _, docker := dependent(t)
+	ctx := context.Background()
+
+	if _, err := services.Start(ctx); err != nil {
+		t.Fatalf("starting: %v", err)
+	}
+	if _, err := services.Stop(ctx); err != nil {
+		t.Fatalf("stopping: %v", err)
+	}
+
+	vector, found := docker.Vector("stop")
+	if !found {
+		t.Fatalf("no stop command was run; calls were %v", docker.Calls())
+	}
+	if last := vector[len(vector)-1]; last != "stop" {
+		t.Errorf("the stop command names %q after the action, so it reaches some of the task's containers "+
+			"and not others: %v", last, vector)
+	}
+
+	// The same for the logs and the observation: what a user is shown is the
+	// project, because the project is what Feat brought into existence.
+	invocation, err := services.Logs(ctx)
+	if err != nil {
+		t.Fatalf("building the logs command: %v", err)
+	}
+	if last := invocation.Arguments[len(invocation.Arguments)-1]; last != "--follow" {
+		t.Errorf("the logs command names %q last, so it hides the service a user needs when a managed "+
+			"one will not start: %v", last, invocation.Arguments)
 	}
 }
 

@@ -9,6 +9,12 @@
 # It also mounts a directory at the path a task worktree will be mounted at, so
 # that Compose's merge-by-target behaviour is proved against real Docker rather
 # than assumed. That is the mechanism the whole mount design rests on.
+#
+# Only `api` is a managed service. The other two are the ordinary shape of a real
+# application — something that must be up, and something that must have finished
+# — and Compose starts both because `api` says so. They carry fixed names of
+# their own, so a test that starts two tasks proves the generated override
+# reaches a service the project never named.
 services:
   api:
     image: alpine:3.20
@@ -18,3 +24,22 @@ services:
     container_name: feat-runtime-test-fixed-name
     volumes:
       - ./base-mount:/srv/api
+    depends_on:
+      store:
+        condition: service_started
+      prepare:
+        condition: service_completed_successfully
+
+  store:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    container_name: feat-runtime-test-dependency
+
+  # A one-shot dependency: it does its job and exits, which is what a migration
+  # looks like and what the aggregation table must not read as a broken
+  # application.
+  prepare:
+    image: alpine:3.20
+    command: ["true"]
+    container_name: feat-runtime-test-one-shot
+    restart: "no"

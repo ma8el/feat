@@ -687,6 +687,26 @@ Package layout gained no new package: `internal/runtime` and
 `internal/runtime/compose` were reserved by slice 0. `internal/paths` gained the
 runtime root. See ADR-034.
 
+A fourth defect was found by using the slice on a real application, and it is
+recorded as ADR-034 evidence 12. `runtime.services` was read as the whole of what
+exists, when it is only what a create and a start target: Compose starts whatever
+those services depend on, so a project managing `api` and `nginx` had four
+containers, and a stop that named its two managed services left a database
+running, holding a host port, and absent from every status Feat printed. The
+services Compose had started alongside also kept the fixed `container_name` their
+base file gives them, so a second task could not have started at all — the one
+thing a per-task Compose project exists to prevent, reintroduced by the services
+nobody had listed.
+
+Stop, status, logs, and destroy now address the task's Compose project and name
+no service, the generated override reaches every service the project defines, and
+a status says which services the project named and which are there because
+another needs them. The aggregation table gained one row with it: a service
+Compose started alongside a managed one counts unless it exited cleanly, so a
+one-shot migration doing its job is not a degraded application. The opt-in suite
+grew a fixture with both kinds of dependency, and two tests that fail against the
+behaviour they replaced.
+
 ## Slice 10 — Notifications and resources
 
 ### Outcome

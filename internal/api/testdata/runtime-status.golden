@@ -125,7 +125,16 @@
       "container": "c0ffee",
       "state": "running",
       "status": "Up 2 seconds",
-      "health": "unknown"
+      "health": "unknown",
+      "managed": true
+    },
+    {
+      "name": "postgres",
+      "container": "cafe",
+      "state": "running",
+      "status": "Up 12 seconds",
+      "health": "healthy",
+      "managed": false
     }
   ],
   "notes": []

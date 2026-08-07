@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ma8el/feat/internal/domain"
@@ -23,8 +24,14 @@ const composeProjectLabel = "com.docker.compose.project"
 //
 // It starts nothing. A stopped service is reported as stopped and stays stopped,
 // which is what FR-STATE-004 requires of every observation Feat makes.
+//
+// It asks about the whole Compose project rather than about the managed
+// services. Everything in the project is there because Feat acted, and a
+// container Feat started and never shows is one nobody can act on: the state
+// said stopped while a database of that task was up and holding its port
+// (ADR-034 evidence 12).
 func (r *Runtime) Observe(ctx context.Context) (runtime.State, error) {
-	output, err := r.runner.Run(ctx, r.invoke(r.services("ps", "--all", "--format", "json")...))
+	output, err := r.runner.Run(ctx, r.invoke("ps", "--all", "--format", "json"))
 	if err != nil {
 		return runtime.State{}, err
 	}
@@ -146,10 +153,20 @@ func parseContainers(output string) ([]container, error) {
 // state means is a product decision, and a product decision should be readable
 // as itself rather than reconstructed from the order of a few if statements.
 //
-// The services are the configured ones, in configured order, so a service that
-// has no container at all is reported as such rather than omitted — a runtime
-// missing half its services is not a runtime that is running.
-func aggregate(services []string, containers []container) runtime.State {
+// The managed services come first, in configured order, so a service that has no
+// container at all is reported as such rather than omitted — a runtime missing
+// half its services is not a runtime that is running. Everything else Compose
+// started to satisfy them follows, sorted, marked as unmanaged, and reported
+// with the same detail: it belongs to this task and this task alone.
+//
+// An unmanaged service counts towards the aggregate state unless it exited
+// cleanly. A one-shot migration that has done its job is the ordinary path of
+// every project that uses service_completed_successfully, and a runtime that
+// called itself degraded every time one succeeded would be a state people learn
+// to ignore — the same reason stoppedByASignal exists. A dependency that is up,
+// restarting, or failed is another matter: the application is partly there, or
+// broken, and neither is something to leave to the table below.
+func aggregate(managed []string, containers []container) runtime.State {
 	observed := make(map[string]container, len(containers))
 	for _, one := range containers {
 		// A service with several containers is a scaled service, which v0 does
@@ -163,37 +180,28 @@ func aggregate(services []string, containers []container) runtime.State {
 	state := runtime.State{Lifecycle: domain.RuntimeAbsent, Health: domain.HealthUnknown}
 	var counts tally
 
-	for _, service := range services {
+	for _, service := range managed {
 		one, found := observed[service]
 		if !found {
 			state.Services = append(state.Services, runtime.ServiceState{
-				Name: service, Health: domain.HealthUnknown,
+				Name: service, Health: domain.HealthUnknown, Managed: true,
 			})
 			counts.missing++
 			continue
 		}
-
-		health := healthOf(one)
-		state.Services = append(state.Services, runtime.ServiceState{
-			Name:      service,
-			Container: one.ID,
-			State:     one.State,
-			Status:    one.Status,
-			Health:    health,
-			ExitCode:  one.ExitCode,
-		})
 		state.Present = true
-		counts.add(one, health)
+		state.Services = append(state.Services, serviceState(service, one, true))
+		state.Ports = append(state.Ports, published(service, one)...)
+		counts.add(one, healthOf(one))
+	}
 
-		for _, published := range one.Publisher {
-			if published.PublishedPort == 0 {
-				continue
-			}
-			state.Ports = append(state.Ports, domain.PortAssignment{
-				Service:       service,
-				ContainerPort: published.TargetPort,
-				HostPort:      published.PublishedPort,
-			})
+	for _, service := range unmanaged(managed, containers) {
+		one := observed[service]
+		state.Present = true
+		state.Services = append(state.Services, serviceState(service, one, false))
+		state.Ports = append(state.Ports, published(service, one)...)
+		if !finished(one) {
+			counts.add(one, healthOf(one))
 		}
 	}
 
@@ -202,6 +210,71 @@ func aggregate(services []string, containers []container) runtime.State {
 	}
 	state.Lifecycle, state.Health = counts.resolve()
 	return state
+}
+
+// serviceState is one observed service, in the domain's terms.
+func serviceState(name string, one container, managed bool) runtime.ServiceState {
+	return runtime.ServiceState{
+		Name:      name,
+		Container: one.ID,
+		State:     one.State,
+		Status:    one.Status,
+		Health:    healthOf(one),
+		ExitCode:  one.ExitCode,
+		Managed:   managed,
+	}
+}
+
+// unmanaged names the observed services the project did not ask Feat to manage,
+// sorted so that a state file and a printed table are the same every time.
+func unmanaged(managed []string, containers []container) []string {
+	seen := make(map[string]bool, len(managed))
+	for _, service := range managed {
+		seen[service] = true
+	}
+
+	var rest []string
+	for _, one := range containers {
+		if one.Service == "" || seen[one.Service] {
+			continue
+		}
+		seen[one.Service] = true
+		rest = append(rest, one.Service)
+	}
+	slices.Sort(rest)
+	return rest
+}
+
+// published are the host publications of one container, without the repeats.
+//
+// Docker publishes a port on IPv4 and on IPv6 and reports each binding
+// separately, so the same port arrives twice and was printed twice.
+func published(service string, one container) []domain.PortAssignment {
+	var ports []domain.PortAssignment
+
+	for _, publication := range one.Publisher {
+		if publication.PublishedPort == 0 {
+			continue
+		}
+		assignment := domain.PortAssignment{
+			Service:       service,
+			ContainerPort: publication.TargetPort,
+			HostPort:      publication.PublishedPort,
+		}
+		if !slices.Contains(ports, assignment) {
+			ports = append(ports, assignment)
+		}
+	}
+	return ports
+}
+
+// finished reports whether a container ran and ended without a failure, which is
+// what a one-shot dependency looks like once it has done its job.
+func finished(one container) bool {
+	if !strings.EqualFold(one.State, "exited") {
+		return strings.Contains(strings.ToLower(one.Status), "exited (0)")
+	}
+	return stoppedByASignal(one.ExitCode)
 }
 
 // tally counts the observed containers by the thing each count decides.

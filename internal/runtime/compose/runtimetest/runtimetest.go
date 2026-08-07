@@ -58,11 +58,12 @@ func New() *Docker {
 	}
 	return d.
 		Answer("version --short", "5.1.4").
+		Answer("config --services", "api").
 		Answer("up --detach api", "").
 		Answer("create api", "").
-		Answer("stop api", "").
+		Answer("stop", "").
 		Answer("down", "").
-		Answer("ps --all --format json api", Container("api", "c0ffee", "running", "Up 2 seconds")).
+		Answer("ps --all --format json", Container("api", "c0ffee", "running", "Up 2 seconds")).
 		Answer("network ls --filter label=com.docker.compose.project=feat-app-11111111 --format {{.Name}}", "").
 		Answer("volume ls --filter label=com.docker.compose.project=feat-app-11111111 --format {{.Name}}", "").
 		Answer("inspect --type container --format {{json .Mounts}} c0ffee", `[]`)

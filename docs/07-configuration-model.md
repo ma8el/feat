@@ -199,6 +199,16 @@ Runtime resources are either:
 - `external`: referenced but never provisioned or destroyed by Feat;
 - later `shared`: product-managed but shared with explicit isolation semantics.
 
+`runtime.services` names the services a create and a start target. It is not the
+whole of what runs: Compose starts whatever those services depend on, and
+everything it starts belongs to the task's own Compose project. Feat therefore
+owns all of it — a stop, a status, a logs, and a destroy address the project
+rather than the list — and a status says which services the project named and
+which are there because another service needs them. A service Feat was not asked
+to manage is not given the task's worktrees or the generated variables; it is
+given its `container_name` reset and Feat's ownership labels, without which two
+tasks could not run the same application at once (ADR-034).
+
 The reference staging PostgreSQL databases are external. Feat generates the
 value of an external resource's `selector_variable` — the task key, which is
 short, unique, safe in a name, and not a secret — and sets it on every managed
@@ -256,14 +266,17 @@ one task per machine is not the product. The reset is stated in the task detail
 rather than done quietly, and it applies only to the service the agent runs in.
 
 The application runtime's generated override resets `container_name` on every
-managed service and leaves published `ports` exactly as the project configured
-them. A container name is Feat's problem and a published port is how the user
-reaches the application they are testing, and v0 allocates no ports of its own:
-two tasks that both want one host port is explained in Feat's terms rather than
-prevented by making the application unreachable. It also mounts each task
-worktree at the container path its repository configures, and carries the
-generated non-secret variables — the project and task identifiers, the Compose
-project name, and each external resource's selector. See ADR-034.
+service the project's Compose files define and leaves published `ports` exactly
+as the project configured them. A container name is Feat's problem and a
+published port is how the user reaches the application they are testing, and v0
+allocates no ports of its own: two tasks that both want one host port is
+explained in Feat's terms rather than prevented by making the application
+unreachable. It also mounts each task worktree at the container path its
+repository configures, and carries the generated non-secret variables — the
+project and task identifiers, the Compose project name, and each external
+resource's selector. Those last two apply to the managed services only: a service
+Feat was not asked to manage gets the reset and the ownership labels and nothing
+else. See ADR-034.
 
 Resetting requires Docker Compose 2.24 or later, which `feat doctor` checks.
 

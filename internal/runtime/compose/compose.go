@@ -132,7 +132,11 @@ func (r *Runtime) Start(ctx context.Context) (runtime.State, error) {
 // bring runs a command that creates or starts, writing the generated override
 // first and observing the result afterwards.
 func (r *Runtime) bring(ctx context.Context, action string, arguments ...string) (runtime.State, error) {
-	if err := writeOverride(r.spec); err != nil {
+	defined, err := r.defined(ctx)
+	if err != nil {
+		return runtime.State{}, err
+	}
+	if err := writeOverride(r.spec, defined); err != nil {
 		return runtime.State{}, err
 	}
 
@@ -156,8 +160,14 @@ func (r *Runtime) bring(ctx context.Context, action string, arguments ...string)
 // `stop` rather than `down`: stopping is reversible and removes nothing, and the
 // user who asked for it is testing an application rather than tidying up after
 // one.
+//
+// It names no services, so it stops the whole of this task's Compose project.
+// Naming the managed ones stopped exactly the containers Feat asked Compose for
+// and left the ones Compose started to satisfy them — a database still running,
+// still holding its published port, invisible to every status Feat printed, and
+// stopped by nothing short of a destroy (ADR-034 evidence 12).
 func (r *Runtime) Stop(ctx context.Context) (runtime.State, error) {
-	output, err := r.runner.Run(ctx, r.invoke(r.services("stop")...))
+	output, err := r.runner.Run(ctx, r.invoke("stop"))
 	if err != nil {
 		return runtime.State{}, err
 	}
@@ -212,17 +222,59 @@ func (r *Runtime) Destroy(ctx context.Context) (runtime.State, error) {
 //
 // Feat does not aggregate, persist, or re-render them (FR-RUN-006). The client
 // runs this with its own terminal, exactly as it runs native tmux for attach.
+//
+// The whole project, for the reason Stop takes it: the log a user needs when a
+// managed service will not start is usually the one written by the service it
+// waits for.
 func (r *Runtime) Logs(_ context.Context) (runtime.Invocation, error) {
-	return r.invoke(r.services("logs", "--follow")...), nil
+	return r.invoke("logs", "--follow"), nil
 }
 
-// services appends the task's configured services to a command.
+// services appends the task's managed services to a command.
+//
+// Only create and start take them. They are what Compose is asked to bring up,
+// and Compose brings up whatever those depend on as well; every other action
+// addresses the project, because everything in it is there because Feat acted.
 //
 // Nothing variadic is ever left before a positional argument elsewhere in Feat;
 // here the services are the positional arguments and they always come last, so
 // no flag can swallow one (ADR-032 evidence 12).
 func (r *Runtime) services(arguments ...string) []string {
 	return append(arguments, r.spec.Services...)
+}
+
+// defined asks Compose which services this task's project defines.
+//
+// Feat targets the managed services and Compose starts what they depend on, so
+// the project holds more services than the project file names. Every one of them
+// needs its container_name reset and its ownership labels, or the base file's
+// fixed name is global to the Docker daemon again and the second task to start
+// collides with the first — which is the one thing a per-task Compose project
+// exists to prevent.
+//
+// It reads names and nothing else. `docker compose config` renders the whole
+// project including the values of its environment files, which Feat never reads;
+// --services prints one service name per line. The generated override is left
+// out of the file list on purpose, so that a stale one cannot reintroduce a
+// service the project has since removed.
+func (r *Runtime) defined(ctx context.Context) ([]string, error) {
+	output, err := r.runner.Run(ctx, r.compose(false, "config", "--services"))
+	if err != nil {
+		return nil, err
+	}
+	if !output.Succeeded() {
+		reported := lastLine(output.Stderr, output.Stdout)
+		return nil, fmt.Errorf("reading the services of task %s from its Compose files failed: %s%s",
+			r.spec.Task, reported, r.explain(reported))
+	}
+
+	var names []string
+	for line := range strings.SplitSeq(output.Stdout, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			names = append(names, trimmed)
+		}
+	}
+	return names, nil
 }
 
 // invoke builds one Compose command for this task's project.
@@ -237,6 +289,13 @@ func (r *Runtime) services(arguments ...string) []string {
 // static overrides, then Feat's generated one last. Environment files are passed
 // by path and never read (docs/05-security-model.md).
 func (r *Runtime) invoke(arguments ...string) runtime.Invocation {
+	return r.compose(true, arguments...)
+}
+
+// compose builds one Compose command, with or without Feat's generated
+// override. Only the command that asks which services the project defines
+// leaves it out; see defined.
+func (r *Runtime) compose(generated bool, arguments ...string) runtime.Invocation {
 	base := []string{
 		"compose",
 		"--project-name", r.spec.Identity,
@@ -248,13 +307,16 @@ func (r *Runtime) invoke(arguments ...string) runtime.Invocation {
 	for _, file := range r.spec.StaticOverrides {
 		base = append(base, "--file", file)
 	}
-	if _, err := os.Stat(r.spec.OverridePath); err == nil {
-		// Only when it is there. Every action that creates something writes it
-		// first, so this is never the path a start takes; what it covers is
-		// asking a runtime that has never been created what it is doing, which is
-		// the first thing a user does and which Compose would otherwise refuse
-		// with "no such file or directory" about a document Feat generates.
-		base = append(base, "--file", r.spec.OverridePath)
+	if generated {
+		if _, err := os.Stat(r.spec.OverridePath); err == nil {
+			// Only when it is there. Every action that creates something writes it
+			// first, so this is never the path a start takes; what it covers is
+			// asking a runtime that has never been created what it is doing, which
+			// is the first thing a user does and which Compose would otherwise
+			// refuse with "no such file or directory" about a document Feat
+			// generates.
+			base = append(base, "--file", r.spec.OverridePath)
+		}
 	}
 	for _, file := range r.spec.EnvFiles {
 		base = append(base, "--env-file", file)

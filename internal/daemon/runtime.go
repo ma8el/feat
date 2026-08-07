@@ -508,6 +508,7 @@ func serviceStates(state runtime.State) []api.RuntimeService {
 			Status:    service.Status,
 			Health:    string(service.Health),
 			ExitCode:  service.ExitCode,
+			Managed:   service.Managed,
 		})
 	}
 	return services

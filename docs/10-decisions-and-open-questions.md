@@ -773,8 +773,9 @@ Decisions:
   refusing would stop a project whose own Compose file mounts a checkout Feat
   has no task worktree for. The note names the service and the repository, so
   the silent version of the failure does not exist.
-- `container_name` is reset for every managed service and published `ports` are
-  left exactly as configured. A port two tasks both want is explained in Feat's
+- `container_name` is reset for every service in the task's Compose project — the
+  managed ones and, since evidence 12, everything Compose starts alongside them —
+  and published `ports` are left exactly as configured. A port two tasks both want is explained in Feat's
   terms — that this is the other task's runtime and that v0 allocates no ports —
   rather than passed through as a bind error. [07-configuration-model.md](07-configuration-model.md)
   gains the runtime half of the rule it currently states for the agent alone.
@@ -857,6 +858,50 @@ Both are the ADR-033 evidence-1 shape rather than the evidence-10 one: not a
 wrong answer read wrongly, but a correct implementation of something that had
 quietly stopped being the question. Each is now a test that fails against the
 behaviour it replaced.
+
+Amended a third time, after the slice was used on a real application:
+
+12. **A stop left a task's database running.** The user's project manages `api`
+    and `nginx`; `api` depends on a migration that depends on PostgreSQL, so
+    `docker compose up api nginx` started four containers. Every action then
+    named the managed services, so the stop stopped two of them. The database
+    stayed up, kept its published port — which is global to the host, so no
+    second task could ever have bound it — and appeared in no status Feat
+    printed, because `ps` named the same two services. Nothing short of a
+    destroy would have stopped it. The two containers Compose had started also
+    kept the fixed `container_name` their base file gives them, because the
+    generated override named only the managed services: the one thing a per-task
+    Compose project exists to prevent, reintroduced by the services nobody had
+    listed.
+
+Decision: `runtime.services` is what a create and a start *target*, and it is not
+what exists. Everything Compose starts to satisfy those services lands in the
+task's own Compose project, and everything in that project is there because Feat
+acted — so stop, status, logs, and destroy address the project and name no
+service, and the generated override reaches every service the project defines.
+A service the project did not name gets exactly two things: its `container_name`
+reset, and Feat's ownership labels. It is not given the task's worktrees or the
+generated variables, because the project did not ask Feat to manage it.
+
+The aggregation table gains one row with it: a service Compose started alongside
+a managed one counts towards the runtime's state unless it exited cleanly. A
+one-shot migration that has done its job is the ordinary path of every project
+that uses `service_completed_successfully`, and a runtime that reported `degraded`
+every time one succeeded would be the state-that-cries-wolf of evidence 9 again.
+One that is up, restarting, or failed does count, because then the application
+really is partly there or broken.
+
+Which services Compose will start is read with `docker compose config --services`
+against the project's own files, without the generated override so that a stale
+one cannot reintroduce a service the project has since removed. It prints service
+names and nothing else, so evidence 5 still holds: no value from an environment
+file is read.
+
+Two smaller things were fixed with it: a published port was listed once per
+protocol family, so the same port appeared twice on a screen whose purpose is
+telling a user where to reach their application; and a status showing a
+container the project never named now says where it came from, because a service
+appearing without explanation is a service a user has to go and investigate.
 
 The Slice 3 target-machine acceptance check was settled during slice 8, so slice
 9 is the first slice since slice 4 that starts with none outstanding.

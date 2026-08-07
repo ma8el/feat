@@ -385,6 +385,12 @@ The runtime Compose adapter accepts:
 
 v0 commands are explicit create/start/stop/status/logs/destroy actions. The adapter uses argument arrays and retains the exact Compose inputs in task state for reconciliation.
 
+The service subset is what a create and a start target. Compose starts whatever
+those services depend on, and everything it starts is in the task's own Compose
+project, so stop, status, logs, and destroy name no service and address the
+project — what starting starts, stopping stops. The generated override reaches
+every service the project defines for the same reason (ADR-034 evidence 12).
+
 Every action is a user's explicit request. No workflow transition, no
 reconciliation pass, and no agent reaches one: services start when a user asks,
 approval offers to stop them and never does, and a `runtime_requested` control

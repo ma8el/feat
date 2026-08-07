@@ -63,7 +63,7 @@ func runtimeDocker() *runtimetest.Docker {
 func (d *drafting) answerFor(task *domain.Task, state, status string) {
 	identity := "feat-app-" + task.Key().String()
 	d.runtimes.
-		Answer("ps --all --format json api", runtimetest.Container("api", "c0ffee", state, status)).
+		Answer("ps --all --format json", runtimetest.Container("api", "c0ffee", state, status)).
 		Answer("network ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}",
 			identity+"_default").
 		Answer("volume ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}",
@@ -144,13 +144,13 @@ func TestLogsOpenNormalComposeOutput(t *testing.T) {
 	}
 	joined := strings.Join(command.Arguments, " ")
 	for _, required := range []string{
-		"compose", "--project-name feat-app-" + task.Key().String(), "logs --follow api",
+		"compose", "--project-name feat-app-" + task.Key().String(), "logs --follow",
 	} {
 		if !strings.Contains(joined, required) {
 			t.Errorf("the logs command does not contain %q: %v", required, command.Arguments)
 		}
 	}
-	if arranged.runtimes.Ran("logs --follow api") {
+	if arranged.runtimes.Ran("logs --follow") {
 		t.Error("the daemon ran the logs command; the client runs it with its own terminal")
 	}
 }
@@ -518,7 +518,7 @@ func TestRecordedInputsWinWhileTheServicesExist(t *testing.T) {
 
 	arranged.act(t, task.ID, api.RuntimeStop)
 
-	vector, found := arranged.runtimes.Vector("stop api")
+	vector, found := arranged.runtimes.Vector("stop")
 	if !found {
 		t.Fatalf("no stop command was run: %v", arranged.runtimes.Calls())
 	}
@@ -539,7 +539,7 @@ func TestADestroyedRuntimePicksUpAFixedConfiguration(t *testing.T) {
 	arranged.act(t, task.ID, api.RuntimeStart)
 
 	// Destroy, with the fake reporting that nothing is left.
-	arranged.runtimes.Answer("ps --all --format json api", "")
+	arranged.runtimes.Answer("ps --all --format json", "")
 	arranged.act(t, task.ID, api.RuntimeDestroy)
 	if state := arranged.reload(t, task.ID).Runtime.State; state != domain.RuntimeAbsent {
 		t.Fatalf("the runtime is %q after destroy, want absent", state)

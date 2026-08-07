@@ -2,6 +2,7 @@ package compose_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,7 +17,7 @@ func observed(t *testing.T, services []string, answer string) runtime.State {
 	t.Helper()
 
 	docker := runtimetest.New().
-		Answer("ps --all --format json "+strings.Join(services, " "), answer).
+		Answer("ps --all --format json", answer).
 		Answer("network ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}", "").
 		Answer("volume ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}", "")
 
@@ -157,6 +158,91 @@ func TestWhatTheContainersSayIsWhatTheRuntimeIs(t *testing.T) {
 	}
 }
 
+// TestWhatComposeStartedAlongTheWayIsReported covers the services in a task's
+// project that the project did not name.
+//
+// Compose starts whatever a managed service depends on. Reporting only the
+// managed ones let a database keep running with the state reading "stopped", so
+// every container of the project is reported — and one that has finished cleanly
+// is reported without changing what the runtime is, because a one-shot migration
+// doing its job is the ordinary path and a state that cries wolf on the ordinary
+// path is one people learn to ignore.
+func TestWhatComposeStartedAlongTheWayIsReported(t *testing.T) {
+	running := runtimetest.Container("api", "c1", "running", "Up 2 seconds")
+
+	for name, testCase := range map[string]struct {
+		answer    string
+		lifecycle domain.RuntimeState
+		reported  []string
+	}{
+		"a dependency that finished its job": {
+			answer:    running + "\n" + runtimetest.Container("migrate", "c2", "exited", "Exited (0) ago"),
+			lifecycle: domain.RuntimeRunning,
+			reported:  []string{"api", "migrate"},
+		},
+		"a dependency that is up": {
+			answer:    running + "\n" + runtimetest.Container("postgres", "c2", "running", "Up 12 seconds"),
+			lifecycle: domain.RuntimeRunning,
+			reported:  []string{"api", "postgres"},
+		},
+		"a dependency that failed": {
+			answer: running + "\n" + `{"ID":"c2","Service":"migrate","State":"exited",` +
+				`"Status":"Exited (1) 3 seconds ago","ExitCode":1}`,
+			lifecycle: domain.RuntimeDegraded,
+			reported:  []string{"api", "migrate"},
+		},
+		"the state a stop used to leave behind": {
+			answer: `{"ID":"c1","Service":"api","State":"exited","Status":"Exited (0) ago"}` + "\n" +
+				runtimetest.Container("postgres", "c2", "running", "Up 12 seconds"),
+			lifecycle: domain.RuntimeDegraded,
+			reported:  []string{"api", "postgres"},
+		},
+		"sorted, so a printed table is the same table every time": {
+			answer: running + "\n" + runtimetest.Container("postgres", "c2", "running", "Up") + "\n" +
+				runtimetest.Container("migrate", "c3", "exited", "Exited (0) ago"),
+			lifecycle: domain.RuntimeRunning,
+			reported:  []string{"api", "migrate", "postgres"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			state := observed(t, []string{"api"}, testCase.answer)
+
+			if state.Lifecycle != testCase.lifecycle {
+				t.Errorf("lifecycle is %q, want %q", state.Lifecycle, testCase.lifecycle)
+			}
+
+			var reported []string
+			for _, service := range state.Services {
+				reported = append(reported, service.Name)
+				if managed := service.Name == "api"; service.Managed != managed {
+					t.Errorf("service %s reports managed=%t", service.Name, service.Managed)
+				}
+			}
+			if !slices.Equal(reported, testCase.reported) {
+				t.Errorf("the reported services are %v, want %v: a container of this task that Feat "+
+					"never shows is one nobody can act on", reported, testCase.reported)
+			}
+		})
+	}
+}
+
+// TestAPortIsReportedOnce keeps the same publication from being listed twice.
+//
+// Docker publishes a port on IPv4 and on IPv6 and reports each binding
+// separately, so `ps` returns the same host port twice and the runtime screen
+// printed it twice.
+func TestAPortIsReportedOnce(t *testing.T) {
+	state := observed(t, []string{"nginx"},
+		`{"ID":"c1","Service":"nginx","State":"running","Status":"Up","Publishers":[`+
+			`{"URL":"0.0.0.0","TargetPort":80,"PublishedPort":8000,"Protocol":"tcp"},`+
+			`{"URL":"::","TargetPort":80,"PublishedPort":8000,"Protocol":"tcp"}]}`)
+
+	if len(state.Ports) != 1 {
+		t.Fatalf("%d ports were reported, want 1: the same publication on IPv4 and IPv6 is one port a "+
+			"user can reach: %+v", len(state.Ports), state.Ports)
+	}
+}
+
 // TestComposeIsReadInBothOfItsShapes covers the two things Docker Compose has
 // printed for `ps --format json` across its versions.
 //
@@ -199,7 +285,7 @@ func TestPublishedPortsAreReportedFromTheRunningContainers(t *testing.T) {
 // is reported as stopped, and observing it never brings it back.
 func TestObservingStartsNothing(t *testing.T) {
 	docker := runtimetest.New().
-		Answer("ps --all --format json api", `{"ID":"c1","Service":"api","State":"exited","Status":"Exited (0)"}`).
+		Answer("ps --all --format json", `{"ID":"c1","Service":"api","State":"exited","Status":"Exited (0)"}`).
 		Answer("network ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}", "").
 		Answer("volume ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}", "")
 	services, _ := arrange(t, docker)
@@ -224,7 +310,7 @@ func TestObservingStartsNothing(t *testing.T) {
 // networks and volumes of a project that has nothing would be two more commands
 // per task per poll to confirm an absence.
 func TestAnAbsentRuntimeCostsOneCommand(t *testing.T) {
-	docker := runtimetest.New().Answer("ps --all --format json api", "")
+	docker := runtimetest.New().Answer("ps --all --format json", "")
 	services, _ := arrange(t, docker)
 
 	if _, err := services.Observe(context.Background()); err != nil {
