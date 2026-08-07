@@ -39,11 +39,18 @@ type Backend interface {
 	// CancelDraft abandons a draft.
 	CancelDraft(ctx context.Context, id string) (api.Task, error)
 
+	// Runtime performs one manual application-runtime action and reports what it
+	// observed. The dashboard never calls it on its own: v0 starts and stops
+	// application services only when the user asks (FR-RUN-005).
+	Runtime(ctx context.Context, id string, action api.RuntimeAction) (api.RuntimeStatus, error)
+
 	// AttachCommand yields this terminal to the task's agent pane until the
 	// user detaches.
 	AttachCommand(ctx context.Context, id string) (tea.ExecCommand, error)
 	// ShellCommand opens the task's shell pane in this terminal.
 	ShellCommand(ctx context.Context, id string) (tea.ExecCommand, error)
+	// LogsCommand yields this terminal to the task's normal Compose logs.
+	LogsCommand(ctx context.Context, id string) (tea.ExecCommand, error)
 	// EditorCommand opens a file in the user's editor.
 	EditorCommand(path string) (tea.ExecCommand, error)
 }

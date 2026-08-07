@@ -1,0 +1,12 @@
+{
+  "program": "/usr/local/bin/docker",
+  "arguments": [
+    "compose",
+    "--project-name",
+    "feat-example-7f3a1c2e",
+    "logs",
+    "--follow",
+    "api"
+  ],
+  "directory": "/repos/example/api"
+}

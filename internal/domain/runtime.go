@@ -143,6 +143,67 @@ func (r *RuntimeEnvironment) Validate(task TaskID) error {
 	return nil
 }
 
+// RuntimeInputs are the exact values a runtime was created from.
+//
+// They are recorded rather than recomputed because an action taken later must
+// reach the resources the task already owns, and the project's configuration may
+// have been edited since (docs/07-configuration-model.md).
+type RuntimeInputs struct {
+	Provider              string
+	Identity              string
+	ComposeFiles          []string
+	StaticOverrides       []string
+	GeneratedOverridePath string
+	EnvFiles              []string
+	Services              []string
+	ExternalResources     []ExternalResource
+}
+
+// NewRuntimeEnvironment records a task's application runtime before anything
+// exists for it.
+//
+// It starts absent with unknown health, which is what a runtime nothing has
+// created is: state and health are observations, and nothing has observed
+// anything yet.
+func NewRuntimeEnvironment(inputs RuntimeInputs) *RuntimeEnvironment {
+	runtime := &RuntimeEnvironment{State: RuntimeAbsent, Health: HealthUnknown}
+	runtime.apply(inputs)
+	return runtime
+}
+
+// ReplaceInputs re-resolves the runtime from current configuration.
+//
+// It is refused unless the runtime is absent — never created, or destroyed
+// since. While resources exist, the recorded inputs are what an action must act
+// on: a user who edits their Compose files with services running must not have
+// the next stop reach a different Compose project, and a user who fixed them
+// after destroying everything should get the fixed ones.
+func (r *RuntimeEnvironment) ReplaceInputs(inputs RuntimeInputs, now time.Time) error {
+	if r.State != RuntimeAbsent {
+		return &InvariantError{
+			Entity: "runtime",
+			ID:     r.Identity,
+			Rule:   "a runtime's recorded inputs are the ones its resources were created from",
+			Reason: "the runtime is " + string(r.State) + ", so its inputs can only change once it is absent",
+		}
+	}
+	r.apply(inputs)
+	r.ObservedAt = normalizeTime(now)
+	return nil
+}
+
+// apply copies the inputs onto the runtime, leaving every observation alone.
+func (r *RuntimeEnvironment) apply(inputs RuntimeInputs) {
+	r.Provider = inputs.Provider
+	r.Identity = inputs.Identity
+	r.ComposeFiles = inputs.ComposeFiles
+	r.StaticOverrides = inputs.StaticOverrides
+	r.GeneratedOverridePath = inputs.GeneratedOverridePath
+	r.EnvFiles = inputs.EnvFiles
+	r.Services = inputs.Services
+	r.ExternalResources = inputs.ExternalResources
+}
+
 // Observe records the runtime state and health a runtime adapter reported.
 //
 // Runtime state is an observation. A stopped runtime found during recovery is
@@ -168,4 +229,17 @@ func (r *RuntimeEnvironment) Observe(state RuntimeState, health HealthState, now
 	r.Health = health
 	r.ObservedAt = normalizeTime(now)
 	return nil
+}
+
+// ObserveResources records the ports, networks, and volumes an adapter saw.
+//
+// They are separate from Observe because they answer a different question. The
+// state says whether the application is up; these say what exists because of it,
+// which is what a user needs in order to reach the application and what cleanup
+// needs in order to explain what it would retain (FR-CLEAN-001, FR-CLEAN-004).
+func (r *RuntimeEnvironment) ObserveResources(ports []PortAssignment, networks, volumes []string, now time.Time) {
+	r.Ports = ports
+	r.Networks = networks
+	r.Volumes = volumes
+	r.ObservedAt = normalizeTime(now)
 }

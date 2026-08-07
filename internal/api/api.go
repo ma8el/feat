@@ -74,6 +74,14 @@ type Service interface {
 	// target. The daemon builds the command; the request carries an identifier
 	// and nothing to execute.
 	OpenShell(ctx context.Context, id domain.TaskID) (AttachInfo, error)
+	// Runtime performs one manual application-runtime action and reports what it
+	// observed. Every action is a user's explicit request: v0 starts application
+	// services only when asked, and no workflow transition reaches any of them
+	// (FR-RUN-005).
+	Runtime(ctx context.Context, id domain.TaskID, action RuntimeAction) (RuntimeResult, error)
+	// RuntimeLogs returns the host command that opens the task's normal Compose
+	// logs. Feat does not aggregate or persist them (FR-RUN-006).
+	RuntimeLogs(ctx context.Context, id domain.TaskID) (RuntimeCommand, error)
 	// Subscribe returns the event stream for one client. The channel is closed
 	// when the context ends, or when the subscriber fell too far behind, which
 	// the caller reports as a lost stream.
@@ -132,6 +140,15 @@ func NewHandler(opts Options) http.Handler {
 	}))
 	mux.Handle("/v1/tasks/{task_id}/shell", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.shell,
+	}))
+	// One endpoint per manual action, because each is a separate thing a user
+	// asks for and the path is what names it. Destroy is the only one carrying a
+	// body, and what it carries is the confirmation.
+	mux.Handle("/v1/tasks/{task_id}/runtime/{action}", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.runtime,
+	}))
+	mux.Handle("/v1/tasks/{task_id}/runtime/logs-info", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.runtimeLogs,
 	}))
 	mux.Handle("/v1/task-drafts", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.createDraft,
@@ -333,6 +350,92 @@ func (s *server) shell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, info)
+}
+
+// runtime performs one manual application-runtime action.
+//
+// The action is a path segment rather than a field, so an unknown one is a 404
+// on an endpoint that does not exist rather than a request that reached the
+// daemon carrying an instruction it had to interpret. Every action but destroy
+// takes no body at all: what a task's services are is the daemon's to resolve
+// from the project's configuration, never the caller's to supply.
+func (s *server) runtime(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "task_id")
+	if !ok {
+		return
+	}
+
+	action := RuntimeAction(r.PathValue("action"))
+	if !action.Valid() {
+		writeJSON(w, http.StatusNotFound, errorEnvelope{Error: Error{
+			Code: CodeNotFound,
+			Message: "no runtime action " + strconv.Quote(string(action)) + "; the actions are create, " +
+				"start, stop, status, destroy, and logs-info",
+		}})
+		return
+	}
+
+	if action == RuntimeDestroy {
+		var request DestroyRuntime
+		// An absent body is a request that confirms nothing, which is refused
+		// below with the message that explains what confirmation means here. A
+		// body that is present and malformed is still an error: a client that
+		// tried to say something should be told it was not understood.
+		if err := decodeBody(r, &request); err != nil && !errors.Is(err, io.EOF) {
+			s.fail(w, r, err)
+			return
+		}
+		if !request.Confirm {
+			// A request that removes something says that somebody meant it, which
+			// is the rule ADR-031 applied to launching a task: what is created is
+			// what was displayed, and what is removed is what was confirmed.
+			s.fail(w, r, fmt.Errorf("%w: destroying a task's application services needs an explicit "+
+				"confirmation. Volumes are retained either way", ErrInvalid))
+			return
+		}
+	} else if err := decodeEmptyBody(r); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	result, err := s.service.Runtime(r.Context(), id, action)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	services := result.Services
+	if services == nil {
+		services = []RuntimeService{}
+	}
+	notes := result.Notes
+	if notes == nil {
+		notes = []string{}
+	}
+	writeJSON(w, http.StatusOK, RuntimeStatus{
+		Task:     newTask(result.Task, nil),
+		Services: services,
+		Notes:    notes,
+	})
+}
+
+// runtimeLogs returns the command that opens the task's normal Compose logs.
+func (s *server) runtimeLogs(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "task_id")
+	if !ok {
+		return
+	}
+	if err := decodeEmptyBody(r); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	command, err := s.service.RuntimeLogs(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, command)
 }
 
 // createDraft records a new task draft.

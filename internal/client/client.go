@@ -121,6 +121,29 @@ func (c *Client) Shell(ctx context.Context, id string) (api.AttachInfo, error) {
 	return send[api.AttachInfo](ctx, c, "/tasks/"+url.PathEscape(id)+"/shell", struct{}{})
 }
 
+// Runtime performs one manual application-runtime action.
+//
+// Only the task and the action are named. Which services a task has, which
+// Compose files define them, and what the command turns out to be are the
+// daemon's to resolve, for the reason the shell endpoint takes nothing to
+// execute.
+func (c *Client) Runtime(ctx context.Context, id string, action api.RuntimeAction) (api.RuntimeStatus, error) {
+	path := "/tasks/" + url.PathEscape(id) + "/runtime/" + url.PathEscape(string(action))
+	if action == api.RuntimeDestroy {
+		return send[api.RuntimeStatus](ctx, c, path, api.DestroyRuntime{Confirm: true})
+	}
+	return send[api.RuntimeStatus](ctx, c, path, struct{}{})
+}
+
+// RuntimeLogs returns the command that opens the task's normal Compose logs.
+//
+// The caller runs it with its own terminal, and checks it first: the daemon is
+// the same user, and a client that ran whatever it was handed would be one
+// nobody could reason about (FR-RUN-006).
+func (c *Client) RuntimeLogs(ctx context.Context, id string) (api.RuntimeCommand, error) {
+	return send[api.RuntimeCommand](ctx, c, "/tasks/"+url.PathEscape(id)+"/runtime/logs-info", struct{}{})
+}
+
 // CreateDraft records a new task draft and creates nothing else.
 //
 // An imported Markdown brief is read by this process and sent as content: the

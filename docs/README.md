@@ -1,6 +1,6 @@
 # Feat Product Specification
 
-Status: accepted product direction; implementation started, slices 0 to 8 complete  
+Status: accepted product direction; implementation started, slices 0 to 9 complete  
 Working name: **Feat**  
 Primary CLI: `feat`  
 Initial implementation language: Go  
@@ -56,8 +56,12 @@ feat project show <project>
 feat task list
 feat attach <task>
 feat review <task>
+feat runtime create <task>
 feat runtime start <task>
 feat runtime stop <task>
+feat runtime status <task>
+feat runtime logs <task>
+feat runtime destroy <task> [--yes]
 feat cleanup <task>
 feat doctor
 feat daemon start|stop|status
@@ -67,6 +71,16 @@ feat daemon run
 `feat` without arguments opens the dashboard. `feat implement` opens task preparation and creates nothing until the user confirms the final task brief and repository selection. Confirming creates exactly what was displayed: a draft that changed since the plan was shown is refused rather than launched, and `--project` preselects the project without removing the confirmation. See ADR-031.
 
 `feat project add` takes the project's identifier, which is also its configuration file's name; the daemon reads the file from the configuration directory rather than from a path a caller supplies. See ADR-028.
+
+Every `<task>` above is a task's full identifier. Lists show the short key
+derived from it and no command accepts that key yet, which slice 13 corrects;
+the dashboard's task detail is where the full identifier is visible today.
+
+`feat runtime` carries the six manual actions FR-RUN-005 names. Each is an
+explicit user request: no workflow transition and no agent reaches one, and
+approval offers to stop a task's services rather than stopping them. Destroying
+asks for confirmation, retains every volume, and never touches a resource the
+project declares external. See ADR-034.
 
 `feat daemon run` is the foreground daemon that `feat daemon start` spawns, and the command a later launchd/systemd unit invokes. It is hidden from help because `feat daemon start` is the user-facing entry point; see ADR-027.
 

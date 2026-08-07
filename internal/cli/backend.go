@@ -69,6 +69,29 @@ func (b *backend) CancelDraft(ctx context.Context, id string) (api.Task, error) 
 	return b.client.CancelDraft(ctx, id)
 }
 
+// Runtime performs one manual application-runtime action.
+func (b *backend) Runtime(ctx context.Context, id string, action api.RuntimeAction) (api.RuntimeStatus, error) {
+	return b.client.Runtime(ctx, id, action)
+}
+
+// LogsCommand resolves the task's Compose logs command and returns it for the
+// dashboard to run while it has released the terminal.
+//
+// The command is checked here, where every other command the TUI runs is built,
+// so the TUI itself names no os/exec type and the rule keeping process execution
+// in adapters stays mechanical (ADR-031).
+func (b *backend) LogsCommand(ctx context.Context, id string) (tea.ExecCommand, error) {
+	command, err := b.client.RuntimeLogs(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	process, err := logsCommand(ctx, command)
+	if err != nil {
+		return nil, err
+	}
+	return execCommand{process}, nil
+}
+
 // AttachCommand resolves the task's live terminal and returns the native tmux
 // client for it.
 func (b *backend) AttachCommand(ctx context.Context, id string) (tea.ExecCommand, error) {

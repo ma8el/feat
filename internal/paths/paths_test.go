@@ -236,6 +236,12 @@ func TestLayoutPaths(t *testing.T) {
 		{"LockFile", layout.LockFile(), "/r/feat/daemon.lock"},
 		{"EndpointFile", layout.EndpointFile(), "/r/feat/endpoint.json"},
 		{"TmuxSocket", layout.TmuxSocket(), "/r/feat/tmux.sock"},
+		{"ControlRoot", layout.ControlRoot(), "/s/feat/control"},
+		{"ExecutionRoot", layout.ExecutionRoot(), "/s/feat/execution"},
+		// Separate from the execution root because the two adapters are: one
+		// decides what the agent's container reaches and the other what the
+		// application under development runs (ADR-034).
+		{"RuntimeRoot", layout.RuntimeRoot(), "/s/feat/runtime"},
 	} {
 		if test.got != test.want {
 			t.Errorf("%s = %q, want %q", test.name, test.got, test.want)

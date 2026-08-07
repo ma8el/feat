@@ -27,7 +27,11 @@ worktree, no branch, and no terminal until it is confirmed. Archived tasks,
 which a cancelled draft becomes, are counted rather than listed.
 
 Fields a later implementation slice delivers are shown as "-" rather than as a
-value that was never measured.`
+value that was never measured.
+
+The TASK column is the short key derived from a task's identifier. Commands that
+take a task take the whole identifier, which the dashboard's task detail shows;
+accepting the key is delivered by a later slice.`
 
 func newTaskCommand(env *environment) *cobra.Command {
 	cmd := &cobra.Command{

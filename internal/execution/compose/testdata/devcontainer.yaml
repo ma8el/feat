@@ -16,7 +16,10 @@ services:
     # the agent inside it.
     command: ["sleep", "infinity"]
     # Not root. The image has no such account, and a numeric identity is enough:
-    # what the security model constrains is the uid the agent runs as.
+    # what the security model constrains is the uid the agent runs as. This is
+    # only the uid of the process that keeps the container up; the agent's own
+    # comes from the spec, which the test sets to the uid that owns the worktrees
+    # it mounts.
     user: "1000:1000"
     container_name: feat-test-fixed-name
     ports:

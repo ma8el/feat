@@ -76,7 +76,15 @@ func TestExecuteExitCodes(t *testing.T) {
 
 		{"review", []string{"review", "abc123"}, ExitNotImplemented},
 		{"attach without a daemon", []string{"attach", "abc123"}, ExitNotRunning},
-		{"runtime start", []string{"runtime", "start", "abc123"}, ExitNotImplemented},
+
+		// Every runtime action reaches the daemon, so an absent one is the state
+		// each of them reports rather than a failure of the command.
+		{"runtime create without a daemon", []string{"runtime", "create", "abc123"}, ExitNotRunning},
+		{"runtime start without a daemon", []string{"runtime", "start", "abc123"}, ExitNotRunning},
+		{"runtime stop without a daemon", []string{"runtime", "stop", "abc123"}, ExitNotRunning},
+		{"runtime status without a daemon", []string{"runtime", "status", "abc123"}, ExitNotRunning},
+		{"runtime logs without a daemon", []string{"runtime", "logs", "abc123"}, ExitNotRunning},
+		{"runtime destroy without a daemon", []string{"runtime", "destroy", "abc123", "--yes"}, ExitNotRunning},
 
 		// Preparation and the task list need a daemon, which is a state rather
 		// than a failure. Preparation additionally needs a terminal, because

@@ -199,7 +199,30 @@ Runtime resources are either:
 - `external`: referenced but never provisioned or destroyed by Feat;
 - later `shared`: product-managed but shared with explicit isolation semantics.
 
-The reference staging PostgreSQL databases are external.
+`runtime.services` names the services a create and a start target. It is not the
+whole of what runs: Compose starts whatever those services depend on, and
+everything it starts belongs to the task's own Compose project. Feat therefore
+owns all of it — a stop, a status, a logs, and a destroy address the project
+rather than the list — and a status says which services the project named and
+which are there because another service needs them. A service Feat was not asked
+to manage is not given the task's worktrees or the generated variables; it is
+given its `container_name` reset and Feat's ownership labels, without which two
+tasks could not run the same application at once (ADR-034).
+
+The reference staging PostgreSQL databases are external. Feat generates the
+value of an external resource's `selector_variable` — the task key, which is
+short, unique, safe in a name, and not a secret — and sets it on every managed
+service. Naming a share is all it does: Feat never creates, migrates, or drops
+anything behind that name, and what a project makes of it is the project's
+(OQ-011).
+
+Every repository's `container_path` is used by the application runtime as well
+as by the devcontainer, so a project whose application Compose files mount a
+repository somewhere else adds a second mount instead of replacing one, and its
+services run the user's ordinary checkout rather than the task's worktree. Feat
+inspects the started containers and reports that in its own terms rather than
+refusing the start: the application runtime is inside the trusted host, so it is
+a correctness problem rather than a boundary breach (ADR-034).
 
 ### Secrets
 
@@ -240,9 +263,20 @@ the agent service, unconditionally and in that document rather than by
 inspection. Both are global — a container name to the Docker daemon, a published
 port to the host — so a base file carrying either cannot be started twice, and
 one task per machine is not the product. The reset is stated in the task detail
-rather than done quietly, and it applies only to the service the agent runs in:
-published ports belong to the application runtime, which is a separate Compose
-project with its own identity.
+rather than done quietly, and it applies only to the service the agent runs in.
+
+The application runtime's generated override resets `container_name` on every
+service the project's Compose files define and leaves published `ports` exactly
+as the project configured them. A container name is Feat's problem and a
+published port is how the user reaches the application they are testing, and v0
+allocates no ports of its own: two tasks that both want one host port is
+explained in Feat's terms rather than prevented by making the application
+unreachable. It also mounts each task worktree at the container path its
+repository configures, and carries the generated non-secret variables — the
+project and task identifiers, the Compose project name, and each external
+resource's selector. Those last two apply to the managed services only: a service
+Feat was not asked to manage gets the reset and the ownership labels and nothing
+else. See ADR-034.
 
 Resetting requires Docker Compose 2.24 or later, which `feat doctor` checks.
 

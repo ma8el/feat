@@ -14,7 +14,11 @@ feat project list
 feat project show <project>
 feat review <task>
 feat runtime
+feat runtime create <task>
+feat runtime destroy <task> [--yes]
+feat runtime logs <task>
 feat runtime start <task>
+feat runtime status <task>
 feat runtime stop <task>
 feat task
 feat task list

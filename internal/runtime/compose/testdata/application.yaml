@@ -1,0 +1,45 @@
+# An application definition for the opt-in tests, deliberately awkward.
+#
+# It carries a fixed container name, which is global to the Docker daemon and
+# which the generated override must reset, so that two tasks can run these
+# services at once. It publishes no port on purpose: v0 allocates none, a
+# published port is global to the host, and the tests below run two tasks side
+# by side.
+#
+# It also mounts a directory at the path a task worktree will be mounted at, so
+# that Compose's merge-by-target behaviour is proved against real Docker rather
+# than assumed. That is the mechanism the whole mount design rests on.
+#
+# Only `api` is a managed service. The other two are the ordinary shape of a real
+# application — something that must be up, and something that must have finished
+# — and Compose starts both because `api` says so. They carry fixed names of
+# their own, so a test that starts two tasks proves the generated override
+# reaches a service the project never named.
+services:
+  api:
+    image: alpine:3.20
+    # An application service that stays up, so that "running" is a state the
+    # tests can observe rather than a race with the container's own exit.
+    command: ["sleep", "infinity"]
+    container_name: feat-runtime-test-fixed-name
+    volumes:
+      - ./base-mount:/srv/api
+    depends_on:
+      store:
+        condition: service_started
+      prepare:
+        condition: service_completed_successfully
+
+  store:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    container_name: feat-runtime-test-dependency
+
+  # A one-shot dependency: it does its job and exits, which is what a migration
+  # looks like and what the aggregation table must not read as a broken
+  # application.
+  prepare:
+    image: alpine:3.20
+    command: ["true"]
+    container_name: feat-runtime-test-one-shot
+    restart: "no"

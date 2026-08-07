@@ -546,6 +546,13 @@ change.
 
 ## Slice 9 — Manual application runtime
 
+Status: **complete**, 2026-08-06
+
+The design decisions this slice started from are recorded in ADR-034 in
+[10-decisions-and-open-questions.md](10-decisions-and-open-questions.md),
+together with the amendment that running the adapter against real Docker
+produced.
+
 ### Outcome
 
 The user can manage the selected task's application services from Feat without granting Claude Docker access.
@@ -567,6 +574,138 @@ The user can manage the selected task's application services from Feat without g
 - External database resources are never included in destroy plans.
 - Runtime remains running during review unless the user stops it.
 - Approval offers stop but does not execute it automatically.
+
+### Delivered
+
+All five acceptance criteria pass, each with a test named for it, and each
+checked at the layer that can prove the narrow claim: that a command carries one
+task's Compose project name is a stronger statement than that the other task's
+containers happen to still be there, and that no Compose command ran at all is a
+stronger statement than that a recorded state did not change.
+
+A user can create, start, stop, inspect, log, and destroy one task's application
+services from Feat, on the trusted host, without the agent gaining any Docker
+access at all. `internal/runtime` is the interface and `internal/runtime/compose`
+the adapter, under the boundary ADR-029 set for Git and a
+`runtime-stays-an-adapter` `depguard` rule verified against an injected
+violation. The rule denies it `internal/execution` as well, and the Compose
+plumbing is duplicated rather than shared: sharing it would put the environment
+the agent runs in and the application the user tests behind one type, which is
+the distinction the domain model, the security model, and CLAUDE.md all keep.
+
+Nothing here happens on its own. No workflow transition, no reconciliation pass,
+and no agent reaches an action, which two tests check by counting the commands a
+task's transition to `review_requested` and to `approved` produce: none. What an
+approved task with running services gets instead is the offer, in words, on both
+screens a user reads after approving — which is how the fifth criterion is
+satisfied before slice 11 delivers approval itself.
+
+Three properties are decided at the adapter and pinned there:
+
+- the generated override is held to a golden file, because every line of it is a
+  decision about what the services run. It resets `container_name`, which is
+  global to the Docker daemon, and leaves published ports exactly as configured,
+  because a port is how the user reaches the application and v0 allocates none.
+  Two tasks wanting one host port is explained in Feat's terms instead;
+- destroy passes neither `--volumes` nor `--remove-orphans`, names no external
+  resource, and reports the volumes it retained. It is checked on the argument
+  vector rather than on the outcome, because a volume that survived because a
+  fake never removed it proves nothing;
+- the observed containers become a runtime state through a pinned table, in the
+  shape ADR-026 used for the workflow transitions: what `degraded` means is a
+  product decision and should be readable as itself.
+
+Runtime state is observed on a slow poll over the tasks that hold a runtime
+record, and a poll writes and publishes only when something changed. The
+dashboard re-reads on every event, so a poll that published each time it looked
+would make every task with services a permanent source of reads — the shape
+slice 6 has already paid for once, and a test now pins it.
+
+Three defects were found by running the real thing rather than by reasoning
+about it, and each is now a test that fails against the behaviour it replaced.
+
+- `docker compose stop` sends SIGTERM and kills a container that does not exit,
+  and a service running as PID 1 has no default handler — so the ordinary
+  `sleep infinity` service exits 137, and the obvious rule that a non-zero exit
+  is a failure reported every stop the user had just asked for as `failed`. It
+  is ADR-033's evidence-10 shape exactly: a correct question, an answer read
+  wrongly, and every fixture-based test passing. It is now two rows of the state
+  table.
+- A host-execution project mounted nothing at all. A task's recorded
+  `container_path` is filled only for devcontainer execution, because slice 8
+  used it for where the *agent's* container mounts a worktree; an application
+  runtime has containers whatever the agent does. Its services therefore ran the
+  user's ordinary checkout with every record Feat kept still correct — and the
+  only thing that said so was the note this slice added for the other half of
+  the same problem. The mount target now comes from the project's configuration.
+- Asking what is running failed before anything had been created, because every
+  Compose command carried a generated override that does not exist until a
+  create or a start writes it. The first thing a user does answered with a
+  Compose error about a file Feat generates.
+
+The last two were found by driving a real daemon, a real client, and real Docker
+through one task's whole lifecycle rather than by testing the adapter, which is
+where neither of them lives.
+
+The mount question this slice could not settle by reasoning is settled by
+looking. A repository's `container_path` was defined for the *agent's* Compose
+files, and the application's are a different set that may mount the repository
+elsewhere; Compose replaces a mount only when the target matches, so a mismatch
+leaves the base file's own mount in place and the services run the user's
+ordinary checkout while everything Feat records stays correct. Feat inspects the
+started containers and says which service holds which checkout, and does not
+refuse: the application runtime is inside the trusted host, so this is a
+correctness problem rather than the boundary breach the same shape would be for
+an agent.
+
+`feat runtime` gains `create`, `status`, `logs`, and `destroy` beside the
+documented `start` and `stop`, and the local API gains the three endpoints its
+own list was missing. `destroy` carries the user's confirmation in the request
+and asks for it at the terminal, and volumes are retained whatever the answer.
+The command surface golden, [README.md](../README.md),
+[06-technical-architecture.md](06-technical-architecture.md), and
+[07-configuration-model.md](07-configuration-model.md) moved in the same change.
+
+Verified against real Docker in an opt-in suite that runs the whole lifecycle,
+proves two tasks can run the same services at once — which the fixture's fixed
+container name makes possible only because the override resets it — keeps a
+volume through a destroy, and asserts the `ps --format json` fields the state
+table reads, so a Compose that renames one fails here rather than reporting a
+running application as absent.
+
+Verified again through the product rather than the package: a daemon started
+from the built binary, a project registered through the socket, two tasks
+launched, and every command run as a user would run it. Both tasks' services up
+at once from one base file carrying a fixed container name; each container
+holding its own task's worktree and not the checkout; stopping one leaving the
+other running; the ordinary Compose logs opening and closing with an interrupt;
+a daemon restart finding the services still up and reporting them without
+restarting anything; and a destroy that did nothing when the confirmation was
+declined and removed only that task's containers when it was given.
+
+Package layout gained no new package: `internal/runtime` and
+`internal/runtime/compose` were reserved by slice 0. `internal/paths` gained the
+runtime root. See ADR-034.
+
+A fourth defect was found by using the slice on a real application, and it is
+recorded as ADR-034 evidence 12. `runtime.services` was read as the whole of what
+exists, when it is only what a create and a start target: Compose starts whatever
+those services depend on, so a project managing `api` and `nginx` had four
+containers, and a stop that named its two managed services left a database
+running, holding a host port, and absent from every status Feat printed. The
+services Compose had started alongside also kept the fixed `container_name` their
+base file gives them, so a second task could not have started at all — the one
+thing a per-task Compose project exists to prevent, reintroduced by the services
+nobody had listed.
+
+Stop, status, logs, and destroy now address the task's Compose project and name
+no service, the generated override reaches every service the project defines, and
+a status says which services the project named and which are there because
+another needs them. The aggregation table gained one row with it: a service
+Compose started alongside a managed one counts unless it exited cleanly, so a
+one-shot migration doing its job is not a degraded application. The opt-in suite
+grew a fixture with both kinds of dependency, and two tests that fail against the
+behaviour they replaced.
 
 ## Slice 10 — Notifications and resources
 
@@ -659,6 +798,23 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
 - Run repeated three-task workflows on the reference project.
 - Capture setup/recovery/cleanup failures as regression tests.
 - Improve error messages and `doctor` output.
+- Let a command name a task the way the product does. Every `<task>` argument
+  takes the full identifier, while every list — the dashboard, `feat task list`,
+  and the notifications slice 10 adds — shows the eight-character key derived
+  from it. So the identifier a user can see is the one no command accepts, and
+  the only place the full one appears is the dashboard's task detail: a user
+  reading `feat attach <task>` in the documentation has nowhere to get the
+  argument from. Found during slice 9 by running `feat runtime status` with the
+  key the task list had just printed. The rejection is also unhelpful — it
+  explains the format rather than naming where to find a valid value.
+
+  Deferred to this slice rather than fixed in slice 9 because it belongs to the
+  whole command surface: `attach`, `review`, `runtime`, and `cleanup` all have
+  it, it has been there since slices 5 and 6, and resolving a key is an
+  addressing rule the API owns rather than a runtime concern (ADR-026 derives
+  the key from the identifier; ADR-027 makes the daemon resolve a task's owning
+  project). An ambiguous prefix must be reported rather than guessed, which is
+  the same rule ADR-029 applied to a colliding branch name.
 - Document known security limitations.
 - Measure manual coordination removed and false idle notifications.
 - Remove hard-coded assumptions discovered during dogfood.
@@ -667,6 +823,8 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
 
 - Full v0.1 acceptance checklist passes.
 - No unresolved data-loss or cross-task runtime defect remains.
+- A task can be named by what a user can see, and a name that matches two tasks
+  is reported rather than resolved to either.
 - A clean installation can reproduce the dogfood setup from documentation.
 
 ## Slice 14 — Public v0.2

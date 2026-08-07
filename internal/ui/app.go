@@ -58,6 +58,7 @@ const (
 	screenDashboard screen = iota
 	screenDetail
 	screenPrepare
+	screenRuntime
 )
 
 // Model is the dashboard.
@@ -75,6 +76,10 @@ type Model struct {
 	archived int
 
 	prepare prepareModel
+	// runtime is the application-runtime screen's own state: what the last
+	// action observed, what is in flight, and whether a destroy is waiting for a
+	// confirmation.
+	runtime runtimeModel
 
 	// events carries what the daemon's stream delivered. It is created once and
 	// read repeatedly, because receiving an event must cost a channel read
@@ -295,6 +300,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case preparedMsg:
 		return m.finishPreparation(message)
 
+	case runtimeMsg:
+		return m.applyRuntime(message)
+
 	case tea.KeyMsg:
 		return m.key(message)
 	}
@@ -313,6 +321,9 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		updated, cmd := m.prepare.Update(key)
 		m.prepare = updated
 		return m, cmd
+	}
+	if m.screen == screenRuntime {
+		return m.runtimeKey(key)
 	}
 
 	switch key.String() {
@@ -359,6 +370,9 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "s":
 		return m.shell()
+
+	case "R":
+		return m.openRuntime()
 
 	case "x":
 		return m.cancel()
@@ -520,6 +534,8 @@ func (m Model) View() string {
 		return m.prepare.View()
 	case screenDetail:
 		return m.detailView()
+	case screenRuntime:
+		return m.runtimeView()
 	default:
 		return m.dashboardView()
 	}

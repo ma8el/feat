@@ -40,6 +40,9 @@ type fakeService struct {
 	unregistrable map[domain.ProjectID]bool
 	// verifications are what each task's agent reported about its own checks.
 	verifications map[domain.TaskID]Verification
+	// actions records every runtime action the transport passed through, so a
+	// test can assert that an endpoint reached the one its path names.
+	actions []string
 }
 
 func newFakeService() *fakeService {
@@ -196,6 +199,53 @@ func (f *fakeService) OpenShell(_ context.Context, id domain.TaskID) (AttachInfo
 		}
 	}
 	return AttachInfo{}, fmt.Errorf("%w: task %s has no terminal to open a shell beside", ErrNotFound, id)
+}
+
+// Runtime records the action it was asked for and reports the task unchanged,
+// so the transport can be tested without Docker.
+func (f *fakeService) Runtime(_ context.Context, id domain.TaskID, action RuntimeAction) (RuntimeResult, error) {
+	if err := f.check(); err != nil {
+		return RuntimeResult{}, err
+	}
+	f.actions = append(f.actions, string(action))
+
+	for _, task := range f.tasks {
+		if task.ID == id {
+			return RuntimeResult{
+				Task: task,
+				Services: []RuntimeService{
+					{Name: "api", Container: "c0ffee", State: "running", Status: "Up 2 seconds",
+						Health: "unknown", Managed: true},
+					// A service the project does not name, which Compose started
+					// because a managed one depends on it. It is in the published
+					// body because it is in the task's Compose project, and Feat
+					// stops and removes it with the rest.
+					{Name: "postgres", Container: "cafe", State: "running", Status: "Up 12 seconds",
+						Health: "healthy"},
+				},
+			}, nil
+		}
+	}
+	return RuntimeResult{}, fmt.Errorf("%w: no task %s", ErrNotFound, id)
+}
+
+// RuntimeLogs returns the command the client would run.
+func (f *fakeService) RuntimeLogs(_ context.Context, id domain.TaskID) (RuntimeCommand, error) {
+	if err := f.check(); err != nil {
+		return RuntimeCommand{}, err
+	}
+	for _, task := range f.tasks {
+		if task.ID == id {
+			return RuntimeCommand{
+				Program: "/usr/local/bin/docker",
+				Arguments: []string{
+					"compose", "--project-name", "feat-example-7f3a1c2e", "logs", "--follow", "api",
+				},
+				Directory: "/repos/example/api",
+			}, nil
+		}
+	}
+	return RuntimeCommand{}, fmt.Errorf("%w: no task %s", ErrNotFound, id)
 }
 
 // CreateDraft records a draft from a fixture, so the transport can be tested
