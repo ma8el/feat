@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,28 @@ func realDocker(t *testing.T) {
 	if err := exec.Command(compose.Executable, "info").Run(); err != nil {
 		t.Skip("no Docker daemon is reachable from this machine")
 	}
+}
+
+// agentUser is the uid the agent runs as inside the fixture container.
+//
+// It is the uid of whoever runs the test rather than a fixed number, because a
+// Linux bind mount carries the host's own ownership: a worktree this test wrote
+// belongs to the user running it, and a container user with a different uid
+// cannot write it. That is not a defect in the test — it is exactly what Check
+// refuses a launch over, and what agent.execution.user exists to let a project
+// get right — so the fixture arranges what a real Linux project must. A machine
+// whose Docker maps ownership instead, as Docker Desktop does, is unaffected by
+// which uid this is.
+func agentUser(t *testing.T) string {
+	t.Helper()
+
+	uid := os.Getuid()
+	if uid == 0 {
+		// The agent may not be root, so a root-owned checkout cannot be the
+		// subject of these tests: there is no non-root uid that could write it.
+		t.Skip("these tests need a non-root user, because the agent's container user must not be root")
+	}
+	return strconv.Itoa(uid)
 }
 
 // realTask arranges one task's environment over the awkward fixture.
@@ -86,7 +109,7 @@ func realTask(t *testing.T, id domain.TaskID) (*compose.Environment, execution.S
 		Directory:        project,
 		OverridePath:     filepath.Join(root, "execution", "compose.override.yaml"),
 		Service:          "dev",
-		User:             "1000",
+		User:             agentUser(t),
 		WorkingDirectory: "/srv/api",
 		Mounts: []execution.Mount{
 			{Source: worktree, Target: "/srv/api", Description: "the api task worktree"},
@@ -134,7 +157,7 @@ func inside(t *testing.T, environment *compose.Environment, program string, args
 func TestRealTaskWorktreesAppearAtTheirContainerPaths(t *testing.T) {
 	realDocker(t)
 
-	environment, _, worktree := realTask(t, domain.NewTaskID())
+	environment, spec, worktree := realTask(t, domain.NewTaskID())
 	if err := environment.Prepare(context.Background()); err != nil {
 		t.Fatalf("preparing the environment: %v", err)
 	}
@@ -173,8 +196,8 @@ func TestRealTaskWorktreesAppearAtTheirContainerPaths(t *testing.T) {
 	if uid == "0" {
 		t.Error("the agent runs as root in the container")
 	}
-	if uid != "1000" {
-		t.Errorf("the agent runs as uid %q, want the configured 1000", uid)
+	if uid != spec.User {
+		t.Errorf("the agent runs as uid %q, want the configured %s", uid, spec.User)
 	}
 }
 
