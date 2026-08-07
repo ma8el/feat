@@ -1107,6 +1107,28 @@ real Docker rather than against its own fakes:
     block size cannot come from a working kernel, and it is reported as an
     unmeasured filesystem rather than converted, which is what every other
     figure this build cannot trust does.
+16. `ps -o time=` reports cumulative processor time in **whole seconds on Linux**
+    and in centiseconds on macOS — `00:00:00` against `149:45.95`. Evidence 6
+    established that the column means the same thing on both platforms, which is
+    true, and missed that it does not carry the same resolution. The integration
+    test spun for 200ms and asserted a positive figure: a tenth of what Linux can
+    represent, so Linux answered zero and was right to.
+
+    The consequence outlives the test. Per-process use is a difference of that
+    counter over the sampling interval, so on Linux the difference is a whole
+    number of seconds and the reported percentage is quantised to `1s/interval`
+    — steps of 50 points at the default two-second interval, where macOS resolves
+    to about one. A task steadily using a quarter of a core reports 0% and 50% by
+    turns rather than 25%.
+
+    This is the shape ADR-035 rejected once already, when it chose load average
+    over a processor percentage because two figures that look alike and are not
+    are worse than one figure on both platforms. It is recorded rather than fixed
+    here: the honest fix is `/proc/<pid>/stat`, whose `utime` and `stime` are
+    clock ticks at the same 10ms USER_HZ macOS reports, and adding a
+    platform-specific process reader is more than a red build justifies. Until
+    then a Linux per-task processor figure is coarse rather than wrong, and OQ-012
+    carries it.
 
 The end-to-end run is what settled the timing. A turn ended at 10:35:51, the task
 became idle at 10:35:56 after the provider's five-second grace, and the
@@ -1159,6 +1181,21 @@ Which remote actions users actually perform on a phone remains a product discove
 ### OQ-011 — External/shared database automation
 
 The dogfood project uses pre-existing staging databases. Assignment, migration, seed, and cleanup conventions need project evidence before generalization.
+
+### OQ-012 — Per-process processor resolution on Linux
+
+`ps` reports cumulative processor time in whole seconds on Linux and in
+centiseconds on macOS, so a per-task processor figure differenced over a
+two-second interval resolves to about one point on macOS and to fifty on Linux
+(ADR-035 evidence 16). Reading `/proc/<pid>/stat` on Linux would close the gap at
+the cost of a platform-specific process reader beside the platform-specific
+machine readers that already exist.
+
+Whether that is worth doing depends on evidence this version cannot supply: how
+often a task's processor figure is the one a user acts on, rather than the memory
+figure or the attention badge beside it. Decide it against dogfood use, not
+before. Until then the dashboard shows what was measured and the figure is coarse
+rather than wrong, which is the rule ADR-028 set.
 
 ## Decision change process
 

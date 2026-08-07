@@ -60,12 +60,33 @@ func TestRealMachineIsReadable(t *testing.T) {
 	}
 }
 
+// spin burns processor time in this process for a period.
+//
+// It is deliberately wall-clock bounded rather than a fixed number of
+// iterations, so that a slow or a loaded machine spends the same time being
+// measured as a fast one.
+func spin(d time.Duration) {
+	deadline := time.Now().Add(d)
+	total := 0
+	for time.Now().Before(deadline) {
+		total++
+	}
+	_ = total
+}
+
 // TestRealProcessUsageIsMeasured checks the process half against real ps output
 // and a real process.
 //
 // The test's own process is the subtree, so there is certainly something to
 // find, and its memory is certainly not zero. The processor figure needs two
 // samples, which is the point of taking two.
+//
+// How long it must spin is a statement about ps rather than about Feat. Linux
+// reports cumulative processor time in whole seconds and macOS in centiseconds,
+// so the 200ms this test first used was a tenth of what Linux can represent at
+// all and reported zero there — correctly (ADR-035 evidence 16). It therefore
+// spins past the coarser platform's resolution and keeps going, bounded, rather
+// than for one period chosen on the platform with the finer clock.
 func TestRealProcessUsageIsMeasured(t *testing.T) {
 	requireIntegration(t)
 
@@ -83,21 +104,28 @@ func TestRealProcessUsageIsMeasured(t *testing.T) {
 		t.Errorf("the first sample reports processor use it could not have measured")
 	}
 
-	// Burn a measurable amount of processor time between the samples.
-	deadline := time.Now().Add(200 * time.Millisecond)
-	total := 0
-	for time.Now().Before(deadline) {
-		total++
-	}
-	_ = total
+	// A full second of processor time raises a whole-second counter by at least
+	// one whatever the offset it started at, so one round is enough on an idle
+	// machine. The rounds exist for a shared runner, where wall-clock spinning
+	// buys less than its own duration in processor time.
+	var (
+		second  Sample
+		rounds  int
+		giveUp  = time.Now().Add(30 * time.Second)
+		spinFor = 1500 * time.Millisecond
+	)
+	for {
+		spin(spinFor)
+		rounds++
 
-	second := observer.Observe(context.Background(), []Target{{Task: "self", PIDs: []int{self}}})
-	if !second.Tasks[0].CPUKnown {
-		t.Fatalf("the second sample reports no processor use: %v", second.Notes)
-	}
-	if second.Tasks[0].CPUPercent <= 0 {
-		t.Errorf("a process that just spun for 200ms reports %.2f%% of a core",
-			second.Tasks[0].CPUPercent)
+		second = observer.Observe(context.Background(), []Target{{Task: "self", PIDs: []int{self}}})
+		if second.Tasks[0].CPUKnown && second.Tasks[0].CPUPercent > 0 {
+			break
+		}
+		if time.Now().After(giveUp) {
+			t.Fatalf("after %d rounds of %s spinning, this process reports known=%v %.2f%% of a core: %v",
+				rounds, spinFor, second.Tasks[0].CPUKnown, second.Tasks[0].CPUPercent, second.Notes)
+		}
 	}
 }
 
