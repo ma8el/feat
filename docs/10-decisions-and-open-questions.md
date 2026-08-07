@@ -1362,6 +1362,30 @@ from this repository's own fakes:
     particular, since a user who has just told an agent to request review is by
     definition attached to it.
 
+11. **A gate outlived the daemon that started it.** `startGate` detached its run
+    from the request context, which is right — a test suite outlives the message
+    that asked for it — and detached it from the daemon's lifetime too, which is
+    not. Nothing cancelled a running gate at shutdown and nothing waited for one,
+    so `Serve` could return while a goroutine was still writing a task's records,
+    and a check that had not finished was left running with no daemon to report
+    to. Found by CI on Linux, where three tests that emit a review request failed
+    in cleanup with `TempDir RemoveAll: directory not empty`: the gate was
+    writing the control workspace the testing package was removing. macOS lost
+    the same race quietly.
+
+    Decision: gates are owned like the pending transitions beside them in
+    `Serve`'s shutdown, which already carry the rule — nothing may fire into a
+    daemon that can no longer write what it decided. Stopping cancels each run
+    and then waits for it; cancelling is what ends the check itself, and the wait
+    is bookkeeping rather than the suite, so it costs milliseconds.
+
+    What a stopped gate must not do is record. A cancelled run produces
+    inconclusive results, `Decide` reads inconclusive as not passing, and
+    recording that would fail a task because Feat was restarted and answer the
+    waiting agent with a verdict its checks never produced. So a cancelled run
+    leaves the task in `verifying` and writes nothing, which is exactly the state
+    evidence 2's recovery was built for.
+
 ### OQ-001 — Natural-language orchestrator
 
 Should mature natural-language commands be interpreted by a constrained master native agent or by a host-integrated model? Do not decide during v0.

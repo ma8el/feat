@@ -537,6 +537,54 @@ func TestAnInterruptedGateDoesNotClaimToBeRunning(t *testing.T) {
 	live.awaitGate(t)
 }
 
+// TestAStoppingDaemonEndsItsGates checks the other half of that recovery: the
+// daemon has to actually stop the gate, and has to wait for it.
+//
+// A gate is the only work in the daemon that outlives the request that started
+// it, so it is the only work that can still be writing a task's records after
+// everything else has finished. Left alone it also leaves the check itself
+// running — somebody's test suite, with no daemon to report to. Found on Linux,
+// where three tests that emit a review request failed in cleanup because the
+// goroutine was still writing the control workspace the testing package was
+// removing.
+//
+// The other property here is what a stopped gate must not record. A cancelled
+// run produces inconclusive results, and inconclusive does not pass, so
+// recording them would fail a task because Feat was restarted and answer the
+// waiting agent with a verdict its checks never produced.
+func TestAStoppingDaemonEndsItsGates(t *testing.T) {
+	live := launchForReview(t, nil)
+	live.checks.released = make(chan struct{})
+	// Deliberately never closed: this is a check that has not finished when the
+	// daemon stops, which is the only case with anything to prove.
+
+	live.emit(t, control.TypeReviewRequested, `{"summary":"ready"}`)
+	waitFor(t, func() bool { return live.task(t).Workflow == domain.WorkflowVerifying })
+
+	stopped := make(chan struct{})
+	go func() {
+		live.service.gate.stopAll()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(10 * time.Second):
+		t.Fatal("stopping the daemon waited for a check that had not finished")
+	}
+
+	if got := live.task(t).Workflow; got != domain.WorkflowVerifying {
+		t.Errorf("workflow after a stop = %q, want verifying: a daemon that stopped mid-check has "+
+			"learned nothing about the checks, and the next startup is what explains it", got)
+	}
+	record, err := live.service.store.Reviews().Load(context.Background(), live.ref)
+	if err != nil {
+		t.Fatalf("loading the review: %v", err)
+	}
+	if len(record.Checks) != 0 {
+		t.Errorf("a cancelled gate recorded %d check result(s): %+v", len(record.Checks), record.Checks)
+	}
+}
+
 // TestVerifyingAgainIsAUserAction checks that a task whose checks failed can be
 // verified again, and that recovery is something a user asks for rather than
 // something that happens on its own.

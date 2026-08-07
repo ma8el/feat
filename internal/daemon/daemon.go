@@ -342,6 +342,12 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 		d.service.idle.cancelAll()
 		d.service.idleNotice.cancelAll()
 		d.service.startup.cancelAll()
+		// A completion gate is the same rule for work rather than for a timer,
+		// and it is the only work here that outlives the request that started
+		// it: stopping ends the check itself, so no test suite is left running
+		// behind the daemon, and waiting means nothing is still writing a task's
+		// records once Serve has returned (ADR-036).
+		d.service.gate.stopAll()
 	}()
 
 	// Request contexts derive from this one, so cancelling it ends the event

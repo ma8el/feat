@@ -201,6 +201,14 @@ func launchWith(
 		t.Fatalf("creating the daemon: %v", err)
 	}
 	service := instance.service
+	// What Serve does on the way out, for a test that never called it. A review
+	// request starts a gate in the background, and a goroutine still writing a
+	// task's control workspace while the testing package removes its temporary
+	// directory fails the test that started it — which is how this was found, on
+	// Linux, in three tests that were only ever about notifications and
+	// resources. Registered after the temporary directory exists, so cleanup
+	// order runs this first.
+	t.Cleanup(service.gate.stopAll)
 
 	if err := selectDraftRepositories(t, service, arranged); err != nil {
 		t.Fatalf("selecting the draft's repositories: %v", err)

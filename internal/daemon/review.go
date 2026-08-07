@@ -353,28 +353,42 @@ func (s *service) verifyNow(ctx context.Context, task *domain.Task) error {
 
 // gates records which tasks have a gate running, so that two review requests in
 // quick succession do not run a project's test suite twice at once.
+//
+// It also owns their lifetime. A gate is the only work in the daemon that
+// outlives the request that started it and writes a task's records afterwards,
+// so it is the only work that can still be writing when everything else has
+// stopped — which is the rule Serve already applies to a pending idle
+// transition: nothing may fire into a daemon that can no longer write what it
+// decided.
 type gates struct {
 	mu      sync.Mutex
-	running map[domain.TaskID]bool
+	running map[domain.TaskID]context.CancelFunc
+	// finished waits for the goroutines themselves, because cancelling a check
+	// only asks: the run still has to unwind and record what it found.
+	finished sync.WaitGroup
 	// done is closed once per finished run, for a test that needs to wait for
 	// one without sleeping.
 	done chan domain.TaskID
 }
 
 func newGates() *gates {
-	return &gates{running: make(map[domain.TaskID]bool), done: make(chan domain.TaskID, 16)}
+	return &gates{
+		running: make(map[domain.TaskID]context.CancelFunc),
+		done:    make(chan domain.TaskID, 16),
+	}
 }
 
 // claim reserves the gate of one task, reporting false when one is already
-// running.
-func (g *gates) claim(id domain.TaskID) bool {
+// running. The cancel it is given ends that run's checks.
+func (g *gates) claim(id domain.TaskID, cancel context.CancelFunc) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if g.running[id] {
+	if _, running := g.running[id]; running {
 		return false
 	}
-	g.running[id] = true
+	g.running[id] = cancel
+	g.finished.Add(1)
 	return true
 }
 
@@ -384,10 +398,32 @@ func (g *gates) release(id domain.TaskID) {
 	delete(g.running, id)
 	g.mu.Unlock()
 
+	g.finished.Done()
 	select {
 	case g.done <- id:
 	default:
 	}
+}
+
+// stopAll ends every running gate and waits for what they were doing.
+//
+// Cancelling is what kills the check itself: a configured check is somebody's
+// test suite, and a daemon that exited while leaving one running would leave a
+// process nobody started behind it. What is waited for afterwards is the
+// bookkeeping, which is local file writes rather than the suite, so this returns
+// in milliseconds rather than in however long a check takes.
+//
+// A gate stopped this way is an interrupted gate, which is a case the product
+// already has: the task is left in verifying, and the next startup puts it back
+// where the review request was with an event saying why (ADR-036).
+func (g *gates) stopAll() {
+	g.mu.Lock()
+	for _, cancel := range g.running {
+		cancel()
+	}
+	g.mu.Unlock()
+
+	g.finished.Wait()
 }
 
 // startGate runs a task's configured checks in the background.
@@ -397,18 +433,21 @@ func (g *gates) release(id domain.TaskID) {
 // as it took. The run therefore outlives the request that started it, which is
 // what makes verifying a state a user can see rather than a pause.
 func (s *service) startGate(ctx context.Context, task *domain.Task, request string) bool {
-	if !s.gate.claim(task.ID) {
+	// A fresh context: the one that delivered the review request is finished
+	// long before a test suite is. It is cancellable all the same, because the
+	// run belongs to the daemon's lifetime even though it has outlived one
+	// request — see gates.stopAll.
+	bounded, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx), review.GateTimeout+time.Minute)
+
+	id := task.ID
+	if !s.gate.claim(id, cancel) {
+		cancel()
 		return false
 	}
 
-	id := task.ID
-	// A fresh context: the one that delivered the review request is finished
-	// long before a test suite is.
-	background := context.WithoutCancel(ctx)
 	go func() {
 		defer s.gate.release(id)
-
-		bounded, cancel := context.WithTimeout(background, review.GateTimeout+time.Minute)
 		defer cancel()
 
 		if err := s.runGate(bounded, id, request); err != nil {
@@ -439,6 +478,15 @@ func (s *service) runGate(ctx context.Context, id domain.TaskID, request string)
 	results := s.gateRunner(ctx, task).Run(ctx, checks)
 	results = append(results, skipped...)
 
+	if ctx.Err() != nil {
+		// The daemon is stopping, so these results are what a cancelled run
+		// produced rather than what the checks reported: inconclusive, which
+		// Decide reads as not passing. Recording them would fail a task because
+		// Feat was restarted, and answer the waiting agent with a verdict its
+		// checks never produced. Left verifying instead, which is the state
+		// recoverGates already knows how to explain (ADR-036).
+		return ctx.Err()
+	}
 	return s.finishGate(ctx, id, request, results)
 }
 
