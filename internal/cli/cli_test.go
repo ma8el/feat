@@ -5,8 +5,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/ma8el/feat/internal/daemon"
 	"github.com/ma8el/feat/internal/paths"
@@ -125,22 +129,60 @@ func TestExecuteExitCodes(t *testing.T) {
 // TestNotImplementedErrorIsActionable checks the quality bar in CLAUDE.md: an
 // error must say what is missing and where to look, not merely that something
 // failed.
+//
+// It exercises the error rather than a command, because slice 12 leaves no
+// command unimplemented: every entry in the documented surface now does its
+// work. The rule still has to hold for whatever a later slice defers, and
+// TestPlaceholdersDeclareOwningSlice is what would catch a placeholder that
+// stopped naming its slice.
 func TestNotImplementedErrorIsActionable(t *testing.T) {
 	isolate(t)
 
-	var stdout, stderr bytes.Buffer
-
-	Execute(context.Background(), []string{"cleanup", "abc123"}, &stdout, &stderr)
-
-	message := stderr.String()
-	for _, want := range []string{"feat cleanup", "slice 12", "docs/11-implementation-plan.md"} {
+	err := &NotImplementedError{
+		Command: "feat example",
+		Slice:   14,
+		Outcome: "host-native execution",
+	}
+	message := err.Error()
+	for _, want := range []string{"feat example", "slice 14", "host-native execution", "docs/11-implementation-plan.md"} {
 		if !strings.Contains(message, want) {
 			t.Errorf("error message does not mention %q:\n%s", want, message)
 		}
 	}
-	if stdout.Len() != 0 {
-		t.Errorf("an unimplemented command wrote to stdout: %q", stdout.String())
+}
+
+// TestEveryDocumentedCommandIsImplemented records what slice 12 finished.
+//
+// It is the counterpart of TestPlaceholdersDeclareOwningSlice: that one requires
+// a placeholder to name its slice, and this one requires there to be none left.
+// A later slice that defers something has to change this test deliberately,
+// which is the point.
+func TestEveryDocumentedCommandIsImplemented(t *testing.T) {
+	isolate(t)
+
+	var placeholders []string
+	var walk func(cmd *cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		// The handler is read rather than invoked: invoking one would reach the
+		// running user's daemon, which is what surface_test.go's own exemption
+		// list exists to avoid.
+		if cmd.RunE != nil && strings.Contains(handlerName(cmd), "notImplemented") {
+			placeholders = append(placeholders, cmd.CommandPath())
+		}
+		for _, child := range cmd.Commands() {
+			walk(child)
+		}
 	}
+	walk(NewRootCommand(Options{}))
+
+	if len(placeholders) > 0 {
+		t.Errorf("commands still report an unimplemented slice: %s", strings.Join(placeholders, ", "))
+	}
+}
+
+// handlerName returns the name of the function a command runs.
+func handlerName(cmd *cobra.Command) string {
+	return runtime.FuncForPC(reflect.ValueOf(cmd.RunE).Pointer()).Name()
 }
 
 func TestUsageErrorPrintsUsage(t *testing.T) {

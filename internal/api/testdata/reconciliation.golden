@@ -1,0 +1,26 @@
+{
+  "ran": true,
+  "started_at": "2026-08-07T09:44:22Z",
+  "finished_at": "2026-08-07T09:44:22Z",
+  "findings": [
+    {
+      "class": "terminal",
+      "status": "missing",
+      "project_id": "example",
+      "task_id": "7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c",
+      "task_key": "7f3a1c2e",
+      "identity": "@3",
+      "detail": "the recorded tmux terminal is gone; the session is recorded as stopped and was not restarted",
+      "action": "resume it from the task detail"
+    }
+  ],
+  "problems": [
+    {
+      "class": "runtime_containers",
+      "reason": "the application services could not be observed"
+    }
+  ],
+  "needs_attention": true,
+  "previous_run_ended_cleanly": false,
+  "previous_run_stopped_at": "2026-08-07T09:44:22Z"
+}

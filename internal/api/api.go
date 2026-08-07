@@ -91,6 +91,26 @@ type Service interface {
 	// about the work, and the runtime the user was testing it in is theirs
 	// (FR-REV-004, ADR-034).
 	Review(ctx context.Context, id domain.TaskID, action ReviewAction) (ReviewResult, error)
+	// Reconciliation returns the most recent reconciliation pass without
+	// running one, and false when none has run.
+	Reconciliation() (Reconciliation, bool)
+	// Reconcile compares every persisted task with what the machine has and
+	// returns what it found. It repairs, restarts, and adopts nothing: every
+	// action a finding suggests is one the user takes (FR-STATE-003).
+	Reconcile(ctx context.Context) (Reconciliation, error)
+	// CleanupPlan resolves the exact set of resources one task owns, removing
+	// nothing. The token it returns is what an execution carries back
+	// (FR-CLEAN-001).
+	CleanupPlan(ctx context.Context, id domain.TaskID) (CleanupPlan, error)
+	// Cleanup removes exactly the classes a selection names, having re-resolved
+	// the plan and checked that the confirmations cover what is true now.
+	Cleanup(ctx context.Context, id domain.TaskID, selection CleanupSelection) (CleanupResult, error)
+	// Resume continues a task's recorded agent session in a new terminal.
+	//
+	// It is an offered recovery and never an automatic restart: nothing in
+	// reconciliation reaches it, and it continues the provider session the task
+	// recorded rather than opening an empty one (ADR-032, ADR-037).
+	Resume(ctx context.Context, id domain.TaskID) (*domain.Task, error)
 	// Resources returns the most recent resource sample.
 	//
 	// It reads what a background sampler collected rather than taking a sample:
@@ -174,6 +194,30 @@ func NewHandler(opts Options) http.Handler {
 	// records what it observed.
 	mux.Handle("/v1/tasks/{task_id}/review/{action}", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.review,
+	}))
+	// The two cleanup endpoints are plan and execute rather than one request,
+	// for the reason preparation is plan and launch: what is removed has to be
+	// what the user read, and a plan token is how the second request proves it
+	// (FR-CLEAN-001, ADR-037).
+	mux.Handle("/v1/tasks/{task_id}/cleanup/plan", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.cleanupPlan,
+	}))
+	mux.Handle("/v1/tasks/{task_id}/cleanup/execute", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.cleanupExecute,
+	}))
+	// Resuming a dead agent session is its own path, because it is its own thing
+	// a user asks for. Nothing else reaches it: reconciliation reports that a
+	// session can be resumed and never resumes one.
+	mux.Handle("/v1/tasks/{task_id}/resume", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.resume,
+	}))
+	// Reading the last pass and running a new one are the same resource: GET
+	// answers with what was found, and POST looks again. It is the shape slice 9
+	// used for runtime status — an observation is a POST because it records what
+	// it observed.
+	mux.Handle("/v1/reconciliation", route(map[string]http.HandlerFunc{
+		http.MethodGet:  server.reconciliation,
+		http.MethodPost: server.reconcile,
 	}))
 	mux.Handle("/v1/task-drafts", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.createDraft,
@@ -396,6 +440,123 @@ func (s *server) shell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, info)
+}
+
+// cleanupPlan resolves what a task owns without removing any of it.
+func (s *server) cleanupPlan(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "task_id")
+	if !ok {
+		return
+	}
+	if err := decodeEmptyBody(r); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	plan, err := s.service.CleanupPlan(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if plan.Classes == nil {
+		plan.Classes = []CleanupClass{}
+	}
+	writeJSON(w, http.StatusOK, plan)
+}
+
+// cleanupExecute removes exactly the classes a selection names.
+//
+// The body carries a plan token, the classes chosen, and the warnings the user
+// accepted — identifiers and confirmations, never a path. A request with no
+// token is refused here rather than reaching the resolver, because "which plan
+// was this" is the one question a destructive request must not leave open.
+func (s *server) cleanupExecute(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "task_id")
+	if !ok {
+		return
+	}
+
+	var selection CleanupSelection
+	if err := decodeBody(r, &selection); err != nil && !errors.Is(err, io.EOF) {
+		s.fail(w, r, err)
+		return
+	}
+	if selection.Token == "" {
+		s.fail(w, r, fmt.Errorf("%w: a cleanup must carry the token of the plan it was shown. "+
+			"Ask for the plan first; nothing was removed", ErrInvalid))
+		return
+	}
+
+	result, err := s.service.Cleanup(r.Context(), id, selection)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, NewCleanupStatus(result))
+}
+
+// resume continues a task's recorded agent session.
+func (s *server) resume(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "task_id")
+	if !ok {
+		return
+	}
+	if err := decodeEmptyBody(r); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	task, err := s.service.Resume(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newTask(task, nil))
+}
+
+// reconciliation returns the most recent pass without running one.
+func (s *server) reconciliation(w http.ResponseWriter, r *http.Request) {
+	report, ok := s.service.Reconciliation()
+	if !ok {
+		writeJSON(w, http.StatusOK, emptyReconciliation())
+		return
+	}
+	writeJSON(w, http.StatusOK, fillReconciliation(report))
+}
+
+// reconcile looks again and returns what it found.
+func (s *server) reconcile(w http.ResponseWriter, r *http.Request) {
+	if err := decodeEmptyBody(r); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	report, err := s.service.Reconcile(r.Context())
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, fillReconciliation(report))
+}
+
+// emptyReconciliation is what a daemon that has not run a pass reports.
+func emptyReconciliation() Reconciliation {
+	return Reconciliation{
+		Findings: []ReconciliationFinding{},
+		Problems: []ReconciliationProblem{},
+	}
+}
+
+// fillReconciliation makes the collections explicit, so a client reads an empty
+// list rather than a null.
+func fillReconciliation(report Reconciliation) Reconciliation {
+	report.Ran = true
+	if report.Findings == nil {
+		report.Findings = []ReconciliationFinding{}
+	}
+	if report.Problems == nil {
+		report.Problems = []ReconciliationProblem{}
+	}
+	return report
 }
 
 // runtime performs one manual application-runtime action.

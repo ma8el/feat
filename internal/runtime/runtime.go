@@ -37,9 +37,19 @@ type Runtime interface {
 	// Stop stops the services and keeps their containers.
 	Stop(ctx context.Context) (State, error)
 	// Destroy removes the containers and networks this task owns. It never
-	// removes a volume and never touches an external resource; what a user may
-	// additionally choose to remove is slice 12's (FR-CLEAN-002, FR-CLEAN-004).
+	// removes a volume and never touches an external resource (FR-CLEAN-002,
+	// FR-CLEAN-004).
 	Destroy(ctx context.Context) (State, error)
+	// Volumes lists the named volumes this task's services own. A resource the
+	// project declares external is not one of them, because it carries no
+	// label naming this Compose project.
+	Volumes(ctx context.Context) ([]string, error)
+	// RemoveVolumes removes the named volumes and reports which were removed.
+	//
+	// It is a separate method rather than a flag on Destroy, so that "volumes
+	// are retained by default" is the shape of this interface rather than an
+	// argument somebody can pass wrongly (ADR-037).
+	RemoveVolumes(ctx context.Context, names []string) ([]string, error)
 	// Observe reports what the runtime looks like now. It starts nothing: a
 	// stopped service is reported as stopped (FR-STATE-004).
 	Observe(ctx context.Context) (State, error)

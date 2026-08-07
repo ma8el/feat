@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/reconcile"
 	"github.com/ma8el/feat/internal/tmux"
 	"github.com/ma8el/feat/internal/tmux/tmuxtest"
 )
@@ -174,8 +176,8 @@ func TestRestartRepairsAStaleTargetFromLiveMetadata(t *testing.T) {
 	}
 
 	restarted, _ := withTmux(t, arranged, server)
-	if err := restarted.reconcileTmux(context.Background()); err != nil {
-		t.Fatalf("reconcileTmux: %v", err)
+	if _, err := restarted.Reconcile(context.Background()); err != nil {
+		t.Fatalf("reconciling: %v", err)
 	}
 
 	recoveredTask := arranged.reload(t)
@@ -208,8 +210,8 @@ func TestRestartMarksAMissingTerminalStoppedWithoutRestartingIt(t *testing.T) {
 	// The computer restarted: the recorded terminal is gone with the server.
 	empty := tmuxtest.New()
 	restarted, _ := withTmux(t, arranged, empty)
-	if err := restarted.reconcileTmux(context.Background()); err != nil {
-		t.Fatalf("reconcileTmux: %v", err)
+	if _, err := restarted.Reconcile(context.Background()); err != nil {
+		t.Fatalf("reconciling: %v", err)
 	}
 
 	stored := arranged.reload(t)
@@ -253,16 +255,33 @@ func TestReconciliationReportsAConflictingProjectRatherThanGuessing(t *testing.T
 	})
 	restarted, _ := withTmux(t, arranged, conflicting)
 
-	err = restarted.reconcileTmux(context.Background())
-	if err == nil {
+	report, err := restarted.Reconcile(context.Background())
+	if err != nil {
+		// A conflict is one task's problem. It is a finding rather than an
+		// error, because failing the pass would take every healthy task's
+		// recovery with it, which is the blast radius ADR-037 bounds.
+		t.Fatalf("a conflicting terminal must be reported, not fail the pass: %v", err)
+	}
+	finding, ok := found(report, reconcile.ClassTerminal, reconcile.StatusInconsistent)
+	if !ok {
 		t.Fatal("reconciliation adopted a terminal belonging to another project")
 	}
-	if !strings.Contains(err.Error(), "other") || !strings.Contains(err.Error(), "app") {
-		t.Errorf("error = %v, want both the claimed and the recorded project", err)
+	if !strings.Contains(finding.Detail, "other") || !strings.Contains(finding.Detail, "app") {
+		t.Errorf("detail = %q, want both the claimed and the recorded project", finding.Detail)
 	}
 	if stored := arranged.reload(t); stored.Session == nil || stored.Session.Tmux != before {
 		t.Errorf("stored target = %+v, want the untouched %+v", stored.Session, before)
 	}
+}
+
+// found returns the first finding of a class and status.
+func found(report api.Reconciliation, class reconcile.Class, status reconcile.Status) (api.ReconciliationFinding, bool) {
+	for _, finding := range report.Findings {
+		if finding.Class == string(class) && finding.Status == string(status) {
+			return finding, true
+		}
+	}
+	return api.ReconciliationFinding{}, false
 }
 
 // TestReconciliationReportsATaggedTerminalWithNoRecordedTask keeps an orphan
@@ -276,10 +295,23 @@ func TestReconciliationReportsATaggedTerminalWithNoRecordedTask(t *testing.T) {
 	})
 
 	service, logs := withTmux(t, arranged, server)
-	if err := service.reconcileTmux(context.Background()); err != nil {
-		t.Fatalf("an orphan must be reported, not fail recovery: %v", err)
+	service.startupReconcile(context.Background())
+
+	report, ok := service.Reconciliation()
+	if !ok {
+		t.Fatal("no reconciliation report was produced")
+	}
+	finding, ok := found(report, reconcile.ClassTerminal, reconcile.StatusOrphaned)
+	if !ok {
+		t.Fatal("the orphaned terminal was dropped rather than reported")
+	}
+	if finding.TaskID != orphan.String() {
+		t.Errorf("orphan finding names task %s, want %s", finding.TaskID, orphan)
+	}
+	if finding.Action == "" {
+		t.Error("an orphan was reported without saying what the user can do about it")
 	}
 	if !strings.Contains(logs.String(), orphan.String()) {
-		t.Errorf("the orphaned terminal was not reported; log:\n%s", logs.String())
+		t.Errorf("the orphaned terminal was not logged; log:\n%s", logs.String())
 	}
 }

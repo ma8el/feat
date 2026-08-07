@@ -115,6 +115,10 @@ func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
 		"feat runtime status":  true,
 		"feat runtime logs":    true,
 		"feat runtime destroy": true,
+		// Cleanup reaches the daemon and resolves one task's resources. Invoking
+		// it here would ask the running user's daemon about one of their tasks,
+		// and answering "yes" to a prompt would remove it.
+		"feat cleanup": true,
 	}
 
 	var walk func(cmd *cobra.Command)

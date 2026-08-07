@@ -292,8 +292,8 @@ func TestATaskWithNoTerminalCannotBeAttached(t *testing.T) {
 // TestOnlyADraftIsCancelledFromTheDashboard checks that the destructive-looking
 // key is not a shortcut for removing a launched task's resources.
 //
-// Cleanup resolves exact targets and confirms per resource class, and slice 12
-// delivers it; a launched task must be sent there rather than quietly archived.
+// Cleanup resolves exact targets and confirms per resource class; a launched
+// task must be sent there rather than quietly archived.
 func TestOnlyADraftIsCancelledFromTheDashboard(t *testing.T) {
 	backend := newFakeBackend()
 	model := dashboard(backend, liveTask())
@@ -304,8 +304,8 @@ func TestOnlyADraftIsCancelledFromTheDashboard(t *testing.T) {
 	if len(backend.cancelled) != 0 {
 		t.Error("a launched task was cancelled from the dashboard")
 	}
-	if !strings.Contains(model.status, "feat cleanup") {
-		t.Errorf("status = %q, want one naming the command that removes resources", model.status)
+	if !strings.Contains(model.status, "cleanup") {
+		t.Errorf("status = %q, want one naming what removes a launched task's resources", model.status)
 	}
 
 	// A draft, by contrast, is cancelled.

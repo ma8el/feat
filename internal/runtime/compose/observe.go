@@ -65,6 +65,51 @@ func (r *Runtime) Observe(ctx context.Context) (runtime.State, error) {
 	return state, nil
 }
 
+// Volumes lists the named volumes Compose labelled with this task's project.
+//
+// It is separate from Observe because Observe stops asking once nothing is
+// present, and a cleanup needs the volumes precisely then: the containers are
+// the thing a user removes first, and the volumes they left behind are the next
+// question. A volume the project declares external carries another project's
+// label, or none, so it cannot appear here — which makes the external-resource
+// rule a property of the enumeration rather than a filter to remember
+// (FR-RUN-008, ADR-037).
+func (r *Runtime) Volumes(ctx context.Context) ([]string, error) {
+	return r.resources(ctx, "volume")
+}
+
+// RemoveVolumes removes the named volumes, one at a time, and reports which
+// were removed.
+//
+// By name rather than through `docker compose down --volumes`, which is all or
+// nothing and would remove a volume the plan never named. A volume that is
+// already gone is not an error; one that is still in use is reported with
+// Docker's own reason rather than forced.
+func (r *Runtime) RemoveVolumes(ctx context.Context, names []string) ([]string, error) {
+	var removed []string
+	for _, name := range names {
+		if strings.TrimSpace(name) == "" || strings.HasPrefix(name, "-") {
+			return removed, fmt.Errorf("%q is not a volume name Feat will pass to Docker", name)
+		}
+		output, err := r.runner.Run(ctx, runtime.Invocation{
+			Program:   r.docker,
+			Arguments: []string{"volume", "rm", name},
+		})
+		if err != nil {
+			return removed, err
+		}
+		if !output.Succeeded() {
+			reported := firstLine(output.Stderr, output.Stdout)
+			if strings.Contains(strings.ToLower(reported), "no such volume") {
+				continue
+			}
+			return removed, fmt.Errorf("removing volume %s failed: %s", name, reported)
+		}
+		removed = append(removed, name)
+	}
+	return removed, nil
+}
+
 // resources lists the networks or volumes Compose labelled with this project.
 func (r *Runtime) resources(ctx context.Context, kind string) ([]string, error) {
 	output, err := r.runner.Run(ctx, runtime.Invocation{

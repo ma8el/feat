@@ -17,7 +17,9 @@ func (m Model) dashboardView() string {
 	}
 	out.WriteString("\n")
 	out.WriteString(m.machineCard())
-	out.WriteString("\n\n")
+	out.WriteString("\n")
+	out.WriteString(m.recoveryBand())
+	out.WriteString("\n")
 
 	switch {
 	case !m.loaded && m.err == nil:
@@ -60,11 +62,72 @@ func (m Model) dashboardView() string {
 		keyHint("a", "attach"),
 		keyHint("s", "shell"),
 		keyHint("R", "runtime"),
+		keyHint("v", "review"),
+		keyHint("C", "cleanup"),
+		keyHint("z", "resume"),
 		keyHint("x", "cancel draft"),
 		keyHint("r", "refresh"),
 		keyHint("q", "quit"),
 	))
 }
+
+// recoveryBand renders what the daemon's last reconciliation pass found.
+//
+// It appears only when something was not simply present, because a pass in which
+// everything matched its record is not news — and a band that was always there
+// would be one nobody read on the day it mattered.
+//
+// Nothing here is an action Feat took. Each line is a resource and what a user
+// can do about it, which is the whole of what reconciliation offers
+// (FR-STATE-003, FR-STATE-004).
+func (m Model) recoveryBand() string {
+	if !m.reconciliation.Ran || !m.reconciliation.NeedsAttention {
+		return ""
+	}
+
+	var out strings.Builder
+	// When the pass ran, because everything it names can be acted on from this
+	// dashboard: a band with no time on it reads as current however old it is.
+	when := ""
+	if !m.reconciliation.FinishedAt.IsZero() {
+		when = mutedStyle.Render("  checked " + m.reconciliation.FinishedAt.Local().Format("15:04:05") +
+			"  ·  r to look again")
+	}
+	out.WriteString("\n" + attentionStyle.Render("recovery") + when + "\n")
+	if !m.reconciliation.PreviousRunEndedCleanly {
+		out.WriteString(mutedStyle.Render("  the previous daemon did not shut down cleanly") + "\n")
+	}
+
+	shown := 0
+	for _, finding := range m.reconciliation.Findings {
+		if finding.Status == "present" {
+			continue
+		}
+		if shown == recoveryLines {
+			out.WriteString(mutedStyle.Render("  … and more; see `feat daemon status`") + "\n")
+			break
+		}
+		shown++
+
+		line := "  " + finding.Status + "  " + finding.Class
+		if finding.TaskKey != "" {
+			line += "  task " + finding.TaskKey
+		}
+		out.WriteString(failureStyle.Render(line) + "\n")
+		out.WriteString(mutedStyle.Render("      "+finding.Detail) + "\n")
+		if finding.Action != "" {
+			out.WriteString(mutedStyle.Render("      → "+finding.Action) + "\n")
+		}
+	}
+	for _, problem := range m.reconciliation.Problems {
+		out.WriteString(failureStyle.Render("  unchecked  "+problem.Reason) + "\n")
+	}
+	return out.String()
+}
+
+// recoveryLines bounds the band, so that a machine with many stale resources
+// still leaves room for the task list the dashboard is mainly about.
+const recoveryLines = 4
 
 // taskKey renders a task's short identifier, marking one that is still a draft.
 //

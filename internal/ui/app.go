@@ -63,6 +63,7 @@ const (
 	screenPrepare
 	screenRuntime
 	screenReview
+	screenCleanup
 )
 
 // Model is the dashboard.
@@ -94,6 +95,16 @@ type Model struct {
 	// review is the review screen's own state: the comparison it was given, the
 	// repository under the cursor, and what is in flight.
 	review reviewModel
+	// reconciliation is the daemon's most recent recovery pass, read on the
+	// periodic refresh rather than on every event: a pass is not published, and
+	// what it found changes on the scale of a restart rather than a keystroke.
+	reconciliation api.Reconciliation
+
+	// cleanup is the cleanup screen's own state: the inventory it was shown, the
+	// classes selected, the warnings confirmed, and what is in flight. It holds
+	// the plan rather than deriving one, because the plan's token is what an
+	// execution carries back.
+	cleanup cleanupModel
 
 	// events carries what the daemon's stream delivered. It is created once and
 	// read repeatedly, because receiving an event must cost a channel read
@@ -205,7 +216,7 @@ type (
 // first act is to read the project list, and a message no screen is waiting for
 // would be dropped by the router below.
 func (m Model) Init() tea.Cmd {
-	commands := []tea.Cmd{m.load(), m.loadResources(), m.connect(), m.awaitEvent(), tick()}
+	commands := []tea.Cmd{m.load(), m.loadResources(), m.loadReconciliation(), m.connect(), m.awaitEvent(), tick()}
 	if m.screen == screenPrepare {
 		commands = append(commands, m.prepare.Init())
 	}
@@ -234,6 +245,44 @@ func (m Model) loadResources() tea.Cmd {
 		report, err := m.backend.Resources(context.Background())
 		return resourcesMsg{report: report, err: err}
 	}
+}
+
+// loadReconciliation reads the daemon's most recent recovery pass.
+//
+// It reads rather than runs one: a pass observes every task's tmux window,
+// worktrees, and containers, and a dashboard that triggered that on a timer
+// would ask Docker about every task several times a minute. The daemon runs its
+// pass at startup, and re-running it is a key the user presses.
+func (m Model) loadReconciliation() tea.Cmd {
+	return func() tea.Msg {
+		report, err := m.backend.Reconciliation(context.Background())
+		return reconciliationMsg{report: report, err: err}
+	}
+}
+
+// reconcile asks the daemon to look again, rather than re-reading what it last
+// found.
+//
+// The recovery band describes a moment, and everything it names can be acted on
+// from this dashboard — so a band that could never be refreshed would go on
+// reporting resources the user had already dealt with. Reading is what the
+// periodic refresh does; this follows a key press or an action that changed
+// something.
+func (m Model) reconcile() tea.Cmd {
+	return func() tea.Msg {
+		report, err := m.backend.Reconcile(context.Background())
+		return reconciliationMsg{report: report, err: err}
+	}
+}
+
+// reconciliationMsg carries the daemon's recovery report.
+//
+// A failure carries no error into the model: the report is a band above the task
+// list, and a dashboard that showed an error because it could not read one would
+// be hiding the tasks behind the thing that explains them.
+type reconciliationMsg struct {
+	report api.Reconciliation
+	err    error
 }
 
 // connect follows the daemon's event stream for the life of the dashboard.
@@ -340,7 +389,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		return m, tea.Batch(m.load(), m.loadResources(), tick())
+		return m, tea.Batch(m.load(), m.loadResources(), m.loadReconciliation(), tick())
 
 	case execMsg:
 		if message.err != nil {
@@ -357,6 +406,18 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	case reviewMsg:
 		return m.applyReview(message)
+
+	case reconciliationMsg:
+		if message.err == nil {
+			m.reconciliation = message.report
+		}
+		return m, nil
+
+	case cleanupPlanMsg:
+		return m.applyCleanupPlan(message)
+
+	case cleanupDoneMsg:
+		return m.applyCleanupResult(message)
 
 	case tea.KeyMsg:
 		return m.key(message)
@@ -382,6 +443,9 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.screen == screenReview {
 		return m.reviewKey(key)
+	}
+	if m.screen == screenCleanup {
+		return m.cleanupKey(key)
 	}
 
 	switch key.String() {
@@ -435,12 +499,21 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "v":
 		return m.openReview()
 
+	case "C":
+		return m.openCleanup()
+
+	case "z":
+		return m.resume()
+
 	case "x":
 		return m.cancel()
 
 	case "r":
+		// An explicit refresh looks again rather than re-reading: a user who
+		// pressed it wants what is true now, and the cost of a pass is theirs to
+		// spend. The periodic tick still only reads.
 		m.status = ""
-		return m, tea.Batch(m.load(), m.loadResources())
+		return m, tea.Batch(m.load(), m.loadResources(), m.reconcile())
 	}
 	return m, nil
 }
@@ -489,11 +562,40 @@ func (m Model) shell() (tea.Model, tea.Cmd) {
 	}
 }
 
+// resume continues a task's recorded agent session.
+//
+// It is a key the user presses, and nothing else reaches it. Reconciliation
+// reports that a session can be resumed and never resumes one, which is what
+// keeps recovery an offer rather than a restart (FR-STATE-004, ADR-037).
+func (m Model) resume() (tea.Model, tea.Cmd) {
+	task, ok := m.subject()
+	if !ok {
+		return m, nil
+	}
+	if task.Session == nil {
+		m.status = "task " + task.Key + " has no agent session to resume"
+		return m, nil
+	}
+
+	backend := m.backend
+	id, key := task.ID, task.Key
+	m.status = "resuming the recorded session of task " + key + "…"
+	// A new pass follows, because a resume is one of the two things that
+	// resolves what the recovery band was reporting.
+	return m, tea.Batch(func() tea.Msg {
+		if _, err := backend.Resume(context.Background(), id); err != nil {
+			return tasksMsg{err: err}
+		}
+		tasks, err := backend.Tasks(context.Background())
+		return tasksMsg{tasks: tasks, err: err}
+	}, m.reconcile())
+}
+
 // cancel abandons a draft.
 //
 // Only a draft can be cancelled here. Removing the resources of a launched task
 // is cleanup, which resolves exact targets and asks for confirmation per
-// resource class, and slice 12 delivers it.
+// resource class.
 func (m Model) cancel() (tea.Model, tea.Cmd) {
 	task, ok := m.subject()
 	if !ok {
@@ -501,7 +603,7 @@ func (m Model) cancel() (tea.Model, tea.Cmd) {
 	}
 	if !isDraft(task) {
 		m.status = "task " + task.Key + " is " + task.Workflow +
-			"; removing a launched task's resources is `feat cleanup`"
+			"; removing a launched task's resources is cleanup, on C"
 		return m, nil
 	}
 
@@ -599,6 +701,8 @@ func (m Model) View() string {
 		return m.runtimeView()
 	case screenReview:
 		return m.reviewView()
+	case screenCleanup:
+		return m.cleanupView()
 	default:
 		return m.dashboardView()
 	}

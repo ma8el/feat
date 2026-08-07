@@ -1021,6 +1021,11 @@ See ADR-036; [02-user-workflows.md](02-user-workflows.md),
 
 ## Slice 12 — Reconciliation and cleanup
 
+Status: **complete**, 2026-08-07
+
+The design decisions this slice started from are recorded in ADR-037 in
+[10-decisions-and-open-questions.md](10-decisions-and-open-questions.md).
+
 ### Outcome
 
 Feat recovers honestly and removes only resources the user explicitly selected.
@@ -1047,6 +1052,253 @@ Feat recovers honestly and removes only resources the user explicitly selected.
 - Volumes remain unless explicitly chosen.
 - Broad path or non-task resource deletion is rejected.
 - Dirty/unmerged resources require explicit confirmation.
+
+### Delivered
+
+All eight acceptance criteria pass, each with a test named for it, and each
+checked where the narrow claim can be made: that a reconciliation pass ran no
+tmux command at all is a stronger statement than that a task happens to still be
+failed, and that a selection never named the volume class is a stronger statement
+than that a volume survived because a fake did not remove it.
+
+**Quarantine is one rule rather than tmux's.** ADR-030 deferred it here because
+worktrees, Compose projects, and control messages raise the same question, and
+answering it inside one adapter would set a policy for all of them. The rule: an
+enumeration returns what it could read together with what it could not, and fails
+as a whole only when the enumeration itself failed. `control.Workspace.Pending`
+has behaved this way since slice 7 and is named as the precedent rather than left
+a coincidence. `tmux.Discover` now returns terminals, managed sessions, and
+damaged entries; a damaged pane quarantines its terminal because half a terminal
+is not one, a damaged session quarantines its windows, and everything else stays
+usable. Seven shapes of damage have a row each in a table, and every one of them
+previously ended discovery for the whole server — `EnsureTask` failing for every
+unrelated task, with startup reconciliation stopping before it reached any of
+them.
+
+Two properties of that rule are worth stating because they are what bound the
+damage rather than merely report it. A project whose every window is quarantined
+still has its session, so `projectSession` reads the discovered sessions rather
+than deriving one from healthy terminals: the other reading would answer "none"
+and give the project a second session, making the ambiguity permanent. And two
+sessions claiming one project quarantine that project alone — it is refused a
+third rather than given one, and every other project stays usable.
+
+Working-directory validation is settled with it, as ADR-030 said it would be.
+`CommandSpec.Directory` is now checked with the same rule as the arguments, and
+that rule gains the tab: the directory is the one caller-supplied value tmux
+reports back, inside a tab-separated list format, so a tab in a path misaligns
+every pane field and breaks discovery for every terminal on the server. Quarantine
+bounds what that costs; validation stops Feat creating one. Both are wanted.
+
+**One recovery pass.** `internal/reconcile` is a policy package under the
+boundary ADR-029 set for Git and ADR-036 for review, with a
+`reconcile-stays-a-policy` depguard rule: it owns the vocabulary of a finding,
+the cleanup classes, the plan token, and the consent rule, and it drives no
+adapter and reads no state. The daemon asks tmux, Git, both Compose adapters, the
+control workspaces, and the review records the same question in one pass, and a
+step that fails records a problem and lets the remaining steps run — the
+quarantine rule applied to the pass itself. Nothing is repaired, restarted,
+recreated, or adopted, which is FR-STATE-004 generalised from containers to every
+class. A pass that could not ask a question reports that rather than reporting
+the answer as "nothing": an unreadable tmux server told a user their terminals
+were gone.
+
+**The cleanup token names what, and the fresh observation decides whether.** The
+token covers the task, the resource identities, and a schema — deliberately not
+the warnings. A token over observations would change whenever the agent wrote a
+file, so a user would learn their plan was stale when what had happened is that
+their worktree became dirty, and the second is the thing they need to hear.
+Execute re-resolves the plan, refuses a token that no longer names the same
+resources, and refuses a confirmation that does not cover the warnings observed
+at the moment of removal. Both halves have a test, and the one that matters most
+proves the token does **not** change when a clean worktree becomes dirty.
+
+Seven classes, each an independent choice: the four FR-CLEAN-002 names, with the
+agent's containers and the application's kept apart because they are separate
+concepts everywhere else in this product, plus the task's tmux window and its
+control workspace. That the last two are an extension of the specification's list
+rather than in it is recorded in ADR-037 and in
+[04-functional-specification.md](04-functional-specification.md) rather than left
+to be discovered. The removal order is a requirement rather than a detail —
+whatever holds a file is stopped before the file is removed — and is pinned by a
+test.
+
+Three properties are decided once and pinned there:
+
+- volumes are removed **by name**, never through `docker compose down --volumes`,
+  which is all or nothing and would remove a volume the plan never named. The
+  names come from the container runtime's own project label, so a resource the
+  project declares external carries no such label and cannot appear — the
+  external-resource rule becomes a property of the enumeration rather than a
+  filter somebody has to remember;
+- the volume class carries a standing warning in the policy itself, so a volume
+  is removable only when that exact warning was confirmed. "Volumes are retained
+  by default" is therefore a property of `internal/reconcile` rather than of the
+  daemon having remembered to attach a string. The first version depended on the
+  daemon, and a test written for the acceptance criterion is what found it;
+- archiving is refused while the plan still names resources the selection leaves
+  behind. An archived task is one Feat stops tracking, and stranding a running
+  container behind it would manufacture exactly the orphan this slice exists to
+  report.
+
+Archiving needs no new stored document. The task reaches `archived`, its snapshot
+keeps the branches, bases, and session it recorded, and the append-only event log
+gains one additive type carrying what each class removed — including a removal
+that stopped half way, which is the case a user most needs an account of. So both
+halves of "explain what happened later" are answerable from the two durable
+records slice 1 already built, and no stored format changes.
+
+**`daemon.json` is written because it has three readers**, not because ADR-027
+named this slice. No acceptance criterion here needs a durable daemon record:
+task identity survives a restart through task snapshots and tmux metadata,
+neither of which is one. Writing it on the strength of the deferral alone would
+have produced exactly what ADR-027 evidence 2 refused — a versioned compatibility
+surface with no reader. It records the state directory's schema version, so a
+build older than the directory refuses it rather than silently discarding what a
+newer schema added; whether the last run ended cleanly, written by the run that
+ends rather than the one that starts, so a crash needs nothing to be written in
+order to be visible; and when it stopped. It carries no process identifier,
+socket, or lock, which is the whole of ADR-027 evidence 1.
+
+**Recovering a dead agent session** is offered and never automatic, which is
+checked by counting the commands every automatic path produces: none. It
+continues the provider session slice 7 captured from the session-start event
+before the process could fail, through `--resume <id>` with no initial prompt — a
+resumed session already holds the conversation, and one invented here would be
+Feat putting words in the user's mouth. The identifier is validated before it
+reaches an argument vector, because it arrives in a message an agent could have
+authored.
+
+Three things running the package suite made necessary, none of which reasoning
+had produced:
+
+- **`EnsureTask` returns an existing terminal untouched**, so the first resume
+  changed the task's state and started nothing. That is right for a launch —
+  repeating one must not restart an agent that is already working — and wrong for
+  the one case where the caller means to replace the process. `tmux.Restart`
+  respawns the agent pane and keeps the pane whatever happens, because unlike a
+  pane created moments ago this one holds the output of the session that died,
+  which is often the only account of why. A test that asserted two launches is
+  what found it;
+- ADR-032's suppression had to narrow. A session start that resumed must not move
+  a task that is **already working**, or a user typing `/clear` would move their
+  task's workflow; the wider rule also caught a task in `preparing`, which is
+  where a resume puts it and which is waiting for exactly that event. Unnarrowed,
+  a resumed task sat in `preparing` with a running agent, looking broken;
+- `observeRuntime` ran a load-change-save cycle outside the per-task lock. It is
+  ADR-036 evidence 9's shape in the one place that reaches a task's records on a
+  timer, and every reconciliation write now takes the lock and re-reads under it.
+
+Verified against the real tools: real Git for the removals, where the point is
+the part a fake cannot decide — that `worktree remove` refuses a dirty worktree
+without `--force` and takes it with one, and that `branch -d` refuses an unmerged
+branch while `-D` does not. Both safeties sit under the confirmation rule, and
+the first version of that test passed against a branch Git was willing to delete
+because it pointed at its own base, which is a test that checks nothing. And
+against the installed Claude Code 2.1.220 in a real terminal inside a tmux pane:
+`claude --resume <unknown-id>` exits 1 with a message rather than opening the
+interactive picker its help describes, which is what makes the resume safe to
+offer — the failure is visible rather than a session that starts perfectly and
+has been given nothing.
+
+**Verified again through the product rather than the package**, with a daemon
+started from the built binary, a project registered through the socket, and a
+two-repository task launched, inventoried, cleaned up, and archived as a user
+would. The inventory named the terminal, both worktrees, both branches, and the
+control workspace; a dirty worktree and an unpushed, unmerged branch produced
+their own warnings; declining a warning dropped its whole class and removed
+nothing; confirming removed both worktrees and both branches — one per
+repository, despite identical names — and left the ordinary checkouts byte for
+byte as they were. A clean stop recorded itself, a `kill -9` did not, and the
+next run reported each correctly. The archive removed the control workspace,
+kept the task's branches and base commits in the snapshot, and left an event per
+class in the log.
+
+Verified once more against the reference machine's own two projects — one host,
+one devcontainer — with six real tasks, five live tmux windows, real worktrees,
+a running agent container, exited ones, exited application containers, and a
+task-owned volume. The recovery pass reported every one of them correctly and
+reported no false orphan, on exactly the `{project_id}/{task_id}` worktree layout
+that produced one. A cleanup plan for a devcontainer task named its agent Compose
+project; a plan for the application task named its own `…_postgres_data` volume
+and not the unrelated `jobharbor-devcontainer_frontend-node-modules` beside it,
+which is the external-resource rule holding against real Docker rather than
+against a label a fake supplied. Removing that task's containers left the volume;
+choosing the volume class without confirming its warning was refused and the
+volume untouched; confirming removed it by name. A dead containerised agent was
+resumed: the container came back up and the pane's own process is
+`claude … --resume a4732887-…` with the recorded identifier and no initial
+prompt, showing the conversation it had before it died.
+
+**That run found five defects, and none was reachable from this repository's
+own fixtures.** They are recorded as ADR-037 evidence 10 to 14. The last was
+found by the maintainer using the dashboard rather than by any test.
+
+The first is the most serious: **a daemon that shut down cleanly could never
+start again.** The claim carried the previous run's stop time into the new run's
+record, producing a record whose stop preceded its own start — which the domain
+refuses, correctly. Only a daemon that had *crashed* could start, because a
+crashed run leaves no stop time to carry. The suite missed it because every
+fixture in `internal/daemon` freezes the clock, so the carried stop and the fresh
+start were the same instant; the first regression test written for it passed
+against the injected defect, and it is now a test with a clock that moves.
+
+The second is the one a user would have been hurt by: **a live task's own
+directory was reported as an orphan, with advice to delete it.** The worktree
+root `…/worktrees/{project_id}/{task_id}` puts the interesting directories two
+levels below what the scan listed, so it named the directory holding both of a
+running task's worktrees while missing the abandoned task directory beside it —
+both halves of the mistake at once. A report that recommends the wrong deletion
+turns this product's whole discipline against the user, since Feat reports and
+the user acts. The scan now descends only where a task's own paths lead.
+
+The third was visible in the inventory itself: a two-repository task printed the
+same branch name twice, because one template names every repository's branch
+alike. **The plan token covered the name and not the repository**, while the
+removal is pointed at a repository by exactly that field.
+
+The fourth came from the reference machine, and is the one worth remembering:
+**the task that most needed recovery was the one that could not have it.**
+Resuming moved a task to `preparing` unconditionally, and the ordinary state of a
+task whose agent died is `working` with a failed process — because a process that
+dies unobserved leaves the workflow alone, and reconciliation reports it rather
+than moving it. `working` has no edge to `preparing`, correctly, so every such
+task was refused in fifteen milliseconds with a generic message. Every fixture
+reached the resume from `failed`, since a test that arranges a dead agent
+arranges the whole of it; a real one had only lost its container overnight.
+
+The fifth is the only one no test could have caught in the shape the tests were
+written: **the recovery band could never be brought up to date.** Reading the
+last pass and running a new one are deliberately separate, because a pass asks
+the container runtime about every task while the dashboard refreshes every two
+seconds — but nothing in the dashboard ran one, so the band described the daemon's
+startup pass for ever. A user who resumed a task or cleaned one up went on being
+told about resources they had already dealt with. Every existing test asserted
+the band's content against a report handed to the model, so none could notice
+that no second report ever arrived. The split stands; what changed is that a
+resume, a finished cleanup, and the explicit refresh key each run a pass, and the
+band now says when it looked.
+
+`feat cleanup <task>` is implemented and has no blanket `--yes`. FR-CLEAN-002
+requires separate choices and FR-CLEAN-003 explicit confirmation, and one flag
+answering every question is the thing both rules exist to refuse: in a terminal
+it asks once per class in removal order and again for each warning, and anywhere
+else it prints the inventory and removes nothing. The TUI gains a cleanup screen
+with the same structure, a recovery band that appears only when a pass found
+something, and a resume key. The command surface gains no flag, so its golden
+file is untouched; five endpoints are added and recorded in
+[06-technical-architecture.md](06-technical-architecture.md).
+
+This is the first slice after which no command in the documented surface reports
+an unimplemented slice, which a test now pins — the counterpart of the one
+requiring a placeholder to name its slice.
+
+Package layout gained no new package: `internal/reconcile` was reserved by slice
+0. See ADR-037; [02-user-workflows.md](02-user-workflows.md),
+[04-functional-specification.md](04-functional-specification.md),
+[05-security-model.md](05-security-model.md), and
+[06-technical-architecture.md](06-technical-architecture.md) were updated in the
+same change.
 
 ## Slice 13 — Dogfood hardening
 

@@ -12,6 +12,12 @@ import (
 // Placeholder commands return this error rather than printing a success
 // message, so that scripts and tests can never mistake an unimplemented
 // command for a working one.
+//
+// Slice 12 leaves no command using it: every entry in the documented surface now
+// does its work. The type stays because the exit-code contract in Execute reads
+// it and because a later slice that defers something needs it — reintroducing
+// the two-line constructor beside its one caller is less than the cost of a dead
+// helper nobody can see the shape of.
 type NotImplementedError struct {
 	// Command is the full command path, such as "feat daemon start".
 	Command string
@@ -26,17 +32,6 @@ func (e *NotImplementedError) Error() string {
 		"%s is not implemented yet: it is delivered by implementation slice %d (%s). See docs/11-implementation-plan.md",
 		e.Command, e.Slice, e.Outcome,
 	)
-}
-
-// notImplemented builds a cobra RunE that reports the slice owning the command.
-func notImplemented(slice int, outcome string) func(*cobra.Command, []string) error {
-	return func(cmd *cobra.Command, _ []string) error {
-		return &NotImplementedError{
-			Command: cmd.CommandPath(),
-			Slice:   slice,
-			Outcome: outcome,
-		}
-	}
 }
 
 // NotRunningError reports that a command needed a running daemon and found

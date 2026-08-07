@@ -65,7 +65,7 @@ func TestRealDaemonRestartRediscoversTaggedTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating restarted daemon: %v", err)
 	}
-	if err := restarted.service.reconcileTmux(ctx); err != nil {
+	if _, err := restarted.service.Reconcile(ctx); err != nil {
 		t.Fatalf("reconcileTmux: %v", err)
 	}
 

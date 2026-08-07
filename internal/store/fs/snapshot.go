@@ -19,6 +19,7 @@ const (
 	taskSchemaVersion    = 1
 	reviewSchemaVersion  = 1
 	eventSchemaVersion   = 1
+	daemonSchemaVersion  = 1
 )
 
 // migration upgrades a stored document from one schema version to the next.
@@ -52,6 +53,7 @@ var (
 	taskCodec    = codec{kind: "task", version: taskSchemaVersion}
 	reviewCodec  = codec{kind: "review", version: reviewSchemaVersion}
 	eventCodec   = codec{kind: "event", version: eventSchemaVersion}
+	daemonCodec  = codec{kind: "daemon record", version: daemonSchemaVersion}
 )
 
 // marshal renders a document, with a trailing newline so that the files stay

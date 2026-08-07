@@ -513,7 +513,9 @@ func TestAnInterruptedGateDoesNotClaimToBeRunning(t *testing.T) {
 
 	// A restart, while the checks are still held.
 	restarted := restart(t, live.session)
-	restarted.recoverGates(context.Background())
+	if _, err := restarted.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile after restart: %v", err)
+	}
 
 	task, err := restarted.Task(context.Background(), live.ref.Task)
 	if err != nil {

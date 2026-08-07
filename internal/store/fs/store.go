@@ -21,6 +21,7 @@ const (
 	briefFile   = "prompt.md"
 	eventsFile  = "events.jsonl"
 	reviewFile  = "review.json"
+	daemonFile  = "daemon.json"
 )
 
 // File modes. State belongs to one user: it names their repositories, their
@@ -84,6 +85,11 @@ func (s *Store) Events() store.EventStore { return eventStore{store: s} }
 
 // Reviews returns the per-task review repository.
 func (s *Store) Reviews() store.ReviewStore { return reviewStore{store: s} }
+
+// Daemons returns the durable record of the daemons that have owned this state
+// directory. It lives at the state root rather than under a project, because it
+// describes the directory rather than anything in it.
+func (s *Store) Daemons() store.DaemonStore { return daemonStore{store: s} }
 
 // projectDir returns the directory holding one project's state.
 func (s *Store) projectDir(id domain.ProjectID) (string, error) {

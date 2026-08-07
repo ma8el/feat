@@ -764,33 +764,6 @@ func gateReport(results []domain.Check, verdict review.Verdict) string {
 	return b.String()
 }
 
-// recoverGates reports the tasks whose checks were interrupted by a restart.
-//
-// A gate does not survive the process that started it, so a task recorded as
-// verifying is a task claiming that checks are running when nothing is. It goes
-// back to where the request was, with an event saying what happened; running
-// them again is an action the user takes, because recovery in Feat is offered
-// and never automatic (FR-STATE-004's reasoning, ADR-036).
-func (s *service) recoverGates(ctx context.Context) {
-	tasks, err := s.Tasks(ctx)
-	if err != nil {
-		s.logger.WarnContext(ctx, "listing tasks to recover interrupted checks", slog.Any("error", err))
-		return
-	}
-
-	for _, task := range tasks {
-		if task.Workflow != domain.WorkflowVerifying {
-			continue
-		}
-		if err := s.transition(ctx, task, domain.WorkflowReviewRequested,
-			"the configured checks were interrupted by a daemon restart and did not finish; "+
-				"run them again from review"); err != nil {
-			s.logger.ErrorContext(ctx, "recovering an interrupted gate",
-				slog.String("task", task.ID.String()), slog.Any("error", err))
-		}
-	}
-}
-
 // containerChecks runs a check inside a task's execution environment.
 //
 // It is the seam ADR-032 left and slice 8 filled for probes, used here for

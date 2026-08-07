@@ -134,6 +134,9 @@ POST   /v1/tasks/{task_id}/review/pending
 POST   /v1/tasks/{task_id}/review/verify
 POST   /v1/tasks/{task_id}/cleanup/plan
 POST   /v1/tasks/{task_id}/cleanup/execute
+POST   /v1/tasks/{task_id}/resume            continues the recorded agent session
+GET    /v1/reconciliation                    the most recent recovery pass
+POST   /v1/reconciliation                    looks again and records what it saw
 ```
 
 The local socket is user-owned and mode-restricted. Destructive API requests use task/resource IDs and a server-produced cleanup plan token rather than arbitrary filesystem paths. `POST /v1/projects` follows the same rule for the same reason: it carries a project identifier, and the daemon resolves the configuration file from the directory it resolved for itself, so the file that is validated is the file it will read again later.
@@ -214,7 +217,15 @@ per-task snapshot directory, because it is the one tree an agent writes to and
 it is mounted into the agent's execution environment. Its layout is in the
 control workspace protocol below.
 
-A durable daemon record, `daemon.json` at the state root, is introduced by slice 12, the first slice that reads one. Until then daemon liveness lives only in the runtime directory, so that a record which must not outlive the machine cannot; see ADR-027.
+A durable daemon record, `daemon.json`, sits at the state root. It records the
+state directory's own schema version, whether the previous run ended cleanly, and
+when it stopped. It carries no process identifier, socket path, or lock: those
+live in the runtime directory, which does not survive a reboot, and a durable
+copy of one would describe a daemon that is not running. Its three readers are
+the reason it exists rather than the deferral that scheduled it — a build older
+than the directory refuses it instead of overwriting documents it cannot read, a
+recovery report can say a daemon crashed rather than leaving a user to infer it,
+and the stop time is how long Feat was not looking. See ADR-027 and ADR-037.
 
 Runtime ownership data uses the operating system's user runtime directory:
 
@@ -268,7 +279,8 @@ Responsibilities:
 - observe dirty/ahead/behind/merged state;
 - compute change summaries against recorded bases;
 - produce exact cleanup plans;
-- remove worktrees/branches only after confirmation.
+- remove worktrees/branches only after confirmation, re-checking the path against
+  the directory Feat owns immediately before deleting anything.
 
 The adapter invokes Git as an argument vector, not through interpolated shell strings.
 
@@ -310,7 +322,11 @@ Requirements:
 - attach/detach through normal tmux behavior;
 - launch shell panes in the same execution profile and primary workspace;
 - inspect process existence without interpreting semantic completion from terminal text;
-- reconcile existing managed sessions on daemon startup.
+- reconcile existing managed sessions on daemon startup;
+- quarantine a tagged object it cannot read, returning the rest. Discovery
+  reports what it could read together with what it could not, and fails as a
+  whole only when the enumeration itself failed, so one damaged terminal never
+  makes the healthy ones unreachable (ADR-037).
 
 Every control invocation passes `tmux -u`. A tmux client whose locale is not
 UTF-8 replaces every non-printable character in the output of `-F` with an
@@ -372,8 +388,10 @@ the terminal backend constructs the process and an `*exec.Cmd` returned here
 would be a process nobody runs. `Run` is added, because validation asks an
 environment questions rather than attaching a terminal to it. `Shell` is folded
 into `Command`, because the daemon already decides what a task shell is.
-`Destroy` is not implemented before slice 12, which owns what is retained and
-what requires confirmation.
+`Destroy` arrives with slice 12, and removes containers and networks only.
+Volume enumeration and removal are separate methods rather than a flag, so that
+"volumes are retained by default" is the shape of the interface rather than an
+argument that can be passed wrongly (ADR-037).
 
 An environment is constructed from final values — absolute Compose files, a
 project name, a service, a user, mounts, and labels — and reads neither

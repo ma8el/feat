@@ -194,25 +194,13 @@ func NewRootCommand(opts Options) *cobra.Command {
 		newAttachCommand(env),
 		newReviewCommand(env),
 		newRuntimeCommand(env),
-		newCleanupCommand(),
+		newCleanupCommand(env),
 		newDoctorCommand(env),
 		newDaemonCommand(env),
 		newVersionCommand(),
 	)
 
 	return root
-}
-
-func newCleanupCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "cleanup <task>",
-		Short: "Plan and execute removal of a task's resources",
-		Long: `Produce an exact inventory of the resources a task owns and remove only the
-resources explicitly selected. Volumes are retained unless chosen, and dirty or
-unmerged work requires explicit confirmation.`,
-		Args: checkArgs(cobra.ExactArgs(1)),
-		RunE: notImplemented(12, "reconciliation and cleanup"),
-	}
 }
 
 func newVersionCommand() *cobra.Command {

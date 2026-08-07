@@ -125,11 +125,14 @@ func TestRealManagedServerIsIsolatedAndIdentitySurvivesUserChanges(t *testing.T)
 	if err != nil {
 		t.Fatalf("Discover after restart: %v", err)
 	}
-	if len(discovered) != 1 {
-		t.Fatalf("discovered %d terminals, want 1", len(discovered))
+	if len(discovered.Terminals) != 1 {
+		t.Fatalf("discovered %d terminals, want 1", len(discovered.Terminals))
 	}
-	if discovered[0].Target != terminal.Target {
-		t.Errorf("target after rename/renumber = %+v, want %+v", discovered[0].Target, terminal.Target)
+	if discovered.Terminals[0].Target != terminal.Target {
+		t.Errorf("target after rename/renumber = %+v, want %+v", discovered.Terminals[0].Target, terminal.Target)
+	}
+	if len(discovered.Damaged) != 0 {
+		t.Errorf("discovery quarantined %d objects, want none: %+v", len(discovered.Damaged), discovered.Damaged)
 	}
 
 	ordinary, err := server.runner.Run(ctx, server.ordinary, "list-sessions", "-F", "#{session_name}")
@@ -376,11 +379,11 @@ func TestRealWindowClientsFollowTheUser(t *testing.T) {
 func mustDiscover(ctx context.Context, t *testing.T, backend *Tmux) []Terminal {
 	t.Helper()
 
-	terminals, err := backend.Discover(ctx)
+	found, err := backend.Discover(ctx)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	return terminals
+	return found.Terminals
 }
 
 // waitForWatched waits until a task's window reports the expected viewer state.

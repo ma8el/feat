@@ -87,10 +87,23 @@ type fakeGit struct {
 	// the changed file names and the per-file line counts.
 	changed string
 	numstat string
+	// dirty makes every worktree report uncommitted changes, which is what a
+	// cleanup has to warn about before it removes one.
+	dirty bool
+	// branches are the refs the fake has, so a deletion can report whether
+	// there was anything to delete.
+	branches map[string]bool
+	// failRemove makes removing a worktree fail once its path ends in this
+	// repository identifier.
+	failRemove string
 }
 
 func newFakeGit() *fakeGit {
-	return &fakeGit{worktrees: make(map[string][]string), resolved: planned}
+	return &fakeGit{
+		worktrees: make(map[string][]string),
+		resolved:  planned,
+		branches:  make(map[string]bool),
+	}
 }
 
 // resolveTo moves the commit every remote-tracking base resolves to.
@@ -145,10 +158,17 @@ func (f *fakeGit) Run(_ context.Context, dir string, args ...string) (string, er
 	case args[0] == "rev-parse":
 		// Remote-tracking bases resolve; nothing else does, so a task branch
 		// never collides and a base policy that is not remote is visibly
-		// unresolvable.
-		if strings.HasPrefix(args[len(args)-1], "refs/remotes/") {
+		// unresolvable — except for a branch the fake has been told exists,
+		// which is how a cleanup finds something to delete.
+		ref := args[len(args)-1]
+		if strings.HasPrefix(ref, "refs/remotes/") {
 			f.mu.Lock()
 			defer f.mu.Unlock()
+			return f.resolved, nil
+		}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.branches[strings.TrimPrefix(ref, "refs/heads/")] {
 			return f.resolved, nil
 		}
 		return "", &git.ExitError{Args: args, Dir: dir, Code: 1}
@@ -164,6 +184,44 @@ func (f *fakeGit) Run(_ context.Context, dir string, args ...string) (string, er
 			lines = append(lines, "worktree "+path, "detached", "")
 		}
 		return strings.Join(lines, "\n"), nil
+
+	case args[0] == "worktree" && args[1] == "remove":
+		path := args[len(args)-1]
+		if f.failRemove != "" && filepath.Base(path) == f.failRemove {
+			return "", &git.ExitError{
+				Args: args, Dir: dir, Code: 128,
+				Stderr: "fatal: '" + path + "' contains modified or untracked files, use --force to delete it",
+			}
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return "", err
+		}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		remaining := make([]string, 0, len(f.worktrees[dir]))
+		for _, existing := range f.worktrees[dir] {
+			if existing != path {
+				remaining = append(remaining, existing)
+			}
+		}
+		f.worktrees[dir] = remaining
+		return "", nil
+
+	case args[0] == "worktree" && args[1] == "prune":
+		return "", nil
+
+	case args[0] == "branch":
+		name := args[len(args)-1]
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if !f.branches[name] {
+			return "", &git.ExitError{
+				Args: args, Dir: dir, Code: 1,
+				Stderr: "error: branch '" + name + "' not found",
+			}
+		}
+		delete(f.branches, name)
+		return "", nil
 
 	case args[0] == "worktree" && args[1] == "add":
 		path := args[len(args)-2]
@@ -202,7 +260,15 @@ func (f *fakeGit) Run(_ context.Context, dir string, args ...string) (string, er
 		}
 		return f.changed, nil
 
-	case args[0] == "status", args[0] == "ls-files":
+	case args[0] == "status":
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.dirty {
+			return " M internal/api/handler.go\n?? notes.md", nil
+		}
+		return "", nil
+
+	case args[0] == "ls-files":
 		return "", nil
 
 	case args[0] == "rev-list":

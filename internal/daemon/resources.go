@@ -160,8 +160,12 @@ func (s *service) resourceTargets(ctx context.Context) ([]resources.Target, erro
 	}
 
 	panes := make(map[domain.TaskID][]int, len(live))
-	terminals, discoverErr := s.terminals.Discover(ctx)
-	for _, terminal := range terminals {
+	found, discoverErr := s.terminals.Discover(ctx)
+	// A quarantined terminal contributes no processes and costs the healthy ones
+	// nothing: measuring what can be measured is the same rule everywhere else
+	// in this pass, where a machine whose load cannot be read still reports its
+	// memory.
+	for _, terminal := range found.Terminals {
 		pids := make([]int, 0, 2)
 		if terminal.Agent.PID > 0 {
 			pids = append(pids, terminal.Agent.PID)

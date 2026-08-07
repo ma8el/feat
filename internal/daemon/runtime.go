@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/ma8el/feat/internal/notify"
 	"github.com/ma8el/feat/internal/runtime"
 	"github.com/ma8el/feat/internal/runtime/compose"
+	"github.com/ma8el/feat/internal/store"
 )
 
 // defaultRuntimeInterval is how often the daemon observes application services.
@@ -553,29 +555,42 @@ func (s *service) pollRuntimes(ctx context.Context) {
 		if task.Runtime == nil || task.Workflow == domain.WorkflowArchived {
 			continue
 		}
-		if err := s.observeRuntime(ctx, task); err != nil {
+		if _, err := s.observeRuntime(ctx, task); err != nil && !errors.Is(err, ErrRuntimeUnconfigured) {
 			s.logger.WarnContext(ctx, "observing a task's application services",
 				slog.String("task", task.ID.String()), slog.Any("error", err))
 		}
 	}
 }
 
-// observeRuntime reads one task's services and records a change.
-func (s *service) observeRuntime(ctx context.Context, task *domain.Task) error {
+// ErrRuntimeUnconfigured reports that a task's services exist while its project
+// no longer configures a runtime at all.
+//
+// It is a distinct error because it is not a failure: the task's Compose project
+// is still there and is still the task's, and what has gone is the configuration
+// that would say how to address it. Reconciliation reports it as an orphan,
+// which is what the note in the observer promised the slice that owns recovery
+// would do.
+var ErrRuntimeUnconfigured = errors.New("the project no longer configures an application runtime")
+
+// observeRuntime reads one task's services, records a change, and returns what
+// it saw.
+//
+// The read-change-write cycle runs under the task's own lock, because a poll
+// that started from a copy loaded outside it would overwrite whatever a request
+// wrote in between — the defect ADR-036 evidence 9 records, in the one place
+// that reaches a task's records on a timer.
+func (s *service) observeRuntime(ctx context.Context, task *domain.Task) (domain.RuntimeState, error) {
 	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !cfg.HasRuntime() {
-		// The project's runtime section was removed while the task's services
-		// exist. Nothing is done about it: what a task owns is the user's to
-		// remove, and slice 12 is where an orphan is reported and acted on.
-		return nil
+		return "", ErrRuntimeUnconfigured
 	}
 
 	spec, err := s.runtimeSpec(cfg, task)
 	if err != nil {
-		return err
+		return "", err
 	}
 	spec.Identity = task.Runtime.Identity
 	spec.Files = task.Runtime.ComposeFiles
@@ -586,20 +601,28 @@ func (s *service) observeRuntime(ctx context.Context, task *domain.Task) error {
 
 	services, err := s.runtimes(spec)
 	if err != nil {
-		return err
+		return "", err
 	}
 	state, err := services.Observe(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	if state.Lifecycle == task.Runtime.State && state.Health == task.Runtime.Health {
+	defer s.locks.lock(task.ID)()
+	current, err := s.store.Tasks().Load(ctx, store.Ref(task))
+	if err != nil {
+		return state.Lifecycle, err
+	}
+	if current.Runtime == nil {
+		return state.Lifecycle, nil
+	}
+	if state.Lifecycle == current.Runtime.State && state.Health == current.Runtime.Health {
 		// Nothing changed. Saving would rewrite the snapshot and publishing would
 		// make every dashboard re-read, several times a minute, for ever.
-		return nil
+		return state.Lifecycle, nil
 	}
-	_, err = s.recordRuntime(ctx, task, task.Runtime, state, nil, "an observation")
-	return err
+	_, err = s.recordRuntime(ctx, current, current.Runtime, state, nil, "an observation")
+	return state.Lifecycle, err
 }
 
 // runtimePoller owns the goroutine that observes application services.

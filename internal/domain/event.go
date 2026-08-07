@@ -86,6 +86,14 @@ const (
 	// publishes it, and a notification that notified about itself would be a loop
 	// at the speed of the event bus.
 	EventNotificationSent EventType = "notification_sent"
+	// EventCleanedUp records that a cleanup removed one class of the resources a
+	// task owned, or failed part way through removing it.
+	//
+	// It is what makes an archived task explainable. The snapshot keeps what the
+	// task was, and this keeps what became of what it owned — including a
+	// removal that stopped half way, which is the case a user most needs an
+	// account of (FR-CLEAN-001, ADR-037).
+	EventCleanedUp EventType = "task_resources_removed"
 )
 
 // Valid reports whether the type is documented.
@@ -93,7 +101,8 @@ func (t EventType) Valid() bool {
 	switch t {
 	case EventTaskCreated, EventTaskUpdated, EventWorkflowChanged, EventAttentionChanged,
 		EventRepositoryObserved, EventProcessChanged, EventRuntimeChanged,
-		EventReviewChanged, EventExecutionChanged, EventReconciled, EventNotificationSent:
+		EventReviewChanged, EventExecutionChanged, EventReconciled, EventNotificationSent,
+		EventCleanedUp:
 		return true
 	default:
 		return false

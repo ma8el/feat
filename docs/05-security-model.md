@@ -182,12 +182,14 @@ Feat uses a dedicated tmux server/socket. The agent container receives neither t
 
 Loading the user's tmux configuration is a compatibility feature. Feat must not trust window indexes, names, or user hooks as stable identity; it tags managed sessions/windows with product metadata and reconciles them.
 
+A tagged object whose metadata cannot be read is quarantined and reported rather than guessed at, and never adopted. Values Feat supplies to tmux are checked against the separators its own discovery parses, so a working directory cannot make the server's report unreadable.
+
 ## Cleanup safety
 
 Before destructive cleanup, Feat MUST:
 
 1. resolve resources from persisted task ownership and observed state;
-2. reject broad or unresolved paths;
+2. reject broad or unresolved paths, and re-check every path against the directory Feat owns immediately before deleting it;
 3. display dirty, unpushed, and unmerged Git state;
 4. separate containers/networks, volumes, worktrees, and branches;
 5. retain volumes by default;
