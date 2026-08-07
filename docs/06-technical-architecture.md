@@ -82,6 +82,13 @@ Adapters are compiled into the binary initially. Interfaces must avoid leaking i
 
 `internal/execution` and `internal/execution/compose` are implemented by slice 8 under the same rule, with an `execution-stays-an-adapter` `depguard` rule. The daemon resolves configuration into an execution specification, wraps the environment's probe runner as the agent adapter's runner, and turns the adapter's launch specification into a host command the terminal backend runs. The two adapters therefore never import each other, and slice 14 replaces the environment without touching either. See ADR-033.
 
+`internal/resources` and `internal/notify` are implemented by slice 10 under the
+same rule, with `resources-stays-an-adapter` and `notify-stays-a-policy`
+`depguard` rules. The observer receives process identifiers, a label selector,
+and a path; the notification policy receives a resolved `Policy` and a `Subject`
+carrying a task's key, title, and project, and can reach nothing else. See
+ADR-035.
+
 `internal/config` and `internal/project` are implemented by slice 3, which draws one boundary between them: `internal/config` decides whether a configuration is well formed and safe, and asks the host nothing; `internal/project` asks the host and reports what it found. A configuration therefore stays loadable on a machine where a repository is temporarily missing, which is the machine `feat doctor` is most useful on. See ADR-028.
 
 ## Local API
@@ -93,6 +100,7 @@ Minimum endpoints:
 ```text
 GET    /v1/health
 GET    /v1/events                         SSE
+GET    /v1/resources                      the most recent resource sample
 GET    /v1/projects
 POST   /v1/projects                       registers a project by identifier
 GET    /v1/projects/{project_id}
@@ -135,6 +143,15 @@ confirmation; every other action takes none, for the reason the shell endpoint
 does. `logs-info` returns a command rather than output — Feat does not aggregate
 or persist logs (FR-RUN-006) — and the client checks the program it was handed
 before running it.
+
+`GET /v1/resources` returns the most recent sample rather than taking one. A
+sample is not persisted and is not part of a task's record, so it has its own
+document, its own collection time, and its own failure mode; and asking the
+container runtime what it is using costs one to two seconds, so a request that
+collected would be a request a metric could stall. Every figure nothing measured
+is published as null rather than as zero. Nothing published on the event stream
+reports a sample: a figure that moves every two seconds would make every client
+re-read every two seconds (ADR-035).
 
 SSE events carry domain state changes, not raw terminal streams or secrets. Subscribers have bounded queues: publication never blocks the daemon, and a subscriber that falls behind receives a terminal event and is disconnected rather than silently losing events. Stream resume is not supported in v0.1, so a reconnecting client re-reads current state.
 
@@ -472,11 +489,34 @@ Runtime requests create pending user actions. They never execute directly.
 
 v0 samples:
 
-- whole-machine CPU and available memory;
-- whole-machine disk availability where relevant;
+- whole-machine load average and processor count;
+- whole-machine available memory;
+- disk availability on the filesystem holding the state directory;
 - Feat-managed process/container CPU and memory aggregated per task.
 
-Sampling remains observational. Feat does not schedule or reject tasks based on capacity in v0.
+Load rather than a processor-utilisation percentage, because a per-core figure
+is not obtainable on macOS without cgo, and one measure reported the same way on
+both supported platforms is worth more than two that look alike and are not. The
+core count is reported beside it, because a load of four is idle on sixteen
+processors and saturated on two. See ADR-035.
+
+A task's containers are found through Feat's own ownership labels — two container
+commands per sample whatever the number of tasks — and its processes through the
+subtrees of its tmux panes, with processor use differenced between two samples
+because that is the one definition that means the same thing on both platforms.
+Container and process memory are reported apart as well as together: a container's
+memory is what the container runtime reported, and on macOS that is memory inside
+its own virtual machine rather than a share of the machine's.
+
+Sampling runs on its own schedule, keeps one sample, and blocks nothing. Feat
+does not schedule or reject tasks based on capacity in v0, and a collection
+failure degrades to notes on a sample rather than to a failed request. A figure
+nothing measured is absent rather than zero.
+
+`internal/resources` is an adapter under the rule ADR-029 established for Git,
+and a `resources-stays-an-adapter` `depguard` rule denies it both Compose
+adapters: an agent's container and an application's are the same thing to a
+resource observer.
 
 ## Notifications
 
@@ -487,7 +527,31 @@ Notification policy is domain-driven and platform-adapted:
 - verification failed;
 - session/runtime failure.
 
-v0.1 implements macOS desktop notification plus TUI badges. Public v0 adds Linux support where a standard notifier is available.
+The conditions are pinned tables in `internal/notify`, in the shape ADR-026 used
+for the workflow transitions. Their most important property is an absence:
+nothing maps an end of turn or an idle process to a notification, because idle is
+not a state a task arrives in but one it stays in. That is armed by a grace timer
+instead, so "idle notifications do not fire immediately" is a property of the
+mechanism rather than of a configured value.
+
+Whether the user is attached is asked of tmux, per window, through
+`window_active_clients`. It is an observation rather than a memory of somebody
+having attached: a user who detached, or who switched to another task's window,
+stops watching without telling Feat anything.
+
+One change produces at most one notification, and the text is composed from a
+task's key, title, and project plus a fixed phrase. Nothing in the composer can
+reach a brief, an agent's summary, a path, or a configured value. A delivered
+notification is recorded as a `notification_sent` task event, because a desktop
+notification is gone the moment it is dismissed.
+
+v0.1 implements macOS desktop notification plus TUI badges, and reports that it
+delivered a notification rather than that one was seen: macOS decides per
+application whether to show one and drops an unauthorised one without saying so.
+What it decides about is Script Editor, which `osascript` posts as, and which is
+not necessarily listed among the applications a user can configure. `usernoted`
+in the unified log is where a delivery can be confirmed. Public v0 adds Linux
+support where a standard notifier is available.
 
 ## Review commands
 

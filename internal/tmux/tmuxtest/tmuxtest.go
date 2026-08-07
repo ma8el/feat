@@ -48,6 +48,13 @@ type Terminal struct {
 	Dead      bool
 	Exit      int    // exit status, reported only when the pane is dead
 	Schema    string // metadata version; empty means the current one
+	// Viewers is how many attached clients are looking at this task's window,
+	// which is what tmux answers with window_active_clients. It is how a test
+	// arranges a user who is watching one task while others run unwatched.
+	Viewers int
+	// PID is the process tmux started in the agent pane, so a test can arrange
+	// the process tree a resource observer would walk.
+	PID int
 }
 
 type sessionObject struct {
@@ -58,6 +65,7 @@ type sessionObject struct {
 type windowObject struct {
 	id      string
 	session string
+	viewers int
 	options map[string]string
 }
 
@@ -69,6 +77,7 @@ type paneObject struct {
 	program   string
 	dead      bool
 	status    string
+	pid       int
 	options   map[string]string
 }
 
@@ -103,6 +112,31 @@ func New(terminals ...Terminal) *Server {
 		server.seed(terminal)
 	}
 	return server
+}
+
+// Watch sets how many attached clients are looking at one window, which is what
+// tmux answers with window_active_clients.
+//
+// It is how a test arranges a user who is watching one task while their other
+// tasks run unwatched, which is the distinction notification suppression turns
+// on: a session-level answer would silence every task the moment one of them was
+// being looked at.
+func (s *Server) Watch(window string, viewers int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record, exists := s.windows[window]; exists {
+		record.viewers = viewers
+	}
+}
+
+// SetPanePID sets the process tmux started in a pane, which is where a resource
+// observer begins walking a task's process tree.
+func (s *Server) SetPanePID(pane string, pid int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record, exists := s.panes[pane]; exists {
+		record.pid = pid
+	}
 }
 
 // Fail makes one tmux command return err until it is cleared with a nil error.
@@ -255,12 +289,15 @@ func (s *Server) seed(terminal Terminal) {
 			"@feat_project_id": terminal.Project,
 		}}
 	}
-	s.windows[terminal.Window] = &windowObject{id: terminal.Window, session: terminal.Session, options: map[string]string{
-		"@feat_managed":    "1",
-		"@feat_schema":     schema,
-		"@feat_project_id": terminal.Project,
-		"@feat_task_id":    terminal.Task,
-	}}
+	s.windows[terminal.Window] = &windowObject{
+		id: terminal.Window, session: terminal.Session, viewers: terminal.Viewers,
+		options: map[string]string{
+			"@feat_managed":    "1",
+			"@feat_schema":     schema,
+			"@feat_project_id": terminal.Project,
+			"@feat_task_id":    terminal.Task,
+		},
+	}
 	s.panes[terminal.Pane] = s.seedPane(terminal, schema, terminal.Pane, RoleAgent)
 	if terminal.Shell != "" {
 		shell := terminal
@@ -276,7 +313,7 @@ func (s *Server) seedPane(terminal Terminal, schema, id, role string) *paneObjec
 	}
 	return &paneObject{
 		id: id, window: terminal.Window, session: terminal.Session,
-		directory: terminal.Directory, dead: terminal.Dead, status: status,
+		directory: terminal.Directory, dead: terminal.Dead, status: status, pid: terminal.PID,
 		options: map[string]string{
 			"@feat_managed":    "1",
 			"@feat_schema":     schema,
@@ -416,6 +453,7 @@ func (s *Server) windowValues() []map[string]string {
 		record := s.windows[id]
 		out = append(out, merge(map[string]string{
 			"session_id": record.session, "window_id": record.id,
+			"window_active_clients": strconv.Itoa(record.viewers),
 		}, record.options))
 	}
 	return out
@@ -432,6 +470,7 @@ func (s *Server) paneValues() []map[string]string {
 			"pane_dead":         flag(record.dead),
 			"pane_dead_status":  record.status,
 			"pane_current_path": record.directory,
+			"pane_pid":          strconv.Itoa(record.pid),
 		}, record.options))
 	}
 	return out

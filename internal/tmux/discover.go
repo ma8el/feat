@@ -12,10 +12,21 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 )
 
+// The formats discovery reads. Every field appended to one of them is appended
+// at the end, so that adding an observation cannot move the index another field
+// is read from.
+//
+// The window format carries window_active_clients, which is how many attached
+// clients are looking at that window right now. It is the per-window answer to
+// "is the user watching this task", and session_attached is not: a user attached
+// to a project's session is looking at one of its task windows and not at the
+// others, so a session-level answer would silence every task the moment one of
+// them was being watched. Measured against tmux 3.7b, where it follows a window
+// switch immediately (ADR-035).
 const (
 	sessionFormat = "#{session_id}\t#{@feat_managed}\t#{@feat_schema}\t#{@feat_project_id}"
-	windowFormat  = "#{session_id}\t#{window_id}\t#{@feat_managed}\t#{@feat_schema}\t#{@feat_project_id}\t#{@feat_task_id}"
-	paneFormat    = "#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_current_path}\t#{@feat_managed}\t#{@feat_schema}\t#{@feat_project_id}\t#{@feat_task_id}\t#{@feat_pane_role}"
+	windowFormat  = "#{session_id}\t#{window_id}\t#{@feat_managed}\t#{@feat_schema}\t#{@feat_project_id}\t#{@feat_task_id}\t#{window_active_clients}"
+	paneFormat    = "#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_current_path}\t#{@feat_managed}\t#{@feat_schema}\t#{@feat_project_id}\t#{@feat_task_id}\t#{@feat_pane_role}\t#{pane_pid}"
 )
 
 var (
@@ -34,6 +45,8 @@ type windowRecord struct {
 	id      string
 	project domain.ProjectID
 	task    domain.TaskID
+	// viewers is how many attached clients are looking at this window.
+	viewers int
 }
 
 type paneRecord struct {
@@ -126,7 +139,7 @@ func parseSessions(output string) (map[string]sessionRecord, error) {
 func parseWindows(output string) (map[string]windowRecord, error) {
 	records := make(map[string]windowRecord)
 	for _, line := range outputLines(output) {
-		fields := splitFields(line, 6)
+		fields := splitFields(line, 7)
 		if fields[2] != "1" || fields[5] == "" {
 			continue
 		}
@@ -146,7 +159,15 @@ func parseWindows(output string) (map[string]windowRecord, error) {
 			return nil, fmt.Errorf("tmux window %s has invalid task metadata: %w", fields[1], err)
 		}
 		key := fields[0] + "\x00" + fields[1]
-		records[key] = windowRecord{session: fields[0], id: fields[1], project: project, task: task}
+		records[key] = windowRecord{
+			session: fields[0], id: fields[1], project: project, task: task,
+			// A tmux without this format reports an empty field, which reads as
+			// nobody watching. Suppression then errs towards delivering a
+			// notification, which is the safer of the two mistakes: a notification
+			// the user did not need is noise, and one they never got is the
+			// failure this slice exists to prevent.
+			viewers: parseCount(fields[6]),
+		}
 	}
 	return records, nil
 }
@@ -154,7 +175,7 @@ func parseWindows(output string) (map[string]windowRecord, error) {
 func parsePanes(output string) ([]paneRecord, error) {
 	var records []paneRecord
 	for _, line := range outputLines(output) {
-		fields := splitFields(line, 11)
+		fields := splitFields(line, 12)
 		// User-created panes in a managed window inherit window options. A role
 		// is the pane-local marker that says Feat owns this pane.
 		if fields[10] == "" {
@@ -200,6 +221,11 @@ func parsePanes(output string) ([]paneRecord, error) {
 			task:    task,
 			pane: Pane{
 				ID: fields[2], Role: fields[10], Directory: fields[5], Dead: dead, ExitStatus: status,
+				// The process tmux started in the pane. What the task is really
+				// using is that process and everything it started, which the
+				// resource observer walks; the pane itself is only where the walk
+				// begins.
+				PID: parseCount(fields[11]),
 			},
 		})
 	}
@@ -238,6 +264,7 @@ func assemble(socket string, sessions map[string]sessionRecord, windows map[stri
 				Target: domain.TmuxTarget{
 					Socket: socket, Session: pane.session, Window: pane.window,
 				},
+				Viewers: window.viewers,
 			}
 			terminals[identity] = terminal
 		}
@@ -292,6 +319,21 @@ func splitFields(line string, count int) []string {
 		fields = append(fields, "")
 	}
 	return fields
+}
+
+// parseCount reads a non-negative number tmux reported, treating anything else
+// as zero.
+//
+// A format an older tmux does not know is printed back empty rather than as an
+// error, and neither a client count nor a process identifier is worth failing
+// discovery over: both are observations beside the identity, and identity is
+// what discovery exists to establish.
+func parseCount(value string) int {
+	count, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || count < 0 {
+		return 0
+	}
+	return count
 }
 
 func parseBool(value string) (bool, error) {

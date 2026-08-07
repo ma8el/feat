@@ -43,6 +43,9 @@ type fakeService struct {
 	// actions records every runtime action the transport passed through, so a
 	// test can assert that an endpoint reached the one its path names.
 	actions []string
+	// resources replaces the fixed sample below, so that a test can arrange a
+	// machine that measured nothing while the golden keeps its own.
+	resources ResourceReport
 }
 
 func newFakeService() *fakeService {
@@ -248,6 +251,44 @@ func (f *fakeService) RuntimeLogs(_ context.Context, id domain.TaskID) (RuntimeC
 	return RuntimeCommand{}, fmt.Errorf("%w: no task %s", ErrNotFound, id)
 }
 
+// Resources returns a fixed sample, so that the transport's own shape is what
+// the golden file pins rather than the machine the test happens to run on.
+func (f *fakeService) Resources(_ context.Context) (ResourceReport, error) {
+	if err := f.check(); err != nil {
+		return ResourceReport{}, err
+	}
+	if f.resources.Sampled || len(f.resources.Notes) > 0 {
+		return f.resources, nil
+	}
+	cpu := 143.5
+	memory := uint64(2_684_354_560)
+	return ResourceReport{
+		Machine: MachineResources{
+			Cores:  10,
+			Load:   &LoadAverage{One: 3.6, Five: 3.46, Fifteen: 3.76},
+			Memory: &Capacity{TotalBytes: 17_179_869_184, AvailableBytes: 4_294_967_296},
+			Disk: &DiskCapacity{
+				Path: "/state", TotalBytes: 1_000_000_000_000, AvailableBytes: 400_000_000_000,
+			},
+		},
+		Tasks: []TaskResources{{
+			TaskID:         "7f3a1c2e-9b4d-4c81-8f2a-1d6b0c5e7a93",
+			CPUPercent:     &cpu,
+			MemoryBytes:    &memory,
+			ContainerBytes: 2_147_483_648,
+			ProcessBytes:   536_870_912,
+			Containers: []ContainerResources{{
+				ID: "f17a8623e8c2", Name: "feat-agent-example-7f3a1c2e-dev", Kind: "agent",
+				CPUPercent: 12.5, MemoryBytes: 2_147_483_648,
+			}},
+			Processes: 7,
+		}},
+		Notes:       []string{},
+		CollectedAt: time.Date(2026, 8, 7, 9, 44, 22, 0, time.UTC),
+		Sampled:     true,
+	}, nil
+}
+
 // CreateDraft records a draft from a fixture, so the transport can be tested
 // without a store, a configuration directory, or Git.
 func (f *fakeService) CreateDraft(_ context.Context, request DraftRequest) (*domain.Task, error) {
@@ -374,6 +415,7 @@ func TestResponseBodies(t *testing.T) {
 		{"project", "/v1/projects/" + storetest.ProjectID.String()},
 		{"tasks", "/v1/tasks"},
 		{"task", "/v1/tasks/" + storetest.TaskID.String()},
+		{"resources", "/v1/resources"},
 	}
 
 	for _, test := range tests {

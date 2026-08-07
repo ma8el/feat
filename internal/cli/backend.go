@@ -49,6 +49,10 @@ func (b *backend) Events(ctx context.Context, handle func(api.Event) error) erro
 	return b.client.Events(ctx, handle)
 }
 
+func (b *backend) Resources(ctx context.Context) (api.ResourceReport, error) {
+	return b.client.Resources(ctx)
+}
+
 func (b *backend) CreateDraft(ctx context.Context, request api.CreateDraft) (api.Task, error) {
 	return b.client.CreateDraft(ctx, request)
 }

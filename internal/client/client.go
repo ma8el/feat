@@ -102,6 +102,14 @@ func (c *Client) Tasks(ctx context.Context) ([]api.Task, error) {
 	return fetch[[]api.Task](ctx, c, "/tasks")
 }
 
+// Resources returns the most recent resource sample.
+//
+// The daemon samples on its own schedule and this reads what it has, so a client
+// that asks often does not make the machine work harder.
+func (c *Client) Resources(ctx context.Context) (api.ResourceReport, error) {
+	return fetch[api.ResourceReport](ctx, c, "/resources")
+}
+
 // Task returns one task, addressed by task identifier alone.
 func (c *Client) Task(ctx context.Context, id string) (api.Task, error) {
 	return fetch[api.Task](ctx, c, "/tasks/"+url.PathEscape(id))

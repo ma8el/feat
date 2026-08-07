@@ -12,6 +12,11 @@ import (
 func (m Model) dashboardView() string {
 	var out strings.Builder
 	out.WriteString(headingStyle.Render("feat") + mutedStyle.Render("  tasks across every registered project"))
+	if summary := attentionSummary(m.tasks); summary != "" {
+		out.WriteString("   " + attentionStyle.Render(summary))
+	}
+	out.WriteString("\n")
+	out.WriteString(m.machineCard())
 	out.WriteString("\n\n")
 
 	switch {
@@ -28,7 +33,7 @@ func (m Model) dashboardView() string {
 	default:
 		rows := make([][]string, 0, len(m.tasks))
 		for i, task := range m.tasks {
-			row := taskRow(task, m.now())
+			row := m.taskRow(task, m.now())
 			marker := "  "
 			if i == m.cursor {
 				marker = selectedStyle.Render("▸ ")
@@ -104,7 +109,7 @@ func (m Model) detailView() string {
 	out.WriteString(field("agent", agentDetail(task)))
 	out.WriteString(field("runtime", runtimeDetail(task)))
 	out.WriteString(field("verification", verificationDetail(task)))
-	out.WriteString(field("resources", absent+"  "+mutedStyle.Render("("+resourceSlice+")")))
+	out.WriteString(field("resources", m.resourceDetail(task)))
 	out.WriteString(field("elapsed", elapsed(task, m.now())))
 	out.WriteString(field("source", sourceDetail(task.Source)))
 

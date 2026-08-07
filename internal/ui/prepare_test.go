@@ -45,6 +45,9 @@ type fakeBackend struct {
 	runtimeStatus api.RuntimeStatus
 	runtimeErr    error
 
+	resources   api.ResourceReport
+	resourceErr error
+
 	planErr   error
 	launchErr error
 	// fingerprint is what a plan reports, and what a launch is checked against.
@@ -85,6 +88,15 @@ func (f *fakeBackend) Tasks(context.Context) ([]api.Task, error) {
 // run to completion.
 func (f *fakeBackend) Events(context.Context, func(api.Event) error) error {
 	return errors.New("this fake publishes no events")
+}
+
+// Resources returns whatever the test arranged, including nothing at all: a
+// dashboard whose daemon has not sampled yet is a state every screen has to
+// render, because it is the state of the first two seconds of every session.
+func (f *fakeBackend) Resources(context.Context) (api.ResourceReport, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.resources, f.resourceErr
 }
 
 func (f *fakeBackend) CreateDraft(_ context.Context, request api.CreateDraft) (api.Task, error) {

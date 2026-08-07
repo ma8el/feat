@@ -119,9 +119,11 @@ func dashboard(backend *fakeBackend, tasks ...api.Task) Model {
 // TestTheTaskListShowsTheRequiredV0Fields is the slice 6 acceptance criterion
 // at the dashboard.
 //
-// FR-UI-002 requires eleven fields in a task row. Two of them — verification
-// state and resource usage — belong to slices 7 and 10, and appear as absent
-// rather than as a value nothing measured.
+// FR-UI-002 requires eleven fields in a task row. Verification state is the one
+// this build still cannot fill, and it appears as absent rather than as a value
+// nothing measured. Resource usage is slice 10's and is filled here from a
+// sample, which a separate test covers; this one runs against a dashboard that
+// has not sampled yet, which is the state of every session's first seconds.
 func TestTheTaskListShowsTheRequiredV0Fields(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask())
 	view := model.View()
@@ -168,13 +170,20 @@ func TestTheDetailViewNamesTheSlicesItIsWaitingOn(t *testing.T) {
 		"Export the daily report", "core", "origin/main", "1a2b3c4d5e6f",
 		"feat/7f3a1c2e-add-a-scheduled-export-job", "$0", "@3", "%7",
 		// And what it cannot fill yet. Slice 7 delivered the agent-reported half
-		// of verification and slice 8 the environment, so what remains
-		// outstanding is the gate that runs a project's configured checks, which
-		// is slice 11's, and resource usage, which is slice 10's.
-		"slice 11", "slice 10",
+		// of verification, slice 8 the environment, and slice 10 the resource
+		// figures, so what remains outstanding is the gate that runs a project's
+		// configured checks, which is slice 11's.
+		"slice 11",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the detail view does not show %q:\n%s", want, view)
+		}
+	}
+	// The slices that have been delivered stop being named. A screen that still
+	// promised one would be telling the user to wait for something they have.
+	for _, delivered := range []string{"slice 7", "slice 8", "slice 10"} {
+		if strings.Contains(view, delivered) {
+			t.Errorf("the detail view still names %q, which has been delivered:\n%s", delivered, view)
 		}
 	}
 }

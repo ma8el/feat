@@ -11,6 +11,7 @@ import (
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/notify"
 	"github.com/ma8el/feat/internal/store"
 )
 
@@ -161,6 +162,10 @@ func (s *service) applyAgentEvent(ctx context.Context, task *domain.Task, event 
 		change.attention = domain.AttentionNeedsInput
 	}
 
+	// What the task held before this event, so that the notification below can
+	// tell which dimension actually moved rather than announcing both.
+	workflowBefore := task.Workflow
+
 	from := task.Session.Process
 	if change.process != "" && change.process != from {
 		if err := task.Session.Observe(change.process, now); err != nil {
@@ -209,7 +214,30 @@ func (s *service) applyAgentEvent(ctx context.Context, task *domain.Task, event 
 	case change.cancels:
 		s.cancelIdle(task.ID)
 	}
+
+	s.notifyChange(ctx, task, task.Workflow != workflowBefore, task.Session.Process != from)
 	return nil
+}
+
+// notifyChange interrupts the user about one applied agent event, at most once.
+//
+// The workflow wins over the process when both moved, because they moved for the
+// same reason: slice 7's normalization turns a dead agent into a failed task, and
+// a user told twice about one death learns to read the second one as noise. A
+// process failure that left the workflow where it was still says so, because
+// that is the case nothing else reports.
+func (s *service) notifyChange(ctx context.Context, task *domain.Task, workflowMoved, processMoved bool) {
+	if workflowMoved {
+		if condition, ok := notify.ForWorkflow(task.Workflow); ok {
+			s.notifyTask(ctx, task, condition, 0)
+			return
+		}
+	}
+	if processMoved && task.Session != nil {
+		if condition, ok := notify.ForProcess(task.Session.Process); ok {
+			s.notifyTask(ctx, task, condition, 0)
+		}
+	}
 }
 
 // recordReport records what the agent said about its own work.
@@ -377,7 +405,14 @@ func (s *service) armIdle(ctx context.Context, task *domain.Task, ended time.Tim
 }
 
 // cancelIdle drops a pending idle transition because the session did something.
-func (s *service) cancelIdle(id domain.TaskID) { s.idle.cancel(id) }
+//
+// It drops the pending idle notification with it. An agent that started talking
+// again is not a task waiting for anybody, and a notification armed before that
+// happened would arrive about a state that is over.
+func (s *service) cancelIdle(id domain.TaskID) {
+	s.idle.cancel(id)
+	s.idleNotice.cancel(id)
+}
 
 // armStartup starts the period after which an agent that has not reported
 // starting is treated as needing the user.
@@ -478,4 +513,11 @@ func (s *service) becomeIdle(ctx context.Context, id domain.TaskID) {
 		Type: domain.EventProcessChanged, From: string(domain.ProcessRunning), To: string(domain.ProcessIdle),
 		Detail: "the agent has been quiet for the idle grace period; idle does not mean the task is complete",
 	})
+
+	// The dashboard says idle now; whether it is worth interrupting somebody
+	// about is a second question, asked after the task has stayed idle for the
+	// notification grace. This is the only notification in Feat that waits, and
+	// waiting is what makes "idle notifications do not fire immediately" a
+	// property of the mechanism rather than of a value somebody configured.
+	s.armIdleNotice(ctx, task, now)
 }

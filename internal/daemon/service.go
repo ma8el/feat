@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ma8el/feat/internal/agent"
@@ -15,8 +16,10 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/git"
+	"github.com/ma8el/feat/internal/notify"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
+	"github.com/ma8el/feat/internal/resources"
 	"github.com/ma8el/feat/internal/runtime"
 	"github.com/ma8el/feat/internal/store"
 	"github.com/ma8el/feat/internal/tmux"
@@ -71,8 +74,31 @@ type service struct {
 	now       func() time.Time
 	logger    *slog.Logger
 
+	// notifier delivers desktop notifications. It never fails a task.
+	notifier notify.Notifier
+	// notifiable reports that the daemon has finished catching up on what
+	// happened while it was stopped. Until it has, changes are recorded without
+	// interrupting anybody: a restart that notified for every turn that ended
+	// overnight would be reporting the past (ADR-035).
+	notifiable atomic.Bool
+	// observer samples the machine and the tasks. Sampling is observational and
+	// never blocks a request.
+	observer *resources.Observer
+	// sample is the most recent sample, which the local API serves. It is
+	// deliberately not persisted: derived samples are not part of stored state.
+	sampleMu sync.Mutex
+	sample   resources.Sample
+	sampled  bool
+	// resourceOverride replaces the projects' configured sampling interval. Only
+	// a test sets it, so that a sample can be forced without waiting for one.
+	resourceOverride time.Duration
+
 	// idle holds the pending end-of-turn transitions, one per task.
 	idle *idleTimers
+	// idleNotice holds the pending "has been idle long enough to mention"
+	// notifications, one per task. It is separate from idle because the two
+	// measure different periods from different moments (ADR-035).
+	idleNotice *idleTimers
 	// startup holds the pending "has not reported starting" notices, one per
 	// task. It is separate from idle because the two mean different things and
 	// a task can never be waiting on both.

@@ -39,7 +39,11 @@ test: ## Run unit tests with the race detector
 
 .PHONY: test-real
 test-real: ## Run opt-in integration tests against installed real tools
-	FEAT_INTEGRATION=1 go test -race -run 'TestBinary|TestReal' ./...
+# -count=1 because these tests assert about tools outside the process. Go can
+# only invalidate its cache on inputs it can see, so an uninstalled tmux, a
+# stopped Docker, or a notification the platform swallowed would all replay a
+# previous PASS unchanged (ADR-035 evidence 13).
+	FEAT_INTEGRATION=1 go test -race -count=1 -run 'TestBinary|TestReal' ./...
 
 .PHONY: lint
 lint: $(GOLANGCI) ## Run golangci-lint, including the architectural depguard rules

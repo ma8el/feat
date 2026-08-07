@@ -75,6 +75,13 @@ type Model struct {
 	selected string
 	archived int
 
+	// resources is the daemon's most recent sample, and resourceErr is why there
+	// is none. A failure here never hides the task list: metrics are
+	// observational, and a dashboard that refused to draw because it could not
+	// measure memory would be the opposite of what they are for (FR-UI-005).
+	resources   api.ResourceReport
+	resourceErr error
+
 	prepare prepareModel
 	// runtime is the application-runtime screen's own state: what the last
 	// action observed, what is in flight, and whether a destroy is waiting for a
@@ -157,6 +164,13 @@ type (
 		tasks []api.Task
 		err   error
 	}
+	// resourcesMsg carries a completed read of the daemon's resource sample. It
+	// is its own message because it fails on its own: a machine whose memory
+	// cannot be read still has tasks worth showing.
+	resourcesMsg struct {
+		report api.ResourceReport
+		err    error
+	}
 	// eventMsg reports that the daemon published a state change, so that the
 	// dashboard re-reads rather than trying to apply the event itself.
 	eventMsg struct{ event api.Event }
@@ -176,7 +190,7 @@ type (
 // first act is to read the project list, and a message no screen is waiting for
 // would be dropped by the router below.
 func (m Model) Init() tea.Cmd {
-	commands := []tea.Cmd{m.load(), m.connect(), m.awaitEvent(), tick()}
+	commands := []tea.Cmd{m.load(), m.loadResources(), m.connect(), m.awaitEvent(), tick()}
 	if m.screen == screenPrepare {
 		commands = append(commands, m.prepare.Init())
 	}
@@ -188,6 +202,19 @@ func (m Model) load() tea.Cmd {
 	return func() tea.Msg {
 		tasks, err := m.backend.Tasks(context.Background())
 		return tasksMsg{tasks: tasks, err: err}
+	}
+}
+
+// loadResources reads the daemon's most recent resource sample.
+//
+// It follows the periodic refresh rather than the event stream, because a sample
+// is not a state change: the daemon does not publish one, deliberately, since a
+// figure that moves every two seconds would make every dashboard re-read every
+// two seconds through the stream as well (ADR-035).
+func (m Model) loadResources() tea.Cmd {
+	return func() tea.Msg {
+		report, err := m.backend.Resources(context.Background())
+		return resourcesMsg{report: report, err: err}
 	}
 }
 
@@ -270,6 +297,13 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampCursor()
 		return m, nil
 
+	case resourcesMsg:
+		// A failed read is remembered and shown where the figures would be, and
+		// nowhere else: it is not the dashboard's error, because it would
+		// otherwise replace the report of a task that actually failed.
+		m.resources, m.resourceErr = message.report, message.err
+		return m, nil
+
 	case eventMsg:
 		return m, tea.Batch(m.load(), m.awaitEvent())
 
@@ -288,7 +322,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		return m, tea.Batch(m.load(), tick())
+		return m, tea.Batch(m.load(), m.loadResources(), tick())
 
 	case execMsg:
 		if message.err != nil {
@@ -379,7 +413,7 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "r":
 		m.status = ""
-		return m, m.load()
+		return m, tea.Batch(m.load(), m.loadResources())
 	}
 	return m, nil
 }

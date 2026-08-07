@@ -538,6 +538,112 @@ type RuntimeResult struct {
 	Notes []string
 }
 
+// ResourceReport is the response of GET /v1/resources.
+//
+// It is a separate document rather than fields on a task, for two reasons. A
+// sample is not persisted (docs/06-technical-architecture.md, storage rules), so
+// it is not part of what a task record says about itself; and it has its own
+// time and its own failure mode, which a task carrying the figures would have to
+// borrow.
+//
+// The same type is the wire shape and the daemon's, as AttachInfo is: there is
+// one representation of an observation nobody stores.
+type ResourceReport struct {
+	// Machine is what the whole host reported.
+	Machine MachineResources `json:"machine"`
+	// Tasks are the per-task aggregates. A task appears only while it owns
+	// something that can use resources.
+	Tasks []TaskResources `json:"tasks"`
+	// Notes are what could not be collected, in terms a user can act on. A report
+	// with notes is still a report: metrics are observational and one unreadable
+	// source never discards the others (FR-UI-005).
+	Notes []string `json:"notes"`
+	// CollectedAt is when the sample was taken. Sampling runs on its own
+	// schedule, so this is deliberately not the time of the request.
+	CollectedAt time.Time `json:"collected_at,omitzero"`
+	// Sampled reports whether any sample has been taken yet. A daemon that has
+	// just started has not, which is different from a machine that reported
+	// nothing.
+	Sampled bool `json:"sampled"`
+}
+
+// MachineResources is what the whole host reported.
+//
+// Every figure is a pointer, so a value nothing measured is null rather than
+// zero: a dashboard printing "0 GiB free" where it had not looked would be
+// making a claim, which is the rule ADR-028 established for diagnostics.
+type MachineResources struct {
+	// Cores is how many processors the machine has.
+	Cores int `json:"cores"`
+	// Load is the run-queue average, or null when it could not be read.
+	//
+	// Feat reports load rather than a utilisation percentage because a per-core
+	// percentage is not obtainable on macOS without cgo, and one measure on both
+	// platforms is worth more than two that look alike and are not (ADR-035).
+	Load *LoadAverage `json:"load"`
+	// Memory is the machine's memory, or null when it could not be read.
+	Memory *Capacity `json:"memory"`
+	// Disk is the filesystem holding Feat's state directory, or null when it
+	// could not be read.
+	Disk *DiskCapacity `json:"disk"`
+}
+
+// LoadAverage is the machine's run-queue average over three windows.
+type LoadAverage struct {
+	One     float64 `json:"one"`
+	Five    float64 `json:"five"`
+	Fifteen float64 `json:"fifteen"`
+}
+
+// Capacity is a total and what is still available, in bytes.
+type Capacity struct {
+	TotalBytes     uint64 `json:"total_bytes"`
+	AvailableBytes uint64 `json:"available_bytes"`
+}
+
+// DiskCapacity is a filesystem's capacity and the path it was measured at.
+type DiskCapacity struct {
+	// Path is the directory the figures describe: Feat's state directory, which
+	// is where worktrees, control workspaces, and generated overrides live.
+	Path           string `json:"path"`
+	TotalBytes     uint64 `json:"total_bytes"`
+	AvailableBytes uint64 `json:"available_bytes"`
+}
+
+// TaskResources is what one task's containers and processes are using.
+type TaskResources struct {
+	TaskID string `json:"task_id"`
+	// CPUPercent is the total, in percent of one core, or null when nothing
+	// measured it. A container using two cores fully reports 200.
+	CPUPercent *float64 `json:"cpu_percent"`
+	// MemoryBytes is the total resident memory, or null when nothing measured it.
+	MemoryBytes *uint64 `json:"memory_bytes"`
+	// ContainerBytes and ProcessBytes are the two halves of that total.
+	//
+	// They are reported apart as well as together because they are not measured
+	// against the same thing: on macOS a container's memory is memory inside the
+	// container runtime's own virtual machine, so the sum is what this task is
+	// using and not a share of the machine's memory above (ADR-035).
+	ContainerBytes uint64 `json:"container_bytes"`
+	ProcessBytes   uint64 `json:"process_bytes"`
+	// Containers are the task's own containers, whatever they run.
+	Containers []ContainerResources `json:"containers"`
+	// Processes counts the host processes attributed to the task: its terminal
+	// panes and everything they started.
+	Processes int `json:"processes"`
+}
+
+// ContainerResources is one container a task owns.
+type ContainerResources struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Kind separates an application service from the agent's own environment.
+	// Both belong to the task, and only one of them is what the user is testing.
+	Kind        string  `json:"kind"`
+	CPUPercent  float64 `json:"cpu_percent"`
+	MemoryBytes uint64  `json:"memory_bytes"`
+}
+
 // RuntimeCommand is the response of POST
 // /v1/tasks/{task_id}/runtime/logs-info.
 //

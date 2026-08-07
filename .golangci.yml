@@ -56,7 +56,9 @@ linters:
             - pkg: github.com/ma8el/feat/internal/daemon
             - pkg: github.com/ma8el/feat/internal/execution
             - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/notify
             - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/resources
             - pkg: github.com/ma8el/feat/internal/runtime
             - pkg: github.com/ma8el/feat/internal/store
             - pkg: github.com/ma8el/feat/internal/tmux
@@ -77,7 +79,9 @@ linters:
             - pkg: github.com/ma8el/feat/internal/daemon
             - pkg: github.com/ma8el/feat/internal/execution
             - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/notify
             - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/resources
             - pkg: github.com/ma8el/feat/internal/runtime
             - pkg: github.com/ma8el/feat/internal/tmux
             - pkg: github.com/ma8el/feat/internal/ui
@@ -102,8 +106,10 @@ linters:
             - pkg: github.com/ma8el/feat/internal/control
             - pkg: github.com/ma8el/feat/internal/daemon
             - pkg: github.com/ma8el/feat/internal/execution
+            - pkg: github.com/ma8el/feat/internal/notify
             - pkg: github.com/ma8el/feat/internal/project
             - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/resources
             - pkg: github.com/ma8el/feat/internal/runtime
             - pkg: github.com/ma8el/feat/internal/store
               desc: the daemon is the only reader and writer of persistent state
@@ -130,8 +136,10 @@ linters:
             - pkg: github.com/ma8el/feat/internal/execution
               desc: execution adapters supply final commands; tmux preserves their terminals
             - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/notify
             - pkg: github.com/ma8el/feat/internal/project
             - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/resources
             - pkg: github.com/ma8el/feat/internal/runtime
             - pkg: github.com/ma8el/feat/internal/store
               desc: the daemon is the only reader and writer of persistent state
@@ -157,8 +165,10 @@ linters:
             - pkg: github.com/ma8el/feat/internal/daemon
             - pkg: github.com/ma8el/feat/internal/execution
             - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/notify
             - pkg: github.com/ma8el/feat/internal/project
             - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/resources
             - pkg: github.com/ma8el/feat/internal/runtime
             - pkg: github.com/ma8el/feat/internal/store
               desc: the daemon is the only reader and writer of persistent state
@@ -187,8 +197,10 @@ linters:
             - pkg: github.com/ma8el/feat/internal/control
             - pkg: github.com/ma8el/feat/internal/daemon
             - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/notify
             - pkg: github.com/ma8el/feat/internal/project
             - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/resources
             - pkg: github.com/ma8el/feat/internal/runtime
               desc: the agent's environment and the application runtime are separate concepts
             - pkg: github.com/ma8el/feat/internal/store
@@ -221,11 +233,78 @@ linters:
             - pkg: github.com/ma8el/feat/internal/execution
               desc: the application runtime and the agent's environment are separate concepts
             - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/notify
             - pkg: github.com/ma8el/feat/internal/project
             - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/resources
             - pkg: github.com/ma8el/feat/internal/store
               desc: the daemon is the only reader and writer of persistent state
             - pkg: github.com/ma8el/feat/internal/tmux
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+            - pkg: github.com/spf13/cobra
+
+        # ADR-035: the resource observer receives final values — process
+        # identifiers, a label selector, a filesystem path — and reads neither
+        # configuration nor persistent state, under the rule ADR-029 established
+        # for Git. It is denied both Compose adapters as well, and that is the
+        # point of it: an agent's container and an application's are the same
+        # thing to a resource observer, and a package that could tell them apart
+        # would eventually be asked to treat them differently.
+        resources-stays-an-adapter:
+          files:
+            - "**/internal/resources/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/cli
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/config
+              desc: the daemon reads configuration and hands the adapter final values
+            - pkg: github.com/ma8el/feat/internal/control
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/execution
+              desc: an agent's container and an application's are both containers here
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/project
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/tmux
+              desc: the daemon resolves which processes a task owns
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+            - pkg: github.com/spf13/cobra
+
+        # ADR-035: the notification policy decides what is worth interrupting
+        # somebody for, in domain terms, and its platform adapters deliver. It
+        # reads no configuration — the daemon resolves a project's settings into
+        # a Policy — and it can reach nothing a task's content could come from,
+        # which is what keeps "notifications identify a task without exposing its
+        # content" a property of the code rather than a rule to remember.
+        notify-stays-a-policy:
+          files:
+            - "**/internal/notify/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/cli
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/config
+              desc: the daemon resolves a project's notification settings into a policy
+            - pkg: github.com/ma8el/feat/internal/control
+              desc: a control message is where an agent's own words would come from
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/execution
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/project
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/tmux
+              desc: the daemon asks tmux whether a task is being watched
             - pkg: github.com/ma8el/feat/internal/ui
             - pkg: github.com/charmbracelet
             - pkg: github.com/spf13/cobra
@@ -243,8 +322,10 @@ linters:
             - pkg: github.com/ma8el/feat/internal/daemon
             - pkg: github.com/ma8el/feat/internal/execution
             - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/notify
             - pkg: github.com/ma8el/feat/internal/project
             - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/resources
             - pkg: github.com/ma8el/feat/internal/runtime
             - pkg: github.com/ma8el/feat/internal/store
               desc: the daemon is the only reader and writer of persistent state
@@ -265,8 +346,10 @@ linters:
               desc: the TUI reaches the daemon over the socket, not in process
             - pkg: github.com/ma8el/feat/internal/execution
             - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/notify
             - pkg: github.com/ma8el/feat/internal/project
             - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/resources
             - pkg: github.com/ma8el/feat/internal/runtime
             - pkg: github.com/ma8el/feat/internal/store
               desc: the daemon is the only reader and writer of persistent state
@@ -284,6 +367,8 @@ linters:
             # the same rule in internal/guard allows. Production code may not.
             - "!$test"
           deny:
+            - pkg: github.com/ma8el/feat/internal/notify
+            - pkg: github.com/ma8el/feat/internal/resources
             - pkg: github.com/ma8el/feat/internal/store
               desc: the daemon is the only reader and writer of persistent state
             - pkg: github.com/ma8el/feat/internal/daemon
@@ -309,7 +394,9 @@ linters:
             - pkg: github.com/ma8el/feat/internal/control
             - pkg: github.com/ma8el/feat/internal/execution
             - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/notify
             - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/resources
             - pkg: github.com/ma8el/feat/internal/runtime
             - pkg: github.com/ma8el/feat/internal/store
               desc: the daemon is the only reader and writer of persistent state
@@ -440,6 +527,19 @@ linters:
         linters:
           - gosec
         text: G304|G204
+
+      # internal/resources runs the observation commands that are the package's
+      # whole purpose, and internal/notify runs macOS's own script runner to
+      # deliver a notification. Both are argument vectors and neither reaches a
+      # shell: the notification's text is read out of argv by the script rather
+      # than pasted into it, which is what stops a task title containing a
+      # quotation mark from becoming script. gosec sees a variable argument and
+      # not the check that precedes it, so the exemption is recorded here rather
+      # than in //nolint comments, for the reason ADR-025 gives.
+      - path: internal/(resources/runner|notify/notify_darwin)\.go
+        linters:
+          - gosec
+        text: G204
 
       # internal/git runs Git, which is the package's whole purpose, always as
       # an argument vector and never through a shell. The directories it

@@ -25,6 +25,10 @@ type Backend interface {
 	// Events delivers daemon state changes until the context ends. Handle
 	// returning an error ends the subscription.
 	Events(ctx context.Context, handle func(api.Event) error) error
+	// Resources returns the daemon's most recent resource sample. It is read
+	// separately from tasks because it is an observation nobody stores, with its
+	// own time and its own failure mode (FR-UI-005).
+	Resources(ctx context.Context) (api.ResourceReport, error)
 
 	// CreateDraft records a new task draft and creates nothing else.
 	CreateDraft(ctx context.Context, request api.CreateDraft) (api.Task, error)

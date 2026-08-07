@@ -53,7 +53,15 @@ type Terminal struct {
 	Target  domain.TmuxTarget
 	Agent   Pane
 	Shell   *Pane
+	// Viewers is how many attached clients are looking at this task's window
+	// right now. It is an observation of the terminal rather than a record of an
+	// attach: a user who detached, or who switched to another task's window,
+	// stops being a viewer without telling Feat anything.
+	Viewers int
 }
+
+// Watched reports whether somebody is looking at this task's terminal.
+func (t Terminal) Watched() bool { return t.Viewers > 0 }
 
 // ProcessState maps the agent pane's observable process state onto the domain.
 // It deliberately says nothing about agent idleness or task completion.
@@ -74,6 +82,9 @@ type Pane struct {
 	Directory  string
 	Dead       bool
 	ExitStatus *int
+	// PID is the process tmux started in the pane, or zero when there is none.
+	// It is where a resource observer starts walking, never an identity.
+	PID int
 }
 
 func safeArgument(kind, value string, allowDash bool) error {
