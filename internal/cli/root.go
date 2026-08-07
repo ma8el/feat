@@ -193,7 +193,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		newTaskCommand(env),
 		newAttachCommand(env),
 		newReviewCommand(),
-		newRuntimeCommand(),
+		newRuntimeCommand(env),
 		newCleanupCommand(),
 		newDoctorCommand(env),
 		newDaemonCommand(env),
@@ -210,28 +210,6 @@ func newReviewCommand() *cobra.Command {
 		Args:  checkArgs(cobra.ExactArgs(1)),
 		RunE:  notImplemented(11, "review and external commands"),
 	}
-}
-
-func newRuntimeCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "runtime",
-		Short: "Control a task's application runtime",
-	}
-	cmd.AddCommand(
-		&cobra.Command{
-			Use:   "start <task>",
-			Short: "Start the task's application services",
-			Args:  checkArgs(cobra.ExactArgs(1)),
-			RunE:  notImplemented(9, "manual application runtime"),
-		},
-		&cobra.Command{
-			Use:   "stop <task>",
-			Short: "Stop the task's application services",
-			Args:  checkArgs(cobra.ExactArgs(1)),
-			RunE:  notImplemented(9, "manual application runtime"),
-		},
-	)
-	return cmd
 }
 
 func newCleanupCommand() *cobra.Command {

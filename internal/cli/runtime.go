@@ -1,0 +1,298 @@
+package cli
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/ma8el/feat/internal/api"
+	"github.com/ma8el/feat/internal/client"
+	"github.com/ma8el/feat/internal/daemon"
+)
+
+const runtimeLong = `Manage the application services of one task.
+
+The lifecycle is manual: Feat starts nothing on your behalf and stops nothing
+when a task reaches review or approval. Each task's services run under their own
+Compose project, so an action reaches one task and no other.
+
+Destroying removes the containers and networks the task owns. Volumes are always
+retained, and resources the project declares external — a shared staging
+database, for instance — are never touched.`
+
+func newRuntimeCommand(env *environment) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "runtime",
+		Short: "Control a task's application runtime",
+		Long:  runtimeLong,
+	}
+	cmd.AddCommand(
+		newRuntimeActionCommand(env, api.RuntimeCreate, "create <task>",
+			"Create the task's application containers without starting them"),
+		newRuntimeActionCommand(env, api.RuntimeStart, "start <task>",
+			"Start the task's application services"),
+		newRuntimeActionCommand(env, api.RuntimeStop, "stop <task>",
+			"Stop the task's application services, keeping their containers"),
+		newRuntimeActionCommand(env, api.RuntimeObserve, "status <task>",
+			"Show what the task's application services are doing"),
+		newRuntimeLogsCommand(env),
+		newRuntimeDestroyCommand(env),
+	)
+	return cmd
+}
+
+// newRuntimeActionCommand builds the four actions that need no confirmation.
+func newRuntimeActionCommand(env *environment, action api.RuntimeAction, use, short string) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  checkArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withRuntimeClient(env, cmd, func(caller *client.Client) error {
+				status, err := caller.Runtime(cmd.Context(), args[0], action)
+				if err != nil {
+					return err
+				}
+				printRuntime(cmd.OutOrStdout(), status)
+				return nil
+			})
+		},
+	}
+}
+
+const destroyLong = `Remove the containers and networks of the task's application services.
+
+Volumes are retained: removing one is a separate choice, and Feat does not make
+it for you. Resources the project declares external are never touched.
+
+The command asks for confirmation unless --yes is given.`
+
+func newRuntimeDestroyCommand(env *environment) *cobra.Command {
+	var yes bool
+
+	cmd := &cobra.Command{
+		Use:   "destroy <task>",
+		Short: "Remove the task's application containers and networks, retaining volumes",
+		Long:  destroyLong,
+		Args:  checkArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withRuntimeClient(env, cmd, func(caller *client.Client) error {
+				if !yes {
+					confirmed, err := confirm(cmd.InOrStdin(), cmd.OutOrStdout(),
+						"Remove the containers and networks of task "+args[0]+"? Volumes are retained.")
+					if err != nil {
+						return err
+					}
+					if !confirmed {
+						printf(cmd.OutOrStdout(), "nothing was removed\n")
+						return nil
+					}
+				}
+
+				status, err := caller.Runtime(cmd.Context(), args[0], api.RuntimeDestroy)
+				if err != nil {
+					return err
+				}
+				printRuntime(cmd.OutOrStdout(), status)
+				return nil
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
+	return cmd
+}
+
+const logsLong = `Open the normal Docker Compose logs of the task's application services.
+
+Feat does not aggregate, store, or re-render them: it resolves which Compose
+project belongs to the task and runs the ordinary command, following the output
+until you interrupt it.`
+
+func newRuntimeLogsCommand(env *environment) *cobra.Command {
+	return &cobra.Command{
+		Use:   "logs <task>",
+		Short: "Follow the task's normal Compose logs",
+		Long:  logsLong,
+		Args:  checkArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withRuntimeClient(env, cmd, func(caller *client.Client) error {
+				command, err := caller.RuntimeLogs(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				return runLogs(cmd.Context(), command, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			})
+		},
+	}
+}
+
+// withRuntimeClient runs an action against a daemon, or reports that none is
+// running.
+func withRuntimeClient(env *environment, cmd *cobra.Command, action func(*client.Client) error) error {
+	layout, err := env.resolve()
+	if err != nil {
+		return err
+	}
+	if status := daemon.Inspect(layout); !status.Running() {
+		return &NotRunningError{Socket: layout.Socket}
+	}
+
+	caller := client.New(layout.Socket)
+	defer caller.Close()
+
+	if err := action(caller); err != nil {
+		if errors.Is(err, client.ErrDaemonNotRunning) {
+			return &NotRunningError{Socket: layout.Socket}
+		}
+		return err
+	}
+	return nil
+}
+
+// logsProgram is the only executable this command will run.
+//
+// The daemon builds the command and this process runs it, which is the same
+// division `feat attach` uses for native tmux. The client still checks what it
+// was handed: they are the same user, and a client that ran whatever it received
+// would be one nobody could reason about.
+const logsProgram = "docker"
+
+// logsCommand checks what the daemon returned and builds the process.
+//
+// It is shared by `feat runtime logs` and by the dashboard's logs action, so
+// that there is one place where a returned command becomes a process and one
+// place where it is checked — the division `feat attach` uses for tmux targets.
+func logsCommand(ctx context.Context, command api.RuntimeCommand) (*exec.Cmd, error) {
+	if base := filepath.Base(command.Program); base != logsProgram {
+		return nil, fmt.Errorf("the daemon returned the program %q for the task's logs, and this command runs "+
+			"only %s", command.Program, logsProgram)
+	}
+	if !filepath.IsAbs(command.Program) {
+		return nil, fmt.Errorf("the daemon returned the non-absolute program %q for the task's logs", command.Program)
+	}
+	for _, argument := range command.Arguments {
+		if strings.ContainsAny(argument, "\x00\n\r") {
+			return nil, fmt.Errorf("the daemon returned an argument containing a newline for the task's logs")
+		}
+	}
+
+	// #nosec G204 -- the program is checked above to be the absolute path of the
+	// container tool, and every argument is one vector element that never reaches
+	// a shell.
+	process := exec.CommandContext(ctx, command.Program, command.Arguments...)
+	process.Dir = command.Directory
+	return process, nil
+}
+
+// runLogs runs the Compose logs command with this process's own streams.
+func runLogs(ctx context.Context, command api.RuntimeCommand, stdout, stderr io.Writer) error {
+	process, err := logsCommand(ctx, command)
+	if err != nil {
+		return err
+	}
+	process.Stdout = stdout
+	process.Stderr = stderr
+
+	if err := process.Run(); err != nil {
+		if ctx.Err() != nil {
+			// Interrupting the logs is how a user leaves them, not a failure.
+			return nil
+		}
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return fmt.Errorf("docker compose logs exited with status %d", exit.ExitCode())
+		}
+		return fmt.Errorf("running docker compose logs: %w", err)
+	}
+	return nil
+}
+
+// confirm asks a yes-or-no question, defaulting to no.
+//
+// Anything other than an explicit yes is a no, including an unreadable answer: a
+// command that removes something should never proceed because it could not tell
+// what it was told.
+func confirm(in io.Reader, out io.Writer, question string) (bool, error) {
+	printf(out, "%s [y/N]: ", question)
+
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false, fmt.Errorf("reading the confirmation: %w", err)
+	}
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+// printRuntime renders what an action observed.
+//
+// The services are listed one per line rather than as a summary, because a
+// runtime is degraded exactly when they disagree with each other, and a user
+// looking at a degraded runtime wants to know which one.
+func printRuntime(out io.Writer, status api.RuntimeStatus) {
+	runtime := status.Task.Runtime
+	if runtime == nil {
+		printf(out, "task %s has no application runtime\n", status.Task.Key)
+		return
+	}
+
+	printf(out, "%s  %s", status.Task.Key, runtime.State)
+	if runtime.Health != "" && runtime.Health != "unknown" {
+		printf(out, ", health %s", runtime.Health)
+	}
+	printf(out, "\n")
+	printf(out, "compose project  %s\n", runtime.Identity)
+
+	if len(status.Services) > 0 {
+		rows := &table{}
+		rows.add("SERVICE", "STATE", "HEALTH", "STATUS")
+		for _, service := range status.Services {
+			rows.add(service.Name, valueOr(service.State, absent),
+				valueOr(service.Health, absent), valueOr(service.Status, absent))
+		}
+		printf(out, "\n")
+		rows.render(out, "")
+	}
+
+	if len(runtime.Ports) > 0 {
+		printf(out, "\nports\n")
+		for _, port := range runtime.Ports {
+			printf(out, "  %s  %d -> %d\n", port.Service, port.ContainerPort, port.HostPort)
+		}
+	}
+	if len(runtime.Volumes) > 0 {
+		// Named because they are retained: a resource nobody can see is a
+		// resource nobody will remove (FR-CLEAN-004).
+		printf(out, "\nvolumes, retained\n")
+		for _, volume := range runtime.Volumes {
+			printf(out, "  %s\n", volume)
+		}
+	}
+	for _, resource := range runtime.External {
+		printf(out, "\nexternal  %s (%s), never created or destroyed by Feat\n", resource.ID, resource.Lifecycle)
+		if resource.Selector != "" {
+			printf(out, "  this task's selector  %s\n", resource.Selector)
+		}
+	}
+	for _, note := range status.Notes {
+		printf(out, "\nnote: %s\n", note)
+	}
+}
+
+// valueOr renders a value, or the absent marker when it is empty.
+func valueOr(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}

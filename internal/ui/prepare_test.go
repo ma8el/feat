@@ -36,6 +36,14 @@ type fakeBackend struct {
 	attached  []string
 	shells    []string
 	edited    []string
+	// runtimeCalls records every runtime action, so a test can assert that a
+	// screen asked for exactly what the user pressed — and, more importantly,
+	// that nothing else ever asked for one.
+	runtimeCalls []string
+	logs         []string
+
+	runtimeStatus api.RuntimeStatus
+	runtimeErr    error
 
 	planErr   error
 	launchErr error
@@ -166,6 +174,26 @@ func (f *fakeBackend) ShellCommand(_ context.Context, id string) (tea.ExecComman
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.shells = append(f.shells, id)
+	return noopCommand{}, nil
+}
+
+// Runtime records the action and answers with whatever the test arranged, so a
+// screen's behaviour is checked without Docker.
+func (f *fakeBackend) Runtime(_ context.Context, id string, action api.RuntimeAction) (api.RuntimeStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.runtimeCalls = append(f.runtimeCalls, string(action)+" "+id)
+
+	if f.runtimeErr != nil {
+		return api.RuntimeStatus{}, f.runtimeErr
+	}
+	return f.runtimeStatus, nil
+}
+
+func (f *fakeBackend) LogsCommand(_ context.Context, id string) (tea.ExecCommand, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.logs = append(f.logs, id)
 	return noopCommand{}, nil
 }
 

@@ -78,6 +78,8 @@ Adapters are compiled into the binary initially. Interfaces must avoid leaking i
 
 `internal/agent`, `internal/agent/claude`, and `internal/control` are implemented by slice 7 under the boundary ADR-029 established for Git: the adapters receive final values and read neither configuration nor persistent state, and `agent-stays-an-adapter` and `control-stays-a-protocol` `depguard` rules make that mechanical. The provider adapter returns a launch specification expressed in the terms the agent's own environment uses, and the daemon supplies how the agent sees its worktrees and control directory — host paths while execution is host-native, container paths once slice 8 supplies them. That is the seam through which slice 8 replaces the environment without touching the provider adapter. See ADR-032.
 
+`internal/runtime` and `internal/runtime/compose` are implemented by slice 9 under the same rule, with a `runtime-stays-an-adapter` `depguard` rule that also denies them `internal/execution`. `internal/paths` gained the runtime root. See ADR-034.
+
 `internal/execution` and `internal/execution/compose` are implemented by slice 8 under the same rule, with an `execution-stays-an-adapter` `depguard` rule. The daemon resolves configuration into an execution specification, wraps the environment's probe runner as the agent adapter's runner, and turns the adapter's launch specification into a host command the terminal backend runs. The two adapters therefore never import each other, and slice 14 replaces the environment without touching either. See ADR-033.
 
 `internal/config` and `internal/project` are implemented by slice 3, which draws one boundary between them: `internal/config` decides whether a configuration is well formed and safe, and asks the host nothing; `internal/project` asks the host and reports what it found. A configuration therefore stays loadable on a machine where a repository is temporarily missing, which is the machine `feat doctor` is most useful on. See ADR-028.
@@ -104,8 +106,11 @@ DELETE /v1/task-drafts/{draft_id}          cancels a draft
 GET    /v1/tasks/{task_id}
 POST   /v1/tasks/{task_id}/attach-info
 POST   /v1/tasks/{task_id}/shell
+POST   /v1/tasks/{task_id}/runtime/create
 POST   /v1/tasks/{task_id}/runtime/start
 POST   /v1/tasks/{task_id}/runtime/stop
+POST   /v1/tasks/{task_id}/runtime/status
+POST   /v1/tasks/{task_id}/runtime/destroy
 POST   /v1/tasks/{task_id}/runtime/logs-info
 POST   /v1/tasks/{task_id}/review/approve
 POST   /v1/tasks/{task_id}/cleanup/plan
@@ -119,6 +124,17 @@ Task endpoints address a task by its identifier alone, as the command surface do
 A draft is a task in `draft` state, so `{draft_id}` is a task identifier and a draft appears in `GET /v1/tasks` as the draft it is. Preparation is three requests rather than two: resolving fetches, so it follows a key the user pressed rather than a field they edited, and launching carries the fingerprint of the plan that was displayed so that what is created is what the user read. A draft that changed in between is refused rather than re-resolved. Cancelling archives the record. See ADR-031.
 
 `POST /v1/tasks/{task_id}/shell` carries an identifier and nothing to execute; the daemon builds the command, for the reason destructive requests carry resource identifiers rather than paths.
+
+The runtime endpoints are one per manual action, because each is a separate
+thing a user asks for and the path is what names it: an action Feat does not
+perform is an endpoint that does not exist, rather than a request the daemon has
+to interpret. `create`, `status`, and `destroy` are added by slice 9 and recorded
+in ADR-034. `status` is a POST because it observes and records what it observed.
+`destroy` is the only one carrying a body, and what it carries is the user's
+confirmation; every other action takes none, for the reason the shell endpoint
+does. `logs-info` returns a command rather than output — Feat does not aggregate
+or persist logs (FR-RUN-006) — and the client checks the program it was handed
+before running it.
 
 SSE events carry domain state changes, not raw terminal streams or secrets. Subscribers have bounded queues: publication never blocks the daemon, and a subscriber that falls behind receives a terminal event and is disconnected rather than silently losing events. Stream resume is not supported in v0.1, so a reconnecting client re-reads current state.
 
@@ -141,6 +157,7 @@ State directory:
   projects/<project-id>/tasks/<task-id>/events.jsonl
   projects/<project-id>/tasks/<task-id>/review.json
   execution/<project-id>/<task-id>/compose.override.yaml
+  runtime/<project-id>/<task-id>/compose.override.yaml
   control/<project-id>/<task-id>/
 ```
 
@@ -149,6 +166,12 @@ inside it, and outside the per-task snapshot directory. It decides what the
 agent's own container mounts, so it must be somewhere the agent never sees; and
 the snapshot directory holds the documents the storage interface owns, which a
 file written by an execution adapter is not.
+
+The generated application-runtime override sits beside it under its own root and
+never inside it. The two adapters are separate concepts even where both drive
+Compose: one decides what the agent's container reaches, the other what the
+application under development runs. Both are host-only and neither is mounted
+anywhere (ADR-034).
 
 The task control workspace is under the state directory but outside the
 per-task snapshot directory, because it is the one tree an agent writes to and
@@ -362,9 +385,37 @@ The runtime Compose adapter accepts:
 
 v0 commands are explicit create/start/stop/status/logs/destroy actions. The adapter uses argument arrays and retains the exact Compose inputs in task state for reconciliation.
 
+Every action is a user's explicit request. No workflow transition, no
+reconciliation pass, and no agent reaches one: services start when a user asks,
+approval offers to stop them and never does, and a `runtime_requested` control
+message is inert until a person approves it.
+
 The generated override controls task mounts and non-secret generated variables. Automated port allocation and lifecycle phases are roadmap capabilities; the architecture must leave room for them.
 
-External resources such as pre-existing staging databases are configuration bindings, not resources Feat owns or destroys.
+The runtime and the agent's execution environment never import each other. The
+Compose plumbing is deliberately duplicated between `internal/runtime/compose`
+and `internal/execution/compose` rather than shared, because sharing it would
+put the environment the agent runs in and the application the user tests behind
+one type — the distinction the domain model, the security model, and CLAUDE.md
+all keep. A `runtime-stays-an-adapter` `depguard` rule makes it mechanical
+(ADR-034).
+
+Runtime state is observed rather than assumed, on a slow poll over the tasks
+that hold a runtime record, and a poll writes and publishes only when what it
+saw differs from what was recorded. The ports come from `docker compose ps`; the
+networks and volumes come from `docker network ls` and `docker volume ls`
+filtered on Compose's own project label, because `docker compose config` would
+render the values of the project's environment files.
+
+External resources such as pre-existing staging databases are configuration bindings, not resources Feat owns or destroys. Feat generates the non-secret
+selector value a task uses to pick its share of one — the task key — and never
+creates, migrates, or drops anything behind it.
+
+Destroy removes the containers and networks of the task's own Compose project.
+It passes neither `--volumes` nor `--remove-orphans`: volumes are retained by
+default (FR-CLEAN-004) and an orphan is a container Feat did not put there. What
+else a user may choose to remove, and what a dirty worktree requires, is slice
+12's.
 
 ## Control workspace protocol
 

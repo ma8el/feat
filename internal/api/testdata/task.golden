@@ -88,6 +88,30 @@
     ],
     "state": "running",
     "health": "healthy",
+    "networks": [
+      "feat-example-7f3a1c2e_default"
+    ],
+    "volumes": [
+      "feat-example-7f3a1c2e_cache"
+    ],
+    "external_resources": [
+      {
+        "id": "reporting-store",
+        "kind": "postgres",
+        "lifecycle": "external",
+        "selector": "example_7f3a1c2e"
+      }
+    ],
+    "compose_files": [
+      "/srv/repositories/core/compose.yaml"
+    ],
+    "static_overrides": [
+      "/srv/repositories/core/compose.override.yaml"
+    ],
+    "env_files": [
+      "/srv/repositories/core/.env"
+    ],
+    "generated_override_path": "/srv/state/runtime/example/7f3a1c2e/compose.generated.yaml",
     "observed_at": "2026-08-04T09:56:00Z"
   },
   "verification": {

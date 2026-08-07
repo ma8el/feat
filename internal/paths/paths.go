@@ -40,6 +40,7 @@ const (
 	projectsDirName  = "projects"
 	controlDirName   = "control"
 	executionDirName = "execution"
+	runtimeDirName   = "runtime"
 )
 
 // Environment is the process state path resolution depends on.
@@ -127,6 +128,18 @@ func (l Layout) ControlRoot() string { return filepath.Join(l.State, controlDirN
 // The per-task path below this one is built by the daemon, which validates the
 // identifiers first, exactly as internal/control does beneath ControlRoot.
 func (l Layout) ExecutionRoot() string { return filepath.Join(l.State, executionDirName) }
+
+// RuntimeRoot returns the directory holding generated application runtime
+// inputs.
+//
+// It sits beside the execution root and is separate from it for the reason the
+// two adapters are separate: one decides what the agent's own container can
+// reach, and this one decides what the application under development runs. Both
+// are host-only and neither is mounted anywhere (ADR-034).
+//
+// The per-task path below this one is built by the daemon, which validates the
+// identifiers first, exactly as internal/control does beneath ControlRoot.
+func (l Layout) RuntimeRoot() string { return filepath.Join(l.State, runtimeDirName) }
 
 // TmuxSocket returns the dedicated tmux server socket.
 //

@@ -10,7 +10,7 @@ replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: pre-alpha.** Slices 0 to 8 of the
+> **Status: pre-alpha.** Slices 0 to 9 of the
 > [implementation plan](docs/11-implementation-plan.md) are complete. The
 > repository has its package skeleton, the full command
 > surface, its development and CI commands, a versioned domain model with
@@ -36,9 +36,13 @@ environment. A task may span several repositories.
 > of your ordinary checkout, and each task gets its own Compose project so tasks
 > run side by side. Set `FEAT_HOST_AGENT=1` in the daemon's environment to run
 > Claude directly on your host instead, with no container boundary around it.
-> Runtime, review, and cleanup commands are registered but not implemented, and
-> each reports the slice that delivers it. Nothing here is usable for real work
-> yet.
+>
+> A task's **application services** are now yours to run from Feat: create,
+> start, stop, status, logs, and destroy, each under that task's own Compose
+> project. Nothing starts on its own and nothing stops because a task reached
+> review or approval. Review and cleanup commands are registered but not
+> implemented, and each reports the slice that delivers it. Nothing here is
+> usable for real work yet.
 
 ## Preparing a task
 
@@ -59,6 +63,10 @@ feat task list  # the same, without a terminal
 feat attach <task>
 ```
 
+`<task>` is a task's full identifier. The lists show the short key derived from
+it, and the dashboard's task detail shows the whole thing — so that is where to
+copy it from until a later slice lets a command take the key.
+
 Confirming launches Claude Code in the task's primary worktree with the brief
 you accepted. Attaching hands your terminal to that session: it is the native
 Claude interface, with your own configuration, keybindings, and checked-in
@@ -71,6 +79,29 @@ becomes `idle` after a short grace period and never means the work is done, and
 a task reaches review only when the agent explicitly asks for it. The first
 launch in a new worktree waits for Claude's own workspace-trust prompt; Feat
 says a task is waiting rather than answering on your behalf.
+
+## Running the application
+
+Each task's services are its own: Feat gives them their own Compose project,
+mounts that task's worktrees where the repositories say, and generates the
+non-secret variables an application needs to tell which task it is serving.
+
+```sh
+feat runtime start <task>     # or create, stop, status, logs, destroy
+feat runtime logs <task>      # the ordinary docker compose logs
+```
+
+Press `R` in the dashboard for the same actions on the selected task.
+
+The lifecycle is manual and stays that way. Nothing starts because a task was
+launched, nothing stops because it reached review, and approving a task offers
+to stop its services rather than doing it. Destroying removes that task's
+containers and networks; volumes are always retained, and a resource the project
+declares external — a shared staging database, for instance — is never touched.
+
+Feat allocates no ports in this version, so two tasks that both publish the same
+host port cannot both be up; the second one says so in those words rather than
+passing a Docker error through.
 
 ## Configuring a project
 

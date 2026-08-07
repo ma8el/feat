@@ -18,6 +18,7 @@ import (
 	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/paths"
+	"github.com/ma8el/feat/internal/runtime"
 	"github.com/ma8el/feat/internal/store"
 	"github.com/ma8el/feat/internal/store/fs"
 	"github.com/ma8el/feat/internal/tmux"
@@ -64,6 +65,16 @@ type Options struct {
 	// own so that a container that refuses to start, or turns out to run as
 	// root, can be arranged without a machine in that state.
 	Docker compose.Runner
+	// RuntimeDocker runs the container commands of a task's application
+	// services. It is separate from Docker because the agent's environment and
+	// the application under development are separate concepts (ADR-034), and
+	// because a test may want an application that fails to start beside an agent
+	// container that is perfectly healthy. A nil value drives the real Docker CLI.
+	RuntimeDocker runtime.Runner
+	// RuntimeInterval is how often application services are observed. Zero uses
+	// the default; a negative value disables observation, which only a test that
+	// pins what a poll would publish wants.
+	RuntimeInterval time.Duration
 	// Timer schedules the idle grace period. A nil value uses the wall clock.
 	Timer Timer
 	// PollInterval is how often control workspaces are read. Zero uses the
@@ -158,13 +169,15 @@ func New(opts Options) (*Daemon, error) {
 		store:  state,
 		bus:    bus,
 		service: &service{
-			store:      state,
-			bus:        bus,
-			git:        git.New(opts.Git),
-			terminals:  terminals,
-			agent:      claude.New(),
-			runner:     probe,
-			docker:     opts.Docker,
+			store:         state,
+			bus:           bus,
+			git:           git.New(opts.Git),
+			terminals:     terminals,
+			agent:         claude.New(),
+			runner:        probe,
+			docker:        opts.Docker,
+			runtimeDocker: opts.RuntimeDocker,
+
 			layout:     opts.Layout,
 			env:        env,
 			hostAgent:  hostAgent,
@@ -244,7 +257,20 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 
 	poller := &controlPoller{}
 	poller.start(ctx, d.service, d.opts.PollInterval)
+
+	// Application services are observed on their own, much slower schedule. It
+	// starts here rather than in the control poller because the two answer
+	// different questions and a task with no runtime costs nothing at all: a
+	// negative interval turns it off entirely, which only a test wants.
+	var runtimes *runtimePoller
+	if d.opts.RuntimeInterval >= 0 {
+		runtimes = &runtimePoller{}
+		runtimes.start(ctx, d.service, d.opts.RuntimeInterval)
+	}
 	defer func() {
+		if runtimes != nil {
+			runtimes.stop()
+		}
 		poller.stop()
 		// A pending transition must not fire into a daemon that has stopped and
 		// can no longer write what it decided.

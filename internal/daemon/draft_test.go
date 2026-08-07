@@ -16,6 +16,7 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution/compose/composetest"
 	"github.com/ma8el/feat/internal/paths"
+	"github.com/ma8el/feat/internal/runtime/compose/runtimetest"
 	"github.com/ma8el/feat/internal/store"
 	"github.com/ma8el/feat/internal/tmux/tmuxtest"
 )
@@ -27,9 +28,14 @@ type drafting struct {
 	git     *fakeGit
 	tmux    *tmuxtest.Server
 	docker  *composetest.Docker
-	layout  paths.Layout
-	env     paths.Environment
-	now     time.Time
+	// runtimes is the fake Docker of the application runtime, which is a
+	// different adapter from the one above and is deliberately a different fake:
+	// a test can arrange an application that will not start beside an agent
+	// container that is perfectly healthy (ADR-034).
+	runtimes *runtimetest.Docker
+	layout   paths.Layout
+	env      paths.Environment
+	now      time.Time
 }
 
 // launched creates a draft, resolves it, and launches it, returning the task.
@@ -71,8 +77,17 @@ func (d *drafting) config(t *testing.T) *config.Config {
 func arrangeDrafting(t *testing.T) *drafting {
 	t.Helper()
 
+	return arrangeConfigured(t, prepareFixture)
+}
+
+// arrangeConfigured is arrangeDrafting over a given project configuration, so
+// that the runtime tests can register a project with application services
+// without a second copy of this harness.
+func arrangeConfigured(t *testing.T, fixture string) *drafting {
+	t.Helper()
+
 	layout := testLayout(t)
-	env := configured(t, layout, "app", prepareFixture)
+	env := configured(t, layout, "app", fixture)
 	for _, name := range []string{"api", "store"} {
 		// With a .git directory, because a task worktree is only a repository
 		// while the main checkout's Git directory is reachable — which is what a
@@ -88,7 +103,7 @@ func arrangeDrafting(t *testing.T) *drafting {
 	now := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
 
 	arranged := &drafting{
-		git: fake, tmux: server, docker: docker,
+		git: fake, tmux: server, docker: docker, runtimes: runtimeDocker(),
 		layout: layout, env: env, now: now,
 	}
 
@@ -100,9 +115,13 @@ func arrangeDrafting(t *testing.T) *drafting {
 		Tmux:        server,
 		// Indirect, so a test can replace the fake after the daemon exists and
 		// still have the launch use it.
-		Docker: dockerFunc(func() *composetest.Docker { return arranged.docker }),
-		Logger: slog.New(slog.DiscardHandler),
-		Now:    func() time.Time { return now },
+		Docker:        dockerFunc(func() *composetest.Docker { return arranged.docker }),
+		RuntimeDocker: runtimeDockerFunc(func() *runtimetest.Docker { return arranged.runtimes }),
+		// Off. Every runtime test drives the actions itself, and a background
+		// poll would make what a test observes depend on when it looked.
+		RuntimeInterval: -1,
+		Logger:          slog.New(slog.DiscardHandler),
+		Now:             func() time.Time { return now },
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

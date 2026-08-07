@@ -199,6 +199,37 @@ linters:
             - pkg: github.com/charmbracelet
             - pkg: github.com/spf13/cobra
 
+        # ADR-034: the application runtime receives final values — absolute
+        # Compose files, a project name, services, mounts, and labels — and reads
+        # neither configuration nor persistent state, exactly as the execution
+        # adapter does. It is denied internal/execution as well, because the
+        # agent's environment and the application under development are separate
+        # concepts even where both drive Docker Compose (CLAUDE.md), and the
+        # Compose plumbing is deliberately duplicated rather than shared.
+        runtime-stays-an-adapter:
+          files:
+            - "**/internal/runtime/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/cli
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/config
+              desc: the daemon reads configuration and hands the adapter final values
+            - pkg: github.com/ma8el/feat/internal/control
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/execution
+              desc: the application runtime and the agent's environment are separate concepts
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/project
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/tmux
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+            - pkg: github.com/spf13/cobra
+
         control-stays-a-protocol:
           files:
             - "**/internal/control/**"
@@ -393,6 +424,19 @@ linters:
       # recorded here rather than in //nolint comments, for the reason ADR-025
       # gives.
       - path: internal/execution/compose/(runner|override)\.go
+        linters:
+          - gosec
+        text: G304|G204
+
+      # internal/runtime drives Docker Compose for the application under
+      # development, which is the package's whole purpose, always as an argument
+      # vector and never through a shell, and writes the generated override into
+      # a directory the daemon resolved. Only the trusted host ever runs Docker;
+      # the agent receives no socket and no client whatever the user starts here.
+      # gosec sees the variable and not the validation, so the exemption is
+      # recorded here rather than in //nolint comments, for the reason ADR-025
+      # gives.
+      - path: internal/runtime/(runner|compose/override)\.go
         linters:
           - gosec
         text: G304|G204

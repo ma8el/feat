@@ -395,9 +395,10 @@ type AttachInfo struct {
 
 // Runtime is a task's application runtime.
 //
-// It carries what the dashboard and the runtime commands need in v0. Slice 9
-// extends it when the Compose adapter has more to report; inventing the rest of
-// the surface now would publish fields nothing fills.
+// The lifecycle is manual: nothing here starts because a task reached a state,
+// and nothing stops because it reached another. What a task owns is named
+// explicitly, because a resource a user cannot see is a resource they cannot
+// clean up.
 type Runtime struct {
 	Provider string `json:"provider"`
 	// Identity is the unique runtime identity, which is what makes an action
@@ -408,8 +409,25 @@ type Runtime struct {
 	State    string   `json:"state"`
 	// Health is separate from State: without a configured health check the
 	// honest answer is unknown.
-	Health     string    `json:"health"`
-	ObservedAt time.Time `json:"observed_at"`
+	Health string `json:"health"`
+	// Networks and Volumes are what Compose reports as this project's. Volumes
+	// are listed because destroying a runtime retains every one of them, and a
+	// retained resource nobody can see is one nobody will remove.
+	Networks []string `json:"networks"`
+	Volumes  []string `json:"volumes"`
+	// External are the resources the runtime uses and Feat never creates or
+	// destroys, such as a shared staging database.
+	External []ExternalResource `json:"external_resources"`
+	// ComposeFiles, StaticOverrides, EnvFiles, and GeneratedOverridePath are the
+	// exact inputs this runtime was created from, kept so that a later action
+	// reaches the same resources even if the project's configuration has since
+	// been edited. They are the user's own paths, which are not secrets; no value
+	// from an environment file is ever read, let alone published.
+	ComposeFiles          []string  `json:"compose_files"`
+	StaticOverrides       []string  `json:"static_overrides"`
+	EnvFiles              []string  `json:"env_files"`
+	GeneratedOverridePath string    `json:"generated_override_path"`
+	ObservedAt            time.Time `json:"observed_at"`
 }
 
 // Port is one published port of one service.
@@ -417,6 +435,112 @@ type Port struct {
 	Service       string `json:"service"`
 	ContainerPort int    `json:"container_port"`
 	HostPort      int    `json:"host_port"`
+}
+
+// ExternalResource is a shared resource a task's runtime uses and does not own.
+type ExternalResource struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind,omitempty"`
+	// Lifecycle is always "external" in v0. It is published rather than implied
+	// so that a client can say, in the user's own words, that Feat will never
+	// create or destroy it.
+	Lifecycle string `json:"lifecycle"`
+	// Selector is the generated non-secret value this task uses to pick its
+	// share of the resource.
+	Selector string `json:"selector,omitempty"`
+}
+
+// RuntimeService is one observed service of a task's runtime.
+type RuntimeService struct {
+	Name string `json:"name"`
+	// Container is the observed container, empty when the service has none.
+	Container string `json:"container,omitempty"`
+	// State is what the container runtime called it, and Status its own longer
+	// phrasing, kept verbatim so a client quotes the tool rather than
+	// paraphrasing it.
+	State  string `json:"state,omitempty"`
+	Status string `json:"status,omitempty"`
+	Health string `json:"health"`
+	// ExitCode is the exit status of a service that has stopped.
+	ExitCode int `json:"exit_code,omitempty"`
+}
+
+// RuntimeAction is one manual lifecycle action a user asked for.
+//
+// The five are FR-RUN-005's, and the vocabulary lives here because the endpoint
+// path is what names them. Every one of them is an explicit user request: no
+// workflow transition, no reconciliation, and no agent reaches any of them.
+type RuntimeAction string
+
+// The manual runtime actions.
+const (
+	// RuntimeCreate brings the containers into existence without starting them.
+	RuntimeCreate RuntimeAction = "create"
+	// RuntimeStart brings the services up.
+	RuntimeStart RuntimeAction = "start"
+	// RuntimeStop stops them and keeps their containers.
+	RuntimeStop RuntimeAction = "stop"
+	// RuntimeObserve reports what exists now, changing nothing.
+	RuntimeObserve RuntimeAction = "status"
+	// RuntimeDestroy removes the containers and networks the task owns, retaining
+	// every volume.
+	RuntimeDestroy RuntimeAction = "destroy"
+)
+
+// Valid reports whether the action is one Feat performs.
+func (a RuntimeAction) Valid() bool {
+	switch a {
+	case RuntimeCreate, RuntimeStart, RuntimeStop, RuntimeObserve, RuntimeDestroy:
+		return true
+	default:
+		return false
+	}
+}
+
+// DestroyRuntime is the body of POST /v1/tasks/{task_id}/runtime/destroy.
+//
+// It carries the user's confirmation, for the reason a launch carries the
+// fingerprint of the plan that was displayed: a request that removes something
+// should say that somebody meant it. Volumes are retained whatever it says, and
+// removing one is a choice cleanup asks for separately (FR-CLEAN-002).
+type DestroyRuntime struct {
+	Confirm bool `json:"confirm"`
+}
+
+// RuntimeStatus is the response of every runtime action.
+type RuntimeStatus struct {
+	// Task is the task as it is now recorded, carrying its runtime.
+	Task Task `json:"task"`
+	// Services are what was observed, one entry per configured service. A
+	// service with no container is reported as one, because a runtime missing
+	// half its services is not a runtime that is running.
+	Services []RuntimeService `json:"services"`
+	// Notes are what a user should know about what they just started, in Feat's
+	// terms rather than the container runtime's. They are observations of the
+	// running containers and are recomputed by the next action.
+	Notes []string `json:"notes"`
+}
+
+// RuntimeResult is what the daemon reports after a runtime action.
+type RuntimeResult struct {
+	// Task is the task as it is now recorded.
+	Task *domain.Task
+	// Services are the observed services.
+	Services []RuntimeService
+	// Notes are what the started containers turned out to be.
+	Notes []string
+}
+
+// RuntimeCommand is the response of POST
+// /v1/tasks/{task_id}/runtime/logs-info.
+//
+// It is a command rather than output: FR-RUN-006 asks for normal Compose logs,
+// and the client runs this with its own terminal exactly as it runs native tmux
+// for attach. The client checks what it is given before running it.
+type RuntimeCommand struct {
+	Program   string   `json:"program"`
+	Arguments []string `json:"arguments"`
+	Directory string   `json:"directory"`
 }
 
 // newProject maps a project onto the wire.
@@ -606,17 +730,38 @@ func newRuntime(runtime *domain.RuntimeEnvironment) *Runtime {
 			HostPort:      port.HostPort,
 		})
 	}
-	services := runtime.Services
-	if services == nil {
-		services = []string{}
+	external := make([]ExternalResource, 0, len(runtime.ExternalResources))
+	for _, resource := range runtime.ExternalResources {
+		external = append(external, ExternalResource{
+			ID:        resource.ID,
+			Kind:      resource.Kind,
+			Lifecycle: string(resource.Lifecycle),
+			Selector:  resource.Selector,
+		})
 	}
 	return &Runtime{
-		Provider:   runtime.Provider,
-		Identity:   runtime.Identity,
-		Services:   services,
-		Ports:      ports,
-		State:      string(runtime.State),
-		Health:     string(runtime.Health),
-		ObservedAt: runtime.ObservedAt,
+		Provider:              runtime.Provider,
+		Identity:              runtime.Identity,
+		Services:              list(runtime.Services),
+		Ports:                 ports,
+		State:                 string(runtime.State),
+		Health:                string(runtime.Health),
+		Networks:              list(runtime.Networks),
+		Volumes:               list(runtime.Volumes),
+		External:              external,
+		ComposeFiles:          list(runtime.ComposeFiles),
+		StaticOverrides:       list(runtime.StaticOverrides),
+		EnvFiles:              list(runtime.EnvFiles),
+		GeneratedOverridePath: runtime.GeneratedOverridePath,
+		ObservedAt:            runtime.ObservedAt,
 	}
+}
+
+// list renders a string slice as a list rather than null, so a client can
+// iterate the response without a nil check.
+func list(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
+	"github.com/ma8el/feat/internal/runtime"
 	"github.com/ma8el/feat/internal/store"
 	"github.com/ma8el/feat/internal/tmux"
 )
@@ -50,7 +51,12 @@ type service struct {
 	// docker runs the container commands a devcontainer task needs. A nil value
 	// drives the real Docker CLI.
 	docker compose.Runner
-	layout paths.Layout
+	// runtimeDocker runs the container commands a task's application services
+	// need. It is separate from docker because the two adapters are separate
+	// (ADR-034), which also lets a test arrange a Docker that refuses to start an
+	// application while the agent's own container is perfectly healthy.
+	runtimeDocker runtime.Runner
+	layout        paths.Layout
 	// env is the environment configuration is resolved against: the user who
 	// owns the daemon, not whoever sent the request.
 	env paths.Environment

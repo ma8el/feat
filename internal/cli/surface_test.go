@@ -102,6 +102,15 @@ func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
 		"feat project show":  true,
 		"feat implement":     true,
 		"feat task list":     true,
+		// The runtime actions reach the daemon and act on one task's Compose
+		// project. Invoking one here would ask the running user's daemon to start
+		// or remove something.
+		"feat runtime create":  true,
+		"feat runtime start":   true,
+		"feat runtime stop":    true,
+		"feat runtime status":  true,
+		"feat runtime logs":    true,
+		"feat runtime destroy": true,
 	}
 
 	var walk func(cmd *cobra.Command)
