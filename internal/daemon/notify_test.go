@@ -2,10 +2,12 @@ package daemon
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/notify"
@@ -14,28 +16,58 @@ import (
 // fakeNotifier records what would have reached the desktop.
 //
 // It exists so that the suite never shows a real notification, and so that a
-// test can assert the absence of one — which is most of what this slice's
+// test can assert the absence of one — which is most of what slice 10's
 // acceptance criteria are about.
+//
+// It can also be pointed at this platform's own notifier, which is how the
+// opt-in walk in notify_integration_test.go reaches a real desktop while these
+// assertions still see what was handed over. A fake notifier proves the daemon
+// asked; it never proves anybody was told.
 type fakeNotifier struct {
 	mu        sync.Mutex
 	delivered []notify.Notification
 	available bool
 	err       error
+	// deliver is this platform's own notifier when a test asked for a real
+	// delivery, and nil in every other test.
+	deliver notify.Notifier
 }
 
 func newFakeNotifier() *fakeNotifier { return &fakeNotifier{available: true} }
 
-func (f *fakeNotifier) Notify(_ context.Context, notification notify.Notification) error {
+func (f *fakeNotifier) Notify(ctx context.Context, notification notify.Notification) error {
+	f.mu.Lock()
+	fail, onwards := f.err, f.deliver
+	f.mu.Unlock()
+
+	if fail != nil {
+		return fail
+	}
+	// Handed over before it is recorded, so that what the fake reports as sent is
+	// what the platform accepted rather than what was attempted — the same order
+	// notifyTask records its event in.
+	if onwards != nil {
+		if err := onwards.Notify(ctx, notification); err != nil {
+			return err
+		}
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.err != nil {
-		return f.err
-	}
 	f.delivered = append(f.delivered, notification)
 	return nil
 }
 
 func (f *fakeNotifier) Available() (bool, string) {
+	f.mu.Lock()
+	onwards := f.deliver
+	f.mu.Unlock()
+
+	if onwards != nil {
+		// The real answer, because that is what decides whether the daemon drops
+		// a notification before composing one.
+		return onwards.Available()
+	}
 	if f.available {
 		return true, ""
 	}
@@ -52,6 +84,19 @@ func (f *fakeNotifier) sent() []notify.Notification {
 // on are news rather than history.
 func (s *session) watchable() *session {
 	s.service.notifiable.Store(true)
+	return s
+}
+
+// delivering points the session's notifier at this platform's own, so that a
+// notification it hands over reaches a real desktop.
+//
+// Only the opt-in walk calls it. Everything else keeps the fake, because a suite
+// that showed a notification for every task it launched would be a suite nobody
+// could run twice.
+func (s *session) delivering() *session {
+	s.notifier.mu.Lock()
+	defer s.notifier.mu.Unlock()
+	s.notifier.deliver = notify.Host()
 	return s
 }
 
@@ -294,6 +339,208 @@ notifications:
 		t.Fatalf("delivered %d notifications with suppression off, want 1: %+v",
 			len(delivered), delivered)
 	}
+}
+
+// TestFailedApplicationServicesAreNotifiedAbout covers the one notifiable
+// condition that had no test reaching it.
+//
+// It was found by walking every condition against a real desktop for slice 13:
+// six arrived and this one did not, because the fixture could not express a
+// container that exited non-zero and so could not produce a failed runtime at
+// all. What the notification path needed was already right; what was missing was
+// any test that got there.
+//
+// A stopped runtime is deliberately not notifiable, and the second half checks
+// that: v0 stops services only when a user asks, so a stop is something they just
+// did rather than news (FR-RUN-005).
+func TestFailedApplicationServicesAreNotifiedAbout(t *testing.T) {
+	arranged := arrangeConfigured(t, runtimeFixture)
+	task := arranged.launched(t)
+	arranged.answerFor(task, "running", "Up 2 seconds")
+	arranged.act(t, task.ID, api.RuntimeStart)
+	arranged.service.notifiable.Store(true)
+
+	arranged.answerExitedFor(task, "exited", "Exited (1) 1 second ago", 1)
+	arranged.service.pollRuntimes(context.Background())
+
+	if state := arranged.reload(t, task.ID).Runtime.State; state != domain.RuntimeFailed {
+		t.Fatalf("the observed runtime is %q, want failed", state)
+	}
+	delivered := arranged.notifier.sent()
+	if len(delivered) != 1 {
+		t.Fatalf("delivered %d notifications for failed services, want 1: %+v", len(delivered), delivered)
+	}
+	if !strings.Contains(delivered[0].Body, "application services failed") {
+		t.Errorf("the notification does not say the services failed: %+v", delivered[0])
+	}
+	if !strings.Contains(delivered[0].Title, task.Key().String()) {
+		t.Errorf("the notification does not name the task %s: %+v", task.Key(), delivered[0])
+	}
+
+	// A clean stop is not news.
+	arranged.answerFor(task, "exited", "Exited (0) 1 second ago")
+	arranged.service.pollRuntimes(context.Background())
+
+	if after := arranged.notifier.sent(); len(after) != 1 {
+		t.Errorf("stopping services the user stopped notified them about it: %+v", after[1:])
+	}
+}
+
+// TestEveryDroppedNotificationSaysWhichPolicyDroppedIt is the slice 13
+// acceptance criterion that each policy which drops a notification drops it for
+// a reason a user would recognise.
+//
+// A notification that never arrives is invisible by construction. The state
+// change it was about is recorded correctly either way, so there is nothing to
+// inspect afterwards and no way to tell a policy Feat applied on purpose from a
+// notification the desktop swallowed — which is exactly the question the
+// maintainer was left with when a task reached ready_for_review in silence.
+// Four of these five used to be a silent return.
+func TestEveryDroppedNotificationSaysWhichPolicyDroppedIt(t *testing.T) {
+	const disabled = hostFixture + `
+notifications:
+  desktop: false
+`
+
+	tests := []struct {
+		name   string
+		reason string
+		drop   func(t *testing.T) (*session, *syncBuffer)
+	}{
+		{
+			name:   "still catching up",
+			reason: dropCatchingUp,
+			drop: func(t *testing.T) (*session, *syncBuffer) {
+				// Deliberately not made notifiable: this is the state the daemon
+				// is in while it applies what arrived while it was stopped.
+				live, logs := launchLogged(t, hostFixture, nil)
+				live.start(t)
+				live.emit(t, control.TypeReviewRequested, `{"summary":"ready"}`)
+				return live, logs
+			},
+		},
+		{
+			name:   "this platform delivers none",
+			reason: "this fake delivers nothing",
+			drop: func(t *testing.T) (*session, *syncBuffer) {
+				live, logs := launchLogged(t, hostFixture, func(o *Options) {
+					o.Notifier = &fakeNotifier{available: false}
+				})
+				live.watchable().start(t)
+				live.emit(t, control.TypeReviewRequested, `{"summary":"ready"}`)
+				return live, logs
+			},
+		},
+		{
+			name:   "the project turned them off",
+			reason: dropDisabled,
+			drop: func(t *testing.T) (*session, *syncBuffer) {
+				live, logs := launchLogged(t, disabled, nil)
+				live.watchable().start(t)
+				live.emit(t, control.TypeReviewRequested, `{"summary":"ready"}`)
+				return live, logs
+			},
+		},
+		{
+			name:   "the user is looking at it",
+			reason: dropWatched,
+			drop: func(t *testing.T) (*session, *syncBuffer) {
+				live, logs := launchLogged(t, hostFixture, nil)
+				live.watchable().start(t)
+				live.watch(t, 1)
+				live.emit(t, control.TypeReviewRequested, `{"summary":"ready"}`)
+				return live, logs
+			},
+		},
+		{
+			name:   "nothing to say about that condition",
+			reason: dropUncomposed,
+			drop: func(t *testing.T) (*session, *syncBuffer) {
+				// Reached directly, because every condition the tables map has
+				// text. The branch exists so that a condition added without one
+				// is dropped visibly rather than silently, which is the whole
+				// point of this test.
+				live, logs := launchLogged(t, hostFixture, nil)
+				live.watchable().start(t)
+				live.service.notifyTask(context.Background(), live.load(t), "a-condition-nobody-wrote", 0)
+				return live, logs
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			live, logs := test.drop(t)
+
+			if delivered := live.notifier.sent(); len(delivered) != 0 {
+				t.Fatalf("the notification was not dropped: %+v", delivered)
+			}
+
+			written := logs.String()
+			if !strings.Contains(written, "not interrupting the user") {
+				t.Fatalf("the drop was silent:\n%s", written)
+			}
+			if !strings.Contains(written, test.reason) {
+				t.Errorf("the log does not say why:\nwant %q\n%s", test.reason, written)
+			}
+			if key := live.load(t).Key().String(); !strings.Contains(written, key) {
+				t.Errorf("the log does not name the task %s:\n%s", key, written)
+			}
+		})
+	}
+}
+
+// TestADeliveredNotificationIsNotReportedAsDropped keeps the test above from
+// passing against a daemon that logs the reason and then notifies anyway, or one
+// that drops everything.
+func TestADeliveredNotificationIsNotReportedAsDropped(t *testing.T) {
+	live, logs := launchLogged(t, hostFixture, nil)
+	live.watchable().start(t)
+
+	live.emit(t, control.TypeReviewRequested, `{"summary":"ready"}`)
+
+	if delivered := live.notifier.sent(); len(delivered) != 1 {
+		t.Fatalf("delivered %d notifications, want 1: %+v", len(delivered), delivered)
+	}
+	if written := logs.String(); strings.Contains(written, "not interrupting the user") {
+		t.Errorf("a delivered notification was also reported as dropped:\n%s", written)
+	}
+}
+
+// launchLogged launches a task with the daemon's own log captured, so that a
+// test can read the decision the daemon recorded rather than only its effect.
+func launchLogged(t *testing.T, fixture string, adjust func(*Options)) (*session, *syncBuffer) {
+	t.Helper()
+
+	logs := &syncBuffer{}
+	live := launchWith(t, fixture, installed(), true, func(options *Options) {
+		options.Logger = slog.New(slog.NewTextHandler(logs, nil))
+		if adjust != nil {
+			adjust(options)
+		}
+	})
+	return live, logs
+}
+
+// syncBuffer is a log destination safe to read while the daemon is still
+// writing. The gate, the pollers, and the idle timers all log from their own
+// goroutines, and a test that read a plain buffer would fail under -race for a
+// reason that has nothing to do with what it is checking.
+type syncBuffer struct {
+	mu      sync.Mutex
+	written strings.Builder
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.written.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.written.String()
 }
 
 // watch arranges how many clients are looking at the task's tmux window.

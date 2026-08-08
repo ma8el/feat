@@ -600,6 +600,16 @@ reach a brief, an agent's summary, a path, or a configured value. A delivered
 notification is recorded as a `notification_sent` task event, because a desktop
 notification is gone the moment it is dismissed.
 
+A notification Feat decides not to deliver names the policy that stopped it in
+the daemon's log: the daemon still catching up after a restart, a platform that
+delivers none, `notifications.desktop`, `notifications.suppress_while_attached`
+with somebody attached, and a condition this build composes no text for. It is a
+log line rather than a task event, because a suppressed notification is not
+something that happened to the task and an event would publish. Nothing else can
+distinguish a policy Feat applied on purpose from a notification the desktop
+swallowed, since neither leaves anything to inspect and the state change is
+correct either way. See ADR-039.
+
 v0.1 implements macOS desktop notification plus TUI badges, and reports that it
 delivered a notification rather than that one was seen: macOS decides per
 application whether to show one and drops an unauthorised one without saying so.

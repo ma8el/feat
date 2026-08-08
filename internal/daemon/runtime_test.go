@@ -61,9 +61,16 @@ func runtimeDocker() *runtimetest.Docker {
 // answerFor arranges the fixture project's answers for one task's Compose
 // project, whose name carries the task key.
 func (d *drafting) answerFor(task *domain.Task, state, status string) {
+	d.answerExitedFor(task, state, status, 0)
+}
+
+// answerExitedFor is answerFor for a container that ended with a particular exit
+// status, which is what separates a failed runtime from a stopped one.
+func (d *drafting) answerExitedFor(task *domain.Task, state, status string, exitCode int) {
 	identity := "feat-app-" + task.Key().String()
 	d.runtimes.
-		Answer("ps --all --format json", runtimetest.Container("api", "c0ffee", state, status)).
+		Answer("ps --all --format json",
+			runtimetest.ExitedContainer("api", "c0ffee", state, status, exitCode)).
 		Answer("network ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}",
 			identity+"_default").
 		Answer("volume ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}",

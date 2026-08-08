@@ -10,6 +10,21 @@ import (
 	"github.com/ma8el/feat/internal/notify"
 )
 
+// Why a notification was not delivered.
+//
+// Each is a policy Feat applies on purpose, and each is phrased as the user's own
+// setting or situation rather than as an internal state, because these are what
+// somebody reads when they were not told about something they expected to hear
+// about. Four of the five used to be a silent return, which made "why did I not
+// get a notification" a question the daemon's own log could not answer.
+const (
+	dropCatchingUp = "the daemon was still catching up on what happened while it was stopped"
+	dropDisabled   = "this project sets notifications.desktop to false"
+	dropWatched    = "you are attached to this task's terminal, " +
+		"and this project sets notifications.suppress_while_attached to true"
+	dropUncomposed = "this build has no notification text for that condition"
+)
+
 // notifyTask interrupts the user about one task, once, and records that it did.
 //
 // Everything about this is conservative. It is called from the few places a
@@ -21,22 +36,33 @@ import (
 // A delivery that fails is logged and nothing more. A notification is the least
 // important thing Feat does with a task, and a desktop that cannot show one must
 // never cost the state change it was announcing.
+//
+// Every path that does not deliver says which policy stopped it. A notification
+// that never arrives is invisible by construction — there is nothing to inspect
+// afterwards, and the state change it was about is correct either way — so the
+// log is the only place the difference between "Feat decided not to" and "the
+// desktop swallowed it" can be established.
 func (s *service) notifyTask(ctx context.Context, task *domain.Task, condition notify.Condition, idle time.Duration) {
 	if !s.notifiable.Load() {
 		// Startup catch-up. The daemon is applying control messages that arrived
 		// while it was stopped, and a restart that fired a notification for every
 		// turn that ended overnight would be interrupting the user about the past
 		// (ADR-035).
+		s.dropped(ctx, task, condition, dropCatchingUp)
+		return
+	}
+	if s.undeliverable != "" {
+		s.dropped(ctx, task, condition, s.undeliverable)
 		return
 	}
 
 	policy := s.notifyPolicy(ctx, task)
 	if !policy.Desktop {
+		s.dropped(ctx, task, condition, dropDisabled)
 		return
 	}
 	if policy.SuppressWhileAttached && s.watching(ctx, task) {
-		s.logger.DebugContext(ctx, "not interrupting a task the user is watching",
-			slog.String("task", task.ID.String()), slog.String("condition", string(condition)))
+		s.dropped(ctx, task, condition, dropWatched)
 		return
 	}
 
@@ -46,6 +72,7 @@ func (s *service) notifyTask(ctx context.Context, task *domain.Task, condition n
 		Project: task.ProjectID.String(),
 	}, idle)
 	if !ok {
+		s.dropped(ctx, task, condition, dropUncomposed)
 		return
 	}
 
@@ -63,6 +90,24 @@ func (s *service) notifyTask(ctx context.Context, task *domain.Task, condition n
 		To:     string(condition),
 		Detail: notification.Body,
 	})
+}
+
+// dropped records that Feat decided not to interrupt the user, and why.
+//
+// At info rather than debug, because the reader is a user working out why they
+// were not told something rather than somebody debugging Feat. It is a log line
+// rather than a task event: a suppressed notification is not something that
+// happened to the task, and an event would publish, which is a step towards a
+// notification about not having sent a notification.
+func (s *service) dropped(
+	ctx context.Context, task *domain.Task, condition notify.Condition, reason string,
+) {
+	s.logger.InfoContext(ctx, "not interrupting the user about a task",
+		slog.String("task", task.ID.String()),
+		slog.String("key", task.Key().String()),
+		slog.String("project", task.ProjectID.String()),
+		slog.String("condition", string(condition)),
+		slog.String("reason", reason))
 }
 
 // notifyPolicy is what the task's project decided about being interrupted.

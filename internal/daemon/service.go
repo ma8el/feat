@@ -81,6 +81,11 @@ type service struct {
 
 	// notifier delivers desktop notifications. It never fails a task.
 	notifier notify.Notifier
+	// undeliverable is why this build delivers no desktop notification, asked
+	// once at startup and empty when it can. It is held so that a notification
+	// this platform cannot show is dropped saying so, rather than handed to a
+	// notifier that refuses it and logged as a failed delivery.
+	undeliverable string
 	// notifiable reports that the daemon has finished catching up on what
 	// happened while it was stopped. Until it has, changes are recorded without
 	// interrupting anybody: a restart that notified for every turn that ended

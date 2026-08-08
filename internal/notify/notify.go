@@ -36,6 +36,24 @@ const (
 	ConditionRuntimeFailed Condition = "runtime_failed"
 )
 
+// Conditions returns every condition Feat interrupts a user for.
+//
+// It exists so that "each one has been shown to reach a real desktop" can be a
+// property of the suite rather than of the day somebody checked: a condition
+// added later has to be walked too, and a list that has to be extended by hand
+// is a list that eventually is not.
+func Conditions() []Condition {
+	return []Condition{
+		ConditionIdle,
+		ConditionReviewRequested,
+		ConditionReadyForReview,
+		ConditionVerificationFailed,
+		ConditionTaskFailed,
+		ConditionSessionFailed,
+		ConditionRuntimeFailed,
+	}
+}
+
 // notifiableWorkflow maps the workflow states worth interrupting for.
 //
 // The table is the policy, in the shape ADR-026 used for the workflow

@@ -212,6 +212,18 @@ log show --last 5m --predicate 'process == "usernoted"' --style compact \
 `Presenting … as banner` means macOS showed it and the question is where you were
 looking; no line at all means it never arrived.
 
+A notification Feat decided not to send says so in the daemon's own log, naming
+the policy that stopped it — that it was still catching up after a restart, that
+this project turned desktop notifications off, that you were attached to the
+task, or that this platform delivers none:
+
+```sh
+grep 'not interrupting the user' "${XDG_DATA_HOME:-$HOME/.local/share}/feat/logs/daemon.log"
+```
+
+Between that and the `usernoted` log above, a notification you expected and did
+not get always has an answer.
+
 ## Configuring a project
 
 A project is one YAML file, one per project, named after the project's
