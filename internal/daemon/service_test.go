@@ -89,7 +89,7 @@ func TestATaskIsAddressableByTheKeyEveryListPrints(t *testing.T) {
 //
 // Reporting it is the same rule ADR-029 applied to a colliding branch name: a
 // user acting on a task Feat picked would be acting on something they did not
-// choose, and `feat cleanup` is one of the commands that takes a task.
+// choose, and `feat task cleanup` is one of the commands that takes a task.
 func TestAnAmbiguousKeyIsReportedRatherThanResolved(t *testing.T) {
 	live := serve(t, Options{})
 	seed(t, live, storetest.Project(), storetest.Task())

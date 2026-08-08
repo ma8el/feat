@@ -796,7 +796,7 @@ func TestErrorResponses(t *testing.T) {
 // once.
 //
 // The endpoints below are what `feat attach`, `feat review`, `feat runtime`, and
-// `feat cleanup` call, and every one of them took an identifier no list printed.
+// `feat task cleanup` call, and every one of them took an identifier no list printed.
 // They come through one resolution point, so the check is that each of them
 // reached the daemon with the identifier the key abbreviates.
 func TestEveryTaskEndpointTakesTheKeyTheListsPrint(t *testing.T) {

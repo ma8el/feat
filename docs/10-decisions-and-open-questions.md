@@ -1819,6 +1819,11 @@ why it is recorded before the change rather than after a failure:
    in three documents, slice 13 is already rewriting every `<task>` argument for
    ADR-038, and slice 14 publishes v0.2. After that, moving a command breaks a
    shell history that is not Feat's to break.
+6. Found while implementing this: cobra's own "Did you mean this?" had never
+   fired, for any command. It is built on the path cobra takes for a command
+   with no `Args` of its own, and every command in this tree has one, so
+   `feat tsk` was answered with "unknown command" and nothing else. A moved name
+   made it visible; a typo had always asked the same question.
 
 Decisions:
 
@@ -1839,7 +1844,14 @@ Decisions:
   golden file, which walks hidden commands.
 - `feat cleanup` gets no alias. It is rare and it is irreversible, and making the
   longer path the only path is the argument ADR-037 made when it refused a
-  blanket `--yes`.
+  blanket `--yes`. What it gets instead is a rejection that leads somewhere: the
+  old name is answered with the noun that now holds it. There is no compatibility
+  shim behind that, because nothing has been released and a shim would put the
+  name back on the surface this ADR took it off.
+- The suggestion is built where a command's positional arguments are checked,
+  which is the one place every rejection passes through, so an unknown word gets
+  it whether it is a name that moved or a name that was mistyped. Restoring it
+  only for `cleanup` would have left evidence 6 in place for everything else.
 - One implementation with two names, never two implementations. The alias is
   built by the same constructor and runs the same `RunE`; cobra sets a parent in
   `AddCommand`, so one value cannot hold both positions, and two bodies would
@@ -1858,15 +1870,20 @@ Decisions:
   its help, because a user who meets the second after the first reads it as an
   omission rather than as a decision.
 
-Consequence: this ADR records the target and moves nothing yet. The golden file,
-[README.md](README.md), [06-technical-architecture.md](06-technical-architecture.md),
-and the README move in the change that implements it, which is the rule ADR-028
-and ADR-031 followed for a command-surface change; moving them first would
-document a surface the binary does not have. Nothing crosses the socket
-differently: no endpoint, no domain type, and no storage path changes, and
-ADR-038's rule for naming a task is untouched. Machine-readable output is a
-separate gap — every command can be read by a person and parsed by nothing — and
-belongs with slice 14's JSON Schema rather than here.
+Consequence: the golden file, [README.md](README.md),
+[06-technical-architecture.md](06-technical-architecture.md), and the README
+moved in the same change, which is the rule ADR-028 and ADR-031 followed for a
+command-surface change. Nothing crosses the socket differently: no endpoint, no
+domain type, and no storage path changes, and ADR-038's rule for naming a task is
+untouched. Three reconciliation findings that told a user to run `feat cleanup`
+now name the command that exists.
+
+Two things this deliberately leaves alone. Machine-readable output is a separate
+gap — every command can be read by a person and parsed by nothing — and belongs
+with slice 14's JSON Schema. And an unknown subcommand of a group, `feat task lst`
+or `feat daemon bogus`, still prints the group's help and exits zero, which
+predates this change and is the same on every group: a script cannot tell that
+one from a command that ran.
 
 ### OQ-001 — Natural-language orchestrator
 

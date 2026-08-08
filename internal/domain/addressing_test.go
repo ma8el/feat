@@ -118,7 +118,7 @@ func TestAmbiguityIsReportedInAStableOrder(t *testing.T) {
 // TestAnArchivedTaskIsStillAddressable checks that a task nothing lists any more
 // can still be named.
 //
-// A cancelled draft becomes archived and `feat cleanup` still has to reach one,
+// A cancelled draft becomes archived and `feat task cleanup` still has to reach one,
 // so archived tasks are candidates. The consequence is that one can make a
 // reference ambiguous, which is reported rather than resolved by preferring the
 // live task: preferring one would be the guess this whole rule refuses.

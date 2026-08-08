@@ -1,6 +1,5 @@
 feat
 feat attach <task>
-feat cleanup <task>
 feat daemon
 feat daemon run [--log-level]
 feat daemon start [--log-level]
@@ -21,5 +20,8 @@ feat runtime start <task>
 feat runtime status <task>
 feat runtime stop <task>
 feat task
+feat task attach <task>
+feat task cleanup <task>
 feat task list
+feat task review <task>
 feat version

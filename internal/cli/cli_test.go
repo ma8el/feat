@@ -71,17 +71,24 @@ func TestExecuteExitCodes(t *testing.T) {
 
 		{"unknown command", []string{"bogus"}, ExitUsage},
 		{"unknown flag", []string{"--nope"}, ExitUsage},
-		{"missing required argument", []string{"attach"}, ExitUsage},
-		{"too many arguments", []string{"attach", "one", "two"}, ExitUsage},
+		{"missing required argument", []string{"task", "attach"}, ExitUsage},
+		{"too many arguments", []string{"task", "attach", "one", "two"}, ExitUsage},
 		{"unknown subcommand argument", []string{"task", "list", "extra"}, ExitUsage},
+		// Cleanup is the one command ADR-040 moved without leaving an alias.
+		{"a command that moved under task", []string{"cleanup", "abc123"}, ExitUsage},
 		{"unknown log level", []string{"daemon", "status", "--log-level", "loud"}, ExitUsage},
 
 		{"project add without a project", []string{"project", "add"}, ExitUsage},
 
-		// Review and attach both reach the daemon, so an absent one is the
-		// state each reports rather than a failure of the command.
-		{"review without a daemon", []string{"review", "abc123"}, ExitNotRunning},
-		{"attach without a daemon", []string{"attach", "abc123"}, ExitNotRunning},
+		// Review, attach, and cleanup all reach the daemon, so an absent one is
+		// the state each reports rather than a failure of the command. The two
+		// short names ADR-040 kept are exercised beside the canonical ones,
+		// because an alias that stops working is an alias nobody notices.
+		{"review without a daemon", []string{"task", "review", "abc123"}, ExitNotRunning},
+		{"attach without a daemon", []string{"task", "attach", "abc123"}, ExitNotRunning},
+		{"cleanup without a daemon", []string{"task", "cleanup", "abc123"}, ExitNotRunning},
+		{"the review alias without a daemon", []string{"review", "abc123"}, ExitNotRunning},
+		{"the attach alias without a daemon", []string{"attach", "abc123"}, ExitNotRunning},
 
 		// Every runtime action reaches the daemon, so an absent one is the state
 		// each of them reports rather than a failure of the command.
@@ -151,6 +158,38 @@ func TestNotImplementedErrorIsActionable(t *testing.T) {
 	}
 }
 
+// TestAnUnknownCommandNamesTheOnesItMightBe covers the other half of the quality
+// bar: a rejection that says only "unknown command" leaves the user to guess.
+//
+// The case that matters is `feat cleanup`, which ADR-040 moved under `feat task`
+// without leaving an alias, so the name a user may still type has to lead
+// somewhere. A typo is the same question asked by accident.
+func TestAnUnknownCommandNamesTheOnesItMightBe(t *testing.T) {
+	isolate(t)
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"a command that moved under task", []string{"cleanup", "abc123"}, "task"},
+		{"a mistyped group", []string{"tsk"}, "task"},
+		{"a mistyped command", []string{"doctr"}, "doctor"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if got := execute(context.Background(), Options{}, test.args, &stdout, &stderr); got != ExitUsage {
+				t.Fatalf("exit code = %d, want %d", got, ExitUsage)
+			}
+			if !strings.Contains(stderr.String(), "Did you mean this?\n\t"+test.want) {
+				t.Errorf("%v was not answered with %q:\n%s", test.args, test.want, stderr.String())
+			}
+		})
+	}
+}
+
 // TestEveryDocumentedCommandIsImplemented records what slice 12 finished.
 //
 // It is the counterpart of TestPlaceholdersDeclareOwningSlice: that one requires
@@ -188,7 +227,7 @@ func handlerName(cmd *cobra.Command) string {
 func TestUsageErrorPrintsUsage(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
-	Execute(context.Background(), []string{"attach"}, &stdout, &stderr)
+	Execute(context.Background(), []string{"task", "attach"}, &stdout, &stderr)
 
 	if !strings.Contains(stderr.String(), "Usage:") {
 		t.Errorf("usage error did not print usage text:\n%s", stderr.String())

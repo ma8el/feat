@@ -140,7 +140,7 @@ func (s *service) reconcileTerminals(ctx context.Context, tasks []*domain.Task, 
 			Class: reconcile.ClassTerminal, Status: reconcile.StatusDamaged,
 			Project: damaged.Project, Task: damaged.Task, Identity: damaged.ID,
 			Detail: damaged.Reason,
-			Action: "attach to the tmux server to look at it, or remove the task's terminal with `feat cleanup`. " +
+			Action: "attach to the tmux server to look at it, or remove the task's terminal with `feat task cleanup`. " +
 				"Other tasks are unaffected",
 		})
 	}
@@ -366,7 +366,7 @@ func (s *service) reconcileWorktrees(ctx context.Context, tasks []*domain.Task, 
 					Class: reconcile.ClassWorktrees, Status: reconcile.StatusMissing,
 					Project: task.ProjectID, Task: task.ID, Identity: binding.WorktreePath,
 					Detail: "the worktree of " + binding.RepositoryID.String() + " is gone",
-					Action: "the task's branch and its record are still here; `feat cleanup` can tidy them",
+					Action: "the task's branch and its record are still here; `feat task cleanup` can tidy them",
 				})
 			default:
 				report.Fail(reconcile.Problem{Class: reconcile.ClassWorktrees, Project: task.ProjectID, Task: task.ID,
@@ -570,7 +570,7 @@ func (s *service) reconcileRuntimes(ctx context.Context, tasks []*domain.Task, r
 		case domain.RuntimeStopped, domain.RuntimeFailed, domain.RuntimeDegraded:
 			status = reconcile.StatusInconsistent
 			detail = "the application services are " + string(state) + "; Feat did not restart them"
-			action = "start them from the dashboard when you want them, or remove them with `feat cleanup`"
+			action = "start them from the dashboard when you want them, or remove them with `feat task cleanup`"
 		case domain.RuntimeAbsent:
 			status = reconcile.StatusMissing
 			detail = "the recorded application Compose project has no containers"

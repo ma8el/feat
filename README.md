@@ -22,7 +22,7 @@ environment. A task may span several repositories.
 > creation, and daemon-restart reconciliation.
 >
 > You can prepare, confirm, launch, list, and inspect a task: `feat` opens the
-> dashboard, `feat implement` opens task preparation, and `feat attach` yields
+> dashboard, `feat implement` opens task preparation, and `feat task attach` yields
 > your terminal to a task's own. **A task now runs a real Claude Code session**
 > in a devcontainer or on the host, reports its lifecycle through a
 > task control workspace, and goes idle only after a grace period — idle never
@@ -54,7 +54,7 @@ environment. A task may span several repositories.
 > what the machine actually has, reports whatever is missing, orphaned,
 > inconsistent, or unreadable, and repairs none of it on its own — a dead agent
 > session can be resumed, continuing the recorded conversation rather than
-> starting an empty one, but only when you ask. `feat cleanup` prints the exact
+> starting an empty one, but only when you ask. `feat task cleanup` prints the exact
 > inventory of what a task owns and removes only what you select, one class at a
 > time, with volumes retained unless chosen and a second confirmation for
 > anything that would lose work. Nothing here is usable for real work yet.
@@ -75,8 +75,11 @@ what it showed — a draft edited in between is refused rather than launched.
 ```sh
 feat            # the dashboard: every task, across every project
 feat task list  # the same, without a terminal
-feat attach <task>
+feat task attach <task>   # or just: feat attach <task>
 ```
+
+Everything that acts on a task you already have is under `feat task`. Attaching
+and reviewing are typed often enough to keep their shorter top-level names too.
 
 `<task>` is a task's short key — the eight characters every list prints, in
 `feat task list`, in the dashboard, and in every notification. The whole
@@ -128,7 +131,7 @@ passing a Docker error through.
 ## Reviewing the work
 
 ```sh
-feat review <task>   # or press v in the dashboard
+feat task review <task>   # or: feat review <task>, or press v in the dashboard
 ```
 
 Review groups the changes by repository and compares each one against the commit

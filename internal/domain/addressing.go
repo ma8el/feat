@@ -100,7 +100,7 @@ type AmbiguousMatch struct {
 // Ambiguity is reported rather than resolved to either candidate. It is the rule
 // ADR-029 applied to a colliding branch name, for the same reason: a user acting
 // on a task Feat picked for them would be acting on something they did not
-// choose, and `feat cleanup` is one of the commands that takes a task.
+// choose, and `feat task cleanup` is one of the commands that takes a task.
 type AmbiguousTaskError struct {
 	// Ref is what the user typed, unchanged.
 	Ref TaskRef
@@ -135,7 +135,7 @@ func (e *AmbiguousTaskError) Unwrap() error { return ErrInvalid }
 // because that answer is the same wherever it was asked.
 //
 // Every task is a candidate, archived ones included: a cancelled draft becomes
-// archived and `feat cleanup` still has to be able to name one. An archived task
+// archived and `feat task cleanup` still has to be able to name one. An archived task
 // can therefore make a reference ambiguous, which is reported. Preferring a live
 // task would be the guess this function exists to refuse.
 func ResolveTask(ref TaskRef, tasks []*Task) (*Task, bool, error) {

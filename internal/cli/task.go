@@ -51,12 +51,34 @@ func withTaskArgument(long string) string {
 	return long + "\n\n" + taskArgument
 }
 
-func newTaskCommand(env *environment) *cobra.Command {
+const taskLong = `Work with the tasks Feat knows about.
+
+Every command that acts on an existing task is here, because naming a task is
+what they have in common (ADR-040). A task is created by ` + "`feat implement`" + `, which
+takes no task: it produces one.`
+
+// newTaskCommand groups everything that acts on an existing task.
+//
+// Attach and review are passed in rather than built here because they also
+// appear at the top level under shorter names, and an alias holds the body of
+// the command it stands for rather than a second one of its own (ADR-040).
+func newTaskCommand(env *environment, attach, review *cobra.Command) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "task",
-		Short: "Inspect tasks",
+		Short: "List tasks and act on one",
+		Long:  taskLong,
+
+		// Cleanup was a top-level command until ADR-040 and is the one that did
+		// not keep an alias, so a user who types the old name is answered with
+		// the noun that now holds it rather than with "unknown command".
+		SuggestFor: []string{"cleanup"},
 	}
-	cmd.AddCommand(newTaskListCommand(env))
+	cmd.AddCommand(
+		newTaskListCommand(env),
+		attach,
+		review,
+		newCleanupCommand(env),
+	)
 	return cmd
 }
 
