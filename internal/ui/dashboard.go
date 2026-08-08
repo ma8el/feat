@@ -197,8 +197,12 @@ func (m Model) detailBody() string {
 
 	if task.Session != nil {
 		out.WriteString("\n" + headingStyle.Render("terminal") + "\n")
-		out.WriteString(field("tmux", task.Session.Tmux.Session+" "+
-			task.Session.Tmux.Window+" "+task.Session.Tmux.Pane))
+		// Named rather than run together. These are three different kinds of
+		// identifier and a reader who needs one — to run a tmux command against
+		// the task themselves — cannot tell them apart from their order.
+		out.WriteString(field("tmux", mutedStyle.Render("session ")+task.Session.Tmux.Session+
+			mutedStyle.Render("  window ")+task.Session.Tmux.Window+
+			mutedStyle.Render("  pane ")+task.Session.Tmux.Pane))
 		out.WriteString(field("socket", task.Session.Tmux.Socket))
 		if note := terminalNote(task); note != "" {
 			out.WriteString(mutedStyle.Render("  "+note) + "\n")

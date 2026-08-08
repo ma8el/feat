@@ -23,17 +23,23 @@ const footerHeight = 3
 type tab int
 
 const (
-	tabOverview tab = iota
+	// tabTerminal is first because it is what the main region is for: the
+	// dashboard's own views tell a user about a task, and this one shows them
+	// the task (ADR-042).
+	tabTerminal tab = iota
+	tabOverview
 	tabDetail
 	tabReview
 	tabRuntime
 )
 
 // tabs is the order the tab bar draws them in and the order the tab key cycles.
-var tabs = []tab{tabOverview, tabDetail, tabReview, tabRuntime}
+var tabs = []tab{tabTerminal, tabOverview, tabDetail, tabReview, tabRuntime}
 
 func (t tab) title() string {
 	switch t {
+	case tabTerminal:
+		return "terminal"
 	case tabDetail:
 		return "detail"
 	case tabReview:
@@ -94,6 +100,27 @@ func (m Model) frameSize() (width, height int) {
 	return width, height
 }
 
+// mainRegionSize is the space the main region's content has, which is what a
+// pane must be sized to before it is captured.
+//
+// It subtracts what the frame spends around it: the rail and the divider
+// horizontally, the footer and the tab bar with its blank line vertically. A
+// caller asking tmux for a frame needs this exact number, because the pane wraps
+// its own output at whatever width it is told.
+func (m Model) mainRegionSize() (width, height int) {
+	frameWidth, frameHeight := m.frameSize()
+
+	width = frameWidth - railWidth - 1
+	height = frameHeight - footerHeight - 2
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+	return width, height
+}
+
 // regionStyle fixes a region's size so that its neighbours do not move when its
 // content grows.
 func regionStyle(width, height int) lipgloss.Style {
@@ -107,6 +134,10 @@ var dividerStyle = lipgloss.NewStyle().
 func (m Model) mainView(width, height int) string {
 	body := ""
 	switch m.activeTab() {
+	case tabTerminal:
+		// The tab bar and the blank line beneath it are the region's, so the
+		// pane gets what is left of it.
+		body = m.terminalBody(width, height-2)
 	case tabDetail:
 		body = m.detailBody()
 	case tabReview:
@@ -187,7 +218,19 @@ func (m Model) hints() string {
 	// The footer truncates at the terminal's width, and what must survive that
 	// is what has no other route to discovery: the view's keys are on the view,
 	// and moving between tasks and views is not.
+	if m.screen == screenTerminal && m.terminal.focused {
+		// While the pane has the keyboard the dashboard's keys do not fire, so
+		// the only one worth naming is the one that takes them back.
+		return keyHints(keyHint("ctrl+q", "take the keyboard back"))
+	}
+
 	switch m.screen {
+	case screenTerminal:
+		return taskHints() + mutedStyle.Render("   ") + keyHints(
+			keyHint("i", "type here"),
+			keyHint("w", "agent/shell"),
+			keyHint("a", "attach"),
+		)
 	case screenReview:
 		return taskHints() + mutedStyle.Render("   ") + reviewHints()
 	case screenRuntime:

@@ -34,6 +34,15 @@ var (
 			Bold(true).
 			Foreground(lipgloss.AdaptiveColor{Light: "#a3161b", Dark: "#ff8189"})
 
+	// focusedEntryStyle marks the task whose terminal is taking the keyboard.
+	// A background rather than a colour, because it has to be legible at a
+	// glance next to four other entries and it is answering "where are my
+	// keystrokes going".
+	focusedEntryStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.AdaptiveColor{Light: "#ffffff", Dark: "#0b1b2b"}).
+				Background(lipgloss.AdaptiveColor{Light: "#0b5cad", Dark: "#7cc4ff"})
+
 	fieldStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "#6c6c6c", Dark: "#8a8a8a"}).
 			Width(14)

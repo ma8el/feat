@@ -118,6 +118,16 @@ func (b *backend) Resume(ctx context.Context, id string) (api.Task, error) {
 	return b.client.Resume(ctx, id)
 }
 
+// TerminalFrame asks the daemon for one rendered view of a task's pane.
+func (b *backend) TerminalFrame(ctx context.Context, id string, view api.TerminalView) (api.TerminalFrame, error) {
+	return b.client.TerminalFrame(ctx, id, view)
+}
+
+// SendTerminalInput delivers what the user typed to a task's pane.
+func (b *backend) SendTerminalInput(ctx context.Context, id string, input api.TerminalInput) error {
+	return b.client.SendTerminalInput(ctx, id, input)
+}
+
 // Reconciliation returns the daemon's most recent recovery pass.
 func (b *backend) Reconciliation(ctx context.Context) (api.Reconciliation, error) {
 	return b.client.Reconciliation(ctx)

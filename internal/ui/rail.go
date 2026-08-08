@@ -66,27 +66,67 @@ func (m Model) railView(height int) string {
 }
 
 // railEntry renders one task as two lines.
+//
+// The entry of a task whose terminal has the keyboard is drawn on a background
+// of its own. That is the only thing the terminal's heading said which nothing
+// else did — the key was already here, and both of its hints were already in the
+// footer — and it belongs beside the task it applies to rather than above the
+// pane, where it had to be read and then went away.
 func (m Model) railEntry(task api.Task, selected bool) string {
-	marker := "  "
-	if selected {
-		marker = selectedStyle.Render("▸ ")
-	}
-
 	title := task.Title
 	if title == "" {
-		title = mutedStyle.Render("(untitled)")
+		title = "(untitled)"
 	}
 	// The marker, the glyph and its space, the key, and two spaces before the
 	// title are all fixed, so the title takes what is left of the rail.
-	head := marker + attentionBadge(task) + " " + taskKey(task) + "  " +
-		truncate(title, railWidth-2-1-1-8-2)
+	title = truncate(title, railWidth-2-1-1-8-2)
 
 	// Agent state, elapsed time, and the changed-file count are the rest of what
 	// FR-UI-002 asks of an entry, and they are what a user compares between two
 	// tasks: how far along, how long, how much.
-	detail := agentState(task) + " · " + elapsed(task, m.now()) + " · " + changedFileNote(task)
+	detail := truncate(agentState(task)+" · "+elapsed(task, m.now())+" · "+changedFileNote(task),
+		railWidth-4)
 
-	return head + "\n" + "    " + mutedStyle.Render(truncate(detail, railWidth-4)) + "\n"
+	if m.holdsKeyboard(task) {
+		// Rendered without its own styling, because a background is applied to
+		// the whole line and an inner style that ends resets it partway across.
+		return focusedEntryStyle.Width(railWidth).Render(
+			"▸ "+attentionRune(task)+" "+task.Key+"  "+title) + "\n" +
+			focusedEntryStyle.Width(railWidth).Render("    "+detail) + "\n"
+	}
+
+	marker := "  "
+	if selected {
+		marker = selectedStyle.Render("▸ ")
+	}
+	if task.Title == "" {
+		title = mutedStyle.Render(title)
+	}
+	head := marker + attentionBadge(task) + " " + taskKey(task) + "  " + title
+
+	return head + "\n" + "    " + mutedStyle.Render(detail) + "\n"
+}
+
+// holdsKeyboard reports whether this task's terminal is the one taking keys.
+func (m Model) holdsKeyboard(task api.Task) bool {
+	if !m.terminal.focused || m.screen != screenTerminal {
+		return false
+	}
+	selected, ok := m.subject()
+	return ok && selected.ID == task.ID
+}
+
+// attentionRune is the attention glyph without styling, for a line that carries
+// a background of its own.
+func attentionRune(task api.Task) string {
+	switch task.Attention {
+	case "needs_input":
+		return badgeNeedsInput
+	case "possibly_waiting":
+		return badgeMaybe
+	default:
+		return badgeIdle
+	}
 }
 
 // attentionBadge is the glyph for a task's attention state.

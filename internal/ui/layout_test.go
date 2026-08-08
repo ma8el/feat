@@ -69,7 +69,7 @@ func TestTheFrameKeepsItsRegionsInPlace(t *testing.T) {
 		"overview",               // the tab bar
 		"7f3a1c2e",               // a task in the rail
 		"/srv/worktrees/example", // the footer's worktree
-		"select",                 // the footer's hints
+		"type here",              // the footer's hints, for the tab that has focus
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the frame does not carry %q:\n%s", want, view)
@@ -222,11 +222,11 @@ func TestTheOverviewDropsColumnsThatDoNotFit(t *testing.T) {
 func TestTabMovesTheMainRegion(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
 
-	if model.activeTab() != tabOverview {
-		t.Fatalf("a fresh dashboard opens on %v, want the overview", model.activeTab())
+	if model.activeTab() != tabTerminal {
+		t.Fatalf("a fresh dashboard opens on %v, want the terminal", model.activeTab())
 	}
-	if next := press(t, model, "tab"); next.activeTab() != tabDetail {
-		t.Errorf("tab moved to %v, want detail", next.activeTab())
+	if next := press(t, model, "tab"); next.activeTab() != tabOverview {
+		t.Errorf("tab moved to %v, want the overview", next.activeTab())
 	}
 	if back := press(t, model, "shift+tab"); back.activeTab() != tabRuntime {
 		t.Errorf("shift+tab moved to %v, want runtime, wrapping at the end", back.activeTab())
@@ -309,7 +309,7 @@ func TestADialogTallerThanTheTerminalSaysWhatItDropped(t *testing.T) {
 func TestTabCyclesPastAViewWithItsOwnKeyboard(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
 
-	want := []tab{tabDetail, tabReview, tabRuntime, tabOverview}
+	want := []tab{tabOverview, tabDetail, tabReview, tabRuntime, tabTerminal}
 	at := model
 	for i, expected := range want {
 		at = press(t, at, "tab")
@@ -382,7 +382,7 @@ func TestAViewThatCannotOpenFallsBackRatherThanSticking(t *testing.T) {
 	draft.Workflow = "draft"
 
 	model := sized(dashboard(newFakeBackend(), draft), 120, 32)
-	review := press(t, press(t, model, "tab"), "tab")
+	review := press(t, press(t, press(t, model, "tab"), "tab"), "tab")
 
 	if review.activeTab() == tabReview {
 		t.Errorf("review opened for a draft task")

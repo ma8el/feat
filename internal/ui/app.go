@@ -65,6 +65,7 @@ const (
 	screenReview
 	screenCleanup
 	screenKeys
+	screenTerminal
 )
 
 // mainRegion reports whether this screen is a view of the selected task that the
@@ -85,6 +86,8 @@ func (s screen) mainRegion() bool {
 // tab is which view the main region shows.
 func (s screen) tab() (tab, bool) {
 	switch s {
+	case screenTerminal:
+		return tabTerminal, true
 	case screenDashboard:
 		return tabOverview, true
 	case screenDetail:
@@ -101,6 +104,8 @@ func (s screen) tab() (tab, bool) {
 // screenFor is the screen that has the keyboard when a tab is selected.
 func screenFor(active tab) screen {
 	switch active {
+	case tabTerminal:
+		return screenTerminal
 	case tabDetail:
 		return screenDetail
 	case tabReview:
@@ -149,6 +154,10 @@ type Model struct {
 	// periodic refresh rather than on every event: a pass is not published, and
 	// what it found changes on the scale of a restart rather than a keystroke.
 	reconciliation api.Reconciliation
+
+	// terminal is the pane the main region draws and whether it has the
+	// keyboard.
+	terminal terminalModel
 
 	// cleanup is the cleanup screen's own state: the inventory it was shown, the
 	// classes selected, the warnings confirmed, and what is in flight. It holds
@@ -201,6 +210,10 @@ func New(opts Options) Model {
 		streamCtx:  streamCtx,
 		stopStream: stopStream,
 	}
+	// The dashboard opens on the agent's terminal, which is what the main region
+	// is for. Nothing is asked of the daemon until the first task list arrives,
+	// because there is no selected task to draw before then.
+	model.screen = screenTerminal
 	if opts.Prepare {
 		model.screen = screenPrepare
 	}
@@ -412,6 +425,17 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		m.tasks, m.archived = activeTasks(sortTasks(message.tasks))
 		m.clampCursor()
+		// The first task list is what makes a pane drawable: before it there is
+		// no selected task, so the poll starts here rather than at startup.
+		if m.activeTab() == tabTerminal && !m.terminal.polling && len(m.tasks) > 0 {
+			m.terminal.polling = true
+			width, height := m.mainRegionSize()
+			// Asked for before the model is returned: requestFrame records that
+			// one is outstanding, and a return statement may copy the model
+			// before its arguments run.
+			frame := m.requestFrame(width, height)
+			return m, tea.Batch(frame, terminalTick(m.terminal.focused))
+		}
 		return m, nil
 
 	case resourcesMsg:
@@ -468,6 +492,36 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cleanupDoneMsg:
 		return m.applyCleanupResult(message)
+
+	case terminalFrameMsg:
+		return m.applyFrame(message)
+
+	case terminalTickMsg:
+		// The poll stops when the tab does. Nothing else asks for a frame, so a
+		// dashboard on any other view costs the daemon nothing.
+		if m.activeTab() != tabTerminal {
+			m.terminal.polling = false
+			return m, nil
+		}
+		width, height := m.mainRegionSize()
+		frame := m.requestFrame(width, height)
+		return m, tea.Batch(frame, terminalTick(m.terminal.focused))
+
+	case terminalInputMsg:
+		// A key that could not be delivered is said in the status line rather
+		// than in place of the pane. Putting it in the terminal's own error blanks
+		// the pane until the next frame replaces it, which turned one failed
+		// keystroke into the whole view flickering.
+		if message.err != nil {
+			m.status = "that key did not reach the agent: " + message.err.Error()
+			return m, nil
+		}
+		// A frame at once rather than at the next tick. What a user typed has
+		// already reached the pane, and waiting a poll interval to draw it is the
+		// whole of the lag they feel: the echo is theirs, not the agent's.
+		width, height := m.mainRegionSize()
+		frame := m.requestFrame(width, height)
+		return m, frame
 
 	case tea.KeyMsg:
 		return m.key(message)
@@ -556,10 +610,23 @@ func (m Model) selectTab(active tab) (tea.Model, tea.Cmd) {
 		return openedOr(screenRuntime, opened, cmd)
 	}
 
-	if task, ok := m.current(); ok && active == tabDetail {
+	if task, ok := m.current(); ok && (active == tabDetail || active == tabTerminal) {
 		m.selected = task.ID
 	}
 	m.screen = screenFor(active)
+
+	if active == tabTerminal {
+		// A frame at once, so the region is not blank while the first tick
+		// waits, and a poll behind it unless one is already running.
+		m.terminal.loaded, m.terminal.err = false, nil
+		width, height := m.mainRegionSize()
+		frame := m.requestFrame(width, height)
+		if m.terminal.polling {
+			return m, frame
+		}
+		m.terminal.polling = true
+		return m, tea.Batch(frame, terminalTick(m.terminal.focused))
+	}
 	return m, nil
 }
 
@@ -605,6 +672,13 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// A focused pane takes the keyboard before anything else, including the
+	// frame's own keys: a user typing at an agent must be able to type the
+	// characters the dashboard would otherwise treat as commands.
+	if m.screen == screenTerminal && m.terminal.focused {
+		return m.terminalInput(key)
+	}
+
 	// The frame's own keys are answered before the tab's, because a tab's key
 	// handler returns for everything it does not recognise and would otherwise
 	// swallow them. That is what stopped `tab` at the review tab: review and
@@ -648,6 +722,25 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.rememberTab()
 		m.screen = screenKeys
+		return m, nil
+
+	case "i":
+		if m.screen == screenTerminal {
+			return m.focusTerminal()
+		}
+		return m, nil
+
+	case "w":
+		if m.screen == screenTerminal {
+			// Switching between the agent's pane and the shell's discards the
+			// frame with it, so that one pane's contents are never drawn under
+			// the other's name for a tick.
+			m.terminal.shell = !m.terminal.shell
+			m.terminal.loaded, m.terminal.err = false, nil
+			width, height := m.mainRegionSize()
+			frame := m.requestFrame(width, height)
+			return m, frame
+		}
 		return m, nil
 
 	case "up", "k":

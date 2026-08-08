@@ -64,16 +64,22 @@ func spliceLine(background, top string, x int) string {
 		out.WriteString(strings.Repeat(" ", x-backgroundWidth))
 	}
 
-	// Any style the background left open ends before the overlay begins, so a
-	// colour behind the dialog cannot bleed into it. The reset is written only
-	// when there is a style to end, so that a plain background composites to
-	// plain text and stays readable in a test and in a pipe.
-	styled := strings.Contains(background, "\x1b")
-	if styled {
+	// Each side ends whatever style it left open before the other begins.
+	//
+	// The two conditions are separate, and treating them as one was a defect a
+	// user saw: a styled overlay spliced onto a blank background wrote no reset
+	// after itself, so a pane whose line set a background colour and never
+	// cleared it carried that colour across the divider, through the pane beside
+	// it, and on to the edge of the screen. tmux clears to end of line as it
+	// draws; a capture holds the colour and not the clearing.
+	//
+	// The resets are written only where there is a style to end, so a plain
+	// composite stays plain text and stays readable in a test and in a pipe.
+	if strings.Contains(background, "\x1b") {
 		out.WriteString(ansi.ResetStyle)
 	}
 	out.WriteString(top)
-	if styled {
+	if strings.Contains(top, "\x1b") {
 		out.WriteString(ansi.ResetStyle)
 	}
 
@@ -93,6 +99,23 @@ func centreOverlay(background, top string, width, height int) string {
 	x := (width - topWidth) / 2
 	y := (height - topHeight) / 3
 	return overlayOn(background, top, x, y)
+}
+
+// terminate ends any style a line left open.
+//
+// A capture holds the colour tmux emitted but not the clearing tmux does as it
+// draws, so a line whose background was set and never cleared runs that
+// background to the edge of the terminal — across the rail, the footer, and
+// whatever else is beside it. Ending each line keeps a pane's styling inside the
+// pane.
+func terminate(block string) string {
+	lines := strings.Split(block, "\n")
+	for i, line := range lines {
+		if strings.Contains(line, "\x1b") {
+			lines[i] = line + ansi.ResetStyle
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // blockSize measures a rendered block in cells.
