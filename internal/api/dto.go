@@ -1,6 +1,8 @@
 package api
 
 import (
+	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/ma8el/feat/internal/domain"
@@ -1144,4 +1146,110 @@ func list(values []string) []string {
 		return []string{}
 	}
 	return values
+}
+
+// Terminal input and rendering bounds.
+//
+// Every one of these is a limit on what a client may ask the daemon to do to an
+// agent's terminal. Sending keys is a write, so the request is bounded rather
+// than trusted, which is the rule the control workspace already follows for
+// every message it accepts.
+const (
+	// MaxTerminalText is the most typed text one request may paste. It is
+	// generous enough for a brief pasted into a prompt and far short of what
+	// would make a tmux buffer a memory question.
+	MaxTerminalText = 32 << 10
+	// MaxTerminalKeys is the most key names one request may send.
+	MaxTerminalKeys = 32
+	// MaxTerminalKeyName bounds one tmux key name, the longest of which are
+	// modifier-prefixed function keys.
+	MaxTerminalKeyName = 16
+	// MaxTerminalSize bounds a requested pane size in cells.
+	MaxTerminalSize = 1000
+)
+
+// terminalKeyName is the shape of a tmux key name: Enter, Escape, Up, F12,
+// C-c, M-x, S-Up.
+//
+// A name is matched rather than passed through, so that a value arriving over
+// the socket cannot become anything tmux would read as a flag or a second
+// argument. The adapter also passes keys after a terminator; this is the check
+// that does not depend on that one.
+var terminalKeyName = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
+
+// TerminalView asks for one rendered frame of a task's pane.
+//
+// The size is the region the caller will draw into. The daemon sets the pane to
+// it before capturing, because a program wraps its own output and would
+// otherwise wrap at a width the display does not have.
+type TerminalView struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+	// Shell asks for the task's shell pane rather than the agent's.
+	Shell bool `json:"shell,omitempty"`
+}
+
+// Validate reports whether the requested size is one the daemon will set.
+func (v TerminalView) Validate() error {
+	if v.Width <= 0 || v.Height <= 0 {
+		return fmt.Errorf("%w: a terminal view needs a positive width and height, but got %dx%d",
+			ErrInvalid, v.Width, v.Height)
+	}
+	if v.Width > MaxTerminalSize || v.Height > MaxTerminalSize {
+		return fmt.Errorf("%w: a terminal view of %dx%d is larger than the %d cells Feat will set",
+			ErrInvalid, v.Width, v.Height, MaxTerminalSize)
+	}
+	return nil
+}
+
+// TerminalFrame is one pane as tmux has already rendered it.
+//
+// Content carries the escape sequences tmux emitted. Feat draws them and reads
+// nothing out of them but their width: no task, agent, attention, or workflow
+// state is derived from a terminal's contents, which remains what provider hooks
+// report (ADR-042).
+type TerminalFrame struct {
+	Pane    string   `json:"pane"`
+	Content []string `json:"content"`
+	Width   int      `json:"width"`
+	Height  int      `json:"height"`
+	CursorX int      `json:"cursor_x"`
+	CursorY int      `json:"cursor_y"`
+	// Dead reports a pane whose program has exited and which tmux is retaining,
+	// which is a terminal to explain rather than one to keep redrawing.
+	Dead bool `json:"dead"`
+}
+
+// TerminalInput is what a user typed into a focused pane.
+//
+// Keys and text are separate because tmux delivers them differently: a key name
+// goes through send-keys, and text goes through a bracketed paste so that the
+// application reading it cannot take a trailing newline as a submission the user
+// did not make.
+type TerminalInput struct {
+	Keys []string `json:"keys,omitempty"`
+	Text string   `json:"text,omitempty"`
+	// Shell directs the input at the task's shell pane rather than the agent's.
+	Shell bool `json:"shell,omitempty"`
+}
+
+// Validate reports whether this is input the daemon will deliver.
+func (i TerminalInput) Validate() error {
+	if len(i.Keys) == 0 && i.Text == "" {
+		return fmt.Errorf("%w: terminal input carries neither keys nor text", ErrInvalid)
+	}
+	if len(i.Keys) > MaxTerminalKeys {
+		return fmt.Errorf("%w: %d keys in one request is more than the %d Feat sends",
+			ErrInvalid, len(i.Keys), MaxTerminalKeys)
+	}
+	for _, key := range i.Keys {
+		if len(key) > MaxTerminalKeyName || !terminalKeyName.MatchString(key) {
+			return fmt.Errorf("%w: %q is not a tmux key name", ErrInvalid, key)
+		}
+	}
+	if len(i.Text) > MaxTerminalText {
+		return fmt.Errorf("%w: %d bytes of text is more than the %d Feat pastes at once",
+			ErrInvalid, len(i.Text), MaxTerminalText)
+	}
+	return nil
 }

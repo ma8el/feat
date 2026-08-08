@@ -74,6 +74,20 @@ type Service interface {
 	LaunchDraft(ctx context.Context, id domain.TaskID, fingerprint string) (*domain.Task, error)
 	// CancelDraft abandons a draft, archiving the record.
 	CancelDraft(ctx context.Context, id domain.TaskID) (*domain.Task, error)
+	// TerminalFrame returns one rendered view of a task's pane, after setting
+	// the pane to the size the caller will draw it into.
+	//
+	// It is display and never a source of truth: the daemon reads nothing out of
+	// the bytes it returns, and every task state continues to come from provider
+	// hooks (ADR-042). A caller that wants a real terminal, with scrollback and a
+	// mouse, attaches instead.
+	TerminalFrame(ctx context.Context, id domain.TaskID, view TerminalView) (TerminalFrame, error)
+	// SendTerminalInput delivers keys or typed text to a task's pane.
+	//
+	// This is a write to a running agent, so the request is validated rather than
+	// trusted, and the caller names a task rather than a pane: resolving which
+	// pane belongs to a task is the daemon's, as every other tmux operation is.
+	SendTerminalInput(ctx context.Context, id domain.TaskID, input TerminalInput) error
 	// AttachInfo resolves a task's live, tagged tmux target. The client uses the
 	// returned stable IDs to attach its own terminal to native tmux.
 	AttachInfo(ctx context.Context, id domain.TaskID) (AttachInfo, error)
@@ -185,6 +199,15 @@ func NewHandler(opts Options) http.Handler {
 	}))
 	mux.Handle("/v1/tasks/{task_id}/shell", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.shell,
+	}))
+	// A frame is a POST because asking for one sets the pane's size, which
+	// changes something; the input endpoint is separate because sending keys to
+	// an agent is a different capability from looking at one.
+	mux.Handle("/v1/tasks/{task_id}/terminal", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.terminalFrame,
+	}))
+	mux.Handle("/v1/tasks/{task_id}/terminal/input", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.terminalInput,
 	}))
 	// One endpoint per manual action, because each is a separate thing a user
 	// asks for and the path is what names it. Destroy is the only one carrying a
@@ -406,6 +429,53 @@ func (s *server) task(w http.ResponseWriter, r *http.Request) {
 		verification = &reported
 	}
 	writeJSON(w, http.StatusOK, newTask(task, verification))
+}
+
+// terminalFrame renders one view of a task's pane.
+func (s *server) terminalFrame(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "task_id")
+	if !ok {
+		return
+	}
+	var view TerminalView
+	if err := decodeBody(r, &view); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := view.Validate(); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	frame, err := s.service.TerminalFrame(r.Context(), id, view)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, frame)
+}
+
+// terminalInput delivers what a user typed to a task's pane.
+func (s *server) terminalInput(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "task_id")
+	if !ok {
+		return
+	}
+	var input TerminalInput
+	if err := decodeBody(r, &input); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := input.Validate(); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	if err := s.service.SendTerminalInput(r.Context(), id, input); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) attachInfo(w http.ResponseWriter, r *http.Request) {

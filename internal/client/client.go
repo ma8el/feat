@@ -129,6 +129,20 @@ func (c *Client) Shell(ctx context.Context, id string) (api.AttachInfo, error) {
 	return send[api.AttachInfo](ctx, c, "/tasks/"+url.PathEscape(id)+"/shell", struct{}{})
 }
 
+// TerminalFrame asks for one rendered view of a task's pane.
+//
+// The size is the region the caller will draw into, which the daemon sets the
+// pane to before capturing.
+func (c *Client) TerminalFrame(ctx context.Context, id string, view api.TerminalView) (api.TerminalFrame, error) {
+	return send[api.TerminalFrame](ctx, c, "/tasks/"+url.PathEscape(id)+"/terminal", view)
+}
+
+// SendTerminalInput delivers keys or typed text to a task's pane.
+func (c *Client) SendTerminalInput(ctx context.Context, id string, input api.TerminalInput) error {
+	_, err := send[struct{}](ctx, c, "/tasks/"+url.PathEscape(id)+"/terminal/input", input)
+	return err
+}
+
 // Runtime performs one manual application-runtime action.
 //
 // Only the task and the action are named. Which services a task has, which

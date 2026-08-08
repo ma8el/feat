@@ -238,3 +238,93 @@ func (s *service) AttachInfo(ctx context.Context, id domain.TaskID) (api.AttachI
 		Pane:    terminal.Target.Pane,
 	}, nil
 }
+
+// TerminalFrame renders one view of a task's pane.
+//
+// The pane is sized to the region the caller will draw into before it is
+// captured, because a program wraps its own output: a pane left at another size
+// would come back wrapped at a column the display does not have, and no amount
+// of care in the renderer would straighten it.
+//
+// Nothing here reads what the pane contains. Feat draws these bytes and derives
+// no state from them, which is ADR-042's boundary and the reason this sits
+// beside AttachInfo rather than anywhere near the agent adapter.
+func (s *service) TerminalFrame(ctx context.Context, id domain.TaskID, view api.TerminalView) (api.TerminalFrame, error) {
+	if err := view.Validate(); err != nil {
+		return api.TerminalFrame{}, err
+	}
+	terminal, pane, err := s.terminalPane(ctx, id, view.Shell)
+	if err != nil {
+		return api.TerminalFrame{}, err
+	}
+
+	if err := s.terminals.ResizeWindow(ctx, terminal.Target.Window, view.Width, view.Height); err != nil {
+		return api.TerminalFrame{}, err
+	}
+	frame, err := s.terminals.CapturePane(ctx, pane)
+	if err != nil {
+		return api.TerminalFrame{}, err
+	}
+	return api.TerminalFrame{
+		Pane:    frame.Pane,
+		Content: frame.Content,
+		Width:   frame.Width,
+		Height:  frame.Height,
+		CursorX: frame.CursorX,
+		CursorY: frame.CursorY,
+		Dead:    frame.Dead,
+	}, nil
+}
+
+// SendTerminalInput delivers keys or typed text to a task's pane.
+func (s *service) SendTerminalInput(ctx context.Context, id domain.TaskID, input api.TerminalInput) error {
+	if err := input.Validate(); err != nil {
+		return err
+	}
+	_, pane, err := s.terminalPane(ctx, id, input.Shell)
+	if err != nil {
+		return err
+	}
+
+	// Text first, then keys. A user who typed a line and pressed Enter sends
+	// both in one request, and the Enter has to arrive after what it submits.
+	if input.Text != "" {
+		if err := s.terminals.PasteText(ctx, pane, input.Text); err != nil {
+			return err
+		}
+	}
+	return s.terminals.SendKeys(ctx, pane, input.Keys...)
+}
+
+// terminalPane resolves a task to one of its live panes.
+//
+// The caller names a task and a role, never a pane. Resolving which pane belongs
+// to a task is the daemon's, as it is for attachment: a client that could name a
+// pane could name one belonging to another task, or one Feat does not own.
+func (s *service) terminalPane(ctx context.Context, id domain.TaskID, shell bool) (tmux.Terminal, string, error) {
+	task, err := s.Task(ctx, id)
+	if err != nil {
+		return tmux.Terminal{}, "", err
+	}
+	if task.Session == nil {
+		return tmux.Terminal{}, "", fmt.Errorf("%w: task %s has no agent terminal", api.ErrNotFound, id)
+	}
+
+	terminal, found, err := s.terminals.Find(ctx, task.ProjectID, task.ID)
+	if err != nil {
+		return tmux.Terminal{}, "", err
+	}
+	if !found {
+		return tmux.Terminal{}, "", fmt.Errorf("%w: task %s has no live tagged terminal on %s",
+			api.ErrNotFound, id, s.terminals.Socket())
+	}
+
+	if shell {
+		if terminal.Shell == nil {
+			return tmux.Terminal{}, "", fmt.Errorf("%w: task %s has no shell pane; open one first",
+				api.ErrNotFound, id)
+		}
+		return terminal, terminal.Shell.ID, nil
+	}
+	return terminal, terminal.Target.Pane, nil
+}

@@ -55,6 +55,10 @@ type fakeService struct {
 	// selections records every cleanup selection the transport passed through,
 	// so a test can assert what reached the daemon rather than what was sent.
 	selections []CleanupSelection
+	// views and inputs record what reached the terminal endpoints, so a test can
+	// assert on the request the daemon was given rather than on the one sent.
+	views  []TerminalView
+	inputs []TerminalInput
 }
 
 func newFakeService() *fakeService {
@@ -192,6 +196,37 @@ func verificationFixture() Verification {
 		Summary:    "Added the endpoint; one integration test still fails.",
 		ReportedAt: time.Date(2026, 8, 4, 9, 45, 0, 0, time.UTC),
 	}
+}
+
+func (f *fakeService) TerminalFrame(_ context.Context, id domain.TaskID, view TerminalView) (TerminalFrame, error) {
+	if err := f.check(); err != nil {
+		return TerminalFrame{}, err
+	}
+	f.views = append(f.views, view)
+	for _, task := range f.tasks {
+		if task.ID == id && task.Session != nil {
+			return TerminalFrame{
+				Pane:    task.Session.Tmux.Pane,
+				Content: []string{"\x1b[32mready\x1b[m", "> "},
+				Width:   view.Width,
+				Height:  view.Height,
+			}, nil
+		}
+	}
+	return TerminalFrame{}, fmt.Errorf("%w: no terminal", ErrNotFound)
+}
+
+func (f *fakeService) SendTerminalInput(_ context.Context, id domain.TaskID, input TerminalInput) error {
+	if err := f.check(); err != nil {
+		return err
+	}
+	for _, task := range f.tasks {
+		if task.ID == id && task.Session != nil {
+			f.inputs = append(f.inputs, input)
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: no terminal", ErrNotFound)
 }
 
 func (f *fakeService) AttachInfo(_ context.Context, id domain.TaskID) (AttachInfo, error) {

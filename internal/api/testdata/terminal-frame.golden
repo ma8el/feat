@@ -1,0 +1,12 @@
+{
+  "pane": "%11",
+  "content": [
+    "\u001b[32mready\u001b[m",
+    "\u003e "
+  ],
+  "width": 100,
+  "height": 30,
+  "cursor_x": 0,
+  "cursor_y": 0,
+  "dead": false
+}
