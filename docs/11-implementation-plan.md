@@ -1354,8 +1354,52 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   the same walk. Slices 10 and 11 each added notifications with unit tests over a
   fake notifier, and a fake notifier proves the daemon asked, not that anybody
   was told.
+- Route a check that could not run away from the agent and to the user. A check
+  whose program does not start is recorded as `unknown` with the reason — the
+  distinction `review.Gate` already draws between a check that reported failure
+  and one that never ran — and then `review.Decide` collapses the two:
+  `Passed = Failed == 0 && Inconclusive == 0`. The task lands in
+  `verification_failed`, which says the work failed its checks. Nothing ran.
+
+  Found in the first real feature run on the reference project. A check was
+  configured as `pytest`, the project runs its tests through a wrapper, and the
+  bare program was not on the path inside the agent's environment. The gate
+  behaved exactly as ADR-036 designed: the helper blocked, the failure returned
+  into the agent's loop, and the agent diagnosed it, named the configuration
+  file, and declined to edit the configuration governing its own gate — which is
+  the right refusal, because an agent that chooses its own check command
+  certifies itself.
+
+  What has no exit is what follows. The agent cannot fix it, the task rests in a
+  state that misdescribes it, and the person who can fix it was told through a
+  workflow state rather than asked. A check that cannot start is a configuration
+  failure and belongs with the user, naming the check, the repository, and the
+  project. The information exists at every layer and is discarded at the one
+  point that decides what to say.
+
+- Diagnose a check command before a task depends on it. `feat doctor` reports a
+  check configured to run in the agent's environment as skipped, because there is
+  no container to look inside (ADR-033's rule for a check this build cannot run).
+  That is honest and it is also why the misconfiguration above survived
+  registration, `feat doctor`, task preparation, and an entire implementation
+  before anything noticed. Where a task of the project is running, its
+  environment is exactly the place the program can be resolved.
+
+- Find why an attention state does not clear. Observed in the same run: the task
+  reached `needs_input` correctly during planning, the user answered, the agent
+  carried on implementing, and the dashboard went on reporting `needs_input`.
+
+  Undiagnosed. `UserPromptSubmit` is installed and its effect sets attention to
+  none, so the candidates are the hook not firing, the message not being applied,
+  or `Notification` re-arming it afterwards — that entry sets `needs_input` and
+  only a turn ending or a prompt clears it, so a single notification during a
+  long implementation with neither would pin it. An attention state that never
+  clears is one nobody reads, which is the reason `KindTurnEnded` clears it
+  already.
+
 - Document known security limitations.
-- Measure manual coordination removed and false idle notifications.
+- Measure manual coordination removed and false idle notifications. The measure
+  is also the evidence OQ-013 needs.
 - Remove hard-coded assumptions discovered during dogfood.
 
 ### Acceptance criteria

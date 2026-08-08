@@ -1844,6 +1844,41 @@ figure or the attention badge beside it. Decide it against dogfood use, not
 before. Until then the dashboard shows what was measured and the figure is coarse
 rather than wrong, which is the rule ADR-028 set.
 
+### OQ-013 — What the explicit review request earns
+
+The agent protocol is a generated system-prompt section, a generated helper
+script, an outbox, an inbox, message validation, a poller, and a helper that
+blocks on a verdict with its own timeouts and recovery. ADR-032 and ADR-036 built
+it on the rule that an end of turn means idle and never done, and that semantic
+completion needs an explicit act by the agent.
+
+The maintainer's objection, raised while dogfooding slice 13: a user mostly wants
+to know that an agent went idle, and to review a task that changed something.
+Both are observable without the agent's cooperation — Feat already records a
+`GitObservation` per repository — and the explicit message may be paying for
+itself only in the projects that configure a completion gate.
+
+Two things are already clear and neither settles it. Idle plus changed files is
+not a substitute for the message: an agent writes files within minutes and stays
+dirty for the rest of the task, so the condition would be true at every turn
+boundary and would say nothing the idle notification does not. And the gate does
+need an explicit trigger, because a project's test suite cannot run at every
+pause — which makes the gate, rather than the notification, what the protocol is
+actually for.
+
+That points at a narrower question than "keep or remove": whether the protocol
+should be generated at all for a project that configures no checks. There, the
+whole apparatus produces a workflow state, one notification, and the agent's own
+summary in the review record — and the agent's summary is the only part nothing
+else supplies.
+
+The evidence to decide on is the measurement slice 13 already owes: how often the
+agent requested review unprompted, how often the user had to ask for it, how
+often an idle notification was already the moment they would have reviewed, and
+whether a gate ever caught something that would otherwise have been reviewed
+broken. Three real tasks answer all four. Do not decide before them, and do not
+decide the narrow question by removing the general one.
+
 ## Decision change process
 
 During implementation:
