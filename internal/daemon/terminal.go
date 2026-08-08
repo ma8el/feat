@@ -196,6 +196,14 @@ func (s *service) OpenShell(ctx context.Context, id domain.TaskID) (api.AttachIn
 	if terminal.Shell == nil {
 		return api.AttachInfo{}, fmt.Errorf("the shell pane of task %s was created but not reported by tmux", id)
 	}
+	// As with the agent pane: a native client takes this window at its own size,
+	// and sees every pane it has rather than the one the dashboard was showing.
+	if err := s.terminals.UnzoomWindow(ctx, terminal.Target.Window); err != nil {
+		return api.AttachInfo{}, err
+	}
+	if err := s.terminals.ReleaseWindowSize(ctx, terminal.Target.Window); err != nil {
+		return api.AttachInfo{}, err
+	}
 	return api.AttachInfo{
 		Socket:  terminal.Target.Socket,
 		Session: terminal.Target.Session,
@@ -221,6 +229,17 @@ func (s *service) AttachInfo(ctx context.Context, id domain.TaskID) (api.AttachI
 	if !found {
 		return api.AttachInfo{}, fmt.Errorf("%w: task %s has no live tagged terminal on %s",
 			api.ErrNotFound, id, s.terminals.Socket())
+	}
+
+	// A native client is about to take this window over at its own size, so the
+	// size the dashboard pinned for rendering is released first. Without this an
+	// attach inherits the main region's dimensions and leaves the rest of the
+	// terminal blank (ADR-042).
+	if err := s.terminals.UnzoomWindow(ctx, terminal.Target.Window); err != nil {
+		return api.AttachInfo{}, err
+	}
+	if err := s.terminals.ReleaseWindowSize(ctx, terminal.Target.Window); err != nil {
+		return api.AttachInfo{}, err
 	}
 
 	if task.Session.Tmux != terminal.Target || task.Session.Process != terminal.ProcessState() {
@@ -258,21 +277,36 @@ func (s *service) TerminalFrame(ctx context.Context, id domain.TaskID, view api.
 		return api.TerminalFrame{}, err
 	}
 
-	if err := s.terminals.ResizeWindow(ctx, terminal.Target.Window, view.Width, view.Height); err != nil {
-		return api.TerminalFrame{}, err
-	}
-	frame, err := s.terminals.CapturePane(ctx, pane)
+	// A window somebody is attached to keeps the size their terminal gives it.
+	// Sizing it here would shrink a native client's screen to the dashboard's
+	// main region every time this poll came round, which is the same defect as
+	// attaching to a pinned window and arrives by the other route. The frame then
+	// comes back at the viewer's size and the renderer clips it: a real client
+	// wins over a rendering of one.
+	// One operation rather than three, because zoom is a toggle and two callers
+	// racing on it cancel each other out — a poll and a keystroke arriving
+	// together made the agent flicker between the region's width and half of it.
+	//
+	// A window somebody is attached to is neither sized nor zoomed: their client
+	// owns it, and a rendering must not resize the terminal they are sitting in.
+	captured, err := s.terminals.RenderPane(ctx, terminal.Target.Window, pane,
+		view.Width, view.Height, !terminal.Watched())
 	if err != nil {
 		return api.TerminalFrame{}, err
 	}
 	return api.TerminalFrame{
-		Pane:    frame.Pane,
-		Content: frame.Content,
-		Width:   frame.Width,
-		Height:  frame.Height,
-		CursorX: frame.CursorX,
-		CursorY: frame.CursorY,
-		Dead:    frame.Dead,
+		Width:  captured.Width,
+		Height: captured.Height,
+		Panes: []api.TerminalPane{{
+			Pane:    captured.Pane,
+			Width:   captured.Width,
+			Height:  captured.Height,
+			CursorX: captured.CursorX,
+			CursorY: captured.CursorY,
+			Content: captured.Content,
+			Active:  true,
+			Dead:    captured.Dead,
+		}},
 	}, nil
 }
 
@@ -289,7 +323,11 @@ func (s *service) SendTerminalInput(ctx context.Context, id domain.TaskID, input
 	// Text first, then keys. A user who typed a line and pressed Enter sends
 	// both in one request, and the Enter has to arrive after what it submits.
 	if input.Text != "" {
-		if err := s.terminals.PasteText(ctx, pane, input.Text); err != nil {
+		deliver := s.terminals.TypeText
+		if input.Paste {
+			deliver = s.terminals.PasteText
+		}
+		if err := deliver(ctx, pane, input.Text); err != nil {
 			return err
 		}
 	}

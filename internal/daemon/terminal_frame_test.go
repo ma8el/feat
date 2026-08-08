@@ -35,12 +35,16 @@ func TestAFrameIsSizedBeforeItIsCaptured(t *testing.T) {
 	if frame.Width != 100 || frame.Height != 30 {
 		t.Errorf("the frame reports %dx%d, want the size it was set to", frame.Width, frame.Height)
 	}
-	if len(frame.Content) == 0 || !strings.Contains(frame.Content[0], "\x1b[32m") {
-		t.Errorf("the frame lost what tmux had rendered: %q", frame.Content)
+	if len(frame.Panes) == 0 {
+		t.Fatal("the frame carries no panes")
 	}
-	if frame.Pane != task.Session.Tmux.Pane {
+	agent := frame.Panes[0]
+	if len(agent.Content) == 0 || !strings.Contains(agent.Content[0], "\x1b[32m") {
+		t.Errorf("the frame lost what tmux had rendered: %q", agent.Content)
+	}
+	if agent.Pane != task.Session.Tmux.Pane {
 		t.Errorf("the frame came from pane %s, want the task's agent pane %s",
-			frame.Pane, task.Session.Tmux.Pane)
+			agent.Pane, task.Session.Tmux.Pane)
 	}
 }
 
@@ -60,14 +64,43 @@ func TestInputReachesTheTaskOwnPane(t *testing.T) {
 		t.Fatalf("SendTerminalInput: %v", err)
 	}
 
-	if pastes := server.Pastes(pane); len(pastes) != 1 || pastes[0] != "run the tests" {
-		t.Errorf("the pane received pastes %q", pastes)
+	if typed := server.Typed(pane); len(typed) != 1 || typed[0] != "run the tests" {
+		t.Errorf("the pane received typing %q", typed)
+	}
+	if pastes := server.Pastes(pane); len(pastes) != 0 {
+		t.Errorf("typing was delivered as a paste: %q", pastes)
 	}
 	if keys := server.Keys(pane); len(keys) != 1 || keys[0] != "Enter" {
 		t.Errorf("the pane received keys %q", keys)
 	}
-	// The paste must take its own buffer with it rather than leaving Feat's text
-	// in the user's stack.
+	// Typing stages nothing, so nothing can be left in the user's buffer stack.
+	if buffers := server.Buffers(); len(buffers) != 0 {
+		t.Errorf("typing left a staged buffer behind: %q", buffers)
+	}
+}
+
+// TestAPasteIsDeliveredAsAPaste keeps the other half of the distinction: a block
+// of text a user pasted is bracketed, so the program reading it knows it was not
+// typed and cannot take a trailing newline as a submission.
+func TestAPasteIsDeliveredAsAPaste(t *testing.T) {
+	service, arranged, server := launched(t)
+	task, err := service.Task(context.Background(), arranged.ref.Task)
+	if err != nil {
+		t.Fatalf("reading the task: %v", err)
+	}
+	pane := task.Session.Tmux.Pane
+
+	if err := service.SendTerminalInput(context.Background(), arranged.ref.Task,
+		api.TerminalInput{Text: "a pasted brief", Paste: true}); err != nil {
+		t.Fatalf("SendTerminalInput: %v", err)
+	}
+
+	if pastes := server.Pastes(pane); len(pastes) != 1 || pastes[0] != "a pasted brief" {
+		t.Errorf("the pane received pastes %q", pastes)
+	}
+	if typed := server.Typed(pane); len(typed) != 0 {
+		t.Errorf("a paste was delivered as typing: %q", typed)
+	}
 	if buffers := server.Buffers(); len(buffers) != 0 {
 		t.Errorf("a staged buffer outlived the paste: %q", buffers)
 	}
@@ -89,18 +122,70 @@ func TestAnInvalidRequestIsRefusedByTheDaemonToo(t *testing.T) {
 	}
 }
 
-// TestAskingForAShellPaneThatDoesNotExistSaysSo keeps the answer actionable
-// rather than returning an empty frame that looks like a quiet terminal.
-func TestAskingForAShellPaneThatDoesNotExistSaysSo(t *testing.T) {
-	service, arranged, _ := launched(t)
+// TestTheRegionShowsOnePaneFillingIt is the decision that replaced drawing the
+// whole window.
+//
+// A task that has opened a shell holds two panes side by side, and a window
+// sized to the region gives the agent half of it. Both were drawn for a while,
+// and the reason that does not work is that tmux's own keys cannot move between
+// them: nothing is attached, so a prefix reaches the program in the pane rather
+// than tmux. A pane a user can see and cannot leave is worse than one pane.
+func TestTheRegionShowsOnePaneFillingIt(t *testing.T) {
+	service, arranged, server := launched(t)
+	ctx := context.Background()
 
-	_, err := service.TerminalFrame(context.Background(), arranged.ref.Task,
-		api.TerminalView{Width: 80, Height: 24, Shell: true})
-	if err == nil {
-		t.Fatal("a task with no shell pane returned a frame")
+	if _, err := service.OpenShell(ctx, arranged.ref.Task); err != nil {
+		t.Fatalf("OpenShell: %v", err)
 	}
-	if !strings.Contains(err.Error(), "shell") {
-		t.Errorf("the error does not say what is missing: %v", err)
+	task, err := service.Task(ctx, arranged.ref.Task)
+	if err != nil {
+		t.Fatalf("reading the task: %v", err)
+	}
+
+	frame, err := service.TerminalFrame(ctx, arranged.ref.Task,
+		api.TerminalView{Width: 100, Height: 30})
+	if err != nil {
+		t.Fatalf("TerminalFrame: %v", err)
+	}
+
+	if len(frame.Panes) != 1 {
+		t.Fatalf("the region was given %d panes, want the one it is for", len(frame.Panes))
+	}
+	if frame.Panes[0].Pane != task.Session.Tmux.Pane {
+		t.Errorf("the region shows pane %s, want the agent's %s",
+			frame.Panes[0].Pane, task.Session.Tmux.Pane)
+	}
+	if zoomed := server.Zoomed(task.Session.Tmux.Window); zoomed != task.Session.Tmux.Pane {
+		t.Errorf("the agent's pane is not the one filling the window: %q", zoomed)
+	}
+}
+
+// TestAttachingShowsEveryPaneAgain is the other half of that decision. The shell
+// is still there for a user who wants it; it is the dashboard that shows one.
+func TestAttachingShowsEveryPaneAgain(t *testing.T) {
+	service, arranged, server := launched(t)
+	ctx := context.Background()
+
+	if _, err := service.OpenShell(ctx, arranged.ref.Task); err != nil {
+		t.Fatalf("OpenShell: %v", err)
+	}
+	task, err := service.Task(ctx, arranged.ref.Task)
+	if err != nil {
+		t.Fatalf("reading the task: %v", err)
+	}
+	if _, err := service.TerminalFrame(ctx, arranged.ref.Task,
+		api.TerminalView{Width: 100, Height: 30}); err != nil {
+		t.Fatalf("TerminalFrame: %v", err)
+	}
+	if server.Zoomed(task.Session.Tmux.Window) == "" {
+		t.Fatal("rendering did not zoom a pane, so this proves nothing")
+	}
+
+	if _, err := service.AttachInfo(ctx, arranged.ref.Task); err != nil {
+		t.Fatalf("AttachInfo: %v", err)
+	}
+	if zoomed := server.Zoomed(task.Session.Tmux.Window); zoomed != "" {
+		t.Errorf("attaching left the window zoomed on %s, hiding the shell", zoomed)
 	}
 }
 
@@ -112,5 +197,66 @@ func TestATaskWithNoTerminalIsNotDrawn(t *testing.T) {
 		api.TerminalView{Width: 80, Height: 24})
 	if err == nil {
 		t.Fatal("a task with no terminal returned a frame")
+	}
+}
+
+// TestAttachingReleasesTheSizeRenderingPinned is the regression at the level a
+// user met it.
+//
+// Drawing a pane in the dashboard sizes its window to the main region. A native
+// attach then inherits that size and leaves the rest of the terminal blank,
+// because tmux keeps a sized window at its size however large the client is. The
+// size has to be released as the client takes over.
+func TestAttachingReleasesTheSizeRenderingPinned(t *testing.T) {
+	service, arranged, server := launched(t)
+	ctx := context.Background()
+
+	task, err := service.Task(ctx, arranged.ref.Task)
+	if err != nil {
+		t.Fatalf("reading the task: %v", err)
+	}
+	window := task.Session.Tmux.Window
+
+	if _, err := service.TerminalFrame(ctx, arranged.ref.Task,
+		api.TerminalView{Width: 87, Height: 21}); err != nil {
+		t.Fatalf("TerminalFrame: %v", err)
+	}
+	if size, pinned := server.PaneSize(window); !pinned || size != [2]int{87, 21} {
+		t.Fatalf("rendering did not size the window: %v %t", size, pinned)
+	}
+
+	if _, err := service.AttachInfo(ctx, arranged.ref.Task); err != nil {
+		t.Fatalf("AttachInfo: %v", err)
+	}
+	if size, pinned := server.PaneSize(window); pinned {
+		t.Errorf("attaching left the window pinned at %v", size)
+	}
+}
+
+// TestAWatchedWindowIsNotResizedByTheDashboard closes the other route to the
+// same defect.
+//
+// Releasing the size on attach fixes a user who attaches and comes back. It does
+// nothing for a dashboard left open on the terminal tab while the user attaches
+// from another window: the poll would re-pin the window to the main region four
+// times a second, shrinking the terminal they are sitting in. A window with a
+// viewer keeps the size its viewer gives it.
+func TestAWatchedWindowIsNotResizedByTheDashboard(t *testing.T) {
+	service, arranged, server := launched(t)
+	ctx := context.Background()
+
+	task, err := service.Task(ctx, arranged.ref.Task)
+	if err != nil {
+		t.Fatalf("reading the task: %v", err)
+	}
+	server.Watch(task.Session.Tmux.Window, 1)
+
+	if _, err := service.TerminalFrame(ctx, arranged.ref.Task,
+		api.TerminalView{Width: 87, Height: 21}); err != nil {
+		t.Fatalf("TerminalFrame: %v", err)
+	}
+
+	if size, pinned := server.PaneSize(task.Session.Tmux.Window); pinned {
+		t.Errorf("a watched window was resized to %v by a dashboard poll", size)
 	}
 }

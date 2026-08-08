@@ -206,10 +206,15 @@ func (f *fakeService) TerminalFrame(_ context.Context, id domain.TaskID, view Te
 	for _, task := range f.tasks {
 		if task.ID == id && task.Session != nil {
 			return TerminalFrame{
-				Pane:    task.Session.Tmux.Pane,
-				Content: []string{"\x1b[32mready\x1b[m", "> "},
-				Width:   view.Width,
-				Height:  view.Height,
+				Width:  view.Width,
+				Height: view.Height,
+				Panes: []TerminalPane{{
+					Pane:    task.Session.Tmux.Pane,
+					Width:   view.Width,
+					Height:  view.Height,
+					Active:  true,
+					Content: []string{"\x1b[32mready\x1b[m", "> "},
+				}},
 			}, nil
 		}
 	}

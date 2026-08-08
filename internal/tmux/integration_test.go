@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -504,8 +505,8 @@ func TestRealPaneCaptureAndInputRoundTrip(t *testing.T) {
 	if err := backend.SendKeys(ctx, pane, "printf '\\033[32mgreen\\033[m\\n'", "Enter"); err != nil {
 		t.Fatalf("SendKeys: %v", err)
 	}
-	if err := backend.PasteText(ctx, pane, "echo pasted-by-feat"); err != nil {
-		t.Fatalf("PasteText: %v", err)
+	if err := backend.TypeText(ctx, pane, "echo pasted-by-feat"); err != nil {
+		t.Fatalf("TypeText: %v", err)
 	}
 	if err := backend.SendKeys(ctx, pane, "Enter"); err != nil {
 		t.Fatalf("SendKeys after paste: %v", err)
@@ -536,6 +537,89 @@ func TestRealPaneCaptureAndInputRoundTrip(t *testing.T) {
 	}
 	if frame.Dead {
 		t.Error("a live shell was reported as dead")
+	}
+
+	// A window with two panes must come back as two panes that tile it, which is
+	// what the dashboard composes. Capturing one and drawing it into a region
+	// sized for the window fills half of it.
+	if _, err := backend.EnsureShell(ctx, testProject, testTask, CommandSpec{
+		Program: "/bin/sh", Directory: server.dir,
+	}); err != nil {
+		t.Fatalf("EnsureShell: %v", err)
+	}
+	measured, err := server.runner.Run(ctx, server.socket, "display-message", "-p",
+		"-t", terminal.Target.Window, "#{window_width}")
+	if err != nil {
+		t.Fatalf("measuring the window: %v", err)
+	}
+	windowWidth, err := strconv.Atoi(strings.TrimSpace(measured))
+	if err != nil {
+		t.Fatalf("window width %q: %v", measured, err)
+	}
+	half, err := backend.CapturePane(ctx, pane)
+	if err != nil {
+		t.Fatalf("CapturePane: %v", err)
+	}
+	if half.Width >= windowWidth {
+		t.Fatalf("a split window gave the agent %d of %d cells, so this proves nothing",
+			half.Width, windowWidth)
+	}
+
+	// Zooming is what makes the dashboard's one pane fill the region.
+	if err := backend.ZoomPane(ctx, pane); err != nil {
+		t.Fatalf("ZoomPane: %v", err)
+	}
+	whole, err := backend.CapturePane(ctx, pane)
+	if err != nil {
+		t.Fatalf("CapturePane after zooming: %v", err)
+	}
+	if whole.Width != windowWidth {
+		t.Errorf("the zoomed pane is %d cells of a %d-cell window", whole.Width, windowWidth)
+	}
+
+	// Repeating it must not toggle the zoom back off, which a bare resize-pane
+	// -Z would do on every poll.
+	if err := backend.ZoomPane(ctx, pane); err != nil {
+		t.Fatalf("ZoomPane again: %v", err)
+	}
+	again, err := backend.CapturePane(ctx, pane)
+	if err != nil {
+		t.Fatalf("CapturePane after a second zoom: %v", err)
+	}
+	if again.Width != windowWidth {
+		t.Errorf("zooming twice unzoomed the pane: %d cells", again.Width)
+	}
+
+	// And a user attaching gets their shell back.
+	if err := backend.UnzoomWindow(ctx, terminal.Target.Window); err != nil {
+		t.Fatalf("UnzoomWindow: %v", err)
+	}
+	restored, err := backend.CapturePane(ctx, pane)
+	if err != nil {
+		t.Fatalf("CapturePane after unzooming: %v", err)
+	}
+	if restored.Width >= windowWidth {
+		t.Errorf("unzooming left the pane filling the window: %d cells", restored.Width)
+	}
+
+	// Rendering pins the window. A native client attaching afterwards must get
+	// its own size back, which is the regression a real attach showed: the
+	// dashboard's main region became the size of the whole terminal.
+	if err := backend.ReleaseWindowSize(ctx, terminal.Target.Window); err != nil {
+		t.Fatalf("ReleaseWindowSize: %v", err)
+	}
+	// What matters is the option rather than the size: the window keeps its
+	// pinned dimensions until a client arrives, and tmux resizes it then. A
+	// release that resized here would have re-pinned it — resize-window -A sets
+	// window-size back to manual, which is how the first attempt at this made a
+	// native attach smaller than the defect it was fixing.
+	option, err := server.runner.Run(ctx, server.socket, "show-window-options",
+		"-t", terminal.Target.Window, "window-size")
+	if err != nil {
+		t.Fatalf("reading the released window's sizing: %v", err)
+	}
+	if strings.Contains(option, "manual") {
+		t.Errorf("the window is still pinned after release: %q", strings.TrimSpace(option))
 	}
 
 	// The paste must not stay in the user's buffer stack.

@@ -49,8 +49,12 @@ func captureAdapter(t *testing.T, runner Runner) *Tmux {
 }
 
 // TestCapturingAPaneAsksForWhatTmuxAlreadyDrew is ADR-042's boundary in one
-// assertion: -e keeps the colour tmux rendered and -J joins a line it wrapped,
-// so what comes back is a finished screen rather than a stream to interpret.
+// assertion: -e keeps the colour tmux rendered, so what comes back is a finished
+// screen rather than a stream to interpret.
+//
+// And not -J: joining a wrapped line makes it wider than the pane, and a caller
+// drawing into a region that wide clips the join off, losing the text tmux had
+// put on the next row.
 func TestCapturingAPaneAsksForWhatTmuxAlreadyDrew(t *testing.T) {
 	runner := newScriptedRunner()
 	runner.replies["display-message"] = "80\t24\t12\t3\t0"
@@ -65,7 +69,7 @@ func TestCapturingAPaneAsksForWhatTmuxAlreadyDrew(t *testing.T) {
 	if !found {
 		t.Fatal("no capture-pane was run")
 	}
-	if got := strings.Join(args, " "); got != "capture-pane -p -e -J -t %7" {
+	if got := strings.Join(args, " "); got != "capture-pane -p -e -t %7" {
 		t.Errorf("captured with %q", got)
 	}
 
@@ -233,5 +237,120 @@ func TestAMalformedMeasurementIsReportedRatherThanGuessed(t *testing.T) {
 	runner.replies["display-message"] = "80\twide\t0\t0\t0"
 	if _, err := captureAdapter(t, runner).CapturePane(context.Background(), "%7"); err == nil {
 		t.Error("a non-numeric measurement was accepted")
+	}
+}
+
+// TestReleasingASizeUndoesThePin is the regression test for what rendering did
+// to a native attach.
+//
+// Sizing a window pins it, and tmux keeps it pinned however large the terminal
+// attaching to it is. A user who looked at a pane in the dashboard and then
+// attached to it got a terminal the size of the dashboard's main region, with
+// the rest of their screen blank.
+func TestReleasingASizeUndoesThePin(t *testing.T) {
+	runner := newScriptedRunner()
+
+	if err := captureAdapter(t, runner).ReleaseWindowSize(context.Background(), "@3"); err != nil {
+		t.Fatalf("releasing: %v", err)
+	}
+
+	unset, found := runner.call("set-window-option")
+	if !found {
+		t.Fatal("the window-size option was never unset")
+	}
+	if got := strings.Join(unset, " "); got != "set-window-option -u -t @3 window-size" {
+		t.Errorf("unset with %q", got)
+	}
+}
+
+// TestReleasingDoesNotResize is the second half of the same regression, and the
+// reason it needs a test of its own: the first attempt at this released the
+// option and then called resize-window -A, which re-set window-size to manual
+// and pinned the window again at the server's default — smaller than the size it
+// was undoing. A release that resizes is not a release.
+func TestReleasingDoesNotResize(t *testing.T) {
+	runner := newScriptedRunner()
+
+	if err := captureAdapter(t, runner).ReleaseWindowSize(context.Background(), "@3"); err != nil {
+		t.Fatalf("releasing: %v", err)
+	}
+
+	if args, found := runner.call("resize-window"); found {
+		t.Errorf("releasing resized the window: %q", strings.Join(args, " "))
+	}
+}
+
+func TestReleasingRefusesAName(t *testing.T) {
+	adapter := captureAdapter(t, newScriptedRunner())
+
+	for _, target := range []string{"task", "1", "%3", ""} {
+		if err := adapter.ReleaseWindowSize(context.Background(), target); err == nil {
+			t.Errorf("ReleaseWindowSize accepted %q as a window", target)
+		}
+	}
+}
+
+// TestZoomingIsIdempotent keeps a poll from toggling the zoom four times a
+// second, which is what a bare resize-pane -Z would do: it toggles.
+func TestZoomingIsIdempotent(t *testing.T) {
+	runner := newScriptedRunner()
+	// Already zoomed, and on this pane.
+	runner.replies["display-message"] = "1\t1\t2"
+
+	if err := captureAdapter(t, runner).ZoomPane(context.Background(), "%7"); err != nil {
+		t.Fatalf("zooming: %v", err)
+	}
+	if args, found := runner.call("resize-pane"); found {
+		t.Errorf("an already-zoomed pane was toggled: %q", strings.Join(args, " "))
+	}
+}
+
+// TestZoomingASinglePaneWindowDoesNothing avoids a state change with nothing to
+// show for it.
+func TestZoomingASinglePaneWindowDoesNothing(t *testing.T) {
+	runner := newScriptedRunner()
+	runner.replies["display-message"] = "0\t1\t1"
+
+	if err := captureAdapter(t, runner).ZoomPane(context.Background(), "%7"); err != nil {
+		t.Fatalf("zooming: %v", err)
+	}
+	if _, found := runner.call("resize-pane"); found {
+		t.Error("a window with one pane was zoomed")
+	}
+}
+
+// TestZoomingReleasesAnotherPanesZoomFirst is the toggle trap: zooming while a
+// different pane is zoomed would otherwise unzoom the window rather than zoom
+// this pane.
+func TestZoomingReleasesAnotherPanesZoomFirst(t *testing.T) {
+	runner := newScriptedRunner()
+	runner.replies["display-message"] = "1\t0\t2"
+
+	if err := captureAdapter(t, runner).ZoomPane(context.Background(), "%7"); err != nil {
+		t.Fatalf("zooming: %v", err)
+	}
+
+	zooms := 0
+	for _, args := range runner.calls {
+		if args[0] == "resize-pane" {
+			zooms++
+		}
+	}
+	if zooms != 2 {
+		t.Errorf("zooming over another pane's zoom ran %d toggles, want 2", zooms)
+	}
+}
+
+// TestUnzoomingAnUnzoomedWindowDoesNothing keeps the release from zooming a
+// window that was not zoomed, which a bare toggle would do.
+func TestUnzoomingAnUnzoomedWindowDoesNothing(t *testing.T) {
+	runner := newScriptedRunner()
+	runner.replies["display-message"] = "0"
+
+	if err := captureAdapter(t, runner).UnzoomWindow(context.Background(), "@3"); err != nil {
+		t.Fatalf("unzooming: %v", err)
+	}
+	if args, found := runner.call("resize-pane"); found {
+		t.Errorf("an unzoomed window was toggled into zoom: %q", strings.Join(args, " "))
 	}
 }

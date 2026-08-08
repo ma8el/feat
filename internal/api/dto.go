@@ -1209,15 +1209,33 @@ func (v TerminalView) Validate() error {
 // state is derived from a terminal's contents, which remains what provider hooks
 // report (ADR-042).
 type TerminalFrame struct {
+	// Width and Height are the window's size in cells: the rectangle the panes
+	// below tile between them.
+	Width  int `json:"width"`
+	Height int `json:"height"`
+	// Panes are every pane of the task's window, each with the place it occupies.
+	//
+	// A window rather than a pane, because a pane is not what a user sees. A task
+	// window holds the agent and, once one exists, a shell beside it, and drawing
+	// one of them into a region sized for both leaves half of it empty.
+	Panes []TerminalPane `json:"panes"`
+}
+
+// TerminalPane is one pane of a window, with the place it occupies in it.
+type TerminalPane struct {
 	Pane    string   `json:"pane"`
-	Content []string `json:"content"`
+	Left    int      `json:"left"`
+	Top     int      `json:"top"`
 	Width   int      `json:"width"`
 	Height  int      `json:"height"`
 	CursorX int      `json:"cursor_x"`
 	CursorY int      `json:"cursor_y"`
+	Content []string `json:"content"`
+	// Active reports the pane tmux would send a key to.
+	Active bool `json:"active,omitempty"`
 	// Dead reports a pane whose program has exited and which tmux is retaining,
 	// which is a terminal to explain rather than one to keep redrawing.
-	Dead bool `json:"dead"`
+	Dead bool `json:"dead,omitempty"`
 }
 
 // TerminalInput is what a user typed into a focused pane.
@@ -1229,6 +1247,14 @@ type TerminalFrame struct {
 type TerminalInput struct {
 	Keys []string `json:"keys,omitempty"`
 	Text string   `json:"text,omitempty"`
+	// Paste asks for the text to arrive as a paste rather than as typing.
+	//
+	// The difference is visible to the program receiving it: an application that
+	// has enabled bracketed paste mode is told which one this was, and may insert
+	// a paste without running what a typed character runs. A keystroke is
+	// therefore not a paste, and sending one as a paste made ordinary keys
+	// behave oddly.
+	Paste bool `json:"paste,omitempty"`
 	// Shell directs the input at the task's shell pane rather than the agent's.
 	Shell bool `json:"shell,omitempty"`
 }

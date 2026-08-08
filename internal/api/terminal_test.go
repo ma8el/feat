@@ -30,8 +30,9 @@ func TestATerminalFrameCarriesWhatTmuxDrew(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &frame); err != nil {
 		t.Fatalf("decoding the frame: %v", err)
 	}
-	if len(frame.Content) == 0 || !strings.Contains(frame.Content[0], "\x1b[32m") {
-		t.Errorf("the frame lost the colour tmux rendered: %q", frame.Content)
+	if len(frame.Panes) == 0 || len(frame.Panes[0].Content) == 0 ||
+		!strings.Contains(frame.Panes[0].Content[0], "\x1b[32m") {
+		t.Errorf("the frame lost the colour tmux rendered: %+v", frame.Panes)
 	}
 	if len(service.views) != 1 || service.views[0].Width != 100 || service.views[0].Height != 30 {
 		t.Errorf("the daemon was asked for %+v, want one 100x30 view", service.views)
