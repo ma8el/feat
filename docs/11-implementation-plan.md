@@ -1418,9 +1418,14 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   command breaks a shell history that is not Feat's to break. The golden file,
   [README.md](README.md), [06-technical-architecture.md](06-technical-architecture.md),
   and the README move in the same change, as they did in ADR-028 and ADR-031.
-- Document known security limitations.
 - Measure manual coordination removed and false idle notifications. The measure
   is also the evidence OQ-013 needs.
+
+  It stays in this slice while the two documentation items move to slice 14,
+  because it is evidence rather than prose: it is a reading of the
+  `notification_sent` events the state directory already holds, it cannot go
+  stale as the code around it changes, and two things wait on it — v0.1
+  acceptance criterion 14, which is the claim the product rests on, and OQ-013.
 - Remove hard-coded assumptions discovered during dogfood.
 
 ### Acceptance criteria
@@ -1435,7 +1440,6 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
 - Every command that takes a task can be found from `feat task --help`, no alias
   carries a second implementation, and the golden file, the specification, and
   `feat --help` describe the same surface.
-- A clean installation can reproduce the dogfood setup from documentation.
 
 ## Slice 14 — Public v0.2
 
@@ -1456,7 +1460,23 @@ A new macOS/Linux user can use Feat outside the reference project.
   belongs here rather than with ADR-040 because the schema this publishes is the
   one this slice finalizes.
 - Add release binaries, Homebrew formula/tap, and `go install` instructions.
-- Add contribution/security policy.
+- Add contribution/security policy, including the known security limitations:
+  what a standard container does and does not protect against, that Feat claims
+  no hostile-kernel isolation and no network data-loss prevention, and that full
+  Git and provider CLI access are capabilities a project grants deliberately
+  (docs/05-security-model.md).
+
+  Moved here from slice 13, where the v0.1 acceptance criteria never asked for
+  it. The reader of "what this does not protect against" is somebody deciding
+  whether to run Feat on their own work, which is a person this milestone
+  introduces and the dogfood milestone does not have.
+- Document the path from a clean installation to a first running task, and check
+  it on a machine that has never run Feat.
+
+  Also moved from slice 13. Reproducing a setup from documentation is a
+  public-v0 property — [08-v0-scope.md](08-v0-scope.md) puts it in the definition
+  of done for public v0 and not in the v0.1 acceptance criteria — and it is best
+  written against what the dogfood runs turn out to need rather than before them.
 - Verify no telemetry.
 - Add onboarding wizard only if manual configuration is the dominant public blocker.
 - Add Shortcut only if all core reliability work is complete.
@@ -1465,7 +1485,10 @@ A new macOS/Linux user can use Feat outside the reference project.
 
 - Public-v0 definition of done passes on macOS and Linux.
 - Host-native and devcontainer modes use the same task domain.
-- Installation and first-task documentation is reproducible.
+- Installation and first-task documentation is reproducible on a machine that has
+  never run Feat.
+- The known security limitations are stated where somebody deciding to run Feat
+  on their own work will read them.
 
 ## Implementation discipline
 
