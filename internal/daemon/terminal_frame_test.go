@@ -233,6 +233,71 @@ func TestAttachingReleasesTheSizeRenderingPinned(t *testing.T) {
 	}
 }
 
+// TestPollingASettledPaneLeavesTmuxAlone is the flicker, at the level a user met
+// it.
+//
+// The terminal tab polls, four times a second and sixteen while it has the
+// keyboard. Each poll used to size the window and each size disturbed a zoomed
+// pane's pty, so a full-screen agent repainted at half the region's width and
+// repainted back. Once nothing needs changing, a poll must change nothing.
+func TestPollingASettledPaneLeavesTmuxAlone(t *testing.T) {
+	service, arranged, server := launched(t)
+	ctx := context.Background()
+
+	// A shell beside the agent, so the window has two panes and the zoom this is
+	// about is doing something.
+	if _, err := service.OpenShell(ctx, arranged.ref.Task); err != nil {
+		t.Fatalf("OpenShell: %v", err)
+	}
+	view := api.TerminalView{Width: 100, Height: 30}
+	if _, err := service.TerminalFrame(ctx, arranged.ref.Task, view); err != nil {
+		t.Fatalf("the first frame: %v", err)
+	}
+
+	settled := len(server.Calls())
+	for i := range 3 {
+		if _, err := service.TerminalFrame(ctx, arranged.ref.Task, view); err != nil {
+			t.Fatalf("frame %d: %v", i+2, err)
+		}
+	}
+
+	for _, args := range server.Calls()[settled:] {
+		switch args[0] {
+		case "resize-window", "resize-pane", "set-window-option":
+			t.Errorf("a poll at an unchanged size ran %q", strings.Join(args, " "))
+		}
+	}
+}
+
+// TestAResizedRegionStillReachesTheWindow keeps the rule above from becoming
+// "never resize": a user who resized their terminal must see the pane follow.
+func TestAResizedRegionStillReachesTheWindow(t *testing.T) {
+	service, arranged, server := launched(t)
+	ctx := context.Background()
+
+	task, err := service.Task(ctx, arranged.ref.Task)
+	if err != nil {
+		t.Fatalf("reading the task: %v", err)
+	}
+	if _, err := service.TerminalFrame(ctx, arranged.ref.Task,
+		api.TerminalView{Width: 100, Height: 30}); err != nil {
+		t.Fatalf("the first frame: %v", err)
+	}
+
+	frame, err := service.TerminalFrame(ctx, arranged.ref.Task,
+		api.TerminalView{Width: 120, Height: 40})
+	if err != nil {
+		t.Fatalf("the frame after a resize: %v", err)
+	}
+
+	if size, _ := server.PaneSize(task.Session.Tmux.Window); size != [2]int{120, 40} {
+		t.Errorf("the window is %v, want the region's new 120x40", size)
+	}
+	if frame.Width != 120 || frame.Height != 40 {
+		t.Errorf("the frame reports %dx%d, want the size it was just given", frame.Width, frame.Height)
+	}
+}
+
 // TestAWatchedWindowIsNotResizedByTheDashboard closes the other route to the
 // same defect.
 //

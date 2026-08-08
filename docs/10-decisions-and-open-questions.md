@@ -2106,6 +2106,16 @@ Evidence:
    `internal/ui` any import of `internal/tmux`, as `cli-is-a-client` does for the
    CLI. That rule is the executable form of "the daemon is the only writer", and
    sending keys to an agent is a write.
+6. Preparing a pane for display is not free and not idempotent, which evidence 3's
+   preference for control mode understated. Measured against tmux 3.7b with a
+   zoomed two-pane window already sized 179x52, reading `stty size` inside the
+   pane: a `resize-window` to the size the window already has sets the zoomed
+   pane's pty to 90 columns — its share of the split — and then back to 179. tmux
+   reports `pane_width` as 179 throughout, so the window looks motionless from
+   outside while a full-screen program repaints itself at half the region's width
+   and repaints again. The same measurement puts a settled frame's five `tmux`
+   invocations at 30.5 ms and the two it actually needs at 16.3 ms, which at a
+   60 ms focused poll is half the interval spent forking processes.
 
 Decisions:
 
@@ -2140,6 +2150,13 @@ Decisions:
   a terminal, not a terminal: it has no scrollback and no mouse, and the native
   `attach-session` remains how a user gets the real thing. Both tools in evidence
   3 keep both for the same reason.
+- Rendering a frame changes nothing that is already as it should be. The size and
+  the zoom are read first and set only where they differ, and the pane is measured
+  again only when one of them moved. Evidence 6 is the reason this is a rule
+  rather than an optimisation: a preparation step that looks idempotent from
+  tmux's side is visible to the program in the pane, and a poll that repeats it is
+  a poll that disturbs what it is trying to show. It holds for the control-mode
+  transport too, which changes when a frame is asked for and not what asking costs.
 - Detail and review become one task view rather than two tabs. Evidence 1 is the
   reason, and a main region holding a live session leaves room for one panel
   rather than four.

@@ -699,49 +699,105 @@ func (s *Server) Zoomed(window string) string {
 	return s.zoomed[window]
 }
 
-// measure answers the format display-message is given, which the adapter uses
-// for the size, the cursor, and whether a pane is a retained dead one.
+// measure answers the format display-message is given.
+//
+// The format is rendered from a map of what the target is, rather than
+// recognised one query at a time: the adapter combines and splits these queries
+// as it learns what it needs, and a fake that matches on substrings answers the
+// old shape confidently after the real one has changed. A field this does not
+// model is an error here rather than an empty column that fails later as a
+// parse.
 func (s *Server) measure(args []string) (string, error) {
 	target := value(args, "-t")
+	values, err := s.measurements(target)
+	if err != nil {
+		return "", err
+	}
+	// display-message -p -t <target> <format>: the format is the last argument.
+	return renderFormat(args[len(args)-1], values)
+}
+
+// measurements is everything display-message can be asked about one target.
+func (s *Server) measurements(target string) (map[string]string, error) {
 	if window, ok := s.windows[target]; ok {
-		if strings.Contains(strings.Join(args, " "), "window_zoomed_flag") {
-			return flag(s.zoomed[window.id] != ""), nil
-		}
-		size, resized := s.size[window.id]
-		if !resized {
-			size = [2]int{80, 24}
-		}
-		return fmt.Sprintf("%d\t%d", size[0], size[1]), nil
+		size := s.windowSize(window.id)
+		return merge(map[string]string{
+			"session_id":            window.session,
+			"window_id":             window.id,
+			"window_width":          strconv.Itoa(size[0]),
+			"window_height":         strconv.Itoa(size[1]),
+			"window_zoomed_flag":    flag(s.zoomed[window.id] != ""),
+			"window_panes":          strconv.Itoa(s.windowPanes(window.id)),
+			"window_active_clients": strconv.Itoa(window.viewers),
+		}, window.options), nil
 	}
 
 	pane, ok := s.panes[target]
 	if !ok {
-		return "", fmt.Errorf("tmuxtest: no such pane or window %q", target)
+		return nil, fmt.Errorf("tmuxtest: no such pane or window %q", target)
 	}
 
-	// The zoom query, which asks about the pane's window rather than its size.
-	if strings.Contains(strings.Join(args, " "), "window_zoomed_flag") {
-		panes := 0
-		for _, other := range s.panes {
-			if other.window == pane.window {
-				panes++
-			}
+	size := s.windowSize(pane.window)
+	width, height, left, top := s.geometry(pane)
+	zoomed := s.zoomed[pane.window]
+	if zoomed == pane.id {
+		// A zoomed pane fills its window, which is the only reason to zoom one.
+		width, height = size[0], size[1]
+	}
+	return merge(map[string]string{
+		"session_id":         pane.session,
+		"window_id":          pane.window,
+		"pane_id":            pane.id,
+		"window_width":       strconv.Itoa(size[0]),
+		"window_height":      strconv.Itoa(size[1]),
+		"window_zoomed_flag": flag(zoomed != ""),
+		"window_panes":       strconv.Itoa(s.windowPanes(pane.window)),
+		"pane_active":        flag(zoomed == pane.id || (zoomed == "" && s.activePane(pane) == pane.id)),
+		"pane_width":         strconv.Itoa(width),
+		"pane_height":        strconv.Itoa(height),
+		"pane_left":          strconv.Itoa(left),
+		"pane_top":           strconv.Itoa(top),
+		"cursor_x":           strconv.Itoa(pane.cursorX),
+		"cursor_y":           strconv.Itoa(pane.cursorY),
+		"pane_dead":          flag(pane.dead),
+		"pane_dead_status":   pane.status,
+		"pane_current_path":  pane.directory,
+		"pane_pid":           strconv.Itoa(pane.pid),
+	}, pane.options), nil
+}
+
+// windowSize is the size a window was resized to, or the server's default.
+func (s *Server) windowSize(window string) [2]int {
+	if size, ok := s.size[window]; ok {
+		return size
+	}
+	return [2]int{80, 24}
+}
+
+// windowPanes counts the panes a window holds.
+func (s *Server) windowPanes(window string) int {
+	panes := 0
+	for _, pane := range s.panes {
+		if pane.window == window {
+			panes++
 		}
-		return fmt.Sprintf("%s\t%s\t%d",
-			flag(s.zoomed[pane.window] != ""),
-			flag(s.zoomed[pane.window] == pane.id || (s.zoomed[pane.window] == "" && s.activePane(pane) == pane.id)),
-			panes), nil
 	}
+	return panes
+}
 
-	size, resized := s.size[pane.window]
-	if !resized {
-		size = [2]int{80, 24}
+// renderFormat fills one tmux format string from a map of values.
+func renderFormat(format string, values map[string]string) (string, error) {
+	fields := strings.Split(format, "\t")
+	rendered := make([]string, 0, len(fields))
+	for _, field := range fields {
+		name := strings.TrimSuffix(strings.TrimPrefix(field, "#{"), "}")
+		value, ok := values[name]
+		if !ok {
+			return "", fmt.Errorf("tmuxtest: nothing here models #{%s}", name)
+		}
+		rendered = append(rendered, value)
 	}
-	dead := "0"
-	if pane.dead {
-		dead = "1"
-	}
-	return fmt.Sprintf("%d\t%d\t%d\t%d\t%s", size[0], size[1], pane.cursorX, pane.cursorY, dead), nil
+	return strings.Join(rendered, "\t"), nil
 }
 
 func (s *Server) capture(args []string) (string, error) {

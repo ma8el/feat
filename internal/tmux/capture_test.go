@@ -12,12 +12,23 @@ import (
 // shell string.
 type scriptedRunner struct {
 	replies map[string]string
+	queued  map[string][]string
 	fail    map[string]error
 	calls   [][]string
 }
 
 func newScriptedRunner() *scriptedRunner {
-	return &scriptedRunner{replies: map[string]string{}, fail: map[string]error{}}
+	return &scriptedRunner{
+		replies: map[string]string{},
+		queued:  map[string][]string{},
+		fail:    map[string]error{},
+	}
+}
+
+// script queues one reply per invocation, for the paths that ask twice and read
+// a different shape each time.
+func (r *scriptedRunner) script(command string, replies ...string) {
+	r.queued[command] = append(r.queued[command], replies...)
 }
 
 func (r *scriptedRunner) Run(_ context.Context, _ string, args ...string) (string, error) {
@@ -25,7 +36,22 @@ func (r *scriptedRunner) Run(_ context.Context, _ string, args ...string) (strin
 	if err, found := r.fail[args[0]]; found {
 		return "", err
 	}
+	if queue := r.queued[args[0]]; len(queue) > 0 {
+		r.queued[args[0]] = queue[1:]
+		return queue[0], nil
+	}
 	return r.replies[args[0]], nil
+}
+
+// ran counts the invocations of a subcommand.
+func (r *scriptedRunner) ran(command string) int {
+	count := 0
+	for _, args := range r.calls {
+		if args[0] == command {
+			count++
+		}
+	}
+	return count
 }
 
 // call returns the argument vector of the first invocation of a subcommand.
@@ -338,6 +364,94 @@ func TestZoomingReleasesAnotherPanesZoomFirst(t *testing.T) {
 	}
 	if zooms != 2 {
 		t.Errorf("zooming over another pane's zoom ran %d toggles, want 2", zooms)
+	}
+}
+
+// TestARenderThatNeedsNothingChangesNothing is the flicker.
+//
+// Resizing a zoomed window to the size it already has is not a no-op: tmux sets
+// the zoomed pane's pty to the size it would have unzoomed and then back, so a
+// full-screen program repaints at half the width and repaints again. Issued on
+// every poll it flickered continuously; issued once per task switch it flickered
+// once. tmux reports the pane at the zoomed width throughout, which is why this
+// is invisible from outside the pane and has to be a rule here.
+func TestARenderThatNeedsNothingChangesNothing(t *testing.T) {
+	runner := newScriptedRunner()
+	// A 100x30 window, zoomed on this pane, which is the state a settled
+	// dashboard leaves behind between polls.
+	runner.replies["display-message"] = "100\t30\t1\t1\t2\t100\t30\t4\t2\t0"
+	runner.replies["capture-pane"] = "working\n"
+
+	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 100, 30, true)
+	if err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	for _, command := range []string{"resize-window", "set-window-option", "resize-pane"} {
+		if args, found := runner.call(command); found {
+			t.Errorf("a settled frame ran %q", strings.Join(args, " "))
+		}
+	}
+	// And it costs one measurement rather than two: the state it decided on
+	// carries the pane's own size, so nothing has to ask again.
+	if measured := runner.ran("display-message"); measured != 1 {
+		t.Errorf("a settled frame measured %d times, want 1", measured)
+	}
+	if frame.Width != 100 || frame.CursorX != 4 {
+		t.Errorf("the frame is %dx%d with the cursor at %d,%d",
+			frame.Width, frame.Height, frame.CursorX, frame.CursorY)
+	}
+}
+
+// TestARenderSizesTheWindowWhenTheRegionChanged is the other half: the rule is
+// to change nothing that is already right, not to stop changing anything.
+//
+// The frame is measured again afterwards, because the measurement that decided
+// the resize was taken before it. Reporting the pre-resize width would tell the
+// renderer to clip a full-width pane to its share of a split.
+func TestARenderSizesTheWindowWhenTheRegionChanged(t *testing.T) {
+	runner := newScriptedRunner()
+	// An unzoomed 80x24 window whose pane holds half of it, and then the pane as
+	// it stands once the window has been sized and the pane zoomed.
+	runner.script("display-message", "80\t24\t0\t1\t2\t39\t24\t0\t0\t0", "100\t30\t0\t0\t0")
+	runner.replies["capture-pane"] = "working\n"
+
+	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 100, 30, true)
+	if err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	sized, found := runner.call("resize-window")
+	if !found {
+		t.Fatal("a region of a different size did not resize the window")
+	}
+	if got := strings.Join(sized, " "); got != "resize-window -t @3 -x 100 -y 30" {
+		t.Errorf("resized with %q", got)
+	}
+	if _, found := runner.call("resize-pane"); !found {
+		t.Error("the pane was not zoomed to fill the window it now has")
+	}
+	if frame.Width != 100 || frame.Height != 30 {
+		t.Errorf("the frame reports %dx%d, want the size it was just given", frame.Width, frame.Height)
+	}
+}
+
+// TestAWatchedRenderTouchesNothing keeps a rendering from resizing the terminal
+// somebody is sitting in.
+func TestAWatchedRenderTouchesNothing(t *testing.T) {
+	runner := newScriptedRunner()
+	runner.replies["display-message"] = "200\t50\t0\t0\t0"
+	runner.replies["capture-pane"] = "working\n"
+
+	if _, err := captureAdapter(t, runner).RenderPane(
+		context.Background(), "@3", "%7", 100, 30, false); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	for _, command := range []string{"resize-window", "set-window-option", "resize-pane"} {
+		if args, found := runner.call(command); found {
+			t.Errorf("rendering a watched window ran %q", strings.Join(args, " "))
+		}
 	}
 }
 
