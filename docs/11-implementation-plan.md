@@ -1439,6 +1439,18 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   task at a time cannot produce evidence about three, and criterion 14 is a claim
   about whether this screen carries the coordination. The deferred tmux split
   direction lands with it.
+- Put the agent's session in the main region. The layout above was built around
+  views Feat writes itself, and using it showed that the region wants the
+  terminal: detail and review overlap, and neither fills it. Moving the pane
+  there is not the way — measured, `join-pane` destroys the task's own window and
+  breaks ADR-030's discovery — and neither is an emulator.
+
+  What works is what claude-squad and agent-manager both do: tmux renders, and
+  Feat draws the result. The daemon holds one `tmux -C` control-mode connection,
+  redraws the focused pane on tmux's `%output`, and sends keys back; the TUI
+  never runs tmux, because `ui-is-a-client` denies it the adapter. Feat keeps no
+  screen grid and reads nothing out of the bytes but their width. Detail and
+  review merge into one panel. See ADR-042.
 - Measure manual coordination removed and false idle notifications. The measure
   is also the evidence OQ-013 needs.
 

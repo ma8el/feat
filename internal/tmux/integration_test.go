@@ -468,3 +468,79 @@ func TestRealTerminalsWorkWithoutALocale(t *testing.T) {
 		t.Errorf("the discovered working directory is %q, want the created %q", found.Agent.Directory, server.dir)
 	}
 }
+
+// TestRealPaneCaptureAndInputRoundTrip is ADR-042's mechanics against real
+// tmux.
+//
+// Every command here was chosen from a claim about tmux's behaviour, and each
+// claim is what this checks: that a capture returns what the program printed
+// with its colour intact, that measurements arrive as five fields, that keys
+// sent after a terminator reach the program, that a bracketed paste arrives and
+// takes its buffer away with it, and that a manually sized window keeps the size
+// Feat asked for. Without this the unit tests only prove Feat builds the
+// argument vectors it means to.
+func TestRealPaneCaptureAndInputRoundTrip(t *testing.T) {
+	server := realTmux(t)
+	ctx := context.Background()
+
+	backend, err := New(server.socket, server.runner)
+	if err != nil {
+		t.Fatalf("building the adapter: %v", err)
+	}
+	terminal, err := backend.EnsureTask(ctx, testProject, testTask, CommandSpec{
+		Program: "/bin/sh", Directory: server.dir,
+	})
+	if err != nil {
+		t.Fatalf("EnsureTask: %v", err)
+	}
+	pane := terminal.Target.Pane
+
+	// A size Feat chose rather than one a client imposed, which is what a pane
+	// drawn into a region needs.
+	if err := backend.ResizeWindow(ctx, terminal.Target.Window, 100, 30); err != nil {
+		t.Fatalf("ResizeWindow: %v", err)
+	}
+
+	if err := backend.SendKeys(ctx, pane, "printf '\\033[32mgreen\\033[m\\n'", "Enter"); err != nil {
+		t.Fatalf("SendKeys: %v", err)
+	}
+	if err := backend.PasteText(ctx, pane, "echo pasted-by-feat"); err != nil {
+		t.Fatalf("PasteText: %v", err)
+	}
+	if err := backend.SendKeys(ctx, pane, "Enter"); err != nil {
+		t.Fatalf("SendKeys after paste: %v", err)
+	}
+
+	var frame PaneFrame
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		frame, err = backend.CapturePane(ctx, pane)
+		if err != nil {
+			t.Fatalf("CapturePane: %v", err)
+		}
+		if strings.Contains(strings.Join(frame.Content, "\n"), "pasted-by-feat") {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	body := strings.Join(frame.Content, "\n")
+	if !strings.Contains(body, "pasted-by-feat") {
+		t.Errorf("the pasted command never reached the pane:\n%s", body)
+	}
+	if !strings.Contains(body, "\x1b[32m") {
+		t.Errorf("the capture lost the colour tmux had rendered:\n%q", body)
+	}
+	if frame.Width != 100 || frame.Height != 30 {
+		t.Errorf("the pane is %dx%d, want the 100x30 Feat set", frame.Width, frame.Height)
+	}
+	if frame.Dead {
+		t.Error("a live shell was reported as dead")
+	}
+
+	// The paste must not stay in the user's buffer stack.
+	buffers, err := server.runner.Run(ctx, server.socket, "list-buffers")
+	if err == nil && strings.Contains(buffers, inputBuffer) {
+		t.Errorf("Feat's input buffer outlived the paste: %s", buffers)
+	}
+}
