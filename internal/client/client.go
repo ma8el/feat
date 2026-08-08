@@ -321,6 +321,13 @@ func submit[T any](ctx context.Context, c *Client, method, path string, payload 
 	if err := failed(response, path); err != nil {
 		return result, err
 	}
+	// A no-content reply has nothing to decode, and decoding it anyway reports
+	// the empty body as a broken one. That surfaced as an EOF error on every
+	// keystroke sent to a focused terminal: the input endpoint answers 204, which
+	// is a success the client was reading as a failure.
+	if response.StatusCode == http.StatusNoContent {
+		return result, nil
+	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, maxResponseBody)).Decode(&result); err != nil {
 		return result, fmt.Errorf("reading the daemon's response to %s: %w", path, err)
 	}

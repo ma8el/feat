@@ -291,3 +291,41 @@ func TestEventsEndsWithItsContext(t *testing.T) {
 }
 
 func contains(haystack, needle string) bool { return strings.Contains(haystack, needle) }
+
+// TestANoContentReplyIsASuccess is the regression for an error on every
+// keystroke.
+//
+// The terminal input endpoint answers 204, which carries no body. Decoding it
+// anyway reported the empty body as a broken one, so a user typing into a
+// focused pane saw ".../terminal/input: EOF" flash on the screen for every
+// character they typed.
+func TestANoContentReplyIsASuccess(t *testing.T) {
+	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		want := "/v1/tasks/12345678-1234-4234-8234-123456789abc/terminal/input"
+		if r.URL.Path != want {
+			t.Errorf("path = %q, want %q", r.URL.Path, want)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	err := caller.SendTerminalInput(context.Background(), "12345678-1234-4234-8234-123456789abc",
+		api.TerminalInput{Keys: []string{"Enter"}})
+	if err != nil {
+		t.Errorf("a 204 was reported as a failure: %v", err)
+	}
+}
+
+// TestATruncatedReplyIsStillAFailure keeps the fix above from swallowing a
+// response that really was cut short: an empty body is only success where the
+// daemon said there would be no body.
+func TestATruncatedReplyIsStillAFailure(t *testing.T) {
+	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	if _, err := caller.AttachInfo(context.Background(),
+		"12345678-1234-4234-8234-123456789abc"); err == nil {
+		t.Error("an empty 200 was accepted as a decoded response")
+	}
+}
