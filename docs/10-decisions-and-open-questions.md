@@ -1785,6 +1785,89 @@ conditions, the tables, the grace periods, and the suppression rules are exactly
 what slices 10 and 11 decided. What changed is that not being told now has an
 answer, and that every condition has been shown to reach a desktop once.
 
+### ADR-040 — Where a command lives
+
+Status: accepted  
+Recorded: slice 13, before implementation
+
+Evidence found by reading the command surface rather than by running it, which is
+why it is recorded before the change rather than after a failure:
+
+1. The surface is two designs at once. `project`, `task`, `runtime`, and `daemon`
+   are nouns with verbs beneath them; `implement`, `attach`, `review`, `cleanup`,
+   and `doctor` are verbs at the top level. ADR-001 already decided for the first
+   shape — "use scoped commands such as `feat project add`" — and five commands
+   arrived in the second one, each added by the slice that needed it.
+2. The seam runs through the `task` noun. Every command that takes a `<task>` is
+   an operation on a task: `attach`, `review`, `cleanup`, and all six `runtime`
+   actions. `feat task --help` lists one of them, `list`, and it is the least
+   interesting one. A user who has learned `feat task list` has no route from
+   there to `feat attach` except the documentation.
+3. ADR-038 is the field evidence that these are one family rather than five
+   separate commands. A single defect landed on `attach`, `review`, every
+   `runtime` action, and `cleanup` together, through one helper, because naming a
+   task is what they have in common. A defect whose extent is exactly that set is
+   a set the surface should name.
+4. The present shape can be justified, and the justification does not survive.
+   Top level for what opens a screen or hands over the terminal, a noun for what
+   prints and exits, fits today's commands. It is already leaky — `review` and
+   `cleanup` both print without a terminal (ADR-036, ADR-037) — it sorts commands
+   by a property a user cannot see from outside, and adding `feat task show` or
+   `feat task stop` would leave the top-level verbs reading as whatever was there
+   first.
+5. The window is this slice. The surface is pinned by a golden file and described
+   in three documents, slice 13 is already rewriting every `<task>` argument for
+   ADR-038, and slice 14 publishes v0.2. After that, moving a command breaks a
+   shell history that is not Feat's to break.
+
+Decisions:
+
+- A command that takes a task lives under `feat task`: `task attach`,
+  `task review`, and `task cleanup`, beside `task list`. That is the rule, and it
+  is the one ADR-001 stated.
+- `feat implement` stays where it is and is not renamed to `feat task add`. It
+  does not take a task, it produces one, so the rule above does not reach it. The
+  name is also the activity — it fetches, resolves an immutable base commit per
+  repository, proposes branches and worktrees, and launches an agent session —
+  while `add` describes appending a row to a list. `feat task`'s own help names
+  it as where a task comes from, so the noun a user explores still answers that
+  question.
+- `feat attach` and `feat review` keep their top-level names as aliases, because
+  brevity is earned by how often something is typed and these are typed all day.
+  Both are hidden from help so that `feat --help` stays equal to the documented
+  surface, which is ADR-027's rule for `feat daemon run`, and both appear in the
+  golden file, which walks hidden commands.
+- `feat cleanup` gets no alias. It is rare and it is irreversible, and making the
+  longer path the only path is the argument ADR-037 made when it refused a
+  blanket `--yes`.
+- One implementation with two names, never two implementations. The alias is
+  built by the same constructor and runs the same `RunE`; cobra sets a parent in
+  `AddCommand`, so one value cannot hold both positions, and two bodies would
+  drift. An alias says in its own help which command it is.
+- `feat runtime` stays a top-level noun rather than becoming
+  `feat task runtime`. A feature environment is a co-equal thing a task owns,
+  with its own identity and lifecycle (ADR-003, ADR-034), rather than an
+  attribute of the task, and three levels before an argument is worse than the
+  inconsistency. This is recorded as an exception rather than dressed up as a
+  rule, because it is one.
+- `feat project`, `feat daemon`, `feat doctor`, and `feat version` do not move. A
+  diagnostic named `doctor` at the top level is what the tools this one is
+  installed beside already do.
+- The asymmetry between `feat runtime destroy --yes` and a `feat task cleanup`
+  with no such flag is deliberate and stays. What changes is that each says why in
+  its help, because a user who meets the second after the first reads it as an
+  omission rather than as a decision.
+
+Consequence: this ADR records the target and moves nothing yet. The golden file,
+[README.md](README.md), [06-technical-architecture.md](06-technical-architecture.md),
+and the README move in the change that implements it, which is the rule ADR-028
+and ADR-031 followed for a command-surface change; moving them first would
+document a surface the binary does not have. Nothing crosses the socket
+differently: no endpoint, no domain type, and no storage path changes, and
+ADR-038's rule for naming a task is untouched. Machine-readable output is a
+separate gap — every command can be read by a person and parsed by nothing — and
+belongs with slice 14's JSON Schema rather than here.
+
 ### OQ-001 — Natural-language orchestrator
 
 Should mature natural-language commands be interpreted by a constrained master native agent or by a host-integrated model? Do not decide during v0.

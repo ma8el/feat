@@ -1397,6 +1397,27 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   clears is one nobody reads, which is the reason `KindTurnEnded` clears it
   already.
 
+- Put every command that takes a task under the noun a user can explore. The
+  surface is two designs at once: `project`, `task`, `runtime`, and `daemon` are
+  nouns with verbs beneath them, while `implement`, `attach`, `review`,
+  `cleanup`, and `doctor` are verbs at the top level. The seam runs through
+  `task`, because everything that takes a `<task>` is an operation on one and
+  `feat task --help` lists only `list`. A user who has learned `feat task list`
+  reaches `feat attach` through the documentation or not at all.
+
+  ADR-038 is the evidence that these are one family: one defect landed on
+  `attach`, `review`, every `runtime` action, and `cleanup` at once, through one
+  helper, because naming a task is what they share. So `attach`, `review`, and
+  `cleanup` move under `feat task`; `feat implement` stays, because it produces a
+  task rather than taking one; `feat runtime` stays a noun of its own, because a
+  feature environment is a co-equal thing a task owns. `attach` and `review` keep
+  hidden top-level aliases and `cleanup` deliberately does not. See ADR-040.
+
+  Done in this slice because slice 13 is already rewriting every `<task>`
+  argument for ADR-038, and because slice 14 publishes v0.2: after that, moving a
+  command breaks a shell history that is not Feat's to break. The golden file,
+  [README.md](README.md), [06-technical-architecture.md](06-technical-architecture.md),
+  and the README move in the same change, as they did in ADR-028 and ADR-031.
 - Document known security limitations.
 - Measure manual coordination removed and false idle notifications. The measure
   is also the evidence OQ-013 needs.
@@ -1411,6 +1432,9 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   a reason a user would recognise.
 - A task can be named by what a user can see, and a name that matches two tasks
   is reported rather than resolved to either.
+- Every command that takes a task can be found from `feat task --help`, no alias
+  carries a second implementation, and the golden file, the specification, and
+  `feat --help` describe the same surface.
 - A clean installation can reproduce the dogfood setup from documentation.
 
 ## Slice 14 — Public v0.2
@@ -1425,6 +1449,12 @@ A new macOS/Linux user can use Feat outside the reference project.
 - Add Linux notification support.
 - Generalize examples and troubleshooting.
 - Finalize JSON Schema and shell completion.
+- Give the reading commands machine-readable output. Every command prints a
+  table a person reads and nothing else can parse, so a user scripting around
+  Feat has the socket or screen-scraping. `task list`, `task review`,
+  `runtime status`, and `project show` are the ones with something to say. It
+  belongs here rather than with ADR-040 because the schema this publishes is the
+  one this slice finalizes.
 - Add release binaries, Homebrew formula/tap, and `go install` instructions.
 - Add contribution/security policy.
 - Verify no telemetry.
