@@ -50,12 +50,21 @@ func (s *service) PrepareTerminal(ctx context.Context, ref store.TaskRef, comman
 func (s *service) ensureTerminal(
 	ctx context.Context, task *domain.Task, cfg *config.Config, plan launchPlan,
 ) (*domain.Task, error) {
-	if task.Workflow != domain.WorkflowPreparing && task.Workflow != domain.WorkflowFailed {
+	// A launch happens in preparing or after a failure. A resume additionally
+	// reaches this for a task whose workflow never moved, because its process
+	// died while no daemon was watching — the terminal is being restarted rather
+	// than created, and refusing would leave the one task that most needs
+	// recovery unable to have it (ADR-037).
+	if !plan.restart && task.Workflow != domain.WorkflowPreparing && task.Workflow != domain.WorkflowFailed {
 		return nil, fmt.Errorf("%w: task %s is %s, and its terminal is created only after confirmation",
 			api.ErrInvalid, task.ID, task.Workflow)
 	}
+	if task.Workflow == domain.WorkflowDraft || task.Workflow == domain.WorkflowArchived {
+		return nil, fmt.Errorf("%w: task %s is %s, and has no terminal to restart",
+			api.ErrInvalid, task.ID, task.Workflow)
+	}
 
-	terminal, err := s.terminals.EnsureTask(ctx, task.ProjectID, task.ID, plan.command)
+	terminal, err := s.ensureTmux(ctx, task, plan)
 	if err != nil {
 		if task.Workflow == domain.WorkflowPreparing {
 			if transitionErr := s.transition(ctx, task, domain.WorkflowFailed, err.Error()); transitionErr != nil {
@@ -130,6 +139,24 @@ func (s *service) ensureTerminal(
 		s.armStartup(ctx, task)
 	}
 	return task, nil
+}
+
+// ensureTmux creates, finds, or restarts the task's terminal.
+//
+// A restart is the resume path and nothing else. It falls back to creating one
+// when there is no terminal to restart, because a computer that rebooted took
+// the tmux server with it and a resume then has to make the terminal as well as
+// the session.
+func (s *service) ensureTmux(
+	ctx context.Context, task *domain.Task, plan launchPlan,
+) (tmux.Terminal, error) {
+	if !plan.restart {
+		return s.terminals.EnsureTask(ctx, task.ProjectID, task.ID, plan.command)
+	}
+	if _, found, err := s.terminals.Find(ctx, task.ProjectID, task.ID); err == nil && found {
+		return s.terminals.Restart(ctx, task.ProjectID, task.ID, plan.command)
+	}
+	return s.terminals.EnsureTask(ctx, task.ProjectID, task.ID, plan.command)
 }
 
 // OpenShell creates or finds the task's tagged shell pane.
@@ -210,121 +237,4 @@ func (s *service) AttachInfo(ctx context.Context, id domain.TaskID) (api.AttachI
 		Window:  terminal.Target.Window,
 		Pane:    terminal.Target.Pane,
 	}, nil
-}
-
-// reconcileTmux compares stored task sessions with tagged objects after a
-// daemon restart. It owns only the tmux part of startup recovery; slice 12
-// combines every resource class into one recovery workflow.
-func (s *service) reconcileTmux(ctx context.Context) error {
-	projects, err := s.store.Projects().List(ctx)
-	if err != nil {
-		return err
-	}
-
-	var tasks []*domain.Task
-	for _, project := range projects {
-		owned, err := s.store.Tasks().List(ctx, project.ID)
-		if err != nil {
-			return err
-		}
-		for _, task := range owned {
-			if task.Session != nil || task.Workflow == domain.WorkflowPreparing || task.Workflow == domain.WorkflowFailed {
-				tasks = append(tasks, task)
-			}
-		}
-	}
-	observed, err := s.terminals.Discover(ctx)
-	if err != nil {
-		return err
-	}
-	targets := make(map[domain.TaskID]tmux.Terminal, len(observed))
-	for _, terminal := range observed {
-		if previous, exists := targets[terminal.Task]; exists {
-			return fmt.Errorf("tmux terminals %s and %s both claim task %s",
-				previous.Target.Window, terminal.Target.Window, terminal.Task)
-		}
-		targets[terminal.Task] = terminal
-	}
-
-	known := make(map[domain.TaskID]bool, len(tasks))
-	var failures []error
-	for _, task := range tasks {
-		known[task.ID] = true
-		terminal, found := targets[task.ID]
-		if found && terminal.Project != task.ProjectID {
-			failures = append(failures, fmt.Errorf("tmux terminal for task %s claims project %s, recorded task belongs to %s",
-				task.ID, terminal.Project, task.ProjectID))
-			continue
-		}
-
-		if !found {
-			if task.Session == nil {
-				continue
-			}
-			from := task.Session.Process
-			if err := task.Session.Observe(domain.ProcessStopped, s.now()); err != nil {
-				failures = append(failures, err)
-				continue
-			}
-			if err := s.store.Tasks().Save(ctx, task); err != nil {
-				failures = append(failures, err)
-				continue
-			}
-			s.record(ctx, task, domain.Event{
-				Type: domain.EventReconciled, From: string(from), To: string(domain.ProcessStopped),
-				Detail: "the recorded tmux terminal was not found; it was not restarted",
-			})
-			continue
-		}
-
-		from := domain.ProcessStarting
-		if task.Session == nil {
-			cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
-			if err != nil {
-				failures = append(failures, err)
-				continue
-			}
-			session, err := domain.NewAgentSession(
-				cfg.Agent.Provider,
-				domain.ExecutionMode(cfg.Agent.Execution.Mode),
-				terminal.Target,
-				"",
-				s.now(),
-			)
-			if err != nil {
-				failures = append(failures, err)
-				continue
-			}
-			if err := task.AttachSession(session, s.now()); err != nil {
-				failures = append(failures, err)
-				continue
-			}
-		} else {
-			from = task.Session.Process
-		}
-		if err := task.Session.ReconcileTerminal(terminal.Target, terminal.ProcessState(), task.ID, s.now()); err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		if err := s.store.Tasks().Save(ctx, task); err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		s.record(ctx, task, domain.Event{
-			Type: domain.EventReconciled, From: string(from), To: string(task.Session.Process),
-			Detail: "rediscovered tagged tmux terminal " + terminal.Target.Session + "/" +
-				terminal.Target.Window + "/" + terminal.Target.Pane,
-		})
-	}
-
-	for _, terminal := range observed {
-		if known[terminal.Task] {
-			continue
-		}
-		s.logger.WarnContext(ctx, "found a tagged tmux terminal with no recorded task",
-			slog.String("project", terminal.Project.String()),
-			slog.String("task", terminal.Task.String()),
-			slog.String("window", terminal.Target.Window))
-	}
-	return errors.Join(failures...)
 }

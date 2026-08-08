@@ -270,6 +270,14 @@ Feat MUST enumerate the exact task-owned resources before cleanup.
 
 Stopping/removing containers, removing volumes, removing worktrees, and deleting branches MUST be separate choices.
 
+Slice 12 separates the agent's containers from the application's, because they
+are distinct concepts everywhere else in the product, and adds two classes this
+list does not reach: the task's tmux window and its control workspace. Both are
+resources a task owns, and FR-CLEAN-001 requires the inventory to be exact. The
+seven classes are removed in a fixed order — terminal, agent containers,
+application containers, volumes, worktrees, branches, control workspace — so that
+whatever holds a file is stopped before the file is removed. See ADR-037.
+
 ### FR-CLEAN-003 — Dirty/unmerged protection
 
 Dirty worktrees, unpushed commits, and unmerged branches MUST produce explicit warnings and confirmation.

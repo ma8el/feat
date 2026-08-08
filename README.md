@@ -48,9 +48,16 @@ environment. A task may span several repositories.
 >
 > **Review** is now real: every repository against the base commit it started
 > from, your own diff and editor commands, and a gate that runs the project's
-> configured checks before a task is called ready. The cleanup command is
-> registered but not implemented and reports the slice that delivers it. Nothing
-> here is usable for real work yet.
+> configured checks before a task is called ready.
+>
+> **Recovery and cleanup** close the loop. Feat compares what it recorded with
+> what the machine actually has, reports whatever is missing, orphaned,
+> inconsistent, or unreadable, and repairs none of it on its own — a dead agent
+> session can be resumed, continuing the recorded conversation rather than
+> starting an empty one, but only when you ask. `feat cleanup` prints the exact
+> inventory of what a task owns and removes only what you select, one class at a
+> time, with volumes retained unless chosen and a second confirmation for
+> anything that would lose work. Nothing here is usable for real work yet.
 
 ## Preparing a task
 

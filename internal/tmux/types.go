@@ -30,7 +30,15 @@ type CommandSpec struct {
 }
 
 // Validate reports whether the command can be passed to tmux without tmux
-// interpreting its program as one of new-window's own flags.
+// interpreting its program as one of new-window's own flags, and without any of
+// its values breaking the formats discovery parses.
+//
+// The working directory is checked with the same rule as the arguments, and not
+// only for being absolute. It is the one caller-supplied value tmux reports
+// back, as #{pane_current_path} inside a tab-separated list format, so a tab in
+// a path misaligns every pane field and breaks discovery for every terminal on
+// the server — the blast radius quarantine bounds, reached before quarantine can
+// bound it (ADR-030 evidence 10, settled by ADR-037).
 func (s CommandSpec) Validate() error {
 	if err := safeArgument("program", s.Program, false); err != nil {
 		return err
@@ -38,12 +46,83 @@ func (s CommandSpec) Validate() error {
 	if !filepath.IsAbs(s.Directory) {
 		return fmt.Errorf("tmux command working directory must be absolute, but is %q", s.Directory)
 	}
+	if err := safeArgument("working directory", s.Directory, false); err != nil {
+		return err
+	}
 	for i, argument := range s.Arguments {
 		if err := safeArgument(fmt.Sprintf("argument %d", i+1), argument, true); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// Discovery is what one pass over the dedicated server found.
+//
+// It carries what could be read and what could not, rather than failing as a
+// whole when one tagged object is inconsistent. A damaged pane quarantines the
+// terminal it belongs to, because half a terminal is not one, and a damaged
+// session quarantines its windows for the same reason; everything else stays
+// usable. One task whose agent pane was killed while its shell pane survived
+// must not make every unrelated task unreachable (ADR-030 evidence 9, ADR-037).
+type Discovery struct {
+	// Terminals are the completely tagged, internally consistent task
+	// terminals.
+	Terminals []Terminal
+	// Sessions are the managed project sessions, including those whose windows
+	// were all quarantined. A project whose session is here but whose terminals
+	// are not must not be given a second session.
+	Sessions []Session
+	// Damaged are the tagged objects this pass could not use, each with the
+	// reason. They are reported and never repaired, adopted, or removed.
+	Damaged []Damaged
+}
+
+// Session is one managed project session on the dedicated server.
+type Session struct {
+	// ID is tmux's immutable $session identifier.
+	ID string
+	// Project is the project the session is tagged for.
+	Project domain.ProjectID
+}
+
+// Damaged is one tagged object discovery could not use.
+type Damaged struct {
+	// Kind is the scope the damage was found at: session, window, pane, or
+	// terminal for damage that is only visible once the three are assembled.
+	Kind string
+	// ID is the tmux identifier, empty when it was the unreadable part.
+	ID string
+	// Project and Task are the metadata that could be read, empty otherwise.
+	Project domain.ProjectID
+	Task    domain.TaskID
+	// Reason says what is wrong, in terms a user can act on.
+	Reason string
+}
+
+// Damage kinds.
+const (
+	DamagedSession  = "session"
+	DamagedWindow   = "window"
+	DamagedPane     = "pane"
+	DamagedTerminal = "terminal"
+)
+
+// Terminal returns the terminal carrying one task's metadata.
+func (d Discovery) Terminal(project domain.ProjectID, task domain.TaskID) (Terminal, bool) {
+	return findTerminal(d.Terminals, project, task)
+}
+
+// DamageFor returns the damage recorded against one task, which is what turns
+// "no terminal was found" into an explanation.
+func (d Discovery) DamageFor(project domain.ProjectID, task domain.TaskID) []Damaged {
+	var found []Damaged
+	for _, damaged := range d.Damaged {
+		if damaged.Task == task && (damaged.Project == project || damaged.Project == "") {
+			found = append(found, damaged)
+		}
+	}
+	return found
 }
 
 // Terminal is one tagged task window discovered on the dedicated server.
@@ -95,8 +174,11 @@ func safeArgument(kind, value string, allowDash bool) error {
 		return fmt.Errorf("tmux command %s must not begin with %q, but %q does", kind, "-", value)
 	}
 	for _, r := range value {
-		if r == 0 || r == '\n' || r == '\r' {
-			return fmt.Errorf("tmux command %s must not contain a NUL or newline, but %q does", kind, value)
+		// The tab belongs here with the NUL and the newline: all three are
+		// separators discovery parses, and a value carrying one is a value that
+		// makes tmux's own report unreadable.
+		if r == 0 || r == '\n' || r == '\r' || r == '\t' {
+			return fmt.Errorf("tmux command %s must not contain a NUL, newline, or tab, but %q does", kind, value)
 		}
 	}
 	return nil

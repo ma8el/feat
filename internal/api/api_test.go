@@ -25,6 +25,10 @@ var update = flag.Bool("update", false, "rewrite golden files")
 // The transport is tested against it rather than against a daemon, which is the
 // point of the Service interface: a response shape can be pinned without a
 // socket, a store, or a lock.
+// fixedTime is when every fixture in this file happened, so a golden file pins
+// a document rather than a clock.
+var fixedTime = time.Date(2026, 8, 7, 9, 44, 22, 0, time.UTC)
+
 type fakeService struct {
 	health   HealthReport
 	projects []*domain.Project
@@ -46,6 +50,11 @@ type fakeService struct {
 	// resources replaces the fixed sample below, so that a test can arrange a
 	// machine that measured nothing while the golden keeps its own.
 	resources ResourceReport
+	// reconciliation is the last pass, absent until one has been run.
+	reconciliation *Reconciliation
+	// selections records every cleanup selection the transport passed through,
+	// so a test can assert what reached the daemon rather than what was sent.
+	selections []CleanupSelection
 }
 
 func newFakeService() *fakeService {
@@ -256,6 +265,113 @@ func (f *fakeService) Review(_ context.Context, id domain.TaskID, action ReviewA
 		}
 	}
 	return ReviewResult{}, fmt.Errorf("%w: no task %s", ErrNotFound, id)
+}
+
+func (f *fakeService) Reconciliation() (Reconciliation, bool) {
+	if f.reconciliation == nil {
+		return Reconciliation{}, false
+	}
+	return *f.reconciliation, true
+}
+
+func (f *fakeService) Reconcile(_ context.Context) (Reconciliation, error) {
+	if err := f.check(); err != nil {
+		return Reconciliation{}, err
+	}
+	f.actions = append(f.actions, "reconcile")
+
+	report := Reconciliation{
+		Ran:            true,
+		StartedAt:      fixedTime,
+		FinishedAt:     fixedTime,
+		NeedsAttention: true,
+		Findings: []ReconciliationFinding{{
+			Class:     "terminal",
+			Status:    "missing",
+			ProjectID: storetest.ProjectID.String(),
+			TaskID:    storetest.TaskID.String(),
+			TaskKey:   storetest.TaskID.Key().String(),
+			Identity:  "@3",
+			Detail:    "the recorded tmux terminal is gone; the session is recorded as stopped and was not restarted",
+			Action:    "resume it from the task detail",
+		}},
+		Problems: []ReconciliationProblem{{
+			Class:  "runtime_containers",
+			Reason: "the application services could not be observed",
+		}},
+		PreviousRunEndedCleanly: false,
+		PreviousRunStoppedAt:    fixedTime,
+	}
+	f.reconciliation = &report
+	return report, nil
+}
+
+func (f *fakeService) CleanupPlan(_ context.Context, id domain.TaskID) (CleanupPlan, error) {
+	if err := f.check(); err != nil {
+		return CleanupPlan{}, err
+	}
+	for _, task := range f.tasks {
+		if task.ID == id {
+			return CleanupPlan{
+				TaskID:    task.ID.String(),
+				TaskKey:   task.ID.Key().String(),
+				ProjectID: task.ProjectID.String(),
+				Workflow:  string(task.Workflow),
+				Token:     "0f1e2d3c",
+				Classes: []CleanupClass{{
+					Class: "worktrees",
+					Title: "worktrees",
+					Targets: []CleanupTarget{{
+						Identity:   "/state/feat/worktrees/example/7f3a1c2e/api",
+						Repository: storetest.PrimaryRepositoryID.String(),
+						Detail:     "the task worktree of api",
+						Present:    true,
+						Warnings:   []string{"the worktree has uncommitted or untracked changes"},
+					}},
+					Warnings: []string{"the worktree has uncommitted or untracked changes"},
+				}},
+				Archivable: true,
+				ResolvedAt: fixedTime,
+			}, nil
+		}
+	}
+	return CleanupPlan{}, fmt.Errorf("%w: no task %s", ErrNotFound, id)
+}
+
+func (f *fakeService) Cleanup(_ context.Context, id domain.TaskID, selection CleanupSelection) (CleanupResult, error) {
+	if err := f.check(); err != nil {
+		return CleanupResult{}, err
+	}
+	f.selections = append(f.selections, selection)
+
+	for _, task := range f.tasks {
+		if task.ID == id {
+			return CleanupResult{
+				Task: task,
+				Removed: []CleanupRemoval{{
+					Class:    "worktrees",
+					Identity: "/state/feat/worktrees/example/7f3a1c2e/api",
+					Removed:  true,
+				}},
+				Archived: selection.Archive,
+			}, nil
+		}
+	}
+	return CleanupResult{}, fmt.Errorf("%w: no task %s", ErrNotFound, id)
+}
+
+func (f *fakeService) Resume(_ context.Context, id domain.TaskID) (*domain.Task, error) {
+	if err := f.check(); err != nil {
+		return nil, err
+	}
+	f.actions = append(f.actions, "resume")
+
+	for _, task := range f.tasks {
+		if task.ID == id {
+			return task, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: no task %s", ErrNotFound, id)
 }
 
 func (f *fakeService) RuntimeLogs(_ context.Context, id domain.TaskID) (RuntimeCommand, error) {

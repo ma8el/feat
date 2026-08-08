@@ -101,6 +101,33 @@ func (b *backend) Review(ctx context.Context, id string, action api.ReviewAction
 	return b.client.Review(ctx, id, action)
 }
 
+// CleanupPlan resolves what a task owns, removing nothing.
+func (b *backend) CleanupPlan(ctx context.Context, id string) (api.CleanupPlan, error) {
+	return b.client.CleanupPlan(ctx, id)
+}
+
+// Cleanup removes the classes a selection names.
+func (b *backend) Cleanup(
+	ctx context.Context, id string, selection api.CleanupSelection,
+) (api.CleanupStatus, error) {
+	return b.client.Cleanup(ctx, id, selection)
+}
+
+// Resume continues a task's recorded agent session.
+func (b *backend) Resume(ctx context.Context, id string) (api.Task, error) {
+	return b.client.Resume(ctx, id)
+}
+
+// Reconciliation returns the daemon's most recent recovery pass.
+func (b *backend) Reconciliation(ctx context.Context) (api.Reconciliation, error) {
+	return b.client.Reconciliation(ctx)
+}
+
+// Reconcile asks the daemon to compare persisted state with the machine again.
+func (b *backend) Reconcile(ctx context.Context) (api.Reconciliation, error) {
+	return b.client.Reconcile(ctx)
+}
+
 // ReviewCommand builds the process for one of the project's own review tools.
 //
 // It is checked here, where every other command the TUI runs is built, so the

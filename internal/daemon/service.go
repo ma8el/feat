@@ -19,6 +19,7 @@ import (
 	"github.com/ma8el/feat/internal/notify"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
+	"github.com/ma8el/feat/internal/reconcile"
 	"github.com/ma8el/feat/internal/resources"
 	"github.com/ma8el/feat/internal/review"
 	"github.com/ma8el/feat/internal/runtime"
@@ -114,6 +115,20 @@ type service struct {
 	// locks serialise the read-modify-write cycles of one task's records, which
 	// the background gate made concurrent with everything else (ADR-036).
 	locks *taskLocks
+	// report is the most recent reconciliation pass, which the local API serves
+	// and the dashboard shows. It is deliberately not persisted: it describes
+	// what was observed at one moment, and a stored copy would be read later as
+	// though it still were (ADR-037).
+	reportMu sync.Mutex
+	report   *reconcile.Report
+	// startedRecord is the durable daemon record this run wrote when it claimed
+	// the state directory. A clean shutdown rewrites it; a crash leaves it
+	// saying the run never ended, which is what makes the flag mean anything.
+	startedRecord *domain.DaemonRecord
+	// previousRun is what the last daemon to own this state directory left
+	// behind, read once when this run claimed it. It is held rather than
+	// re-read, because claiming replaced the record on disk with this run's.
+	previousRun *domain.DaemonRecord
 	// workspaces caches one control workspace per task, because each holds the
 	// record of what it has already applied.
 	workspaceMu sync.Mutex

@@ -311,6 +311,44 @@ linters:
             - pkg: github.com/charmbracelet
             - pkg: github.com/spf13/cobra
 
+        # ADR-037: reconciliation decides what a report says and what a cleanup
+        # is allowed to remove. The daemon observes the world through the
+        # adapters and hands this package the observations; nothing here drives
+        # a tool, reads configuration, or touches persistent state, so "reported
+        # and never adopted" is a property of what this package can reach rather
+        # than a rule to remember. It may reach internal/paths, because the
+        # broad-path rule is one list answered in one place for the package that
+        # validates a worktree root and the package that decides what may be
+        # removed beneath it.
+        reconcile-stays-a-policy:
+          files:
+            - "**/internal/reconcile/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/cli
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/config
+              desc: the daemon resolves configuration and hands this package final values
+            - pkg: github.com/ma8el/feat/internal/control
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/execution
+              desc: an environment is observed and removed by the daemon, not by the policy that decides whether it may be
+            - pkg: github.com/ma8el/feat/internal/git
+              desc: worktree and branch answers are Git's own and belong to its adapter
+            - pkg: github.com/ma8el/feat/internal/notify
+            - pkg: github.com/ma8el/feat/internal/project
+            - pkg: github.com/ma8el/feat/internal/resources
+            - pkg: github.com/ma8el/feat/internal/review
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/tmux
+              desc: a damaged terminal reaches this package as a finding, never as a tmux type
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+            - pkg: github.com/spf13/cobra
+
         # ADR-035: the notification policy decides what is worth interrupting
         # somebody for, in domain terms, and its platform adapters deliver. It
         # reads no configuration — the daemon resolves a project's settings into

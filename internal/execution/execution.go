@@ -48,6 +48,18 @@ type Environment interface {
 	// here. It is separate from Inspect so that diagnostics can show the same
 	// facts a launch refuses over.
 	Check(report Report) error
+	// Destroy removes the containers and networks this environment owns, and no
+	// volume. It is only ever reached from a cleanup the user confirmed.
+	Destroy(ctx context.Context) (State, error)
+	// Volumes lists the named volumes this environment owns. A volume the
+	// project declares external is not one of them.
+	Volumes(ctx context.Context) ([]string, error)
+	// RemoveVolumes removes the named volumes and reports which were removed.
+	//
+	// It is a separate method rather than a flag on Destroy, so that "volumes
+	// are retained by default" is the shape of this interface rather than an
+	// argument somebody can pass wrongly (FR-CLEAN-004, ADR-037).
+	RemoveVolumes(ctx context.Context, names []string) ([]string, error)
 }
 
 // ErrNotInEnvironment reports an executable the agent's environment does not

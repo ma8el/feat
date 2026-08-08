@@ -159,9 +159,17 @@ func (s *service) applyAgentEvent(ctx context.Context, task *domain.Task, event 
 	s.startup.cancel(task.ID)
 
 	// A session start that resumed, cleared, or compacted is the same session
-	// carrying on. Letting it re-run the launch transition would mean a user
-	// typing /clear moved their task's workflow.
-	if event.Kind == agent.KindSessionStarted && event.Continued {
+	// carrying on, so it must not re-run the launch transition on a task that is
+	// already working: a user typing /clear would otherwise move their task's
+	// workflow.
+	//
+	// It is narrowed to a task that is already working, because that is the case
+	// the rule was written for. A task in preparing has just been launched or
+	// resumed and is waiting for exactly this event to say the agent is up; the
+	// wider rule left a resumed task sitting in preparing with a running agent,
+	// looking broken (ADR-032, narrowed by ADR-037).
+	if event.Kind == agent.KindSessionStarted && event.Continued &&
+		task.Workflow != domain.WorkflowPreparing {
 		change.workflow = nil
 	}
 	// An event that says the user is needed outranks the table's default, and

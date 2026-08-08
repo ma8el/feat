@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"github.com/ma8el/feat/internal/agent"
 	"github.com/ma8el/feat/internal/control"
@@ -68,36 +69,70 @@ func (a Adapter) Prepare(_ context.Context, req agent.PrepareRequest) (agent.Lau
 		return agent.LaunchSpec{}, err
 	}
 
+	arguments := []string{
+		// --add-dir is variadic, so it must never be the last flag before
+		// the prompt: it would swallow the prompt as a second directory and
+		// the session would start with no task at all. Another flag after it
+		// ends the list. This ordering is load-bearing and is pinned by a
+		// test.
+		//
+		// It exists because the control workspace is outside the working
+		// directory, so without it the session's first act is to ask
+		// permission to read the brief Feat wrote for it — on every task
+		// launch. A permission dialog nobody needed teaches a user to click
+		// through the ones that matter. It grants tool access to one
+		// directory Feat generated for this task and widens nothing else.
+		"--add-dir", req.Workspace.ControlPath,
+		// The generated settings are added to the user's own rather than
+		// replacing them, and --setting-sources is deliberately not narrowed:
+		// the project's checked-in configuration is part of how the user
+		// works and Feat has no business switching it off.
+		"--settings", generated.settingsPath,
+		"--append-system-prompt-file", generated.instructionsPath,
+	}
+
+	if req.Resume != "" {
+		// --resume takes an optional value, so it has the same hazard --add-dir
+		// has and one more: given no value it opens an interactive picker. The
+		// identifier is therefore always passed explicitly, and the flag is
+		// never the last thing before a positional argument.
+		if err := checkSessionID(req.Resume); err != nil {
+			return agent.LaunchSpec{}, err
+		}
+		arguments = append(arguments, "--resume", req.Resume)
+		// No prompt. A resumed session already holds the conversation this task
+		// has had, and a prompt invented here would be Feat putting words in the
+		// user's mouth. The session comes back where it was, and what happens
+		// next is theirs (ADR-037).
+	} else {
+		arguments = append(arguments, generated.initialPrompt)
+	}
+
 	spec := agent.LaunchSpec{
-		Program: Executable,
-		Arguments: []string{
-			// --add-dir is variadic, so it must never be the last flag before
-			// the prompt: it would swallow the prompt as a second directory and
-			// the session would start with no task at all. Another flag after it
-			// ends the list. This ordering is load-bearing and is pinned by a
-			// test.
-			//
-			// It exists because the control workspace is outside the working
-			// directory, so without it the session's first act is to ask
-			// permission to read the brief Feat wrote for it — on every task
-			// launch. A permission dialog nobody needed teaches a user to click
-			// through the ones that matter. It grants tool access to one
-			// directory Feat generated for this task and widens nothing else.
-			"--add-dir", req.Workspace.ControlPath,
-			// The generated settings are added to the user's own rather than
-			// replacing them, and --setting-sources is deliberately not narrowed:
-			// the project's checked-in configuration is part of how the user
-			// works and Feat has no business switching it off.
-			"--settings", generated.settingsPath,
-			"--append-system-prompt-file", generated.instructionsPath,
-			generated.initialPrompt,
-		},
+		Program:   Executable,
+		Arguments: arguments,
 		Directory: req.Workspace.WorkingDirectory,
 	}
 	if err := spec.Validate(); err != nil {
 		return agent.LaunchSpec{}, err
 	}
 	return spec, nil
+}
+
+// sessionIDPattern is what Claude Code's own session identifiers look like.
+//
+// It is checked rather than trusted because the value reaches an argument
+// vector: it comes from a provider message, and a message an agent could write
+// is not a value to pass through unexamined (docs/05-security-model.md, control
+// workspace validation).
+var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
+
+// checkSessionID refuses a recorded identifier that is not one.
+func checkSessionID(id string) error {
+	if !sessionIDPattern.MatchString(id) {
+		return fmt.Errorf("%q is not a Claude session identifier Feat will pass to the CLI", id)
+	}
+	return nil
 }
 
 // ParseEvent normalizes one control message into an agent event.

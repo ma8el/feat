@@ -160,17 +160,27 @@ On startup, the daemon reconciles persisted task records with:
 - task control workspaces;
 - pending review state.
 
-Feat does not automatically restart stopped containers. It reports the observed state and offers recovery actions.
+Feat does not automatically restart stopped containers, and nothing else either:
+a pass repairs, restarts, recreates, and adopts nothing. It reports what it
+observed and offers recovery actions the user takes.
+
+A resource Feat cannot read is quarantined rather than allowed to end the pass,
+so one damaged terminal, worktree, or Compose project never makes the healthy
+ones unusable. Missing, orphaned, inconsistent, and damaged resources are each
+reported with what the user can do about them.
+
+A dead agent session can be resumed, which continues the recorded provider
+session rather than opening an empty one. It is offered and never automatic.
 
 ## 11. Cleanup
 
 1. The user selects Cleanup.
 2. Feat resolves every task-owned resource.
 3. It displays dirty repositories, unpushed commits, unmerged branches, running services, and retained volumes.
-4. Stopping services and removing containers/networks are separate from removing volumes, worktrees, or branches.
-5. Dirty or unmerged worktrees require explicit confirmation.
+4. Stopping services and removing containers/networks are separate from removing volumes, worktrees, or branches. The task's terminal and its control workspace are two further separate choices.
+5. Dirty or unmerged worktrees require explicit confirmation. The confirmation names the warning the user was shown, and is re-checked against what is true at the moment of removal.
 6. Volumes are retained by default.
-7. Task metadata is archived so Feat can explain what happened later.
+7. Task metadata is archived so Feat can explain what happened later. Nothing is deleted from the state directory: the snapshot keeps what the task was, and the event log keeps what became of what it owned. Archiving is refused while the task still owns resources the cleanup leaves behind.
 
 No age-based automatic deletion exists in initial versions.
 

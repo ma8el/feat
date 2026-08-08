@@ -33,6 +33,12 @@ type launchPlan struct {
 	// agent outside the boundary the project configured, or what the generated
 	// override changed about the project's own Compose service.
 	note string
+	// restart replaces the program in an existing pane rather than returning the
+	// terminal untouched. Only a resume sets it: repeating an ordinary launch
+	// must never restart an agent that is already working, and a resume is the
+	// one case where the caller means to replace the process because a user
+	// asked (ADR-037).
+	restart bool
 }
 
 // planLaunch decides what a task's terminal runs and prepares whatever it needs.
@@ -41,6 +47,15 @@ type launchPlan struct {
 // started with the host-agent opt-in — the only thing that can move an agent
 // outside its configured boundary, and never a request field (ADR-032).
 func (s *service) planLaunch(ctx context.Context, cfg *config.Config, task *domain.Task) (launchPlan, error) {
+	return s.planLaunchResuming(ctx, cfg, task, "")
+}
+
+// planLaunchResuming is planLaunch with an optional provider session to
+// continue. An empty session identifier is an ordinary launch, which is what
+// every caller but Resume passes.
+func (s *service) planLaunchResuming(
+	ctx context.Context, cfg *config.Config, task *domain.Task, resume string,
+) (launchPlan, error) {
 	directory, err := primaryWorktree(cfg, task)
 	if err != nil {
 		return launchPlan{}, err
@@ -54,13 +69,13 @@ func (s *service) planLaunch(ctx context.Context, cfg *config.Config, task *doma
 		return launchPlan{}, fmt.Errorf("%w: no adapter for agent provider %q", api.ErrInvalid, cfg.Agent.Provider)
 
 	case configured == domain.ExecutionHost:
-		return s.planAgent(ctx, cfg, task, directory, domain.ExecutionHost, false)
+		return s.planAgent(ctx, cfg, task, directory, domain.ExecutionHost, false, resume)
 
 	case s.hostAgent:
-		return s.planAgent(ctx, cfg, task, directory, domain.ExecutionHost, true)
+		return s.planAgent(ctx, cfg, task, directory, domain.ExecutionHost, true, resume)
 
 	default:
-		return s.planContainerAgent(ctx, cfg, task)
+		return s.planContainerAgent(ctx, cfg, task, resume)
 	}
 }
 
@@ -73,7 +88,7 @@ func (s *service) planLaunch(ctx context.Context, cfg *config.Config, task *doma
 // amends ADR-032's "validation creates nothing" for this mode alone, and what it
 // creates is the environment the validation is about.
 func (s *service) planContainerAgent(
-	ctx context.Context, cfg *config.Config, task *domain.Task,
+	ctx context.Context, cfg *config.Config, task *domain.Task, resume string,
 ) (launchPlan, error) {
 	workspace, err := s.controlWorkspace(task)
 	if err != nil {
@@ -158,6 +173,7 @@ func (s *service) planContainerAgent(
 		Control:     workspace,
 		Environment: env,
 		Gate:        s.gateFor(cfg, task),
+		Resume:      resume,
 	})
 	if err != nil {
 		return launchPlan{}, err
@@ -245,7 +261,7 @@ func (s *service) recordEnvironment(
 // that says an agent is running in it (acceptance criterion 6).
 func (s *service) planAgent(
 	ctx context.Context, cfg *config.Config, task *domain.Task,
-	directory string, mode domain.ExecutionMode, outsideBoundary bool,
+	directory string, mode domain.ExecutionMode, outsideBoundary bool, resume string,
 ) (launchPlan, error) {
 	env := agent.Environment{
 		Mode:                      mode,
@@ -278,6 +294,7 @@ func (s *service) planAgent(
 		Control:     workspace,
 		Environment: env,
 		Gate:        s.gateFor(cfg, task),
+		Resume:      resume,
 	})
 	if err != nil {
 		return launchPlan{}, err

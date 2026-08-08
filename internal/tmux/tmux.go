@@ -54,15 +54,22 @@ func (t *Tmux) EnsureTask(ctx context.Context, project domain.ProjectID, task do
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	terminals, err := t.discover(ctx)
+	found, err := t.discover(ctx)
 	if err != nil {
 		return Terminal{}, err
 	}
-	if existing, ok := findTerminal(terminals, project, task); ok {
+	if existing, ok := found.Terminal(project, task); ok {
 		return existing, nil
 	}
+	// A task whose terminal was quarantined must not be given a second one: the
+	// first still exists, and creating another would make the ambiguity
+	// permanent. The damage is what the caller is told about.
+	if damage := found.DamageFor(project, task); len(damage) > 0 {
+		return Terminal{}, fmt.Errorf("task %s already has a tmux terminal that Feat cannot use: %s",
+			task, damage[0].Reason)
+	}
 
-	session, err := projectSession(terminals, project)
+	session, err := projectSession(found, project)
 	if err != nil {
 		return Terminal{}, err
 	}
@@ -80,17 +87,27 @@ func (t *Tmux) EnsureTask(ctx context.Context, project domain.ProjectID, task do
 	// Once all three scopes are tagged, a storage failure must leave the
 	// terminal in place: discovery can recover it, while rollback could destroy
 	// work already entered in the pane (ADR-030).
-	terminals, err = t.discover(ctx)
+	found, err = t.discover(ctx)
 	if err != nil {
 		return Terminal{}, fmt.Errorf("task terminal %s was created and tagged at %s/%s/%s but could not be rediscovered: %w",
 			task, created.Session, created.Window, created.Pane, err)
 	}
-	terminal, ok := findTerminal(terminals, project, task)
+	terminal, ok := found.Terminal(project, task)
 	if !ok {
-		return Terminal{}, fmt.Errorf("task terminal %s was created at %s/%s/%s but its Feat metadata was not discoverable",
-			task, created.Session, created.Window, created.Pane)
+		return Terminal{}, fmt.Errorf("task terminal %s was created at %s/%s/%s but its Feat metadata was not discoverable%s",
+			task, created.Session, created.Window, created.Pane, describeDamage(found.DamageFor(project, task)))
 	}
 	return terminal, nil
+}
+
+// describeDamage appends the reason a just-created terminal was quarantined,
+// so a creation that succeeded and then vanished says why rather than only
+// that it did.
+func describeDamage(damage []Damaged) string {
+	if len(damage) == 0 {
+		return ""
+	}
+	return ": " + damage[0].Reason
 }
 
 // EnsureShell creates the one on-demand shell pane for a task, or returns the
@@ -110,13 +127,14 @@ func (t *Tmux) EnsureShell(ctx context.Context, project domain.ProjectID, task d
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	terminals, err := t.discover(ctx)
+	found, err := t.discover(ctx)
 	if err != nil {
 		return Terminal{}, err
 	}
-	terminal, ok := findTerminal(terminals, project, task)
+	terminal, ok := found.Terminal(project, task)
 	if !ok {
-		return Terminal{}, fmt.Errorf("task %s has no managed tmux terminal on %s", task, t.socket)
+		return Terminal{}, fmt.Errorf("task %s has no managed tmux terminal on %s%s",
+			task, t.socket, describeDamage(found.DamageFor(project, task)))
 	}
 	if terminal.Shell != nil {
 		return terminal, nil
@@ -146,25 +164,130 @@ func (t *Tmux) EnsureShell(ctx context.Context, project domain.ProjectID, task d
 		return Terminal{}, errors.Join(err, t.kill(ctx, "kill-pane", created.Pane))
 	}
 
-	terminals, err = t.discover(ctx)
+	found, err = t.discover(ctx)
 	if err != nil {
 		return Terminal{}, fmt.Errorf("shell pane %s was tagged but could not be rediscovered: %w", created.Pane, err)
 	}
-	terminal, ok = findTerminal(terminals, project, task)
+	terminal, ok = found.Terminal(project, task)
 	if !ok || terminal.Shell == nil {
-		return Terminal{}, fmt.Errorf("shell pane %s was created but its Feat metadata was not discoverable", created.Pane)
+		return Terminal{}, fmt.Errorf("shell pane %s was created but its Feat metadata was not discoverable%s",
+			created.Pane, describeDamage(found.DamageFor(project, task)))
+	}
+	return terminal, nil
+}
+
+// Restart replaces the program running in a task's agent pane.
+//
+// It is what a resume needs and what EnsureTask deliberately does not do:
+// EnsureTask returns an existing terminal untouched, because repeating a launch
+// must not restart an agent that is already working. A resume is the one case
+// where the caller means to replace the process, and it means it because a user
+// asked.
+//
+// The pane is kept whatever happens. Unlike a pane created moments ago, this one
+// may hold scrollback the user wants — the output of the session that died is
+// often the only account of why — so a failure to start the new program leaves
+// the terminal in place rather than removing it (ADR-030's retention rule).
+func (t *Tmux) Restart(
+	ctx context.Context, project domain.ProjectID, task domain.TaskID, command CommandSpec,
+) (Terminal, error) {
+	if err := project.Validate(); err != nil {
+		return Terminal{}, err
+	}
+	if err := task.Validate(); err != nil {
+		return Terminal{}, err
+	}
+	if err := command.Validate(); err != nil {
+		return Terminal{}, err
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	found, err := t.discover(ctx)
+	if err != nil {
+		return Terminal{}, err
+	}
+	terminal, ok := found.Terminal(project, task)
+	if !ok {
+		return Terminal{}, fmt.Errorf("task %s has no managed tmux terminal on %s to restart%s",
+			task, t.socket, describeDamage(found.DamageFor(project, task)))
+	}
+	if err := t.start(ctx, terminal.Target.Pane, command); err != nil {
+		return Terminal{}, err
+	}
+
+	found, err = t.discover(ctx)
+	if err != nil {
+		return Terminal{}, fmt.Errorf("the terminal of task %s was restarted but could not be rediscovered: %w",
+			task, err)
+	}
+	terminal, ok = found.Terminal(project, task)
+	if !ok {
+		return Terminal{}, fmt.Errorf("the terminal of task %s was restarted but its metadata was not discoverable%s",
+			task, describeDamage(found.DamageFor(project, task)))
 	}
 	return terminal, nil
 }
 
 // Find returns the terminal carrying one task's metadata.
 func (t *Tmux) Find(ctx context.Context, project domain.ProjectID, task domain.TaskID) (Terminal, bool, error) {
-	terminals, err := t.Discover(ctx)
+	found, err := t.Discover(ctx)
 	if err != nil {
 		return Terminal{}, false, err
 	}
-	terminal, ok := findTerminal(terminals, project, task)
+	terminal, ok := found.Terminal(project, task)
 	return terminal, ok, nil
+}
+
+// RemoveTask kills the window carrying one task's metadata, and nothing else.
+//
+// The target is resolved from live metadata rather than from a stored
+// identifier, so a window index or display name the user changed cannot make
+// this remove somebody else's window. It reports whether there was anything to
+// remove, because a cleanup of a terminal that is already gone is a success
+// rather than a failure.
+//
+// A quarantined terminal is deliberately removable: the whole point of
+// reporting damage rather than repairing it is that the user decides, and
+// "remove it" is one of the decisions available to them.
+func (t *Tmux) RemoveTask(ctx context.Context, project domain.ProjectID, task domain.TaskID) (bool, error) {
+	if err := project.Validate(); err != nil {
+		return false, err
+	}
+	if err := task.Validate(); err != nil {
+		return false, err
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	found, err := t.discover(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	window := ""
+	if terminal, ok := found.Terminal(project, task); ok {
+		window = terminal.Target.Window
+	} else {
+		for _, damaged := range found.DamageFor(project, task) {
+			if damaged.Kind == DamagedTerminal && windowIDPattern.MatchString(damaged.ID) {
+				window = damaged.ID
+				break
+			}
+		}
+	}
+	if window == "" {
+		return false, nil
+	}
+	if _, err := t.runner.Run(ctx, t.socket, "kill-window", "-t", window); err != nil {
+		if errors.Is(err, ErrServerNotRunning) {
+			return false, nil
+		}
+		return false, fmt.Errorf("removing the tmux window of task %s: %w", task, err)
+	}
+	return true, nil
 }
 
 func (t *Tmux) createSession(ctx context.Context, project domain.ProjectID, task domain.TaskID, command CommandSpec) (domain.TmuxTarget, error) {
@@ -322,16 +445,27 @@ func findTerminal(terminals []Terminal, project domain.ProjectID, task domain.Ta
 	return Terminal{}, false
 }
 
-func projectSession(terminals []Terminal, project domain.ProjectID) (string, error) {
+// projectSession returns the managed session a project's windows belong in.
+//
+// It reads the discovered sessions rather than the terminals, because a project
+// whose every window was quarantined still has a session: deriving it from
+// healthy terminals would answer "none" and give that project a second session,
+// which is the conflict quarantine exists to avoid making permanent.
+func projectSession(found Discovery, project domain.ProjectID) (string, error) {
+	for _, damaged := range found.Damaged {
+		if damaged.Kind == DamagedSession && damaged.Project == project {
+			return "", fmt.Errorf("project %s cannot be given a task terminal: %s", project, damaged.Reason)
+		}
+	}
 	var session string
-	for _, terminal := range terminals {
-		if terminal.Project != project {
+	for _, candidate := range found.Sessions {
+		if candidate.Project != project {
 			continue
 		}
-		if session != "" && session != terminal.Target.Session {
+		if session != "" && session != candidate.ID {
 			return "", fmt.Errorf("multiple managed tmux sessions claim project %s", project)
 		}
-		session = terminal.Target.Session
+		session = candidate.ID
 	}
 	return session, nil
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/paths"
 )
 
 // Names inside one task's control workspace.
@@ -165,6 +166,33 @@ func (w *Workspace) Create() error {
 func (w *Workspace) Exists() bool {
 	info, err := os.Stat(w.root)
 	return err == nil && info.IsDir()
+}
+
+// Remove deletes the workspace tree, and reports whether there was one.
+//
+// This is the audit trail ADR-032 kept intact until cleanup, so removing it is
+// only ever reached from a cleanup the user confirmed. The path is the one this
+// workspace computed from a validated project and task identifier under a root
+// the daemon resolved, never one a caller supplied — and it is checked again
+// here, because this function deletes a directory tree and the cost of the check
+// is nothing next to the cost of being wrong.
+func (w *Workspace) Remove() (bool, error) {
+	if !filepath.IsAbs(w.root) || paths.Broad(w.root) {
+		return false, fmt.Errorf("refusing to remove the control workspace %q: it is not a directory Feat owns", w.root)
+	}
+	// The workspace lives two levels below the control root, at
+	// <root>/<project>/<task>, so anything shallower is not one whatever else it
+	// may be.
+	if paths.Depth(w.root) < 4 {
+		return false, fmt.Errorf("refusing to remove the control workspace %q: it is not deep enough to be one", w.root)
+	}
+	if !w.Exists() {
+		return false, nil
+	}
+	if err := os.RemoveAll(w.root); err != nil {
+		return false, fmt.Errorf("removing the control workspace %s: %w", w.root, err)
+	}
+	return true, nil
 }
 
 // WriteBrief records the confirmed task brief.

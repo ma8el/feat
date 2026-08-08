@@ -120,6 +120,16 @@ type PrepareRequest struct {
 	// Gate says whether a completion gate will answer this task's review
 	// requests.
 	Gate Gate
+	// Resume is the provider's own identifier for a session to continue, empty
+	// for an ordinary launch.
+	//
+	// It is neutral on purpose: what continuing a session means is the
+	// provider's, and an adapter whose agent cannot resume one is free to
+	// refuse. What an adapter must not do is quietly start a new session
+	// instead — a resumed session that lost its history looks identical from
+	// the outside, which is the failure mode ADR-032's evidence 4 describes
+	// (ADR-037).
+	Resume string
 }
 
 // Gate describes the completion gate an adapter has to tell the agent about.

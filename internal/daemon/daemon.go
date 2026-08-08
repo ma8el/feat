@@ -278,19 +278,22 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 	// concurrent write.
 	d.service.endpoint = ownership.Endpoint()
 
-	// tmux outlives the daemon. Reconcile after taking runtime ownership (so
-	// the dedicated socket's parent is known safe) and before clients can read
-	// state. A failed observation must not make the recovery UI unavailable;
-	// it is logged and the daemon still serves the last recorded state.
-	if reconcileErr := d.service.reconcileTmux(ctx); reconcileErr != nil {
-		d.logger.ErrorContext(ctx, "reconciling tmux terminals", slog.Any("error", reconcileErr))
+	// The state directory is checked before anything writes to it. A directory
+	// written by a newer Feat is refused rather than overwritten, because that
+	// is the one recovery failure a user would never see: every other one
+	// reports itself, and silently losing what a newer schema added does not
+	// (ADR-037).
+	if err := d.service.claimStateDirectory(ctx); err != nil {
+		return err
 	}
 
-	// A completion gate does not outlive the process that started it, so a task
-	// recorded as verifying is a task claiming that checks are running when
-	// nothing is. It goes back to where the review request was, with an event
-	// saying why; running them again is an action the user takes (ADR-036).
-	d.service.recoverGates(ctx)
+	// Everything a task owns outlives the daemon: tmux terminals, worktrees,
+	// both kinds of Compose project, the control workspace, and a review that
+	// was in progress. Reconcile after taking runtime ownership, so the
+	// dedicated socket's parent is known safe, and before clients can read
+	// state. A failed pass must not make the recovery interface unavailable: it
+	// is logged, and the daemon still serves the last recorded state.
+	d.service.startupReconcile(ctx)
 
 	// Control messages also outlive the daemon: an agent that ended a turn
 	// while Feat was stopped wrote a file, and that file is still there. Reading
@@ -348,6 +351,12 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 		// behind the daemon, and waiting means nothing is still writing a task's
 		// records once Serve has returned (ADR-036).
 		d.service.gate.stopAll()
+
+		// Last, once nothing else can write: the state directory is recorded as
+		// having been released cleanly. A daemon that is killed never gets here,
+		// and the next run's reconciliation reports the crash because of it
+		// (ADR-037).
+		d.service.releaseStateDirectory(context.WithoutCancel(ctx))
 	}()
 
 	// Request contexts derive from this one, so cancelling it ends the event

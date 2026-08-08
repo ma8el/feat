@@ -175,7 +175,14 @@ func runCommands(t *testing.T, cmd tea.Cmd) {
 const settleFor = 250 * time.Millisecond
 
 // run executes one command, giving up on a command that blocks.
+//
+// A nil command is nothing to run rather than a panic: an update that decided to
+// do nothing returns one, and a test that drives several messages should not
+// have to know which of them did.
 func run(cmd tea.Cmd) tea.Msg {
+	if cmd == nil {
+		return nil
+	}
 	messages := make(chan tea.Msg, 1)
 	go func() { messages <- cmd() }()
 

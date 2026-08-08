@@ -502,6 +502,109 @@ func TestRealCleanupPlanSeesDirtyAndUnmergedWork(t *testing.T) {
 	}
 }
 
+// TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety is slice 12's
+// seventh acceptance criterion against Git itself.
+//
+// The precise rule — that a target is inside the directory Feat owns and outside
+// every checkout — is this adapter's, and it runs again immediately before
+// anything is deleted. What only real Git can settle is the other half: that
+// `worktree remove` refuses a dirty worktree without --force and takes it with
+// one, and that `branch -d` refuses an unmerged branch. Those are the safeties
+// the confirmation rule sits on top of, and a fake cannot prove they exist.
+func TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety(t *testing.T) {
+	requireGit(t)
+	f := realProject(t)
+
+	adapter := Host()
+	plan, err := adapter.Plan(context.Background(), f.req)
+	if err != nil {
+		t.Fatalf("planning: %v", err)
+	}
+	if _, err := adapter.Apply(context.Background(), plan, JournalFunc(
+		func(context.Context, Created) error { return nil },
+	)); err != nil {
+		t.Fatalf("applying: %v", err)
+	}
+
+	worktree := plan.Repositories[0].WorktreePath
+	branch := plan.Repositories[0].Branch
+	request := RemoveRequest{HostPath: f.api, Root: f.root, Checkouts: []string{f.api}}
+
+	// A path outside the directory Feat owns is refused before Git is asked.
+	// The ordinary checkout is the case that matters: it is absolute, real, and
+	// exactly what must never be removed.
+	for _, unsafe := range []string{f.api, "/", "/tmp", filepath.Dir(f.root), "relative"} {
+		if _, err := adapter.RemoveWorktree(context.Background(), unsafe, request); err == nil {
+			t.Errorf("removing %q was allowed", unsafe)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(f.api, ".git")); err != nil {
+		t.Fatalf("the ordinary checkout was damaged: %v", err)
+	}
+
+	// The agent committed one change, so the branch is genuinely unmerged, and
+	// left another uncommitted, so the worktree is genuinely dirty. Both are
+	// needed: Git deletes a branch that points at its base without complaint,
+	// and a test that skipped the commit would be checking nothing.
+	write(t, worktree, "feature.go", "package feature\n")
+	git(t, worktree, "add", "feature.go")
+	git(t, worktree, "commit", "-m", "the agent's work")
+	write(t, worktree, "scratch.txt", "not committed\n")
+	if _, err := adapter.RemoveWorktree(context.Background(), worktree, request); err == nil {
+		t.Error("a dirty worktree was removed without a confirmation")
+	}
+	if _, err := os.Stat(worktree); err != nil {
+		t.Fatalf("the refused removal still deleted the worktree: %v", err)
+	}
+
+	confirmed := request
+	confirmed.Force = true
+	removed, err := adapter.RemoveWorktree(context.Background(), worktree, confirmed)
+	if err != nil {
+		t.Fatalf("a confirmed removal of dirty work failed: %v", err)
+	}
+	if !removed {
+		t.Error("the removal reported that there was nothing to remove")
+	}
+	if _, err := os.Stat(worktree); !os.IsNotExist(err) {
+		t.Errorf("the worktree is still there: %v", err)
+	}
+
+	// Removing it again is a success rather than an error: the user asked for it
+	// to be absent and it is, which is what makes a partial cleanup finishable.
+	if removed, err := adapter.RemoveWorktree(context.Background(), worktree, confirmed); err != nil {
+		t.Errorf("removing an absent worktree failed: %v", err)
+	} else if removed {
+		t.Error("removing an absent worktree reported that something went")
+	}
+
+	// The branch is unmerged, so Git refuses -d and accepts -D. Both halves
+	// matter: the first is the safety, the second is that a confirmation can
+	// actually get past it.
+	if _, err := adapter.DeleteBranch(context.Background(), branch, request); err == nil {
+		t.Error("an unmerged branch was deleted without a confirmation")
+	}
+	deleted, err := adapter.DeleteBranch(context.Background(), branch, confirmed)
+	if err != nil {
+		t.Fatalf("a confirmed deletion of an unmerged branch failed: %v", err)
+	}
+	if !deleted {
+		t.Error("the deletion reported that there was nothing to delete")
+	}
+	if exists, err := adapter.Exists(context.Background(), f.api, "refs/heads/"+branch); err != nil {
+		t.Fatalf("checking the branch: %v", err)
+	} else if exists {
+		t.Error("the branch is still there")
+	}
+
+	// And a branch that is already gone is not an error either.
+	if deleted, err := adapter.DeleteBranch(context.Background(), branch, confirmed); err != nil {
+		t.Errorf("deleting an absent branch failed: %v", err)
+	} else if deleted {
+		t.Error("deleting an absent branch reported that something went")
+	}
+}
+
 // TestRealComparisonAgainstTheRecordedBase is slice 11's first acceptance
 // criterion against Git itself.
 //

@@ -162,6 +162,41 @@ func (c *Client) RuntimeLogs(ctx context.Context, id string) (api.RuntimeCommand
 	return send[api.RuntimeCommand](ctx, c, "/tasks/"+url.PathEscape(id)+"/runtime/logs-info", struct{}{})
 }
 
+// Reconciliation returns the daemon's most recent reconciliation pass without
+// asking it to run another.
+func (c *Client) Reconciliation(ctx context.Context) (api.Reconciliation, error) {
+	return fetch[api.Reconciliation](ctx, c, "/reconciliation")
+}
+
+// Reconcile asks the daemon to compare persisted state with the machine again.
+//
+// It changes nothing but observations: the daemon repairs, restarts, and adopts
+// nothing, so this is safe to call from a screen a user is looking at.
+func (c *Client) Reconcile(ctx context.Context) (api.Reconciliation, error) {
+	return send[api.Reconciliation](ctx, c, "/reconciliation", struct{}{})
+}
+
+// CleanupPlan resolves what a task owns, removing nothing.
+func (c *Client) CleanupPlan(ctx context.Context, id string) (api.CleanupPlan, error) {
+	return send[api.CleanupPlan](ctx, c, "/tasks/"+url.PathEscape(id)+"/cleanup/plan", struct{}{})
+}
+
+// Cleanup removes the classes a selection names.
+//
+// The selection carries the token of the plan that was displayed and the exact
+// warnings the user accepted, so the daemon can refuse a plan that has changed
+// and a confirmation that no longer covers what is true (FR-CLEAN-003).
+func (c *Client) Cleanup(
+	ctx context.Context, id string, selection api.CleanupSelection,
+) (api.CleanupStatus, error) {
+	return send[api.CleanupStatus](ctx, c, "/tasks/"+url.PathEscape(id)+"/cleanup/execute", selection)
+}
+
+// Resume continues a task's recorded agent session.
+func (c *Client) Resume(ctx context.Context, id string) (api.Task, error) {
+	return send[api.Task](ctx, c, "/tasks/"+url.PathEscape(id)+"/resume", struct{}{})
+}
+
 // CreateDraft records a new task draft and creates nothing else.
 //
 // An imported Markdown brief is read by this process and sent as content: the

@@ -1,6 +1,6 @@
 # Feat Product Specification
 
-Status: accepted product direction; implementation started, slices 0 to 11 complete  
+Status: accepted product direction; implementation started, slices 0 to 12 complete  
 Working name: **Feat**  
 Primary CLI: `feat`  
 Initial implementation language: Go  
@@ -81,6 +81,12 @@ explicit user request: no workflow transition and no agent reaches one, and
 approval offers to stop a task's services rather than stopping them. Destroying
 asks for confirmation, retains every volume, and never touches a resource the
 project declares external. See ADR-034.
+
+`feat cleanup <task>` prints the exact inventory of what a task owns and removes
+only what is selected. Each class is a separate choice, dirty or unmerged work
+needs a second confirmation naming what would be lost, and volumes are retained
+unless chosen. There is deliberately no flag that answers every question; outside
+a terminal the inventory is printed and nothing is removed. See ADR-037.
 
 `feat daemon run` is the foreground daemon that `feat daemon start` spawns, and the command a later launchd/systemd unit invokes. It is hidden from help because `feat daemon start` is the user-facing entry point; see ADR-027.
 

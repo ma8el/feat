@@ -51,6 +51,22 @@ type Backend interface {
 	// shows. Approving never stops or destroys anything; the offer to stop a
 	// runtime is made in words (FR-REV-004).
 	Review(ctx context.Context, id string, action api.ReviewAction) (api.ReviewStatus, error)
+	// CleanupPlan resolves what a task owns and removes nothing, which is what
+	// makes it safe to reach with one key press.
+	CleanupPlan(ctx context.Context, id string) (api.CleanupPlan, error)
+	// Cleanup removes exactly the classes a selection names, carrying the plan
+	// token and the warnings the user accepted (FR-CLEAN-002, FR-CLEAN-003).
+	Cleanup(ctx context.Context, id string, selection api.CleanupSelection) (api.CleanupStatus, error)
+	// Resume continues a task's recorded agent session. Nothing but a user
+	// reaches it: recovery is offered and never automatic (FR-STATE-004).
+	Resume(ctx context.Context, id string) (api.Task, error)
+	// Reconciliation returns the daemon's most recent recovery pass, so the
+	// dashboard can show what needs attention. Reading it runs nothing.
+	Reconciliation(ctx context.Context) (api.Reconciliation, error)
+	// Reconcile asks the daemon to look again. It is separate from reading
+	// because a pass asks the container runtime about every task: the periodic
+	// refresh reads, and a new pass follows something that changed.
+	Reconcile(ctx context.Context) (api.Reconciliation, error)
 
 	// AttachCommand yields this terminal to the task's agent pane until the
 	// user detaches.

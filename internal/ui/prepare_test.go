@@ -54,6 +54,23 @@ type fakeBackend struct {
 	reviewStatus api.ReviewStatus
 	reviewErr    error
 
+	// cleanupCalls records every plan request and cleanupSelections every
+	// execution, so a test can assert that opening the screen removed nothing
+	// and that what reached the daemon is what the user selected.
+	cleanupCalls      []string
+	cleanupSelections []api.CleanupSelection
+	cleanupPlan       api.CleanupPlan
+	cleanupStatus     api.CleanupStatus
+	cleanupPlanErr    error
+	cleanupErr        error
+	// resumed records every task whose session was resumed. Its most important
+	// assertion is that it stays empty.
+	resumed []string
+	// reconciled counts the passes the dashboard asked the daemon to run, and
+	// reconciliation is what a read answers with.
+	reconciled     int
+	reconciliation api.Reconciliation
+
 	resources   api.ResourceReport
 	resourceErr error
 
@@ -221,6 +238,57 @@ func (f *fakeBackend) Review(_ context.Context, id string, action api.ReviewActi
 		return api.ReviewStatus{}, f.reviewErr
 	}
 	return f.reviewStatus, nil
+}
+
+// CleanupPlan records the request and answers with whatever the test arranged.
+func (f *fakeBackend) CleanupPlan(_ context.Context, id string) (api.CleanupPlan, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cleanupCalls = append(f.cleanupCalls, id)
+
+	if f.cleanupPlanErr != nil {
+		return api.CleanupPlan{}, f.cleanupPlanErr
+	}
+	return f.cleanupPlan, nil
+}
+
+// Cleanup records the selection, which is what a test asserts against: what the
+// user selected and what reached the daemon are different things, and only one
+// of them removes anything.
+func (f *fakeBackend) Cleanup(
+	_ context.Context, id string, selection api.CleanupSelection,
+) (api.CleanupStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cleanupSelections = append(f.cleanupSelections, selection)
+
+	if f.cleanupErr != nil {
+		return api.CleanupStatus{}, f.cleanupErr
+	}
+	_ = id
+	return f.cleanupStatus, nil
+}
+
+func (f *fakeBackend) Resume(_ context.Context, id string) (api.Task, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resumed = append(f.resumed, id)
+	return api.Task{ID: id}, nil
+}
+
+func (f *fakeBackend) Reconciliation(context.Context) (api.Reconciliation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reconciliation, nil
+}
+
+// Reconcile records that a new pass was asked for, which is what a test asserts
+// against: reading the last one and looking again are different requests.
+func (f *fakeBackend) Reconcile(context.Context) (api.Reconciliation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reconciled++
+	return f.reconciliation, nil
 }
 
 func (f *fakeBackend) ReviewCommand(command api.ReviewCommand) (tea.ExecCommand, error) {

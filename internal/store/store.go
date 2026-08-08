@@ -25,6 +25,23 @@ type Store interface {
 	Events() EventStore
 	// Reviews returns the per-task review repository.
 	Reviews() ReviewStore
+	// Daemons returns the durable record of the daemons that have owned this
+	// state directory.
+	Daemons() DaemonStore
+}
+
+// DaemonStore persists what the state directory remembers about the daemons
+// that have owned it.
+//
+// It is one record for the whole installation rather than one per run: what the
+// next daemon needs to know is the state of the directory it is about to write
+// to and how the previous run ended, not a history of every run (ADR-037).
+type DaemonStore interface {
+	// Save records the state, replacing any earlier record.
+	Save(ctx context.Context, record *domain.DaemonRecord) error
+	// Load returns the record, or an error matching ErrNotFound when this state
+	// directory has never been owned by a daemon that wrote one.
+	Load(ctx context.Context) (*domain.DaemonRecord, error)
 }
 
 // ProjectStore persists registered projects.
