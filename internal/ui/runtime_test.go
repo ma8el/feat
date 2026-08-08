@@ -68,7 +68,7 @@ func TestTheRuntimeScreenShowsWhatTheTaskOwns(t *testing.T) {
 		},
 	}
 
-	view := runtimeScreen(t, backend, task).View()
+	view := content(runtimeScreen(t, backend, task))
 
 	for _, required := range []string{
 		"feat-example-7f3a1c2e", // the Compose project an action reaches
@@ -107,7 +107,7 @@ func TestTheScreenShowsWhatComposeStartedAlongTheWay(t *testing.T) {
 		},
 	}
 
-	view := runtimeScreen(t, backend, task).View()
+	view := content(runtimeScreen(t, backend, task))
 	for _, required := range []string{"postgres", "dependency", "configured", "removes it with the rest"} {
 		if !strings.Contains(view, required) {
 			t.Errorf("the runtime screen does not show %q:\n%s", required, view)
@@ -172,8 +172,8 @@ func TestDestroyingAsksFirst(t *testing.T) {
 	model := runtimeScreen(t, backend, task)
 	asked := press(t, model, "d")
 
-	if !strings.Contains(asked.View(), "Volumes are retained") {
-		t.Errorf("the confirmation does not say what is retained:\n%s", asked.View())
+	if !strings.Contains(content(asked), "Volumes are retained") {
+		t.Errorf("the confirmation does not say what is retained:\n%s", content(asked))
 	}
 	for _, call := range backend.runtimeCalls {
 		if strings.HasPrefix(call, "destroy") {
@@ -223,7 +223,7 @@ func TestApprovalOffersToStopTheRuntimeWithoutStopping(t *testing.T) {
 	model.selected = task.ID
 	model.screen = screenDetail
 
-	detail := model.View()
+	detail := content(model)
 	if !strings.Contains(detail, "press t to stop") {
 		t.Errorf("the task detail does not offer to stop the runtime:\n%s", detail)
 	}
@@ -232,8 +232,8 @@ func TestApprovalOffersToStopTheRuntimeWithoutStopping(t *testing.T) {
 	}
 
 	screen := runtimeScreen(t, backend, task)
-	if !strings.Contains(screen.View(), "press t to stop") {
-		t.Errorf("the runtime screen does not offer to stop the runtime:\n%s", screen.View())
+	if !strings.Contains(content(screen), "press t to stop") {
+		t.Errorf("the runtime screen does not offer to stop the runtime:\n%s", content(screen))
 	}
 
 	// Rendering both screens asked for a status and nothing else.
@@ -264,7 +264,7 @@ func TestAFailedActionIsShownRatherThanThrown(t *testing.T) {
 	backend.runtimeErr = errors.New("host port 8080 is already taken")
 
 	model := runtimeScreen(t, backend, task)
-	view := model.View()
+	view := content(model)
 
 	if !strings.Contains(view, "8080") {
 		t.Errorf("the failure is not shown on the screen:\n%s", view)

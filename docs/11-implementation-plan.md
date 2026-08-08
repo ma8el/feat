@@ -1418,6 +1418,27 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   command breaks a shell history that is not Feat's to break. The golden file,
   [README.md](README.md), [06-technical-architecture.md](06-technical-architecture.md),
   and the README move in the same change, as they did in ADR-028 and ADR-031.
+- Give the dashboard a shape that survives three tasks. A task row is 158
+  columns wide against a terminal that is 80 to 160, so every row wraps and three
+  tasks read as nine lines of unaligned text. Each of the six screens replaces the
+  whole terminal, so a user watching three tasks can look at one. Reported by the
+  maintainer as confusing while preparing the runs below.
+
+  It becomes a left rail of tasks grouped by project, a tabbed main region over
+  views of the selected task, and a footer holding the worktree path and the
+  machine's resources. The rail carries the five fields no other requirement
+  claims; the four FR-UI-002 shared with FR-UI-003 and FR-UI-005 stop being
+  required twice, and the specification moves with the code. Preparation,
+  cleanup, confirmations, and the key map become overlays over the live dashboard
+  rather than screens that replace it. Attachment stays a handover to native
+  tmux, because embedding the session means Feat implements a terminal emulator
+  (ADR-030). See ADR-041.
+
+  Done in this slice, ahead of the three-task runs rather than after them,
+  because those runs are read through this screen: a dashboard that shows one
+  task at a time cannot produce evidence about three, and criterion 14 is a claim
+  about whether this screen carries the coordination. The deferred tmux split
+  direction lands with it.
 - Measure manual coordination removed and false idle notifications. The measure
   is also the evidence OQ-013 needs.
 
@@ -1440,6 +1461,9 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
 - Every command that takes a task can be found from `feat task --help`, no alias
   carries a second implementation, and the golden file, the specification, and
   `feat --help` describe the same surface.
+- Three concurrent tasks are legible at once on an ordinary terminal, no line
+  wraps at the supported width, and every field FR-UI-002 requires is reachable
+  without leaving the task that was selected.
 
 ## Slice 14 — Public v0.2
 

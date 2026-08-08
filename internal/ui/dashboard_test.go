@@ -66,7 +66,7 @@ func TestVerificationIsShownAsAClaimRatherThanAResult(t *testing.T) {
 	}
 
 	model := dashboard(newFakeBackend(), reported)
-	list := model.View()
+	list := content(model)
 	if !strings.Contains(list, "2/3") {
 		t.Errorf("the task list does not show the reported counts:\n%s", list)
 	}
@@ -76,7 +76,7 @@ func TestVerificationIsShownAsAClaimRatherThanAResult(t *testing.T) {
 
 	model.selected = reported.ID
 	model.screen = screenDetail
-	detail := model.View()
+	detail := content(model)
 
 	for _, want := range []string{"2 passed", "1 failed", "reported by the agent", "one test still fails"} {
 		if !strings.Contains(detail, want) {
@@ -126,7 +126,7 @@ func dashboard(backend *fakeBackend, tasks ...api.Task) Model {
 // has not sampled yet, which is the state of every session's first seconds.
 func TestTheTaskListShowsTheRequiredV0Fields(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask())
-	view := model.View()
+	view := content(model)
 
 	for field, want := range map[string]string{
 		"task identifier":  "7f3a1c2e",
@@ -164,7 +164,7 @@ func TestTheDetailViewNamesTheSlicesItIsWaitingOn(t *testing.T) {
 	model.selected = liveTask().ID
 	model.screen = screenDetail
 
-	view := model.View()
+	view := content(model)
 	for _, want := range []string{
 		// FR-UI-003's required content.
 		"Export the daily report", "core", "origin/main", "1a2b3c4d5e6f",
@@ -199,7 +199,7 @@ func TestTheDetailViewShowsWhereTheAgentRuns(t *testing.T) {
 	model.selected = liveTask().ID
 	model.screen = screenDetail
 
-	view := model.View()
+	view := content(model)
 	for _, want := range []string{
 		"feat-agent-example-7f3a1c2e", "dev", "coder", "no Docker access", "container_name",
 	} {
@@ -216,7 +216,7 @@ func TestTheDetailViewShowsWhereTheAgentRuns(t *testing.T) {
 // and no terminal.
 func TestADraftIsDistinguishableFromALaunchedTask(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask(), pendingDraft())
-	view := model.View()
+	view := content(model)
 
 	if !strings.Contains(view, "draft") {
 		t.Errorf("the draft's workflow state is not shown:\n%s", view)
@@ -233,7 +233,7 @@ func TestArchivedTasksAreCountedNotListed(t *testing.T) {
 	cancelled.Workflow = "archived"
 
 	model := dashboard(newFakeBackend(), liveTask(), cancelled)
-	view := model.View()
+	view := content(model)
 
 	if strings.Contains(view, cancelled.Key) {
 		t.Errorf("an archived task is listed:\n%s", view)
@@ -323,7 +323,7 @@ func TestOnlyADraftIsCancelledFromTheDashboard(t *testing.T) {
 // TestAnEmptyDashboardSaysWhatToDo checks the quality bar for a first run.
 func TestAnEmptyDashboardSaysWhatToDo(t *testing.T) {
 	model := dashboard(newFakeBackend())
-	view := model.View()
+	view := content(model)
 
 	if !strings.Contains(view, "feat implement") {
 		t.Errorf("an empty dashboard does not say how to create a task:\n%s", view)
@@ -338,7 +338,7 @@ func TestAFailedReadIsReportedRatherThanFatal(t *testing.T) {
 	updated, _ := model.Update(tasksMsg{err: errTest})
 	model = updated.(Model)
 
-	view := model.View()
+	view := content(model)
 	if !strings.Contains(view, errTest.Error()) {
 		t.Errorf("the failure is not reported:\n%s", view)
 	}

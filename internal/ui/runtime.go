@@ -155,13 +155,23 @@ func (m Model) applyRuntime(message runtimeMsg) (tea.Model, tea.Cmd) {
 	return m, m.load()
 }
 
-// runtimeView renders the runtime screen.
+// runtimeView renders the runtime screen as a whole terminal, which is what the
+// narrow fallback draws when there is no room for the three regions.
 func (m Model) runtimeView() string {
+	if _, ok := m.task(m.selected); !ok {
+		return m.runtimeBody() + m.footer(keyHints(keyHint("esc", "back"), keyHint("q", "quit")))
+	}
+	return m.runtimeBody() + m.footer(runtimeHints())
+}
+
+// runtimeBody renders the runtime tab's content, without a footer: in the
+// three-region layout the frame owns the footer, so a tab that drew its own
+// would put a second one in the middle of the screen.
+func (m Model) runtimeBody() string {
 	task, ok := m.task(m.selected)
 	if !ok {
 		return headingStyle.Render("runtime") + "\n\n" +
-			mutedStyle.Render("this task is no longer listed") +
-			m.footer(keyHints(keyHint("esc", "back"), keyHint("q", "quit")))
+			mutedStyle.Render("this task is no longer listed")
 	}
 
 	var out strings.Builder
@@ -195,7 +205,11 @@ func (m Model) runtimeView() string {
 			"Remove the containers and networks of this task? Volumes are retained.  y to confirm") + "\n")
 	}
 
-	return out.String() + m.footer(keyHints(
+	return out.String()
+}
+
+func runtimeHints() string {
+	return keyHints(
 		keyHint("c", "create"),
 		keyHint("u", "start"),
 		keyHint("t", "stop"),
@@ -204,7 +218,7 @@ func (m Model) runtimeView() string {
 		keyHint("r", "refresh"),
 		keyHint("esc", "back"),
 		keyHint("q", "quit"),
-	))
+	)
 }
 
 // runtimeSummary renders what a task's services are and what they own.

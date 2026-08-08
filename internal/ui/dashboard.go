@@ -154,13 +154,29 @@ func pluralTasks(count int) string {
 	return "tasks"
 }
 
-// detailView renders one task (FR-UI-003).
+// detailView renders one task as a whole terminal, which is what the narrow
+// fallback draws when there is no room for the three regions.
 func (m Model) detailView() string {
+	return m.detailBody() + m.footer(keyHints(
+		keyHint("esc", "back"),
+		keyHint("a", "attach"),
+		keyHint("s", "shell"),
+		keyHint("R", "runtime"),
+		keyHint("x", "cancel draft"),
+		keyHint("q", "quit"),
+	))
+}
+
+// detailBody renders the detail tab's content, without a footer (FR-UI-003).
+//
+// It carries the fields FR-UI-002 stopped requiring of a list entry —
+// repositories, runtime state, verification, resources — because this is the
+// requirement that always named them and the list was restating it.
+func (m Model) detailBody() string {
 	task, ok := m.task(m.selected)
 	if !ok {
 		return headingStyle.Render("task") + "\n\n" +
-			mutedStyle.Render("this task is no longer listed") +
-			m.footer(keyHints(keyHint("esc", "back"), keyHint("q", "quit")))
+			mutedStyle.Render("this task is no longer listed")
 	}
 
 	var out strings.Builder
@@ -197,14 +213,7 @@ func (m Model) detailView() string {
 	out.WriteString("\n" + headingStyle.Render("brief") + "\n")
 	out.WriteString(indent(task.Brief, "  ") + "\n")
 
-	return out.String() + m.footer(keyHints(
-		keyHint("esc", "back"),
-		keyHint("a", "attach"),
-		keyHint("s", "shell"),
-		keyHint("R", "runtime"),
-		keyHint("x", "cancel draft"),
-		keyHint("q", "quit"),
-	))
+	return out.String()
 }
 
 // executionDetail renders the isolated environment the agent runs in.

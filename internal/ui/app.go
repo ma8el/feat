@@ -64,7 +64,53 @@ const (
 	screenRuntime
 	screenReview
 	screenCleanup
+	screenKeys
 )
+
+// mainRegion reports whether this screen is a view of the selected task that the
+// main region draws, rather than an overlay over the whole dashboard.
+//
+// The division is ADR-041's: a tab is a view you leave and come back to, and an
+// overlay is something that is not about the selected task, or that must be
+// answered before work continues.
+func (s screen) mainRegion() bool {
+	switch s {
+	case screenPrepare, screenCleanup, screenKeys:
+		return false
+	default:
+		return true
+	}
+}
+
+// tab is which view the main region shows.
+func (s screen) tab() (tab, bool) {
+	switch s {
+	case screenDashboard:
+		return tabOverview, true
+	case screenDetail:
+		return tabDetail, true
+	case screenReview:
+		return tabReview, true
+	case screenRuntime:
+		return tabRuntime, true
+	default:
+		return tabOverview, false
+	}
+}
+
+// screenFor is the screen that has the keyboard when a tab is selected.
+func screenFor(active tab) screen {
+	switch active {
+	case tabDetail:
+		return screenDetail
+	case tabReview:
+		return screenReview
+	case tabRuntime:
+		return screenRuntime
+	default:
+		return screenDashboard
+	}
+}
 
 // Model is the dashboard.
 type Model struct {
@@ -72,7 +118,11 @@ type Model struct {
 	daemon  Daemon
 	now     func() time.Time
 
+	// screen is what has the keyboard. tab is what the main region draws, which
+	// is not the same thing once an overlay can be open over it: a user
+	// confirming a cleanup is still looking at the tab they left.
 	screen screen
+	tab    tab
 	tasks  []api.Task
 	cursor int
 	// selected is the task the detail screen shows, held by identifier so that
@@ -431,13 +481,145 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// frameKey answers the keys that belong to the layout rather than to whichever
+// tab has the keyboard: moving between tabs, and moving between tasks.
+//
+// It reports whether it handled the key, so that a tab still sees everything
+// else. Task selection needs a pair of its own because the plain arrows are
+// already spoken for inside a tab — review moves a repository with them — and a
+// user who cannot reach the rail from the review tab cannot change task without
+// leaving it first.
+func (m Model) frameKey(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	switch key.String() {
+	case "tab":
+		updated, cmd := m.selectTab(nextTab(m.activeTab(), 1))
+		return updated, cmd, true
+
+	case "shift+tab":
+		updated, cmd := m.selectTab(nextTab(m.activeTab(), -1))
+		return updated, cmd, true
+
+	// Both pairs, because a terminal that does not deliver a shifted arrow would
+	// otherwise leave the rail unreachable, and that is the defect this fixes.
+	case "shift+up", "ctrl+p":
+		updated, cmd := m.selectTask(-1)
+		return updated, cmd, true
+
+	case "shift+down", "ctrl+n":
+		updated, cmd := m.selectTask(1)
+		return updated, cmd, true
+	}
+	return m, nil, false
+}
+
+// selectTask moves the rail's cursor and brings the open tab with it.
+//
+// Re-opening the tab for the new task is the point: a review or a runtime view
+// holds what it was told about one task, and leaving it behind after the
+// selection moved would show one task's services under another task's name.
+func (m Model) selectTask(delta int) (tea.Model, tea.Cmd) {
+	if len(m.tasks) == 0 {
+		return m, nil
+	}
+
+	m.cursor = (m.cursor + delta%len(m.tasks) + len(m.tasks)) % len(m.tasks)
+	task := m.tasks[m.cursor]
+	m.selected = task.ID
+	m.status = ""
+	return m.selectTab(m.activeTab())
+}
+
+// nextTab is the tab delta places along from active, wrapping at both ends.
+func nextTab(active tab, delta int) tab {
+	at := 0
+	for i, candidate := range tabs {
+		if candidate == active {
+			at = i
+			break
+		}
+	}
+	return tabs[((at+delta)%len(tabs)+len(tabs))%len(tabs)]
+}
+
+// selectTab moves the main region to a tab and asks for whatever it shows.
+//
+// Review and runtime go through the same entry points their keys use, because a
+// tab that read state a different way from the key beside it would be a second
+// implementation of the same screen.
+func (m Model) selectTab(active tab) (tea.Model, tea.Cmd) {
+	switch active {
+	case tabReview:
+		opened, cmd := m.openReview()
+		return openedOr(screenReview, opened, cmd)
+	case tabRuntime:
+		opened, cmd := m.openRuntime()
+		return openedOr(screenRuntime, opened, cmd)
+	}
+
+	if task, ok := m.current(); ok && active == tabDetail {
+		m.selected = task.ID
+	}
+	m.screen = screenFor(active)
+	return m, nil
+}
+
+// openedOr falls back to the detail tab when a tab declined to open.
+//
+// Review and runtime both refuse a draft, which owns no worktree and no
+// services. Without this the tab would not move — which is how `tab` used to
+// stop dead — and the region would keep drawing one task's data under the name
+// of the task the user had just moved to.
+func openedOr(want screen, model tea.Model, cmd tea.Cmd) (tea.Model, tea.Cmd) {
+	opened, ok := model.(Model)
+	if !ok || opened.screen == want {
+		return model, cmd
+	}
+
+	if task, found := opened.current(); found {
+		opened.selected = task.ID
+	}
+	opened.screen = screenDetail
+	return opened, cmd
+}
+
 // key routes a key press to the screen that has the keyboard.
 func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The key map answers only the keys that close it. An overlay that passed
+	// every other key through would act on a task the user cannot see while they
+	// are reading about how to act on it.
+	if m.screen == screenKeys {
+		switch key.String() {
+		case "esc", "?":
+			m.screen = screenFor(m.tab)
+			return m, nil
+		case "ctrl+c", "q":
+			m.quitting = true
+			m.stopStream()
+			return m, tea.Quit
+		}
+		return m, nil
+	}
 	if m.screen == screenPrepare {
 		updated, cmd := m.prepare.Update(key)
 		m.prepare = updated
 		return m, cmd
 	}
+
+	// The frame's own keys are answered before the tab's, because a tab's key
+	// handler returns for everything it does not recognise and would otherwise
+	// swallow them. That is what stopped `tab` at the review tab: review and
+	// runtime never passed it on, so the cycle ended wherever a screen with its
+	// own keyboard began.
+	//
+	// They are not answered while a dialog is open. An overlay is something that
+	// must be answered before work continues, and moving the tab or the task
+	// underneath it would change what the answer applies to.
+	if m.screen != screenCleanup {
+		if updated, cmd, handled := m.frameKey(key); handled {
+			return updated, cmd
+		}
+	}
+
 	if m.screen == screenRuntime {
 		return m.runtimeKey(key)
 	}
@@ -458,9 +640,14 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "esc":
-		if m.screen == screenDetail {
+		if m.screen == screenDetail || m.screen == screenKeys {
 			m.screen = screenDashboard
 		}
+		return m, nil
+
+	case "?":
+		m.rememberTab()
+		m.screen = screenKeys
 		return m, nil
 
 	case "up", "k":
@@ -483,6 +670,7 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "n":
+		m.rememberTab()
 		m.screen = screenPrepare
 		m.prepare = m.prepare.restart()
 		return m, m.prepare.Init()
@@ -686,12 +874,34 @@ func sortTasks(tasks []api.Task) []api.Task {
 	return ordered
 }
 
-// View renders whichever screen has the keyboard.
+// View renders the dashboard: three regions, with a dialog over them when one is
+// open (ADR-041).
+//
+// A terminal too small for the three regions gets the single stacked column the
+// dashboard drew before, because a rail and a main region inside eighty columns
+// leave neither enough to be read.
 func (m Model) View() string {
 	if m.quitting {
 		return ""
 	}
+	if m.narrow() {
+		return m.stackedView()
+	}
 
+	frame := m.frame()
+	dialog := m.dialogView()
+	if dialog == "" {
+		return frame
+	}
+
+	// Centred within the body rather than within the terminal, so that a dialog
+	// cannot reach the footer.
+	width, height := m.frameSize()
+	return centreOverlay(frame, dialog, width, height-footerHeight)
+}
+
+// stackedView is the pre-layout dashboard, one screen at a time.
+func (m Model) stackedView() string {
 	switch m.screen {
 	case screenPrepare:
 		return m.prepare.View()
@@ -703,8 +913,54 @@ func (m Model) View() string {
 		return m.reviewView()
 	case screenCleanup:
 		return m.cleanupView()
+	case screenKeys:
+		return m.keyMap() + m.footer(keyHints(keyHint("esc", "close")))
 	default:
 		return m.dashboardView()
+	}
+}
+
+// dialogView renders the open overlay, or nothing when none is open.
+func (m Model) dialogView() string {
+	width, height := m.frameSize()
+	// A dialog takes most of the terminal but never all of it. What is left is
+	// the task list and the resources behind it, which is the reason ADR-041
+	// chose an overlay over a screen that replaces them. It never reaches the
+	// footer, which is the part of the frame that holds still.
+	inner := width * 3 / 4
+	tallest := height - footerHeight
+
+	switch m.screen {
+	case screenPrepare:
+		return dialogBox("prepare a task", m.prepare.View(), inner, tallest)
+	case screenCleanup:
+		// The dialog carries cleanup's own keys, because the frame's footer says
+		// how to close a dialog and this says what this one can do.
+		return dialogBox("clean up "+m.cleanupTitle(),
+			m.cleanupBody()+"\n"+m.cleanupHints(), inner, tallest)
+	case screenKeys:
+		return dialogBox("keys", m.keyMap(), inner, tallest)
+	default:
+		return ""
+	}
+}
+
+// activeTab is what the main region draws.
+//
+// With an overlay open the screen is not a tab, and the main region keeps
+// showing whatever the user was reading before they opened it.
+func (m Model) activeTab() tab {
+	if active, ok := m.screen.tab(); ok {
+		return active
+	}
+	return m.tab
+}
+
+// rememberTab records the main region's tab before an overlay takes the
+// keyboard, so that closing the overlay returns to what was underneath.
+func (m *Model) rememberTab() {
+	if active, ok := m.screen.tab(); ok {
+		m.tab = active
 	}
 }
 

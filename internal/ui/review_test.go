@@ -74,7 +74,7 @@ func reviewScreen(t *testing.T, backend *fakeBackend) Model {
 // that was has to take Feat's word for it.
 func TestTheReviewScreenGroupsChangesByRepository(t *testing.T) {
 	model := reviewScreen(t, newFakeBackend())
-	view := model.View()
+	view := content(model)
 
 	for field, want := range map[string]string{
 		"the first repository":  "core",
@@ -101,7 +101,7 @@ func TestTheReviewScreenGroupsChangesByRepository(t *testing.T) {
 // know (FR-AGENT-006).
 func TestTheReviewScreenTellsAClaimFromAnEnforcedResult(t *testing.T) {
 	model := reviewScreen(t, newFakeBackend())
-	view := model.View()
+	view := content(model)
 
 	if !strings.Contains(view, "Feat ran this") {
 		t.Errorf("an enforced result is not marked as one:\n%s", view)
@@ -225,7 +225,7 @@ func TestAnApprovedTaskWithRunningServicesIsOfferedTheStop(t *testing.T) {
 	model := dashboard(backend, status.Task)
 	model = press(t, model, "v")
 
-	view := model.View()
+	view := content(model)
 	if !strings.Contains(view, "press t to stop") {
 		t.Errorf("an approved task with running services is not offered the stop:\n%s", view)
 	}

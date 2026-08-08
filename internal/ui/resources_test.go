@@ -54,7 +54,7 @@ func withResources(model Model, report api.ResourceReport, err error) Model {
 func TestTheDashboardShowsWholeMachineResources(t *testing.T) {
 	model := withResources(dashboard(newFakeBackend(), liveTask()), sampled(), nil)
 
-	view := model.View()
+	view := content(model)
 	for _, want := range []string{"3.60", "10 cores", "4.0 GiB", "16 GiB", "373 GiB"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the machine card does not show %q:\n%s", want, view)
@@ -66,7 +66,7 @@ func TestTheDashboardShowsWholeMachineResources(t *testing.T) {
 func TestTheTaskRowShowsItsOwnTotals(t *testing.T) {
 	model := withResources(dashboard(newFakeBackend(), liveTask()), sampled(), nil)
 
-	view := model.View()
+	view := content(model)
 	for _, want := range []string{"144%", "2.5 GiB"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the task row does not show %q:\n%s", want, view)
@@ -86,7 +86,7 @@ func TestTheTaskDetailSeparatesContainerFromProcessMemory(t *testing.T) {
 	model.selected = liveTask().ID
 	model.screen = screenDetail
 
-	view := model.View()
+	view := content(model)
 	for _, want := range []string{
 		"1 container", "7 host processes", "container runtime", "feat-agent-example-7f3a1c2e-dev", "agent",
 	} {
@@ -105,7 +105,7 @@ func TestTheTaskDetailSeparatesContainerFromProcessMemory(t *testing.T) {
 func TestAnUnmeasuredTaskShowsNothingRatherThanZero(t *testing.T) {
 	model := withResources(dashboard(newFakeBackend(), pendingDraft()), sampled(), nil)
 
-	view := model.View()
+	view := content(model)
 	if strings.Contains(view, "0 B") {
 		t.Errorf("a task nothing measured reports a size:\n%s", view)
 	}
@@ -124,7 +124,7 @@ func TestAFailedResourceReadDoesNotHideTheTasks(t *testing.T) {
 	model := withResources(dashboard(newFakeBackend(), liveTask()), api.ResourceReport{},
 		errors.New("the daemon could not be reached for resources"))
 
-	view := model.View()
+	view := content(model)
 	if !strings.Contains(view, liveTask().Title) {
 		t.Errorf("a failed resource read hid the task list:\n%s", view)
 	}
@@ -143,7 +143,7 @@ func TestASampleThatIsMissingFiguresSaysSo(t *testing.T) {
 	}
 	model := withResources(dashboard(newFakeBackend(), liveTask()), report, nil)
 
-	view := model.View()
+	view := content(model)
 	if !strings.Contains(view, "vm_stat reported nothing") {
 		t.Errorf("the note explaining a missing figure is not shown:\n%s", view)
 	}
@@ -163,7 +163,7 @@ func TestAttentionBadgesMarkTheTasksThatMayNeedTheUser(t *testing.T) {
 
 	model := withResources(dashboard(newFakeBackend(), waiting), sampled(), nil)
 
-	view := model.View()
+	view := content(model)
 	if !strings.Contains(view, badgeNeedsInput) {
 		t.Errorf("a task that needs input carries no badge:\n%s", view)
 	}
@@ -174,7 +174,7 @@ func TestAttentionBadgesMarkTheTasksThatMayNeedTheUser(t *testing.T) {
 	// A task that needs nothing is not badged, or the badge would mean nothing.
 	quiet := liveTask()
 	quiet.Attention = "none"
-	calm := withResources(dashboard(newFakeBackend(), quiet), sampled(), nil).View()
+	calm := content(withResources(dashboard(newFakeBackend(), quiet), sampled(), nil))
 	if strings.Contains(calm, "may need you") {
 		t.Errorf("a dashboard with nothing waiting still summons the user:\n%s", calm)
 	}

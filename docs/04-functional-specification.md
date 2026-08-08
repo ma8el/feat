@@ -204,11 +204,17 @@ Post-v0 project rules MAY start or stop configured services on lifecycle transit
 
 ### FR-UI-001 — Global dashboard
 
-The dashboard SHOULD show active tasks across projects with project drill-down.
+The dashboard SHOULD show active tasks across projects with project drill-down. Tasks across every registered project MUST be reachable without leaving the dashboard, grouped by the project that owns them.
 
-### FR-UI-002 — Task row
+The dashboard MUST keep the task list, the selected task's view, and the machine's resources on screen together. A view that replaces all three MUST be limited to a transaction the user opened and can cancel; see ADR-041.
 
-Each task row MUST show task ID/title, repositories, agent state, attention state, runtime state, verification state, elapsed time, resource usage, and changed-file count. PR state is not required.
+### FR-UI-002 — Task list entry
+
+Each entry in the task list MUST show task ID/title, agent state, attention state, elapsed time, and changed-file count, and MUST NOT require horizontal scrolling or line wrapping at the supported terminal width.
+
+Agent state and attention state MUST remain separately legible. A single composite status indicator does not satisfy this, and neither does an encoding that colour alone carries.
+
+Repositories, runtime state, and verification state are required of the selected task by FR-UI-003, and resource usage by FR-UI-005. A task list MAY show them and MUST NOT do so at the cost of the paragraph above. PR state is not required.
 
 ### FR-UI-003 — Task detail
 

@@ -208,13 +208,22 @@ func (m Model) applyReview(message reviewMsg) (tea.Model, tea.Cmd) {
 	return m, m.load()
 }
 
-// reviewView renders the review screen (FR-REV-001 to FR-REV-004).
+// reviewView renders the review screen as a whole terminal, which is what the
+// narrow fallback draws when there is no room for the three regions.
 func (m Model) reviewView() string {
+	if _, ok := m.task(m.selected); !ok {
+		return m.reviewBody() + m.footer(keyHints(keyHint("esc", "back"), keyHint("q", "quit")))
+	}
+	return m.reviewBody() + m.footer(reviewHints())
+}
+
+// reviewBody renders the review tab's content, without a footer (FR-REV-001 to
+// FR-REV-004). The frame owns the footer in the three-region layout.
+func (m Model) reviewBody() string {
 	task, ok := m.task(m.selected)
 	if !ok {
 		return headingStyle.Render("review") + "\n\n" +
-			mutedStyle.Render("this task is no longer listed") +
-			m.footer(keyHints(keyHint("esc", "back"), keyHint("q", "quit")))
+			mutedStyle.Render("this task is no longer listed")
 	}
 
 	var out strings.Builder
@@ -230,7 +239,7 @@ func (m Model) reviewView() string {
 
 	if !m.review.loaded {
 		out.WriteString("\n" + mutedStyle.Render("comparing every repository against its recorded base…") + "\n")
-		return out.String() + m.footer(reviewHints())
+		return out.String()
 	}
 
 	out.WriteString("\n" + headingStyle.Render("repositories") +
@@ -255,7 +264,7 @@ func (m Model) reviewView() string {
 		out.WriteString("\n" + mutedStyle.Render("waiting for "+string(m.review.pending)+"…") + "\n")
 	}
 
-	return out.String() + m.footer(reviewHints())
+	return out.String()
 }
 
 func reviewHints() string {

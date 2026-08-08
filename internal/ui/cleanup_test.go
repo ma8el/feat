@@ -67,7 +67,7 @@ func TestOpeningCleanupResolvesAndRemovesNothing(t *testing.T) {
 		t.Errorf("opening the screen removed something: %+v", backend.cleanupSelections)
 	}
 
-	view := model.View()
+	view := content(model)
 	for _, want := range []string{"terminal", "worktrees", "uncommitted"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the screen does not show %q:\n%s", want, view)
@@ -100,8 +100,8 @@ func TestRemovingNeedsASelectionAndItsConfirmation(t *testing.T) {
 	if model.cleanup.confirming == "" {
 		t.Fatal("selecting a class that would lose work asked nothing")
 	}
-	if !strings.Contains(model.View(), "anyway?") {
-		t.Errorf("the confirmation is not on the screen:\n%s", model.View())
+	if !strings.Contains(content(model), "anyway?") {
+		t.Errorf("the confirmation is not on the screen:\n%s", content(model))
 	}
 
 	// Declining leaves the class alone.
@@ -203,13 +203,13 @@ func TestTheDashboardShowsWhatRecoveryFound(t *testing.T) {
 	backend := newFakeBackend()
 	model := dashboard(backend, liveTask())
 
-	if strings.Contains(model.View(), "recovery") {
+	if strings.Contains(content(model), "recovery") {
 		t.Error("the recovery band is shown before any pass has run")
 	}
 
 	quiet := api.Reconciliation{Ran: true, PreviousRunEndedCleanly: true}
 	updated, _ := model.Update(reconciliationMsg{report: quiet})
-	if strings.Contains(updated.(Model).View(), "recovery") {
+	if strings.Contains(content(updated.(Model)), "recovery") {
 		t.Error("a pass that found nothing produced a recovery band")
 	}
 
@@ -223,7 +223,7 @@ func TestTheDashboardShowsWhatRecoveryFound(t *testing.T) {
 		}},
 	}
 	updated, _ = model.Update(reconciliationMsg{report: noisy})
-	view := updated.(Model).View()
+	view := content(updated.(Model))
 
 	for _, want := range []string{"recovery", "missing", "7f3a1c2e", "resume it"} {
 		if !strings.Contains(view, want) {
@@ -304,7 +304,7 @@ func TestTheRecoveryBandSaysWhenItLooked(t *testing.T) {
 		}},
 	}})
 
-	view := updated.(Model).View()
+	view := content(updated.(Model))
 	if !strings.Contains(view, looked.Local().Format("15:04:05")) {
 		t.Errorf("the band does not say when it looked:\n%s", view)
 	}
