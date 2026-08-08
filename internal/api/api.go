@@ -45,6 +45,13 @@ type Service interface {
 	// Task returns one task addressed by task identifier alone, resolving the
 	// owning project, or an error matching ErrNotFound (ADR-027).
 	Task(ctx context.Context, id domain.TaskID) (*domain.Task, error)
+	// ResolveTask turns a reference a user typed — a task's short key, its whole
+	// identifier, or any prefix of one — into the identifier it names.
+	//
+	// A reference that names more than one task returns an error matching
+	// ErrInvalid rather than one of them, and one that names none returns an
+	// error matching ErrNotFound. Both say where a valid value is printed.
+	ResolveTask(ctx context.Context, ref domain.TaskRef) (domain.TaskID, error)
 	// Verification returns what the agent reported about its own checks, and
 	// false when it has reported none.
 	//
@@ -811,13 +818,26 @@ func (s *server) cancelDraft(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newTask(draft, nil))
 }
 
-// taskID reads and validates a task identifier from the path.
+// taskID resolves the task a request names.
 //
-// It is validated before it reaches the daemon, so a malformed one can never be
-// joined into a filesystem path.
+// Every endpoint that takes a task comes through here, drafts included, so there
+// is one place where what a user typed becomes a task identifier. A whole
+// identifier is used as it stands: it names one task by construction, so
+// resolving it would be reading every task to learn what the caller already
+// knew, which is the path the dashboard takes on every request it makes.
+//
+// Anything shorter is resolved by the daemon, and what comes back is an
+// identifier it read out of storage rather than anything a caller composed. That
+// is a stronger guarantee than the validation it replaces: no value from a
+// request reaches a filesystem path at all.
 func (s *server) taskID(w http.ResponseWriter, r *http.Request, name string) (domain.TaskID, bool) {
-	id := domain.TaskID(r.PathValue(name))
-	if err := id.Validate(); err != nil {
+	ref := domain.TaskRef(r.PathValue(name))
+	if id, exact := ref.Exact(); exact {
+		return id, true
+	}
+
+	id, err := s.service.ResolveTask(r.Context(), ref)
+	if err != nil {
 		s.fail(w, r, err)
 		return "", false
 	}

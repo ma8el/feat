@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ma8el/feat/internal/api"
@@ -40,6 +41,127 @@ func TestTaskIsAddressableByTaskIDAlone(t *testing.T) {
 		t.Errorf("task has %d repositories, want %d",
 			len(task.Repositories), len(storetest.Task().Repositories))
 	}
+}
+
+// TestATaskIsAddressableByTheKeyEveryListPrints is the slice 13 acceptance
+// criterion, driven through the socket.
+//
+// The daemon reads every project to answer it, because a key is unique within a
+// project rather than globally (ADR-026) and the question is asked of the
+// machine. Registering a second project is therefore the arrangement, not an
+// edge case.
+func TestATaskIsAddressableByTheKeyEveryListPrints(t *testing.T) {
+	live := serve(t, Options{})
+	seed(t, live, storetest.Project(), storetest.Task())
+	seed(t, live, otherProject(t), otherTask(t, "b41c9e07-2d3f-4a5b-8c6d-7e8f9a0b1c2d"))
+
+	for _, ref := range []string{
+		storetest.TaskID.Key().String(),
+		storetest.TaskID.String(),
+		"7f3a",
+	} {
+		task, err := live.client(t).Task(context.Background(), ref)
+		if err != nil {
+			t.Errorf("Task(%q): %v", ref, err)
+			continue
+		}
+		if task.ID != storetest.TaskID.String() {
+			t.Errorf("Task(%q) is %q, want %q", ref, task.ID, storetest.TaskID)
+		}
+		if task.ProjectID != storetest.ProjectID.String() {
+			t.Errorf("Task(%q) belongs to %q, want %q", ref, task.ProjectID, storetest.ProjectID)
+		}
+	}
+
+	// The other project's task answers to its own key, so the test cannot pass
+	// against a daemon that resolves everything to the first project it reads.
+	task, err := live.client(t).Task(context.Background(), "b41c9e07")
+	if err != nil {
+		t.Fatalf("Task on the second project: %v", err)
+	}
+	if task.ProjectID == storetest.ProjectID.String() {
+		t.Errorf("the second project's task resolved to %q", task.ProjectID)
+	}
+}
+
+// TestAnAmbiguousKeyIsReportedRatherThanResolved checks what happens when two
+// projects hold tasks whose keys share a prefix.
+//
+// Reporting it is the same rule ADR-029 applied to a colliding branch name: a
+// user acting on a task Feat picked would be acting on something they did not
+// choose, and `feat cleanup` is one of the commands that takes a task.
+func TestAnAmbiguousKeyIsReportedRatherThanResolved(t *testing.T) {
+	live := serve(t, Options{})
+	seed(t, live, storetest.Project(), storetest.Task())
+	seed(t, live, otherProject(t), otherTask(t, "7fb90cd4-1e2f-4a3b-8c4d-5e6f7a8b9c0d"))
+
+	_, err := live.client(t).Task(context.Background(), "7f")
+
+	if err == nil {
+		t.Fatal("an ambiguous reference resolved to a task")
+	}
+	if !badRequest(err) {
+		t.Errorf("error = %v, want a 400", err)
+	}
+	for _, want := range []string{"7f3a1c2e", "7fb90cd4", storetest.ProjectID.String(), "other"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q: %v", want, err)
+		}
+	}
+}
+
+// TestARefusedTaskReferenceSaysWhereToFindOne checks the half of this defect that
+// is not about resolution at all.
+//
+// The old rejection explained the format of an identifier to somebody who had no
+// way of seeing one, which is the part that made the addressing gap unescapable
+// rather than merely inconvenient.
+func TestARefusedTaskReferenceSaysWhereToFindOne(t *testing.T) {
+	live := serve(t, Options{})
+	seed(t, live, storetest.Project(), storetest.Task())
+
+	for _, ref := range []string{"deadbeef", "not-a-uuid"} {
+		_, err := live.client(t).Task(context.Background(), ref)
+		if err == nil {
+			t.Errorf("Task(%q) succeeded", ref)
+			continue
+		}
+		if !strings.Contains(err.Error(), "feat task list") {
+			t.Errorf("Task(%q) does not say where a valid value is printed: %v", ref, err)
+		}
+	}
+}
+
+// otherProject is a second registered project, so that resolution is exercised
+// across the whole machine rather than within one project.
+func otherProject(t *testing.T) *domain.Project {
+	t.Helper()
+
+	project, err := domain.NewProject("other", "Other", "app", []domain.Repository{{
+		ID:            "app",
+		Name:          "App",
+		HostPath:      "/srv/repositories/app",
+		DefaultBranch: "main",
+		Remote:        "origin",
+		DefaultAccess: domain.DefaultAccessReadWrite,
+	}}, storetest.Origin)
+	if err != nil {
+		t.Fatalf("creating the second project: %v", err)
+	}
+	return project
+}
+
+// otherTask is a draft in that project. A draft is enough: resolution is about
+// naming a task, and a draft is a task (ADR-031).
+func otherTask(t *testing.T, id domain.TaskID) *domain.Task {
+	t.Helper()
+
+	task, err := domain.NewTask(id, "other", "another task",
+		domain.TaskSource{Kind: domain.SourcePrompt}, storetest.Origin)
+	if err != nil {
+		t.Fatalf("creating a task in the second project: %v", err)
+	}
+	return task
 }
 
 func TestUnknownTaskIsNotFound(t *testing.T) {

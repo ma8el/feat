@@ -72,9 +72,10 @@ feat daemon run
 
 `feat project add` takes the project's identifier, which is also its configuration file's name; the daemon reads the file from the configuration directory rather than from a path a caller supplies. See ADR-028.
 
-Every `<task>` above is a task's full identifier. Lists show the short key
-derived from it and no command accepts that key yet, which slice 13 corrects;
-the dashboard's task detail is where the full identifier is visible today.
+Every `<task>` above is a task's short key, its whole identifier, or any prefix
+of that identifier. The key is what every list prints, the identifier is what the
+dashboard's task detail shows, and a prefix matching two tasks is reported rather
+than resolved to either. See ADR-038.
 
 `feat runtime` carries the six manual actions FR-RUN-005 names. Each is an
 explicit user request: no workflow transition and no agent reaches one, and

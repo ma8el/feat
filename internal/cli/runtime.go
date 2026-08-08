@@ -53,6 +53,7 @@ func newRuntimeActionCommand(env *environment, action api.RuntimeAction, use, sh
 	return &cobra.Command{
 		Use:   use,
 		Short: short,
+		Long:  withTaskArgument(short + "."),
 		Args:  checkArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withRuntimeClient(env, cmd, func(caller *client.Client) error {
@@ -80,7 +81,7 @@ func newRuntimeDestroyCommand(env *environment) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "destroy <task>",
 		Short: "Remove the task's application containers and networks, retaining volumes",
-		Long:  destroyLong,
+		Long:  withTaskArgument(destroyLong),
 		Args:  checkArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withRuntimeClient(env, cmd, func(caller *client.Client) error {
@@ -119,7 +120,7 @@ func newRuntimeLogsCommand(env *environment) *cobra.Command {
 	return &cobra.Command{
 		Use:   "logs <task>",
 		Short: "Follow the task's normal Compose logs",
-		Long:  logsLong,
+		Long:  withTaskArgument(logsLong),
 		Args:  checkArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withRuntimeClient(env, cmd, func(caller *client.Client) error {

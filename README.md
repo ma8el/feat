@@ -10,7 +10,7 @@ replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: pre-alpha.** Slices 0 to 11 of the
+> **Status: pre-alpha.** Slices 0 to 12 of the
 > [implementation plan](docs/11-implementation-plan.md) are complete. The
 > repository has its package skeleton, the full command
 > surface, its development and CI commands, a versioned domain model with
@@ -78,9 +78,11 @@ feat task list  # the same, without a terminal
 feat attach <task>
 ```
 
-`<task>` is a task's full identifier. The lists show the short key derived from
-it, and the dashboard's task detail shows the whole thing — so that is where to
-copy it from until a later slice lets a command take the key.
+`<task>` is a task's short key — the eight characters every list prints, in
+`feat task list`, in the dashboard, and in every notification. The whole
+identifier works too, which is what the dashboard's task detail shows, and so
+does any prefix of one. A prefix that matches two tasks is reported with both,
+never resolved to either.
 
 Confirming launches Claude Code in the task's primary worktree with the brief
 you accepted. Attaching hands your terminal to that session: it is the native

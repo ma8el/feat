@@ -29,9 +29,27 @@ which a cancelled draft becomes, are counted rather than listed.
 Fields a later implementation slice delivers are shown as "-" rather than as a
 value that was never measured.
 
-The TASK column is the short key derived from a task's identifier. Commands that
-take a task take the whole identifier, which the dashboard's task detail shows;
-accepting the key is delivered by a later slice.`
+The TASK column is the short key derived from a task's identifier, and it is
+what every command that takes a task accepts.`
+
+// taskArgument says what <task> is, wherever a command takes one.
+//
+// It is one sentence repeated rather than a rule stated once somewhere else,
+// because the command a user is reading is where they need it: the defect this
+// answers was a user reading `feat attach <task>` with nowhere to get the
+// argument from.
+const taskArgument = `<task> is a task's short key as ` + "`feat task list`" + ` prints it, its whole
+identifier as the dashboard's task detail shows it, or any prefix of that
+identifier. A prefix that matches two tasks is reported rather than resolved to
+either.`
+
+// withTaskArgument appends that sentence to a command's help.
+func withTaskArgument(long string) string {
+	if long == "" {
+		return taskArgument
+	}
+	return long + "\n\n" + taskArgument
+}
 
 func newTaskCommand(env *environment) *cobra.Command {
 	cmd := &cobra.Command{

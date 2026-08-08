@@ -31,7 +31,7 @@ func newCleanupCommand(env *environment) *cobra.Command {
 	return &cobra.Command{
 		Use:   "cleanup <task>",
 		Short: "Plan and execute removal of a task's resources",
-		Long:  cleanupLong,
+		Long:  withTaskArgument(cleanupLong),
 		Args:  checkArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withRuntimeClient(env, cmd, func(caller *client.Client) error {

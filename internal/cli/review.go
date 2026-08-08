@@ -33,7 +33,7 @@ func newReviewCommand(env *environment) *cobra.Command {
 	return &cobra.Command{
 		Use:   "review <task>",
 		Short: "Review a task's changes against its recorded base commits",
-		Long:  reviewLong,
+		Long:  withTaskArgument(reviewLong),
 		Args:  checkArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			layout, err := env.resolve()

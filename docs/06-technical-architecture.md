@@ -143,6 +143,8 @@ The local socket is user-owned and mode-restricted. Destructive API requests use
 
 Task endpoints address a task by its identifier alone, as the command surface does. The daemon resolves the owning project, which storage addresses explicitly; see ADR-026 and ADR-027.
 
+`{task_id}` and `{draft_id}` accept a whole task identifier, the eight-character key derived from it, or any prefix of the identifier. A whole identifier is used as it stands, because it names one task by construction; anything shorter is resolved against every registered project, since a key is unique within a project rather than across the machine. A reference that names more than one task is answered with `400` and both candidates rather than resolved to either, and one that names none is answered with `404`. Both name where a valid value is printed. See ADR-038.
+
 A draft is a task in `draft` state, so `{draft_id}` is a task identifier and a draft appears in `GET /v1/tasks` as the draft it is. Preparation is three requests rather than two: resolving fetches, so it follows a key the user pressed rather than a field they edited, and launching carries the fingerprint of the plan that was displayed so that what is created is what the user read. A draft that changed in between is refused rather than re-resolved. Cancelling archives the record. See ADR-031.
 
 `POST /v1/tasks/{task_id}/shell` carries an identifier and nothing to execute; the daemon builds the command, for the reason destructive requests carry resource identifiers rather than paths.
