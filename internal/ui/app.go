@@ -58,7 +58,7 @@ type Options struct {
 type screen int
 
 const (
-	screenDashboard screen = iota
+	screenTerminal screen = iota
 	// screenTask is one task read and acted on: what it is, what it has
 	// changed, and what to decide about that. Detail and review were separate
 	// screens until ADR-042, and shared their subject, their header, their
@@ -68,7 +68,11 @@ const (
 	screenRuntime
 	screenCleanup
 	screenKeys
-	screenTerminal
+	// screenRecovery is everything the last reconciliation pass wants looked at.
+	// It is an overlay because it is not about the selected task and because a
+	// finding is three lines — what, where, and what to do — which is more than a
+	// footer holds and more than a rail is wide enough for.
+	screenRecovery
 )
 
 // mainRegion reports whether this screen is a view of the selected task that the
@@ -79,7 +83,7 @@ const (
 // answered before work continues.
 func (s screen) mainRegion() bool {
 	switch s {
-	case screenPrepare, screenCleanup, screenKeys:
+	case screenPrepare, screenCleanup, screenKeys, screenRecovery:
 		return false
 	default:
 		return true
@@ -91,14 +95,12 @@ func (s screen) tab() (tab, bool) {
 	switch s {
 	case screenTerminal:
 		return tabTerminal, true
-	case screenDashboard:
-		return tabOverview, true
 	case screenTask:
 		return tabTask, true
 	case screenRuntime:
 		return tabRuntime, true
 	default:
-		return tabOverview, false
+		return tabTerminal, false
 	}
 }
 
@@ -112,9 +114,16 @@ func screenFor(active tab) screen {
 	case tabRuntime:
 		return screenRuntime
 	default:
-		return screenDashboard
+		return screenTerminal
 	}
 }
+
+// home is what closing a view returns to: the agent's terminal, which is what
+// the main region is for.
+//
+// The narrow fallback draws the task list for it instead, because below the
+// layout's minimum there is no rail and that is the only way to choose a task.
+func (m Model) home() screen { return screenTerminal }
 
 // Model is the dashboard.
 type Model struct {
@@ -152,7 +161,12 @@ type Model struct {
 	// reconciliation is the daemon's most recent recovery pass, read on the
 	// periodic refresh rather than on every event: a pass is not published, and
 	// what it found changes on the scale of a restart rather than a keystroke.
+	//
+	// reconciling reports that one was asked for and has not come back. A pass
+	// walks every task's worktrees, tmux windows, and containers, so it takes
+	// long enough that a user who pressed the key needs to be told it is running.
 	reconciliation api.Reconciliation
+	reconciling    bool
 
 	// terminal is the pane the main region draws and whether it has the
 	// keyboard.
@@ -481,6 +495,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyReview(message)
 
 	case reconciliationMsg:
+		m.reconciling = false
 		if message.err == nil {
 			m.reconciliation = message.report
 		}
@@ -629,18 +644,25 @@ func (m Model) selectTab(active tab) (tea.Model, tea.Cmd) {
 
 // key routes a key press to the screen that has the keyboard.
 func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// The key map answers only the keys that close it. An overlay that passed
+	// A reading overlay answers only the keys that close it. One that passed
 	// every other key through would act on a task the user cannot see while they
 	// are reading about how to act on it.
-	if m.screen == screenKeys {
+	if m.screen == screenKeys || m.screen == screenRecovery {
 		switch key.String() {
-		case "esc", "?":
+		case "esc", "?", "!":
 			m.screen = screenFor(m.tab)
 			return m, nil
 		case "ctrl+c", "q":
 			m.quitting = true
 			m.stopStream()
 			return m, tea.Quit
+		case "r":
+			// Looking again from here is the one action this overlay offers, and
+			// it is why the pass has a time on it: a user who has just resumed a
+			// task is reading what was true before they did. The overlay stays
+			// open, because what they asked for is the answer to appear in it.
+			m.reconciling = true
+			return m, m.reconcile()
 		}
 		return m, nil
 	}
@@ -693,13 +715,18 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "esc":
 		if m.screen == screenKeys {
-			m.screen = screenDashboard
+			m.screen = m.home()
 		}
 		return m, nil
 
 	case "?":
 		m.rememberTab()
 		m.screen = screenKeys
+		return m, nil
+
+	case "!":
+		m.rememberTab()
+		m.screen = screenRecovery
 		return m, nil
 
 	case "i":
@@ -866,7 +893,7 @@ func (m Model) cancel() (tea.Model, tea.Cmd) {
 	id := task.ID
 	m.status = "cancelled draft " + task.Key
 	if m.screen == screenTask {
-		m.screen = screenDashboard
+		m.screen = m.home()
 	}
 	return m, func() tea.Msg {
 		if _, err := backend.CancelDraft(context.Background(), id); err != nil {
@@ -879,7 +906,7 @@ func (m Model) cancel() (tea.Model, tea.Cmd) {
 
 // finishPreparation returns to the dashboard once preparation ends.
 func (m Model) finishPreparation(message preparedMsg) (tea.Model, tea.Cmd) {
-	m.screen = screenDashboard
+	m.screen = m.home()
 	switch {
 	case message.err != nil:
 		m.err = message.err
@@ -980,8 +1007,10 @@ func (m Model) stackedView() string {
 		return m.cleanupView()
 	case screenKeys:
 		return m.keyMap() + m.footer(keyHints(keyHint("esc", "close")))
+	case screenRecovery:
+		return m.recoveryList() + m.footer(keyHints(keyHint("r", "look again"), keyHint("esc", "close")))
 	default:
-		return m.dashboardView()
+		return m.listView()
 	}
 }
 
@@ -1005,6 +1034,8 @@ func (m Model) dialogView() string {
 			m.cleanupBody()+"\n"+m.cleanupHints(), inner, tallest)
 	case screenKeys:
 		return dialogBox("keys", m.keyMap(), inner, tallest)
+	case screenRecovery:
+		return dialogBox("recovery", m.recoveryList(), inner, tallest)
 	default:
 		return ""
 	}
@@ -1033,11 +1064,12 @@ func (m *Model) rememberTab() {
 // talking to.
 func (m Model) footer(hints string) string {
 	var out strings.Builder
-	if m.err != nil {
+	switch {
+	case m.err != nil:
 		out.WriteString("\n" + failureStyle.Render(m.err.Error()) + "\n")
-	} else if m.status != "" {
+	case m.status != "":
 		out.WriteString("\n" + mutedStyle.Render(m.status) + "\n")
-	} else {
+	default:
 		out.WriteString("\n")
 	}
 

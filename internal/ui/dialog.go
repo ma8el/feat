@@ -102,6 +102,7 @@ func keyMap() string {
 			{"r", "compare again"},
 		}},
 		{"everything else", [][2]string{
+			{"!", "what the last recovery pass found"},
 			{"n", "prepare a new task"},
 			{"C", "clean up a task's resources"},
 			{"r", "look again"},

@@ -66,14 +66,6 @@ func TestVerificationIsShownAsAClaimRatherThanAResult(t *testing.T) {
 	}
 
 	model := dashboard(newFakeBackend(), reported)
-	list := content(model)
-	if !strings.Contains(list, "2/3") {
-		t.Errorf("the task list does not show the reported counts:\n%s", list)
-	}
-	if !strings.Contains(list, "~") {
-		t.Errorf("the task list does not mark the result as the agent's claim:\n%s", list)
-	}
-
 	model.selected = reported.ID
 	model.screen = screenTask
 	panel := model.taskPanel()
@@ -84,10 +76,12 @@ func TestVerificationIsShownAsAClaimRatherThanAResult(t *testing.T) {
 		}
 	}
 
-	// A task whose agent has reported nothing shows nothing, rather than a row
+	// A task whose agent has reported nothing shows nothing, rather than a count
 	// of zeroes claiming that nothing failed.
-	silent := dashboard(newFakeBackend(), liveTask()).View()
-	if strings.Contains(silent, "0/0") {
+	quiet := dashboard(newFakeBackend(), liveTask())
+	quiet.selected = liveTask().ID
+	if silent := quiet.taskPanel(); strings.Contains(silent, "0/0") ||
+		strings.Contains(silent, "0 passed") {
 		t.Errorf("a task that reported no checks was rendered as having run zero:\n%s", silent)
 	}
 }
@@ -114,46 +108,6 @@ func dashboard(backend *fakeBackend, tasks ...api.Task) Model {
 	})
 	updated, _ := model.Update(tasksMsg{tasks: tasks})
 	return updated.(Model)
-}
-
-// TestTheTaskListShowsTheRequiredV0Fields is the slice 6 acceptance criterion
-// at the dashboard.
-//
-// FR-UI-002 requires eleven fields in a task row. Verification state is the one
-// this build still cannot fill, and it appears as absent rather than as a value
-// nothing measured. Resource usage is slice 10's and is filled here from a
-// sample, which a separate test covers; this one runs against a dashboard that
-// has not sampled yet, which is the state of every session's first seconds.
-func TestTheTaskListShowsTheRequiredV0Fields(t *testing.T) {
-	model := dashboard(newFakeBackend(), liveTask())
-	view := content(model)
-
-	for field, want := range map[string]string{
-		"task identifier":  "7f3a1c2e",
-		"title":            "Add a scheduled export job",
-		"repositories":     "core",
-		"read-only marker": "schema (ro)",
-		"workflow":         "working",
-		"agent state":      "running",
-		"attention":        "possibly waiting",
-		"runtime":          "absent",
-		"changed files":    "7",
-		"elapsed":          "1h30m",
-	} {
-		if !strings.Contains(view, want) {
-			t.Errorf("the task row does not show the %s %q:\n%s", field, want, view)
-		}
-	}
-
-	// Every required column has a heading, including the two nothing fills.
-	for _, heading := range []string{"CHECKS", "RESOURCES"} {
-		if !strings.Contains(view, heading) {
-			t.Errorf("the task list has no %s column:\n%s", heading, view)
-		}
-	}
-	if !strings.Contains(view, absent) {
-		t.Errorf("no unmeasured field is marked as absent:\n%s", view)
-	}
 }
 
 // TestTheTaskPanelNamesTheSlicesItIsWaitingOn checks the honesty rule: a field

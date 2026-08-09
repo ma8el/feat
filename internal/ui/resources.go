@@ -8,30 +8,6 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// machineCard renders whole-machine availability (FR-UI-005).
-//
-// It answers one question — is there room to start another task — and answers it
-// with what was measured rather than with a verdict. Feat enforces no
-// concurrency limit in v0 and offers no opinion here: the user decides, and this
-// is the line they decide from.
-func (m Model) machineCard() string {
-	if m.resourceErr != nil {
-		return mutedStyle.Render("machine   " + absent + "  (" + m.resourceErr.Error() + ")")
-	}
-	if !m.resources.Sampled {
-		return mutedStyle.Render("machine   " + absent + "  (no sample has been taken yet)")
-	}
-
-	machine := m.resources.Machine
-	parts := []string{loadField(machine), memoryField(machine), diskField(machine)}
-
-	card := mutedStyle.Render("machine   ") + strings.Join(parts, mutedStyle.Render("   "))
-	if note := strings.Join(m.resources.Notes, "; "); note != "" {
-		card += "\n" + mutedStyle.Render("          "+note)
-	}
-	return card
-}
-
 // loadField renders the machine's load against its cores.
 //
 // Load rather than a utilisation percentage, and the core count beside it,

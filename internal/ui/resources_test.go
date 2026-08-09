@@ -62,14 +62,19 @@ func TestTheDashboardShowsWholeMachineResources(t *testing.T) {
 	}
 }
 
-// TestTheTaskRowShowsItsOwnTotals is FR-UI-005's second half.
-func TestTheTaskRowShowsItsOwnTotals(t *testing.T) {
+// TestTheTaskPanelShowsItsOwnTotals is FR-UI-005's second half.
+//
+// It reads the panel rather than a list row: the wide table that carried a
+// resource column per task was the overview page, and the rail that replaced it
+// carries what answers which task to go to next.
+func TestTheTaskPanelShowsItsOwnTotals(t *testing.T) {
 	model := withResources(dashboard(newFakeBackend(), liveTask()), sampled(), nil)
+	model.selected = liveTask().ID
 
-	view := content(model)
+	view := model.taskPanel()
 	for _, want := range []string{"144%", "2.5 GiB"} {
 		if !strings.Contains(view, want) {
-			t.Errorf("the task row does not show %q:\n%s", want, view)
+			t.Errorf("the task panel does not show %q:\n%s", want, view)
 		}
 	}
 }
@@ -125,11 +130,31 @@ func TestAFailedResourceReadDoesNotHideTheTasks(t *testing.T) {
 		errors.New("the daemon could not be reached for resources"))
 
 	view := content(model)
-	if !strings.Contains(view, liveTask().Title) {
+	if !strings.Contains(view, liveTask().Key) {
 		t.Errorf("a failed resource read hid the task list:\n%s", view)
 	}
 	if !strings.Contains(view, "could not be reached") {
 		t.Errorf("a failed resource read is not explained where the figures would be:\n%s", view)
+	}
+}
+
+// TestTheSampleNotesReachTheLayoutFooter keeps FR-UI-005's honesty where the
+// dashboard is actually used.
+//
+// The notes explaining an absent figure used to be on the machine card, which
+// lived on the overview page, which the three-region layout never drew. They
+// belong beside the figures they explain: an absent figure with no reason next to
+// it is the same silence the rule is against.
+func TestTheSampleNotesReachTheLayoutFooter(t *testing.T) {
+	report := api.ResourceReport{
+		Machine: api.MachineResources{Cores: 10},
+		Notes:   []string{"machine memory is unavailable: vm_stat reported nothing"},
+		Sampled: true,
+	}
+	model := sized(withResources(dashboard(newFakeBackend(), liveTask()), report, nil), 200, 32)
+
+	if view := model.View(); !strings.Contains(view, "vm_stat reported nothing") {
+		t.Errorf("the layout does not explain the missing figure:\n%s", view)
 	}
 }
 
@@ -147,7 +172,7 @@ func TestASampleThatIsMissingFiguresSaysSo(t *testing.T) {
 	if !strings.Contains(view, "vm_stat reported nothing") {
 		t.Errorf("the note explaining a missing figure is not shown:\n%s", view)
 	}
-	if !strings.Contains(view, liveTask().Title) {
+	if !strings.Contains(view, liveTask().Key) {
 		t.Errorf("a partly readable machine hid the task list:\n%s", view)
 	}
 }

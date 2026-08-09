@@ -217,18 +217,162 @@ func TestTheDashboardShowsWhatRecoveryFound(t *testing.T) {
 		Ran:            true,
 		NeedsAttention: true,
 		Findings: []api.ReconciliationFinding{{
-			Class: "terminal", Status: "missing", TaskKey: "7f3a1c2e",
+			Class: "terminal", Status: "missing",
+			TaskID: liveTask().ID, TaskKey: liveTask().Key,
 			Detail: "the recorded tmux terminal is gone",
-			Action: "resume it from the task detail",
+			Action: "resume it from the task panel",
 		}},
 	}
 	updated, _ = model.Update(reconciliationMsg{report: noisy})
-	view := content(updated.(Model))
+	found := updated.(Model)
+	found.selected = liveTask().ID
 
-	for _, want := range []string{"recovery", "missing", "7f3a1c2e", "resume it"} {
-		if !strings.Contains(view, want) {
-			t.Errorf("the recovery band does not show %q:\n%s", want, view)
+	// A finding that names a task belongs on that task's panel, beside the
+	// workflow it contradicts and the keys that act on it.
+	panel := found.taskPanel()
+	for _, want := range []string{"recovery", "missing", "terminal", "resume it"} {
+		if !strings.Contains(panel, want) {
+			t.Errorf("the task panel does not show %q:\n%s", want, panel)
 		}
+	}
+}
+
+// TestTheRailCountsWarningsAndTheOverlayHoldsThem is where reconciliation went.
+//
+// An orphan whose task record is gone has no panel to appear on, and a pass that
+// could not ask a question at all is not about any one task. Those would
+// otherwise be findings shown nowhere, which is what the removed overview page
+// was the only home for. The footer was tried and is too small: a finding is
+// three lines, and several of them is a list, not a line.
+func TestTheRailCountsWarningsAndTheOverlayHoldsThem(t *testing.T) {
+	model := sized(dashboard(newFakeBackend(), liveTask()), 160, 32)
+
+	updated, _ := model.Update(reconciliationMsg{report: api.Reconciliation{
+		Ran: true, NeedsAttention: true, PreviousRunEndedCleanly: true,
+		Findings: []api.ReconciliationFinding{{
+			Class: "container", Status: "orphaned", Identity: "feat-agent-x",
+			Detail: "running with no task record",
+			Action: "clean it up",
+		}},
+		Problems: []api.ReconciliationProblem{{Reason: "docker could not be reached"}},
+	}})
+	found := updated.(Model)
+
+	// The rail says how many and which key, and nothing more: the detail is
+	// wider than thirty-two cells and would be truncated into uselessness.
+	rail := found.View()
+	if !strings.Contains(rail, "2 warnings") || !strings.Contains(rail, "! to see") {
+		t.Errorf("the rail does not count the warnings or name the key:\n%s", rail)
+	}
+	if strings.Contains(rail, "running with no task record") {
+		t.Errorf("the rail carries a finding's detail, which does not fit it:\n%s", rail)
+	}
+
+	// And the key opens all of it, with the action for each.
+	opened := press(t, found, "!")
+	view := opened.View()
+	for _, want := range []string{
+		"orphaned", "feat-agent-x", "running with no task record", "clean it up",
+		"unchecked", "docker could not be reached",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the recovery overlay does not carry %q:\n%s", want, view)
+		}
+	}
+
+	// It is an overlay, so what it is about is still behind it.
+	if !strings.Contains(view, liveTask().Key) {
+		t.Errorf("the overlay hid the task list:\n%s", view)
+	}
+	if closed := press(t, opened, "esc"); strings.Contains(closed.View(), "running with no task record") {
+		t.Errorf("the overlay did not close:\n%s", closed.View())
+	}
+}
+
+// TestTheWarningCountSitsAtTheFootOfTheRail keeps it where it was last time.
+//
+// Placed after the tasks it would move whenever one was added, and a marker that
+// only appears when something is wrong should at least appear in the same place
+// each time it does.
+func TestTheWarningCountSitsAtTheFootOfTheRail(t *testing.T) {
+	report := api.Reconciliation{
+		Ran: true, NeedsAttention: true, PreviousRunEndedCleanly: true,
+		Findings: []api.ReconciliationFinding{{
+			Class: "worktree", Status: "missing", Detail: "not on disk",
+		}},
+	}
+
+	for _, tasks := range [][]api.Task{{liveTask()}, {liveTask(), otherTask()}} {
+		model := sized(dashboard(newFakeBackend(), tasks...), 110, 26)
+		updated, _ := model.Update(reconciliationMsg{report: report})
+
+		rail := strings.Split(updated.(Model).railView(23), "\n")
+		if len(rail) != 23 {
+			t.Fatalf("with %d tasks the rail is %d rows, want the region's 23", len(tasks), len(rail))
+		}
+		if !strings.Contains(rail[22], "1 warning") {
+			t.Errorf("with %d tasks the marker is not on the last row:\n%s",
+				len(tasks), strings.Join(rail, "\n"))
+		}
+	}
+}
+
+// TestLookingAgainKeepsTheOverlayOpen is what its own hint promises.
+//
+// The key says "look again", and a key that closed the view was the answer
+// arriving somewhere the user was no longer looking.
+func TestLookingAgainKeepsTheOverlayOpen(t *testing.T) {
+	backend := newFakeBackend()
+	backend.reconciliation = api.Reconciliation{
+		Ran: true, NeedsAttention: true, PreviousRunEndedCleanly: true,
+		Findings: []api.ReconciliationFinding{{
+			Class: "worktree", Status: "missing", Detail: "not on disk", Action: "clean it up",
+		}},
+	}
+	model := sized(dashboard(backend, liveTask()), 110, 26)
+
+	opened := press(t, model, "!")
+	asked, cmd := opened.Update(key("r"))
+	looking := asked.(Model)
+
+	if looking.screen != screenRecovery {
+		t.Fatalf("looking again left the overlay for %v", looking.screen)
+	}
+	if !strings.Contains(looking.View(), "looking again") {
+		t.Errorf("the overlay does not say a pass is running:\n%s", looking.View())
+	}
+
+	runCommands(t, cmd)
+	if backend.reconciled != 1 {
+		t.Errorf("looking again ran %d passes, want 1", backend.reconciled)
+	}
+
+	// And the answer lands in the overlay the user is still reading.
+	done, _ := looking.Update(reconciliationMsg{report: backend.reconciliation})
+	settled := done.(Model)
+	if settled.screen != screenRecovery {
+		t.Errorf("the answer closed the overlay it was asked for in")
+	}
+	if view := settled.View(); strings.Contains(view, "looking again") ||
+		!strings.Contains(view, "clean it up") {
+		t.Errorf("the overlay did not settle on the new pass:\n%s", view)
+	}
+}
+
+// TestASingleWarningIsCountedAsOne keeps the rail's count reading as English.
+func TestASingleWarningIsCountedAsOne(t *testing.T) {
+	model := sized(dashboard(newFakeBackend(), liveTask()), 160, 32)
+
+	updated, _ := model.Update(reconciliationMsg{report: api.Reconciliation{
+		Ran: true, NeedsAttention: true, PreviousRunEndedCleanly: true,
+		Findings: []api.ReconciliationFinding{{
+			Class: "worktree", Status: "missing", Detail: "not on disk",
+		}},
+	}})
+
+	view := updated.(Model).View()
+	if !strings.Contains(view, "1 warning") || strings.Contains(view, "1 warnings") {
+		t.Errorf("one finding is not counted as one warning:\n%s", view)
 	}
 }
 
@@ -273,12 +417,24 @@ func TestTheRecoveryBandCanBeBroughtUpToDate(t *testing.T) {
 		t.Errorf("the refresh key ran %d passes, want 1", backend.reconciled)
 	}
 
+	// And so does the same key from the recovery overlay, which is where the
+	// staleness is read: the time on the pass is there to be acted on.
+	opened, _ := model.Update(key("!"))
+	updated, cmd = opened.(Model).Update(key("r"))
+	runCommands(t, cmd)
+	if backend.reconciled != 2 {
+		t.Errorf("looking again from the overlay ran %d passes, want 2", backend.reconciled)
+	}
+	if updated.(Model).screen != screenRecovery {
+		t.Error("looking again closed the overlay the answer was asked for in")
+	}
+
 	// And so does resuming, which is one of the two things that resolves what
 	// the band reports.
 	_, cmd = model.Update(key("z"))
 	runCommands(t, cmd)
-	if backend.reconciled != 2 {
-		t.Errorf("resuming ran %d passes in total, want 2", backend.reconciled)
+	if backend.reconciled != 3 {
+		t.Errorf("resuming ran %d passes in total, want 3", backend.reconciled)
 	}
 
 	// As does finishing a cleanup.
@@ -304,12 +460,12 @@ func TestTheRecoveryBandSaysWhenItLooked(t *testing.T) {
 		}},
 	}})
 
-	view := content(updated.(Model))
+	view := press(t, sized(updated.(Model), 200, 32), "!").View()
 	if !strings.Contains(view, looked.Local().Format("15:04:05")) {
-		t.Errorf("the band does not say when it looked:\n%s", view)
+		t.Errorf("recovery does not say when it looked:\n%s", view)
 	}
 	if !strings.Contains(view, "look again") {
-		t.Errorf("the band does not say how to bring it up to date:\n%s", view)
+		t.Errorf("recovery does not say how to bring it up to date:\n%s", view)
 	}
 }
 

@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -33,48 +32,6 @@ const (
 	badgeMaybe = "◐"
 )
 
-// taskColumns is the task list, in the order FR-UI-002 lists the fields.
-//
-// PR state is deliberately absent: v0 does not require it in a task row.
-// The attention column is wide enough for its badge and its longest state
-// together, because truncating "possibly waiting" to "possibly wait…" would take
-// the conservative half of the distinction away and leave the word that reads
-// like certainty.
-var taskColumns = []column{
-	{title: "TASK", width: 8},
-	{title: "TITLE", width: 26},
-	{title: "REPOSITORIES", width: 18},
-	{title: "WORKFLOW", width: 17},
-	{title: "AGENT", width: 8},
-	{title: "ATTENTION", width: 18},
-	{title: "RUNTIME", width: 8},
-	{title: "CHECKS", width: 7},
-	{title: "FILES", width: 5},
-	{title: "RESOURCES", width: 14},
-	{title: "ELAPSED", width: 7},
-}
-
-// taskRow renders one task as the columns above.
-//
-// It is a method because the resource column comes from the dashboard's most
-// recent sample rather than from the task: a sample is an observation nobody
-// stores, taken on its own schedule, and it fails on its own (FR-UI-005).
-func (m Model) taskRow(task api.Task, now time.Time) []string {
-	return []string{
-		task.Key,
-		task.Title,
-		repositoryList(task),
-		task.Workflow,
-		agentState(task),
-		attentionState(task),
-		runtimeState(task),
-		verificationState(task),
-		changedFiles(task),
-		m.resourceCell(task),
-		elapsed(task, now),
-	}
-}
-
 // attentionSummary says how many tasks are waiting for the user.
 //
 // It is the badge for the whole screen. A user who has just come back to a
@@ -94,32 +51,6 @@ func attentionSummary(tasks []api.Task) string {
 		return badgeNeedsInput + " 1 task may need you"
 	}
 	return badgeNeedsInput + " " + strconv.Itoa(waiting) + " tasks may need you"
-}
-
-// verificationState renders a task's check results for the task list.
-//
-// A task whose agent has reported nothing shows nothing: an unmeasured value is
-// never rendered as a measured one, which is the rule ADR-028 established for
-// diagnostics and ADR-031 carried into the dashboard. What is rendered is a
-// count with a marker saying who produced it, because the column is narrow and
-// the distinction between a claimed result and an enforced one has to survive
-// the abbreviation.
-func verificationState(task api.Task) string {
-	if task.Verification == nil || task.Verification.Total() == 0 {
-		return absent
-	}
-	reported := *task.Verification
-
-	state := strconv.Itoa(reported.Passed) + "/" + strconv.Itoa(reported.Total())
-	if reported.Failed > 0 {
-		state = "✗ " + state
-	}
-	if reported.Source == "agent" {
-		// The tilde is the whole point of the column being honest: these results
-		// were asserted by the agent, not enforced by anything.
-		state = "~" + state
-	}
-	return state
 }
 
 // verificationDetail renders the same results with room to explain them.
@@ -154,24 +85,6 @@ func verificationDetail(task api.Task) string {
 	return detail
 }
 
-// repositoryList names the repositories a task binds, marking the ones it may
-// not write to.
-func repositoryList(task api.Task) string {
-	if len(task.Repositories) == 0 {
-		return absent
-	}
-	names := make([]string, 0, len(task.Repositories))
-	for _, binding := range task.Repositories {
-		name := binding.RepositoryID
-		if binding.Access == "read_only" {
-			name += " (ro)"
-		}
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
-}
-
 // agentState is the observed process state of the task's session.
 //
 // A task with no session has nothing to report, which is not the same as a
@@ -200,17 +113,6 @@ func attentionState(task api.Task) string {
 	default:
 		return task.Attention
 	}
-}
-
-// runtimeState renders the application runtime's lifecycle state.
-//
-// A task with no runtime is absent rather than stopped: v0 starts application
-// services only by explicit user action (FR-RUN-005).
-func runtimeState(task api.Task) string {
-	if task.Runtime == nil {
-		return "absent"
-	}
-	return task.Runtime.State
 }
 
 // changedFiles totals what Feat last observed across the task's repositories.

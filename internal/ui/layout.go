@@ -32,24 +32,24 @@ const (
 	// on its own (ADR-042, evidence 1).
 	tabTask
 	tabRuntime
-	// tabOverview is last because it is the one tab that is not about the
-	// selected task, and the one ADR-041 keeps provisionally.
-	tabOverview
 )
 
 // tabs is the order the tab bar draws them in and the order the tab key cycles.
-var tabs = []tab{tabTerminal, tabTask, tabRuntime, tabOverview}
+//
+// Every tab is about the selected task. The overview was the one that was not —
+// a wide cross-task table ADR-041 kept provisionally — and use decided against
+// it: the rail answers which task to go to next, and the panel answers
+// everything the table's remaining columns did, for the task you went to.
+var tabs = []tab{tabTerminal, tabTask, tabRuntime}
 
 func (t tab) title() string {
 	switch t {
-	case tabTerminal:
-		return "terminal"
 	case tabTask:
 		return "task"
 	case tabRuntime:
 		return "runtime"
 	default:
-		return "overview"
+		return "terminal"
 	}
 }
 
@@ -136,16 +136,14 @@ var dividerStyle = lipgloss.NewStyle().
 func (m Model) mainView(width, height int) string {
 	body := ""
 	switch m.activeTab() {
-	case tabTerminal:
-		// The tab bar and the blank line beneath it are the region's, so the
-		// pane gets what is left of it.
-		body = m.terminalBody(width, height-2)
 	case tabTask:
 		body = m.taskBody(width, height-2)
 	case tabRuntime:
 		body = m.runtimeBody()
 	default:
-		body = m.overviewBody(width)
+		// The tab bar and the blank line beneath it are the region's, so the
+		// pane gets what is left of it.
+		body = m.terminalBody(width, height-2)
 	}
 	return m.tabBar(width) + "\n\n" + body
 }
@@ -202,8 +200,17 @@ func (m Model) machineLine() string {
 		return mutedStyle.Render(absent + " (no sample yet)")
 	}
 	machine := m.resources.Machine
-	return strings.Join([]string{loadField(machine), memoryField(machine), diskField(machine)},
+	line := strings.Join([]string{loadField(machine), memoryField(machine), diskField(machine)},
 		mutedStyle.Render("   "))
+
+	// Why a figure is missing, beside the figures. A sample that could read the
+	// disk and not the memory says which, rather than leaving one field absent
+	// with no reason given: an unmeasured value is never shown as a measured one
+	// and never shown without saying so (FR-UI-005).
+	if note := strings.Join(m.resources.Notes, "; "); note != "" {
+		line += mutedStyle.Render("   " + note)
+	}
+	return line
 }
 
 // hints are the keys for whatever has the keyboard.
@@ -211,6 +218,9 @@ func (m Model) machineLine() string {
 // The footer shows what is reachable from here rather than every key the
 // dashboard has, which is what the key overlay on "?" is for.
 func (m Model) hints() string {
+	if m.screen == screenRecovery {
+		return keyHints(keyHint("r", "look again"), keyHint("esc", "close"))
+	}
 	if !m.screen.mainRegion() {
 		return keyHints(keyHint("esc", "close"))
 	}

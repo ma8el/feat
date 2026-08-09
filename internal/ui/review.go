@@ -91,7 +91,7 @@ func (m Model) reviewAction(action api.ReviewAction) tea.Cmd {
 func (m Model) taskPanelKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "esc":
-		m.screen = screenDashboard
+		m.screen = m.home()
 		return m, nil
 
 	case "ctrl+c", "q":

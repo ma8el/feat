@@ -111,6 +111,10 @@ func (m Model) taskPanel() string {
 	out.WriteString(headingStyle.Render(task.Key+"  "+task.Title) + "\n")
 	out.WriteString(mutedStyle.Render(task.ProjectID+" · "+task.ID) + "\n\n")
 
+	// What the last reconciliation pass found about this task, before the fields
+	// it contradicts.
+	out.WriteString(m.recoveryBlock(m.recoveryFindings(task)))
+
 	out.WriteString(field("workflow", task.Workflow))
 	out.WriteString(field("attention", attentionState(task)))
 	out.WriteString(field("agent", agentDetail(task)))

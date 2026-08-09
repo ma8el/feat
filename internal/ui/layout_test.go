@@ -66,7 +66,7 @@ func TestTheFrameKeepsItsRegionsInPlace(t *testing.T) {
 
 	for _, want := range []string{
 		"tasks",                  // the rail's heading
-		"overview",               // the tab bar
+		"task",                   // the tab bar
 		"7f3a1c2e",               // a task in the rail
 		"/srv/worktrees/example", // the footer's worktree
 		"type here",              // the footer's hints, for the tab that has focus
@@ -202,18 +202,28 @@ func TestTheSizeIsNotDecidedBeforeTheTerminalReportsOne(t *testing.T) {
 	}
 }
 
-// TestTheOverviewDropsColumnsThatDoNotFit checks the wide table degrades by
-// losing columns rather than by wrapping, and says that it did.
-func TestTheOverviewDropsColumnsThatDoNotFit(t *testing.T) {
-	model := sized(dashboard(newFakeBackend(), liveTask()), 100, 32)
-	body := model.overviewBody(60)
+// TestEveryTabIsAboutTheSelectedTask is ADR-043.
+//
+// The overview was the one that was not: a wide cross-task table that never fitted
+// the supported width and said the same things the rail and the panel say.
+func TestEveryTabIsAboutTheSelectedTask(t *testing.T) {
+	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
+	bar := model.tabBar(120)
 
-	if !strings.Contains(body, "do not fit this terminal") {
-		t.Errorf("the overview drops columns without saying so:\n%s", body)
+	if strings.Contains(bar, "overview") {
+		t.Errorf("the tab bar still offers the overview: %q", bar)
 	}
-	for i, line := range strings.Split(body, "\n") {
-		if got := ansi.StringWidth(line); got > 60 {
-			t.Errorf("line %d of the overview is %d cells, want at most 60: %q", i, got, line)
+	for _, want := range []string{"terminal", "task", "runtime"} {
+		if !strings.Contains(bar, want) {
+			t.Errorf("the tab bar is missing %q: %q", want, bar)
+		}
+	}
+
+	// And nothing draws the eleven-column row it held. Every line of the frame
+	// fits, which the table could not manage at any supported width.
+	for i, line := range strings.Split(model.View(), "\n") {
+		if got := ansi.StringWidth(line); got > 120 {
+			t.Errorf("line %d is %d cells: %q", i, got, line)
 		}
 	}
 }
@@ -228,8 +238,8 @@ func TestTabMovesTheMainRegion(t *testing.T) {
 	if next := press(t, model, "tab"); next.activeTab() != tabTask {
 		t.Errorf("tab moved to %v, want the task panel", next.activeTab())
 	}
-	if back := press(t, model, "shift+tab"); back.activeTab() != tabOverview {
-		t.Errorf("shift+tab moved to %v, want the overview, wrapping at the end", back.activeTab())
+	if back := press(t, model, "shift+tab"); back.activeTab() != tabRuntime {
+		t.Errorf("shift+tab moved to %v, want runtime, wrapping at the end", back.activeTab())
 	}
 }
 
@@ -309,7 +319,7 @@ func TestADialogTallerThanTheTerminalSaysWhatItDropped(t *testing.T) {
 func TestTabCyclesPastAViewWithItsOwnKeyboard(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
 
-	want := []tab{tabTask, tabRuntime, tabOverview, tabTerminal}
+	want := []tab{tabTask, tabRuntime, tabTerminal}
 	at := model
 	for i, expected := range want {
 		at = press(t, at, "tab")
@@ -386,7 +396,7 @@ func TestTheTabCycleClosesForADraftToo(t *testing.T) {
 
 	model := sized(dashboard(newFakeBackend(), draft), 120, 32)
 	at := model
-	for i, expected := range []tab{tabTask, tabRuntime, tabOverview, tabTerminal} {
+	for i, expected := range []tab{tabTask, tabRuntime, tabTerminal} {
 		at = press(t, at, "tab")
 		if at.activeTab() != expected {
 			t.Fatalf("tab %d on a draft landed on %v, want %v", i+1, at.activeTab(), expected)

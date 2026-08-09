@@ -62,7 +62,33 @@ func (m Model) railView(height int) string {
 	if m.archived > 0 {
 		out.WriteString("\n" + mutedStyle.Render(truncate(archivedNote(m.archived), railWidth)))
 	}
-	return out.String()
+	// What the last reconciliation pass wants looked at, as a count and a key.
+	// The findings themselves are three lines each and belong in the overlay
+	// that key opens; what the rail owes a user is that there is something to
+	// open (ADR-043).
+	return pinRecovery(out.String(), truncate(m.recoveryRailNote(), railWidth), height)
+}
+
+// pinRecovery puts the warning count on the rail's last line.
+//
+// At the foot rather than after the tasks, because the tasks move: adding one
+// would otherwise push the marker down the screen, and a thing that appears
+// only when something is wrong should at least appear in the same place each
+// time. The narrow fallback passes no height and gets it below the list, which
+// is the bottom there too.
+func pinRecovery(body, note string, height int) string {
+	if note == "" {
+		return body
+	}
+	if height <= 0 {
+		return body + "\n\n" + note
+	}
+
+	// The note takes the last row, so the body is padded to everything above it.
+	if pad := height - len(strings.Split(body, "\n")) - 1; pad > 0 {
+		body += strings.Repeat("\n", pad)
+	}
+	return body + "\n" + note
 }
 
 // railEntry renders one task as two lines.
@@ -84,7 +110,16 @@ func (m Model) railEntry(task api.Task, selected bool) string {
 	// Agent state, elapsed time, and the changed-file count are the rest of what
 	// FR-UI-002 asks of an entry, and they are what a user compares between two
 	// tasks: how far along, how long, how much.
-	detail := truncate(agentState(task)+" · "+elapsed(task, m.now())+" · "+changedFileNote(task),
+	//
+	// A task with no session reports its workflow instead of an absent agent
+	// state. Those read alike and are not alike: one has not been launched and
+	// the other has and stopped. The rail is the only list there is, so the
+	// distinction has to survive here or nowhere.
+	state := agentState(task)
+	if task.Session == nil {
+		state = task.Workflow
+	}
+	detail := truncate(state+" · "+elapsed(task, m.now())+" · "+changedFileNote(task),
 		railWidth-4)
 
 	if m.holdsKeyboard(task) {
