@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -119,6 +120,77 @@ func TestReviewRoundTripsExactly(t *testing.T) {
 	}
 	if primary.BaseCommit != storetest.PrimaryBaseCommit {
 		t.Errorf("the review compares against %s", primary.BaseCommit)
+	}
+}
+
+// TestAReviewWrittenBeforeTheDecisionMovedStillLoads covers the one risk ADR-047
+// took by removing two stored fields without moving the schema version.
+//
+// A document written by an earlier build carries `status` and `decided_at`. The
+// decision they held is the task's workflow state, which the task snapshot beside
+// this one already records, so nothing has to be upgraded — but a state directory
+// that had been in use had to keep loading, and the next save had to stop writing
+// what nothing reads.
+func TestAReviewWrittenBeforeTheDecisionMovedStillLoads(t *testing.T) {
+	ctx := context.Background()
+	ref := store.TaskRef{Project: storetest.ProjectID, Task: storetest.TaskID}
+	filestore := newStore(t)
+	reviews := filestore.Reviews()
+
+	// Saved by this build, then edited to what the build before it wrote.
+	if err := reviews.Save(ctx, ref, storetest.Review()); err != nil {
+		t.Fatalf("saving the review: %v", err)
+	}
+	dir, err := filestore.taskDir(ref)
+	if err != nil {
+		t.Fatalf("resolving the task directory: %v", err)
+	}
+	path := filepath.Join(dir, reviewFile)
+	current, err := os.ReadFile(path) // #nosec G304 -- a path this test just created
+	if err != nil {
+		t.Fatalf("reading the review: %v", err)
+	}
+	older := strings.Replace(string(current),
+		`"completion_summary"`,
+		`"status": "approved",
+  "decided_at": "2026-08-04T10:02:00Z",
+  "completion_summary"`, 1)
+	if older == string(current) {
+		t.Fatal("the stored document has no completion_summary to write the older fields beside")
+	}
+	if err := os.WriteFile(path, []byte(older), 0o600); err != nil {
+		t.Fatalf("writing the older document: %v", err)
+	}
+
+	loaded, err := reviews.Load(ctx, ref)
+	if err != nil {
+		t.Fatalf("loading a review written before the decision moved: %v", err)
+	}
+	if loaded.CompletionSummary == "" || len(loaded.Checks) == 0 {
+		t.Error("the older document lost what it does still carry")
+	}
+
+	// Saving it again is what removes the fields for good.
+	if err := reviews.Save(ctx, ref, loaded); err != nil {
+		t.Fatalf("saving the loaded review: %v", err)
+	}
+	rewritten, err := os.ReadFile(path) // #nosec G304 -- a path this test just created
+	if err != nil {
+		t.Fatalf("reading the rewritten review: %v", err)
+	}
+	// The top-level keys rather than the text: a check result carries a status of
+	// its own, which is a different field and stays.
+	var document map[string]any
+	if err := json.Unmarshal(rewritten, &document); err != nil {
+		t.Fatalf("decoding the rewritten review: %v", err)
+	}
+	for _, gone := range []string{"status", "decided_at"} {
+		if _, present := document[gone]; present {
+			t.Errorf("the rewritten review still carries %q, which nothing reads", gone)
+		}
+	}
+	if _, err := os.Stat(path + ".v1.bak"); err == nil {
+		t.Error("a backup was retained for a version that did not move")
 	}
 }
 

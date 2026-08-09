@@ -715,7 +715,7 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, errorEnvelope{Error: Error{
 			Code: CodeNotFound,
 			Message: "no review action " + strconv.Quote(string(action)) + "; the actions are observe, " +
-				"approve, changes, pending, and verify",
+				"approve, changes, and verify",
 		}})
 		return
 	}

@@ -17,7 +17,6 @@ func reviewed() api.ReviewStatus {
 	return api.ReviewStatus{
 		Task: task,
 		Review: api.Review{
-			Status:  "pending",
 			Summary: "Added the export job and its retry policy.",
 			Gated:   true,
 			Checks: []api.ReviewCheck{
@@ -191,6 +190,44 @@ func TestReviewDecisionsReachTheDaemonAndNothingElse(t *testing.T) {
 	}
 	if !approved {
 		t.Errorf("approving did not reach the daemon: %v", backend.reviewCalls)
+	}
+}
+
+// TestTheDecisionIsOfferedOnlyWhereItCanBeMade is what reading the decision from
+// the workflow bought (ADR-047).
+//
+// It used to be read from the review aggregate, which knows nothing about the
+// task, so a working task was told "A to approve" and the daemon then refused
+// the approval that line invited: approving applies to a task whose agent has
+// asked for review. The keys now follow the transition table.
+func TestTheDecisionIsOfferedOnlyWhereItCanBeMade(t *testing.T) {
+	for _, test := range []struct {
+		workflow string
+		want     string
+		offered  bool
+	}{
+		{workflow: "working", want: "the agent has not asked for review"},
+		{workflow: "preparing", want: "the agent has not asked for review"},
+		{workflow: "verifying", want: "the project's checks are running"},
+		{workflow: "review_requested", want: "pending", offered: true},
+		{workflow: "ready_for_review", want: "pending", offered: true},
+		{workflow: "verification_failed", want: "pending", offered: true},
+		{workflow: "approved", want: "approved"},
+		{workflow: "changes_requested", want: "changes requested"},
+	} {
+		t.Run(test.workflow, func(t *testing.T) {
+			task := reviewed().Task
+			task.Workflow = test.workflow
+
+			line := reviewDecision(task)
+			if !strings.Contains(line, test.want) {
+				t.Errorf("the decision of a %s task is %q, want it to say %q", test.workflow, line, test.want)
+			}
+			if offered := strings.Contains(line, "A to approve"); offered != test.offered {
+				t.Errorf("the decision of a %s task offers the approve key (%t), want %t: %q",
+					test.workflow, offered, test.offered, line)
+			}
+		})
 	}
 }
 

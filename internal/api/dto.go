@@ -665,8 +665,6 @@ const (
 	ReviewApprove ReviewAction = "approve"
 	// ReviewRequestChanges sends the work back for revision.
 	ReviewRequestChanges ReviewAction = "changes"
-	// ReviewLeavePending undoes a decision, leaving the review open.
-	ReviewLeavePending ReviewAction = "pending"
 	// ReviewVerify runs the project's configured checks now. It is how a gate
 	// interrupted by a restart is run again, and recovery in Feat is an action a
 	// user takes rather than something that happens on its own.
@@ -674,9 +672,14 @@ const (
 )
 
 // Valid reports whether the action is one Feat performs.
+//
+// There is deliberately no action for leaving a review pending. A review nobody
+// has decided is already pending, so the action was a way of un-deciding, and it
+// moved the review's own copy of the decision without moving the task's — which
+// is how a task came to read approved and pending at once (ADR-047).
 func (a ReviewAction) Valid() bool {
 	switch a {
-	case ReviewObserve, ReviewApprove, ReviewRequestChanges, ReviewLeavePending, ReviewVerify:
+	case ReviewObserve, ReviewApprove, ReviewRequestChanges, ReviewVerify:
 		return true
 	default:
 		return false
@@ -701,11 +704,11 @@ type ReviewStatus struct {
 	Notes []string `json:"notes"`
 }
 
-// Review is a task's review state on the wire.
+// Review is what is known about a task's work on the wire.
+//
+// It carries no decision. The user's decision is the task's workflow state,
+// which travels beside this in every response that holds one (ADR-047).
 type Review struct {
-	// Status is the user's decision so far: pending, approved, or
-	// changes_requested.
-	Status string `json:"status"`
 	// Summary is the agent's own account of what it did, which is a claim.
 	Summary string `json:"summary,omitempty"`
 	// Checks are the results, each attributed to whoever produced it.
@@ -715,8 +718,6 @@ type Review struct {
 	Gated bool `json:"gated"`
 	// RequestedAt is when the agent asked for review, or null if it has not.
 	RequestedAt *time.Time `json:"requested_at"`
-	// DecidedAt is when the user decided, or null while the review is pending.
-	DecidedAt *time.Time `json:"decided_at"`
 }
 
 // ReviewCheck is one check result.
@@ -921,7 +922,7 @@ func NewReviewStatus(result ReviewResult) ReviewStatus {
 
 func newReview(review *domain.Review) Review {
 	if review == nil {
-		return Review{Status: string(domain.ReviewPending), Checks: []ReviewCheck{}}
+		return Review{Checks: []ReviewCheck{}}
 	}
 
 	checks := make([]ReviewCheck, 0, len(review.Checks))
@@ -936,12 +937,10 @@ func newReview(review *domain.Review) Review {
 		})
 	}
 	return Review{
-		Status:      string(review.Status),
 		Summary:     review.CompletionSummary,
 		Checks:      checks,
 		Gated:       review.Gated(),
 		RequestedAt: moment(review.RequestedAt),
-		DecidedAt:   moment(review.DecidedAt),
 	}
 }
 

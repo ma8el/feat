@@ -21,7 +21,7 @@ func reviewPath(action string) string {
 // the path, so an action Feat does not perform is a 404 rather than a request
 // the daemon has to interpret.
 func TestReviewResponseBodies(t *testing.T) {
-	for _, action := range []string{"observe", "approve", "changes", "pending", "verify"} {
+	for _, action := range []string{"observe", "approve", "changes", "verify"} {
 		t.Run(action, func(t *testing.T) {
 			service := newFakeService()
 			handler := NewHandler(Options{Service: service})
@@ -118,9 +118,7 @@ func TestAGatedResultIsDistinguishableFromAClaim(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			review := &domain.Review{
-				TaskID: storetest.TaskID, Status: domain.ReviewPending, Checks: test.checks,
-			}
+			review := &domain.Review{TaskID: storetest.TaskID, Checks: test.checks}
 			verification, ok := NewVerification(review)
 			if !ok {
 				t.Fatal("a review holding results reported none")

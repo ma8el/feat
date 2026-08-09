@@ -131,9 +131,6 @@ func (m Model) taskPanelKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "C":
 		return m.startReview(api.ReviewRequestChanges)
 
-	case "P":
-		return m.startReview(api.ReviewLeavePending)
-
 	case "V":
 		return m.startReview(api.ReviewVerify)
 
@@ -267,15 +264,26 @@ func reviewChangeSummary(row api.ReviewRepository) string {
 	return summary
 }
 
-// reviewDecision renders the user's decision so far.
-func reviewDecision(review api.Review) string {
-	switch review.Status {
+// reviewDecision renders the user's decision, which is the task's workflow
+// state and is read from there.
+//
+// The keys are offered only where the transition exists. The decision used to be
+// read from the review aggregate's own copy of it, which knew nothing about the
+// task: a working task was offered "A to approve" and the daemon refused it,
+// because approving applies to a task whose agent has asked for review
+// (domain.workflowTransitions, ADR-047).
+func reviewDecision(task api.Task) string {
+	switch task.Workflow {
 	case "approved":
 		return "approved"
 	case "changes_requested":
 		return "changes requested"
+	case "verifying":
+		return "pending  " + mutedStyle.Render("(the project's checks are running)")
+	case "review_requested", "ready_for_review", "verification_failed":
+		return "pending  " + mutedStyle.Render("(A to approve, C to send back)")
 	default:
-		return "pending  " + mutedStyle.Render("(A to approve, C to send back, P to leave pending)")
+		return absent + "  " + mutedStyle.Render("(the agent has not asked for review)")
 	}
 }
 

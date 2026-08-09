@@ -1,11 +1,9 @@
 {
   "schema_version": 1,
   "id": "7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c",
-  "updated_at": "2026-08-04T10:02:00Z",
-  "status": "approved",
+  "updated_at": "2026-08-04T10:01:00Z",
   "completion_summary": "Added the export job and its retry policy.",
   "requested_at": "2026-08-04T10:00:00Z",
-  "decided_at": "2026-08-04T10:02:00Z",
   "repositories": [
     {
       "repository_id": "core",

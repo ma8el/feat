@@ -127,7 +127,6 @@
     "updated_at": "2026-08-04T10:00:00Z"
   },
   "review": {
-    "status": "approved",
     "summary": "Added the export job and its retry policy.",
     "checks": [
       {
@@ -140,8 +139,7 @@
       }
     ],
     "gated": true,
-    "requested_at": "2026-08-04T10:00:00Z",
-    "decided_at": "2026-08-04T10:02:00Z"
+    "requested_at": "2026-08-04T10:00:00Z"
   },
   "repositories": [
     {

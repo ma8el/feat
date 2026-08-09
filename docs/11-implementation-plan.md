@@ -1453,6 +1453,25 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   never runs tmux, because `ui-is-a-client` denies it the adapter. Feat keeps no
   screen grid and reads nothing out of the bytes but their width. Detail and
   review merge into one panel. See ADR-042.
+- Record a review decision once. The maintainer, reading the review surface,
+  observed that the states a user can put a review into have no consequences
+  beyond changing the workflow state, and asked whether they were worth having.
+  They are; the defect the question found is that the decision was recorded
+  twice, as `Review.Status` and as the task's workflow.
+
+  Nothing read the second copy — both its call sites only rendered it — and one
+  action moved it without the other: leaving a review pending set the review to
+  pending and left the workflow at `approved`, so the panel read "workflow
+  approved" above "decision pending" with no way out, because `approved` has no
+  outgoing transition. That action had no test and its key was bound but never
+  advertised. The workflow becomes the only record, leaving pending stops being
+  an action, and the decision the panel renders is derived from the workflow, so
+  the keys appear only where the transition exists. See ADR-047.
+
+  Done in this slice because it is a dogfood finding about the surface slice 13
+  is already rewriting, and because the stored fields go without a schema
+  migration — an exemption that is only available while the state directory
+  belongs to the people writing it, which slice 14 ends.
 - Measure manual coordination removed and false idle notifications. The measure
   is also the evidence OQ-013 needs.
 

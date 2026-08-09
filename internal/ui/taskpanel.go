@@ -126,7 +126,7 @@ func (m Model) taskPanel() string {
 	out.WriteString(field("source", sourceDetail(task.Source)))
 
 	out.WriteString("\n" + headingStyle.Render("review") + "\n")
-	out.WriteString(field("decision", reviewDecision(m.review.status.Review)))
+	out.WriteString(field("decision", reviewDecision(task)))
 	out.WriteString(field("checks", m.checksField(task)))
 	if summary := m.review.status.Review.Summary; summary != "" {
 		out.WriteString(field("the agent says", summary))
