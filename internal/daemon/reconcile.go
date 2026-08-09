@@ -225,7 +225,8 @@ func (s *service) reconcileTerminal(
 				Class: reconcile.ClassTerminal, Status: reconcile.StatusMissing,
 				Project: current.ProjectID, Task: current.ID,
 				Detail: "the task was confirmed but has no terminal",
-				Action: "launch it again from the dashboard, or clean it up",
+				Action: "clean it up and prepare the task again; its agent never ran, so nothing " +
+					"it did is lost. Feat has no way to launch a confirmed task a second time",
 			})
 			return nil
 		}
@@ -321,12 +322,19 @@ func (s *service) markTerminalGone(ctx context.Context, task *domain.Task) error
 // Recovery is offered and never performed: a report that restarted what it
 // found would be deciding for the user, and ADR-032 deferred the decision here
 // precisely so that it could be made once for every resource class.
+//
+// An action names something a user can actually do. The no-session branch used
+// to say "start the task again from the dashboard", and there is no such
+// command: `feat task` offers attach, cleanup, list, and review, and nothing
+// launches a task that is past draft. What is true is that a task with no
+// recorded session has never held an agent conversation, so cleaning it up and
+// preparing another loses nothing but the brief.
 func (s *service) resumeAction(task *domain.Task) string {
 	if task.Session == nil || task.Session.ProviderSessionID == "" {
-		return "start the task again from the dashboard, or clean it up. " +
-			"Feat recorded no provider session to continue, so a new session would start empty"
+		return "clean it up and prepare the task again. Feat recorded no provider session to " +
+			"continue, which also means no agent ever reported working in this one"
 	}
-	return "resume it from the task detail, which continues the recorded " + task.Session.Provider +
+	return "resume it with z in the dashboard, which continues the recorded " + task.Session.Provider +
 		" session rather than starting an empty one. Feat does not restart it on its own"
 }
 
