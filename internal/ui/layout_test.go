@@ -157,12 +157,12 @@ func TestAnOverlayLeavesTheTaskListVisible(t *testing.T) {
 	if !strings.Contains(view, "9b02de41") {
 		t.Errorf("the task list is not visible behind the dialog:\n%s", view)
 	}
-	if !strings.Contains(view, "prepare a new task") {
+	if !strings.Contains(view, "select a task, from any view") {
 		t.Errorf("the key map is not on screen:\n%s", view)
 	}
 
 	closed := press(t, opened, "esc")
-	if strings.Contains(closed.View(), "prepare a new task") {
+	if strings.Contains(closed.View(), "select a task, from any view") {
 		t.Errorf("the dialog did not close:\n%s", closed.View())
 	}
 }
@@ -225,11 +225,11 @@ func TestTabMovesTheMainRegion(t *testing.T) {
 	if model.activeTab() != tabTerminal {
 		t.Fatalf("a fresh dashboard opens on %v, want the terminal", model.activeTab())
 	}
-	if next := press(t, model, "tab"); next.activeTab() != tabOverview {
-		t.Errorf("tab moved to %v, want the overview", next.activeTab())
+	if next := press(t, model, "tab"); next.activeTab() != tabTask {
+		t.Errorf("tab moved to %v, want the task panel", next.activeTab())
 	}
-	if back := press(t, model, "shift+tab"); back.activeTab() != tabRuntime {
-		t.Errorf("shift+tab moved to %v, want runtime, wrapping at the end", back.activeTab())
+	if back := press(t, model, "shift+tab"); back.activeTab() != tabOverview {
+		t.Errorf("shift+tab moved to %v, want the overview, wrapping at the end", back.activeTab())
 	}
 }
 
@@ -301,15 +301,15 @@ func TestADialogTallerThanTheTerminalSaysWhatItDropped(t *testing.T) {
 }
 
 // TestTabCyclesPastAViewWithItsOwnKeyboard is the defect found in use: tab
-// moved overview → detail → review and then stopped.
+// moved through the tabs and then stopped at the first one with its own keys.
 //
-// Review and runtime answer their own keys and return for everything else, so
-// they swallowed the key that was meant to leave them. The cycle has to close,
-// including back round to the first view.
+// The task panel and runtime answer their own keys and return for everything
+// else, so they swallowed the key that was meant to leave them. The cycle has to
+// close, including back round to the first view.
 func TestTabCyclesPastAViewWithItsOwnKeyboard(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
 
-	want := []tab{tabOverview, tabDetail, tabReview, tabRuntime, tabTerminal}
+	want := []tab{tabTask, tabRuntime, tabOverview, tabTerminal}
 	at := model
 	for i, expected := range want {
 		at = press(t, at, "tab")
@@ -374,21 +374,34 @@ func TestChangingTaskBringsTheOpenViewWithIt(t *testing.T) {
 	}
 }
 
-// TestAViewThatCannotOpenFallsBackRatherThanSticking checks the other way the
-// tab cycle could stop: review and runtime both refuse a draft, and a refusal
-// that left the screen alone would strand the user where they were.
-func TestAViewThatCannotOpenFallsBackRatherThanSticking(t *testing.T) {
+// TestTheTabCycleClosesForADraftToo checks the other way the cycle could stop.
+//
+// The task panel and runtime both used to refuse a draft, and a tab that
+// declines to open is a tab the cycle cannot pass: a user whose only task was a
+// draft could reach neither the tab after it nor the one before. They open now
+// and say what a draft does not have yet.
+func TestTheTabCycleClosesForADraftToo(t *testing.T) {
 	draft := liveTask()
 	draft.Workflow = "draft"
 
 	model := sized(dashboard(newFakeBackend(), draft), 120, 32)
-	review := press(t, press(t, press(t, model, "tab"), "tab"), "tab")
-
-	if review.activeTab() == tabReview {
-		t.Errorf("review opened for a draft task")
+	at := model
+	for i, expected := range []tab{tabTask, tabRuntime, tabOverview, tabTerminal} {
+		at = press(t, at, "tab")
+		if at.activeTab() != expected {
+			t.Fatalf("tab %d on a draft landed on %v, want %v", i+1, at.activeTab(), expected)
+		}
 	}
-	if review.activeTab() != tabDetail {
-		t.Errorf("a refused view left the dashboard on %v, want detail", review.activeTab())
+
+	// And each of them says so rather than looking like a task with nothing in
+	// it: a draft owns no worktree and no services.
+	for _, want := range []string{"draft has nothing to compare", "still a draft"} {
+		view := sized(dashboard(newFakeBackend(), draft), 120, 32)
+		panel := press(t, press(t, view, "tab"), "tab").View()
+		if !strings.Contains(press(t, view, "tab").View(), want) &&
+			!strings.Contains(panel, want) {
+			t.Errorf("no view said %q for a draft", want)
+		}
 	}
 }
 

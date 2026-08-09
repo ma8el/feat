@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/ma8el/feat/internal/api"
 )
 
@@ -154,72 +156,6 @@ func pluralTasks(count int) string {
 	return "tasks"
 }
 
-// detailView renders one task as a whole terminal, which is what the narrow
-// fallback draws when there is no room for the three regions.
-func (m Model) detailView() string {
-	return m.detailBody() + m.footer(keyHints(
-		keyHint("esc", "back"),
-		keyHint("a", "attach"),
-		keyHint("s", "shell"),
-		keyHint("R", "runtime"),
-		keyHint("x", "cancel draft"),
-		keyHint("q", "quit"),
-	))
-}
-
-// detailBody renders the detail tab's content, without a footer (FR-UI-003).
-//
-// It carries the fields FR-UI-002 stopped requiring of a list entry —
-// repositories, runtime state, verification, resources — because this is the
-// requirement that always named them and the list was restating it.
-func (m Model) detailBody() string {
-	task, ok := m.task(m.selected)
-	if !ok {
-		return headingStyle.Render("task") + "\n\n" +
-			mutedStyle.Render("this task is no longer listed")
-	}
-
-	var out strings.Builder
-	out.WriteString(headingStyle.Render(task.Key+"  "+task.Title) + "\n")
-	out.WriteString(mutedStyle.Render(task.ProjectID+" · "+task.ID) + "\n\n")
-
-	out.WriteString(field("workflow", task.Workflow))
-	out.WriteString(field("attention", attentionState(task)))
-	out.WriteString(field("agent", agentDetail(task)))
-	out.WriteString(field("runtime", runtimeDetail(task)))
-	out.WriteString(field("verification", verificationDetail(task)))
-	out.WriteString(field("resources", m.resourceDetail(task)))
-	out.WriteString(field("elapsed", elapsed(task, m.now())))
-	out.WriteString(field("source", sourceDetail(task.Source)))
-
-	out.WriteString("\n" + headingStyle.Render("repositories") + "\n")
-	out.WriteString(repositoryTable(task) + "\n")
-
-	if task.Session != nil {
-		out.WriteString("\n" + headingStyle.Render("terminal") + "\n")
-		// Named rather than run together. These are three different kinds of
-		// identifier and a reader who needs one — to run a tmux command against
-		// the task themselves — cannot tell them apart from their order.
-		out.WriteString(field("tmux", mutedStyle.Render("session ")+task.Session.Tmux.Session+
-			mutedStyle.Render("  window ")+task.Session.Tmux.Window+
-			mutedStyle.Render("  pane ")+task.Session.Tmux.Pane))
-		out.WriteString(field("socket", task.Session.Tmux.Socket))
-		if note := terminalNote(task); note != "" {
-			out.WriteString(mutedStyle.Render("  "+note) + "\n")
-		}
-	}
-
-	if task.Session != nil && task.Session.Execution != nil {
-		out.WriteString("\n" + headingStyle.Render("environment") + "\n")
-		out.WriteString(executionDetail(*task.Session.Execution))
-	}
-
-	out.WriteString("\n" + headingStyle.Render("brief") + "\n")
-	out.WriteString(indent(task.Brief, "  ") + "\n")
-
-	return out.String()
-}
-
 // executionDetail renders the isolated environment the agent runs in.
 //
 // Three things are said rather than implied. The identity, because it is what a
@@ -255,57 +191,6 @@ func executionDetail(environment api.Execution) string {
 	out.WriteString(mutedStyle.Render(
 		"  Feat's generated override mounts this task's worktrees at their container paths and resets\n" +
 			"  container_name and published ports for this service, so tasks can run side by side\n"))
-	return out.String()
-}
-
-// repositoryTable renders the repository and base mapping FR-UI-003 requires.
-//
-// Each repository takes two lines rather than one column-aligned row. Branch
-// names and worktree paths are both long, and this is the screen a user reads
-// to find out exactly which branch and which directory a task owns — a
-// truncated one would have to be looked up somewhere else, which is the
-// coordination Feat exists to remove.
-func repositoryTable(task api.Task) string {
-	if len(task.Repositories) == 0 {
-		return mutedStyle.Render("  none selected")
-	}
-
-	var out strings.Builder
-	for i, binding := range task.Repositories {
-		if i > 0 {
-			out.WriteString("\n")
-		}
-
-		base := absent
-		if binding.BaseCommit != "" {
-			base = binding.BaseCommit[:min(12, len(binding.BaseCommit))]
-			if binding.BaseRef != "" {
-				base += " " + mutedStyle.Render("("+binding.BaseRef+")")
-			}
-		}
-		changed := absent
-		if binding.Observation != nil {
-			changed = strconv.Itoa(binding.Observation.ChangedFiles) + " changed"
-			if binding.Observation.Dirty {
-				changed += ", uncommitted"
-			}
-		}
-
-		out.WriteString("  " + headingStyle.Render(binding.RepositoryID) +
-			mutedStyle.Render("  "+accessLabel(binding.Access)) +
-			"  " + base + mutedStyle.Render("  "+changed) + "\n")
-
-		branch := binding.Branch
-		if branch == "" {
-			branch = mutedStyle.Render("no branch (read-only)")
-		}
-		worktree := binding.WorktreePath
-		if worktree == "" {
-			worktree = mutedStyle.Render("not created yet")
-		}
-		out.WriteString("    " + mutedStyle.Render("branch  ") + branch + "\n")
-		out.WriteString("    " + mutedStyle.Render("worktree") + " " + worktree + "\n")
-	}
 	return out.String()
 }
 
@@ -366,8 +251,15 @@ func sourceDetail(source api.Source) string {
 	return source.Kind
 }
 
-// field renders one label and value of the detail screen.
+// field renders one label and value of the task panel.
+//
+// A label as wide as the column keeps a single space instead of the padding. A
+// fixed width wraps rather than overflows, which put "compose project" on two
+// lines and left "project" against the panel's left edge looking like a heading.
 func field(label, value string) string {
+	if ansi.StringWidth(label) >= fieldWidth {
+		return "  " + fieldStyle.UnsetWidth().Render(label) + " " + value + "\n"
+	}
 	return "  " + fieldStyle.Render(label) + value + "\n"
 }
 

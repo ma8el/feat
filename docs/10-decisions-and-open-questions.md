@@ -2007,8 +2007,10 @@ Decisions:
 - The layout's own keys are answered before the tab's. Moving between tabs and
   moving between tasks belong to the frame, and a view with its own keyboard
   returns for every key it does not recognise, so it would otherwise swallow
-  them. A tab that cannot open falls back to the detail tab rather than leaving
-  the user where they were.
+  them. No tab declines to open: a tab that refuses is a tab the cycle cannot
+  pass, so one with nothing to show for the selected task opens and says so. That
+  replaced an earlier fallback to the detail tab, which worked only because the
+  refusing tabs happened to come after it in the order.
 - Selecting a task has a pair of keys of its own, distinct from the plain
   arrows, and they work from every tab. The arrows belong to whichever view has
   the keyboard — review moves a repository with them — so a rail reachable only

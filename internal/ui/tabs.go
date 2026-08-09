@@ -10,7 +10,7 @@ package ui
 //
 // Columns are dropped from the right when they do not fit rather than wrapped.
 // A table that wraps is the defect this layout was built to fix, and a column a
-// user cannot see is one the detail tab still has.
+// user cannot see is one the task panel still has.
 func (m Model) overviewBody(width int) string {
 	if len(m.tasks) == 0 {
 		return mutedStyle.Render("no tasks yet") + "\n\n" +
@@ -32,7 +32,7 @@ func (m Model) overviewBody(width int) string {
 	table := renderTable(columns, rows)
 	if dropped := len(taskColumns) - len(columns); dropped > 0 {
 		note := count(dropped, "column does", "columns do") +
-			" not fit this terminal; the detail view has all of them"
+			" not fit this terminal; the task panel has all of them"
 		table += "\n\n" + mutedStyle.Render(truncate(note, width))
 	}
 	return table

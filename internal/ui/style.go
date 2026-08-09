@@ -45,8 +45,11 @@ var (
 
 	fieldStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "#6c6c6c", Dark: "#8a8a8a"}).
-			Width(14)
+			Width(fieldWidth)
 )
+
+// fieldWidth is the label column of the task panel, in cells.
+const fieldWidth = 14
 
 // column is one column of a rendered table.
 type column struct {

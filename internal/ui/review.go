@@ -24,6 +24,13 @@ type reviewModel struct {
 	loaded bool
 	// cursor is the selected repository.
 	cursor int
+	// scroll is the first line of the panel the region shows.
+	//
+	// The panel is what detail and review became, and it is taller than either
+	// was: a task with two repositories, a check that failed, and a brief does
+	// not fit a region at any terminal size worth supporting. Clipping it
+	// silently would hide the brief, which FR-UI-003 requires.
+	scroll int
 	// pending is the action in flight, so the screen says what it is waiting for.
 	pending api.ReviewAction
 	// err is a failed action, shown rather than thrown.
@@ -37,21 +44,29 @@ type reviewMsg struct {
 	err    error
 }
 
-// openReview shows the review screen for the task an action applies to.
-func (m Model) openReview() (tea.Model, tea.Cmd) {
+// openTask shows the task panel for the task an action applies to.
+//
+// A draft opens it too, and gets the half of the panel it has. Review used to
+// refuse one outright, which was right about a draft having nothing to compare
+// and wrong about there being nothing to show: a draft has a brief, a project,
+// and the repositories it will bind, and refusing left the tab where it was
+// under the name of a task the user had moved away from.
+func (m Model) openTask() (tea.Model, tea.Cmd) {
 	task, ok := m.subject()
 	if !ok {
-		return m, nil
-	}
-	if isDraft(task) {
-		m.status = "task " + task.Key + " is a draft; there is nothing to review yet"
+		// Nothing is selected, so there is nothing to draw. The panel still
+		// takes the region and says so, rather than leaving the previous tab up.
+		m.screen = screenTask
 		return m, nil
 	}
 
-	m.screen = screenReview
+	m.screen = screenTask
 	m.selected = task.ID
 	m.review = reviewModel{task: task.ID}
-	// Opening the screen compares every repository against its own recorded
+	if isDraft(task) {
+		return m, nil
+	}
+	// Opening the panel compares every repository against its own recorded
 	// base. Nothing else happens: a review action never starts, stops, or
 	// removes anything.
 	return m, m.reviewAction(api.ReviewObserve)
@@ -66,11 +81,17 @@ func (m Model) reviewAction(action api.ReviewAction) tea.Cmd {
 	}
 }
 
-// reviewKey routes a key press on the review screen.
-func (m Model) reviewKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+// taskPanelKey routes a key press on the task panel.
+//
+// The plain arrows move the repository under the cursor, because every external
+// command on this panel is about one repository. Scrolling the panel itself is
+// on the page keys, which nothing else uses: a panel that took the arrows for
+// scrolling would leave the diff and editor commands with no way to say which
+// repository they meant.
+func (m Model) taskPanelKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "esc":
-		m.screen = screenDetail
+		m.screen = screenDashboard
 		return m, nil
 
 	case "ctrl+c", "q":
@@ -88,6 +109,14 @@ func (m Model) reviewKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.review.cursor < len(m.review.status.Repositories)-1 {
 			m.review.cursor++
 		}
+		return m, nil
+
+	case "pgup":
+		m.review.scroll = m.panelScroll(-panelPage)
+		return m, nil
+
+	case "pgdown":
+		m.review.scroll = m.panelScroll(panelPage)
 		return m, nil
 
 	case "d":
@@ -206,121 +235,6 @@ func (m Model) applyReview(message reviewMsg) (tea.Model, tea.Cmd) {
 	// The task list carries the workflow state and the check summary too, so a
 	// completed action refreshes it rather than leaving the dashboard behind.
 	return m, m.load()
-}
-
-// reviewView renders the review screen as a whole terminal, which is what the
-// narrow fallback draws when there is no room for the three regions.
-func (m Model) reviewView() string {
-	if _, ok := m.task(m.selected); !ok {
-		return m.reviewBody() + m.footer(keyHints(keyHint("esc", "back"), keyHint("q", "quit")))
-	}
-	return m.reviewBody() + m.footer(reviewHints())
-}
-
-// reviewBody renders the review tab's content, without a footer (FR-REV-001 to
-// FR-REV-004). The frame owns the footer in the three-region layout.
-func (m Model) reviewBody() string {
-	task, ok := m.task(m.selected)
-	if !ok {
-		return headingStyle.Render("review") + "\n\n" +
-			mutedStyle.Render("this task is no longer listed")
-	}
-
-	var out strings.Builder
-	out.WriteString(headingStyle.Render(task.Key+"  review") + "\n")
-	out.WriteString(mutedStyle.Render(task.ProjectID+" · "+task.Title) + "\n\n")
-
-	out.WriteString(field("workflow", task.Workflow))
-	out.WriteString(field("decision", reviewDecision(m.review.status.Review)))
-	out.WriteString(field("checks", reviewChecksSummary(m.review.status.Review)))
-	if summary := m.review.status.Review.Summary; summary != "" {
-		out.WriteString(field("the agent says", summary))
-	}
-
-	if !m.review.loaded {
-		out.WriteString("\n" + mutedStyle.Render("comparing every repository against its recorded base…") + "\n")
-		return out.String()
-	}
-
-	out.WriteString("\n" + headingStyle.Render("repositories") +
-		mutedStyle.Render("  each compared against its own recorded base commit") + "\n")
-	out.WriteString(m.reviewRepositories())
-
-	if checks := m.review.status.Review.Checks; len(checks) > 0 {
-		out.WriteString("\n" + headingStyle.Render("checks") + "\n")
-		out.WriteString(reviewChecks(checks))
-	}
-
-	if offer := approvalOffer(task); offer != "" {
-		out.WriteString("\n" + attentionStyle.Render(offer) + "\n")
-	}
-	for _, note := range m.review.status.Notes {
-		out.WriteString("\n" + attentionStyle.Render("note") + " " + note + "\n")
-	}
-	if m.review.err != nil {
-		out.WriteString("\n" + failureStyle.Render(m.review.err.Error()) + "\n")
-	}
-	if m.review.pending != "" {
-		out.WriteString("\n" + mutedStyle.Render("waiting for "+string(m.review.pending)+"…") + "\n")
-	}
-
-	return out.String()
-}
-
-func reviewHints() string {
-	return keyHints(
-		keyHint("↑↓", "repository"),
-		keyHint("d", "diff"),
-		keyHint("e", "editor"),
-		keyHint("s", "status"),
-		keyHint("A", "approve"),
-		keyHint("C", "request changes"),
-		keyHint("P", "pending"),
-		keyHint("V", "run checks"),
-		keyHint("a", "attach"),
-		keyHint("r", "refresh"),
-		keyHint("esc", "back"),
-	)
-}
-
-// reviewRepositories renders one block per repository, with the cursor.
-//
-// Two lines each rather than a row of columns, for the reason the task detail
-// gives: the base commit, the branch, and the worktree path are what a user
-// reads this screen to find, and a truncated one has to be looked up somewhere
-// else.
-func (m Model) reviewRepositories() string {
-	rows := m.review.status.Repositories
-	if len(rows) == 0 {
-		return mutedStyle.Render("  none selected") + "\n"
-	}
-
-	var out strings.Builder
-	for i, row := range rows {
-		marker := "  "
-		if i == m.review.cursor {
-			marker = selectedStyle.Render("▸ ")
-		}
-
-		out.WriteString(marker + headingStyle.Render(row.RepositoryID) +
-			mutedStyle.Render("  "+accessLabel(row.Access)) + "  " + reviewChangeSummary(row) + "\n")
-		out.WriteString("    " + mutedStyle.Render("base    ") + shortCommit(row.BaseCommit))
-		if row.BaseRef != "" {
-			out.WriteString(mutedStyle.Render("  (" + row.BaseRef + ")"))
-		}
-		out.WriteString("\n")
-
-		head := mutedStyle.Render("nothing committed yet")
-		if row.HeadCommit != "" {
-			head = shortCommit(row.HeadCommit)
-			if row.Ahead > 0 {
-				head += mutedStyle.Render("  " + strconv.Itoa(row.Ahead) + " commit(s) ahead of the base")
-			}
-		}
-		out.WriteString("    " + mutedStyle.Render("head    ") + head + "\n")
-		out.WriteString("    " + mutedStyle.Render("worktree ") + row.WorktreePath + "\n")
-	}
-	return out.String()
 }
 
 // reviewChangeSummary renders what one repository holds against its base.

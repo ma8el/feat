@@ -75,12 +75,12 @@ func TestVerificationIsShownAsAClaimRatherThanAResult(t *testing.T) {
 	}
 
 	model.selected = reported.ID
-	model.screen = screenDetail
-	detail := content(model)
+	model.screen = screenTask
+	panel := model.taskPanel()
 
 	for _, want := range []string{"2 passed", "1 failed", "reported by the agent", "one test still fails"} {
-		if !strings.Contains(detail, want) {
-			t.Errorf("the detail view does not show %q:\n%s", want, detail)
+		if !strings.Contains(panel, want) {
+			t.Errorf("the task panel does not show %q:\n%s", want, panel)
 		}
 	}
 
@@ -156,15 +156,18 @@ func TestTheTaskListShowsTheRequiredV0Fields(t *testing.T) {
 	}
 }
 
-// TestTheDetailViewNamesTheSlicesItIsWaitingOn checks the honesty rule: a field
+// TestTheTaskPanelNamesTheSlicesItIsWaitingOn checks the honesty rule: a field
 // this build cannot fill says which slice fills it, rather than showing nothing
 // and leaving the user to guess.
-func TestTheDetailViewNamesTheSlicesItIsWaitingOn(t *testing.T) {
+//
+// It reads the panel rather than a rendered region, because the panel is taller
+// than any region and what a region shows depends on where the user scrolled to.
+func TestTheTaskPanelNamesTheSlicesItIsWaitingOn(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask())
 	model.selected = liveTask().ID
-	model.screen = screenDetail
+	model.screen = screenTask
 
-	view := content(model)
+	view := model.taskPanel()
 	for _, want := range []string{
 		// FR-UI-003's required content.
 		"Export the daily report", "core", "origin/main", "1a2b3c4d5e6f",
@@ -176,35 +179,35 @@ func TestTheDetailViewNamesTheSlicesItIsWaitingOn(t *testing.T) {
 		"slice 11",
 	} {
 		if !strings.Contains(view, want) {
-			t.Errorf("the detail view does not show %q:\n%s", want, view)
+			t.Errorf("the task panel does not show %q:\n%s", want, view)
 		}
 	}
 	// The slices that have been delivered stop being named. A screen that still
 	// promised one would be telling the user to wait for something they have.
 	for _, delivered := range []string{"slice 7", "slice 8", "slice 10"} {
 		if strings.Contains(view, delivered) {
-			t.Errorf("the detail view still names %q, which has been delivered:\n%s", delivered, view)
+			t.Errorf("the task panel still names %q, which has been delivered:\n%s", delivered, view)
 		}
 	}
 }
 
-// TestTheDetailViewShowsWhereTheAgentRuns checks that a containerised session
+// TestTheTaskPanelShowsWhereTheAgentRuns checks that a containerised session
 // says so, and says enough to be acted on.
 //
 // The identity is what a user needs to inspect or clean up the container
 // themselves; the user is the boundary the security model describes, and a
 // boundary nobody can see is one nobody can check.
-func TestTheDetailViewShowsWhereTheAgentRuns(t *testing.T) {
+func TestTheTaskPanelShowsWhereTheAgentRuns(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask())
 	model.selected = liveTask().ID
-	model.screen = screenDetail
+	model.screen = screenTask
 
-	view := content(model)
+	view := model.taskPanel()
 	for _, want := range []string{
 		"feat-agent-example-7f3a1c2e", "dev", "coder", "no Docker access", "container_name",
 	} {
 		if !strings.Contains(view, want) {
-			t.Errorf("the detail view does not show %q:\n%s", want, view)
+			t.Errorf("the task panel does not show %q:\n%s", want, view)
 		}
 	}
 }

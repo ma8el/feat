@@ -66,15 +66,15 @@ func reviewScreen(t *testing.T, backend *fakeBackend) Model {
 	return press(t, model, "v")
 }
 
-// TestTheReviewScreenGroupsChangesByRepository is FR-REV-001 on the screen.
+// TestTheTaskPanelGroupsChangesByRepository is FR-REV-001 on the panel.
 //
 // Every repository is there with its own recorded base, and the base is shown
 // rather than implied: a review of a long-running task is only meaningful
 // against the commit it started from, and a user who cannot see which commit
 // that was has to take Feat's word for it.
-func TestTheReviewScreenGroupsChangesByRepository(t *testing.T) {
+func TestTheTaskPanelGroupsChangesByRepository(t *testing.T) {
 	model := reviewScreen(t, newFakeBackend())
-	view := content(model)
+	view := model.taskPanel()
 
 	for field, want := range map[string]string{
 		"the first repository":  "core",
@@ -88,20 +88,20 @@ func TestTheReviewScreenGroupsChangesByRepository(t *testing.T) {
 		"the worktree":          "/srv/worktrees/example/7f3a1c2e/core",
 	} {
 		if !strings.Contains(view, want) {
-			t.Errorf("the review screen does not show %s (%q):\n%s", field, want, view)
+			t.Errorf("the task panel does not show %s (%q):\n%s", field, want, view)
 		}
 	}
 }
 
-// TestTheReviewScreenTellsAClaimFromAnEnforcedResult is slice 11's fifth
+// TestTheTaskPanelTellsAClaimFromAnEnforcedResult is slice 11's fifth
 // acceptance criterion where the user reads it.
 //
 // A result Feat ran and a result the agent asserted are both shown, and they do
 // not read alike. Showing them alike would tell the user something Feat does not
 // know (FR-AGENT-006).
-func TestTheReviewScreenTellsAClaimFromAnEnforcedResult(t *testing.T) {
+func TestTheTaskPanelTellsAClaimFromAnEnforcedResult(t *testing.T) {
 	model := reviewScreen(t, newFakeBackend())
-	view := content(model)
+	view := model.taskPanel()
 
 	if !strings.Contains(view, "Feat ran this") {
 		t.Errorf("an enforced result is not marked as one:\n%s", view)
@@ -114,7 +114,7 @@ func TestTheReviewScreenTellsAClaimFromAnEnforcedResult(t *testing.T) {
 	}
 	// The strings slice 8 left behind, which named a slice rather than a state.
 	if strings.Contains(view, "slice 11") {
-		t.Errorf("the screen still names the slice that was going to deliver it:\n%s", view)
+		t.Errorf("the panel still names the slice that was going to deliver it:\n%s", view)
 	}
 }
 

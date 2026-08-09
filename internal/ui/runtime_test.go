@@ -221,7 +221,7 @@ func TestApprovalOffersToStopTheRuntimeWithoutStopping(t *testing.T) {
 
 	model := dashboard(backend, task)
 	model.selected = task.ID
-	model.screen = screenDetail
+	model.screen = screenTask
 
 	detail := content(model)
 	if !strings.Contains(detail, "press t to stop") {
@@ -290,8 +290,13 @@ func TestTheLogsActionYieldsTheTerminal(t *testing.T) {
 	}
 }
 
-// TestADraftHasNoRuntimeScreen keeps the screen off a task that has nothing.
-func TestADraftHasNoRuntimeScreen(t *testing.T) {
+// TestADraftReachesTheRuntimeScreenAndIsToldItHasNone.
+//
+// The screen used to refuse a draft outright. That was right about a draft
+// having no services and wrong about what to do: a tab that declines to open is
+// a tab the cycle cannot pass. It opens and says so, and still asks the daemon
+// nothing — there is nothing to observe.
+func TestADraftReachesTheRuntimeScreenAndIsToldItHasNone(t *testing.T) {
 	draft := liveTask()
 	draft.Workflow = "draft"
 	draft.Session = nil
@@ -300,8 +305,11 @@ func TestADraftHasNoRuntimeScreen(t *testing.T) {
 	model := dashboard(backend, draft)
 	opened := press(t, model, "R")
 
-	if opened.screen == screenRuntime {
-		t.Error("a draft opened the runtime screen")
+	if opened.screen != screenRuntime {
+		t.Fatalf("R left the dashboard on %v", opened.screen)
+	}
+	if !strings.Contains(opened.runtimeBody(), "still a draft") {
+		t.Errorf("the runtime screen does not say why it is empty:\n%s", opened.runtimeBody())
 	}
 	if len(backend.runtimeCalls) != 0 {
 		t.Errorf("a draft reached the runtime: %v", backend.runtimeCalls)

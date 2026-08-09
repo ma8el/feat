@@ -1,0 +1,307 @@
+package ui
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/ma8el/feat/internal/api"
+)
+
+// panelPage is how far the page keys move the task panel.
+const panelPage = 10
+
+// stackedFooterHeight is what m.footer occupies in the narrow fallback: a blank
+// line, the status line, a blank line, the hints, and the daemon.
+const stackedFooterHeight = 5
+
+// taskView renders the task panel as a whole terminal, which is what the narrow
+// fallback draws when there is no room for the three regions.
+func (m Model) taskView() string {
+	width, height := m.frameSize()
+	body := m.taskBody(width, height-stackedFooterHeight)
+
+	if _, ok := m.task(m.selected); !ok {
+		return body + m.footer(keyHints(keyHint("esc", "back"), keyHint("q", "quit")))
+	}
+	return body + m.footer(taskPanelHints())
+}
+
+// taskBody renders the task panel into a region, scrolled to where the user is.
+//
+// The panel is taller than the region on any terminal worth supporting once a
+// task has two repositories and a brief, so what does not fit is scrolled to
+// rather than lost. The last line says what is above and below: a panel clipped
+// in silence reads as a panel that is short, and FR-UI-003 requires the brief to
+// be reachable.
+func (m Model) taskBody(width, height int) string {
+	panel := m.taskPanel()
+	if height <= 0 {
+		return panel
+	}
+
+	lines := strings.Split(panel, "\n")
+	if len(lines) <= height {
+		return panel
+	}
+
+	// One line of the region belongs to the note, so the window is that much
+	// shorter than the space.
+	visible := height - 1
+	offset := clampScroll(m.review.scroll, len(lines), height)
+	window := lines[offset : offset+visible]
+
+	var parts []string
+	if offset > 0 {
+		parts = append(parts, count(offset, "line above", "lines above"))
+	}
+	if below := len(lines) - offset - visible; below > 0 {
+		parts = append(parts, count(below, "line below", "lines below"))
+	}
+	note := strings.Join(parts, ", ") + "  ·  pgup/pgdn to scroll"
+
+	return strings.Join(window, "\n") + "\n" + mutedStyle.Render(truncate(note, width))
+}
+
+// clampScroll keeps an offset inside a panel of this many lines.
+func clampScroll(offset, total, height int) int {
+	most := total - (height - 1)
+	if most < 0 {
+		most = 0
+	}
+	if offset > most {
+		offset = most
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return offset
+}
+
+// panelScroll is where the page keys leave the panel, bounded by its length.
+//
+// The bound is applied here rather than while rendering, because rendering
+// cannot write back: without it, holding pgdn past the end would build up an
+// offset that took as many presses to undo.
+func (m Model) panelScroll(delta int) int {
+	_, height := m.mainRegionSize()
+	// The tab bar and the blank line beneath it are the region's.
+	total := len(strings.Split(m.taskPanel(), "\n"))
+	return clampScroll(m.review.scroll+delta, total, height-2)
+}
+
+// taskPanel renders one task: what it is, what it has changed, and what is left
+// to decide about that.
+//
+// Detail and review were two tabs until ADR-042. They were conceptually
+// different and shared their subject, their header, their workflow, their
+// repository list, and their check summary, and neither filled the main region
+// on its own. This carries what FR-UI-003 requires of task detail and what
+// FR-REV-001 requires of review, once each.
+func (m Model) taskPanel() string {
+	task, ok := m.task(m.selected)
+	if !ok {
+		if m.selected == "" {
+			return headingStyle.Render("task") + "\n\n" + mutedStyle.Render("no task selected")
+		}
+		return headingStyle.Render("task") + "\n\n" +
+			mutedStyle.Render("this task is no longer listed")
+	}
+
+	var out strings.Builder
+	out.WriteString(headingStyle.Render(task.Key+"  "+task.Title) + "\n")
+	out.WriteString(mutedStyle.Render(task.ProjectID+" · "+task.ID) + "\n\n")
+
+	out.WriteString(field("workflow", task.Workflow))
+	out.WriteString(field("attention", attentionState(task)))
+	out.WriteString(field("agent", agentDetail(task)))
+	// The runtime field carries the offer to stop services after an approval,
+	// which is why the review section below does not repeat it.
+	out.WriteString(field("runtime", runtimeDetail(task)))
+	out.WriteString(field("resources", m.resourceDetail(task)))
+	out.WriteString(field("elapsed", elapsed(task, m.now())))
+	out.WriteString(field("source", sourceDetail(task.Source)))
+
+	out.WriteString("\n" + headingStyle.Render("review") + "\n")
+	out.WriteString(field("decision", reviewDecision(m.review.status.Review)))
+	out.WriteString(field("checks", m.checksField(task)))
+	if summary := m.review.status.Review.Summary; summary != "" {
+		out.WriteString(field("the agent says", summary))
+	}
+	switch {
+	case isDraft(task):
+		out.WriteString(mutedStyle.Render(
+			"  a draft has nothing to compare yet; it owns no worktree until it is launched") + "\n")
+	case !m.review.loaded:
+		out.WriteString(mutedStyle.Render(
+			"  comparing every repository against its recorded base…") + "\n")
+	}
+	for _, note := range m.review.status.Notes {
+		out.WriteString("  " + attentionStyle.Render("note") + " " + note + "\n")
+	}
+	if m.review.err != nil {
+		out.WriteString("  " + failureStyle.Render(m.review.err.Error()) + "\n")
+	}
+	if m.review.pending != "" {
+		out.WriteString("  " + mutedStyle.Render("waiting for "+string(m.review.pending)+"…") + "\n")
+	}
+
+	out.WriteString("\n" + headingStyle.Render("repositories"))
+	if m.review.loaded {
+		out.WriteString(mutedStyle.Render("  each compared against its own recorded base commit"))
+	}
+	out.WriteString("\n" + m.taskRepositories(task))
+
+	if checks := m.review.status.Review.Checks; len(checks) > 0 {
+		out.WriteString("\n" + headingStyle.Render("checks") + "\n")
+		out.WriteString(reviewChecks(checks))
+	}
+
+	if task.Session != nil {
+		out.WriteString("\n" + headingStyle.Render("terminal") + "\n")
+		// Named rather than run together. These are three different kinds of
+		// identifier and a reader who needs one — to run a tmux command against
+		// the task themselves — cannot tell them apart from their order.
+		out.WriteString(field("tmux", mutedStyle.Render("session ")+task.Session.Tmux.Session+
+			mutedStyle.Render("  window ")+task.Session.Tmux.Window+
+			mutedStyle.Render("  pane ")+task.Session.Tmux.Pane))
+		out.WriteString(field("socket", task.Session.Tmux.Socket))
+		if note := terminalNote(task); note != "" {
+			out.WriteString(mutedStyle.Render("  "+note) + "\n")
+		}
+	}
+
+	if task.Session != nil && task.Session.Execution != nil {
+		out.WriteString("\n" + headingStyle.Render("environment") + "\n")
+		out.WriteString(executionDetail(*task.Session.Execution))
+	}
+
+	out.WriteString("\n" + headingStyle.Render("brief") + "\n")
+	out.WriteString(indent(task.Brief, "  ") + "\n")
+
+	return out.String()
+}
+
+// checksField is what is known about this task's checks, from whichever source
+// has reported.
+//
+// The task snapshot carries the agent's own count and the review status carries
+// the results with the reporter of each, which is the richer answer and the one
+// that can say Feat ran them. Showing both was what made two thin tabs look like
+// two different facts.
+func (m Model) checksField(task api.Task) string {
+	if m.review.loaded && len(m.review.status.Review.Checks) > 0 {
+		return reviewChecksSummary(m.review.status.Review)
+	}
+	return verificationDetail(task)
+}
+
+// taskRepositories renders one block per repository the task binds.
+//
+// It walks the task's own bindings rather than the comparison's rows, so that a
+// draft — which has bindings and no worktrees — is drawn with what it has. Where
+// a comparison exists its numbers are used, because those are the ones actually
+// measured against the recorded base (FR-REV-001).
+//
+// Four lines each rather than a row of columns: the base commit, the branch, and
+// the worktree path are what a user reads this panel to find, and a truncated one
+// has to be looked up somewhere else.
+func (m Model) taskRepositories(task api.Task) string {
+	if len(task.Repositories) == 0 {
+		return mutedStyle.Render("  none selected") + "\n"
+	}
+	selected, hasCursor := m.reviewRepository()
+
+	var out strings.Builder
+	for _, binding := range task.Repositories {
+		row, compared := findReviewRow(m.review.status.Repositories, binding.RepositoryID)
+
+		marker := "  "
+		if hasCursor && selected.RepositoryID == binding.RepositoryID {
+			marker = selectedStyle.Render("▸ ")
+		}
+
+		changed := bindingChangeSummary(binding)
+		if compared {
+			changed = reviewChangeSummary(row)
+		}
+		out.WriteString(marker + headingStyle.Render(binding.RepositoryID) +
+			mutedStyle.Render("  "+accessLabel(binding.Access)) + "  " + changed + "\n")
+
+		base, ref := binding.BaseCommit, binding.BaseRef
+		if compared {
+			base, ref = row.BaseCommit, row.BaseRef
+		}
+		line := shortCommit(base)
+		if ref != "" {
+			line += mutedStyle.Render("  (" + ref + ")")
+		}
+		out.WriteString("    " + mutedStyle.Render("base     ") + line + "\n")
+
+		if compared {
+			head := mutedStyle.Render("nothing committed yet")
+			if row.HeadCommit != "" {
+				head = shortCommit(row.HeadCommit)
+				if row.Ahead > 0 {
+					head += mutedStyle.Render("  " + strconv.Itoa(row.Ahead) +
+						" commit(s) ahead of the base")
+				}
+			}
+			out.WriteString("    " + mutedStyle.Render("head     ") + head + "\n")
+		}
+
+		branch := binding.Branch
+		if branch == "" {
+			branch = mutedStyle.Render("no branch (read-only)")
+		}
+		out.WriteString("    " + mutedStyle.Render("branch   ") + branch + "\n")
+
+		worktree := binding.WorktreePath
+		if worktree == "" {
+			worktree = mutedStyle.Render("not created yet")
+		}
+		out.WriteString("    " + mutedStyle.Render("worktree ") + worktree + "\n")
+	}
+	return out.String()
+}
+
+// findReviewRow is the comparison of one repository, when one has been made.
+func findReviewRow(rows []api.ReviewRepository, repository string) (api.ReviewRepository, bool) {
+	for _, row := range rows {
+		if row.RepositoryID == repository {
+			return row, true
+		}
+	}
+	return api.ReviewRepository{}, false
+}
+
+// bindingChangeSummary is what the task snapshot last observed of a repository,
+// for a task no comparison has been run against.
+func bindingChangeSummary(binding api.TaskRepository) string {
+	if binding.Observation == nil {
+		return mutedStyle.Render("not compared")
+	}
+	summary := strconv.Itoa(binding.Observation.ChangedFiles) + " file(s)"
+	if binding.Observation.Dirty {
+		summary += mutedStyle.Render("  uncommitted")
+	}
+	return summary
+}
+
+// taskPanelHints are the panel's own keys.
+//
+// The status command keeps `s`, which opens a shell everywhere else. The three
+// external commands are a set — diff, editor, status, each about the repository
+// under the cursor (FR-REV-002) — and splitting them to protect one letter would
+// cost more than the shell does, which the terminal tab and the rail both reach.
+func taskPanelHints() string {
+	return keyHints(
+		keyHint("↑↓", "repository"),
+		keyHint("d", "diff"),
+		keyHint("e", "editor"),
+		keyHint("s", "status"),
+		keyHint("A", "approve"),
+		keyHint("C", "request changes"),
+		keyHint("V", "run checks"),
+		keyHint("pgup/pgdn", "scroll"),
+	)
+}

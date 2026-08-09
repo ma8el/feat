@@ -38,19 +38,24 @@ type runtimeMsg struct {
 }
 
 // openRuntime shows the runtime screen for the task an action applies to.
+//
+// A draft opens it and is told there is nothing there yet, rather than being
+// refused. A tab that declines to open is a tab the cycle cannot pass, and a
+// user whose only task is a draft could otherwise reach neither the tab after it
+// nor the one before.
 func (m Model) openRuntime() (tea.Model, tea.Cmd) {
 	task, ok := m.subject()
 	if !ok {
-		return m, nil
-	}
-	if isDraft(task) {
-		m.status = "task " + task.Key + " is a draft; nothing has been created for it yet"
+		m.screen = screenRuntime
 		return m, nil
 	}
 
 	m.screen = screenRuntime
 	m.selected = task.ID
 	m.runtime = runtimeModel{task: task.ID}
+	if isDraft(task) {
+		return m, nil
+	}
 	// Opening the screen asks what is running. Nothing is started, and nothing
 	// would be: v0 starts application services only when a user asks (FR-RUN-005).
 	return m, m.runtimeAction(api.RuntimeObserve)
@@ -84,7 +89,7 @@ func (m Model) runtimeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key.String() {
 	case "esc":
-		m.screen = screenDetail
+		m.screen = screenTask
 		return m, nil
 
 	case "ctrl+c", "q":
@@ -179,6 +184,9 @@ func (m Model) runtimeBody() string {
 	out.WriteString(mutedStyle.Render(task.ProjectID+" · "+task.Title) + "\n\n")
 
 	switch {
+	case isDraft(task):
+		out.WriteString(mutedStyle.Render(
+			"this task is still a draft; nothing has been created for it to run") + "\n")
 	case task.Runtime == nil && !m.runtime.loaded:
 		out.WriteString(mutedStyle.Render("reading what is running…") + "\n")
 	case task.Runtime == nil:

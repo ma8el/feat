@@ -27,23 +27,25 @@ const (
 	// dashboard's own views tell a user about a task, and this one shows them
 	// the task (ADR-042).
 	tabTerminal tab = iota
-	tabOverview
-	tabDetail
-	tabReview
+	// tabTask is what detail and review became. They were conceptually
+	// different and shared most of their content, and neither filled the region
+	// on its own (ADR-042, evidence 1).
+	tabTask
 	tabRuntime
+	// tabOverview is last because it is the one tab that is not about the
+	// selected task, and the one ADR-041 keeps provisionally.
+	tabOverview
 )
 
 // tabs is the order the tab bar draws them in and the order the tab key cycles.
-var tabs = []tab{tabTerminal, tabOverview, tabDetail, tabReview, tabRuntime}
+var tabs = []tab{tabTerminal, tabTask, tabRuntime, tabOverview}
 
 func (t tab) title() string {
 	switch t {
 	case tabTerminal:
 		return "terminal"
-	case tabDetail:
-		return "detail"
-	case tabReview:
-		return "review"
+	case tabTask:
+		return "task"
 	case tabRuntime:
 		return "runtime"
 	default:
@@ -138,10 +140,8 @@ func (m Model) mainView(width, height int) string {
 		// The tab bar and the blank line beneath it are the region's, so the
 		// pane gets what is left of it.
 		body = m.terminalBody(width, height-2)
-	case tabDetail:
-		body = m.detailBody()
-	case tabReview:
-		body = m.reviewBody()
+	case tabTask:
+		body = m.taskBody(width, height-2)
 	case tabRuntime:
 		body = m.runtimeBody()
 	default:
@@ -226,15 +226,15 @@ func (m Model) hints() string {
 
 	switch m.screen {
 	case screenTerminal:
-		return taskHints() + mutedStyle.Render("   ") + keyHints(
+		return railHints() + mutedStyle.Render("   ") + keyHints(
 			keyHint("i", "type here"),
 			keyHint("w", "agent/shell"),
 			keyHint("a", "attach"),
 		)
-	case screenReview:
-		return taskHints() + mutedStyle.Render("   ") + reviewHints()
+	case screenTask:
+		return railHints() + mutedStyle.Render("   ") + taskPanelHints()
 	case screenRuntime:
-		return taskHints() + mutedStyle.Render("   ") + runtimeHints()
+		return railHints() + mutedStyle.Render("   ") + runtimeHints()
 	}
 	return keyHints(
 		keyHint("↑↓", "select"),
@@ -247,11 +247,11 @@ func (m Model) hints() string {
 	)
 }
 
-// taskHints are the keys that reach the rail from a view with its own keyboard.
+// railHints are the keys that reach the rail from a view with its own keyboard.
 //
-// They are appended to review's and runtime's own hints, because those views
-// take the plain arrows for their own cursor and a user there needs to be told
-// how to change task without leaving.
-func taskHints() string {
+// They are appended to the task panel's and runtime's own hints, because those
+// views take the plain arrows for their own cursor and a user there needs to be
+// told how to change task without leaving.
+func railHints() string {
 	return keyHints(keyHint("shift+↑↓", "task"), keyHint("tab", "view"), keyHint("?", "keys"))
 }

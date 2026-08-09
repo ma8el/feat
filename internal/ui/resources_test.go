@@ -84,7 +84,7 @@ func TestTheTaskRowShowsItsOwnTotals(t *testing.T) {
 func TestTheTaskDetailSeparatesContainerFromProcessMemory(t *testing.T) {
 	model := withResources(dashboard(newFakeBackend(), liveTask()), sampled(), nil)
 	model.selected = liveTask().ID
-	model.screen = screenDetail
+	model.screen = screenTask
 
 	view := content(model)
 	for _, want := range []string{

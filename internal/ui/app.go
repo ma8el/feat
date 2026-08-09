@@ -59,10 +59,13 @@ type screen int
 
 const (
 	screenDashboard screen = iota
-	screenDetail
+	// screenTask is one task read and acted on: what it is, what it has
+	// changed, and what to decide about that. Detail and review were separate
+	// screens until ADR-042, and shared their subject, their header, their
+	// workflow, and their repository list.
+	screenTask
 	screenPrepare
 	screenRuntime
-	screenReview
 	screenCleanup
 	screenKeys
 	screenTerminal
@@ -90,10 +93,8 @@ func (s screen) tab() (tab, bool) {
 		return tabTerminal, true
 	case screenDashboard:
 		return tabOverview, true
-	case screenDetail:
-		return tabDetail, true
-	case screenReview:
-		return tabReview, true
+	case screenTask:
+		return tabTask, true
 	case screenRuntime:
 		return tabRuntime, true
 	default:
@@ -106,10 +107,8 @@ func screenFor(active tab) screen {
 	switch active {
 	case tabTerminal:
 		return screenTerminal
-	case tabDetail:
-		return screenDetail
-	case tabReview:
-		return screenReview
+	case tabTask:
+		return screenTask
 	case tabRuntime:
 		return screenRuntime
 	default:
@@ -130,8 +129,8 @@ type Model struct {
 	tab    tab
 	tasks  []api.Task
 	cursor int
-	// selected is the task the detail screen shows, held by identifier so that
-	// a refresh cannot make the screen show a different task.
+	// selected is the task the task panel shows, held by identifier so that a
+	// refresh cannot make the panel show a different task.
 	selected string
 	archived int
 
@@ -218,10 +217,10 @@ func New(opts Options) Model {
 		model.screen = screenPrepare
 	}
 	if opts.Review != "" {
-		// `feat review <task>` opens straight onto the review of the task it
-		// names. The comparison itself is asked for once the model starts, so
-		// that opening the screen and reading a worktree stay separate steps.
-		model.screen = screenReview
+		// `feat review <task>` opens straight onto the task it names. The
+		// comparison itself is asked for once the model starts, so that opening
+		// the screen and reading a worktree stay separate steps.
+		model.screen = screenTask
 		model.selected = opts.Review
 		model.review = reviewModel{task: opts.Review}
 	}
@@ -283,7 +282,7 @@ func (m Model) Init() tea.Cmd {
 	if m.screen == screenPrepare {
 		commands = append(commands, m.prepare.Init())
 	}
-	if m.screen == screenReview {
+	if m.screen == screenTask {
 		commands = append(commands, m.reviewAction(api.ReviewObserve))
 	}
 	return tea.Batch(commands...)
@@ -597,20 +596,18 @@ func nextTab(active tab, delta int) tab {
 
 // selectTab moves the main region to a tab and asks for whatever it shows.
 //
-// Review and runtime go through the same entry points their keys use, because a
-// tab that read state a different way from the key beside it would be a second
-// implementation of the same screen.
+// The task panel and runtime go through the same entry points their keys use,
+// because a tab that read state a different way from the key beside it would be
+// a second implementation of the same screen.
 func (m Model) selectTab(active tab) (tea.Model, tea.Cmd) {
 	switch active {
-	case tabReview:
-		opened, cmd := m.openReview()
-		return openedOr(screenReview, opened, cmd)
+	case tabTask:
+		return m.openTask()
 	case tabRuntime:
-		opened, cmd := m.openRuntime()
-		return openedOr(screenRuntime, opened, cmd)
+		return m.openRuntime()
 	}
 
-	if task, ok := m.current(); ok && (active == tabDetail || active == tabTerminal) {
+	if task, ok := m.current(); ok && active == tabTerminal {
 		m.selected = task.ID
 	}
 	m.screen = screenFor(active)
@@ -628,25 +625,6 @@ func (m Model) selectTab(active tab) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(frame, terminalTick(m.terminal.focused))
 	}
 	return m, nil
-}
-
-// openedOr falls back to the detail tab when a tab declined to open.
-//
-// Review and runtime both refuse a draft, which owns no worktree and no
-// services. Without this the tab would not move — which is how `tab` used to
-// stop dead — and the region would keep drawing one task's data under the name
-// of the task the user had just moved to.
-func openedOr(want screen, model tea.Model, cmd tea.Cmd) (tea.Model, tea.Cmd) {
-	opened, ok := model.(Model)
-	if !ok || opened.screen == want {
-		return model, cmd
-	}
-
-	if task, found := opened.current(); found {
-		opened.selected = task.ID
-	}
-	opened.screen = screenDetail
-	return opened, cmd
 }
 
 // key routes a key press to the screen that has the keyboard.
@@ -697,8 +675,8 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.screen == screenRuntime {
 		return m.runtimeKey(key)
 	}
-	if m.screen == screenReview {
-		return m.reviewKey(key)
+	if m.screen == screenTask {
+		return m.taskPanelKey(key)
 	}
 	if m.screen == screenCleanup {
 		return m.cleanupKey(key)
@@ -714,7 +692,7 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "esc":
-		if m.screen == screenDetail || m.screen == screenKeys {
+		if m.screen == screenKeys {
 			m.screen = screenDashboard
 		}
 		return m, nil
@@ -756,11 +734,7 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "enter":
-		if task, ok := m.current(); ok {
-			m.selected = task.ID
-			m.screen = screenDetail
-		}
-		return m, nil
+		return m.openTask()
 
 	case "n":
 		m.rememberTab()
@@ -778,7 +752,7 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openRuntime()
 
 	case "v":
-		return m.openReview()
+		return m.openTask()
 
 	case "C":
 		return m.openCleanup()
@@ -891,7 +865,7 @@ func (m Model) cancel() (tea.Model, tea.Cmd) {
 	backend := m.backend
 	id := task.ID
 	m.status = "cancelled draft " + task.Key
-	if m.screen == screenDetail {
+	if m.screen == screenTask {
 		m.screen = screenDashboard
 	}
 	return m, func() tea.Msg {
@@ -918,10 +892,10 @@ func (m Model) finishPreparation(message preparedMsg) (tea.Model, tea.Cmd) {
 	return m, m.load()
 }
 
-// subject is the task an action applies to: the one open in the detail screen,
-// or the one under the cursor.
+// subject is the task an action applies to: the one open in the task panel, or
+// the one under the cursor.
 func (m Model) subject() (api.Task, bool) {
-	if m.screen == screenDetail {
+	if m.screen == screenTask {
 		return m.task(m.selected)
 	}
 	return m.current()
@@ -998,12 +972,10 @@ func (m Model) stackedView() string {
 	switch m.screen {
 	case screenPrepare:
 		return m.prepare.View()
-	case screenDetail:
-		return m.detailView()
+	case screenTask:
+		return m.taskView()
 	case screenRuntime:
 		return m.runtimeView()
-	case screenReview:
-		return m.reviewView()
 	case screenCleanup:
 		return m.cleanupView()
 	case screenKeys:
