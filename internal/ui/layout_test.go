@@ -227,13 +227,173 @@ func TestAnOverlayLeavesTheTaskListVisible(t *testing.T) {
 	if !strings.Contains(view, "9b02de41") {
 		t.Errorf("the task list is not visible behind the dialog:\n%s", view)
 	}
-	if !strings.Contains(view, "select a task, from any view") {
+	if !strings.Contains(view, "shift moves the frame") {
 		t.Errorf("the key map is not on screen:\n%s", view)
 	}
 
 	closed := press(t, opened, "esc")
-	if strings.Contains(closed.View(), "select a task, from any view") {
+	if strings.Contains(closed.View(), "shift moves the frame") {
 		t.Errorf("the dialog did not close:\n%s", closed.View())
+	}
+}
+
+// TestTheKeyMapFitsTheDialogItIsDrawnIn is what the two columns are for.
+//
+// Six sections of keys is forty-one lines in one column and the dialog on a
+// hundred-and-twenty by thirty-two terminal holds twenty-seven, so the map was
+// cut from the bottom — where the sections a reader has not memorised are. It
+// had been overflowing before ADR-046 added a section; this checks the whole of
+// it arrives at every width the three-region layout supports.
+func TestTheKeyMapFitsTheDialogItIsDrawnIn(t *testing.T) {
+	for _, width := range []int{120, 160} {
+		model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), width, 32)
+		view := press(t, model, "?").View()
+
+		if strings.Contains(view, "more lines than fit here") {
+			t.Errorf("the key map is cut off at %d cells:\n%s", width, view)
+		}
+		// The last section is the one an overflow eats first, so it stands for
+		// the rest arriving.
+		for _, want := range []string{"this list", "follow the Compose logs", "cancel a draft"} {
+			if !strings.Contains(view, want) {
+				t.Errorf("the key map at %d cells lost %q:\n%s", width, want, view)
+			}
+		}
+	}
+}
+
+// TestTheNarrowestSupportedWidthKeepsTheRule records what does not fit, and what
+// is protected when something has to go.
+//
+// At ninety-six cells the dialog is seventy-two wide, which holds one column of
+// keys and not two, and one column is forty-one lines against the twenty-seven a
+// thirty-two-row terminal leaves. Something is cut there, and it is cut from the
+// bottom — so what must be at the top is the rule the rest of the map is an
+// application of, and the cut must say it happened rather than end mid-list.
+func TestTheNarrowestSupportedWidthKeepsTheRule(t *testing.T) {
+	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), minimumWidth, 32)
+	view := press(t, model, "?").View()
+
+	for _, want := range []string{
+		"shift moves the frame",  // the rule
+		"next and previous task", // and both halves of it
+		"move within the view",
+		"more lines than fit here", // said, rather than silently ending
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the key map at the narrowest supported width lost %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestTheKeyMapStaysInsideItsColumns pins the measurements the two columns
+// depend on.
+//
+// A description that outgrows the column pushes the right-hand column off the
+// dialog, and the map silently falls back to the single column that did not fit.
+// The constraint is cheap to break by writing a longer sentence, so it is
+// checked rather than commented.
+func TestTheKeyMapStaysInsideItsColumns(t *testing.T) {
+	// A width of zero cannot hold two columns, so the map renders one and every
+	// line is a single entry. It is cut by cell rather than at a separator: one
+	// binding holds a double space of its own.
+	for _, line := range strings.Split(ansi.Strip(keyMap(0)), "\n") {
+		if !strings.HasPrefix(line, "  ") {
+			// A heading, which is measured against the block rather than the
+			// column, and which the block is wide enough for by construction.
+			continue
+		}
+		key := strings.TrimSpace(ansi.Cut(line, 2, 2+keyColumn))
+		description := strings.TrimSpace(ansi.Cut(line, 2+keyColumn, ansi.StringWidth(line)))
+
+		if got := ansi.StringWidth(key); got >= keyColumn {
+			t.Errorf("the binding %q is %d cells, and the column is %d", key, got, keyColumn)
+		}
+		if got := ansi.StringWidth(description); got > keyDescription {
+			t.Errorf("%q describes %q in %d cells, and the column allows %d",
+				description, key, got, keyDescription)
+		}
+	}
+}
+
+// TestTheOverlaysOpenFromEveryView is the defect the footer was advertising.
+//
+// The task panel and runtime answered their own keys and returned for the rest,
+// so `?` and `!` reached neither — while the frame's hints, which those views
+// draw, went on offering `? keys`. A view now falls through to the dashboard for
+// everything it does not claim.
+func TestTheOverlaysOpenFromEveryView(t *testing.T) {
+	for _, open := range []string{"", "v", "R"} {
+		for _, overlay := range []struct {
+			key  string
+			want screen
+		}{{"?", screenKeys}, {"!", screenRecovery}} {
+			model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
+			if open != "" {
+				model = press(t, model, open)
+			}
+
+			opened := press(t, model, overlay.key)
+			if opened.screen != overlay.want {
+				t.Errorf("%q from %q left the screen at %v, want %v",
+					overlay.key, open, opened.screen, overlay.want)
+			}
+			// And the view underneath is the one that comes back, rather than
+			// whatever the dashboard opened on.
+			if closed := press(t, opened, "esc"); closed.activeTab() != model.activeTab() {
+				t.Errorf("closing %q from %q returned to %v, want %v",
+					overlay.key, open, closed.activeTab(), model.activeTab())
+			}
+		}
+	}
+}
+
+// TestAViewKeepsTheKeysItClaims is the other half of falling through.
+//
+// The dashboard's meaning applies only where the view has none of its own: `C`
+// sends work back on the task panel and cleans a task up everywhere else, and `r`
+// compares, refreshes, or looks again depending on where it is pressed. A
+// fall-through that took precedence would have replaced all three.
+func TestAViewKeepsTheKeysItClaims(t *testing.T) {
+	backend := newFakeBackend()
+	panel := press(t, sized(reviewScreen(t, backend), 120, 32), "C")
+
+	if panel.screen == screenCleanup {
+		t.Error("C on the task panel opened cleanup, want the review decision")
+	}
+	if len(backend.reviewCalls) == 0 || !strings.HasPrefix(
+		backend.reviewCalls[len(backend.reviewCalls)-1], string(api.ReviewRequestChanges)) {
+		t.Errorf("C on the task panel asked for %v, want a request for changes", backend.reviewCalls)
+	}
+
+	// Runtime claims neither, so both land on the dashboard's meaning.
+	runtime := press(t, sized(dashboard(newFakeBackend(), liveTask()), 120, 32), "R")
+	if cleanup := press(t, runtime, "C"); cleanup.screen != screenCleanup {
+		t.Errorf("C on the runtime view left the screen at %v, want cleanup", cleanup.screen)
+	}
+}
+
+// TestTheTaskActionsReachEveryView checks the rest of what falling through
+// restored.
+//
+// Attaching to the agent is the one a user reaches for most, and the runtime view
+// had no answer for it at all: `a` there did nothing, from a screen whose whole
+// subject is the selected task.
+func TestTheTaskActionsReachEveryView(t *testing.T) {
+	for _, open := range []string{"", "v", "R"} {
+		backend := newFakeBackend()
+		model := sized(dashboard(backend, liveTask()), 120, 32)
+		if open != "" {
+			model = press(t, model, open)
+		}
+
+		press(t, model, "a")
+		if len(backend.attached) != 1 {
+			t.Errorf("a from %q attached to %v, want the selected task", open, backend.attached)
+		}
+		if prepared := press(t, model, "n"); prepared.screen != screenPrepare {
+			t.Errorf("n from %q left the screen at %v, want preparation", open, prepared.screen)
+		}
 	}
 }
 
@@ -402,10 +562,14 @@ func TestTabCyclesPastAViewWithItsOwnKeyboard(t *testing.T) {
 // TestTheRailIsReachableFromEveryView is the second defect found in use: the
 // plain arrows belong to whichever view has the keyboard, so from review there
 // was no way to change task at all.
+//
+// Each spelling is checked rather than one standing for the others, because they
+// exist for readers who cannot use each other's: a terminal that eats shifted
+// arrows leaves only the letter and the control pair (ADR-046).
 func TestTheRailIsReachableFromEveryView(t *testing.T) {
 	second := otherTask()
 
-	for _, key := range []string{"shift+down", "ctrl+n"} {
+	for _, key := range []string{"J", "shift+down", "ctrl+n"} {
 		for _, open := range []string{"", "tab", "v", "R"} {
 			model := sized(dashboard(newFakeBackend(), liveTask(), second), 120, 32)
 			if open != "" {
@@ -428,12 +592,113 @@ func TestTheRailIsReachableFromEveryView(t *testing.T) {
 func TestSelectingATaskWrapsAtBothEnds(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
 
-	if up := press(t, model, "shift+up"); up.cursor != 1 {
-		t.Errorf("shift+up from the first task went to %d, want the last", up.cursor)
+	if up := press(t, model, "K"); up.cursor != 1 {
+		t.Errorf("K from the first task went to %d, want the last", up.cursor)
 	}
 	down := press(t, press(t, model, "shift+down"), "shift+down")
 	if down.cursor != 0 {
 		t.Errorf("shift+down past the last task went to %d, want the first", down.cursor)
+	}
+}
+
+// TestTheTabBarIsReachableFromEveryView is the rail test's other half.
+//
+// A view with its own keyboard used to swallow everything it did not recognise,
+// which is what stopped `tab` at the review tab. The shifted keys are answered
+// by the frame before any view sees them, so the cycle closes from wherever the
+// user is (ADR-046).
+func TestTheTabBarIsReachableFromEveryView(t *testing.T) {
+	for _, open := range []string{"", "tab", "v", "R"} {
+		model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
+		if open != "" {
+			model = press(t, model, open)
+		}
+		at := model.activeTab()
+
+		if next := press(t, model, "L"); next.activeTab() != nextTab(at, 1) {
+			t.Errorf("L from %q landed on %v, want %v", open, next.activeTab(), nextTab(at, 1))
+		}
+		if back := press(t, model, "H"); back.activeTab() != nextTab(at, -1) {
+			t.Errorf("H from %q landed on %v, want %v", open, back.activeTab(), nextTab(at, -1))
+		}
+		if next := press(t, model, "shift+right"); next.activeTab() != nextTab(at, 1) {
+			t.Errorf("shift+right from %q landed on %v, want %v",
+				open, next.activeTab(), nextTab(at, 1))
+		}
+		if back := press(t, model, "shift+left"); back.activeTab() != nextTab(at, -1) {
+			t.Errorf("shift+left from %q landed on %v, want %v",
+				open, back.activeTab(), nextTab(at, -1))
+		}
+	}
+}
+
+// TestThePlainKeysNeverMoveTheFrame is the defect this was all for.
+//
+// The plain arrows moved the rail on the terminal tab and a repository on the
+// task panel, so one key meant two things and which one depended on a tab the
+// user was not thinking about. They now move within the main region only, and on
+// the terminal tab — where an unfocused pane has no cursor of its own — they move
+// nothing at all rather than reaching past it to the rail.
+func TestThePlainKeysNeverMoveTheFrame(t *testing.T) {
+	for _, open := range []string{"", "tab", "v", "R"} {
+		for _, plain := range []string{"j", "k", "h", "l", "up", "down", "left", "right"} {
+			model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
+			if open != "" {
+				model = press(t, model, open)
+			}
+
+			moved := press(t, model, plain)
+			if moved.cursor != model.cursor {
+				t.Errorf("%q from %q moved the rail: %d became %d",
+					plain, open, model.cursor, moved.cursor)
+			}
+			if moved.activeTab() != model.activeTab() {
+				t.Errorf("%q from %q moved the tab: %v became %v",
+					plain, open, model.activeTab(), moved.activeTab())
+			}
+		}
+	}
+}
+
+// TestThePlainKeysMoveWithinTheView is the same rule from the other side: a view
+// that has something to move through still moves it.
+func TestThePlainKeysMoveWithinTheView(t *testing.T) {
+	panel := sized(reviewScreen(t, newFakeBackend()), 120, 32)
+	if len(panel.review.status.Repositories) < 2 {
+		t.Fatalf("the panel opened on %d repositories, want two to move between",
+			len(panel.review.status.Repositories))
+	}
+
+	down := press(t, panel, "j")
+	if down.review.cursor != 1 {
+		t.Errorf("j left the repository cursor at %d, want 1", down.review.cursor)
+	}
+	if up := press(t, down, "k"); up.review.cursor != 0 {
+		t.Errorf("k left the repository cursor at %d, want 0", up.review.cursor)
+	}
+}
+
+// TestTheNarrowFallbackKeepsThePlainArrows checks the one place the rule reads
+// differently because the layout does.
+//
+// Below the layout's minimum there is no rail: the task list is what the single
+// column draws, so it is the main region, and moving within it is what the plain
+// keys mean everywhere else.
+func TestTheNarrowFallbackKeepsThePlainArrows(t *testing.T) {
+	second := otherTask()
+	model := sized(dashboard(newFakeBackend(), liveTask(), second), 80, 24)
+
+	if !model.narrow() {
+		t.Fatal("an eighty-column terminal was not treated as narrow")
+	}
+	for _, plain := range []string{"down", "j"} {
+		moved := press(t, model, plain)
+		if moved.cursor != 1 {
+			t.Errorf("%q left the narrow fallback's cursor at %d, want 1", plain, moved.cursor)
+		}
+		if got, _ := moved.current(); got.ID != second.ID {
+			t.Errorf("%q selected %s, want %s", plain, got.Key, second.Key)
+		}
 	}
 }
 
@@ -510,7 +775,7 @@ func TestTheFrameKeysSurviveTruncation(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
 	footer := press(t, model, "v").frameFooter(120)
 
-	for _, want := range []string{"shift+↑↓", "tab", "?"} {
+	for _, want := range []string{"J K", "H L", "?"} {
 		if !strings.Contains(footer, want) {
 			t.Errorf("the review footer lost %q to truncation:\n%s", want, footer)
 		}

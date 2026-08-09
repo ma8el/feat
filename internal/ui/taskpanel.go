@@ -299,7 +299,7 @@ func bindingChangeSummary(binding api.TaskRepository) string {
 // a status is read anyway.
 func taskPanelHints() string {
 	return keyHints(
-		keyHint("↑↓", "repository"),
+		keyHint("j k", "repository"),
 		keyHint("d", "diff"),
 		keyHint("e", "editor"),
 		keyHint("A", "approve"),

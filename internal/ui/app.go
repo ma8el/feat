@@ -553,27 +553,37 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 // tab has the keyboard: moving between tabs, and moving between tasks.
 //
 // It reports whether it handled the key, so that a tab still sees everything
-// else. Task selection needs a pair of its own because the plain arrows are
-// already spoken for inside a tab — review moves a repository with them — and a
-// user who cannot reach the rail from the review tab cannot change task without
-// leaving it first.
+// else.
+//
+// The division is one rule, and the rule is the shift key: shifted keys move the
+// frame — which task, which view — and plain keys move within whatever the main
+// region is drawing. Before ADR-046 the plain arrows did both, depending on which
+// tab was open: they moved the rail on the terminal tab and a repository on the
+// task panel, so the same key meant two things and a user could not tell which
+// without pressing it.
+//
+// Each direction has three spellings, and they are not redundant. Uppercase
+// letters are the primary binding — a terminal has no modifier bit for a shifted
+// letter, so shift+j is delivered as J and that is what a Vim-shaped binding
+// actually is. The shifted arrows are the same movement for a user who does not
+// think in hjkl. The control pair is the fallback, because a terminal that eats
+// shifted arrows would otherwise leave the rail unreachable from a view that
+// takes the plain ones.
 func (m Model) frameKey(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch key.String() {
-	case "tab":
+	case "L", "shift+right", "tab":
 		updated, cmd := m.selectTab(nextTab(m.activeTab(), 1))
 		return updated, cmd, true
 
-	case "shift+tab":
+	case "H", "shift+left", "shift+tab":
 		updated, cmd := m.selectTab(nextTab(m.activeTab(), -1))
 		return updated, cmd, true
 
-	// Both pairs, because a terminal that does not deliver a shifted arrow would
-	// otherwise leave the rail unreachable, and that is the defect this fixes.
-	case "shift+up", "ctrl+p":
+	case "K", "shift+up", "ctrl+p":
 		updated, cmd := m.selectTask(-1)
 		return updated, cmd, true
 
-	case "shift+down", "ctrl+n":
+	case "J", "shift+down", "ctrl+n":
 		updated, cmd := m.selectTask(1)
 		return updated, cmd, true
 	}
@@ -703,7 +713,25 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.screen == screenCleanup {
 		return m.cleanupKey(key)
 	}
+	return m.dashboardKey(key)
+}
 
+// dashboardKey answers the keys that belong to the dashboard rather than to one
+// of its views: opening an overlay, acting on the selected task, quitting.
+//
+// A view with its own keyboard falls through to this for every key it does not
+// claim, which is what makes `?` work from the task panel and runtime. They used
+// to return for anything they did not recognise, so the keys below were reachable
+// only from the terminal tab — while the footer on those views went on offering
+// `? keys`, because the frame's hints are drawn there whatever has the keyboard.
+//
+// Falling through rather than being answered first is deliberate, and it is the
+// opposite of what frameKey does. Movement must beat a view, because a view that
+// swallowed it would trap the user in itself. An action must not: `r` means
+// compare again on the task panel and refresh on runtime, and `C` sends work back
+// there while it cleans a task up here. A view that claims a key keeps it, and
+// everything else lands on the dashboard's own meaning.
+func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "ctrl+c", "q":
 		m.quitting = true
@@ -748,15 +776,29 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	// The plain keys move within the main region, and on the terminal tab there
+	// is nothing to move through: an unfocused pane has no cursor of its own, and
+	// a focused one takes every key before this. So they do nothing here, and the
+	// rail is on J and K, as it is from every other view.
+	//
+	// The narrow fallback is the exception that proves the rule rather than one
+	// against it. Below the layout's minimum there is no rail: the task list is
+	// what the single column draws, so it is the main region, and moving within it
+	// is exactly what these keys mean everywhere else.
+	//
+	// The terminal screen is what draws that list, so it is the only one this
+	// applies to. Runtime reaches here by falling through, and a narrow terminal
+	// showing runtime is showing runtime rather than the list — moving the
+	// selection there would move something the user cannot see.
 	case "up", "k":
-		if m.cursor > 0 {
-			m.cursor--
+		if m.narrow() && m.screen == screenTerminal {
+			return m.selectTask(-1)
 		}
 		return m, nil
 
 	case "down", "j":
-		if m.cursor < len(m.tasks)-1 {
-			m.cursor++
+		if m.narrow() && m.screen == screenTerminal {
+			return m.selectTask(1)
 		}
 		return m, nil
 
@@ -1006,7 +1048,8 @@ func (m Model) stackedView() string {
 	case screenCleanup:
 		return m.cleanupView()
 	case screenKeys:
-		return m.keyMap() + m.footer(keyHints(keyHint("esc", "close")))
+		width, _ := m.frameSize()
+		return m.keyMap(width) + m.footer(keyHints(keyHint("esc", "close")))
 	case screenRecovery:
 		return m.recoveryList() + m.footer(keyHints(keyHint("r", "look again"), keyHint("esc", "close")))
 	default:
@@ -1033,7 +1076,12 @@ func (m Model) dialogView() string {
 		return dialogBox("clean up "+m.cleanupTitle(),
 			m.cleanupBody()+"\n"+m.cleanupHints(), inner, tallest)
 	case screenKeys:
-		return dialogBox("keys", m.keyMap(), inner, tallest)
+		// The key map is given the same three quarters as every other dialog, and
+		// lays itself out inside them. A reference sheet is a good reason to want
+		// more width and not a good enough one to take it: the rail behind this is
+		// what ADR-041 chose an overlay to keep, and a dialog wide enough for two
+		// roomy columns covers the task keys it is drawn over.
+		return dialogBox("keys", m.keyMap(inner-4), inner, tallest)
 	case screenRecovery:
 		return dialogBox("recovery", m.recoveryList(), inner, tallest)
 	default:

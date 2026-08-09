@@ -228,22 +228,21 @@ func (m Model) hints() string {
 	case screenRuntime:
 		return railHints() + mutedStyle.Render("   ") + runtimeHints()
 	}
-	return keyHints(
-		keyHint("↑↓", "select"),
-		keyHint("tab", "view"),
+	return railHints() + mutedStyle.Render("   ") + keyHints(
 		keyHint("a", "attach"),
 		keyHint("s", "shell"),
 		keyHint("n", "new"),
-		keyHint("?", "keys"),
 		keyHint("q", "quit"),
 	)
 }
 
-// railHints are the keys that reach the rail from a view with its own keyboard.
+// railHints are the keys that reach the rail and the tab bar from a view with
+// its own keyboard.
 //
-// They are appended to the task panel's and runtime's own hints, because those
-// views take the plain arrows for their own cursor and a user there needs to be
-// told how to change task without leaving.
+// They lead every view's hints, because they are the ones with no other route to
+// discovery: a view's own keys are on the view, and the frame's are not. The
+// shifted arrows and the control pair do the same thing and are not named here —
+// the footer is one line and truncates, and the full list is on `?`.
 func railHints() string {
-	return keyHints(keyHint("shift+↑↓", "task"), keyHint("tab", "view"), keyHint("?", "keys"))
+	return keyHints(keyHint("J K", "task"), keyHint("H L", "view"), keyHint("?", "keys"))
 }

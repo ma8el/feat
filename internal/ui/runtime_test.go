@@ -283,7 +283,7 @@ func TestTheLogsActionYieldsTheTerminal(t *testing.T) {
 	backend.runtimeStatus = api.RuntimeStatus{Task: task}
 
 	model := runtimeScreen(t, backend, task)
-	press(t, model, "l")
+	press(t, model, "o")
 
 	if len(backend.logs) != 1 || backend.logs[0] != task.ID {
 		t.Fatalf("the logs action asked for %v, want the open task", backend.logs)

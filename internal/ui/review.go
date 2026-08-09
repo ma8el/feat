@@ -150,7 +150,11 @@ func (m Model) taskPanelKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		return m.startReview(api.ReviewObserve)
 	}
-	return m, nil
+	// Everything the panel does not claim is the dashboard's. `?` and `!` open
+	// their overlays from here, `n` prepares a task, `z` resumes one — none of
+	// which this panel has any reason to refuse, and all of which it used to
+	// swallow by returning here.
+	return m.dashboardKey(key)
 }
 
 // startReview records what the screen is waiting for and asks for it.

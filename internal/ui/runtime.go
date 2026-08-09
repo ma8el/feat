@@ -115,10 +115,18 @@ func (m Model) runtimeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.runtime.confirming = true
 		return m, nil
 
-	case "l":
+	case "o":
+		// Opening the logs was on l until ADR-046 reserved h, j, k, and l for
+		// moving within the main region. Runtime has nothing to move through yet,
+		// so the key was free in practice and reserved in principle — and a rule
+		// with one exception is the thing this dashboard's keys were being fixed
+		// for.
 		return m.runtimeLogs()
 	}
-	return m, nil
+	// Everything this view does not claim is the dashboard's, including `a` and
+	// `s` — which the task panel implements itself and this one had no answer for
+	// at all, so attaching to the agent from the runtime view did nothing.
+	return m.dashboardKey(key)
 }
 
 // startRuntime records what the screen is waiting for and asks for it.
@@ -221,7 +229,7 @@ func runtimeHints() string {
 		keyHint("c", "create"),
 		keyHint("u", "start"),
 		keyHint("t", "stop"),
-		keyHint("l", "logs"),
+		keyHint("o", "logs"),
 		keyHint("d", "destroy"),
 		keyHint("r", "refresh"),
 		keyHint("esc", "back"),
