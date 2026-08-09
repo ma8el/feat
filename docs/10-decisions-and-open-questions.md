@@ -906,6 +906,30 @@ appearing without explanation is a service a user has to go and investigate.
 The Slice 3 target-machine acceptance check was settled during slice 8, so slice
 9 is the first slice since slice 4 that starts with none outstanding.
 
+Amended a fourth time, after the first create a user asked for on a new task:
+
+13. **`docker compose create` does not build what it is about to create.**
+    Given `docker compose create api`, where `api` depends on a service built
+    from the project's own Dockerfile, Compose builds the image of `api`, then
+    creates a container for the dependency from an image it never built, and
+    fails with `No such image: feat-<project>-<task>-prepare:latest`. `up` on the
+    same services builds the whole closure. The image name carries the Compose
+    project name, which is per task, so no image exists the first time a task is
+    created — create failed on every new task and start on none, which made the
+    action look broken rather than the command wrong. Measured on Docker 29.5.2
+    and Compose 5.1.4, with and without bake, and with `--build`, which does not
+    change it.
+
+Decision: create is `docker compose up --no-start` over the managed services.
+It builds the dependency closure, creates every container in it, and starts
+nothing, which is what FR-RUN-005's create means; against containers that
+already exist it does exactly what `create` did. The name of the Compose
+subcommand was never the contract — the state the user asked for is — and this
+is the same shape as evidence 12: an action Feat targets at the managed services
+has to account for everything Compose brings with them. The opt-in fixture's
+one-shot dependency is now built rather than pulled, so the defect fails a test
+against real Docker rather than waiting for the next new task.
+
 ### ADR-035 — Resource observation, notification policy, and what a machine can honestly report
 
 Status: accepted

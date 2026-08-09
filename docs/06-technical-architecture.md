@@ -468,6 +468,10 @@ project, so stop, status, logs, and destroy name no service and address the
 project — what starting starts, stopping stops. The generated override reaches
 every service the project defines for the same reason (ADR-034 evidence 12).
 
+Create is `docker compose up --no-start` rather than `docker compose create`,
+which builds the image of the service it is given and none of the images the
+services it brings along need (ADR-034 evidence 13).
+
 Every action is a user's explicit request. No workflow transition, no
 reconciliation pass, and no agent reaches one: services start when a user asks,
 approval offers to stop them and never does, and a `runtime_requested` control

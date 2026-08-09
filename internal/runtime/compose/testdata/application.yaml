@@ -15,6 +15,11 @@
 # — and Compose starts both because `api` says so. They carry fixed names of
 # their own, so a test that starts two tasks proves the generated override
 # reaches a service the project never named.
+#
+# The one-shot dependency is built rather than pulled, because that is the other
+# ordinary shape: a migration built from the application's own Dockerfile. Its
+# image is named after the Compose project, so it does not exist until something
+# builds it, and on a fresh task nothing has (ADR-034 evidence 13).
 services:
   api:
     image: alpine:3.20
@@ -39,7 +44,9 @@ services:
   # looks like and what the aggregation table must not read as a broken
   # application.
   prepare:
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: prepare.Dockerfile
     command: ["true"]
     container_name: feat-runtime-test-one-shot
     restart: "no"

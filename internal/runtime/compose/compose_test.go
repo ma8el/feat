@@ -287,6 +287,48 @@ func TestTheComposeInvocationIsPinned(t *testing.T) {
 	}
 }
 
+// TestCreateBuildsWhatItIsAboutToCreate holds the one difference between create
+// and start.
+//
+// `docker compose create api` is the command this action is named after and not
+// the command it means: Compose builds the image of the service it was given and
+// then creates a container for the service that one depends on, whose image it
+// never built. On a fresh task, where no image exists yet, the first create a
+// user asks for fails with "No such image" while a start of the same services
+// succeeds — so the action is `up --no-start`, which builds the whole closure and
+// starts none of it (ADR-034 evidence 13).
+func TestCreateBuildsWhatItIsAboutToCreate(t *testing.T) {
+	docker := runtimetest.New()
+	services, spec := arrange(t, docker)
+
+	if _, err := services.Create(context.Background()); err != nil {
+		t.Fatalf("creating: %v", err)
+	}
+
+	vector, found := docker.Vector("up --no-start api")
+	if !found {
+		t.Fatalf("the create does not build what it creates; calls were %v", docker.Calls())
+	}
+	want := []string{
+		"compose",
+		"--project-name", spec.Identity,
+		"--project-directory", "/repos/app/api",
+		"--file", "/repos/app/api/docker-compose.yml",
+		"--file", "/repos/app/api/docker-compose.dev.yml",
+		"--file", spec.OverridePath,
+		"--env-file", "/repos/app/api/.env",
+		"up", "--no-start", "api",
+	}
+	if !slices.Equal(vector, want) {
+		t.Errorf("the create invocation changed\n got: %v\nwant: %v", vector, want)
+	}
+	for _, call := range docker.Calls() {
+		if strings.HasPrefix(call, "start") || call == "up --detach api" {
+			t.Errorf("the create ran %q, and a create starts nothing", call)
+		}
+	}
+}
+
 // TestAskingARuntimeThatWasNeverCreated covers the first thing a user does.
 //
 // Every command carries the generated override, and that document does not exist

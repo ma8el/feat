@@ -68,6 +68,15 @@ func realRuntime(t *testing.T, id domain.TaskID) (*compose.Runtime, runtime.Spec
 	if err := os.WriteFile(composeFile, fixture, 0o600); err != nil {
 		t.Fatalf("writing the fixture: %v", err)
 	}
+	// The build context of the fixture's one-shot dependency is the project
+	// directory, so its Dockerfile goes there with the Compose file.
+	dockerfile, err := os.ReadFile(filepath.Join("testdata", "prepare.Dockerfile"))
+	if err != nil {
+		t.Fatalf("reading the fixture's Dockerfile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "prepare.Dockerfile"), dockerfile, 0o600); err != nil {
+		t.Fatalf("writing the fixture's Dockerfile: %v", err)
+	}
 
 	// A file in each place, so that what the container sees can be compared with
 	// what the host put there.
@@ -114,11 +123,14 @@ func realRuntime(t *testing.T, id domain.TaskID) (*compose.Runtime, runtime.Spec
 	t.Cleanup(func() {
 		// Only this task's own Compose project, named explicitly, and with its
 		// volumes — the fixture creates none, and a test that left one behind
-		// would be leaving it on somebody's machine.
+		// would be leaving it on somebody's machine. `--rmi local` removes the
+		// image the fixture builds, which is named after this task's Compose
+		// project and is of no use to anything else; an image the fixture names
+		// itself, such as alpine, carries a tag of its own and is left alone.
 		down := exec.Command(compose.Executable, "compose",
 			"--project-name", spec.Identity, "--project-directory", spec.Directory,
 			"--file", composeFile, "--file", spec.OverridePath,
-			"down", "--volumes", "--timeout", "1")
+			"down", "--volumes", "--rmi", "local", "--timeout", "1")
 		if output, err := down.CombinedOutput(); err != nil {
 			t.Logf("cleaning up %s: %v\n%s", spec.Identity, err, output)
 		}

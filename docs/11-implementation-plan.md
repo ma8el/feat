@@ -712,6 +712,16 @@ one-shot migration doing its job is not a degraded application. The opt-in suite
 grew a fixture with both kinds of dependency, and two tests that fail against the
 behaviour they replaced.
 
+A fifth defect was found on the first create a user asked for on a new task, and
+it is recorded as ADR-034 evidence 13. `docker compose create api` builds the
+image of `api` and then creates a container for the service `api` depends on
+from an image it never built, so a task whose dependency is built from the
+project's own Dockerfile failed with `No such image` — every time, on every new
+task, while a start of the same services worked. Create is now
+`docker compose up --no-start`, which builds the dependency closure and starts
+nothing. The opt-in fixture's one-shot dependency is built rather than pulled, so
+the whole-lifecycle test fails against the command it replaced.
+
 ## Slice 10 — Notifications and resources
 
 Status: **complete**, 2026-08-07

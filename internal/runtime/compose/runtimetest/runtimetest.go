@@ -60,7 +60,7 @@ func New() *Docker {
 		Answer("version --short", "5.1.4").
 		Answer("config --services", "api").
 		Answer("up --detach api", "").
-		Answer("create api", "").
+		Answer("up --no-start api", "").
 		Answer("stop", "").
 		Answer("down", "").
 		Answer("ps --all --format json", Container("api", "c0ffee", "running", "Up 2 seconds")).
