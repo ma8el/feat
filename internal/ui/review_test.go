@@ -205,6 +205,9 @@ func TestTheDecisionIsOfferedOnlyWhereItCanBeMade(t *testing.T) {
 		workflow string
 		want     string
 		offered  bool
+		// next is the step the decision still needs, for a decision that is not
+		// finished when it is recorded.
+		next string
 	}{
 		{workflow: "working", want: "the agent has not asked for review"},
 		{workflow: "preparing", want: "the agent has not asked for review"},
@@ -213,7 +216,7 @@ func TestTheDecisionIsOfferedOnlyWhereItCanBeMade(t *testing.T) {
 		{workflow: "ready_for_review", want: "pending", offered: true},
 		{workflow: "verification_failed", want: "pending", offered: true},
 		{workflow: "approved", want: "approved"},
-		{workflow: "changes_requested", want: "changes requested"},
+		{workflow: "changes_requested", want: "changes requested", next: "a to attach"},
 	} {
 		t.Run(test.workflow, func(t *testing.T) {
 			task := reviewed().Task
@@ -227,7 +230,44 @@ func TestTheDecisionIsOfferedOnlyWhereItCanBeMade(t *testing.T) {
 				t.Errorf("the decision of a %s task offers the approve key (%t), want %t: %q",
 					test.workflow, offered, test.offered, line)
 			}
+			if test.next != "" && !strings.Contains(line, test.next) {
+				t.Errorf("the decision of a %s task is %q, and it does not say what is left to do (%q)",
+					test.workflow, line, test.next)
+			}
 		})
+	}
+}
+
+// TestRequestingChangesSaysWhatIsLeftToDo is the gap that made the decision look
+// like it had no consequence.
+//
+// Requesting changes records a workflow state and tells the agent nothing: the
+// revision reaches the session when the user types it. So the panel has to say
+// so, or a user who pressed C is left with a task marked decided and an agent
+// that never heard. The key it names has to be the one that works, which for a
+// task in this state always exists — a task cannot reach changes_requested
+// without a session (domain.requiresSession).
+func TestRequestingChangesSaysWhatIsLeftToDo(t *testing.T) {
+	backend := newFakeBackend()
+	model := reviewScreen(t, backend)
+
+	task := reviewed().Task
+	task.Workflow = "changes_requested"
+	if task.Session == nil {
+		t.Fatal("the fixture task has no session, so attaching is not the next step")
+	}
+
+	line := reviewDecision(task)
+	if !strings.Contains(line, "attach") {
+		t.Errorf("a task sent back for revision does not say to attach: %q", line)
+	}
+
+	// Nothing was asked of the daemon to produce that line: it is what the task
+	// already says, not a second round trip.
+	before := len(backend.reviewCalls)
+	_ = model.taskPanel()
+	if len(backend.reviewCalls) != before {
+		t.Errorf("rendering the panel made %d extra requests", len(backend.reviewCalls)-before)
 	}
 }
 

@@ -272,12 +272,21 @@ func reviewChangeSummary(row api.ReviewRepository) string {
 // task: a working task was offered "A to approve" and the daemon refused it,
 // because approving applies to a task whose agent has asked for review
 // (domain.workflowTransitions, ADR-047).
+//
+// Requesting changes is the one decision that is not finished when it is
+// recorded. Feat tells the agent nothing about it: the revision reaches the
+// session when the user types it, and submitting that prompt is what returns the
+// task to working (FR-AGENT-009). So the line says what is left to do, rather
+// than marking a task with a decision that has not yet travelled anywhere.
 func reviewDecision(task api.Task) string {
 	switch task.Workflow {
 	case "approved":
+		// Approval's own next step — the offer to stop services a task was
+		// approved with still running — is on the runtime line, where it appears
+		// only when there are services to stop.
 		return "approved"
 	case "changes_requested":
-		return "changes requested"
+		return "changes requested  " + mutedStyle.Render("(a to attach and say what to change)")
 	case "verifying":
 		return "pending  " + mutedStyle.Render("(the project's checks are running)")
 	case "review_requested", "ready_for_review", "verification_failed":
