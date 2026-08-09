@@ -1426,7 +1426,9 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
 
   It becomes a left rail of tasks grouped by project, a tabbed main region over
   views of the selected task, and a footer holding the worktree path and the
-  machine's resources. The rail carries the five fields no other requirement
+  machine's resources — which moved to the foot of the rail after use, as bars
+  against the total, because the question they answer is a proportion (ADR-044).
+  The rail carries the five fields no other requirement
   claims; the four FR-UI-002 shared with FR-UI-003 and FR-UI-005 stop being
   required twice, and the specification moves with the code. Preparation,
   cleanup, confirmations, and the key map become overlays over the live dashboard

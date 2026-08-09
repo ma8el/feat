@@ -228,7 +228,7 @@ v0.1 MUST support TUI attention badges and macOS desktop notifications for signi
 
 The dashboard MUST show whole-machine available resources and per-task environment totals. Per-container metrics MAY appear in a secondary view. Feat MUST NOT enforce a concurrency limit in v0.
 
-Whole-machine availability is reported as load average with the processor count, available memory, and disk availability. A per-core utilisation percentage is not obtainable on macOS without cgo, and Feat reports one measure on both supported platforms rather than two that look alike and are not; see ADR-035. Metrics MUST remain observational: a figure nothing measured is shown as absent rather than as zero, and a collection failure MUST NOT fail a request or block task creation.
+Whole-machine availability is sampled as load average with the processor count, available memory, and disk availability, and is shown as the share of each in use. A per-core utilisation percentage is not obtainable on macOS without cgo, so the processor share is derived from the load average against the processor count: Feat reports one measure on both supported platforms rather than two that look alike and are not, and that share may exceed 100% because it is demand rather than occupancy. See ADR-035 and ADR-044. Metrics MUST remain observational: a figure nothing measured is shown as absent rather than as zero, a share nothing could be measured against is not drawn, and a collection failure MUST NOT fail a request or block task creation.
 
 ## Review
 

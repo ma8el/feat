@@ -163,13 +163,13 @@ func (m Model) tabBar(width int) string {
 	return truncate(bar, width)
 }
 
-// frameFooter renders the status line, the selected task's worktree beside the
-// machine's resources, and the keys for what has the keyboard.
+// frameFooter renders the status line, the selected task's worktree beside any
+// note about the machine sample, and the keys for what has the keyboard.
 //
 // The worktree path is here because it is the value a user would otherwise look
-// up and paste, and the machine card is here because a fixed position is what
-// evidence 4 of ADR-041 was about: it used to sit above the task list and push
-// it down the screen.
+// up and paste. The machine's figures were here too until they moved to the foot
+// of the rail, where a bar can show a proportion; what is left is the sentence
+// that says why one of those figures is absent, which needs the width.
 func (m Model) frameFooter(width int) string {
 	var out strings.Builder
 
@@ -185,32 +185,13 @@ func (m Model) frameFooter(width int) string {
 	if task, ok := m.subject(); ok {
 		worktree = worktreeNote(task)
 	}
-	out.WriteString(truncate(worktree+mutedStyle.Render("   ")+m.machineLine(), width))
+	if note := m.machineNote(); note != "" {
+		worktree += mutedStyle.Render("   ") + note
+	}
+	out.WriteString(truncate(worktree, width))
 	out.WriteString("\n")
 	out.WriteString(truncate(m.hints(), width))
 	return out.String()
-}
-
-// machineLine is the machine card on one line, for the footer.
-func (m Model) machineLine() string {
-	if m.resourceErr != nil {
-		return mutedStyle.Render(absent + " (" + m.resourceErr.Error() + ")")
-	}
-	if !m.resources.Sampled {
-		return mutedStyle.Render(absent + " (no sample yet)")
-	}
-	machine := m.resources.Machine
-	line := strings.Join([]string{loadField(machine), memoryField(machine), diskField(machine)},
-		mutedStyle.Render("   "))
-
-	// Why a figure is missing, beside the figures. A sample that could read the
-	// disk and not the memory says which, rather than leaving one field absent
-	// with no reason given: an unmeasured value is never shown as a measured one
-	// and never shown without saying so (FR-UI-005).
-	if note := strings.Join(m.resources.Notes, "; "); note != "" {
-		line += mutedStyle.Render("   " + note)
-	}
-	return line
 }
 
 // hints are the keys for whatever has the keyboard.

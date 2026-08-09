@@ -62,33 +62,55 @@ func (m Model) railView(height int) string {
 	if m.archived > 0 {
 		out.WriteString("\n" + mutedStyle.Render(truncate(archivedNote(m.archived), railWidth)))
 	}
-	// What the last reconciliation pass wants looked at, as a count and a key.
-	// The findings themselves are three lines each and belong in the overlay
-	// that key opens; what the rail owes a user is that there is something to
-	// open (ADR-043).
-	return pinRecovery(out.String(), truncate(m.recoveryRailNote(), railWidth), height)
+	return pinFoot(out.String(), m.railFoot(), height)
 }
 
-// pinRecovery puts the warning count on the rail's last line.
+// railFoot is what the rail keeps at its bottom, whatever the task list does.
+//
+// The machine's resources, and then what the last reconciliation pass wants
+// looked at as a count and a key. Both are about the machine rather than about
+// the selected task, and neither is something a user goes looking for: they are
+// what the eye should find in the same place every time it drops to the corner.
+// The findings themselves are three lines each and belong in the overlay the key
+// opens; what the rail owes a user is that there is something to open (ADR-043).
+func (m Model) railFoot() string {
+	foot := railRule() + "\n" + m.machineBlock()
+	if note := truncate(m.recoveryRailNote(), railWidth); note != "" {
+		foot += "\n" + railRule() + "\n" + note
+	}
+	return foot
+}
+
+// railRule separates the rail's three parts.
+//
+// A line rather than a blank one, because the parts are three different things
+// about three different subjects — the tasks, the machine, and what
+// reconciliation found — and blank space between them read as one list that had
+// stopped. It is drawn in the same grey as the divider beside it, so that the
+// rail is ruled by the frame rather than decorated.
+func railRule() string {
+	return dividerStyle.Render(strings.Repeat("─", railWidth))
+}
+
+// pinFoot puts a block on the rail's last lines.
 //
 // At the foot rather than after the tasks, because the tasks move: adding one
-// would otherwise push the marker down the screen, and a thing that appears
-// only when something is wrong should at least appear in the same place each
-// time. The narrow fallback passes no height and gets it below the list, which
-// is the bottom there too.
-func pinRecovery(body, note string, height int) string {
-	if note == "" {
+// would otherwise push the block down the screen, and something read by
+// position should be in the same position each time. The narrow fallback passes
+// no height and gets it below the list, which is the bottom there too.
+func pinFoot(body, foot string, height int) string {
+	if foot == "" {
 		return body
 	}
 	if height <= 0 {
-		return body + "\n\n" + note
+		return body + "\n\n" + foot
 	}
 
-	// The note takes the last row, so the body is padded to everything above it.
-	if pad := height - len(strings.Split(body, "\n")) - 1; pad > 0 {
+	// The foot takes the last rows, so the body is padded to everything above.
+	if pad := height - len(strings.Split(body, "\n")) - len(strings.Split(foot, "\n")); pad > 0 {
 		body += strings.Repeat("\n", pad)
 	}
-	return body + "\n" + note
+	return body + "\n" + foot
 }
 
 // railEntry renders one task as two lines.

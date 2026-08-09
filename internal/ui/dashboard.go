@@ -27,8 +27,12 @@ func (m Model) listView() string {
 		// there is a command for it too, which is how a first run starts.
 		out.WriteString("\n" + mutedStyle.Render("or run `feat implement`"))
 	}
-	out.WriteString("\n")
-	out.WriteString(clampBlock(m.machineLine(), width))
+	// The machine's own figures are at the foot of the rail this view draws.
+	// What is left is the note explaining a figure that is absent, which is a
+	// sentence and gets the fallback's full width rather than the rail's.
+	if note := m.machineNote(); note != "" {
+		out.WriteString("\n" + clampBlock(note, width))
+	}
 
 	return out.String() + m.footer(keyHints(
 		keyHint("↑↓", "select"),

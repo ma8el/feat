@@ -77,6 +77,76 @@ func TestTheFrameKeepsItsRegionsInPlace(t *testing.T) {
 	}
 }
 
+// TestTheRailFootKeepsItsOrder pins where the machine's resources sit.
+//
+// Below the tasks and above the warnings, and at the bottom of the rail whatever
+// the task list is doing. Both blocks are about the machine rather than about
+// the selected task, and neither is something a user goes looking for: they are
+// what the eye finds in the same corner every time, which is what evidence 4 of
+// ADR-041 was about.
+func TestTheRailFootKeepsItsOrder(t *testing.T) {
+	model := sized(withResources(dashboard(newFakeBackend(), liveTask()), sampled(), nil), 120, 32)
+	updated, _ := model.Update(reconciliationMsg{report: api.Reconciliation{
+		Ran: true, NeedsAttention: true, PreviousRunEndedCleanly: true,
+		Findings: []api.ReconciliationFinding{{
+			Class: "worktree", Status: "missing", Detail: "not on disk",
+		}},
+	}})
+
+	rail := ansi.Strip(updated.(Model).railView(29))
+	task := strings.Index(rail, "7f3a1c2e")
+	machine := strings.Index(rail, "cpu")
+	warning := strings.Index(rail, "1 warning")
+
+	switch {
+	case task < 0 || machine < 0 || warning < 0:
+		t.Fatalf("the rail is missing one of the task, the machine, or the warning:\n%s", rail)
+	case machine < task:
+		t.Errorf("the machine's resources are above the tasks:\n%s", rail)
+	case warning < machine:
+		t.Errorf("the machine's resources are below the warnings:\n%s", rail)
+	}
+
+	// And the pair ends the rail rather than following the tasks down it.
+	lines := strings.Split(strings.TrimRight(rail, "\n"), "\n")
+	if got := len(lines); got != 29 {
+		t.Errorf("the rail is %d lines of the 29 it was given:\n%s", got, rail)
+	}
+	if last := lines[len(lines)-1]; !strings.Contains(last, "1 warning") {
+		t.Errorf("the rail's last line is %q, want the warning count", last)
+	}
+
+	// The three parts are ruled apart rather than spaced apart. They are about
+	// three different subjects, and blank space between them read as one list
+	// that had stopped.
+	rule := strings.Repeat("─", railWidth)
+	for _, want := range []struct {
+		above string
+		line  int
+	}{
+		{"the resources", lineContaining(lines, "cpu") - 1},
+		{"the warnings", lineContaining(lines, "1 warning") - 1},
+	} {
+		if want.line < 0 {
+			t.Errorf("%s are not in the rail:\n%s", want.above, rail)
+			continue
+		}
+		if lines[want.line] != rule {
+			t.Errorf("nothing rules off %s: %q", want.above, lines[want.line])
+		}
+	}
+}
+
+// lineContaining is which line of a rendered block holds a string.
+func lineContaining(lines []string, want string) int {
+	for i, line := range lines {
+		if strings.Contains(line, want) {
+			return i
+		}
+	}
+	return -1
+}
+
 // TestTheRailGroupsTasksByProject is FR-UI-001's project drill-down, which the
 // flat global list did not have.
 func TestTheRailGroupsTasksByProject(t *testing.T) {
@@ -243,18 +313,19 @@ func TestTabMovesTheMainRegion(t *testing.T) {
 	}
 }
 
-// TestTheFooterCarriesTheWorktreeAndTheMachine checks the two values that moved
-// into the footer: the path a user would otherwise look up and paste, and the
-// machine card that used to sit above the task list and push it down the screen.
-func TestTheFooterCarriesTheWorktreeAndTheMachine(t *testing.T) {
+// TestTheFooterCarriesTheWorktree checks the value that moved into the footer:
+// the path a user would otherwise look up and paste.
+//
+// The machine's figures were beside it until they moved to the foot of the rail,
+// where a bar can say what a number cannot. What the footer keeps of them is the
+// sentence explaining an absent figure, which is tested with the figure it
+// explains.
+func TestTheFooterCarriesTheWorktree(t *testing.T) {
 	model := sized(withResources(dashboard(newFakeBackend(), liveTask()), sampled(), nil), 160, 32)
 	footer := model.frameFooter(160)
 
 	if !strings.Contains(footer, "/srv/worktrees/example/7f3a1c2e/core") {
 		t.Errorf("the footer does not carry the selected task's worktree:\n%s", footer)
-	}
-	if !strings.Contains(footer, "load") {
-		t.Errorf("the footer does not carry the machine's resources:\n%s", footer)
 	}
 }
 
@@ -273,9 +344,8 @@ func TestAReadOnlyBindingIsNotOfferedAsAWorktree(t *testing.T) {
 }
 
 // TestADialogNeverReachesTheFooter keeps the one part of the frame that holds
-// still. A dialog that covered the footer would take the machine's resources and
-// the selected task's worktree off screen exactly when a user is deciding
-// something.
+// still. A dialog that covered the footer would take the selected task's
+// worktree and the keys off screen exactly when a user is deciding something.
 func TestADialogNeverReachesTheFooter(t *testing.T) {
 	model := sized(withResources(dashboard(newFakeBackend(), liveTask()), sampled(), nil), 120, 26)
 	opened := press(t, model, "?")
@@ -288,8 +358,8 @@ func TestADialogNeverReachesTheFooter(t *testing.T) {
 			t.Errorf("the dialog reached footer line %d: %q", i, line)
 		}
 	}
-	if !strings.Contains(strings.Join(footer, "\n"), "load") {
-		t.Errorf("the footer lost the machine's resources behind a dialog:\n%s",
+	if !strings.Contains(strings.Join(footer, "\n"), "/srv/worktrees/example/7f3a1c2e/core") {
+		t.Errorf("the footer lost the selected task's worktree behind a dialog:\n%s",
 			strings.Join(footer, "\n"))
 	}
 }
