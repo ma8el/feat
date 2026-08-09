@@ -142,6 +142,10 @@ func (m Model) terminalBody(width, height int) string {
 	var out strings.Builder
 
 	switch {
+	case api.IsTerminalMissing(m.terminal.err):
+		return missingTerminal(task)
+	case api.IsShellMissing(m.terminal.err):
+		return missingShell()
 	case m.terminal.err != nil:
 		out.WriteString(failureStyle.Render(m.terminal.err.Error()))
 		return out.String()
@@ -157,6 +161,65 @@ func (m Model) terminalBody(width, height int) string {
 			count(dead, "pane's program has", "panes' programs have")+
 				" exited; the terminal is retained so it can be read"))
 	}
+	return out.String()
+}
+
+// missingTerminal explains a task whose tmux window is not there, and what can
+// be done about it.
+//
+// It is the recovery entry's shape — what is wrong, then what to do — because
+// that is what this is: the same finding a reconciliation pass reports, arriving
+// through the view where a user actually meets it. Printing the resolver's
+// sentence instead left the remedy reachable only from the task panel or the
+// recovery overlay, which are places you look after you already suspect what
+// happened.
+//
+// The two cases are told apart rather than merged. A task whose agent recorded a
+// provider session can have that session continued; one whose agent never
+// reported starting cannot, and offering it a key that would refuse would be
+// worse than saying so.
+//
+// The lines are wrapped where they are written rather than left to the region,
+// which truncates: the main region is sixty-three cells at the narrowest
+// terminal the three-region layout supports, and a remedy cut off halfway is one
+// nobody can act on. It is the same hand-wrapping executionDetail does.
+func missingTerminal(task api.Task) string {
+	var out strings.Builder
+	out.WriteString(failureStyle.Render("  missing  terminal") + "\n")
+	out.WriteString(mutedStyle.Render("      the tmux window of this task is gone, and") + "\n")
+	out.WriteString(mutedStyle.Render("      nothing was started in its place") + "\n")
+
+	if task.Session.ProviderSessionID != "" {
+		out.WriteString(mutedStyle.Render("      → z resumes it here, continuing the recorded") + "\n")
+		out.WriteString(mutedStyle.Render("        "+task.Session.Provider+
+			" session rather than opening an empty one") + "\n")
+		return out.String()
+	}
+	out.WriteString(mutedStyle.Render("      Feat recorded no "+task.Session.Provider+
+		" session to continue, so") + "\n")
+	out.WriteString(mutedStyle.Render("      a new terminal would start an empty session") + "\n")
+	out.WriteString(mutedStyle.Render("      → C cleans up what this task owns") + "\n")
+	return out.String()
+}
+
+// missingShell explains the shell view of a task that has no shell pane.
+//
+// It is drawn in the ordinary styles rather than as a failure, because nothing
+// has gone wrong: a shell is opened on demand (FR-TMUX-003), so most tasks have
+// none for most of their lives and switching to this view is how a user finds
+// out. The daemon's sentence — "open one first" — named neither the key that
+// opens one nor what pressing it does.
+//
+// What it does is worth saying, because it is not only a pane: opening a shell
+// hands this terminal to native tmux until the user detaches, which is a
+// different thing from the rest of the dashboard's keys.
+func missingShell() string {
+	var out strings.Builder
+	out.WriteString(headingStyle.Render("  no shell pane yet") + "\n")
+	out.WriteString(mutedStyle.Render("      a task is given one on demand, beside its agent") + "\n")
+	out.WriteString(mutedStyle.Render("      and in the same environment and worktree") + "\n")
+	out.WriteString(mutedStyle.Render("      → s opens one and hands this terminal to it;") + "\n")
+	out.WriteString(mutedStyle.Render("        detach and it is drawn here") + "\n")
 	return out.String()
 }
 

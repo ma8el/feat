@@ -37,3 +37,10 @@ func (e *StatusError) Error() string {
 
 // NotFound reports whether the daemon said the resource does not exist.
 func (e *StatusError) NotFound() bool { return e.Status == http.StatusNotFound }
+
+// ErrorCode returns the daemon's stable classification, which is how a caller
+// asks what kind of refusal this was without reading the message.
+//
+// It satisfies api.Coded, so the same question can be asked of an error that
+// crossed the socket and one that did not.
+func (e *StatusError) ErrorCode() string { return e.Code }

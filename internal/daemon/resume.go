@@ -42,8 +42,39 @@ func (s *service) Resume(ctx context.Context, id domain.TaskID) (*domain.Task, e
 	if err != nil {
 		return nil, err
 	}
-	if err := resumable(task); err != nil {
+
+	// A record claiming a live process is the one case where tmux has to be
+	// asked, and it is asked rather than believed. Nothing watches tmux
+	// continuously, so that record only becomes stopped when a reconciliation
+	// pass runs or the provider's own end-of-session hook lands: a window killed
+	// from tmux leaves it saying idle while there is nothing there, and refusing
+	// on it answered "attach to it instead" for a terminal there was nothing to
+	// attach to. That left the one task most in need of recovery unable to have
+	// it. A tmux server that is not running discovers as empty rather than
+	// failing, so a machine that rebooted arrives here with live false and
+	// resumes (ADR-037).
+	live := false
+	if task.Session != nil && task.Session.Process.Alive() {
+		_, found, err := s.terminals.Find(ctx, task.ProjectID, task.ID)
+		if err != nil {
+			// An unreadable tmux is not evidence of a dead terminal, and a resume
+			// that assumed it was would start a second agent beside a live one.
+			return nil, err
+		}
+		live = found
+	}
+	if err := resumable(task, live); err != nil {
 		return nil, err
+	}
+	// Passing with a record that still claims a live process means tmux answered
+	// that the terminal is gone. It is corrected before anything acts on it: the
+	// container comes up and the agent starts over the seconds that follow, and a
+	// dashboard claiming idle throughout would be describing the session this
+	// call is replacing.
+	if task.Session.Process.Alive() {
+		if err := s.markTerminalGone(ctx, task); err != nil {
+			return nil, err
+		}
 	}
 
 	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
@@ -92,7 +123,12 @@ func (s *service) Resume(ctx context.Context, id domain.TaskID) (*domain.Task, e
 }
 
 // resumable reports why a task cannot be resumed, in terms that name the remedy.
-func resumable(task *domain.Task) error {
+//
+// The first two refusals are facts about the record and are decided from it
+// alone. The third is a fact about the machine, so it takes the caller's
+// observation of tmux: a record claiming a live process is refused only when
+// there is a terminal to attach to instead.
+func resumable(task *domain.Task, live bool) error {
 	if task.Session == nil {
 		return fmt.Errorf("%w: task %s has no agent session to resume. "+
 			"Nothing was ever launched for it", api.ErrInvalid, task.ID)
@@ -102,10 +138,9 @@ func resumable(task *domain.Task) error {
 			"Its agent never reported starting, and resuming would open an empty session that looked like the "+
 			"old one", api.ErrInvalid, task.ID, task.Session.Provider)
 	}
-	switch task.Session.Process {
-	case domain.ProcessRunning, domain.ProcessIdle, domain.ProcessStarting:
-		return fmt.Errorf("%w: the agent session of task %s is %s, so there is nothing to resume. "+
-			"Attach to it instead", api.ErrInvalid, task.ID, task.Session.Process)
+	if live && task.Session.Process.Alive() {
+		return fmt.Errorf("%w: the agent session of task %s is %s in a terminal that is still there, "+
+			"so there is nothing to resume. Attach to it instead", api.ErrInvalid, task.ID, task.Session.Process)
 	}
 	if task.Workflow == domain.WorkflowArchived {
 		return fmt.Errorf("%w: task %s is archived", api.ErrInvalid, task.ID)

@@ -228,7 +228,7 @@ func (s *service) AttachInfo(ctx context.Context, id domain.TaskID) (api.AttachI
 	}
 	if !found {
 		return api.AttachInfo{}, fmt.Errorf("%w: task %s has no live tagged terminal on %s",
-			api.ErrNotFound, id, s.terminals.Socket())
+			api.ErrTerminalMissing, id, s.terminals.Socket())
 	}
 
 	// A native client is about to take this window over at its own size, so the
@@ -354,13 +354,13 @@ func (s *service) terminalPane(ctx context.Context, id domain.TaskID, shell bool
 	}
 	if !found {
 		return tmux.Terminal{}, "", fmt.Errorf("%w: task %s has no live tagged terminal on %s",
-			api.ErrNotFound, id, s.terminals.Socket())
+			api.ErrTerminalMissing, id, s.terminals.Socket())
 	}
 
 	if shell {
 		if terminal.Shell == nil {
-			return tmux.Terminal{}, "", fmt.Errorf("%w: task %s has no shell pane; open one first",
-				api.ErrNotFound, id)
+			return tmux.Terminal{}, "", fmt.Errorf("%w: task %s has not been given a shell pane yet",
+				api.ErrShellMissing, id)
 		}
 		return terminal, terminal.Shell.ID, nil
 	}

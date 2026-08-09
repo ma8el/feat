@@ -106,6 +106,44 @@ func TestAPasteIsDeliveredAsAPaste(t *testing.T) {
 	}
 }
 
+// TestTheTwoAbsencesAreToldApart is what lets a client answer each of them with
+// the key that resolves it.
+//
+// A task whose window was killed and a task that was never given a shell are
+// both absent panes with different remedies — one is resumed and one is opened —
+// and a client that received the same classification for both could only tell
+// them apart by reading the message.
+func TestTheTwoAbsencesAreToldApart(t *testing.T) {
+	service, arranged, _ := launched(t)
+	ctx := context.Background()
+
+	// The shell view of a task nobody has opened a shell for.
+	_, err := service.TerminalFrame(ctx, arranged.ref.Task,
+		api.TerminalView{Width: 100, Height: 30, Shell: true})
+	if !api.IsShellMissing(err) {
+		t.Errorf("the shell view of a task with no shell = %v, want a missing shell", err)
+	}
+	if api.IsTerminalMissing(err) {
+		t.Errorf("a missing shell was classified as a missing terminal: %v", err)
+	}
+
+	// And the agent's own view once the window is gone.
+	task, err := service.Task(ctx, arranged.ref.Task)
+	if err != nil {
+		t.Fatalf("reading the task: %v", err)
+	}
+	if _, err := service.terminals.RemoveTask(ctx, task.ProjectID, task.ID); err != nil {
+		t.Fatalf("removing the task's window: %v", err)
+	}
+	_, err = service.TerminalFrame(ctx, arranged.ref.Task, api.TerminalView{Width: 100, Height: 30})
+	if !api.IsTerminalMissing(err) {
+		t.Errorf("the agent view of a killed window = %v, want a missing terminal", err)
+	}
+	if api.IsShellMissing(err) {
+		t.Errorf("a missing terminal was classified as a missing shell: %v", err)
+	}
+}
+
 // TestAnInvalidRequestIsRefusedByTheDaemonToo keeps the check on the daemon as
 // well as on the transport. The service is an interface anything in-process can
 // call, and a rule enforced only at the edge is a rule with one caller.

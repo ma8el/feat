@@ -7,9 +7,76 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/tmux"
 )
+
+// TestRealKilledWindowIsReportedAndRebuilt is the recovery a user reaches for
+// after killing a task's window from inside tmux.
+//
+// It exercises the mechanics against the real tool rather than the resume that
+// sits on top of them: what a resume adds is a Claude command line, which the
+// unit tests assert on and which this machine may not have. What it needs from
+// tmux is that a killed window is reported as missing rather than as some other
+// absence, and that asking for the terminal again builds a new tagged one.
+func TestRealKilledWindowIsReportedAndRebuilt(t *testing.T) {
+	if os.Getenv(envIntegration) == "" {
+		t.Skipf("set %s=1 to run tests against real tmux", envIntegration)
+	}
+	if _, err := exec.LookPath(tmux.Executable); err != nil {
+		t.Skip("tmux is not installed")
+	}
+
+	arranged := arrangeTask(t, newFakeGit())
+	ctx := context.Background()
+	if _, err := arranged.service.PrepareTask(ctx, arranged.ref, selection()); err != nil {
+		t.Fatalf("PrepareTask: %v", err)
+	}
+
+	runner := tmux.HostRunner{Timeout: 10 * time.Second}
+	t.Cleanup(func() {
+		_, _ = runner.Run(context.Background(), arranged.service.layout.TmuxSocket(), "kill-server")
+	})
+	command := tmux.CommandSpec{Program: "/usr/bin/yes", Directory: arranged.home}
+	task, err := arranged.service.PrepareTerminal(ctx, arranged.ref, command)
+	if err != nil {
+		t.Fatalf("PrepareTerminal: %v", err)
+	}
+	killed := task.Session.Tmux
+
+	if _, err := runner.Run(ctx, killed.Socket, "kill-window", "-t", killed.Window); err != nil {
+		t.Fatalf("killing the task's window: %v", err)
+	}
+
+	// The absence is the one a client can act on, rather than the one it would
+	// report for a task identifier that names nothing.
+	_, err = arranged.service.AttachInfo(ctx, arranged.ref.Task)
+	if !api.IsTerminalMissing(err) {
+		t.Fatalf("AttachInfo after the kill = %v, want a missing terminal", err)
+	}
+
+	rebuilt, err := arranged.service.PrepareTerminal(ctx, arranged.ref, command)
+	if err != nil {
+		t.Fatalf("rebuilding the terminal: %v", err)
+	}
+	if rebuilt.Session.Process != domain.ProcessRunning {
+		t.Errorf("process = %q after rebuilding, want running", rebuilt.Session.Process)
+	}
+
+	// The record names the terminal that exists rather than the one that was
+	// killed. It is checked this way rather than by comparing identifiers with
+	// the dead window: killing a session's last window ends the session, and the
+	// server that exits with it reissues the same identifiers to the next one.
+	info, err := arranged.service.AttachInfo(ctx, arranged.ref.Task)
+	if err != nil {
+		t.Fatalf("AttachInfo after rebuilding: %v", err)
+	}
+	if info.Session != rebuilt.Session.Tmux.Session || info.Window != rebuilt.Session.Tmux.Window ||
+		info.Pane != rebuilt.Session.Tmux.Pane {
+		t.Errorf("the record names %+v and tmux has %+v", rebuilt.Session.Tmux, info)
+	}
+}
 
 // TestRealDaemonRestartRediscoversTaggedTerminal is the Slice 5 restart
 // acceptance criterion at the daemon boundary. A new daemon instance ignores a

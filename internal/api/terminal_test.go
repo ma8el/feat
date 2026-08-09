@@ -2,6 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -131,6 +133,76 @@ func TestAcceptedInputReachesTheDaemonWhole(t *testing.T) {
 	}
 	if got := service.inputs[0]; got.Text != "run the tests" || len(got.Keys) != 1 {
 		t.Errorf("the daemon received %+v", got)
+	}
+}
+
+// TestAMissingTerminalIsItsOwnRefusal is what lets a client offer the recovery.
+//
+// A task whose tmux window was killed and a task identifier that names nothing
+// are both absences, and only one of them can be acted on. The narrower code
+// says which, without a client reading the message — the one part of an error
+// this package reserves the right to change.
+func TestAMissingTerminalIsItsOwnRefusal(t *testing.T) {
+	service := newFakeService()
+	service.failWith = fmt.Errorf("%w: task %s has no live tagged terminal on /tmp/feat/tmux.sock",
+		ErrTerminalMissing, storetest.TaskID)
+	handler := NewHandler(Options{Service: service})
+
+	response := requestBody(t, handler, http.MethodPost, terminalPath(""),
+		`{"width":100,"height":30}`)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body: %s", response.Code, http.StatusNotFound, response.Body.String())
+	}
+
+	var envelope struct{ Error Error }
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decoding the refusal: %v", err)
+	}
+	if envelope.Error.Code != CodeTerminalMissing {
+		t.Errorf("code = %q, want %q", envelope.Error.Code, CodeTerminalMissing)
+	}
+	if !strings.Contains(envelope.Error.Message, "no live tagged terminal") {
+		t.Errorf("message = %q, want it to still say what is missing", envelope.Error.Message)
+	}
+	// The narrower code is a narrowing rather than a new class: a caller that
+	// only knows about not-found keeps the answer it had.
+	if !errors.Is(ErrTerminalMissing, ErrNotFound) {
+		t.Error("a missing terminal stopped being a kind of not-found")
+	}
+}
+
+// TestAMissingShellIsItsOwnRefusalToo is the same narrowing for the pane a task
+// is given on demand.
+//
+// A task with no shell has nothing wrong with it, and the client that draws the
+// shell view needs to say so and name the key that opens one rather than
+// repeating a resolver's sentence.
+func TestAMissingShellIsItsOwnRefusalToo(t *testing.T) {
+	service := newFakeService()
+	service.failWith = fmt.Errorf("%w: task %s has not been given a shell pane yet",
+		ErrShellMissing, storetest.TaskID)
+	handler := NewHandler(Options{Service: service})
+
+	response := requestBody(t, handler, http.MethodPost, terminalPath(""),
+		`{"width":100,"height":30,"shell":true}`)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body: %s", response.Code, http.StatusNotFound, response.Body.String())
+	}
+
+	var envelope struct{ Error Error }
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decoding the refusal: %v", err)
+	}
+	if envelope.Error.Code != CodeShellMissing {
+		t.Errorf("code = %q, want %q", envelope.Error.Code, CodeShellMissing)
+	}
+	// The two absences are told apart from each other as well as from a task
+	// that does not exist, because they have different remedies.
+	if IsTerminalMissing(service.failWith) {
+		t.Error("a missing shell was read as a missing terminal")
+	}
+	if !errors.Is(ErrShellMissing, ErrNotFound) {
+		t.Error("a missing shell stopped being a kind of not-found")
 	}
 }
 

@@ -229,18 +229,10 @@ func (s *service) reconcileTerminal(
 			})
 			return nil
 		}
-		from := current.Session.Process
-		if from != domain.ProcessStopped {
-			if err := current.Session.Observe(domain.ProcessStopped, s.now()); err != nil {
+		if current.Session.Process != domain.ProcessStopped {
+			if err := s.markTerminalGone(ctx, current); err != nil {
 				return err
 			}
-			if err := s.store.Tasks().Save(ctx, current); err != nil {
-				return err
-			}
-			s.record(ctx, current, domain.Event{
-				Type: domain.EventReconciled, From: string(from), To: string(domain.ProcessStopped),
-				Detail: "the recorded tmux terminal was not found; it was not restarted",
-			})
 		}
 		report.Add(reconcile.Finding{
 			Class: reconcile.ClassTerminal, Status: reconcile.StatusMissing,
@@ -298,6 +290,28 @@ func (s *service) reconcileTerminal(
 		Class: reconcile.ClassTerminal, Status: status,
 		Project: current.ProjectID, Task: current.ID, Identity: terminal.Target.Window,
 		Detail: detail, Action: action,
+	})
+	return nil
+}
+
+// markTerminalGone records that a task's terminal is not on the machine.
+//
+// It is the one place that writes this observation, because two callers make it
+// and they must not describe it differently: a reconciliation pass that found
+// nothing where the record said, and a resume that asked tmux the same question
+// before acting on the answer. Nothing is restarted here — what the caller does
+// next is the caller's, and only one of them does anything at all.
+func (s *service) markTerminalGone(ctx context.Context, task *domain.Task) error {
+	from := task.Session.Process
+	if err := task.Session.Observe(domain.ProcessStopped, s.now()); err != nil {
+		return err
+	}
+	if err := s.store.Tasks().Save(ctx, task); err != nil {
+		return err
+	}
+	s.record(ctx, task, domain.Event{
+		Type: domain.EventReconciled, From: string(from), To: string(domain.ProcessStopped),
+		Detail: "the recorded tmux terminal was not found; it was not restarted",
 	})
 	return nil
 }

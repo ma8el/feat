@@ -221,6 +221,7 @@ func (m Model) hints() string {
 			keyHint("i", "type here"),
 			keyHint("w", "agent/shell"),
 			keyHint("a", "attach"),
+			keyHint("z", "resume"),
 		)
 	case screenTask:
 		return railHints() + mutedStyle.Render("   ") + taskPanelHints()

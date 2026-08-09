@@ -155,6 +155,34 @@ func TestErrorResponsesBecomeStatusErrors(t *testing.T) {
 	}
 }
 
+// TestAMissingTerminalSurvivesTheSocket is what the dashboard's empty state
+// depends on.
+//
+// The sentinel the daemon wrapped cannot cross a socket, so the classification
+// travels as a code and is put back together here. A client that lost it would
+// leave the recovery offer to be decided by matching on message text.
+func TestAMissingTerminalSurvivesTheSocket(t *testing.T) {
+	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = fmt.Fprint(w,
+			`{"error":{"code":"terminal_missing","message":"not found: task 7f3a1c2e has no live tagged terminal"}}`)
+	}))
+
+	_, err := caller.TerminalFrame(context.Background(), "7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c",
+		api.TerminalView{Width: 80, Height: 24})
+
+	if !api.IsTerminalMissing(err) {
+		t.Fatalf("error = %v, want it to report a missing terminal", err)
+	}
+	// And an ordinary absence still is not one, or the offer would be made for
+	// every task identifier a user mistypes.
+	other := &StatusError{Status: http.StatusNotFound, Code: api.CodeNotFound, Message: "no task"}
+	if api.IsTerminalMissing(other) {
+		t.Error("a plain not-found was read as a missing terminal")
+	}
+}
+
 // TestErrorWithoutABodyStillExplainsItself covers a failure from something that
 // is not the daemon, such as a proxy or a half-written response.
 func TestErrorWithoutABodyStillExplainsItself(t *testing.T) {

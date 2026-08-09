@@ -168,6 +168,20 @@ func (s ProcessState) Valid() bool {
 	}
 }
 
+// Alive reports whether the state describes a process that has not ended.
+//
+// Idle is alive: a session that finished a turn is a session still sitting in
+// its terminal, which is the distinction that keeps idle a process observation
+// rather than a claim about the work.
+func (s ProcessState) Alive() bool {
+	switch s {
+	case ProcessStarting, ProcessRunning, ProcessIdle:
+		return true
+	default:
+		return false
+	}
+}
+
 // AttentionState records whether the user may need to intervene.
 type AttentionState string
 

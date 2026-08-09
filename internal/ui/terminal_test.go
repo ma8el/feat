@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -223,6 +224,111 @@ func TestAPaneThatCannotBeReadSaysSo(t *testing.T) {
 	}
 	if !strings.Contains(view, "7f3a1c2e") {
 		t.Errorf("a failed frame took the task list with it:\n%s", view)
+	}
+}
+
+// TestAMissingTerminalOffersTheRecoveryForIt is where a user meets this.
+//
+// Killing the task's window from tmux left the main region printing the
+// resolver's sentence, while the key that rebuilds it was named only in the key
+// overlay and in a reconciliation finding on another view. A failure that names
+// its own remedy is the rule everywhere else in Feat, and this is the view a
+// user is looking at when it happens.
+func TestAMissingTerminalOffersTheRecoveryForIt(t *testing.T) {
+	task := liveTask()
+	task.Session.ProviderSessionID = "e3f1a0c2-0000-4000-8000-1234567890ab"
+
+	model := terminalDashboard(t, newFakeBackend(), task)
+	updated, _ := model.Update(terminalFrameMsg{
+		task: task.ID,
+		err: fmt.Errorf("%w: task %s has no live tagged terminal on /run/feat/tmux.sock",
+			api.ErrTerminalMissing, task.ID),
+	})
+
+	view := ansi.Strip(updated.(Model).View())
+	if !strings.Contains(view, "z resumes it here") {
+		t.Errorf("the missing terminal does not name the key that rebuilds it:\n%s", view)
+	}
+	if !strings.Contains(view, "claude session") {
+		t.Errorf("the offer does not say what would be continued:\n%s", view)
+	}
+	// And the key is in the footer of the view it applies to, not only in the
+	// overlay a user has to know to open. The footer is asked directly, because
+	// the body now says "resumes" and a search of the whole screen would pass
+	// whether or not the hint is there.
+	if hints := ansi.Strip(updated.(Model).hints()); !strings.Contains(hints, "resume") {
+		t.Errorf("the terminal's own keys do not include the resume: %s", hints)
+	}
+
+	// The whole of the remedy survives the narrowest terminal the three-region
+	// layout supports, where the main region is sixty-three cells. A region
+	// truncates what it is given, so a line written too long is a sentence that
+	// stops halfway on the machines least able to spare it.
+	narrow := sized(dashboard(newFakeBackend(), task), minimumWidth, minimumHeight)
+	shown, _ := narrow.Update(terminalFrameMsg{
+		task: task.ID,
+		err:  fmt.Errorf("%w: task %s has no live tagged terminal", api.ErrTerminalMissing, task.ID),
+	})
+	if body := ansi.Strip(shown.(Model).View()); !strings.Contains(body, "rather than opening an empty one") {
+		t.Errorf("the offer is truncated at the narrowest supported terminal:\n%s", body)
+	}
+}
+
+// TestATerminalWithNoRecordedSessionIsNotOfferedAResume keeps the offer honest.
+//
+// Resuming continues a recorded provider session; a task whose agent never
+// reported one has nothing to continue, and the daemon refuses. Offering the
+// key anyway would send a user to a refusal.
+func TestATerminalWithNoRecordedSessionIsNotOfferedAResume(t *testing.T) {
+	task := liveTask()
+	task.Session.ProviderSessionID = ""
+
+	model := terminalDashboard(t, newFakeBackend(), task)
+	updated, _ := model.Update(terminalFrameMsg{
+		task: task.ID,
+		err:  fmt.Errorf("%w: task %s has no live tagged terminal", api.ErrTerminalMissing, task.ID),
+	})
+
+	view := ansi.Strip(updated.(Model).View())
+	if strings.Contains(view, "z resumes it here") {
+		t.Errorf("a task with nothing to continue was offered a resume:\n%s", view)
+	}
+	if !strings.Contains(view, "no claude session to continue") {
+		t.Errorf("the dead end is not explained:\n%s", view)
+	}
+}
+
+// TestTheShellViewOfATaskWithNoShellNamesTheKeyThatOpensOne is the same rule
+// applied to the other pane.
+//
+// Switching to the shell view is how a user discovers there is no shell, so
+// this is not a failure to report but a state to explain. It also says what the
+// key does, because opening a shell hands the terminal to native tmux and the
+// rest of the dashboard's keys do not.
+func TestTheShellViewOfATaskWithNoShellNamesTheKeyThatOpensOne(t *testing.T) {
+	model := terminalDashboard(t, newFakeBackend(), liveTask())
+	switched := press(t, model, "w")
+	if !switched.terminal.shell {
+		t.Fatal("w did not switch to the shell pane")
+	}
+
+	updated, _ := switched.Update(terminalFrameMsg{
+		task:  liveTask().ID,
+		shell: true,
+		err: fmt.Errorf("%w: task %s has not been given a shell pane yet",
+			api.ErrShellMissing, liveTask().ID),
+	})
+
+	view := ansi.Strip(updated.(Model).View())
+	if !strings.Contains(view, "no shell pane yet") {
+		t.Errorf("the shell view does not explain itself:\n%s", view)
+	}
+	if !strings.Contains(view, "s opens one") {
+		t.Errorf("the shell view does not name the key that opens one:\n%s", view)
+	}
+	// The resolver's own sentence is not what a user reads.
+	if strings.Contains(view, "open one first") {
+		t.Errorf("the daemon's phrasing reached the screen:\n%s", view)
 	}
 }
 
