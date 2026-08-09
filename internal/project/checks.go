@@ -424,9 +424,6 @@ func (c *checker) checkRuntime(ctx context.Context) {
 		}
 	}
 
-	for name := range runtime.ExternalResources {
-		c.ok("runtime.external_resources."+name, "referenced, never created or destroyed by Feat")
-	}
 }
 
 // checkComposeFiles checks that configured Compose files exist, and reports

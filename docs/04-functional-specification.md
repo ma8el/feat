@@ -190,7 +190,7 @@ Feat SHOULD use native Compose health state where available and otherwise report
 
 ### FR-RUN-008 — External resources
 
-The runtime model MUST allow external/shared resources such as pre-existing staging PostgreSQL databases. v0 need not provision or destroy them.
+The runtime model MUST allow external/shared resources such as pre-existing staging PostgreSQL databases, by not interfering with them. Feat MUST set a per-task discriminator (`FEAT_TASK_KEY`) on every managed service, so that an application can name its own share of one, and MUST NOT read the environment files that configure a connection. v0 does not provision, migrate, seed, reclaim, or model such a resource. **Amended: the configuration block that declared one is removed, because Feat could not see, verify, or reach what it named, see ADR-048.**
 
 ### FR-RUN-009 — Agent runtime request
 

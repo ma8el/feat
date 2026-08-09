@@ -195,21 +195,6 @@ func (c *Config) describeRuntime() Section {
 		// Compose by path, so nothing it writes can contain a value from it.
 		fields = append(fields, Field{Name: fmt.Sprintf("env_files[%d]", i), Value: file, Note: secretMarker})
 	}
-	for _, name := range sortedKeys(runtime.ExternalResources) {
-		resource := runtime.ExternalResources[name]
-		fields = append(fields, Field{
-			Name:  "external_resources." + name,
-			Value: resource.Type + ", " + resource.Lifecycle,
-			Note:  "never created or destroyed by Feat",
-		})
-		if resource.SelectorVariable != "" {
-			fields = append(fields, Field{
-				Name:  "external_resources." + name + ".selector_variable",
-				Value: resource.SelectorVariable,
-				Note:  "generated per task; not a secret",
-			})
-		}
-	}
 	return Section{Title: "runtime", Fields: fields}
 }
 

@@ -47,11 +47,8 @@ func arrange(t *testing.T, docker *runtimetest.Docker) (*compose.Runtime, runtim
 				Description: "the store task worktree, read-only"},
 		},
 		Variables: map[string]string{
-			"FEAT_TASK_KEY":       "11111111",
-			"FEAT_STAGING_SCHEMA": "11111111",
-		},
-		External: []runtime.ExternalBinding{
-			{ID: "staging_db", Kind: "postgres", Variable: "FEAT_STAGING_SCHEMA", Selector: "11111111"},
+			"FEAT_TASK_KEY":        "11111111",
+			"FEAT_RUNTIME_PROJECT": identity,
 		},
 		ForbiddenSources: []string{"/repos/app/api", "/repos/app/store"},
 	}
@@ -355,13 +352,16 @@ func TestLogsOpenNormalComposeOutput(t *testing.T) {
 	}
 }
 
-// TestDestroyRetainsVolumesAndExternalResources is the third acceptance
-// criterion, checked at the argument vector rather than at the outcome.
+// TestDestroyRetainsVolumesAndReachesNothingOutsideTheProject is the third
+// acceptance criterion, checked at the argument vector rather than at the
+// outcome.
 //
 // A volume that survives because the fake never removed it would prove nothing.
-// What is checked is that the command cannot remove one, and that no resource
-// Feat does not own is named anywhere in it.
-func TestDestroyRetainsVolumesAndExternalResources(t *testing.T) {
+// What is checked is that the command cannot remove one, cannot remove an
+// orphan, and names nothing at all — so its whole reach is the task's own
+// Compose project, which is what puts a resource Feat does not own beyond it by
+// construction rather than by exclusion (ADR-048).
+func TestDestroyRetainsVolumesAndReachesNothingOutsideTheProject(t *testing.T) {
 	docker := runtimetest.New()
 	docker.Answer("volume ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}",
 		"feat-app-11111111_pgdata\n")
@@ -376,11 +376,15 @@ func TestDestroyRetainsVolumesAndExternalResources(t *testing.T) {
 	if !found {
 		t.Fatalf("no destroy command was run; calls were %v", docker.Calls())
 	}
-	for _, forbidden := range []string{"--volumes", "-v", "--remove-orphans", "staging_db"} {
+	for _, forbidden := range []string{"--volumes", "-v", "--remove-orphans"} {
 		if slices.Contains(vector, forbidden) {
 			t.Errorf("the destroy command carries %q, which would remove something nobody chose: %v",
 				forbidden, vector)
 		}
+	}
+	if last := vector[len(vector)-1]; last != "down" {
+		t.Errorf("the destroy command names %q after down, so its reach is wider than the task's own "+
+			"Compose project: %v", last, vector)
 	}
 	if !slices.Contains(state.Volumes, "feat-app-11111111_pgdata") {
 		t.Errorf("destroy did not report the volume it retained: %v", state.Volumes)

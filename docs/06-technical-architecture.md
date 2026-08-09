@@ -490,9 +490,11 @@ networks and volumes come from `docker network ls` and `docker volume ls`
 filtered on Compose's own project label, because `docker compose config` would
 render the values of the project's environment files.
 
-External resources such as pre-existing staging databases are configuration bindings, not resources Feat owns or destroys. Feat generates the non-secret
-selector value a task uses to pick its share of one — the task key — and never
-creates, migrates, or drops anything behind it.
+An external resource such as a pre-existing staging database is not modelled at
+all. Feat generates the non-secret `FEAT_TASK_KEY` a task can use to name its
+share of one, and knows nothing else about it: the connection string lives in an
+environment file Feat passes to Compose by path and never opens, so there is
+nothing for Feat to own, verify, or destroy (ADR-048).
 
 Destroy removes the containers and networks of the task's own Compose project.
 It passes neither `--volumes` nor `--remove-orphans`: volumes are retained by

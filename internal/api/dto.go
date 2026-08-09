@@ -417,9 +417,6 @@ type Runtime struct {
 	// retained resource nobody can see is one nobody will remove.
 	Networks []string `json:"networks"`
 	Volumes  []string `json:"volumes"`
-	// External are the resources the runtime uses and Feat never creates or
-	// destroys, such as a shared staging database.
-	External []ExternalResource `json:"external_resources"`
 	// ComposeFiles, StaticOverrides, EnvFiles, and GeneratedOverridePath are the
 	// exact inputs this runtime was created from, kept so that a later action
 	// reaches the same resources even if the project's configuration has since
@@ -437,19 +434,6 @@ type Port struct {
 	Service       string `json:"service"`
 	ContainerPort int    `json:"container_port"`
 	HostPort      int    `json:"host_port"`
-}
-
-// ExternalResource is a shared resource a task's runtime uses and does not own.
-type ExternalResource struct {
-	ID   string `json:"id"`
-	Kind string `json:"kind,omitempty"`
-	// Lifecycle is always "external" in v0. It is published rather than implied
-	// so that a client can say, in the user's own words, that Feat will never
-	// create or destroy it.
-	Lifecycle string `json:"lifecycle"`
-	// Selector is the generated non-secret value this task uses to pick its
-	// share of the resource.
-	Selector string `json:"selector,omitempty"`
 }
 
 // RuntimeService is one observed service of a task's runtime.
@@ -1111,15 +1095,6 @@ func newRuntime(runtime *domain.RuntimeEnvironment) *Runtime {
 			HostPort:      port.HostPort,
 		})
 	}
-	external := make([]ExternalResource, 0, len(runtime.ExternalResources))
-	for _, resource := range runtime.ExternalResources {
-		external = append(external, ExternalResource{
-			ID:        resource.ID,
-			Kind:      resource.Kind,
-			Lifecycle: string(resource.Lifecycle),
-			Selector:  resource.Selector,
-		})
-	}
 	return &Runtime{
 		Provider:              runtime.Provider,
 		Identity:              runtime.Identity,
@@ -1129,7 +1104,6 @@ func newRuntime(runtime *domain.RuntimeEnvironment) *Runtime {
 		Health:                string(runtime.Health),
 		Networks:              list(runtime.Networks),
 		Volumes:               list(runtime.Volumes),
-		External:              external,
 		ComposeFiles:          list(runtime.ComposeFiles),
 		StaticOverrides:       list(runtime.StaticOverrides),
 		EnvFiles:              list(runtime.EnvFiles),

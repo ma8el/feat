@@ -108,8 +108,7 @@ Properties:
 - service set;
 - port assignments;
 - network and volume observations;
-- lifecycle and health state;
-- external/shared resource bindings such as a pre-existing staging database.
+- lifecycle and health state.
 
 The agent execution environment and application runtime are separate even when both use the same Compose project.
 

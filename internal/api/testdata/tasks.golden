@@ -95,14 +95,6 @@
       "volumes": [
         "feat-example-7f3a1c2e_cache"
       ],
-      "external_resources": [
-        {
-          "id": "reporting-store",
-          "kind": "postgres",
-          "lifecycle": "external",
-          "selector": "example_7f3a1c2e"
-        }
-      ],
       "compose_files": [
         "/srv/repositories/core/compose.yaml"
       ],

@@ -13,13 +13,9 @@ import (
 	"github.com/ma8el/feat/internal/paths"
 )
 
-// Patterns for names that belong to another tool's namespace.
-var (
-	// volumeNamePattern is what Docker accepts as a named volume.
-	volumeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
-	// environmentNamePattern is what a POSIX shell accepts as a variable name.
-	environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-)
+// volumeNamePattern is what Docker accepts as a named volume, which belongs to
+// another tool's namespace.
+var volumeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 
 // Validate reports every rule the resolved configuration breaks.
 //
@@ -453,32 +449,6 @@ func (c *Config) validateRuntime(found *problems) {
 			found.add(field, fmt.Sprintf("names %q twice", service))
 		}
 		seen[service] = true
-	}
-
-	for _, name := range sortedKeys(runtime.ExternalResources) {
-		resource := runtime.ExternalResources[name]
-		field := "runtime.external_resources." + name
-
-		if resource.Lifecycle != LifecycleExternal {
-			found.add(field+".lifecycle", fmt.Sprintf(
-				"is %q, and %q is the only lifecycle in v0: Feat references such a resource but never provisions or destroys it",
-				resource.Lifecycle, LifecycleExternal))
-		}
-		found.require(resource.Type != "", field+".type", "must say what the resource is")
-
-		if variable := resource.SelectorVariable; variable != "" && !environmentNamePattern.MatchString(variable) {
-			found.add(field+".selector_variable", fmt.Sprintf(
-				"is %q, which is not an environment variable name: it must start with a letter or %q and contain only letters, digits, and %q",
-				variable, "_", "_"))
-		}
-		// An external resource that is also a managed service would be created
-		// and destroyed by the runtime that is supposed to only reference it
-		// (FR-RUN-008, and the cleanup rule that destroy never targets external
-		// resources).
-		if seen[name] {
-			found.add(field,
-				"is also listed in runtime.services: a resource Feat does not own must not be one it starts, stops, or destroys")
-		}
 	}
 }
 

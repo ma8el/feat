@@ -300,32 +300,6 @@
           "type": "array",
           "minItems": 1,
           "items": { "type": "string" }
-        },
-        "external_resources": {
-          "description": "Resources Feat references but never provisions or destroys, such as a pre-existing staging database. A name here must not also appear in services.",
-          "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/externalResource" }
-        }
-      }
-    },
-
-    "externalResource": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["type", "lifecycle"],
-      "properties": {
-        "type": {
-          "description": "What the resource is, such as the database engine.",
-          "type": "string"
-        },
-        "lifecycle": {
-          "description": "Who owns the resource. Only \"external\" exists in v0: Feat binds to it and never creates or destroys it.",
-          "const": "external"
-        },
-        "selector_variable": {
-          "description": "The environment variable a task uses to select its share of the resource. Its value is generated per task and is not a secret.",
-          "type": "string",
-          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
         }
       }
     },

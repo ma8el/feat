@@ -211,21 +211,6 @@ type RuntimeSection struct {
 	ProjectNameTemplate string `yaml:"project_name_template"`
 	// Services are the services Feat manages for a task.
 	Services []string `yaml:"services"`
-	// ExternalResources are resources Feat references but never provisions or
-	// destroys, such as a pre-existing staging database.
-	ExternalResources map[string]ExternalResource `yaml:"external_resources"`
-}
-
-// ExternalResource is a resource Feat binds to but does not own.
-type ExternalResource struct {
-	// Type describes the resource, such as the database engine.
-	Type string `yaml:"type"`
-	// Lifecycle is who owns the resource. Only "external" exists in v0.
-	Lifecycle string `yaml:"lifecycle"`
-	// SelectorVariable is the environment variable a task uses to select its
-	// share of the resource. Its value is generated per task and is not a
-	// secret.
-	SelectorVariable string `yaml:"selector_variable"`
 }
 
 // ReviewSection configures the external commands review opens.
@@ -376,8 +361,4 @@ const (
 	ExecutionAgent = "agent"
 	// ExecutionHost runs a check on the trusted host.
 	ExecutionHost = "host"
-
-	// LifecycleExternal marks a resource Feat references but never provisions
-	// or destroys.
-	LifecycleExternal = "external"
 )

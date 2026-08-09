@@ -565,6 +565,7 @@ The user can manage the selected task's application services from Feat without g
 - Implement create/start/stop/status/logs-info/destroy.
 - Surface Compose health or unknown health.
 - Record external staging database binding without lifecycle ownership.
+  **Superseded: the binding is removed, see ADR-048.**
 - Add TUI runtime actions.
 
 ### Acceptance criteria
@@ -572,6 +573,10 @@ The user can manage the selected task's application services from Feat without g
 - Starting/stopping task A does not affect task B.
 - Logs open through normal Compose output.
 - External database resources are never included in destroy plans.
+  **Amended: what makes this hold is that a destroy addresses the task's own
+  Compose project and names nothing, so anything Feat does not own is beyond its
+  reach by construction. The declaration that used to restate it is removed, and
+  the test now checks the reach rather than the declaration, see ADR-048.**
 - Runtime remains running during review unless the user stops it.
 - Approval offers stop but does not execute it automatically.
 

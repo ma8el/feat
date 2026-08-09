@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
-	"slices"
 	"sync"
 	"time"
 
@@ -41,6 +40,11 @@ const runtimeOverrideName = "compose.override.yaml"
 // environment files, which Feat never opens (docs/05-security-model.md). They
 // exist so that an application can tell which task it is serving — in a log
 // line, a page footer, or the name of a shared resource it selects.
+//
+// FEAT_TASK_KEY is the one a project shares an external resource by: it is
+// short, unique, safe in a name, and not a secret. Naming a share is all Feat
+// does, and it neither knows nor asks what is behind the name — the connection
+// string lives in an environment file Feat is forbidden to open (ADR-048).
 const (
 	varProject  = "FEAT_PROJECT_ID"
 	varTask     = "FEAT_TASK_ID"
@@ -223,7 +227,6 @@ func (s *service) recordRuntimeInputs(
 		GeneratedOverridePath: spec.OverridePath,
 		EnvFiles:              spec.EnvFiles,
 		Services:              spec.Services,
-		ExternalResources:     externalResources(spec),
 	}
 
 	switch {
@@ -397,20 +400,6 @@ func (s *service) runtimeSpec(cfg *config.Config, task *domain.Task) (runtime.Sp
 		ForbiddenSources: checkouts(cfg),
 	}
 
-	for _, name := range sortedResourceNames(section.ExternalResources) {
-		resource := section.ExternalResources[name]
-		binding := runtime.ExternalBinding{ID: name, Kind: resource.Type, Variable: resource.SelectorVariable}
-		if binding.Variable != "" {
-			// The task key: short, unique, safe in a name, and not a secret. Feat
-			// names the share and never creates, migrates, or drops anything
-			// behind it — the resource is external, and OQ-011 leaves what a
-			// project does with the name to the project.
-			binding.Selector = task.Key().String()
-			spec.Variables[binding.Variable] = binding.Selector
-		}
-		spec.External = append(spec.External, binding)
-	}
-
 	if err := spec.Validate(); err != nil {
 		return runtime.Spec{}, err
 	}
@@ -473,34 +462,6 @@ func runtimeMounts(cfg *config.Config, task *domain.Task) []runtime.Mount {
 		})
 	}
 	return mounts
-}
-
-// sortedResourceNames orders the configured external resources, so that a
-// generated document and a recorded list are the same every time.
-func sortedResourceNames(resources map[string]config.ExternalResource) []string {
-	names := make([]string, 0, len(resources))
-	for name := range resources {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	return names
-}
-
-// externalResources records what the runtime references and never owns.
-func externalResources(spec runtime.Spec) []domain.ExternalResource {
-	resources := make([]domain.ExternalResource, 0, len(spec.External))
-	for _, binding := range spec.External {
-		resources = append(resources, domain.ExternalResource{
-			ID:   binding.ID,
-			Kind: binding.Kind,
-			// Always external. The lifecycle is recorded explicitly rather than
-			// implied, so that a cleanup plan can prove it excluded the resource
-			// rather than merely not mentioning it (FR-RUN-008).
-			Lifecycle: domain.LifecycleExternal,
-			Selector:  binding.Selector,
-		})
-	}
-	return resources
 }
 
 // ports maps observed publications onto the domain's.

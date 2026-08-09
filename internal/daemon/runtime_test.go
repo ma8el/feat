@@ -35,11 +35,6 @@ runtime:
   project_name_template: "feat-{project_id}-{task_key}"
   services:
     - api
-  external_resources:
-    staging_db:
-      type: postgres
-      lifecycle: external
-      selector_variable: FEAT_STAGING_SCHEMA
 `
 
 // runtimeDockerFunc lets a test swap the application runtime's fake Docker after
@@ -162,13 +157,17 @@ func TestLogsOpenNormalComposeOutput(t *testing.T) {
 	}
 }
 
-// TestExternalResourcesAreNeverInADestroyPlan is the third acceptance criterion.
+// TestADestroyPlanReachesNothingOutsideTheTasksOwnProject is the third
+// acceptance criterion.
 //
-// It is checked twice, because there are two ways to break it: the command could
-// name the resource, and the record could claim Feat owns it. The volumes are
-// checked in the same test because they are the other half of what destroy must
-// leave alone.
-func TestExternalResourcesAreNeverInADestroyPlan(t *testing.T) {
+// The criterion was written about external database resources, and what makes it
+// hold is not a rule that excludes them: a destroy addresses the task's own
+// Compose project and names nothing, so anything Feat does not own is beyond its
+// reach by construction. A resource on a server Feat has never contacted is the
+// extreme case of that, and ADR-048 removed the declaration that used to restate
+// it. The volumes are checked here because they are the other half of what a
+// destroy must leave alone, and the half that is inside the project.
+func TestADestroyPlanReachesNothingOutsideTheTasksOwnProject(t *testing.T) {
 	arranged := arrangeConfigured(t, runtimeFixture)
 	task := arranged.launched(t)
 	arranged.answerFor(task, "running", "Up 2 minutes")
@@ -180,23 +179,17 @@ func TestExternalResourcesAreNeverInADestroyPlan(t *testing.T) {
 	if !found {
 		t.Fatalf("no destroy command was run: %v", arranged.runtimes.Calls())
 	}
-	for _, forbidden := range []string{"--volumes", "-v", "--remove-orphans", "staging_db", "postgres"} {
+	for _, forbidden := range []string{"--volumes", "-v", "--remove-orphans"} {
 		if slices.Contains(vector, forbidden) {
 			t.Errorf("the destroy command carries %q: %v", forbidden, vector)
 		}
 	}
+	if last := vector[len(vector)-1]; last != "down" {
+		t.Errorf("the destroy command names %q after down, so it reaches past the task's own Compose "+
+			"project: %v", last, vector)
+	}
 
 	recorded := result.Task.Runtime
-	if len(recorded.ExternalResources) != 1 {
-		t.Fatalf("%d external resources are recorded, want 1", len(recorded.ExternalResources))
-	}
-	resource := recorded.ExternalResources[0]
-	if resource.Lifecycle != domain.LifecycleExternal {
-		t.Errorf("the external resource is recorded as %q, and Feat never owns one", resource.Lifecycle)
-	}
-	if resource.Selector != task.Key().String() {
-		t.Errorf("the generated selector is %q, want the task key %q", resource.Selector, task.Key())
-	}
 	if !slices.Contains(recorded.Volumes, "feat-app-"+task.Key().String()+"_pgdata") {
 		t.Errorf("destroy did not report the volume it retained: %v", recorded.Volumes)
 	}
@@ -352,10 +345,11 @@ func TestTheTasksOwnCodeIsWhatTheServicesRun(t *testing.T) {
 	if !strings.Contains(written, "read_only: true") {
 		t.Errorf("a read-only repository is mounted writable: %s", written)
 	}
-	// And the selector of the external resource is generated, non-secret, and
-	// present, so the application can pick its own share of a shared database.
-	if !strings.Contains(written, "FEAT_STAGING_SCHEMA") {
-		t.Errorf("the override does not carry the external resource's selector: %s", written)
+	// And the task key is generated, non-secret, and present. It is what an
+	// application names its share of an external resource by, and the only thing
+	// Feat contributes to one (ADR-048).
+	if !strings.Contains(written, "FEAT_TASK_KEY") {
+		t.Errorf("the override does not carry the task key: %s", written)
 	}
 }
 

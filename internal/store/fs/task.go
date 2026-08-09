@@ -99,33 +99,25 @@ type tmuxDocument struct {
 }
 
 type runtimeDocument struct {
-	Provider              string                     `json:"provider"`
-	Identity              string                     `json:"identity"`
-	ComposeFiles          []string                   `json:"compose_files,omitempty"`
-	StaticOverrides       []string                   `json:"static_overrides,omitempty"`
-	GeneratedOverridePath string                     `json:"generated_override_path,omitempty"`
-	EnvFiles              []string                   `json:"env_files,omitempty"`
-	Services              []string                   `json:"services,omitempty"`
-	Ports                 []portDocument             `json:"ports,omitempty"`
-	Networks              []string                   `json:"networks,omitempty"`
-	Volumes               []string                   `json:"volumes,omitempty"`
-	State                 string                     `json:"state"`
-	Health                string                     `json:"health"`
-	ExternalResources     []externalResourceDocument `json:"external_resources,omitempty"`
-	ObservedAt            *time.Time                 `json:"observed_at,omitempty"`
+	Provider              string         `json:"provider"`
+	Identity              string         `json:"identity"`
+	ComposeFiles          []string       `json:"compose_files,omitempty"`
+	StaticOverrides       []string       `json:"static_overrides,omitempty"`
+	GeneratedOverridePath string         `json:"generated_override_path,omitempty"`
+	EnvFiles              []string       `json:"env_files,omitempty"`
+	Services              []string       `json:"services,omitempty"`
+	Ports                 []portDocument `json:"ports,omitempty"`
+	Networks              []string       `json:"networks,omitempty"`
+	Volumes               []string       `json:"volumes,omitempty"`
+	State                 string         `json:"state"`
+	Health                string         `json:"health"`
+	ObservedAt            *time.Time     `json:"observed_at,omitempty"`
 }
 
 type portDocument struct {
 	Service       string `json:"service"`
 	ContainerPort int    `json:"container_port"`
 	HostPort      int    `json:"host_port"`
-}
-
-type externalResourceDocument struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind,omitempty"`
-	Lifecycle string `json:"lifecycle"`
-	Selector  string `json:"selector,omitempty"`
 }
 
 type taskStore struct{ store *Store }
@@ -322,14 +314,6 @@ func encodeRuntime(runtime *domain.RuntimeEnvironment) *runtimeDocument {
 			HostPort:      port.HostPort,
 		})
 	}
-	for _, resource := range runtime.ExternalResources {
-		document.ExternalResources = append(document.ExternalResources, externalResourceDocument{
-			ID:        resource.ID,
-			Kind:      resource.Kind,
-			Lifecycle: string(resource.Lifecycle),
-			Selector:  resource.Selector,
-		})
-	}
 	return document
 }
 
@@ -458,14 +442,6 @@ func decodeRuntime(document *runtimeDocument) *domain.RuntimeEnvironment {
 			Service:       port.Service,
 			ContainerPort: port.ContainerPort,
 			HostPort:      port.HostPort,
-		})
-	}
-	for _, resource := range document.ExternalResources {
-		runtime.ExternalResources = append(runtime.ExternalResources, domain.ExternalResource{
-			ID:        resource.ID,
-			Kind:      resource.Kind,
-			Lifecycle: domain.ResourceLifecycle(resource.Lifecycle),
-			Selector:  resource.Selector,
 		})
 	}
 	return runtime

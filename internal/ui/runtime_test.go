@@ -20,9 +20,6 @@ func runningRuntime() *api.Runtime {
 		Health:   "unknown",
 		Ports:    []api.Port{{Service: "api", ContainerPort: 8000, HostPort: 8080}},
 		Volumes:  []string{"feat-example-7f3a1c2e_pgdata"},
-		External: []api.ExternalResource{
-			{ID: "staging_db", Kind: "postgres", Lifecycle: "external", Selector: "7f3a1c2e"},
-		},
 	}
 }
 
@@ -77,8 +74,6 @@ func TestTheRuntimeScreenShowsWhatTheTaskOwns(t *testing.T) {
 		"Exited (0) 1 minute ago",      // including the one that is not running
 		"8000 → 8080",                  // how to reach the application
 		"feat-example-7f3a1c2e_pgdata", // retained by every destroy
-		"never created or destroyed",   // and what Feat will not touch at all
-		"staging_db",
 	} {
 		if !strings.Contains(view, required) {
 			t.Errorf("the runtime screen does not show %q:\n%s", required, view)

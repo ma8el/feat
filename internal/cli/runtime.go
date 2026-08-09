@@ -297,12 +297,6 @@ func printRuntime(out io.Writer, status api.RuntimeStatus) {
 			printf(out, "  %s\n", volume)
 		}
 	}
-	for _, resource := range runtime.External {
-		printf(out, "\nexternal  %s (%s), never created or destroyed by Feat\n", resource.ID, resource.Lifecycle)
-		if resource.Selector != "" {
-			printf(out, "  this task's selector  %s\n", resource.Selector)
-		}
-	}
 	for _, note := range status.Notes {
 		printf(out, "\nnote: %s\n", note)
 	}

@@ -22,9 +22,6 @@ func runtimeStatus() api.RuntimeStatus {
 				Health:   "unknown",
 				Ports:    []api.Port{{Service: "api", ContainerPort: 8000, HostPort: 8080}},
 				Volumes:  []string{"feat-app-7f3a1c2e_pgdata"},
-				External: []api.ExternalResource{
-					{ID: "staging_db", Kind: "postgres", Lifecycle: "external", Selector: "7f3a1c2e"},
-				},
 			},
 		},
 		Services: []api.RuntimeService{
@@ -69,21 +66,19 @@ func TestADependencyIsShownAndSaidToBeOne(t *testing.T) {
 // TestTheRuntimeSummaryNamesWhatIsRetained keeps a resource nobody removed in
 // front of the user.
 //
-// Volumes survive every destroy in v0, and an external resource is never
-// touched at all. Both are printed by name, because a resource a user cannot see
-// is one they will not think to clean up (FR-CLEAN-001, FR-CLEAN-004).
+// Volumes survive every destroy in v0, so they are printed by name: a resource a
+// user cannot see is one they will not think to clean up (FR-CLEAN-001,
+// FR-CLEAN-004).
 func TestTheRuntimeSummaryNamesWhatIsRetained(t *testing.T) {
 	var out bytes.Buffer
 	printRuntime(&out, runtimeStatus())
 	printed := out.String()
 
 	for _, required := range []string{
-		"feat-app-7f3a1c2e",          // the Compose project an action reaches
-		"api",                        // the service and its observed state
-		"8000 -> 8080",               // how to reach the application
-		"feat-app-7f3a1c2e_pgdata",   // retained
-		"never created or destroyed", // and never Feat's to remove
-		"this task's selector  7f3a1c2e",
+		"feat-app-7f3a1c2e",        // the Compose project an action reaches
+		"api",                      // the service and its observed state
+		"8000 -> 8080",             // how to reach the application
+		"feat-app-7f3a1c2e_pgdata", // retained
 	} {
 		if !strings.Contains(printed, required) {
 			t.Errorf("the summary does not mention %q:\n%s", required, printed)

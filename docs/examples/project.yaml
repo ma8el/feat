@@ -127,14 +127,11 @@ runtime:
   services:
     - app
     - worker
-  # Resources Feat binds to but never creates or destroys, such as a shared
-  # staging database. They are never included in a destroy plan.
-  external_resources:
-    staging_db:
-      type: postgres
-      lifecycle: external
-      # Generated per task. It is not a secret.
-      selector_variable: FEAT_STAGING_SCHEMA
+  # Feat sets FEAT_PROJECT_ID, FEAT_TASK_ID, FEAT_TASK_KEY, and
+  # FEAT_RUNTIME_PROJECT on every managed service. An application that shares an
+  # external resource between tasks — a staging database on its own server, say —
+  # names its share with FEAT_TASK_KEY. Feat neither knows nor asks what is
+  # behind the name: the connection string lives in an env_file it never opens.
 
 review:
   # The first element is the program and is never templated. Arguments may use

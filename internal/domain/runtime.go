@@ -40,10 +40,6 @@ type RuntimeEnvironment struct {
 	// Health is the observed service health, which is separate from the
 	// lifecycle state.
 	Health HealthState
-	// ExternalResources are resources the runtime uses but does not own, such
-	// as a pre-existing staging database. Feat never provisions or destroys
-	// them.
-	ExternalResources []ExternalResource
 	// ObservedAt is when the state, health, and resource lists were last
 	// observed.
 	ObservedAt time.Time
@@ -57,39 +53,6 @@ type PortAssignment struct {
 	ContainerPort int
 	// HostPort is the port published on the host.
 	HostPort int
-}
-
-// ResourceLifecycle records who owns a runtime resource.
-type ResourceLifecycle string
-
-// Resource lifecycles from docs/07-configuration-model.md. A shared lifecycle,
-// with explicit isolation semantics, is roadmap work.
-const (
-	// LifecycleManaged is a resource Feat creates, observes, and may remove.
-	LifecycleManaged ResourceLifecycle = "managed"
-	// LifecycleExternal is a resource Feat references but never provisions or
-	// destroys.
-	LifecycleExternal ResourceLifecycle = "external"
-)
-
-// Valid reports whether the lifecycle is documented.
-func (l ResourceLifecycle) Valid() bool {
-	return l == LifecycleManaged || l == LifecycleExternal
-}
-
-// ExternalResource is a shared development resource a task's runtime uses.
-type ExternalResource struct {
-	// ID identifies the binding within the task.
-	ID string
-	// Kind describes the resource, such as the engine of a shared development
-	// database.
-	Kind string
-	// Lifecycle records ownership. It is always external here, and is recorded
-	// explicitly so a cleanup plan can prove it excluded the resource.
-	Lifecycle ResourceLifecycle
-	// Selector is the non-secret generated value that tells the application
-	// which shared resource this task uses.
-	Selector string
 }
 
 // Validate reports whether the runtime environment is internally consistent.
@@ -122,24 +85,6 @@ func (r *RuntimeEnvironment) Validate(task TaskID) error {
 			Reason: "must be a documented health state, but is " + quote(string(r.Health)),
 		}
 	}
-	for _, resource := range r.ExternalResources {
-		if resource.ID == "" {
-			return &ValidationError{
-				Entity: "runtime",
-				ID:     id,
-				Field:  "external_resources",
-				Reason: "must give every resource an identifier",
-			}
-		}
-		if resource.Lifecycle != LifecycleExternal {
-			return &InvariantError{
-				Entity: "runtime",
-				ID:     id,
-				Rule:   "external resources are referenced, never owned",
-				Reason: "resource " + resource.ID + " is recorded as " + quote(string(resource.Lifecycle)),
-			}
-		}
-	}
 	return nil
 }
 
@@ -156,7 +101,6 @@ type RuntimeInputs struct {
 	GeneratedOverridePath string
 	EnvFiles              []string
 	Services              []string
-	ExternalResources     []ExternalResource
 }
 
 // NewRuntimeEnvironment records a task's application runtime before anything
@@ -201,7 +145,6 @@ func (r *RuntimeEnvironment) apply(inputs RuntimeInputs) {
 	r.GeneratedOverridePath = inputs.GeneratedOverridePath
 	r.EnvFiles = inputs.EnvFiles
 	r.Services = inputs.Services
-	r.ExternalResources = inputs.ExternalResources
 }
 
 // Observe records the runtime state and health a runtime adapter reported.

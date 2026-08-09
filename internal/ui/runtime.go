@@ -306,20 +306,6 @@ func (m Model) runtimeSummary(task api.Task) string {
 			out.WriteString("  " + volume + "\n")
 		}
 	}
-	if len(runtime.External) > 0 {
-		out.WriteString("\n" + headingStyle.Render("external") +
-			mutedStyle.Render("  never created or destroyed by Feat") + "\n")
-		for _, resource := range runtime.External {
-			line := "  " + resource.ID
-			if resource.Kind != "" {
-				line += mutedStyle.Render("  " + resource.Kind)
-			}
-			if resource.Selector != "" {
-				line += "  " + mutedStyle.Render("this task selects "+resource.Selector)
-			}
-			out.WriteString(line + "\n")
-		}
-	}
 	return out.String()
 }
 

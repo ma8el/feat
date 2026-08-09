@@ -216,12 +216,6 @@ func Runtime() *domain.RuntimeEnvironment {
 		Ports:                 []domain.PortAssignment{{Service: "web", ContainerPort: 8080, HostPort: 18080}},
 		Networks:              []string{"feat-example-7f3a1c2e_default"},
 		Volumes:               []string{"feat-example-7f3a1c2e_cache"},
-		ExternalResources: []domain.ExternalResource{{
-			ID:        "reporting-store",
-			Kind:      "postgres",
-			Lifecycle: domain.LifecycleExternal,
-			Selector:  "example_7f3a1c2e",
-		}},
 	}
 	must(runtime.Observe(domain.RuntimeRunning, domain.HealthHealthy, after(26)))
 	return runtime
