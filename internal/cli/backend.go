@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -219,15 +220,36 @@ func (b *backend) lookup(name string) string {
 // the terminal.
 type execCommand struct{ command *exec.Cmd }
 
+// interruptedExit is the status a program the user interrupted at the terminal
+// exits with: the shell's convention of 128 plus SIGINT.
+//
+// Ctrl-C is how a user leaves `docker compose logs --follow`, and Compose exits
+// 130 when they do. Reporting that as an error would put a failure banner on the
+// dashboard for a key the user meant to press — the state that cries wolf on the
+// ordinary path, which ADR-034 evidence 9 refused for a stopped container and
+// which is the same mistake here (ADR-049).
+const interruptedExit = 130
+
 func (c execCommand) Run() error {
 	if err := c.command.Run(); err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
+			if exit.ExitCode() == interruptedExit || interruptedBySignal(exit) {
+				return nil
+			}
 			return fmt.Errorf("%s exited with status %d", c.command.Path, exit.ExitCode())
 		}
 		return fmt.Errorf("running %s: %w", c.command.Path, err)
 	}
 	return nil
+}
+
+// interruptedBySignal reports whether the interrupt killed the program outright
+// rather than being handled by it, which is what happens to a program that
+// installs no handler of its own.
+func interruptedBySignal(exit *exec.ExitError) bool {
+	status, ok := exit.Sys().(syscall.WaitStatus)
+	return ok && status.Signaled() && status.Signal() == syscall.SIGINT
 }
 
 func (c execCommand) SetStdin(reader io.Reader) {

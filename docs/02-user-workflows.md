@@ -120,7 +120,7 @@ Observable agent process state and semantic workflow state are separate.
 3. The user starts them from the dashboard when needed.
 4. Feat invokes the configured Docker Compose CLI command on the host.
 5. The agent receives no Docker socket or Docker CLI.
-6. Feat displays normal Compose service state and opens `docker compose logs` for logs.
+6. Feat displays normal Compose service state and opens `docker compose logs` for logs. The logs hold the terminal until the user interrupts them, which returns to the dashboard rather than leaving Feat.
 7. The runtime remains available during review.
 8. Approval offers to stop services; it does not stop or destroy them automatically.
 

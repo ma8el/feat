@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -282,6 +283,27 @@ func TestTheLogsActionYieldsTheTerminal(t *testing.T) {
 
 	if len(backend.logs) != 1 || backend.logs[0] != task.ID {
 		t.Fatalf("the logs action asked for %v, want the open task", backend.logs)
+	}
+}
+
+// TestTheDashboardOutlivesTheInterruptThatLeavesTheLogs is the other half of
+// yielding the terminal.
+//
+// `docker compose logs --follow` ends when the user interrupts it, and the
+// terminal driver sends that interrupt to every process in the foreground group
+// — the dashboard included. While it holds the process-wide interrupt context,
+// the dashboard is killed by the key that leaves the logs, which left no way out
+// of them but quitting Feat. Its lifetime is its own, and Bubble Tea ends it:
+// that is the one component that knows whether the dashboard or another program
+// currently owns the terminal (ADR-049).
+func TestTheDashboardOutlivesTheInterruptThatLeavesTheLogs(t *testing.T) {
+	interrupted, interrupt := context.WithCancel(context.Background())
+	dashboard := dashboardContext(interrupted)
+
+	interrupt()
+
+	if dashboard.Err() != nil {
+		t.Fatalf("the interrupt that leaves the logs also ends the dashboard: %v", dashboard.Err())
 	}
 }
 

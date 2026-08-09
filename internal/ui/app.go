@@ -242,21 +242,43 @@ func New(opts Options) Model {
 }
 
 // Run opens the dashboard.
+//
+// The dashboard's lifetime is deliberately its own rather than the process-wide
+// interrupt context's; see dashboardContext.
 func Run(ctx context.Context, opts Options) error {
-	opts.Context = ctx
+	opts.Context = dashboardContext(ctx)
 	model := New(opts)
 	defer model.stopStream()
 
-	program := tea.NewProgram(model, tea.WithContext(ctx), tea.WithAltScreen())
+	program := tea.NewProgram(model, tea.WithAltScreen())
 
 	if _, err := program.Run(); err != nil {
-		// A cancelled context is an ordinary shutdown, not a failure.
-		if ctx.Err() != nil || errors.Is(err, tea.ErrProgramKilled) {
+		// An interrupt is an ordinary shutdown, not a failure.
+		if errors.Is(err, tea.ErrProgramKilled) || errors.Is(err, tea.ErrInterrupted) {
 			return nil
 		}
 		return fmt.Errorf("dashboard: %w", err)
 	}
 	return nil
+}
+
+// dashboardContext detaches the dashboard from the process-wide interrupt.
+//
+// The dashboard hands its terminal to other programs — the agent's tmux client,
+// the project's diff tool, `docker compose logs --follow` — and while one of them
+// holds it, an interrupt belongs to that program. Ctrl-C is how a user leaves the
+// logs, and the terminal driver delivers it to every process in the foreground
+// group, the dashboard included: with the interrupt context wired into the
+// program, leaving the logs quit Feat, and there was no other way out of them.
+//
+// Bubble Tea already knows the difference. It ignores signals while the terminal
+// is released to another program and quits on them while it owns the terminal,
+// which is the whole of the policy this needs — so what is dropped here is the
+// second signal handler that did not know when the dashboard was not in charge
+// (ADR-049). The stream this context bounds ends with Run either way, because
+// Run stops it on the way out.
+func dashboardContext(ctx context.Context) context.Context {
+	return context.WithoutCancel(ctx)
 }
 
 // Messages the dashboard sends itself.

@@ -1495,6 +1495,19 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   `notification_sent` events the state directory already holds, it cannot go
   stale as the code around it changes, and two things wait on it — v0.1
   acceptance criterion 14, which is the claim the product rests on, and OQ-013.
+- Let the interrupt that leaves a program the dashboard ran stay that program's.
+  Opening the Compose logs from the runtime tab left no way out that was not also
+  a way out of Feat: `logs --follow` ends only when it is interrupted, the
+  terminal driver delivers that interrupt to every process in the foreground
+  group, and the dashboard held the process-wide interrupt context, which ends a
+  Bubble Tea program wherever it is. Bubble Tea already ignores signals while it
+  has released the terminal — Feat's second handler was the one that did not know
+  the dashboard was not in charge. Reported by the maintainer during dogfood and
+  reproduced on a pseudo-terminal.
+
+  The dashboard's lifetime becomes its own, and an exit produced by an interrupt
+  stops being reported as a failure — leaving the logs was raising an error
+  banner for a key the user meant to press. See ADR-049.
 - Remove hard-coded assumptions discovered during dogfood.
 
 ### Acceptance criteria
