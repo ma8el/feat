@@ -125,9 +125,6 @@ func (m Model) taskPanelKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "e":
 		return m.runReviewCommand(api.ReviewCommandKindEditor)
 
-	case "s":
-		return m.runReviewCommand(api.ReviewCommandKindStatus)
-
 	case "A":
 		return m.startReview(api.ReviewApprove)
 
@@ -142,6 +139,13 @@ func (m Model) taskPanelKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "a":
 		return m.attach()
+
+	case "s":
+		// The shell, as everywhere else. The status command used to be here and
+		// is not reachable from the panel any more (ADR-045): it printed a line
+		// or two and exited, which the altscreen swallowed before anyone could
+		// read it, and the panel already carries what it would have said.
+		return m.shell()
 
 	case "r":
 		return m.startReview(api.ReviewObserve)

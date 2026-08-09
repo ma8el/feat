@@ -293,16 +293,15 @@ func bindingChangeSummary(binding api.TaskRepository) string {
 
 // taskPanelHints are the panel's own keys.
 //
-// The status command keeps `s`, which opens a shell everywhere else. The three
-// external commands are a set — diff, editor, status, each about the repository
-// under the cursor (FR-REV-002) — and splitting them to protect one letter would
-// cost more than the shell does, which the terminal tab and the rail both reach.
+// The external commands are diff and editor, each about the repository under the
+// cursor (FR-REV-002). The status command is not among them: `s` opens the
+// task's shell here as it does everywhere else (ADR-045), and the shell is where
+// a status is read anyway.
 func taskPanelHints() string {
 	return keyHints(
 		keyHint("↑↓", "repository"),
 		keyHint("d", "diff"),
 		keyHint("e", "editor"),
-		keyHint("s", "status"),
 		keyHint("A", "approve"),
 		keyHint("C", "request changes"),
 		keyHint("V", "run checks"),

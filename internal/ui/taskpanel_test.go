@@ -122,22 +122,24 @@ func TestScrollingStopsAtTheEndOfThePanel(t *testing.T) {
 	}
 }
 
-// TestTheStatusCommandKeepsSOnTheTaskPanel records a key that means two things.
+// TestSOpensTheShellOnTheTaskPanelToo records a key that used to mean two things.
 //
-// `s` opens the task's shell everywhere else in the dashboard. On this panel it
-// is the third of the external commands FR-REV-002 requires — diff, editor,
-// status — and splitting that set to protect one letter would cost more than the
-// shell does, which the terminal tab and the rail both reach.
-func TestTheStatusCommandKeepsSOnTheTaskPanel(t *testing.T) {
+// `s` ran the configured status command here and opened the task's shell
+// everywhere else. What that command printed was a line or two on the screen the
+// TUI had just left, gone before it could be read, and the panel already states
+// what it would have said (ADR-045). The command itself is still configured and
+// still expanded — `feat review` prints it — so what this test pins is the key,
+// not the feature.
+func TestSOpensTheShellOnTheTaskPanelToo(t *testing.T) {
 	backend := newFakeBackend()
 	model := reviewScreen(t, backend)
 
 	press(t, model, "s")
 
-	if len(backend.shells) != 0 {
-		t.Errorf("s opened a shell from the task panel: %v", backend.shells)
+	if len(backend.reviewRan) != 0 {
+		t.Errorf("s ran a review command from the task panel: %+v", backend.reviewRan)
 	}
-	if len(backend.reviewRan) != 1 || backend.reviewRan[0].Kind != "status" {
-		t.Errorf("s ran %+v, want the status command", backend.reviewRan)
+	if len(backend.shells) != 1 {
+		t.Errorf("s opened %d shells from the task panel, want one", len(backend.shells))
 	}
 }

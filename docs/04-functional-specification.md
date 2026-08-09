@@ -238,7 +238,7 @@ Review MUST group changes by repository and compare each repository against its 
 
 ### FR-REV-002 — External commands
 
-v0 MUST provide shortcuts for configurable diff, editor, and optional Git status commands. It need not render diffs internally.
+v0 MUST provide shortcuts for configurable diff and editor commands, each in the selected task repository. It need not render diffs internally. An optional Git status command MAY be configured; it is expanded, validated, and reported with the review rather than launched from the task panel (ADR-045).
 
 ### FR-REV-003 — Editor
 

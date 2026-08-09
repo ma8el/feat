@@ -88,14 +88,14 @@ func keyMap() string {
 		}},
 		{"the selected task", [][2]string{
 			{"a", "attach to the agent's terminal"},
-			{"s", "open the task's shell — except on the task panel, where it is git status"},
+			{"s", "open the task's shell"},
 			{"R", "application runtime"},
 			{"z", "resume a recorded session"},
 			{"x", "cancel a draft"},
 		}},
 		{"the task panel", [][2]string{
 			{"↑ ↓", "select a repository"},
-			{"d / e / s", "diff, editor, git status, in that repository"},
+			{"d / e", "diff and editor, in that repository"},
 			{"A / C / P", "approve, request changes, leave pending"},
 			{"V", "run the project's checks"},
 			{"pgup/pgdn", "scroll the panel"},
