@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,6 +29,9 @@ func (w *Workspace) Pending() ([]Message, []error, error) {
 	defer w.mu.Unlock()
 
 	if err := w.loadProcessed(); err != nil {
+		return nil, nil, err
+	}
+	if err := w.checkDirectory(w.OutboxDir()); err != nil {
 		return nil, nil, err
 	}
 
@@ -64,10 +68,9 @@ func (w *Workspace) Pending() ([]Message, []error, error) {
 		}
 		stillHere[name] = true
 
-		path := filepath.Join(w.OutboxDir(), name)
-		data, err := os.ReadFile(path)
+		data, err := w.readMessage(name)
 		if err != nil {
-			rejected = append(rejected, fmt.Errorf("reading the control message %s: %w", name, err))
+			rejected = append(rejected, err)
 			continue
 		}
 
@@ -139,6 +142,46 @@ func (w *Workspace) Pending() ([]Message, []error, error) {
 		messages = append(messages, entry.message)
 	}
 	return messages, rejected, nil
+}
+
+// readMessage reads one outbox entry, refusing at the moment of use everything
+// checkEntry could only establish about a listing.
+//
+// checkEntry works from the snapshot os.ReadDir returned, and the agent owns
+// this directory: between that listing and this read an entry can become a
+// symbolic link to a file elsewhere on the machine, a named pipe with no
+// writer, or a document that has grown past the limit. Opening once, asking the
+// descriptor what it is, and reading through a bound is what makes the file
+// that was checked the file that is read.
+func (w *Workspace) readMessage(name string) ([]byte, error) {
+	path := filepath.Join(w.OutboxDir(), name)
+
+	file, err := openLeaf(path, os.O_RDONLY, 0)
+	if errors.Is(err, errNotRegular) {
+		return nil, &RejectionError{
+			File:   name,
+			Reason: "is not a regular file, and only regular files are read as messages",
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading the control message %s: %w", name, err)
+	}
+	defer func() { _ = file.Close() }()
+
+	// One byte past the limit, so that a document exactly on it is still read
+	// and one over it is refused rather than quietly truncated into something
+	// that might still parse.
+	data, err := io.ReadAll(io.LimitReader(file, MaxMessageBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading the control message %s: %w", name, err)
+	}
+	if len(data) > MaxMessageBytes {
+		return nil, &RejectionError{
+			File:   name,
+			Reason: fmt.Sprintf("is larger than the limit of %d bytes", MaxMessageBytes),
+		}
+	}
+	return data, nil
 }
 
 // tooYoungToJudge reports whether an unparseable entry is still within the
@@ -235,13 +278,16 @@ func (w *Workspace) loadProcessed() error {
 		return nil
 	}
 
-	file, err := os.Open(w.processedPath())
+	if err := w.checkDirectory(w.AgentDir()); err != nil {
+		return err
+	}
+	file, err := openLeaf(w.processedPath(), os.O_RDONLY, 0)
 	if errors.Is(err, os.ErrNotExist) {
 		w.loaded = true
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("reading %s: %w", w.processedPath(), err)
+		return fmt.Errorf("reading the applied control messages of task %s: %w", w.task, err)
 	}
 	defer func() { _ = file.Close() }()
 
@@ -269,16 +315,22 @@ func (w *Workspace) loadProcessed() error {
 // appendProcessed adds one record, repairing an interrupted previous append
 // first so that two records can never be joined into one unreadable line.
 //
+// This is the one write in the package that truncates, so it is the one that
+// most needs the file it opens to be the file it named: the record lives in the
+// host-only area, and a symbolic link left where it belongs would make the
+// repair below truncate whatever the daemon's own user can write. openLeaf and
+// the directory check above it are what refuse that.
+//
 // The caller holds the mutex.
 func (w *Workspace) appendProcessed(line []byte) error {
-	if err := os.MkdirAll(w.AgentDir(), dirPerm); err != nil {
-		return fmt.Errorf("creating %s: %w", w.AgentDir(), err)
+	if err := w.prepareDirectory(w.AgentDir()); err != nil {
+		return err
 	}
 
 	path := w.processedPath()
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, filePerm)
+	file, err := openLeaf(path, os.O_CREATE|os.O_RDWR, filePerm)
 	if err != nil {
-		return fmt.Errorf("opening %s: %w", path, err)
+		return fmt.Errorf("recording the applied control messages of task %s: %w", w.task, err)
 	}
 	defer func() { _ = file.Close() }()
 

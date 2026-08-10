@@ -99,5 +99,5 @@ func (w *Workspace) WriteVerification(request string, verification Verification)
 		document.WriteString(report)
 		document.WriteString("\n")
 	}
-	return replaceFile(filepath.Join(w.InboxDir(), name), []byte(document.String()), filePerm)
+	return w.replaceFile(filepath.Join(w.InboxDir(), name), []byte(document.String()), filePerm)
 }

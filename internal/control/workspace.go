@@ -1,11 +1,14 @@
 package control
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ma8el/feat/internal/domain"
@@ -150,13 +153,15 @@ func (w *Workspace) AgentDir() string { return filepath.Join(w.root, agentDir) }
 // Create makes the workspace tree.
 //
 // It is idempotent, so a task whose launch failed part way through can be
-// retried without first being cleaned up.
+// retried without first being cleaned up. A directory that already exists as
+// something other than a directory is refused rather than written through,
+// which is the earliest point at which a tampered workspace can be caught.
 func (w *Workspace) Create() error {
 	for _, dir := range []string{
 		w.root, w.ContextDir(), w.InboxDir(), w.OutboxDir(), w.ReportsDir(), w.AgentDir(),
 	} {
-		if err := os.MkdirAll(dir, dirPerm); err != nil {
-			return fmt.Errorf("creating the control workspace directory %s: %w", dir, err)
+		if err := w.prepareDirectory(dir); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -201,7 +206,7 @@ func (w *Workspace) Remove() (bool, error) {
 // replacement: an agent that reads it while it is being written must see the
 // previous document or the new one, never half of each.
 func (w *Workspace) WriteBrief(brief string) error {
-	return replaceFile(w.BriefPath(), []byte(brief), filePerm)
+	return w.replaceFile(w.BriefPath(), []byte(brief), filePerm)
 }
 
 // WriteAgentFile records one generated provider file in the host-only area.
@@ -218,7 +223,7 @@ func (w *Workspace) WriteAgentFile(name string, data []byte, executable bool) er
 	if executable {
 		mode = scriptPerm
 	}
-	return replaceFile(path, data, mode)
+	return w.replaceFile(path, data, mode)
 }
 
 // AgentPath resolves one path inside the host-only agent directory.
@@ -232,6 +237,130 @@ func (w *Workspace) AgentPath(name string) (string, error) {
 // processedPath returns the host-only record of applied event identifiers.
 func (w *Workspace) processedPath() string { return filepath.Join(w.AgentDir(), processedName) }
 
+// errNotRegular is what every file operation in this package refuses over.
+//
+// A path built from validated identifiers says where a file belongs. It says
+// nothing about what is there, and the tree is reachable from a container: the
+// two facts together are what turned the daemon's own bookkeeping write into a
+// write somewhere else entirely.
+var errNotRegular = errors.New("not a regular file")
+
+// openLeaf opens one file of the control workspace, refusing anything that is
+// not a regular file.
+//
+// Both extra flags earn their place. O_NOFOLLOW means the descriptor is the
+// file the path names rather than whatever a symbolic link put in its way, so a
+// link planted in the tree cannot redirect a host write to a file elsewhere on
+// the machine. O_NONBLOCK means a named pipe answers immediately instead of
+// blocking in the kernel until somebody writes to it: one goroutine polls every
+// task's workspace, so an open that never returned would stop control
+// processing for every task at once.
+//
+// The kind is then read from the descriptor rather than from the path, so what
+// was checked is what is used.
+func openLeaf(path string, flag int, perm fs.FileMode) (*os.File, error) {
+	file, err := os.OpenFile(path, flag|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, perm)
+	if errors.Is(err, syscall.ELOOP) {
+		return nil, fmt.Errorf("%s is a symbolic link and so %w", path, errNotRegular)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, fmt.Errorf("%s is %s and so %w", path, describeKind(info.Mode()), errNotRegular)
+	}
+	return file, nil
+}
+
+// describeKind names what was found where a regular file was expected, so that
+// a refusal says what is there rather than only what is not.
+func describeKind(mode fs.FileMode) string {
+	switch {
+	case mode.IsDir():
+		return "a directory"
+	case mode&fs.ModeSymlink != 0:
+		return "a symbolic link"
+	case mode&fs.ModeNamedPipe != 0:
+		return "a named pipe"
+	case mode&fs.ModeSocket != 0:
+		return "a socket"
+	case mode&fs.ModeDevice != 0:
+		return "a device"
+	default:
+		return "not a file"
+	}
+}
+
+// checkDirectory refuses a directory of the workspace that is not one.
+func (w *Workspace) checkDirectory(dir string) error { return w.walkDirectory(dir, false) }
+
+// prepareDirectory is checkDirectory, creating the components that are absent.
+func (w *Workspace) prepareDirectory(dir string) error { return w.walkDirectory(dir, true) }
+
+// walkDirectory checks every component of a workspace directory from the root
+// down, and creates the missing ones when asked to.
+//
+// O_NOFOLLOW protects the last component of a path and nothing above it, so a
+// directory replaced by a symbolic link would still send an atomic replacement
+// somewhere else. Each component is therefore stat'ed without following links,
+// and anything that is not a directory is refused by name. The layout of a
+// control workspace is Feat's own: there is no case in which one of these is
+// legitimately a link.
+func (w *Workspace) walkDirectory(dir string, create bool) error {
+	relative, err := filepath.Rel(w.root, dir)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("refusing to use %s for task %s: it is not inside the task's control workspace %s",
+			dir, w.task, w.root)
+	}
+
+	if create {
+		// The root's own parents are the control root and the project
+		// directory, which belong to Feat rather than to this workspace.
+		if err := os.MkdirAll(w.root, dirPerm); err != nil {
+			return fmt.Errorf("creating the control workspace %s of task %s: %w", w.root, w.task, err)
+		}
+	}
+
+	chain := []string{w.root}
+	current := w.root
+	for _, component := range strings.Split(filepath.ToSlash(relative), "/") {
+		if component == "." {
+			continue
+		}
+		current = filepath.Join(current, component)
+		chain = append(chain, current)
+	}
+
+	for _, step := range chain {
+		info, err := os.Lstat(step)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			if !create {
+				// Nothing is there to be wrong, and the operation that follows
+				// reports the absence better than this can.
+				return nil
+			}
+			if err := os.Mkdir(step, dirPerm); err != nil && !errors.Is(err, os.ErrExist) {
+				return fmt.Errorf("creating %s in the control workspace of task %s: %w", step, w.task, err)
+			}
+		case err != nil:
+			return fmt.Errorf("reading %s in the control workspace of task %s: %w", step, w.task, err)
+		case !info.IsDir():
+			return fmt.Errorf("refusing to use %s in the control workspace of task %s: it is %s, "+
+				"and the layout of a control workspace is Feat's own",
+				step, w.task, describeKind(info.Mode()))
+		}
+	}
+	return nil
+}
+
 // replaceFile writes data to path by writing a temporary file in the same
 // directory, flushing it, and renaming it over the target.
 //
@@ -239,10 +368,15 @@ func (w *Workspace) processedPath() string { return filepath.Join(w.AgentDir(), 
 // the new one, never a mixture, whatever moment the process dies at. The
 // temporary name is dot-prefixed so that a crash before the rename leaves
 // something every reader in this package already ignores.
-func replaceFile(path string, data []byte, mode fs.FileMode) error {
+//
+// Neither step follows a symbolic link. The directory is checked component by
+// component first; the staging file is created exclusively, which fails on a
+// name a link already occupies rather than writing through it; and a rename
+// replaces a link rather than the file it points at.
+func (w *Workspace) replaceFile(path string, data []byte, mode fs.FileMode) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, dirPerm); err != nil {
-		return fmt.Errorf("creating %s: %w", dir, err)
+	if err := w.prepareDirectory(dir); err != nil {
+		return err
 	}
 
 	temp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
