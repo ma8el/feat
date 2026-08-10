@@ -153,7 +153,11 @@ func (e *Environment) Version(ctx context.Context) (Version, error) {
 // calling this, so an interruption leaves a record naming a superset of what
 // exists (ADR-029's ordering, applied to containers).
 func (e *Environment) Prepare(ctx context.Context) error {
-	if err := writeOverride(e.spec); err != nil {
+	defined, err := e.defined(ctx)
+	if err != nil {
+		return err
+	}
+	if err := writeOverride(e.spec, defined); err != nil {
 		return err
 	}
 
@@ -450,6 +454,41 @@ func health(c container) domain.HealthState {
 	}
 }
 
+// defined asks Compose which services this task's project defines.
+//
+// Feat brings up the agent's service and Compose brings up whatever that
+// service depends on, so the project holds more services than the launch names.
+// Every one of them needs the base file's fixed container_name and published
+// ports removed, or the second task to start collides with the first over a
+// service the user did not know Feat was starting — which is the one thing a
+// per-task Compose project exists to prevent.
+//
+// It reads names and nothing else. `docker compose config` renders the whole
+// project including the values of its environment files, which Feat never reads;
+// --services prints one service name per line (ADR-028). The generated override
+// is left out of the file list on purpose, so that a stale one cannot
+// reintroduce a service the project has since removed — and because on a first
+// launch it does not exist yet.
+func (e *Environment) defined(ctx context.Context) ([]string, error) {
+	output, err := e.runner.Run(ctx, e.compose(false, "config", "--services"))
+	if err != nil {
+		return nil, err
+	}
+	if !output.Succeeded() {
+		reported := lastLine(output.Stderr, output.Stdout)
+		return nil, fmt.Errorf("reading the services of task %s from the Compose files of project %s failed: %s%s",
+			e.spec.Task, e.spec.Identity, reported, e.explain(reported))
+	}
+
+	var names []string
+	for line := range strings.SplitSeq(output.Stdout, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			names = append(names, trimmed)
+		}
+	}
+	return names, nil
+}
+
 // invoke builds one Compose command for this task's project.
 //
 // Every invocation carries the project name and the project directory. The
@@ -458,6 +497,13 @@ func health(c container) domain.HealthState {
 // that file's relative sources and build contexts keep resolving while the
 // generated override lives under the state directory (ADR-033).
 func (e *Environment) invoke(arguments ...string) execution.Invocation {
+	return e.compose(true, arguments...)
+}
+
+// compose builds one Compose command, with or without Feat's generated
+// override. Only the command that asks which services the project defines
+// leaves it out; see defined.
+func (e *Environment) compose(generated bool, arguments ...string) execution.Invocation {
 	base := []string{
 		"compose",
 		"--project-name", e.spec.Identity,
@@ -466,7 +512,9 @@ func (e *Environment) invoke(arguments ...string) execution.Invocation {
 	for _, file := range e.spec.Files {
 		base = append(base, "--file", file)
 	}
-	base = append(base, "--file", e.spec.OverridePath)
+	if generated {
+		base = append(base, "--file", e.spec.OverridePath)
+	}
 
 	return execution.Invocation{
 		Program:   e.docker,

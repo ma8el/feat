@@ -204,8 +204,8 @@ func (s *service) planContainerAgent(
 		environment:  record,
 		note: "the agent runs as " + spec.User + " in service " + spec.Service + " of Compose project " +
 			spec.Identity + ". Feat's generated override mounts this task's worktrees at their configured " +
-			"container paths and resets container_name and published ports for that service, so several tasks " +
-			"can run at once",
+			"container paths and resets container_name and published ports for that service and for every " +
+			"service Compose starts alongside it, so several tasks can run at once",
 	}, nil
 }
 

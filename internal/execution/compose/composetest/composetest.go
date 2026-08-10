@@ -41,8 +41,9 @@ type Docker struct {
 	full [][]string
 }
 
-// New returns a fake Docker that answers plausibly: a recent Compose, a service
-// that starts and runs, and a container with no unexpected mounts.
+// New returns a fake Docker that answers plausibly: a recent Compose, a project
+// defining the one service the agent runs in, a service that starts and runs,
+// and a container with no unexpected mounts.
 func New() *Docker {
 	d := &Docker{
 		responses: make(map[string]execution.Output),
@@ -52,6 +53,7 @@ func New() *Docker {
 	}
 	return d.
 		Answer("version --short", "5.1.4").
+		Answer("config --services", "dev").
 		Answer("up --detach dev", "").
 		Answer("ps --all --format json dev",
 			`{"ID":"c0ffee","Name":"feat-dev-1","Service":"dev","State":"running","Status":"Up 2 seconds"}`).
