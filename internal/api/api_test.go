@@ -55,6 +55,10 @@ type fakeService struct {
 	// selections records every cleanup selection the transport passed through,
 	// so a test can assert what reached the daemon rather than what was sent.
 	selections []CleanupSelection
+	// views and inputs record what reached the terminal endpoints, so a test can
+	// assert on the request the daemon was given rather than on the one sent.
+	views  []TerminalView
+	inputs []TerminalInput
 }
 
 func newFakeService() *fakeService {
@@ -159,6 +163,23 @@ func (f *fakeService) Task(_ context.Context, id domain.TaskID) (*domain.Task, e
 	return nil, fmt.Errorf("%w: no task %s in any registered project", ErrNotFound, id)
 }
 
+// ResolveTask resolves the way the daemon does, over the fake's own tasks, so
+// that the transport is tested against the addressing rule rather than against a
+// second implementation of it.
+func (f *fakeService) ResolveTask(_ context.Context, ref domain.TaskRef) (domain.TaskID, error) {
+	if err := f.check(); err != nil {
+		return "", err
+	}
+	task, found, err := domain.ResolveTask(ref, f.tasks)
+	switch {
+	case err != nil:
+		return "", err
+	case !found:
+		return "", fmt.Errorf("%w: no task matches %q", ErrNotFound, ref)
+	}
+	return task.ID, nil
+}
+
 func (f *fakeService) Verification(_ context.Context, id domain.TaskID) (Verification, bool, error) {
 	reported, ok := f.verifications[id]
 	return reported, ok, nil
@@ -175,6 +196,42 @@ func verificationFixture() Verification {
 		Summary:    "Added the endpoint; one integration test still fails.",
 		ReportedAt: time.Date(2026, 8, 4, 9, 45, 0, 0, time.UTC),
 	}
+}
+
+func (f *fakeService) TerminalFrame(_ context.Context, id domain.TaskID, view TerminalView) (TerminalFrame, error) {
+	if err := f.check(); err != nil {
+		return TerminalFrame{}, err
+	}
+	f.views = append(f.views, view)
+	for _, task := range f.tasks {
+		if task.ID == id && task.Session != nil {
+			return TerminalFrame{
+				Width:  view.Width,
+				Height: view.Height,
+				Panes: []TerminalPane{{
+					Pane:    task.Session.Tmux.Pane,
+					Width:   view.Width,
+					Height:  view.Height,
+					Active:  true,
+					Content: []string{"\x1b[32mready\x1b[m", "> "},
+				}},
+			}, nil
+		}
+	}
+	return TerminalFrame{}, fmt.Errorf("%w: no terminal", ErrNotFound)
+}
+
+func (f *fakeService) SendTerminalInput(_ context.Context, id domain.TaskID, input TerminalInput) error {
+	if err := f.check(); err != nil {
+		return err
+	}
+	for _, task := range f.tasks {
+		if task.ID == id && task.Session != nil {
+			f.inputs = append(f.inputs, input)
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: no terminal", ErrNotFound)
 }
 
 func (f *fakeService) AttachInfo(_ context.Context, id domain.TaskID) (AttachInfo, error) {
@@ -771,6 +828,105 @@ func TestErrorResponses(t *testing.T) {
 				t.Error("the error carries no message")
 			}
 		})
+	}
+}
+
+// TestEveryTaskEndpointTakesTheKeyTheListsPrint checks the slice 13 acceptance
+// criterion at the transport, where it applies to the whole command surface at
+// once.
+//
+// The endpoints below are what `feat attach`, `feat review`, `feat runtime`, and
+// `feat task cleanup` call, and every one of them took an identifier no list printed.
+// They come through one resolution point, so the check is that each of them
+// reached the daemon with the identifier the key abbreviates.
+func TestEveryTaskEndpointTakesTheKeyTheListsPrint(t *testing.T) {
+	key := storetest.TaskID.Key().String()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"task", http.MethodGet, "/v1/tasks/" + key},
+		{"attach", http.MethodPost, "/v1/tasks/" + key + "/attach-info"},
+		{"shell", http.MethodPost, "/v1/tasks/" + key + "/shell"},
+		{"runtime", http.MethodPost, "/v1/tasks/" + key + "/runtime/status"},
+		{"runtime logs", http.MethodPost, "/v1/tasks/" + key + "/runtime/logs-info"},
+		{"review", http.MethodPost, "/v1/tasks/" + key + "/review/observe"},
+		{"cleanup plan", http.MethodPost, "/v1/tasks/" + key + "/cleanup/plan"},
+		{"resume", http.MethodPost, "/v1/tasks/" + key + "/resume"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := NewHandler(Options{Service: newFakeService()})
+
+			response := requestBody(t, handler, test.method, test.path, "{}")
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d, body: %s", response.Code, response.Body.String())
+			}
+		})
+	}
+
+	// A prefix shorter than the key works for the same reason, and so does the
+	// whole identifier, which is the path the dashboard takes.
+	handler := NewHandler(Options{Service: newFakeService()})
+	for _, ref := range []string{"7f3a", storetest.TaskID.String()} {
+		response := request(t, handler, http.MethodGet, "/v1/tasks/"+ref)
+		if response.Code != http.StatusOK {
+			t.Errorf("%q: status = %d, body: %s", ref, response.Code, response.Body.String())
+		}
+	}
+}
+
+// TestAnAmbiguousTaskReferenceIsRefusedRatherThanChosen checks that the transport
+// carries the refusal rather than one of the candidates, and that what it carries
+// is actable on.
+func TestAnAmbiguousTaskReferenceIsRefusedRatherThanChosen(t *testing.T) {
+	service := newFakeService()
+	second, err := domain.NewTask(
+		"7fb90cd4-1e2f-4a3b-8c4d-5e6f7a8b9c0d", storetest.ProjectID, "another task",
+		domain.TaskSource{Kind: domain.SourcePrompt}, fixedTime)
+	if err != nil {
+		t.Fatalf("creating the second task: %v", err)
+	}
+	service.tasks = append(service.tasks, second)
+	handler := NewHandler(Options{Service: service})
+
+	response := request(t, handler, http.MethodGet, "/v1/tasks/7f")
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body: %s", response.Code, response.Body.String())
+	}
+	var envelope struct {
+		Error Error `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("the error body is not JSON: %v\n%s", err, response.Body.String())
+	}
+	if envelope.Error.Code != CodeInvalid {
+		t.Errorf("code = %q, want %q", envelope.Error.Code, CodeInvalid)
+	}
+	for _, want := range []string{
+		storetest.TaskID.Key().String(), second.Key().String(), storetest.ProjectID.String(),
+	} {
+		if !contains(envelope.Error.Message, want) {
+			t.Errorf("the refusal does not name %q: %s", want, envelope.Error.Message)
+		}
+	}
+}
+
+// TestATaskReferenceThatNamesNothingIsNotFound keeps the two failures apart. A
+// reference nothing answers to is a missing task, not a malformed request, and a
+// client that branches on the code should be able to tell them apart.
+func TestATaskReferenceThatNamesNothingIsNotFound(t *testing.T) {
+	handler := NewHandler(Options{Service: newFakeService()})
+
+	response := request(t, handler, http.MethodGet, "/v1/tasks/deadbeef")
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404, body: %s", response.Code, response.Body.String())
 	}
 }
 

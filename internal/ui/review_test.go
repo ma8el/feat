@@ -17,7 +17,6 @@ func reviewed() api.ReviewStatus {
 	return api.ReviewStatus{
 		Task: task,
 		Review: api.Review{
-			Status:  "pending",
 			Summary: "Added the export job and its retry policy.",
 			Gated:   true,
 			Checks: []api.ReviewCheck{
@@ -66,15 +65,15 @@ func reviewScreen(t *testing.T, backend *fakeBackend) Model {
 	return press(t, model, "v")
 }
 
-// TestTheReviewScreenGroupsChangesByRepository is FR-REV-001 on the screen.
+// TestTheTaskPanelGroupsChangesByRepository is FR-REV-001 on the panel.
 //
 // Every repository is there with its own recorded base, and the base is shown
 // rather than implied: a review of a long-running task is only meaningful
 // against the commit it started from, and a user who cannot see which commit
 // that was has to take Feat's word for it.
-func TestTheReviewScreenGroupsChangesByRepository(t *testing.T) {
+func TestTheTaskPanelGroupsChangesByRepository(t *testing.T) {
 	model := reviewScreen(t, newFakeBackend())
-	view := model.View()
+	view := model.taskPanel()
 
 	for field, want := range map[string]string{
 		"the first repository":  "core",
@@ -88,20 +87,20 @@ func TestTheReviewScreenGroupsChangesByRepository(t *testing.T) {
 		"the worktree":          "/srv/worktrees/example/7f3a1c2e/core",
 	} {
 		if !strings.Contains(view, want) {
-			t.Errorf("the review screen does not show %s (%q):\n%s", field, want, view)
+			t.Errorf("the task panel does not show %s (%q):\n%s", field, want, view)
 		}
 	}
 }
 
-// TestTheReviewScreenTellsAClaimFromAnEnforcedResult is slice 11's fifth
+// TestTheTaskPanelTellsAClaimFromAnEnforcedResult is slice 11's fifth
 // acceptance criterion where the user reads it.
 //
 // A result Feat ran and a result the agent asserted are both shown, and they do
 // not read alike. Showing them alike would tell the user something Feat does not
 // know (FR-AGENT-006).
-func TestTheReviewScreenTellsAClaimFromAnEnforcedResult(t *testing.T) {
+func TestTheTaskPanelTellsAClaimFromAnEnforcedResult(t *testing.T) {
 	model := reviewScreen(t, newFakeBackend())
-	view := model.View()
+	view := model.taskPanel()
 
 	if !strings.Contains(view, "Feat ran this") {
 		t.Errorf("an enforced result is not marked as one:\n%s", view)
@@ -114,7 +113,7 @@ func TestTheReviewScreenTellsAClaimFromAnEnforcedResult(t *testing.T) {
 	}
 	// The strings slice 8 left behind, which named a slice rather than a state.
 	if strings.Contains(view, "slice 11") {
-		t.Errorf("the screen still names the slice that was going to deliver it:\n%s", view)
+		t.Errorf("the panel still names the slice that was going to deliver it:\n%s", view)
 	}
 }
 
@@ -194,6 +193,84 @@ func TestReviewDecisionsReachTheDaemonAndNothingElse(t *testing.T) {
 	}
 }
 
+// TestTheDecisionIsOfferedOnlyWhereItCanBeMade is what reading the decision from
+// the workflow bought (ADR-047).
+//
+// It used to be read from the review aggregate, which knows nothing about the
+// task, so a working task was told "A to approve" and the daemon then refused
+// the approval that line invited: approving applies to a task whose agent has
+// asked for review. The keys now follow the transition table.
+func TestTheDecisionIsOfferedOnlyWhereItCanBeMade(t *testing.T) {
+	for _, test := range []struct {
+		workflow string
+		want     string
+		offered  bool
+		// next is the step the decision still needs, for a decision that is not
+		// finished when it is recorded.
+		next string
+	}{
+		{workflow: "working", want: "the agent has not asked for review"},
+		{workflow: "preparing", want: "the agent has not asked for review"},
+		{workflow: "verifying", want: "the project's checks are running"},
+		{workflow: "review_requested", want: "pending", offered: true},
+		{workflow: "ready_for_review", want: "pending", offered: true},
+		{workflow: "verification_failed", want: "pending", offered: true},
+		{workflow: "approved", want: "approved"},
+		{workflow: "changes_requested", want: "changes requested", next: "a to attach"},
+	} {
+		t.Run(test.workflow, func(t *testing.T) {
+			task := reviewed().Task
+			task.Workflow = test.workflow
+
+			line := reviewDecision(task)
+			if !strings.Contains(line, test.want) {
+				t.Errorf("the decision of a %s task is %q, want it to say %q", test.workflow, line, test.want)
+			}
+			if offered := strings.Contains(line, "A to approve"); offered != test.offered {
+				t.Errorf("the decision of a %s task offers the approve key (%t), want %t: %q",
+					test.workflow, offered, test.offered, line)
+			}
+			if test.next != "" && !strings.Contains(line, test.next) {
+				t.Errorf("the decision of a %s task is %q, and it does not say what is left to do (%q)",
+					test.workflow, line, test.next)
+			}
+		})
+	}
+}
+
+// TestRequestingChangesSaysWhatIsLeftToDo is the gap that made the decision look
+// like it had no consequence.
+//
+// Requesting changes records a workflow state and tells the agent nothing: the
+// revision reaches the session when the user types it. So the panel has to say
+// so, or a user who pressed C is left with a task marked decided and an agent
+// that never heard. The key it names has to be the one that works, which for a
+// task in this state always exists — a task cannot reach changes_requested
+// without a session (domain.requiresSession).
+func TestRequestingChangesSaysWhatIsLeftToDo(t *testing.T) {
+	backend := newFakeBackend()
+	model := reviewScreen(t, backend)
+
+	task := reviewed().Task
+	task.Workflow = "changes_requested"
+	if task.Session == nil {
+		t.Fatal("the fixture task has no session, so attaching is not the next step")
+	}
+
+	line := reviewDecision(task)
+	if !strings.Contains(line, "attach") {
+		t.Errorf("a task sent back for revision does not say to attach: %q", line)
+	}
+
+	// Nothing was asked of the daemon to produce that line: it is what the task
+	// already says, not a second round trip.
+	before := len(backend.reviewCalls)
+	_ = model.taskPanel()
+	if len(backend.reviewCalls) != before {
+		t.Errorf("rendering the panel made %d extra requests", len(backend.reviewCalls)-before)
+	}
+}
+
 // TestOpeningReviewObservesRatherThanDecides checks that arriving at the screen
 // changes nothing about the review: it compares, and the decision is a key the
 // user presses.
@@ -225,7 +302,7 @@ func TestAnApprovedTaskWithRunningServicesIsOfferedTheStop(t *testing.T) {
 	model := dashboard(backend, status.Task)
 	model = press(t, model, "v")
 
-	view := model.View()
+	view := content(model)
 	if !strings.Contains(view, "press t to stop") {
 		t.Errorf("an approved task with running services is not offered the stop:\n%s", view)
 	}

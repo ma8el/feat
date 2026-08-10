@@ -101,11 +101,6 @@ runtime:
   services:
     - frontend
     - backend
-  external_resources:
-    database:
-      type: postgres
-      lifecycle: external
-      selector_variable: FEATURE_DATABASE
 
 review:
   diff:
@@ -193,11 +188,9 @@ Validation occurs inside the same execution environment where Claude will run th
 
 ### Runtime ownership
 
-Runtime resources are either:
-
-- `managed`: created/observed/removed by Feat;
-- `external`: referenced but never provisioned or destroyed by Feat;
-- later `shared`: product-managed but shared with explicit isolation semantics.
+Every runtime resource Feat models is one it created, observes, and may remove.
+A `shared` lifecycle, product-managed with explicit isolation semantics, is
+roadmap work.
 
 `runtime.services` names the services a create and a start target. It is not the
 whole of what runs: Compose starts whatever those services depend on, and
@@ -209,12 +202,17 @@ to manage is not given the task's worktrees or the generated variables; it is
 given its `container_name` reset and Feat's ownership labels, without which two
 tasks could not run the same application at once (ADR-034).
 
-The reference staging PostgreSQL databases are external. Feat generates the
-value of an external resource's `selector_variable` — the task key, which is
-short, unique, safe in a name, and not a secret — and sets it on every managed
-service. Naming a share is all it does: Feat never creates, migrates, or drops
-anything behind that name, and what a project makes of it is the project's
-(OQ-011).
+Feat sets `FEAT_PROJECT_ID`, `FEAT_TASK_ID`, `FEAT_TASK_KEY`, and
+`FEAT_RUNTIME_PROJECT` on every managed service. They are generated task
+metadata and never a value read from an environment file.
+
+`FEAT_TASK_KEY` is the one a project shares an external resource by — a staging
+PostgreSQL database on a server of its own, say. It is short, unique, safe in a
+name, and not a secret, so an application can use it to name its own share.
+Naming a share is all Feat contributes: it neither creates, migrates, drops, nor
+reclaims anything behind that name, and it cannot, because the connection string
+lives in an `env_files` entry Feat passes to Compose by path and never opens.
+What a project makes of the name is the project's (ADR-048).
 
 Every repository's `container_path` is used by the application runtime as well
 as by the devcontainer, so a project whose application Compose files mount a
@@ -270,8 +268,7 @@ For every confirmed task, the daemon resolves configuration into an immutable la
 - exact runtime project name;
 - agent command specification;
 - review command specifications;
-- enabled capabilities;
-- external resource selectors.
+- enabled capabilities.
 
 Later edits to project YAML do not silently mutate an active task. The user may explicitly reconcile or recreate it.
 
@@ -324,7 +321,6 @@ At minimum:
 - Devcontainer user is non-root when the policy requires it.
 - Docker capability is denied.
 - Command arrays contain a non-empty executable, and the executable itself is never a placeholder.
-- Runtime destroy never targets external resources, so an external resource may not also be a managed service.
 - Unknown fields fail validation, as do repeated keys.
 - Configuration that the selected execution mode would ignore is rejected rather than ignored.
 

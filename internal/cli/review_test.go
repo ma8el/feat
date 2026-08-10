@@ -13,7 +13,6 @@ func reviewStatus() api.ReviewStatus {
 	return api.ReviewStatus{
 		Task: api.Task{Key: "7f3a1c2e", Title: "Add a scheduled export job", Workflow: "verification_failed"},
 		Review: api.Review{
-			Status:  "pending",
 			Summary: "Added the export job.",
 			Gated:   true,
 			Checks: []api.ReviewCheck{
@@ -67,6 +66,16 @@ func TestAPrintedReviewNamesEveryRepositoryAndItsBase(t *testing.T) {
 		if !strings.Contains(printed, required) {
 			t.Errorf("the printed review does not mention %q:\n%s", required, printed)
 		}
+	}
+
+	// The workflow is the decision, and it is stated once. There was a second
+	// line reading it back off the review record, which was the same fact under
+	// another name and could disagree with this one (ADR-047).
+	if got := strings.Count(printed, "verification_failed"); got != 1 {
+		t.Errorf("the workflow appears %d times, want once:\n%s", got, printed)
+	}
+	if strings.Contains(printed, "decision") {
+		t.Errorf("the printed review states a decision beside the workflow:\n%s", printed)
 	}
 }
 

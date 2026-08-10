@@ -81,6 +81,11 @@ type service struct {
 
 	// notifier delivers desktop notifications. It never fails a task.
 	notifier notify.Notifier
+	// undeliverable is why this build delivers no desktop notification, asked
+	// once at startup and empty when it can. It is held so that a notification
+	// this platform cannot show is dropped saying so, rather than handed to a
+	// notifier that refuses it and logged as a failed delivery.
+	undeliverable string
 	// notifiable reports that the daemon has finished catching up on what
 	// happened while it was stopped. Until it has, changes are recorded without
 	// interrupting anybody: a restart that notified for every turn that ended
@@ -311,6 +316,42 @@ func (s *service) Task(ctx context.Context, id domain.TaskID) (*domain.Task, err
 	}
 	return nil, fmt.Errorf("%w: no task %s in any registered project", api.ErrNotFound, id)
 }
+
+// ResolveTask turns what a user typed into the task it names.
+//
+// It is the other half of the addressing rule Task carries. ADR-027 decided that
+// the local API addresses a task by task identifier and the daemon resolves the
+// owning project; this decides which identifier a user had to be able to see for
+// that to be usable. Lists show the eight-character key, so the key names a task,
+// and so does any prefix of an identifier — including the whole thing, which the
+// caller has already tried before asking.
+//
+// Both failures name where a valid value comes from. Explaining the format of an
+// identifier to somebody who cannot see one is what the previous rejection did.
+func (s *service) ResolveTask(ctx context.Context, ref domain.TaskRef) (domain.TaskID, error) {
+	tasks, err := s.Tasks(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	task, found, err := domain.ResolveTask(ref, tasks)
+	switch {
+	case err != nil:
+		var ambiguous *domain.AmbiguousTaskError
+		if errors.As(err, &ambiguous) {
+			return "", fmt.Errorf("%w; name one of them, or the whole identifier", err)
+		}
+		return "", fmt.Errorf("%w; %s", err, listTasksHint)
+	case !found:
+		return "", fmt.Errorf("%w: no task matches %q; %s", api.ErrNotFound, ref, listTasksHint)
+	}
+	return task.ID, nil
+}
+
+// listTasksHint names where a task's own identifiers are printed. Both are: the
+// list prints the key, and the detail prints the identifier the key abbreviates.
+const listTasksHint = "`feat task list` shows every task Feat knows about, " +
+	"and the dashboard's task detail shows the whole identifier"
 
 // Subscribe returns the event stream for one client.
 func (s *service) Subscribe(ctx context.Context) (<-chan api.Event, error) {

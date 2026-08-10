@@ -34,10 +34,31 @@ var (
 			Bold(true).
 			Foreground(lipgloss.AdaptiveColor{Light: "#a3161b", Dark: "#ff8189"})
 
+	// focusedEntryStyle marks the task whose terminal is taking the keyboard.
+	// A background rather than a colour, because it has to be legible at a
+	// glance next to four other entries and it is answering "where are my
+	// keystrokes going".
+	focusedEntryStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.AdaptiveColor{Light: "#ffffff", Dark: "#0b1b2b"}).
+				Background(lipgloss.AdaptiveColor{Light: "#0b5cad", Dark: "#7cc4ff"})
+
+	// barStyle is the used part of a resource bar and the number on it. Feat's
+	// orange, which is also the attention colour: a bar is a measure rather than
+	// a summons, and what tells the two apart is the shape — a badge is a glyph
+	// beside a task and this is a block that fills a column. Bold is left to the
+	// attention styles, so that a bar never shouts and an overloaded machine's
+	// number still can.
+	barStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#a35200", Dark: "#ffb454"})
+
 	fieldStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "#6c6c6c", Dark: "#8a8a8a"}).
-			Width(14)
+			Width(fieldWidth)
 )
+
+// fieldWidth is the label column of the task panel, in cells.
+const fieldWidth = 14
 
 // column is one column of a rendered table.
 type column struct {

@@ -29,16 +29,56 @@ which a cancelled draft becomes, are counted rather than listed.
 Fields a later implementation slice delivers are shown as "-" rather than as a
 value that was never measured.
 
-The TASK column is the short key derived from a task's identifier. Commands that
-take a task take the whole identifier, which the dashboard's task detail shows;
-accepting the key is delivered by a later slice.`
+The TASK column is the short key derived from a task's identifier, and it is
+what every command that takes a task accepts.`
 
-func newTaskCommand(env *environment) *cobra.Command {
+// taskArgument says what <task> is, wherever a command takes one.
+//
+// It is one sentence repeated rather than a rule stated once somewhere else,
+// because the command a user is reading is where they need it: the defect this
+// answers was a user reading `feat attach <task>` with nowhere to get the
+// argument from.
+const taskArgument = `<task> is a task's short key as ` + "`feat task list`" + ` prints it, its whole
+identifier as the dashboard's task detail shows it, or any prefix of that
+identifier. A prefix that matches two tasks is reported rather than resolved to
+either.`
+
+// withTaskArgument appends that sentence to a command's help.
+func withTaskArgument(long string) string {
+	if long == "" {
+		return taskArgument
+	}
+	return long + "\n\n" + taskArgument
+}
+
+const taskLong = `Work with the tasks Feat knows about.
+
+Every command that acts on an existing task is here, because naming a task is
+what they have in common (ADR-040). A task is created by ` + "`feat implement`" + `, which
+takes no task: it produces one.`
+
+// newTaskCommand groups everything that acts on an existing task.
+//
+// Attach and review are passed in rather than built here because they also
+// appear at the top level under shorter names, and an alias holds the body of
+// the command it stands for rather than a second one of its own (ADR-040).
+func newTaskCommand(env *environment, attach, review *cobra.Command) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "task",
-		Short: "Inspect tasks",
+		Short: "List tasks and act on one",
+		Long:  taskLong,
+
+		// Cleanup was a top-level command until ADR-040 and is the one that did
+		// not keep an alias, so a user who types the old name is answered with
+		// the noun that now holds it rather than with "unknown command".
+		SuggestFor: []string{"cleanup"},
 	}
-	cmd.AddCommand(newTaskListCommand(env))
+	cmd.AddCommand(
+		newTaskListCommand(env),
+		attach,
+		review,
+		newCleanupCommand(env),
+	)
 	return cmd
 }
 

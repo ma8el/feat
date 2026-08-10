@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -466,5 +467,164 @@ func TestRealTerminalsWorkWithoutALocale(t *testing.T) {
 	// after the separator survived rather than what the kernel calls it.
 	if !strings.HasSuffix(found.Agent.Directory, filepath.Base(server.dir)) {
 		t.Errorf("the discovered working directory is %q, want the created %q", found.Agent.Directory, server.dir)
+	}
+}
+
+// TestRealPaneCaptureAndInputRoundTrip is ADR-042's mechanics against real
+// tmux.
+//
+// Every command here was chosen from a claim about tmux's behaviour, and each
+// claim is what this checks: that a capture returns what the program printed
+// with its colour intact, that measurements arrive as five fields, that keys
+// sent after a terminator reach the program, that a bracketed paste arrives and
+// takes its buffer away with it, and that a manually sized window keeps the size
+// Feat asked for. Without this the unit tests only prove Feat builds the
+// argument vectors it means to.
+func TestRealPaneCaptureAndInputRoundTrip(t *testing.T) {
+	server := realTmux(t)
+	ctx := context.Background()
+
+	backend, err := New(server.socket, server.runner)
+	if err != nil {
+		t.Fatalf("building the adapter: %v", err)
+	}
+	terminal, err := backend.EnsureTask(ctx, testProject, testTask, CommandSpec{
+		Program: "/bin/sh", Directory: server.dir,
+	})
+	if err != nil {
+		t.Fatalf("EnsureTask: %v", err)
+	}
+	pane := terminal.Target.Pane
+
+	// A size Feat chose rather than one a client imposed, which is what a pane
+	// drawn into a region needs.
+	if err := backend.ResizeWindow(ctx, terminal.Target.Window, 100, 30); err != nil {
+		t.Fatalf("ResizeWindow: %v", err)
+	}
+
+	if err := backend.SendKeys(ctx, pane, "printf '\\033[32mgreen\\033[m\\n'", "Enter"); err != nil {
+		t.Fatalf("SendKeys: %v", err)
+	}
+	if err := backend.TypeText(ctx, pane, "echo pasted-by-feat"); err != nil {
+		t.Fatalf("TypeText: %v", err)
+	}
+	if err := backend.SendKeys(ctx, pane, "Enter"); err != nil {
+		t.Fatalf("SendKeys after paste: %v", err)
+	}
+
+	var frame PaneFrame
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		frame, err = backend.CapturePane(ctx, pane)
+		if err != nil {
+			t.Fatalf("CapturePane: %v", err)
+		}
+		if strings.Contains(strings.Join(frame.Content, "\n"), "pasted-by-feat") {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	body := strings.Join(frame.Content, "\n")
+	if !strings.Contains(body, "pasted-by-feat") {
+		t.Errorf("the pasted command never reached the pane:\n%s", body)
+	}
+	if !strings.Contains(body, "\x1b[32m") {
+		t.Errorf("the capture lost the colour tmux had rendered:\n%q", body)
+	}
+	if frame.Width != 100 || frame.Height != 30 {
+		t.Errorf("the pane is %dx%d, want the 100x30 Feat set", frame.Width, frame.Height)
+	}
+	if frame.Dead {
+		t.Error("a live shell was reported as dead")
+	}
+
+	// A window with two panes must come back as two panes that tile it, which is
+	// what the dashboard composes. Capturing one and drawing it into a region
+	// sized for the window fills half of it.
+	if _, err := backend.EnsureShell(ctx, testProject, testTask, CommandSpec{
+		Program: "/bin/sh", Directory: server.dir,
+	}); err != nil {
+		t.Fatalf("EnsureShell: %v", err)
+	}
+	measured, err := server.runner.Run(ctx, server.socket, "display-message", "-p",
+		"-t", terminal.Target.Window, "#{window_width}")
+	if err != nil {
+		t.Fatalf("measuring the window: %v", err)
+	}
+	windowWidth, err := strconv.Atoi(strings.TrimSpace(measured))
+	if err != nil {
+		t.Fatalf("window width %q: %v", measured, err)
+	}
+	half, err := backend.CapturePane(ctx, pane)
+	if err != nil {
+		t.Fatalf("CapturePane: %v", err)
+	}
+	if half.Width >= windowWidth {
+		t.Fatalf("a split window gave the agent %d of %d cells, so this proves nothing",
+			half.Width, windowWidth)
+	}
+
+	// Zooming is what makes the dashboard's one pane fill the region.
+	if err := backend.ZoomPane(ctx, pane); err != nil {
+		t.Fatalf("ZoomPane: %v", err)
+	}
+	whole, err := backend.CapturePane(ctx, pane)
+	if err != nil {
+		t.Fatalf("CapturePane after zooming: %v", err)
+	}
+	if whole.Width != windowWidth {
+		t.Errorf("the zoomed pane is %d cells of a %d-cell window", whole.Width, windowWidth)
+	}
+
+	// Repeating it must not toggle the zoom back off, which a bare resize-pane
+	// -Z would do on every poll.
+	if err := backend.ZoomPane(ctx, pane); err != nil {
+		t.Fatalf("ZoomPane again: %v", err)
+	}
+	again, err := backend.CapturePane(ctx, pane)
+	if err != nil {
+		t.Fatalf("CapturePane after a second zoom: %v", err)
+	}
+	if again.Width != windowWidth {
+		t.Errorf("zooming twice unzoomed the pane: %d cells", again.Width)
+	}
+
+	// And a user attaching gets their shell back.
+	if err := backend.UnzoomWindow(ctx, terminal.Target.Window); err != nil {
+		t.Fatalf("UnzoomWindow: %v", err)
+	}
+	restored, err := backend.CapturePane(ctx, pane)
+	if err != nil {
+		t.Fatalf("CapturePane after unzooming: %v", err)
+	}
+	if restored.Width >= windowWidth {
+		t.Errorf("unzooming left the pane filling the window: %d cells", restored.Width)
+	}
+
+	// Rendering pins the window. A native client attaching afterwards must get
+	// its own size back, which is the regression a real attach showed: the
+	// dashboard's main region became the size of the whole terminal.
+	if err := backend.ReleaseWindowSize(ctx, terminal.Target.Window); err != nil {
+		t.Fatalf("ReleaseWindowSize: %v", err)
+	}
+	// What matters is the option rather than the size: the window keeps its
+	// pinned dimensions until a client arrives, and tmux resizes it then. A
+	// release that resized here would have re-pinned it — resize-window -A sets
+	// window-size back to manual, which is how the first attempt at this made a
+	// native attach smaller than the defect it was fixing.
+	option, err := server.runner.Run(ctx, server.socket, "show-window-options",
+		"-t", terminal.Target.Window, "window-size")
+	if err != nil {
+		t.Fatalf("reading the released window's sizing: %v", err)
+	}
+	if strings.Contains(option, "manual") {
+		t.Errorf("the window is still pinned after release: %q", strings.TrimSpace(option))
+	}
+
+	// The paste must not stay in the user's buffer stack.
+	buffers, err := server.runner.Run(ctx, server.socket, "list-buffers")
+	if err == nil && strings.Contains(buffers, inputBuffer) {
+		t.Errorf("Feat's input buffer outlived the paste: %s", buffers)
 	}
 }

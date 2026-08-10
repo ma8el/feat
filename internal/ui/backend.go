@@ -68,6 +68,14 @@ type Backend interface {
 	// refresh reads, and a new pass follows something that changed.
 	Reconcile(ctx context.Context) (api.Reconciliation, error)
 
+	// TerminalFrame asks for one rendered view of a task's pane, sized to the
+	// region it will be drawn into. What comes back is what tmux drew: the
+	// dashboard places it and reads nothing out of it but cell width (ADR-042).
+	TerminalFrame(ctx context.Context, id string, view api.TerminalView) (api.TerminalFrame, error)
+	// SendTerminalInput delivers keys or typed text to a task's pane, which is
+	// what a focused pane does with the keyboard.
+	SendTerminalInput(ctx context.Context, id string, input api.TerminalInput) error
+
 	// AttachCommand yields this terminal to the task's agent pane until the
 	// user detaches.
 	AttachCommand(ctx context.Context, id string) (tea.ExecCommand, error)

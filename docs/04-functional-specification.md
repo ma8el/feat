@@ -190,7 +190,7 @@ Feat SHOULD use native Compose health state where available and otherwise report
 
 ### FR-RUN-008 — External resources
 
-The runtime model MUST allow external/shared resources such as pre-existing staging PostgreSQL databases. v0 need not provision or destroy them.
+The runtime model MUST allow external/shared resources such as pre-existing staging PostgreSQL databases, by not interfering with them. Feat MUST set a per-task discriminator (`FEAT_TASK_KEY`) on every managed service, so that an application can name its own share of one, and MUST NOT read the environment files that configure a connection. v0 does not provision, migrate, seed, reclaim, or model such a resource. **Amended: the configuration block that declared one is removed, because Feat could not see, verify, or reach what it named, see ADR-048.**
 
 ### FR-RUN-009 — Agent runtime request
 
@@ -204,11 +204,17 @@ Post-v0 project rules MAY start or stop configured services on lifecycle transit
 
 ### FR-UI-001 — Global dashboard
 
-The dashboard SHOULD show active tasks across projects with project drill-down.
+The dashboard SHOULD show active tasks across projects with project drill-down. Tasks across every registered project MUST be reachable without leaving the dashboard, grouped by the project that owns them.
 
-### FR-UI-002 — Task row
+The dashboard MUST keep the task list, the selected task's view, and the machine's resources on screen together. A view that replaces all three MUST be limited to a transaction the user opened and can cancel; see ADR-041.
 
-Each task row MUST show task ID/title, repositories, agent state, attention state, runtime state, verification state, elapsed time, resource usage, and changed-file count. PR state is not required.
+### FR-UI-002 — Task list entry
+
+Each entry in the task list MUST show task ID/title, agent state, attention state, elapsed time, and changed-file count, and MUST NOT require horizontal scrolling or line wrapping at the supported terminal width.
+
+Agent state and attention state MUST remain separately legible. A single composite status indicator does not satisfy this, and neither does an encoding that colour alone carries.
+
+Repositories, runtime state, and verification state are required of the selected task by FR-UI-003, and resource usage by FR-UI-005. A task list MAY show them and MUST NOT do so at the cost of the paragraph above. PR state is not required.
 
 ### FR-UI-003 — Task detail
 
@@ -222,7 +228,7 @@ v0.1 MUST support TUI attention badges and macOS desktop notifications for signi
 
 The dashboard MUST show whole-machine available resources and per-task environment totals. Per-container metrics MAY appear in a secondary view. Feat MUST NOT enforce a concurrency limit in v0.
 
-Whole-machine availability is reported as load average with the processor count, available memory, and disk availability. A per-core utilisation percentage is not obtainable on macOS without cgo, and Feat reports one measure on both supported platforms rather than two that look alike and are not; see ADR-035. Metrics MUST remain observational: a figure nothing measured is shown as absent rather than as zero, and a collection failure MUST NOT fail a request or block task creation.
+Whole-machine availability is sampled as load average with the processor count, available memory, and disk availability, and is shown as the share of each in use. A per-core utilisation percentage is not obtainable on macOS without cgo, so the processor share is derived from the load average against the processor count: Feat reports one measure on both supported platforms rather than two that look alike and are not, and that share may exceed 100% because it is demand rather than occupancy. See ADR-035 and ADR-044. Metrics MUST remain observational: a figure nothing measured is shown as absent rather than as zero, a share nothing could be measured against is not drawn, and a collection failure MUST NOT fail a request or block task creation.
 
 ## Review
 
@@ -232,7 +238,7 @@ Review MUST group changes by repository and compare each repository against its 
 
 ### FR-REV-002 — External commands
 
-v0 MUST provide shortcuts for configurable diff, editor, and optional Git status commands. It need not render diffs internally.
+v0 MUST provide shortcuts for configurable diff and editor commands, each in the selected task repository. It need not render diffs internally. An optional Git status command MAY be configured; it is expanded, validated, and reported with the review rather than launched from the task panel (ADR-045).
 
 ### FR-REV-003 — Editor
 

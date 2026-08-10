@@ -29,10 +29,7 @@ func valid() runtime.Spec {
 		Mounts: []runtime.Mount{
 			{Source: "/worktrees/api", Target: "/srv/api", Description: "the api task worktree"},
 		},
-		Variables: map[string]string{"FEAT_TASK_KEY": "11111111"},
-		External: []runtime.ExternalBinding{
-			{ID: "staging_db", Kind: "postgres", Variable: "FEAT_STAGING_SCHEMA", Selector: "11111111"},
-		},
+		Variables:        map[string]string{"FEAT_TASK_KEY": "11111111"},
 		ForbiddenSources: []string{"/repos/app/api"},
 	}
 }
@@ -41,9 +38,8 @@ func valid() runtime.Spec {
 // end up in a command that creates containers and mounts the user's filesystem.
 //
 // Each case is a way a specification can be wrong that nothing downstream would
-// catch: the services would simply come up with the wrong identity, the wrong
-// code, or a resource Feat does not own, and every record Feat kept about them
-// would be correct.
+// catch: the services would simply come up with the wrong identity or the wrong
+// code, and every record Feat kept about them would be correct.
 func TestASpecificationIsCheckedBeforeItCanCreateAnything(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		change   func(*runtime.Spec)
@@ -94,18 +90,6 @@ func TestASpecificationIsCheckedBeforeItCanCreateAnything(t *testing.T) {
 				s.Mounts = append(s.Mounts, runtime.Mount{Source: "/elsewhere", Target: "/srv/api"})
 			},
 			contains: "would hide the other",
-		},
-		"an external resource that is also managed": {
-			change: func(s *runtime.Spec) {
-				s.Services = []string{"api", "staging_db"}
-			},
-			contains: "must never be one it starts, stops, or destroys",
-		},
-		"an external variable with no value": {
-			change: func(s *runtime.Spec) {
-				s.External = []runtime.ExternalBinding{{ID: "staging_db", Variable: "FEAT_STAGING_SCHEMA"}}
-			},
-			contains: "has no value for it",
 		},
 		"a variable name carrying an equals sign": {
 			change:   func(s *runtime.Spec) { s.Variables = map[string]string{"A=B": "c"} },

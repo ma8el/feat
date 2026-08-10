@@ -33,7 +33,7 @@ func newReviewCommand(env *environment) *cobra.Command {
 	return &cobra.Command{
 		Use:   "review <task>",
 		Short: "Review a task's changes against its recorded base commits",
-		Long:  reviewLong,
+		Long:  withTaskArgument(reviewLong),
 		Args:  checkArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			layout, err := env.resolve()
@@ -120,8 +120,9 @@ func reviewCommand(command api.ReviewCommand) (*exec.Cmd, error) {
 // own recorded base commit, with the commands that open it.
 func printReview(out io.Writer, status api.ReviewStatus) {
 	printf(out, "%s  %s\n", status.Task.Key, status.Task.Title)
+	// The workflow is the decision: approved and changes_requested are workflow
+	// states, and there is no second record of them to print (ADR-047).
 	printf(out, "workflow  %s\n", status.Task.Workflow)
-	printf(out, "decision  %s\n", status.Review.Status)
 	if status.Review.Summary != "" {
 		printf(out, "the agent says  %s\n", status.Review.Summary)
 	}

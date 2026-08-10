@@ -288,7 +288,6 @@ func (s *service) recordReport(ctx context.Context, task *domain.Task, event age
 	}
 	s.record(ctx, task, domain.Event{
 		Type:   domain.EventReviewChanged,
-		To:     string(review.Status),
 		Detail: describeReport(event),
 	})
 	return nil

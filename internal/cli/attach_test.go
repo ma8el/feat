@@ -69,7 +69,7 @@ func TestAttachCommandResolvesTheLiveTargetThroughTheDaemon(t *testing.T) {
 	code := execute(context.Background(), Options{
 		Layout:   &layout,
 		Attacher: attacher,
-	}, []string{"attach", "task-1"}, &stdout, &stderr)
+	}, []string{"task", "attach", "task-1"}, &stdout, &stderr)
 	if code != ExitOK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, ExitOK, stderr.String())
 	}

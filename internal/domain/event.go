@@ -59,7 +59,12 @@ const (
 	EventProcessChanged EventType = "agent_process_changed"
 	// EventRuntimeChanged records an application runtime state change.
 	EventRuntimeChanged EventType = "runtime_state_changed"
-	// EventReviewChanged records a review status change.
+	// EventReviewChanged records a change to what is known about a task's work:
+	// an agent's own report of it, or the results a completion gate produced.
+	//
+	// It carries no from and no to, because a review holds no state of its own to
+	// move between. The user's decision is a workflow transition and is recorded
+	// as one (ADR-047); what this event has to say is in its detail.
 	EventReviewChanged EventType = "review_state_changed"
 	// EventExecutionChanged records a change to the agent's execution
 	// environment: the identity it was given before it was created, and what was

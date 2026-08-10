@@ -266,57 +266,34 @@ func expandCommand(template []string, task *domain.Task, binding domain.TaskRepo
 
 // decide records the user's review decision.
 //
-// The three decisions are FR-REV-004's, and each moves two things that are
-// deliberately separate: the review's own status, which is what the user said,
-// and the task's workflow state, which is where the work now is. Nothing else
-// moves — no container is stopped, no service is started, and no resource is
-// removed.
+// The decision is a workflow transition and nothing else. It used to be two
+// things — the review aggregate's own status and the task's workflow state — and
+// they could disagree, so the workflow is now the only record of it (ADR-047).
+// Nothing else moves either: no container is stopped, no service is started, and
+// no resource is removed.
 func (s *service) decide(ctx context.Context, task *domain.Task, action api.ReviewAction) error {
-	record, err := s.loadReview(ctx, task)
-	if err != nil {
-		return err
-	}
-
-	var status domain.ReviewStatus
 	var workflow domain.WorkflowState
 	var detail string
 	switch action {
 	case api.ReviewApprove:
-		status, workflow = domain.ReviewApproved, domain.WorkflowApproved
-		detail = "approved by the user"
+		workflow, detail = domain.WorkflowApproved, "approved by the user"
 	case api.ReviewRequestChanges:
-		status, workflow = domain.ReviewChangesRequested, domain.WorkflowChangesRequested
-		detail = "the user asked for changes"
-	case api.ReviewLeavePending:
-		status, detail = domain.ReviewPending, "left pending by the user"
+		workflow, detail = domain.WorkflowChangesRequested, "the user asked for changes"
 	default:
 		return fmt.Errorf("%w: %q is not a review decision", api.ErrInvalid, action)
 	}
 
-	if workflow != "" && task.Workflow != workflow {
-		if !task.Workflow.CanTransitionTo(workflow) {
-			return fmt.Errorf("%w: task %s is %s, and a review decision applies to a task whose agent has asked "+
-				"for review. Nothing was recorded",
-				api.ErrInvalid, task.ID, task.Workflow)
-		}
-		if err := s.transition(ctx, task, workflow, detail); err != nil {
-			return fmt.Errorf("%w: %w", api.ErrInvalid, err)
-		}
+	if task.Workflow == workflow {
+		return nil
 	}
-
-	previous := record.Status
-	if err := record.Decide(status, s.now()); err != nil {
-		return err
+	if !task.Workflow.CanTransitionTo(workflow) {
+		return fmt.Errorf("%w: task %s is %s, and a review decision applies to a task whose agent has asked "+
+			"for review. Nothing was recorded",
+			api.ErrInvalid, task.ID, task.Workflow)
 	}
-	if err := s.store.Reviews().Save(ctx, store.Ref(task), record); err != nil {
-		return err
+	if err := s.transition(ctx, task, workflow, detail); err != nil {
+		return fmt.Errorf("%w: %w", api.ErrInvalid, err)
 	}
-	s.record(ctx, task, domain.Event{
-		Type:   domain.EventReviewChanged,
-		From:   string(previous),
-		To:     string(status),
-		Detail: detail,
-	})
 	return nil
 }
 
@@ -553,7 +530,6 @@ func (s *service) finishGate(
 	}
 	s.record(ctx, task, domain.Event{
 		Type:   domain.EventReviewChanged,
-		To:     string(record.Status),
 		Detail: "Feat ran the project's configured checks: " + verdict.Summary,
 	})
 

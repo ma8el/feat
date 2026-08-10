@@ -72,6 +72,7 @@ func (m Model) openCleanup() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	m.rememberTab()
 	m.screen = screenCleanup
 	m.selected = task.ID
 	m.cleanup = cleanupModel{
@@ -185,7 +186,10 @@ func (m Model) cleanupKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key.String() {
 	case "esc":
-		m.screen = screenDetail
+		// Back to the tab the dialog opened over. Closing costs nothing here
+		// because a plan is inert until it is confirmed: what ADR-037 made
+		// deliberate is executing one, not opening the screen that lists it.
+		m.screen = screenFor(m.tab)
 		return m, m.load()
 
 	case "ctrl+c", "q":
@@ -303,10 +307,24 @@ func (m Model) applyCleanupResult(message cleanupDoneMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.cleanupPlan(), m.load(), m.reconcile())
 }
 
-// cleanupView renders the screen.
+// cleanupView renders cleanup as a whole terminal, which is what the narrow
+// fallback draws when there is no room for the three regions.
 func (m Model) cleanupView() string {
+	return titleStyle.Render("Cleanup — task "+m.cleanup.key) + "\n\n" +
+		m.cleanupBody() + m.footer(m.cleanupHints())
+}
+
+// cleanupTitle names the task the dialog is about, for its border.
+func (m Model) cleanupTitle() string { return "task " + m.cleanup.key }
+
+// cleanupBody renders the cleanup dialog's content.
+//
+// Cleanup is an overlay rather than a screen because it is a transaction the
+// user opened and can cancel, and because the task list it is about stays
+// readable behind it (ADR-041). Its own hints stay with it: the frame's footer
+// says how to close a dialog, and this says what the dialog can do.
+func (m Model) cleanupBody() string {
 	var out strings.Builder
-	out.WriteString(titleStyle.Render("Cleanup — task "+m.cleanup.key) + "\n\n")
 
 	switch {
 	case m.cleanup.err != nil:
@@ -329,7 +347,7 @@ func (m Model) cleanupView() string {
 	}
 
 	out.WriteString(m.cleanupPrompt())
-	return out.String() + m.footer(m.cleanupHints())
+	return out.String()
 }
 
 // cleanupClasses renders the inventory with the selection.

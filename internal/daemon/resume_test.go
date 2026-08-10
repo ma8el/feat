@@ -240,6 +240,62 @@ func TestResumingIsRefusedWithoutARecordedSession(t *testing.T) {
 	}
 }
 
+// TestResumingATerminalKilledFromTmux is the state a user produces with one
+// tmux command, and the one the refusal used to be wrong about.
+//
+// Nothing watches tmux continuously, so a window killed from inside it leaves
+// the recorded process saying running until a reconciliation pass or the
+// provider's own end-of-session hook says otherwise. Deciding from that record
+// answered "attach to it instead" for a terminal there was nothing to attach
+// to, and the task with the most need of recovery was the one that could not
+// have it. Reported by the maintainer after :kill-window on a live task.
+func TestResumingATerminalKilledFromTmux(t *testing.T) {
+	live := launch(t, hostFixture, installed(), false)
+	live.start(t)
+
+	task := live.task(t)
+	if !task.Session.Process.Alive() {
+		t.Fatalf("the launched session is %s, want a record claiming a live process", task.Session.Process)
+	}
+	// Killed the way a user kills it: through tmux, with nothing told about it.
+	if _, err := live.tmux.Run(context.Background(), task.Session.Tmux.Socket,
+		"kill-window", "-t", task.Session.Tmux.Window); err != nil {
+		t.Fatalf("killing the task's window: %v", err)
+	}
+
+	before := len(live.tmux.Launches())
+	if _, err := live.service.Resume(context.Background(), live.ref.Task); err != nil {
+		t.Fatalf("Resume after the window was killed: %v", err)
+	}
+
+	// A terminal exists again, and it continues the recorded session rather than
+	// opening an empty one beside the work that was done in it.
+	if _, found, err := live.service.terminals.Find(
+		context.Background(), task.ProjectID, task.ID); err != nil || !found {
+		t.Fatalf("Find after resuming = %v, %v; want the rebuilt terminal", found, err)
+	}
+	launches := live.tmux.Launches()
+	if len(launches) <= before {
+		t.Fatal("resuming started no program")
+	}
+	if arguments := strings.Join(launches[len(launches)-1].Command, " "); !strings.Contains(arguments, "--resume") {
+		t.Errorf("the rebuilt terminal runs %q, want it to continue the recorded session", arguments)
+	}
+
+	// And the record that disagreed with the machine was corrected on the way,
+	// so the history says why a resume was needed rather than only that one
+	// happened.
+	var corrected bool
+	for _, event := range events(t, live.service, live.preparation) {
+		if event.Type == domain.EventReconciled && strings.Contains(event.Detail, "was not found") {
+			corrected = true
+		}
+	}
+	if !corrected {
+		t.Error("the record claimed a live process and was never corrected")
+	}
+}
+
 // TestResumingIsRefusedWhileTheSessionIsAlive stops a resume from becoming a
 // second agent in one task's terminal.
 func TestResumingIsRefusedWhileTheSessionIsAlive(t *testing.T) {

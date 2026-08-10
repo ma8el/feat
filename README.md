@@ -10,7 +10,7 @@ replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: pre-alpha.** Slices 0 to 11 of the
+> **Status: pre-alpha.** Slices 0 to 12 of the
 > [implementation plan](docs/11-implementation-plan.md) are complete. The
 > repository has its package skeleton, the full command
 > surface, its development and CI commands, a versioned domain model with
@@ -22,7 +22,7 @@ environment. A task may span several repositories.
 > creation, and daemon-restart reconciliation.
 >
 > You can prepare, confirm, launch, list, and inspect a task: `feat` opens the
-> dashboard, `feat implement` opens task preparation, and `feat attach` yields
+> dashboard, `feat implement` opens task preparation, and `feat task attach` yields
 > your terminal to a task's own. **A task now runs a real Claude Code session**
 > in a devcontainer or on the host, reports its lifecycle through a
 > task control workspace, and goes idle only after a grace period — idle never
@@ -54,7 +54,7 @@ environment. A task may span several repositories.
 > what the machine actually has, reports whatever is missing, orphaned,
 > inconsistent, or unreadable, and repairs none of it on its own — a dead agent
 > session can be resumed, continuing the recorded conversation rather than
-> starting an empty one, but only when you ask. `feat cleanup` prints the exact
+> starting an empty one, but only when you ask. `feat task cleanup` prints the exact
 > inventory of what a task owns and removes only what you select, one class at a
 > time, with volumes retained unless chosen and a second confirmation for
 > anything that would lose work. Nothing here is usable for real work yet.
@@ -75,12 +75,26 @@ what it showed — a draft edited in between is refused rather than launched.
 ```sh
 feat            # the dashboard: every task, across every project
 feat task list  # the same, without a terminal
-feat attach <task>
+feat task attach <task>   # or just: feat attach <task>
 ```
 
-`<task>` is a task's full identifier. The lists show the short key derived from
-it, and the dashboard's task detail shows the whole thing — so that is where to
-copy it from until a later slice lets a command take the key.
+The dashboard is one window: a rail of tasks grouped by project on the left, a
+tabbed view of the selected task in the middle, and a footer holding that task's
+worktree path and what the machine has left. `tab` moves between views and
+`shift+↑`/`shift+↓` change task from any of them — the plain arrows belong to
+whichever view has the keyboard, so review spends them on its repository cursor.
+`?` lists every key. Preparing a task or cleaning one up opens over the dashboard
+rather than replacing it, so the tasks you were watching stay on screen. A
+terminal too narrow for three regions falls back to one column.
+
+Everything that acts on a task you already have is under `feat task`. Attaching
+and reviewing are typed often enough to keep their shorter top-level names too.
+
+`<task>` is a task's short key — the eight characters every list prints, in
+`feat task list`, in the dashboard, and in every notification. The whole
+identifier works too, which is what the dashboard's task detail shows, and so
+does any prefix of one. A prefix that matches two tasks is reported with both,
+never resolved to either.
 
 Confirming launches Claude Code in the task's primary worktree with the brief
 you accepted. Attaching hands your terminal to that session: it is the native
@@ -126,7 +140,7 @@ passing a Docker error through.
 ## Reviewing the work
 
 ```sh
-feat review <task>   # or press v in the dashboard
+feat task review <task>   # or: feat review <task>, or press v in the dashboard
 ```
 
 Review groups the changes by repository and compares each one against the commit
@@ -209,6 +223,18 @@ log show --last 5m --predicate 'process == "usernoted"' --style compact \
 
 `Presenting … as banner` means macOS showed it and the question is where you were
 looking; no line at all means it never arrived.
+
+A notification Feat decided not to send says so in the daemon's own log, naming
+the policy that stopped it — that it was still catching up after a restart, that
+this project turned desktop notifications off, that you were attached to the
+task, or that this platform delivers none:
+
+```sh
+grep 'not interrupting the user' "${XDG_DATA_HOME:-$HOME/.local/share}/feat/logs/daemon.log"
+```
+
+Between that and the `usernoted` log above, a notification you expected and did
+not get always has an answer.
 
 ## Configuring a project
 

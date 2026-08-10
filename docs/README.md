@@ -54,15 +54,15 @@ feat project add <project>
 feat project list
 feat project show <project>
 feat task list
-feat attach <task>
-feat review <task>
+feat task attach <task>
+feat task review <task>
+feat task cleanup <task>
 feat runtime create <task>
 feat runtime start <task>
 feat runtime stop <task>
 feat runtime status <task>
 feat runtime logs <task>
 feat runtime destroy <task> [--yes]
-feat cleanup <task>
 feat doctor
 feat daemon start|stop|status
 feat daemon run
@@ -72,9 +72,16 @@ feat daemon run
 
 `feat project add` takes the project's identifier, which is also its configuration file's name; the daemon reads the file from the configuration directory rather than from a path a caller supplies. See ADR-028.
 
-Every `<task>` above is a task's full identifier. Lists show the short key
-derived from it and no command accepts that key yet, which slice 13 corrects;
-the dashboard's task detail is where the full identifier is visible today.
+Every command that acts on an existing task lives under `feat task`, because
+naming a task is what they have in common. `feat implement` stays at the top
+level: it takes no task, it produces one. `feat attach` and `feat review` also
+answer to those shorter names, which are hidden from help and run the same
+implementation; `feat task cleanup` deliberately has no short name. See ADR-040.
+
+Every `<task>` above is a task's short key, its whole identifier, or any prefix
+of that identifier. The key is what every list prints, the identifier is what the
+dashboard's task detail shows, and a prefix matching two tasks is reported rather
+than resolved to either. See ADR-038.
 
 `feat runtime` carries the six manual actions FR-RUN-005 names. Each is an
 explicit user request: no workflow transition and no agent reaches one, and
@@ -82,7 +89,7 @@ approval offers to stop a task's services rather than stopping them. Destroying
 asks for confirmation, retains every volume, and never touches a resource the
 project declares external. See ADR-034.
 
-`feat cleanup <task>` prints the exact inventory of what a task owns and removes
+`feat task cleanup <task>` prints the exact inventory of what a task owns and removes
 only what is selected. Each class is a separate choice, dirty or unmerged work
 needs a second confirmation naming what would be lost, and volumes are retained
 unless chosen. There is deliberately no flag that answers every question; outside

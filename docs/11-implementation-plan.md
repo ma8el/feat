@@ -565,6 +565,7 @@ The user can manage the selected task's application services from Feat without g
 - Implement create/start/stop/status/logs-info/destroy.
 - Surface Compose health or unknown health.
 - Record external staging database binding without lifecycle ownership.
+  **Superseded: the binding is removed, see ADR-048.**
 - Add TUI runtime actions.
 
 ### Acceptance criteria
@@ -572,6 +573,10 @@ The user can manage the selected task's application services from Feat without g
 - Starting/stopping task A does not affect task B.
 - Logs open through normal Compose output.
 - External database resources are never included in destroy plans.
+  **Amended: what makes this hold is that a destroy addresses the task's own
+  Compose project and names nothing, so anything Feat does not own is beyond its
+  reach by construction. The declaration that used to restate it is removed, and
+  the test now checks the reach rather than the declaration, see ADR-048.**
 - Runtime remains running during review unless the user stops it.
 - Approval offers stop but does not execute it automatically.
 
@@ -706,6 +711,16 @@ Compose started alongside a managed one counts unless it exited cleanly, so a
 one-shot migration doing its job is not a degraded application. The opt-in suite
 grew a fixture with both kinds of dependency, and two tests that fail against the
 behaviour they replaced.
+
+A fifth defect was found on the first create a user asked for on a new task, and
+it is recorded as ADR-034 evidence 13. `docker compose create api` builds the
+image of `api` and then creates a container for the service `api` depends on
+from an image it never built, so a task whose dependency is built from the
+project's own Dockerfile failed with `No such image` — every time, on every new
+task, while a start of the same services worked. Create is now
+`docker compose up --no-start`, which builds the dependency closure and starts
+nothing. The opt-in fixture's one-shot dependency is built rather than pulled, so
+the whole-lifecycle test fails against the command it replaced.
 
 ## Slice 10 — Notifications and resources
 
@@ -1354,8 +1369,145 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   the same walk. Slices 10 and 11 each added notifications with unit tests over a
   fake notifier, and a fake notifier proves the daemon asked, not that anybody
   was told.
-- Document known security limitations.
-- Measure manual coordination removed and false idle notifications.
+- Route a check that could not run away from the agent and to the user. A check
+  whose program does not start is recorded as `unknown` with the reason — the
+  distinction `review.Gate` already draws between a check that reported failure
+  and one that never ran — and then `review.Decide` collapses the two:
+  `Passed = Failed == 0 && Inconclusive == 0`. The task lands in
+  `verification_failed`, which says the work failed its checks. Nothing ran.
+
+  Found in the first real feature run on the reference project. A check was
+  configured as `pytest`, the project runs its tests through a wrapper, and the
+  bare program was not on the path inside the agent's environment. The gate
+  behaved exactly as ADR-036 designed: the helper blocked, the failure returned
+  into the agent's loop, and the agent diagnosed it, named the configuration
+  file, and declined to edit the configuration governing its own gate — which is
+  the right refusal, because an agent that chooses its own check command
+  certifies itself.
+
+  What has no exit is what follows. The agent cannot fix it, the task rests in a
+  state that misdescribes it, and the person who can fix it was told through a
+  workflow state rather than asked. A check that cannot start is a configuration
+  failure and belongs with the user, naming the check, the repository, and the
+  project. The information exists at every layer and is discarded at the one
+  point that decides what to say.
+
+- Diagnose a check command before a task depends on it. `feat doctor` reports a
+  check configured to run in the agent's environment as skipped, because there is
+  no container to look inside (ADR-033's rule for a check this build cannot run).
+  That is honest and it is also why the misconfiguration above survived
+  registration, `feat doctor`, task preparation, and an entire implementation
+  before anything noticed. Where a task of the project is running, its
+  environment is exactly the place the program can be resolved.
+
+- Find why an attention state does not clear. Observed in the same run: the task
+  reached `needs_input` correctly during planning, the user answered, the agent
+  carried on implementing, and the dashboard went on reporting `needs_input`.
+
+  Undiagnosed. `UserPromptSubmit` is installed and its effect sets attention to
+  none, so the candidates are the hook not firing, the message not being applied,
+  or `Notification` re-arming it afterwards — that entry sets `needs_input` and
+  only a turn ending or a prompt clears it, so a single notification during a
+  long implementation with neither would pin it. An attention state that never
+  clears is one nobody reads, which is the reason `KindTurnEnded` clears it
+  already.
+
+- Put every command that takes a task under the noun a user can explore. The
+  surface is two designs at once: `project`, `task`, `runtime`, and `daemon` are
+  nouns with verbs beneath them, while `implement`, `attach`, `review`,
+  `cleanup`, and `doctor` are verbs at the top level. The seam runs through
+  `task`, because everything that takes a `<task>` is an operation on one and
+  `feat task --help` lists only `list`. A user who has learned `feat task list`
+  reaches `feat attach` through the documentation or not at all.
+
+  ADR-038 is the evidence that these are one family: one defect landed on
+  `attach`, `review`, every `runtime` action, and `cleanup` at once, through one
+  helper, because naming a task is what they share. So `attach`, `review`, and
+  `cleanup` move under `feat task`; `feat implement` stays, because it produces a
+  task rather than taking one; `feat runtime` stays a noun of its own, because a
+  feature environment is a co-equal thing a task owns. `attach` and `review` keep
+  hidden top-level aliases and `cleanup` deliberately does not. See ADR-040.
+
+  Done in this slice because slice 13 is already rewriting every `<task>`
+  argument for ADR-038, and because slice 14 publishes v0.2: after that, moving a
+  command breaks a shell history that is not Feat's to break. The golden file,
+  [README.md](README.md), [06-technical-architecture.md](06-technical-architecture.md),
+  and the README move in the same change, as they did in ADR-028 and ADR-031.
+- Give the dashboard a shape that survives three tasks. A task row is 158
+  columns wide against a terminal that is 80 to 160, so every row wraps and three
+  tasks read as nine lines of unaligned text. Each of the six screens replaces the
+  whole terminal, so a user watching three tasks can look at one. Reported by the
+  maintainer as confusing while preparing the runs below.
+
+  It becomes a left rail of tasks grouped by project, a tabbed main region over
+  views of the selected task, and a footer holding the worktree path and the
+  machine's resources — which moved to the foot of the rail after use, as bars
+  against the total, because the question they answer is a proportion (ADR-044).
+  The rail carries the five fields no other requirement
+  claims; the four FR-UI-002 shared with FR-UI-003 and FR-UI-005 stop being
+  required twice, and the specification moves with the code. Preparation,
+  cleanup, confirmations, and the key map become overlays over the live dashboard
+  rather than screens that replace it. Attachment stays a handover to native
+  tmux, because embedding the session means Feat implements a terminal emulator
+  (ADR-030). See ADR-041.
+
+  Done in this slice, ahead of the three-task runs rather than after them,
+  because those runs are read through this screen: a dashboard that shows one
+  task at a time cannot produce evidence about three, and criterion 14 is a claim
+  about whether this screen carries the coordination. The deferred tmux split
+  direction lands with it.
+- Put the agent's session in the main region. The layout above was built around
+  views Feat writes itself, and using it showed that the region wants the
+  terminal: detail and review overlap, and neither fills it. Moving the pane
+  there is not the way — measured, `join-pane` destroys the task's own window and
+  breaks ADR-030's discovery — and neither is an emulator.
+
+  What works is what claude-squad and agent-manager both do: tmux renders, and
+  Feat draws the result. The daemon holds one `tmux -C` control-mode connection,
+  redraws the focused pane on tmux's `%output`, and sends keys back; the TUI
+  never runs tmux, because `ui-is-a-client` denies it the adapter. Feat keeps no
+  screen grid and reads nothing out of the bytes but their width. Detail and
+  review merge into one panel. See ADR-042.
+- Record a review decision once. The maintainer, reading the review surface,
+  observed that the states a user can put a review into have no consequences
+  beyond changing the workflow state, and asked whether they were worth having.
+  They are; the defect the question found is that the decision was recorded
+  twice, as `Review.Status` and as the task's workflow.
+
+  Nothing read the second copy — both its call sites only rendered it — and one
+  action moved it without the other: leaving a review pending set the review to
+  pending and left the workflow at `approved`, so the panel read "workflow
+  approved" above "decision pending" with no way out, because `approved` has no
+  outgoing transition. That action had no test and its key was bound but never
+  advertised. The workflow becomes the only record, leaving pending stops being
+  an action, and the decision the panel renders is derived from the workflow, so
+  the keys appear only where the transition exists. See ADR-047.
+
+  Done in this slice because it is a dogfood finding about the surface slice 13
+  is already rewriting, and because the stored fields go without a schema
+  migration — an exemption that is only available while the state directory
+  belongs to the people writing it, which slice 14 ends.
+- Measure manual coordination removed and false idle notifications. The measure
+  is also the evidence OQ-013 needs.
+
+  It stays in this slice while the two documentation items move to slice 14,
+  because it is evidence rather than prose: it is a reading of the
+  `notification_sent` events the state directory already holds, it cannot go
+  stale as the code around it changes, and two things wait on it — v0.1
+  acceptance criterion 14, which is the claim the product rests on, and OQ-013.
+- Let the interrupt that leaves a program the dashboard ran stay that program's.
+  Opening the Compose logs from the runtime tab left no way out that was not also
+  a way out of Feat: `logs --follow` ends only when it is interrupted, the
+  terminal driver delivers that interrupt to every process in the foreground
+  group, and the dashboard held the process-wide interrupt context, which ends a
+  Bubble Tea program wherever it is. Bubble Tea already ignores signals while it
+  has released the terminal — Feat's second handler was the one that did not know
+  the dashboard was not in charge. Reported by the maintainer during dogfood and
+  reproduced on a pseudo-terminal.
+
+  The dashboard's lifetime becomes its own, and an exit produced by an interrupt
+  stops being reported as a failure — leaving the logs was raising an error
+  banner for a key the user meant to press. See ADR-049.
 - Remove hard-coded assumptions discovered during dogfood.
 
 ### Acceptance criteria
@@ -1367,7 +1519,12 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   a reason a user would recognise.
 - A task can be named by what a user can see, and a name that matches two tasks
   is reported rather than resolved to either.
-- A clean installation can reproduce the dogfood setup from documentation.
+- Every command that takes a task can be found from `feat task --help`, no alias
+  carries a second implementation, and the golden file, the specification, and
+  `feat --help` describe the same surface.
+- Three concurrent tasks are legible at once on an ordinary terminal, no line
+  wraps at the supported width, and every field FR-UI-002 requires is reachable
+  without leaving the task that was selected.
 
 ## Slice 14 — Public v0.2
 
@@ -1381,8 +1538,30 @@ A new macOS/Linux user can use Feat outside the reference project.
 - Add Linux notification support.
 - Generalize examples and troubleshooting.
 - Finalize JSON Schema and shell completion.
+- Give the reading commands machine-readable output. Every command prints a
+  table a person reads and nothing else can parse, so a user scripting around
+  Feat has the socket or screen-scraping. `task list`, `task review`,
+  `runtime status`, and `project show` are the ones with something to say. It
+  belongs here rather than with ADR-040 because the schema this publishes is the
+  one this slice finalizes.
 - Add release binaries, Homebrew formula/tap, and `go install` instructions.
-- Add contribution/security policy.
+- Add contribution/security policy, including the known security limitations:
+  what a standard container does and does not protect against, that Feat claims
+  no hostile-kernel isolation and no network data-loss prevention, and that full
+  Git and provider CLI access are capabilities a project grants deliberately
+  (docs/05-security-model.md).
+
+  Moved here from slice 13, where the v0.1 acceptance criteria never asked for
+  it. The reader of "what this does not protect against" is somebody deciding
+  whether to run Feat on their own work, which is a person this milestone
+  introduces and the dogfood milestone does not have.
+- Document the path from a clean installation to a first running task, and check
+  it on a machine that has never run Feat.
+
+  Also moved from slice 13. Reproducing a setup from documentation is a
+  public-v0 property — [08-v0-scope.md](08-v0-scope.md) puts it in the definition
+  of done for public v0 and not in the v0.1 acceptance criteria — and it is best
+  written against what the dogfood runs turn out to need rather than before them.
 - Verify no telemetry.
 - Add onboarding wizard only if manual configuration is the dominant public blocker.
 - Add Shortcut only if all core reliability work is complete.
@@ -1391,7 +1570,10 @@ A new macOS/Linux user can use Feat outside the reference project.
 
 - Public-v0 definition of done passes on macOS and Linux.
 - Host-native and devcontainer modes use the same task domain.
-- Installation and first-task documentation is reproducible.
+- Installation and first-task documentation is reproducible on a machine that has
+  never run Feat.
+- The known security limitations are stated where somebody deciding to run Feat
+  on their own work will read them.
 
 ## Implementation discipline
 

@@ -79,6 +79,11 @@ type paneObject struct {
 	status    string
 	pid       int
 	options   map[string]string
+	// content is what a capture of this pane returns, and cursorX/cursorY where
+	// tmux reports the cursor. A pane nothing has been written to captures as
+	// empty, which is what a freshly created one shows.
+	content          string
+	cursorX, cursorY int
 }
 
 // Server is a fake tmux server that satisfies the adapter's Runner interface.
@@ -94,6 +99,19 @@ type Server struct {
 	nextSession int
 	nextWindow  int
 	nextPane    int
+
+	// size is each window's cell size, set by a resize and reported by a
+	// measurement, so that a test can check the size Feat asked for is the size
+	// it draws into.
+	size map[string][2]int
+	// buffers holds what was staged for a paste, and pastes records what reached
+	// each pane, so that a test can assert on delivered input rather than on the
+	// command that delivered it.
+	buffers map[string]string
+	pastes  map[string][]string
+	keys    map[string][]string
+	typed   map[string][]string
+	zoomed  map[string]string
 }
 
 // New returns a server holding the terminals given. No terminals is an empty
@@ -104,6 +122,12 @@ func New(terminals ...Terminal) *Server {
 		windows:     make(map[string]*windowObject),
 		panes:       make(map[string]*paneObject),
 		fail:        make(map[string]error),
+		size:        make(map[string][2]int),
+		buffers:     make(map[string]string),
+		pastes:      make(map[string][]string),
+		keys:        make(map[string][]string),
+		typed:       make(map[string][]string),
+		zoomed:      make(map[string]string),
 		nextSession: 1,
 		nextWindow:  1,
 		nextPane:    1,
@@ -272,6 +296,29 @@ func (s *Server) Run(_ context.Context, socket string, args ...string) (string, 
 	case "kill-pane":
 		delete(s.panes, value(args, "-t"))
 		return "", nil
+	case "display-message":
+		return s.measure(args)
+	case "capture-pane":
+		return s.capture(args)
+	case "send-keys":
+		return "", s.sendKeys(args)
+	case "set-buffer":
+		s.buffers[value(args, "-b")] = last(args)
+		return "", nil
+	case "paste-buffer":
+		return "", s.pasteBuffer(args)
+	case "set-window-option":
+		// Unsetting window-size is how Feat releases a pinned window. tmux then
+		// resizes it when a client attaches, which this fake stands in for by
+		// forgetting the size: nothing here has a client to be sized to.
+		if len(args) > 1 && args[1] == "-u" {
+			delete(s.size, value(args, "-t"))
+		}
+		return "", nil
+	case "resize-window":
+		return "", s.resizeWindow(args)
+	case "resize-pane":
+		return "", s.resizePane(args)
 	default:
 		return "", fmt.Errorf("tmuxtest: unexpected command %q", strings.Join(args, " "))
 	}
@@ -463,6 +510,7 @@ func (s *Server) paneValues() []map[string]string {
 	out := make([]map[string]string, 0, len(s.panes))
 	for _, id := range sortedKeys(s.panes) {
 		record := s.panes[id]
+		width, height, left, top := s.geometry(record)
 		out = append(out, merge(map[string]string{
 			"session_id":        record.session,
 			"window_id":         record.window,
@@ -471,9 +519,56 @@ func (s *Server) paneValues() []map[string]string {
 			"pane_dead_status":  record.status,
 			"pane_current_path": record.directory,
 			"pane_pid":          strconv.Itoa(record.pid),
+			"pane_left":         strconv.Itoa(left),
+			"pane_top":          strconv.Itoa(top),
+			"pane_width":        strconv.Itoa(width),
+			"pane_height":       strconv.Itoa(height),
+			"pane_active":       flag(s.activePane(record) == record.id),
+			"cursor_x":          strconv.Itoa(record.cursorX),
+			"cursor_y":          strconv.Itoa(record.cursorY),
 		}, record.options))
 	}
 	return out
+}
+
+// geometry places a pane in its window, tiling left to right the way a
+// horizontal split does. It is what lets a caller compose a window from its
+// panes without a real tmux to lay them out.
+func (s *Server) geometry(pane *paneObject) (width, height, left, top int) {
+	size, ok := s.size[pane.window]
+	if !ok {
+		size = [2]int{80, 24}
+	}
+
+	siblings := make([]string, 0, 2)
+	for _, id := range sortedKeys(s.panes) {
+		if s.panes[id].window == pane.window {
+			siblings = append(siblings, id)
+		}
+	}
+	if len(siblings) == 0 {
+		return size[0], size[1], 0, 0
+	}
+
+	// Equal columns with a one-cell divider between them, which is the layout a
+	// -h split produces and the one Feat's shell pane uses.
+	each := (size[0] - (len(siblings) - 1)) / len(siblings)
+	for i, id := range siblings {
+		if id == pane.id {
+			return each, size[1], i * (each + 1), 0
+		}
+	}
+	return each, size[1], 0, 0
+}
+
+// activePane is the first pane of a window, which is the agent's.
+func (s *Server) activePane(pane *paneObject) string {
+	for _, id := range sortedKeys(s.panes) {
+		if s.panes[id].window == pane.window {
+			return id
+		}
+	}
+	return pane.id
 }
 
 // list renders one record per line in the format the adapter asked for.
@@ -532,4 +627,263 @@ func sortedKeys[T any](values map[string]T) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// SetPaneContent arranges what a capture of one pane returns.
+func (s *Server) SetPaneContent(pane, content string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if object, ok := s.panes[pane]; ok {
+		object.content = content
+	}
+}
+
+// PaneSize reports the size a window was resized to, and false when none was.
+func (s *Server) PaneSize(window string) ([2]int, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	size, ok := s.size[window]
+	return size, ok
+}
+
+// Keys reports the key names delivered to one pane, in order.
+func (s *Server) Keys(pane string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.keys[pane]...)
+}
+
+// Pastes reports the text delivered to one pane, in order.
+func (s *Server) Pastes(pane string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.pastes[pane]...)
+}
+
+// Buffers reports the tmux buffers still staged, so that a test can check a
+// paste took its own buffer away with it.
+func (s *Server) Buffers() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	names := make([]string, 0, len(s.buffers))
+	for name := range s.buffers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// resizePane toggles the zoom of a pane's window.
+func (s *Server) resizePane(args []string) error {
+	target := value(args, "-t")
+	pane, ok := s.panes[target]
+	if !ok {
+		if window, found := s.windows[target]; found {
+			s.zoomed[window.id] = ""
+			return nil
+		}
+		return fmt.Errorf("tmuxtest: no such pane or window %q", target)
+	}
+	if s.zoomed[pane.window] == pane.id {
+		s.zoomed[pane.window] = ""
+		return nil
+	}
+	s.zoomed[pane.window] = pane.id
+	return nil
+}
+
+// Zoomed reports which pane of a window is zoomed, empty when none is.
+func (s *Server) Zoomed(window string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.zoomed[window]
+}
+
+// measure answers the format display-message is given.
+//
+// The format is rendered from a map of what the target is, rather than
+// recognised one query at a time: the adapter combines and splits these queries
+// as it learns what it needs, and a fake that matches on substrings answers the
+// old shape confidently after the real one has changed. A field this does not
+// model is an error here rather than an empty column that fails later as a
+// parse.
+func (s *Server) measure(args []string) (string, error) {
+	target := value(args, "-t")
+	values, err := s.measurements(target)
+	if err != nil {
+		return "", err
+	}
+	// display-message -p -t <target> <format>: the format is the last argument.
+	return renderFormat(args[len(args)-1], values)
+}
+
+// measurements is everything display-message can be asked about one target.
+func (s *Server) measurements(target string) (map[string]string, error) {
+	if window, ok := s.windows[target]; ok {
+		size := s.windowSize(window.id)
+		return merge(map[string]string{
+			"session_id":            window.session,
+			"window_id":             window.id,
+			"window_width":          strconv.Itoa(size[0]),
+			"window_height":         strconv.Itoa(size[1]),
+			"window_zoomed_flag":    flag(s.zoomed[window.id] != ""),
+			"window_panes":          strconv.Itoa(s.windowPanes(window.id)),
+			"window_active_clients": strconv.Itoa(window.viewers),
+		}, window.options), nil
+	}
+
+	pane, ok := s.panes[target]
+	if !ok {
+		return nil, fmt.Errorf("tmuxtest: no such pane or window %q", target)
+	}
+
+	size := s.windowSize(pane.window)
+	width, height, left, top := s.geometry(pane)
+	zoomed := s.zoomed[pane.window]
+	if zoomed == pane.id {
+		// A zoomed pane fills its window, which is the only reason to zoom one.
+		width, height = size[0], size[1]
+	}
+	return merge(map[string]string{
+		"session_id":         pane.session,
+		"window_id":          pane.window,
+		"pane_id":            pane.id,
+		"window_width":       strconv.Itoa(size[0]),
+		"window_height":      strconv.Itoa(size[1]),
+		"window_zoomed_flag": flag(zoomed != ""),
+		"window_panes":       strconv.Itoa(s.windowPanes(pane.window)),
+		"pane_active":        flag(zoomed == pane.id || (zoomed == "" && s.activePane(pane) == pane.id)),
+		"pane_width":         strconv.Itoa(width),
+		"pane_height":        strconv.Itoa(height),
+		"pane_left":          strconv.Itoa(left),
+		"pane_top":           strconv.Itoa(top),
+		"cursor_x":           strconv.Itoa(pane.cursorX),
+		"cursor_y":           strconv.Itoa(pane.cursorY),
+		"pane_dead":          flag(pane.dead),
+		"pane_dead_status":   pane.status,
+		"pane_current_path":  pane.directory,
+		"pane_pid":           strconv.Itoa(pane.pid),
+	}, pane.options), nil
+}
+
+// windowSize is the size a window was resized to, or the server's default.
+func (s *Server) windowSize(window string) [2]int {
+	if size, ok := s.size[window]; ok {
+		return size
+	}
+	return [2]int{80, 24}
+}
+
+// windowPanes counts the panes a window holds.
+func (s *Server) windowPanes(window string) int {
+	panes := 0
+	for _, pane := range s.panes {
+		if pane.window == window {
+			panes++
+		}
+	}
+	return panes
+}
+
+// renderFormat fills one tmux format string from a map of values.
+func renderFormat(format string, values map[string]string) (string, error) {
+	fields := strings.Split(format, "\t")
+	rendered := make([]string, 0, len(fields))
+	for _, field := range fields {
+		name := strings.TrimSuffix(strings.TrimPrefix(field, "#{"), "}")
+		value, ok := values[name]
+		if !ok {
+			return "", fmt.Errorf("tmuxtest: nothing here models #{%s}", name)
+		}
+		rendered = append(rendered, value)
+	}
+	return strings.Join(rendered, "\t"), nil
+}
+
+func (s *Server) capture(args []string) (string, error) {
+	pane, ok := s.panes[value(args, "-t")]
+	if !ok {
+		return "", fmt.Errorf("tmuxtest: no such pane %q", value(args, "-t"))
+	}
+	return pane.content, nil
+}
+
+func (s *Server) sendKeys(args []string) error {
+	target := value(args, "-t")
+	if _, ok := s.panes[target]; !ok {
+		return fmt.Errorf("tmuxtest: no such pane %q", target)
+	}
+
+	// -l is literal text rather than key names: it is what typing sends, and a
+	// test asserting on delivered input has to be able to tell the two apart.
+	literal := false
+	for _, arg := range args {
+		if arg == "-l" {
+			literal = true
+		}
+	}
+
+	for i, arg := range args {
+		if arg == "--" {
+			if literal {
+				s.typed[target] = append(s.typed[target], args[i+1:]...)
+				return nil
+			}
+			s.keys[target] = append(s.keys[target], args[i+1:]...)
+			return nil
+		}
+	}
+	return errors.New("tmuxtest: send-keys carried no terminator")
+}
+
+// Typed reports the text delivered to one pane as typing, in order.
+func (s *Server) Typed(pane string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.typed[pane]...)
+}
+
+func (s *Server) pasteBuffer(args []string) error {
+	target := value(args, "-t")
+	if _, ok := s.panes[target]; !ok {
+		return fmt.Errorf("tmuxtest: no such pane %q", target)
+	}
+	name := value(args, "-b")
+	text, staged := s.buffers[name]
+	if !staged {
+		return fmt.Errorf("tmuxtest: no buffer %q to paste", name)
+	}
+	s.pastes[target] = append(s.pastes[target], text)
+	// -d deletes the buffer, which is what keeps Feat out of the user's stack.
+	for _, arg := range args {
+		if arg == "-d" {
+			delete(s.buffers, name)
+		}
+	}
+	return nil
+}
+
+func (s *Server) resizeWindow(args []string) error {
+	target := value(args, "-t")
+	if _, ok := s.windows[target]; !ok {
+		return fmt.Errorf("tmuxtest: no such window %q", target)
+	}
+	width, err := strconv.Atoi(value(args, "-x"))
+	if err != nil {
+		return fmt.Errorf("tmuxtest: resize width %q: %w", value(args, "-x"), err)
+	}
+	height, err := strconv.Atoi(value(args, "-y"))
+	if err != nil {
+		return fmt.Errorf("tmuxtest: resize height %q: %w", value(args, "-y"), err)
+	}
+	s.size[target] = [2]int{width, height}
+	return nil
+}
+
+// last is the final argument, which is where set-buffer carries its text.
+func last(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	return args[len(args)-1]
 }

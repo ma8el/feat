@@ -140,7 +140,11 @@ func (t *Tmux) EnsureShell(ctx context.Context, project domain.ProjectID, task d
 		return terminal, nil
 	}
 
-	output, err := t.runner.Run(ctx, t.socket, "split-window", "-d", "-P", "-F", createFormat,
+	// -h puts the shell beside the agent rather than below it, which is tmux's
+	// default and was never a choice Feat made. Both panes hold wrapped text a
+	// user reads, and halving the height of the agent's transcript costs more
+	// than halving its width (ADR-041).
+	output, err := t.runner.Run(ctx, t.socket, "split-window", "-h", "-d", "-P", "-F", createFormat,
 		"-t", terminal.Target.Pane, "-c", command.Directory)
 	if err != nil {
 		return Terminal{}, fmt.Errorf("creating the shell pane for task %s: %w", task, err)

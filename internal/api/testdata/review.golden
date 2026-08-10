@@ -95,14 +95,6 @@
       "volumes": [
         "feat-example-7f3a1c2e_cache"
       ],
-      "external_resources": [
-        {
-          "id": "reporting-store",
-          "kind": "postgres",
-          "lifecycle": "external",
-          "selector": "example_7f3a1c2e"
-        }
-      ],
       "compose_files": [
         "/srv/repositories/core/compose.yaml"
       ],
@@ -127,7 +119,6 @@
     "updated_at": "2026-08-04T10:00:00Z"
   },
   "review": {
-    "status": "approved",
     "summary": "Added the export job and its retry policy.",
     "checks": [
       {
@@ -140,8 +131,7 @@
       }
     ],
     "gated": true,
-    "requested_at": "2026-08-04T10:00:00Z",
-    "decided_at": "2026-08-04T10:02:00Z"
+    "requested_at": "2026-08-04T10:00:00Z"
   },
   "repositories": [
     {

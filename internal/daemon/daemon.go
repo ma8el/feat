@@ -189,8 +189,14 @@ func New(opts Options) (*Daemon, error) {
 	// A build that cannot deliver says so once, at startup, rather than failing
 	// every time it is asked. The dashboard's attention badges are unaffected:
 	// they are rendered from task state and need no notifier at all.
-	if ok, reason := notifier.Available(); !ok {
-		logger.Info("desktop notifications are not available", slog.String("reason", reason))
+	//
+	// The reason is kept rather than only logged, because "asked once at startup"
+	// was not what the code did: every notifiable change still reached a notifier
+	// that refused it, and the refusal was logged as a delivery failure rather
+	// than as this. Kept here it becomes the reason notifyTask drops one.
+	deliverable, undeliverable := notifier.Available()
+	if !deliverable {
+		logger.Info("desktop notifications are not available", slog.String("reason", undeliverable))
 	}
 
 	return &Daemon{
@@ -210,14 +216,15 @@ func New(opts Options) (*Daemon, error) {
 			docker:        opts.Docker,
 			runtimeDocker: opts.RuntimeDocker,
 
-			layout:    opts.Layout,
-			env:       env,
-			hostAgent: hostAgent,
-			build:     opts.Build,
-			now:       now,
-			logger:    logger,
-			notifier:  notifier,
-			observer:  resourceObserver(opts),
+			layout:        opts.Layout,
+			env:           env,
+			hostAgent:     hostAgent,
+			build:         opts.Build,
+			now:           now,
+			logger:        logger,
+			notifier:      notifier,
+			undeliverable: undeliverable,
+			observer:      resourceObserver(opts),
 
 			resourceOverride: opts.ResourceInterval,
 			idle:             newIdleTimers(opts.Timer),

@@ -216,19 +216,17 @@ func Runtime() *domain.RuntimeEnvironment {
 		Ports:                 []domain.PortAssignment{{Service: "web", ContainerPort: 8080, HostPort: 18080}},
 		Networks:              []string{"feat-example-7f3a1c2e_default"},
 		Volumes:               []string{"feat-example-7f3a1c2e_cache"},
-		ExternalResources: []domain.ExternalResource{{
-			ID:        "reporting-store",
-			Kind:      "postgres",
-			Lifecycle: domain.LifecycleExternal,
-			Selector:  "example_7f3a1c2e",
-		}},
 	}
 	must(runtime.Observe(domain.RuntimeRunning, domain.HealthHealthy, after(26)))
 	return runtime
 }
 
-// Review returns the fixture review: an approved task whose two repositories
-// were each compared against their own recorded base commit.
+// Review returns the fixture review: a requested review whose two repositories
+// were each compared against their own recorded base commit, with the check the
+// gate ran.
+//
+// It holds no decision, because a review does not: the fixture task's workflow
+// is where approval is recorded (ADR-047).
 func Review() *domain.Review {
 	review, err := domain.NewReview(TaskID, after(30))
 	must(err)
@@ -261,7 +259,6 @@ func Review() *domain.Review {
 		SummarizedAt: after(31),
 	}, after(31)))
 
-	must(review.Decide(domain.ReviewApproved, after(32)))
 	return review
 }
 
@@ -301,8 +298,7 @@ func Events() []domain.Event {
 	runtime.To = string(domain.RuntimeRunning)
 
 	review := event(domain.EventReviewChanged, 32)
-	review.From = string(domain.ReviewPending)
-	review.To = string(domain.ReviewApproved)
+	review.Detail = "Feat ran the project's configured checks: 1 passed"
 
 	reconciled := event(domain.EventReconciled, 40)
 	reconciled.Detail = "session and worktrees rediscovered after a restart"

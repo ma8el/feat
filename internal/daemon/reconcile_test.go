@@ -106,6 +106,56 @@ func TestDaemonRestartLosesNoTaskIdentity(t *testing.T) {
 	}
 }
 
+// TestAnActionNamesSomethingAUserCanDo is the rule a finding lives or dies by.
+//
+// A task with no recorded provider session cannot be resumed, and the report
+// used to send those users to "start the task again from the dashboard" — a
+// command Feat has never had: `feat task` offers attach, cleanup, list, and
+// review, and nothing launches a task that is past draft. An action naming
+// nothing is worse than no action, because it is read as a way out.
+//
+// What is true is that a task with no recorded session has never held an agent
+// conversation, so cleaning it up and preparing another loses only the brief.
+func TestAnActionNamesSomethingAUserCanDo(t *testing.T) {
+	// Both ways a task arrives with nothing to continue. A session whose agent
+	// never reported starting, and a task confirmed by a launch that failed
+	// before it had a terminal at all.
+	for name, arrange := range map[string]func(*testing.T) *preparation{
+		"a session with no provider identifier": func(t *testing.T) *preparation {
+			t.Helper()
+			return dead(t, "").preparation
+		},
+		"a confirmed task with no session": func(t *testing.T) *preparation {
+			t.Helper()
+			return prepared(t)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// A fresh daemon over an empty tmux server, which is what a machine
+			// that rebooted leaves: no terminal, and the record is all there is.
+			restarted, _ := withTmux(t, arrange(t), tmuxtest.New())
+			report := reconciled(t, restarted)
+
+			terminals := findings(report, reconcile.ClassTerminal)
+			if len(terminals) == 0 {
+				t.Fatal("a missing terminal produced no finding")
+			}
+			for _, finding := range terminals {
+				if finding.Status == "present" {
+					continue
+				}
+				if strings.Contains(finding.Action, "start the task again") ||
+					strings.Contains(finding.Action, "launch it again") {
+					t.Errorf("the action offers a launch Feat cannot perform: %q", finding.Action)
+				}
+				if !strings.Contains(finding.Action, "clean it up") {
+					t.Errorf("the action does not name what a user can actually do: %q", finding.Action)
+				}
+			}
+		})
+	}
+}
+
 // TestOneDamagedTerminalLeavesTheHealthyOnesUsable is slice 12's fifth
 // acceptance criterion, and the deferral ADR-030 recorded.
 //

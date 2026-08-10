@@ -117,8 +117,15 @@ func (r *Runtime) Version(ctx context.Context) (Version, error) {
 // It exists as its own action because FR-RUN-005 names it and because a created
 // service that is not running is a state a user may want: an application whose
 // containers exist, whose volumes exist, and which is deliberately not up.
+//
+// `up --no-start` rather than `create`, which is the same action by name and not
+// by behaviour: `docker compose create api` builds the image of `api` and then
+// creates a container for the service `api` depends on, whose image it did not
+// build and which therefore does not exist. `up --no-start api` builds the whole
+// dependency closure and starts none of it, which is what this action means
+// (ADR-034 evidence 13).
 func (r *Runtime) Create(ctx context.Context) (runtime.State, error) {
-	return r.bring(ctx, "creating", r.services("create")...)
+	return r.bring(ctx, "creating", r.services("up", "--no-start")...)
 }
 
 // Start brings the task's services up.

@@ -4,5 +4,5 @@
 {"schema_version":1,"sequence":4,"occurred_at":"2026-08-04T09:56:00Z","project_id":"example","task_id":"7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c","type":"runtime_state_changed","from":"starting","to":"running"}
 {"schema_version":1,"sequence":5,"occurred_at":"2026-08-04T10:00:00Z","project_id":"example","task_id":"7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c","type":"agent_process_changed","from":"running","to":"idle"}
 {"schema_version":1,"sequence":6,"occurred_at":"2026-08-04T10:00:00Z","project_id":"example","task_id":"7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c","type":"task_attention_changed","from":"none","to":"possibly_waiting"}
-{"schema_version":1,"sequence":7,"occurred_at":"2026-08-04T10:02:00Z","project_id":"example","task_id":"7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c","type":"review_state_changed","from":"pending","to":"approved"}
+{"schema_version":1,"sequence":7,"occurred_at":"2026-08-04T10:02:00Z","project_id":"example","task_id":"7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c","type":"review_state_changed","detail":"Feat ran the project's configured checks: 1 passed"}
 {"schema_version":1,"sequence":8,"occurred_at":"2026-08-04T10:10:00Z","project_id":"example","task_id":"7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c","type":"task_reconciled","detail":"session and worktrees rediscovered after a restart"}

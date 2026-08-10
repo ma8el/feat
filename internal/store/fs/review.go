@@ -11,14 +11,19 @@ import (
 )
 
 // reviewDocument is the stored form of a task's review state.
+//
+// It carried a status and a decision time until ADR-047. Both were the user's
+// decision, which the task's own workflow state records, and a document written
+// by an earlier build still carries them: they are ignored on read and gone from
+// the file the next save writes. The schema version does not move for that,
+// because nothing has to be upgraded — no information is lost that the task
+// snapshot beside it does not already hold.
 type reviewDocument struct {
 	SchemaVersion     int                        `json:"schema_version"`
 	ID                string                     `json:"id"`
 	UpdatedAt         time.Time                  `json:"updated_at"`
-	Status            string                     `json:"status"`
 	CompletionSummary string                     `json:"completion_summary,omitempty"`
 	RequestedAt       *time.Time                 `json:"requested_at,omitempty"`
-	DecidedAt         *time.Time                 `json:"decided_at,omitempty"`
 	Repositories      []repositoryChangeDocument `json:"repositories,omitempty"`
 	Checks            []checkDocument            `json:"checks,omitempty"`
 }
@@ -100,10 +105,8 @@ func encodeReview(review *domain.Review) reviewDocument {
 		SchemaVersion:     reviewSchemaVersion,
 		ID:                review.TaskID.String(),
 		UpdatedAt:         review.UpdatedAt.UTC(),
-		Status:            string(review.Status),
 		CompletionSummary: review.CompletionSummary,
 		RequestedAt:       optionalTime(review.RequestedAt),
-		DecidedAt:         optionalTime(review.DecidedAt),
 	}
 	for _, change := range review.Repositories {
 		document.Repositories = append(document.Repositories, repositoryChangeDocument{
@@ -133,10 +136,8 @@ func encodeReview(review *domain.Review) reviewDocument {
 func decodeReview(document reviewDocument) *domain.Review {
 	review := &domain.Review{
 		TaskID:            domain.TaskID(document.ID),
-		Status:            domain.ReviewStatus(document.Status),
 		CompletionSummary: document.CompletionSummary,
 		RequestedAt:       timeValue(document.RequestedAt),
-		DecidedAt:         timeValue(document.DecidedAt),
 		UpdatedAt:         document.UpdatedAt.UTC(),
 	}
 	for _, change := range document.Repositories {

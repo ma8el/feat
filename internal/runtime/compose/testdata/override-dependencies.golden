@@ -24,7 +24,7 @@ services:
         target: "/srv/store"
         read_only: true
     environment:
-      "FEAT_STAGING_SCHEMA": "11111111"
+      "FEAT_RUNTIME_PROJECT": "feat-app-11111111"
       "FEAT_TASK_KEY": "11111111"
     labels:
       "dev.feat.owner": "feat"

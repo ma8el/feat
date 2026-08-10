@@ -58,13 +58,72 @@ type Options struct {
 type screen int
 
 const (
-	screenDashboard screen = iota
-	screenDetail
+	screenTerminal screen = iota
+	// screenTask is one task read and acted on: what it is, what it has
+	// changed, and what to decide about that. Detail and review were separate
+	// screens until ADR-042, and shared their subject, their header, their
+	// workflow, and their repository list.
+	screenTask
 	screenPrepare
 	screenRuntime
-	screenReview
 	screenCleanup
+	screenKeys
+	// screenRecovery is everything the last reconciliation pass wants looked at.
+	// It is an overlay because it is not about the selected task and because a
+	// finding is three lines — what, where, and what to do — which is more than a
+	// footer holds and more than a rail is wide enough for.
+	screenRecovery
 )
+
+// mainRegion reports whether this screen is a view of the selected task that the
+// main region draws, rather than an overlay over the whole dashboard.
+//
+// The division is ADR-041's: a tab is a view you leave and come back to, and an
+// overlay is something that is not about the selected task, or that must be
+// answered before work continues.
+func (s screen) mainRegion() bool {
+	switch s {
+	case screenPrepare, screenCleanup, screenKeys, screenRecovery:
+		return false
+	default:
+		return true
+	}
+}
+
+// tab is which view the main region shows.
+func (s screen) tab() (tab, bool) {
+	switch s {
+	case screenTerminal:
+		return tabTerminal, true
+	case screenTask:
+		return tabTask, true
+	case screenRuntime:
+		return tabRuntime, true
+	default:
+		return tabTerminal, false
+	}
+}
+
+// screenFor is the screen that has the keyboard when a tab is selected.
+func screenFor(active tab) screen {
+	switch active {
+	case tabTerminal:
+		return screenTerminal
+	case tabTask:
+		return screenTask
+	case tabRuntime:
+		return screenRuntime
+	default:
+		return screenTerminal
+	}
+}
+
+// home is what closing a view returns to: the agent's terminal, which is what
+// the main region is for.
+//
+// The narrow fallback draws the task list for it instead, because below the
+// layout's minimum there is no rail and that is the only way to choose a task.
+func (m Model) home() screen { return screenTerminal }
 
 // Model is the dashboard.
 type Model struct {
@@ -72,11 +131,15 @@ type Model struct {
 	daemon  Daemon
 	now     func() time.Time
 
+	// screen is what has the keyboard. tab is what the main region draws, which
+	// is not the same thing once an overlay can be open over it: a user
+	// confirming a cleanup is still looking at the tab they left.
 	screen screen
+	tab    tab
 	tasks  []api.Task
 	cursor int
-	// selected is the task the detail screen shows, held by identifier so that
-	// a refresh cannot make the screen show a different task.
+	// selected is the task the task panel shows, held by identifier so that a
+	// refresh cannot make the panel show a different task.
 	selected string
 	archived int
 
@@ -98,7 +161,16 @@ type Model struct {
 	// reconciliation is the daemon's most recent recovery pass, read on the
 	// periodic refresh rather than on every event: a pass is not published, and
 	// what it found changes on the scale of a restart rather than a keystroke.
+	//
+	// reconciling reports that one was asked for and has not come back. A pass
+	// walks every task's worktrees, tmux windows, and containers, so it takes
+	// long enough that a user who pressed the key needs to be told it is running.
 	reconciliation api.Reconciliation
+	reconciling    bool
+
+	// terminal is the pane the main region draws and whether it has the
+	// keyboard.
+	terminal terminalModel
 
 	// cleanup is the cleanup screen's own state: the inventory it was shown, the
 	// classes selected, the warnings confirmed, and what is in flight. It holds
@@ -151,14 +223,18 @@ func New(opts Options) Model {
 		streamCtx:  streamCtx,
 		stopStream: stopStream,
 	}
+	// The dashboard opens on the agent's terminal, which is what the main region
+	// is for. Nothing is asked of the daemon until the first task list arrives,
+	// because there is no selected task to draw before then.
+	model.screen = screenTerminal
 	if opts.Prepare {
 		model.screen = screenPrepare
 	}
 	if opts.Review != "" {
-		// `feat review <task>` opens straight onto the review of the task it
-		// names. The comparison itself is asked for once the model starts, so
-		// that opening the screen and reading a worktree stay separate steps.
-		model.screen = screenReview
+		// `feat review <task>` opens straight onto the task it names. The
+		// comparison itself is asked for once the model starts, so that opening
+		// the screen and reading a worktree stay separate steps.
+		model.screen = screenTask
 		model.selected = opts.Review
 		model.review = reviewModel{task: opts.Review}
 	}
@@ -166,21 +242,43 @@ func New(opts Options) Model {
 }
 
 // Run opens the dashboard.
+//
+// The dashboard's lifetime is deliberately its own rather than the process-wide
+// interrupt context's; see dashboardContext.
 func Run(ctx context.Context, opts Options) error {
-	opts.Context = ctx
+	opts.Context = dashboardContext(ctx)
 	model := New(opts)
 	defer model.stopStream()
 
-	program := tea.NewProgram(model, tea.WithContext(ctx), tea.WithAltScreen())
+	program := tea.NewProgram(model, tea.WithAltScreen())
 
 	if _, err := program.Run(); err != nil {
-		// A cancelled context is an ordinary shutdown, not a failure.
-		if ctx.Err() != nil || errors.Is(err, tea.ErrProgramKilled) {
+		// An interrupt is an ordinary shutdown, not a failure.
+		if errors.Is(err, tea.ErrProgramKilled) || errors.Is(err, tea.ErrInterrupted) {
 			return nil
 		}
 		return fmt.Errorf("dashboard: %w", err)
 	}
 	return nil
+}
+
+// dashboardContext detaches the dashboard from the process-wide interrupt.
+//
+// The dashboard hands its terminal to other programs — the agent's tmux client,
+// the project's diff tool, `docker compose logs --follow` — and while one of them
+// holds it, an interrupt belongs to that program. Ctrl-C is how a user leaves the
+// logs, and the terminal driver delivers it to every process in the foreground
+// group, the dashboard included: with the interrupt context wired into the
+// program, leaving the logs quit Feat, and there was no other way out of them.
+//
+// Bubble Tea already knows the difference. It ignores signals while the terminal
+// is released to another program and quits on them while it owns the terminal,
+// which is the whole of the policy this needs — so what is dropped here is the
+// second signal handler that did not know when the dashboard was not in charge
+// (ADR-049). The stream this context bounds ends with Run either way, because
+// Run stops it on the way out.
+func dashboardContext(ctx context.Context) context.Context {
+	return context.WithoutCancel(ctx)
 }
 
 // Messages the dashboard sends itself.
@@ -220,7 +318,7 @@ func (m Model) Init() tea.Cmd {
 	if m.screen == screenPrepare {
 		commands = append(commands, m.prepare.Init())
 	}
-	if m.screen == screenReview {
+	if m.screen == screenTask {
 		commands = append(commands, m.reviewAction(api.ReviewObserve))
 	}
 	return tea.Batch(commands...)
@@ -362,6 +460,17 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		m.tasks, m.archived = activeTasks(sortTasks(message.tasks))
 		m.clampCursor()
+		// The first task list is what makes a pane drawable: before it there is
+		// no selected task, so the poll starts here rather than at startup.
+		if m.activeTab() == tabTerminal && !m.terminal.polling && len(m.tasks) > 0 {
+			m.terminal.polling = true
+			width, height := m.mainRegionSize()
+			// Asked for before the model is returned: requestFrame records that
+			// one is outstanding, and a return statement may copy the model
+			// before its arguments run.
+			frame := m.requestFrame(width, height)
+			return m, tea.Batch(frame, terminalTick(m.terminal.focused))
+		}
 		return m, nil
 
 	case resourcesMsg:
@@ -408,6 +517,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyReview(message)
 
 	case reconciliationMsg:
+		m.reconciling = false
 		if message.err == nil {
 			m.reconciliation = message.report
 		}
@@ -418,6 +528,36 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cleanupDoneMsg:
 		return m.applyCleanupResult(message)
+
+	case terminalFrameMsg:
+		return m.applyFrame(message)
+
+	case terminalTickMsg:
+		// The poll stops when the tab does. Nothing else asks for a frame, so a
+		// dashboard on any other view costs the daemon nothing.
+		if m.activeTab() != tabTerminal {
+			m.terminal.polling = false
+			return m, nil
+		}
+		width, height := m.mainRegionSize()
+		frame := m.requestFrame(width, height)
+		return m, tea.Batch(frame, terminalTick(m.terminal.focused))
+
+	case terminalInputMsg:
+		// A key that could not be delivered is said in the status line rather
+		// than in place of the pane. Putting it in the terminal's own error blanks
+		// the pane until the next frame replaces it, which turned one failed
+		// keystroke into the whole view flickering.
+		if message.err != nil {
+			m.status = "that key did not reach the agent: " + message.err.Error()
+			return m, nil
+		}
+		// A frame at once rather than at the next tick. What a user typed has
+		// already reached the pane, and waiting a poll interval to draw it is the
+		// whole of the lag they feel: the echo is theirs, not the agent's.
+		width, height := m.mainRegionSize()
+		frame := m.requestFrame(width, height)
+		return m, frame
 
 	case tea.KeyMsg:
 		return m.key(message)
@@ -431,23 +571,189 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// frameKey answers the keys that belong to the layout rather than to whichever
+// tab has the keyboard: moving between tabs, and moving between tasks.
+//
+// It reports whether it handled the key, so that a tab still sees everything
+// else.
+//
+// The division is one rule, and the rule is the shift key: shifted keys move the
+// frame — which task, which view — and plain keys move within whatever the main
+// region is drawing. Before ADR-046 the plain arrows did both, depending on which
+// tab was open: they moved the rail on the terminal tab and a repository on the
+// task panel, so the same key meant two things and a user could not tell which
+// without pressing it.
+//
+// Each direction has three spellings, and they are not redundant. Uppercase
+// letters are the primary binding — a terminal has no modifier bit for a shifted
+// letter, so shift+j is delivered as J and that is what a Vim-shaped binding
+// actually is. The shifted arrows are the same movement for a user who does not
+// think in hjkl. The control pair is the fallback, because a terminal that eats
+// shifted arrows would otherwise leave the rail unreachable from a view that
+// takes the plain ones.
+func (m Model) frameKey(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	switch key.String() {
+	case "L", "shift+right", "tab":
+		updated, cmd := m.selectTab(nextTab(m.activeTab(), 1))
+		return updated, cmd, true
+
+	case "H", "shift+left", "shift+tab":
+		updated, cmd := m.selectTab(nextTab(m.activeTab(), -1))
+		return updated, cmd, true
+
+	case "K", "shift+up", "ctrl+p":
+		updated, cmd := m.selectTask(-1)
+		return updated, cmd, true
+
+	case "J", "shift+down", "ctrl+n":
+		updated, cmd := m.selectTask(1)
+		return updated, cmd, true
+	}
+	return m, nil, false
+}
+
+// selectTask moves the rail's cursor and brings the open tab with it.
+//
+// Re-opening the tab for the new task is the point: a review or a runtime view
+// holds what it was told about one task, and leaving it behind after the
+// selection moved would show one task's services under another task's name.
+func (m Model) selectTask(delta int) (tea.Model, tea.Cmd) {
+	if len(m.tasks) == 0 {
+		return m, nil
+	}
+
+	m.cursor = (m.cursor + delta%len(m.tasks) + len(m.tasks)) % len(m.tasks)
+	task := m.tasks[m.cursor]
+	m.selected = task.ID
+	m.status = ""
+	return m.selectTab(m.activeTab())
+}
+
+// nextTab is the tab delta places along from active, wrapping at both ends.
+func nextTab(active tab, delta int) tab {
+	at := 0
+	for i, candidate := range tabs {
+		if candidate == active {
+			at = i
+			break
+		}
+	}
+	return tabs[((at+delta)%len(tabs)+len(tabs))%len(tabs)]
+}
+
+// selectTab moves the main region to a tab and asks for whatever it shows.
+//
+// The task panel and runtime go through the same entry points their keys use,
+// because a tab that read state a different way from the key beside it would be
+// a second implementation of the same screen.
+func (m Model) selectTab(active tab) (tea.Model, tea.Cmd) {
+	switch active {
+	case tabTask:
+		return m.openTask()
+	case tabRuntime:
+		return m.openRuntime()
+	}
+
+	if task, ok := m.current(); ok && active == tabTerminal {
+		m.selected = task.ID
+	}
+	m.screen = screenFor(active)
+
+	if active == tabTerminal {
+		// A frame at once, so the region is not blank while the first tick
+		// waits, and a poll behind it unless one is already running.
+		m.terminal.loaded, m.terminal.err = false, nil
+		width, height := m.mainRegionSize()
+		frame := m.requestFrame(width, height)
+		if m.terminal.polling {
+			return m, frame
+		}
+		m.terminal.polling = true
+		return m, tea.Batch(frame, terminalTick(m.terminal.focused))
+	}
+	return m, nil
+}
+
 // key routes a key press to the screen that has the keyboard.
 func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// A reading overlay answers only the keys that close it. One that passed
+	// every other key through would act on a task the user cannot see while they
+	// are reading about how to act on it.
+	if m.screen == screenKeys || m.screen == screenRecovery {
+		switch key.String() {
+		case "esc", "?", "!":
+			m.screen = screenFor(m.tab)
+			return m, nil
+		case "ctrl+c", "q":
+			m.quitting = true
+			m.stopStream()
+			return m, tea.Quit
+		case "r":
+			// Looking again from here is the one action this overlay offers, and
+			// it is why the pass has a time on it: a user who has just resumed a
+			// task is reading what was true before they did. The overlay stays
+			// open, because what they asked for is the answer to appear in it.
+			m.reconciling = true
+			return m, m.reconcile()
+		}
+		return m, nil
+	}
 	if m.screen == screenPrepare {
 		updated, cmd := m.prepare.Update(key)
 		m.prepare = updated
 		return m, cmd
 	}
+
+	// A focused pane takes the keyboard before anything else, including the
+	// frame's own keys: a user typing at an agent must be able to type the
+	// characters the dashboard would otherwise treat as commands.
+	if m.screen == screenTerminal && m.terminal.focused {
+		return m.terminalInput(key)
+	}
+
+	// The frame's own keys are answered before the tab's, because a tab's key
+	// handler returns for everything it does not recognise and would otherwise
+	// swallow them. That is what stopped `tab` at the review tab: review and
+	// runtime never passed it on, so the cycle ended wherever a screen with its
+	// own keyboard began.
+	//
+	// They are not answered while a dialog is open. An overlay is something that
+	// must be answered before work continues, and moving the tab or the task
+	// underneath it would change what the answer applies to.
+	if m.screen != screenCleanup {
+		if updated, cmd, handled := m.frameKey(key); handled {
+			return updated, cmd
+		}
+	}
+
 	if m.screen == screenRuntime {
 		return m.runtimeKey(key)
 	}
-	if m.screen == screenReview {
-		return m.reviewKey(key)
+	if m.screen == screenTask {
+		return m.taskPanelKey(key)
 	}
 	if m.screen == screenCleanup {
 		return m.cleanupKey(key)
 	}
+	return m.dashboardKey(key)
+}
 
+// dashboardKey answers the keys that belong to the dashboard rather than to one
+// of its views: opening an overlay, acting on the selected task, quitting.
+//
+// A view with its own keyboard falls through to this for every key it does not
+// claim, which is what makes `?` work from the task panel and runtime. They used
+// to return for anything they did not recognise, so the keys below were reachable
+// only from the terminal tab — while the footer on those views went on offering
+// `? keys`, because the frame's hints are drawn there whatever has the keyboard.
+//
+// Falling through rather than being answered first is deliberate, and it is the
+// opposite of what frameKey does. Movement must beat a view, because a view that
+// swallowed it would trap the user in itself. An action must not: `r` means
+// compare again on the task panel and refresh on runtime, and `C` sends work back
+// there while it cleans a task up here. A view that claims a key keeps it, and
+// everything else lands on the dashboard's own meaning.
+func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "ctrl+c", "q":
 		m.quitting = true
@@ -458,31 +764,71 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "esc":
-		if m.screen == screenDetail {
-			m.screen = screenDashboard
+		if m.screen == screenKeys {
+			m.screen = m.home()
 		}
 		return m, nil
 
+	case "?":
+		m.rememberTab()
+		m.screen = screenKeys
+		return m, nil
+
+	case "!":
+		m.rememberTab()
+		m.screen = screenRecovery
+		return m, nil
+
+	case "i":
+		if m.screen == screenTerminal {
+			return m.focusTerminal()
+		}
+		return m, nil
+
+	case "w":
+		if m.screen == screenTerminal {
+			// Switching between the agent's pane and the shell's discards the
+			// frame with it, so that one pane's contents are never drawn under
+			// the other's name for a tick.
+			m.terminal.shell = !m.terminal.shell
+			m.terminal.loaded, m.terminal.err = false, nil
+			width, height := m.mainRegionSize()
+			frame := m.requestFrame(width, height)
+			return m, frame
+		}
+		return m, nil
+
+	// The plain keys move within the main region, and on the terminal tab there
+	// is nothing to move through: an unfocused pane has no cursor of its own, and
+	// a focused one takes every key before this. So they do nothing here, and the
+	// rail is on J and K, as it is from every other view.
+	//
+	// The narrow fallback is the exception that proves the rule rather than one
+	// against it. Below the layout's minimum there is no rail: the task list is
+	// what the single column draws, so it is the main region, and moving within it
+	// is exactly what these keys mean everywhere else.
+	//
+	// The terminal screen is what draws that list, so it is the only one this
+	// applies to. Runtime reaches here by falling through, and a narrow terminal
+	// showing runtime is showing runtime rather than the list — moving the
+	// selection there would move something the user cannot see.
 	case "up", "k":
-		if m.cursor > 0 {
-			m.cursor--
+		if m.narrow() && m.screen == screenTerminal {
+			return m.selectTask(-1)
 		}
 		return m, nil
 
 	case "down", "j":
-		if m.cursor < len(m.tasks)-1 {
-			m.cursor++
+		if m.narrow() && m.screen == screenTerminal {
+			return m.selectTask(1)
 		}
 		return m, nil
 
 	case "enter":
-		if task, ok := m.current(); ok {
-			m.selected = task.ID
-			m.screen = screenDetail
-		}
-		return m, nil
+		return m.openTask()
 
 	case "n":
+		m.rememberTab()
 		m.screen = screenPrepare
 		m.prepare = m.prepare.restart()
 		return m, m.prepare.Init()
@@ -497,7 +843,7 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openRuntime()
 
 	case "v":
-		return m.openReview()
+		return m.openTask()
 
 	case "C":
 		return m.openCleanup()
@@ -610,8 +956,8 @@ func (m Model) cancel() (tea.Model, tea.Cmd) {
 	backend := m.backend
 	id := task.ID
 	m.status = "cancelled draft " + task.Key
-	if m.screen == screenDetail {
-		m.screen = screenDashboard
+	if m.screen == screenTask {
+		m.screen = m.home()
 	}
 	return m, func() tea.Msg {
 		if _, err := backend.CancelDraft(context.Background(), id); err != nil {
@@ -624,7 +970,7 @@ func (m Model) cancel() (tea.Model, tea.Cmd) {
 
 // finishPreparation returns to the dashboard once preparation ends.
 func (m Model) finishPreparation(message preparedMsg) (tea.Model, tea.Cmd) {
-	m.screen = screenDashboard
+	m.screen = m.home()
 	switch {
 	case message.err != nil:
 		m.err = message.err
@@ -637,10 +983,10 @@ func (m Model) finishPreparation(message preparedMsg) (tea.Model, tea.Cmd) {
 	return m, m.load()
 }
 
-// subject is the task an action applies to: the one open in the detail screen,
-// or the one under the cursor.
+// subject is the task an action applies to: the one open in the task panel, or
+// the one under the cursor.
 func (m Model) subject() (api.Task, bool) {
-	if m.screen == screenDetail {
+	if m.screen == screenTask {
 		return m.task(m.selected)
 	}
 	return m.current()
@@ -686,25 +1032,101 @@ func sortTasks(tasks []api.Task) []api.Task {
 	return ordered
 }
 
-// View renders whichever screen has the keyboard.
+// View renders the dashboard: three regions, with a dialog over them when one is
+// open (ADR-041).
+//
+// A terminal too small for the three regions gets the single stacked column the
+// dashboard drew before, because a rail and a main region inside eighty columns
+// leave neither enough to be read.
 func (m Model) View() string {
 	if m.quitting {
 		return ""
 	}
+	if m.narrow() {
+		return m.stackedView()
+	}
 
+	frame := m.frame()
+	dialog := m.dialogView()
+	if dialog == "" {
+		return frame
+	}
+
+	// Centred within the body rather than within the terminal, so that a dialog
+	// cannot reach the footer.
+	width, height := m.frameSize()
+	return centreOverlay(frame, dialog, width, height-footerHeight)
+}
+
+// stackedView is the pre-layout dashboard, one screen at a time.
+func (m Model) stackedView() string {
 	switch m.screen {
 	case screenPrepare:
 		return m.prepare.View()
-	case screenDetail:
-		return m.detailView()
+	case screenTask:
+		return m.taskView()
 	case screenRuntime:
 		return m.runtimeView()
-	case screenReview:
-		return m.reviewView()
 	case screenCleanup:
 		return m.cleanupView()
+	case screenKeys:
+		width, _ := m.frameSize()
+		return m.keyMap(width) + m.footer(keyHints(keyHint("esc", "close")))
+	case screenRecovery:
+		return m.recoveryList() + m.footer(keyHints(keyHint("r", "look again"), keyHint("esc", "close")))
 	default:
-		return m.dashboardView()
+		return m.listView()
+	}
+}
+
+// dialogView renders the open overlay, or nothing when none is open.
+func (m Model) dialogView() string {
+	width, height := m.frameSize()
+	// A dialog takes most of the terminal but never all of it. What is left is
+	// the task list and the resources behind it, which is the reason ADR-041
+	// chose an overlay over a screen that replaces them. It never reaches the
+	// footer, which is the part of the frame that holds still.
+	inner := width * 3 / 4
+	tallest := height - footerHeight
+
+	switch m.screen {
+	case screenPrepare:
+		return dialogBox("prepare a task", m.prepare.View(), inner, tallest)
+	case screenCleanup:
+		// The dialog carries cleanup's own keys, because the frame's footer says
+		// how to close a dialog and this says what this one can do.
+		return dialogBox("clean up "+m.cleanupTitle(),
+			m.cleanupBody()+"\n"+m.cleanupHints(), inner, tallest)
+	case screenKeys:
+		// The key map is given the same three quarters as every other dialog, and
+		// lays itself out inside them. A reference sheet is a good reason to want
+		// more width and not a good enough one to take it: the rail behind this is
+		// what ADR-041 chose an overlay to keep, and a dialog wide enough for two
+		// roomy columns covers the task keys it is drawn over.
+		return dialogBox("keys", m.keyMap(inner-4), inner, tallest)
+	case screenRecovery:
+		return dialogBox("recovery", m.recoveryList(), inner, tallest)
+	default:
+		return ""
+	}
+}
+
+// activeTab is what the main region draws.
+//
+// With an overlay open the screen is not a tab, and the main region keeps
+// showing whatever the user was reading before they opened it.
+func (m Model) activeTab() tab {
+	if active, ok := m.screen.tab(); ok {
+		return active
+	}
+	return m.tab
+}
+
+// rememberTab records the main region's tab before an overlay takes the
+// keyboard, so that closing the overlay returns to what was underneath.
+func (m *Model) rememberTab() {
+	if active, ok := m.screen.tab(); ok {
+		m.tab = active
 	}
 }
 
@@ -712,11 +1134,12 @@ func (m Model) View() string {
 // talking to.
 func (m Model) footer(hints string) string {
 	var out strings.Builder
-	if m.err != nil {
+	switch {
+	case m.err != nil:
 		out.WriteString("\n" + failureStyle.Render(m.err.Error()) + "\n")
-	} else if m.status != "" {
+	case m.status != "":
 		out.WriteString("\n" + mutedStyle.Render(m.status) + "\n")
-	} else {
+	default:
 		out.WriteString("\n")
 	}
 

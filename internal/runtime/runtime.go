@@ -105,8 +105,6 @@ type Spec struct {
 	// Variables are generated non-secret environment entries. A secret never
 	// reaches this field because nothing that reads one ever fills it.
 	Variables map[string]string
-	// External are the resources the runtime uses and does not own.
-	External []ExternalBinding
 	// ForbiddenSources are the project's ordinary repository checkouts. A
 	// container that turns out to mount one is running the user's own working
 	// copy rather than this task's worktree, which is reported (ADR-034).
@@ -124,23 +122,6 @@ type Mount struct {
 	// Description says what the mount is, so a diagnostic can name it in the
 	// user's terms rather than by path alone.
 	Description string
-}
-
-// ExternalBinding is a shared development resource a task's runtime uses.
-//
-// It is referenced and never provisioned or destroyed (FR-RUN-008). The
-// adapter carries it so that what Feat generates can select the right share of
-// it, and so that a destroy can prove it excluded it.
-type ExternalBinding struct {
-	// ID identifies the binding within the project's configuration.
-	ID string
-	// Kind describes the resource, such as the engine of a shared database.
-	Kind string
-	// Variable is the environment variable the application reads to choose its
-	// share. It may be empty, in which case Feat generates nothing for it.
-	Variable string
-	// Selector is the generated non-secret value that variable is given.
-	Selector string
 }
 
 // State is what a runtime looks like now.
@@ -319,9 +300,6 @@ func (s Spec) Validate() error {
 	if err := s.validateMounts(); err != nil {
 		return err
 	}
-	if err := s.validateExternal(); err != nil {
-		return err
-	}
 	return sortedVariables(s.Variables).validate()
 }
 
@@ -341,33 +319,6 @@ func (s Spec) validateMounts() error {
 				"and which one is not something Feat should decide", s.Task, mount.Target, previous, mount.Source)
 		}
 		targets[mount.Target] = mount.Source
-	}
-	return nil
-}
-
-// validateExternal checks the resources the runtime references and never owns.
-func (s Spec) validateExternal() error {
-	managed := make(map[string]bool, len(s.Services))
-	for _, service := range s.Services {
-		managed[service] = true
-	}
-
-	for _, binding := range s.External {
-		if binding.ID == "" {
-			return fmt.Errorf("an external resource of task %s has no identifier", s.Task)
-		}
-		if managed[binding.ID] {
-			// Configuration refuses this too. It is checked again here because
-			// this is the value a destroy would act on, and a resource Feat does
-			// not own must never be one it removes (FR-RUN-008).
-			return fmt.Errorf("the external resource %s of task %s is also one of its managed services, "+
-				"and a resource Feat does not own must never be one it starts, stops, or destroys",
-				binding.ID, s.Task)
-		}
-		if binding.Variable != "" && binding.Selector == "" {
-			return fmt.Errorf("the external resource %s of task %s names the variable %s and has no value for it",
-				binding.ID, s.Task, binding.Variable)
-		}
 	}
 	return nil
 }

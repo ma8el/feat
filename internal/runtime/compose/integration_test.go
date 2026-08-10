@@ -68,6 +68,15 @@ func realRuntime(t *testing.T, id domain.TaskID) (*compose.Runtime, runtime.Spec
 	if err := os.WriteFile(composeFile, fixture, 0o600); err != nil {
 		t.Fatalf("writing the fixture: %v", err)
 	}
+	// The build context of the fixture's one-shot dependency is the project
+	// directory, so its Dockerfile goes there with the Compose file.
+	dockerfile, err := os.ReadFile(filepath.Join("testdata", "prepare.Dockerfile"))
+	if err != nil {
+		t.Fatalf("reading the fixture's Dockerfile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "prepare.Dockerfile"), dockerfile, 0o600); err != nil {
+		t.Fatalf("writing the fixture's Dockerfile: %v", err)
+	}
 
 	// A file in each place, so that what the container sees can be compared with
 	// what the host put there.
@@ -103,13 +112,9 @@ func realRuntime(t *testing.T, id domain.TaskID) (*compose.Runtime, runtime.Spec
 		Mounts: []runtime.Mount{
 			{Source: worktree, Target: "/srv/api", Description: "the api task worktree, read-write"},
 		},
-		Variables: map[string]string{"FEAT_TASK_KEY": id.Key().String()},
-		External: []runtime.ExternalBinding{
-			{ID: "staging_db", Kind: "postgres", Variable: "FEAT_STAGING_SCHEMA", Selector: id.Key().String()},
-		},
+		Variables:        map[string]string{"FEAT_TASK_KEY": id.Key().String()},
 		ForbiddenSources: []string{filepath.Join(root, "repos", "api")},
 	}
-	spec.Variables["FEAT_STAGING_SCHEMA"] = id.Key().String()
 
 	services, err := compose.New(spec, compose.Options{})
 	if err != nil {
@@ -118,11 +123,14 @@ func realRuntime(t *testing.T, id domain.TaskID) (*compose.Runtime, runtime.Spec
 	t.Cleanup(func() {
 		// Only this task's own Compose project, named explicitly, and with its
 		// volumes — the fixture creates none, and a test that left one behind
-		// would be leaving it on somebody's machine.
+		// would be leaving it on somebody's machine. `--rmi local` removes the
+		// image the fixture builds, which is named after this task's Compose
+		// project and is of no use to anything else; an image the fixture names
+		// itself, such as alpine, carries a tag of its own and is left alone.
 		down := exec.Command(compose.Executable, "compose",
 			"--project-name", spec.Identity, "--project-directory", spec.Directory,
 			"--file", composeFile, "--file", spec.OverridePath,
-			"down", "--volumes", "--timeout", "1")
+			"down", "--volumes", "--rmi", "local", "--timeout", "1")
 		if output, err := down.CombinedOutput(); err != nil {
 			t.Logf("cleaning up %s: %v\n%s", spec.Identity, err, output)
 		}
@@ -184,10 +192,10 @@ func TestRealTheLifecycleIsManualAndComplete(t *testing.T) {
 	if out, ok := insideService(t, spec.Identity, spec.Directory, "api", "cat", "/srv/api/base-mount.txt"); ok {
 		t.Errorf("the base file's own mount survived at /srv/api, so the service runs the wrong code: %s", out)
 	}
-	// The generated variables reach the service, and the external resource's
-	// selector with them.
-	if out, ok := insideService(t, spec.Identity, spec.Directory, "api", "printenv", "FEAT_STAGING_SCHEMA"); !ok {
-		t.Errorf("the generated selector did not reach the service: %s", out)
+	// The generated variables reach the service. FEAT_TASK_KEY is the one an
+	// application names its share of an external resource by (ADR-048).
+	if out, ok := insideService(t, spec.Identity, spec.Directory, "api", "printenv", "FEAT_TASK_KEY"); !ok {
+		t.Errorf("the generated task key did not reach the service: %s", out)
 	}
 	// And what the service writes reaches the host worktree.
 	if _, ok := insideService(t, spec.Identity, spec.Directory, "api",

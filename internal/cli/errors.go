@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -72,8 +73,31 @@ func (e *usageError) Unwrap() error { return e.err }
 func checkArgs(validator cobra.PositionalArgs) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if err := validator(cmd, args); err != nil {
-			return &usageError{cmd: cmd, err: err}
+			return &usageError{cmd: cmd, err: suggest(cmd, args, err)}
 		}
 		return nil
 	}
+}
+
+// suggest names the subcommands a rejected word was probably meant to be.
+//
+// Cobra builds this itself, but only on the path it takes for a command with no
+// Args of its own, and every command here has one. So every unknown word was
+// answered with "unknown command" and nothing else (ADR-040). It is done here,
+// where a rejection already passes through, so that a name that moved and a name
+// that was mistyped get the same answer.
+func suggest(cmd *cobra.Command, args []string, err error) error {
+	if len(args) == 0 || !cmd.HasAvailableSubCommands() {
+		return err
+	}
+	// Cobra applies this default where it does its own suggesting, which is the
+	// path that does not run here.
+	if cmd.SuggestionsMinimumDistance <= 0 {
+		cmd.SuggestionsMinimumDistance = 2
+	}
+	suggestions := cmd.SuggestionsFor(args[0])
+	if len(suggestions) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w\n\nDid you mean this?\n\t%s", err, strings.Join(suggestions, "\n\t"))
 }

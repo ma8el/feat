@@ -129,6 +129,20 @@ func (c *Client) Shell(ctx context.Context, id string) (api.AttachInfo, error) {
 	return send[api.AttachInfo](ctx, c, "/tasks/"+url.PathEscape(id)+"/shell", struct{}{})
 }
 
+// TerminalFrame asks for one rendered view of a task's pane.
+//
+// The size is the region the caller will draw into, which the daemon sets the
+// pane to before capturing.
+func (c *Client) TerminalFrame(ctx context.Context, id string, view api.TerminalView) (api.TerminalFrame, error) {
+	return send[api.TerminalFrame](ctx, c, "/tasks/"+url.PathEscape(id)+"/terminal", view)
+}
+
+// SendTerminalInput delivers keys or typed text to a task's pane.
+func (c *Client) SendTerminalInput(ctx context.Context, id string, input api.TerminalInput) error {
+	_, err := send[struct{}](ctx, c, "/tasks/"+url.PathEscape(id)+"/terminal/input", input)
+	return err
+}
+
 // Runtime performs one manual application-runtime action.
 //
 // Only the task and the action are named. Which services a task has, which
@@ -306,6 +320,13 @@ func submit[T any](ctx context.Context, c *Client, method, path string, payload 
 
 	if err := failed(response, path); err != nil {
 		return result, err
+	}
+	// A no-content reply has nothing to decode, and decoding it anyway reports
+	// the empty body as a broken one. That surfaced as an EOF error on every
+	// keystroke sent to a focused terminal: the input endpoint answers 204, which
+	// is a success the client was reading as a failure.
+	if response.StatusCode == http.StatusNoContent {
+		return result, nil
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, maxResponseBody)).Decode(&result); err != nil {
 		return result, fmt.Errorf("reading the daemon's response to %s: %w", path, err)

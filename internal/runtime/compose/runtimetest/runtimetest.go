@@ -60,7 +60,7 @@ func New() *Docker {
 		Answer("version --short", "5.1.4").
 		Answer("config --services", "api").
 		Answer("up --detach api", "").
-		Answer("create api", "").
+		Answer("up --no-start api", "").
 		Answer("stop", "").
 		Answer("down", "").
 		Answer("ps --all --format json", Container("api", "c0ffee", "running", "Up 2 seconds")).
@@ -75,9 +75,21 @@ func New() *Docker {
 // a test that spelled them itself would pass while production read something
 // else.
 func Container(service, id, state, status string) string {
+	return ExitedContainer(service, id, state, status, 0)
+}
+
+// ExitedContainer renders the same line for a container that ended with a
+// particular exit status.
+//
+// The exit status is a field of its own rather than something read out of the
+// status text, and it is what decides whether a stopped service is a failure or
+// an ordinary stop. A fixture that could not express it could not arrange a
+// failed runtime at all, which is how the notification for one came to have no
+// test that reached it.
+func ExitedContainer(service, id, state, status string, exitCode int) string {
 	return fmt.Sprintf(
-		`{"ID":%q,"Name":"feat-%s-1","Service":%q,"State":%q,"Status":%q,"Health":"","ExitCode":0}`,
-		id, service, service, state, status)
+		`{"ID":%q,"Name":"feat-%s-1","Service":%q,"State":%q,"Status":%q,"Health":"","ExitCode":%d}`,
+		id, service, service, state, status, exitCode)
 }
 
 // Answer arranges the standard output of one command.

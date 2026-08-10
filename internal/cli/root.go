@@ -187,20 +187,45 @@ func NewRootCommand(opts Options) *cobra.Command {
 		return &usageError{cmd: cmd, err: err}
 	})
 
+	// Attaching and reviewing are typed all day, so they keep the short names
+	// they had before ADR-040 moved them under `feat task`.
+	attach, review := newAttachCommand(env), newReviewCommand(env)
+
 	root.AddCommand(
 		newImplementCommand(env),
 		newProjectCommand(env),
-		newTaskCommand(env),
-		newAttachCommand(env),
-		newReviewCommand(env),
+		newTaskCommand(env, attach, review),
+		aliasOf(attach, "feat task attach"),
+		aliasOf(review, "feat task review"),
 		newRuntimeCommand(env),
-		newCleanupCommand(env),
 		newDoctorCommand(env),
 		newDaemonCommand(env),
 		newVersionCommand(),
 	)
 
 	return root
+}
+
+// aliasOf gives a command a second name at the top level.
+//
+// The alias holds the same RunE value as the command it stands for, so there is
+// one implementation under two names rather than two that drift. Cobra sets a
+// parent in AddCommand, so the same command value cannot hold both positions and
+// a second one has to exist; what that second one must not have is a body of its
+// own.
+//
+// It is hidden for the reason `feat daemon run` is (ADR-027): `feat --help`
+// stays equal to the documented command surface, while the golden file, which
+// walks hidden commands, still pins it.
+func aliasOf(canonical *cobra.Command, path string) *cobra.Command {
+	return &cobra.Command{
+		Use:    canonical.Use,
+		Short:  canonical.Short,
+		Long:   "This is " + path + " under a shorter name.\n\n" + canonical.Long,
+		Args:   canonical.Args,
+		Hidden: true,
+		RunE:   canonical.RunE,
+	}
 }
 
 func newVersionCommand() *cobra.Command {

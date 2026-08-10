@@ -108,14 +108,15 @@ Properties:
 - service set;
 - port assignments;
 - network and volume observations;
-- lifecycle and health state;
-- external/shared resource bindings such as a pre-existing staging database.
+- lifecycle and health state.
 
 The agent execution environment and application runtime are separate even when both use the same Compose project.
 
 ### Review
 
-Review state for a task.
+What is known about a task's work: what changed, what the agent claimed about it,
+and what the checks found. The user's decision is not here — that is the task's
+workflow state, which is the only record of it (ADR-047).
 
 Properties:
 
@@ -123,7 +124,7 @@ Properties:
 - current change summary per repository;
 - agent-reported completion summary;
 - agent-reported or provider-gated checks;
-- review status and timestamps;
+- when the agent requested review;
 - configured diff/editor commands;
 - optional publication artifacts.
 

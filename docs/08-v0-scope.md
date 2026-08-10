@@ -101,7 +101,8 @@ Included:
 - correct task worktree/control mounts;
 - start agent devcontainer;
 - explicit application create/start/stop/status/logs/destroy actions;
-- external staging database reference;
+- a generated per-task discriminator an application can name a share of an
+  external staging database by (ADR-048);
 - Compose health when natively available;
 - no automatic restart after recovery.
 

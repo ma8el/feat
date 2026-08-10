@@ -48,6 +48,15 @@ type fakeBackend struct {
 	// assert which repository's tools were opened.
 	reviewRan []api.ReviewCommand
 
+	// frames records every request for a rendered pane and inputs everything
+	// sent to one, so a test can assert what reached the daemon rather than what
+	// a key handler meant to send.
+	frames   []api.TerminalView
+	inputs   []api.TerminalInput
+	frame    api.TerminalFrame
+	frameErr error
+	inputErr error
+
 	runtimeStatus api.RuntimeStatus
 	runtimeErr    error
 
@@ -715,4 +724,49 @@ func TestDurationsAreReadable(t *testing.T) {
 			t.Errorf("duration(%s) = %q, want %q", test.span, got, test.want)
 		}
 	}
+}
+
+// TerminalFrame answers with whatever the test arranged, recording the size it
+// was asked for.
+func (f *fakeBackend) TerminalFrame(_ context.Context, id string, view api.TerminalView) (api.TerminalFrame, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.frames = append(f.frames, view)
+	if f.frameErr != nil {
+		return api.TerminalFrame{}, f.frameErr
+	}
+	frame := f.frame
+	if len(frame.Panes) == 0 {
+		frame.Panes = []api.TerminalPane{{
+			Pane: "%11", Width: view.Width, Height: view.Height, Active: true,
+			Content: []string{"\x1b[32mready\x1b[m", "> "},
+		}}
+	}
+	frame.Width, frame.Height = view.Width, view.Height
+	_ = id
+	return frame, nil
+}
+
+// SendTerminalInput records what a focused pane was sent.
+func (f *fakeBackend) SendTerminalInput(_ context.Context, _ string, input api.TerminalInput) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.inputs = append(f.inputs, input)
+	return f.inputErr
+}
+
+// terminalInputs returns what was sent, copied under the lock.
+func (f *fakeBackend) terminalInputs() []api.TerminalInput {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]api.TerminalInput(nil), f.inputs...)
+}
+
+// terminalViews returns the sizes frames were asked for.
+func (f *fakeBackend) terminalViews() []api.TerminalView {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]api.TerminalView(nil), f.frames...)
 }

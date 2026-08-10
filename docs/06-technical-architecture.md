@@ -25,10 +25,15 @@ feat                         TUI client
 feat daemon start|stop|status
 feat implement               task creation client
 feat project ...             project client
-feat task ...                task client
+feat task ...                task client: list, attach, review, cleanup
 feat runtime ...             runtime client
 feat doctor                  diagnostics
 ```
+
+Every command that acts on an existing task is a subcommand of `feat task`, and
+`feat implement` is at the top level because it produces a task rather than
+taking one. `feat attach` and `feat review` are hidden top-level aliases holding
+the same implementation as the commands they stand for. See ADR-040.
 
 Opening the TUI checks the local Unix socket and starts the daemon in the background if absent. Explicit daemon commands remain available. launchd/systemd installation is later work.
 
@@ -142,6 +147,8 @@ POST   /v1/reconciliation                    looks again and records what it saw
 The local socket is user-owned and mode-restricted. Destructive API requests use task/resource IDs and a server-produced cleanup plan token rather than arbitrary filesystem paths. `POST /v1/projects` follows the same rule for the same reason: it carries a project identifier, and the daemon resolves the configuration file from the directory it resolved for itself, so the file that is validated is the file it will read again later.
 
 Task endpoints address a task by its identifier alone, as the command surface does. The daemon resolves the owning project, which storage addresses explicitly; see ADR-026 and ADR-027.
+
+`{task_id}` and `{draft_id}` accept a whole task identifier, the eight-character key derived from it, or any prefix of the identifier. A whole identifier is used as it stands, because it names one task by construction; anything shorter is resolved against every registered project, since a key is unique within a project rather than across the machine. A reference that names more than one task is answered with `400` and both candidates rather than resolved to either, and one that names none is answered with `404`. Both name where a valid value is printed. See ADR-038.
 
 A draft is a task in `draft` state, so `{draft_id}` is a task identifier and a draft appears in `GET /v1/tasks` as the draft it is. Preparation is three requests rather than two: resolving fetches, so it follows a key the user pressed rather than a field they edited, and launching carries the fingerprint of the plan that was displayed so that what is created is what the user read. A draft that changed in between is refused rather than re-resolved. Cancelling archives the record. See ADR-031.
 
@@ -461,6 +468,10 @@ project, so stop, status, logs, and destroy name no service and address the
 project — what starting starts, stopping stops. The generated override reaches
 every service the project defines for the same reason (ADR-034 evidence 12).
 
+Create is `docker compose up --no-start` rather than `docker compose create`,
+which builds the image of the service it is given and none of the images the
+services it brings along need (ADR-034 evidence 13).
+
 Every action is a user's explicit request. No workflow transition, no
 reconciliation pass, and no agent reaches one: services start when a user asks,
 approval offers to stop them and never does, and a `runtime_requested` control
@@ -483,9 +494,11 @@ networks and volumes come from `docker network ls` and `docker volume ls`
 filtered on Compose's own project label, because `docker compose config` would
 render the values of the project's environment files.
 
-External resources such as pre-existing staging databases are configuration bindings, not resources Feat owns or destroys. Feat generates the non-secret
-selector value a task uses to pick its share of one — the task key — and never
-creates, migrates, or drops anything behind it.
+An external resource such as a pre-existing staging database is not modelled at
+all. Feat generates the non-secret `FEAT_TASK_KEY` a task can use to name its
+share of one, and knows nothing else about it: the connection string lives in an
+environment file Feat passes to Compose by path and never opens, so there is
+nothing for Feat to own, verify, or destroy (ADR-048).
 
 Destroy removes the containers and networks of the task's own Compose project.
 It passes neither `--volumes` nor `--remove-orphans`: volumes are retained by
@@ -597,6 +610,16 @@ task's key, title, and project plus a fixed phrase. Nothing in the composer can
 reach a brief, an agent's summary, a path, or a configured value. A delivered
 notification is recorded as a `notification_sent` task event, because a desktop
 notification is gone the moment it is dismissed.
+
+A notification Feat decides not to deliver names the policy that stopped it in
+the daemon's log: the daemon still catching up after a restart, a platform that
+delivers none, `notifications.desktop`, `notifications.suppress_while_attached`
+with somebody attached, and a condition this build composes no text for. It is a
+log line rather than a task event, because a suppressed notification is not
+something that happened to the task and an event would publish. Nothing else can
+distinguish a policy Feat applied on purpose from a notification the desktop
+swallowed, since neither leaves anything to inspect and the state change is
+correct either way. See ADR-039.
 
 v0.1 implements macOS desktop notification plus TUI badges, and reports that it
 delivered a notification rather than that one was seen: macOS decides per

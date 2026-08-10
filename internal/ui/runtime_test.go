@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -20,9 +21,6 @@ func runningRuntime() *api.Runtime {
 		Health:   "unknown",
 		Ports:    []api.Port{{Service: "api", ContainerPort: 8000, HostPort: 8080}},
 		Volumes:  []string{"feat-example-7f3a1c2e_pgdata"},
-		External: []api.ExternalResource{
-			{ID: "staging_db", Kind: "postgres", Lifecycle: "external", Selector: "7f3a1c2e"},
-		},
 	}
 }
 
@@ -68,7 +66,7 @@ func TestTheRuntimeScreenShowsWhatTheTaskOwns(t *testing.T) {
 		},
 	}
 
-	view := runtimeScreen(t, backend, task).View()
+	view := content(runtimeScreen(t, backend, task))
 
 	for _, required := range []string{
 		"feat-example-7f3a1c2e", // the Compose project an action reaches
@@ -77,8 +75,6 @@ func TestTheRuntimeScreenShowsWhatTheTaskOwns(t *testing.T) {
 		"Exited (0) 1 minute ago",      // including the one that is not running
 		"8000 → 8080",                  // how to reach the application
 		"feat-example-7f3a1c2e_pgdata", // retained by every destroy
-		"never created or destroyed",   // and what Feat will not touch at all
-		"staging_db",
 	} {
 		if !strings.Contains(view, required) {
 			t.Errorf("the runtime screen does not show %q:\n%s", required, view)
@@ -107,7 +103,7 @@ func TestTheScreenShowsWhatComposeStartedAlongTheWay(t *testing.T) {
 		},
 	}
 
-	view := runtimeScreen(t, backend, task).View()
+	view := content(runtimeScreen(t, backend, task))
 	for _, required := range []string{"postgres", "dependency", "configured", "removes it with the rest"} {
 		if !strings.Contains(view, required) {
 			t.Errorf("the runtime screen does not show %q:\n%s", required, view)
@@ -172,8 +168,8 @@ func TestDestroyingAsksFirst(t *testing.T) {
 	model := runtimeScreen(t, backend, task)
 	asked := press(t, model, "d")
 
-	if !strings.Contains(asked.View(), "Volumes are retained") {
-		t.Errorf("the confirmation does not say what is retained:\n%s", asked.View())
+	if !strings.Contains(content(asked), "Volumes are retained") {
+		t.Errorf("the confirmation does not say what is retained:\n%s", content(asked))
 	}
 	for _, call := range backend.runtimeCalls {
 		if strings.HasPrefix(call, "destroy") {
@@ -221,9 +217,9 @@ func TestApprovalOffersToStopTheRuntimeWithoutStopping(t *testing.T) {
 
 	model := dashboard(backend, task)
 	model.selected = task.ID
-	model.screen = screenDetail
+	model.screen = screenTask
 
-	detail := model.View()
+	detail := content(model)
 	if !strings.Contains(detail, "press t to stop") {
 		t.Errorf("the task detail does not offer to stop the runtime:\n%s", detail)
 	}
@@ -232,8 +228,8 @@ func TestApprovalOffersToStopTheRuntimeWithoutStopping(t *testing.T) {
 	}
 
 	screen := runtimeScreen(t, backend, task)
-	if !strings.Contains(screen.View(), "press t to stop") {
-		t.Errorf("the runtime screen does not offer to stop the runtime:\n%s", screen.View())
+	if !strings.Contains(content(screen), "press t to stop") {
+		t.Errorf("the runtime screen does not offer to stop the runtime:\n%s", content(screen))
 	}
 
 	// Rendering both screens asked for a status and nothing else.
@@ -264,7 +260,7 @@ func TestAFailedActionIsShownRatherThanThrown(t *testing.T) {
 	backend.runtimeErr = errors.New("host port 8080 is already taken")
 
 	model := runtimeScreen(t, backend, task)
-	view := model.View()
+	view := content(model)
 
 	if !strings.Contains(view, "8080") {
 		t.Errorf("the failure is not shown on the screen:\n%s", view)
@@ -283,15 +279,41 @@ func TestTheLogsActionYieldsTheTerminal(t *testing.T) {
 	backend.runtimeStatus = api.RuntimeStatus{Task: task}
 
 	model := runtimeScreen(t, backend, task)
-	press(t, model, "l")
+	press(t, model, "o")
 
 	if len(backend.logs) != 1 || backend.logs[0] != task.ID {
 		t.Fatalf("the logs action asked for %v, want the open task", backend.logs)
 	}
 }
 
-// TestADraftHasNoRuntimeScreen keeps the screen off a task that has nothing.
-func TestADraftHasNoRuntimeScreen(t *testing.T) {
+// TestTheDashboardOutlivesTheInterruptThatLeavesTheLogs is the other half of
+// yielding the terminal.
+//
+// `docker compose logs --follow` ends when the user interrupts it, and the
+// terminal driver sends that interrupt to every process in the foreground group
+// — the dashboard included. While it holds the process-wide interrupt context,
+// the dashboard is killed by the key that leaves the logs, which left no way out
+// of them but quitting Feat. Its lifetime is its own, and Bubble Tea ends it:
+// that is the one component that knows whether the dashboard or another program
+// currently owns the terminal (ADR-049).
+func TestTheDashboardOutlivesTheInterruptThatLeavesTheLogs(t *testing.T) {
+	interrupted, interrupt := context.WithCancel(context.Background())
+	dashboard := dashboardContext(interrupted)
+
+	interrupt()
+
+	if dashboard.Err() != nil {
+		t.Fatalf("the interrupt that leaves the logs also ends the dashboard: %v", dashboard.Err())
+	}
+}
+
+// TestADraftReachesTheRuntimeScreenAndIsToldItHasNone.
+//
+// The screen used to refuse a draft outright. That was right about a draft
+// having no services and wrong about what to do: a tab that declines to open is
+// a tab the cycle cannot pass. It opens and says so, and still asks the daemon
+// nothing — there is nothing to observe.
+func TestADraftReachesTheRuntimeScreenAndIsToldItHasNone(t *testing.T) {
 	draft := liveTask()
 	draft.Workflow = "draft"
 	draft.Session = nil
@@ -300,8 +322,11 @@ func TestADraftHasNoRuntimeScreen(t *testing.T) {
 	model := dashboard(backend, draft)
 	opened := press(t, model, "R")
 
-	if opened.screen == screenRuntime {
-		t.Error("a draft opened the runtime screen")
+	if opened.screen != screenRuntime {
+		t.Fatalf("R left the dashboard on %v", opened.screen)
+	}
+	if !strings.Contains(opened.runtimeBody(), "still a draft") {
+		t.Errorf("the runtime screen does not say why it is empty:\n%s", opened.runtimeBody())
 	}
 	if len(backend.runtimeCalls) != 0 {
 		t.Errorf("a draft reached the runtime: %v", backend.runtimeCalls)

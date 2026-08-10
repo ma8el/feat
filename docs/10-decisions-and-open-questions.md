@@ -906,6 +906,30 @@ appearing without explanation is a service a user has to go and investigate.
 The Slice 3 target-machine acceptance check was settled during slice 8, so slice
 9 is the first slice since slice 4 that starts with none outstanding.
 
+Amended a fourth time, after the first create a user asked for on a new task:
+
+13. **`docker compose create` does not build what it is about to create.**
+    Given `docker compose create api`, where `api` depends on a service built
+    from the project's own Dockerfile, Compose builds the image of `api`, then
+    creates a container for the dependency from an image it never built, and
+    fails with `No such image: feat-<project>-<task>-prepare:latest`. `up` on the
+    same services builds the whole closure. The image name carries the Compose
+    project name, which is per task, so no image exists the first time a task is
+    created — create failed on every new task and start on none, which made the
+    action look broken rather than the command wrong. Measured on Docker 29.5.2
+    and Compose 5.1.4, with and without bake, and with `--build`, which does not
+    change it.
+
+Decision: create is `docker compose up --no-start` over the managed services.
+It builds the dependency closure, creates every container in it, and starts
+nothing, which is what FR-RUN-005's create means; against containers that
+already exist it does exactly what `create` did. The name of the Compose
+subcommand was never the contract — the state the user asked for is — and this
+is the same shape as evidence 12: an action Feat targets at the managed services
+has to account for everything Compose brings with them. The opt-in fixture's
+one-shot dependency is now built rather than pulled, so the defect fails a test
+against real Docker rather than waiting for the next new task.
+
 ### ADR-035 — Resource observation, notification policy, and what a machine can honestly report
 
 Status: accepted
@@ -1652,6 +1676,1026 @@ of them was reachable from this repository's own fixtures:
     acted on from the screen it is on: one with no time on it reads as current
     however old it is.
 
+### ADR-038 — Naming a task
+
+Status: accepted  
+Recorded: slice 13
+
+Evidence found while running the product by hand, across slices 9 and 11:
+
+1. Every `<task>` argument took the whole 36-character identifier, and no list
+   printed one. `feat task list` prints the eight-character key, so does the
+   dashboard, and so does every desktop notification slice 10 added. The
+   identifier appeared in exactly one place, the dashboard's task detail. The
+   identifier a user could see was therefore the one no command accepted, and a
+   user reading `feat attach <task>` in the documentation had nowhere to get the
+   argument from. Found by running `feat runtime status` with the key the task
+   list had just printed.
+2. The rejection made it worse rather than better. It explained the format of an
+   identifier — "must be a version 4 UUID in canonical lowercase form" — to
+   somebody who had no way of seeing one. A message that describes a format is
+   only useful to a user who can produce a value in it.
+3. It is one defect on the whole command surface rather than one command's:
+   `attach`, `review`, every `runtime` action, and `cleanup` all had it, and it
+   had been there since slices 5 and 6. Thirteen endpoints read a task
+   identifier out of a path, through one helper.
+4. A key is unique within a project and not across the machine (ADR-026 resolves
+   a collision by generating another task identifier, per project). Two projects
+   can therefore hold tasks whose keys share a prefix, and one of the commands
+   that takes a task is `feat cleanup`.
+5. Storage addresses a task by project and task together, and the daemon already
+   resolves the owning project for a caller that holds only an identifier
+   (ADR-027). Resolving a key is the same kind of question asked one step
+   earlier.
+
+Decisions:
+
+- A task is named by a `domain.TaskRef`: its short key, its whole identifier, or
+  any prefix of that identifier. Case is folded, because an identifier copied out
+  of somewhere that upper-cased it is still that identifier.
+- A reference is a prefix of an identifier and nothing else — lowercase
+  hexadecimal with a `-` where the canonical layout has one. It is deliberately
+  not a search over titles or branches: a title that became a way of addressing a
+  task would make what a command acts on depend on text a user typed for another
+  purpose.
+- Ambiguity is reported with every candidate, named as the key and project the
+  lists print, and never resolved to one of them. This is the rule ADR-029 set
+  for a colliding branch name, applied where `feat cleanup` can reach.
+- Every task is a candidate, archived ones included, so that a cancelled draft
+  can still be cleaned up. An archived task can therefore make a reference
+  ambiguous; preferring the live one would be the guess this rule refuses.
+- Resolution lives in the daemon, beside the project resolution ADR-027 put
+  there, and the matching rule itself is a pure function in `internal/domain`.
+  The API resolves at its single task-identifier helper, so no endpoint can be
+  added that misses it. A whole identifier is used as it stands rather than
+  resolved, which is the path the dashboard takes on every request it makes.
+- Both refusals name where a valid value is printed. ADR-027 mapped a domain
+  validation error to `400` and a missing record to `404`; ambiguity is a `400`
+  through the existing `domain.ErrInvalid` class, so no new error code enters the
+  published surface.
+- The validation this replaces was justified by keeping a malformed value out of
+  a path join. Resolution is stronger: what a handler receives is an identifier
+  the daemon read out of storage, so no value from a request reaches a path at
+  all.
+
+Consequence: `docs/06-technical-architecture.md`, `docs/README.md`, and the
+README were updated in the same change, and the help of every command that takes
+a task now says what the argument is. The command surface is unchanged, so its
+golden file is unchanged. This amends ADR-027's decision that "the local API
+addresses a task by task identifier"; the addressing boundary is where it was,
+and only what counts as naming a task moves.
+
+### ADR-039 — Proving a notification arrived
+
+Status: accepted  
+Recorded: slice 13
+
+Evidence found while walking every notifiable condition against a real desktop:
+
+1. A task that passed its completion gate reached `ready_for_review` and the user
+   was not told. Observed by hand while exercising slice 11. The state, the
+   event, and the review record were all correct, so what was missing was the
+   interruption rather than the transition.
+2. Slices 10 and 11 each added notifications with unit tests over a fake
+   notifier, and a fake notifier proves the daemon asked rather than that anybody
+   was told. No test crossed the boundary the defect was on.
+3. `notifyTask` had five paths that did not deliver. Four returned silently and
+   one logged at debug, so "why was I not told" was a question the daemon's own
+   log could not answer.
+4. A notification that does not arrive leaves nothing behind. The state change it
+   was about is recorded correctly either way, and macOS drops an unauthorised
+   notification without saying so, so a policy Feat applied on purpose and a
+   notification the desktop swallowed are indistinguishable after the fact.
+5. `notify.Absent.Notify` documents that "a caller checks Available first and
+   never reaches this", and `notifyTask` did not. On a build that delivers
+   nothing, every notifiable change reached a notifier that refused it and was
+   logged as a failed delivery rather than as a platform that has none.
+6. The condition for failed application services had no test that reached it, and
+   could not have had one: the Compose fixture hard-coded `ExitCode: 0`, and a
+   non-zero exit is what separates a failed runtime from a stopped one. The walk
+   found it — six conditions delivered and this one did not.
+
+Decisions:
+
+- Every path that does not deliver names the policy that stopped it, at info,
+  with the task, its key, the project, and the condition. Info rather than debug
+  because the reader is a user working out why they were not told something, not
+  somebody debugging Feat.
+- It is a log line and not a task event. A suppressed notification is not
+  something that happened to the task, and recording an event publishes it, which
+  is a step towards notifying somebody about not having notified them.
+- The reasons are phrased as the user's own setting or situation —
+  `notifications.desktop`, `notifications.suppress_while_attached`, being
+  attached, a daemon still catching up — rather than as internal state.
+- Whether this platform can deliver is asked once at startup and kept, so a
+  platform that delivers none drops a notification saying that, rather than
+  handing it to a notifier that refuses it.
+- Every condition is walked against a real desktop by an opt-in test that drives
+  the actual state change — a hook, a control message, a gate over the project's
+  own checks, a runtime observation — and asserts both that Feat handed one over
+  and that it recorded doing so. `notify.Conditions()` exists so a condition
+  added later has to be walked too: a list extended by hand is a list that
+  eventually is not.
+- The walk asserts delivery and never sight, which is all Feat can know. What it
+  prints is what to compare against the desktop, and the two logs that tell the
+  two failures apart.
+- ADR-036's suppression of `review_requested` while a gate is about to run
+  stands. The concern that a gated task might arrive more quietly than an ungated
+  one was the reason for the walk, and the walk shows both arriving.
+
+Consequence: [06-technical-architecture.md](06-technical-architecture.md) and the
+README were updated in the same change. No notification policy changed: the
+conditions, the tables, the grace periods, and the suppression rules are exactly
+what slices 10 and 11 decided. What changed is that not being told now has an
+answer, and that every condition has been shown to reach a desktop once.
+
+### ADR-040 — Where a command lives
+
+Status: accepted  
+Recorded: slice 13, before implementation
+
+Evidence found by reading the command surface rather than by running it, which is
+why it is recorded before the change rather than after a failure:
+
+1. The surface is two designs at once. `project`, `task`, `runtime`, and `daemon`
+   are nouns with verbs beneath them; `implement`, `attach`, `review`, `cleanup`,
+   and `doctor` are verbs at the top level. ADR-001 already decided for the first
+   shape — "use scoped commands such as `feat project add`" — and five commands
+   arrived in the second one, each added by the slice that needed it.
+2. The seam runs through the `task` noun. Every command that takes a `<task>` is
+   an operation on a task: `attach`, `review`, `cleanup`, and all six `runtime`
+   actions. `feat task --help` lists one of them, `list`, and it is the least
+   interesting one. A user who has learned `feat task list` has no route from
+   there to `feat attach` except the documentation.
+3. ADR-038 is the field evidence that these are one family rather than five
+   separate commands. A single defect landed on `attach`, `review`, every
+   `runtime` action, and `cleanup` together, through one helper, because naming a
+   task is what they have in common. A defect whose extent is exactly that set is
+   a set the surface should name.
+4. The present shape can be justified, and the justification does not survive.
+   Top level for what opens a screen or hands over the terminal, a noun for what
+   prints and exits, fits today's commands. It is already leaky — `review` and
+   `cleanup` both print without a terminal (ADR-036, ADR-037) — it sorts commands
+   by a property a user cannot see from outside, and adding `feat task show` or
+   `feat task stop` would leave the top-level verbs reading as whatever was there
+   first.
+5. The window is this slice. The surface is pinned by a golden file and described
+   in three documents, slice 13 is already rewriting every `<task>` argument for
+   ADR-038, and slice 14 publishes v0.2. After that, moving a command breaks a
+   shell history that is not Feat's to break.
+6. Found while implementing this: cobra's own "Did you mean this?" had never
+   fired, for any command. It is built on the path cobra takes for a command
+   with no `Args` of its own, and every command in this tree has one, so
+   `feat tsk` was answered with "unknown command" and nothing else. A moved name
+   made it visible; a typo had always asked the same question.
+
+Decisions:
+
+- A command that takes a task lives under `feat task`: `task attach`,
+  `task review`, and `task cleanup`, beside `task list`. That is the rule, and it
+  is the one ADR-001 stated.
+- `feat implement` stays where it is and is not renamed to `feat task add`. It
+  does not take a task, it produces one, so the rule above does not reach it. The
+  name is also the activity — it fetches, resolves an immutable base commit per
+  repository, proposes branches and worktrees, and launches an agent session —
+  while `add` describes appending a row to a list. `feat task`'s own help names
+  it as where a task comes from, so the noun a user explores still answers that
+  question.
+- `feat attach` and `feat review` keep their top-level names as aliases, because
+  brevity is earned by how often something is typed and these are typed all day.
+  Both are hidden from help so that `feat --help` stays equal to the documented
+  surface, which is ADR-027's rule for `feat daemon run`, and both appear in the
+  golden file, which walks hidden commands.
+- `feat cleanup` gets no alias. It is rare and it is irreversible, and making the
+  longer path the only path is the argument ADR-037 made when it refused a
+  blanket `--yes`. What it gets instead is a rejection that leads somewhere: the
+  old name is answered with the noun that now holds it. There is no compatibility
+  shim behind that, because nothing has been released and a shim would put the
+  name back on the surface this ADR took it off.
+- The suggestion is built where a command's positional arguments are checked,
+  which is the one place every rejection passes through, so an unknown word gets
+  it whether it is a name that moved or a name that was mistyped. Restoring it
+  only for `cleanup` would have left evidence 6 in place for everything else.
+- One implementation with two names, never two implementations. The alias is
+  built by the same constructor and runs the same `RunE`; cobra sets a parent in
+  `AddCommand`, so one value cannot hold both positions, and two bodies would
+  drift. An alias says in its own help which command it is.
+- `feat runtime` stays a top-level noun rather than becoming
+  `feat task runtime`. A feature environment is a co-equal thing a task owns,
+  with its own identity and lifecycle (ADR-003, ADR-034), rather than an
+  attribute of the task, and three levels before an argument is worse than the
+  inconsistency. This is recorded as an exception rather than dressed up as a
+  rule, because it is one.
+- `feat project`, `feat daemon`, `feat doctor`, and `feat version` do not move. A
+  diagnostic named `doctor` at the top level is what the tools this one is
+  installed beside already do.
+- The asymmetry between `feat runtime destroy --yes` and a `feat task cleanup`
+  with no such flag is deliberate and stays. What changes is that each says why in
+  its help, because a user who meets the second after the first reads it as an
+  omission rather than as a decision.
+
+Consequence: the golden file, [README.md](README.md),
+[06-technical-architecture.md](06-technical-architecture.md), and the README
+moved in the same change, which is the rule ADR-028 and ADR-031 followed for a
+command-surface change. Nothing crosses the socket differently: no endpoint, no
+domain type, and no storage path changes, and ADR-038's rule for naming a task is
+untouched. Three reconciliation findings that told a user to run `feat cleanup`
+now name the command that exists.
+
+Two things this deliberately leaves alone. Machine-readable output is a separate
+gap — every command can be read by a person and parsed by nothing — and belongs
+with slice 14's JSON Schema. And an unknown subcommand of a group, `feat task lst`
+or `feat daemon bogus`, still prints the group's help and exits zero, which
+predates this change and is the same on every group: a script cannot tell that
+one from a command that ran.
+
+### ADR-041 — What the dashboard is shaped like
+
+Status: accepted  
+Recorded: slice 13, before implementation
+
+Evidence found by reading the dashboard against the terminal it is read in, after
+the maintainer reported it as confusing while preparing the three-task dogfood
+runs:
+
+1. A task row does not fit. `taskColumns` is eleven columns totalling 136 cells,
+   joined by two-space separators and preceded by a two-cell cursor marker, so a
+   row is 158 columns wide (`internal/ui/task.go:43`, `internal/ui/style.go:54`).
+   A standard terminal is 80 and a wide one is 120 to 160. Every row wraps onto
+   the next, which is why a list of three tasks reads as nine lines of unaligned
+   text rather than as three tasks.
+2. The requirement is what makes it that wide. FR-UI-002 names nine fields a row
+   MUST show, and each of them earned its place. So the row cannot be narrowed by
+   dropping columns without changing the specification, and the only remaining
+   move is to stop putting all nine on one line per task.
+3. Every screen replaces every other. `screen` has six values and each renders
+   the whole terminal (`internal/ui/app.go:59`). Opening review, runtime, or
+   cleanup discards the task list, so a user watching three tasks can look at one
+   of them. Three concurrent tasks is the case v0.1 acceptance criterion 1 is
+   about, and criterion 14 — that the user no longer manually coordinates
+   sessions, paths, and branches — is a claim about whether this screen carries
+   the coordination. A screen that shows one task at a time hands part of it back.
+4. Nothing has a fixed position. The dashboard stacks a heading, an attention
+   summary, a machine card, a recovery band, the table, an archived note, and
+   twelve key hints in one column, and the recovery band appears only when
+   reconciliation found something (`internal/ui/dashboard.go:11`). So the row a
+   user's eye learned moves down the screen on the day something breaks, which is
+   the day the position mattered.
+5. The TUI is width-unaware. `m.width` is recorded on `tea.WindowSizeMsg` and
+   read by task preparation alone (`internal/ui/app.go:352`); every other view
+   renders at fixed widths. Whatever fixes evidence 1 has to introduce
+   width-awareness, and a layout is the thing that would consume it, so the two
+   are one job rather than two.
+6. FR-UI-001 already asks for "project drill-down" and the dashboard is a flat
+   global list. Grouping by project is the requirement rather than an addition to
+   it.
+7. The main region cannot hold the live agent session. Attachment is the native
+   tmux client inheriting this process's terminal (`internal/cli/attach.go:51`,
+   released by `internal/ui/app.go:522`), which ADR-030 decided deliberately. To
+   render that session inside a Bubble Tea viewport, Feat would run tmux under a
+   pty and become a terminal emulator — escape-sequence parsing, resize
+   propagation, key and mouse forwarding, scrollback — which is larger than the
+   rest of this change together and puts a second emulator between the user and a
+   multiplexer.
+
+Found while reviewing the first draft of this ADR, which had decided to keep the
+row and move it:
+
+8. Moving the table does not make it fit. A rail of about 30 columns leaves 128
+   of a 160-column terminal and 88 of a 120-column one, against a row of 158.
+   Scoping the table to one project saves the width the project implied and
+   nothing like the sixty columns needed. So relocating the nine fields was not a
+   decision, and the row has to lose fields or lose the single line.
+9. FR-UI-002 restates requirements that already exist. Four of its nine fields
+   are named by another requirement: repositories by FR-UI-003's "repository/base
+   mapping", runtime state by its "runtime services", verification state by its
+   "completion/check summary", and resource usage by FR-UI-005's "per-task
+   environment totals". The five that no other requirement claims — identity,
+   agent state, attention state, elapsed time, changed-file count — are exactly
+   the fields that answer which task to go to next. The duplication is historical:
+   the row was the only place a field could live, because the dashboard had no
+   persistent region beside it. A layout that always shows one removes the reason.
+10. An overlay costs less than a modal screen and preserves more.
+    `github.com/charmbracelet/x/ansi` is already in the module graph as an
+    indirect dependency and cuts styled text by cell, so compositing a dialog over
+    rendered content is a small helper rather than a dependency change; lipgloss
+    v1.1.0's `Place` fills a whitespace box and cannot layer. A full-screen modal
+    discards the task list for the duration, which is evidence 3 again, and an
+    overlay does not.
+
+Found by the maintainer using the first build of this layout, and fixed in it:
+
+11. Two of the tabs ended the tab cycle. Review and runtime answer their own keys
+    and return for everything else, so the key that was meant to leave them never
+    reached the frame: `tab` moved overview, detail, review, and then stopped. The
+    same shape had a second exit — both views refuse a draft without changing the
+    screen, so cycling onto one would have stranded the user too.
+12. The rail was unreachable from half the dashboard. The plain arrows belong to
+    whichever view has the keyboard, and review spends them on its repository
+    cursor, so from the review or runtime tab there was no way to change task at
+    all. The rail is the thing this layout is built around and two of its four
+    tabs could not reach it.
+13. The events tab could not answer the question it existed for. It showed the
+    state changes this client had seen, so it was empty on open and could never
+    describe what happened while the user was away — which is the only reason to
+    look. The daemon's log holds the record.
+
+Decisions:
+
+- The dashboard is three regions that persist: a left rail, a main region, and a
+  footer. Only the main region's content changes. This replaces the model where
+  each screen owns the terminal.
+- The left rail is a task selector grouped by project, and it is not the task
+  row. It carries the five fields evidence 9 found unclaimed — the
+  eight-character key, the title, attention, agent state, elapsed time, and the
+  changed-file count — over two lines per task, which is what buys the width back.
+- The rail shows attention and agent state as two things and never as one. A
+  glyph carries attention and a word carries the process state. Feat keeps
+  process, attention, workflow, and runtime states separate in the domain, and a
+  composite status badge would put them back together in the one place a user
+  actually reads. Colour cannot carry the distinction either, because a terminal
+  without it would lose the distinction silently rather than visibly.
+- FR-UI-002 becomes a requirement about what the task list carries for triage and
+  stops restating FR-UI-003 and FR-UI-005. No field loses its requirement; four
+  of them stop having two. This is the specification following the code's shape,
+  which is what ADR-028, ADR-031, and ADR-040 each did.
+- The main region is tabbed over views of the selected task: overview, detail,
+  review, and runtime. A tab is a view you leave and come back to, and its state
+  survives the leaving. ADR-042 replaced this set with terminal, task, and
+  runtime; what stands here is the shape of a tab, not the list.
+- There is no events tab. It was built and removed after the first use: it could
+  only show what had happened since the dashboard opened, so the one thing a
+  user would want it for — what happened while they were away — is what it could
+  not answer, and the daemon's log holds the record either way. Removed rather
+  than kept cheaply, because a tab that looks like a history and is not is worse
+  than no tab.
+- The layout's own keys are answered before the tab's. Moving between tabs and
+  moving between tasks belong to the frame, and a view with its own keyboard
+  returns for every key it does not recognise, so it would otherwise swallow
+  them. No tab declines to open: a tab that refuses is a tab the cycle cannot
+  pass, so one with nothing to show for the selected task opens and says so. That
+  replaced an earlier fallback to the detail tab, which worked only because the
+  refusing tabs happened to come after it in the order.
+- Selecting a task has a pair of keys of its own, distinct from the plain
+  arrows, and they work from every tab. The arrows belong to whichever view has
+  the keyboard — review moves a repository with them — so a rail reachable only
+  by them is a rail unreachable from half the dashboard. Changing the task
+  re-opens the tab for it, because a view holding one task's services under
+  another task's name is worse than a view that reloads.
+- Task preparation, cleanup, every confirmation, and the key map are overlays
+  over the live dashboard rather than screens that replace it. An overlay is for
+  something that is not about the selected task, or that must be answered before
+  work continues; it ends, by completion or by cancellation. Preparation is the
+  clearest case, because it has no selected task — it produces one.
+- The size test decides an ambiguous case. Something that needs the whole main
+  region is not a dialog, whatever it is called. That is why review and runtime
+  are tabs and their decisions — approve, request changes, destroy — are overlays.
+- An overlay closes on a keybind without ceremony, including cleanup's. This is
+  not ADR-037 eroding: a cleanup plan is inert until it is confirmed, so
+  discarding an unexecuted one costs nothing, and what ADR-037 made deliberate was
+  triggering an execution rather than opening a screen. An overlay whose execution
+  has started is not dismissible.
+- The overview tab keeps the wide table, provisionally. It is the only place
+  resource usage or check counts can be compared across tasks, which is FR-UI-005's
+  case, and it is also the part of this design with the least evidence behind it.
+  It is kept for the three-task runs and removed if those runs never use it —
+  recorded here so that a later reader knows it was a question rather than a
+  preference. **Superseded: removed, see ADR-043.**
+- Attachment stays a handover. Pressing attach yields the terminal to tmux and
+  returns to the tab the user left, which is what ADR-030 decided and what
+  evidence 7 says the alternative costs. Feat does not embed a terminal emulator
+  in v0.
+- The footer carries the selected task's worktree path and the machine's
+  resources, which moves the machine card out of the vertical stack, and the key
+  hints for the focused region rather than all twelve at once. **Amended: the
+  machine's figures moved on to the foot of the rail, see ADR-044.**
+- There is a minimum width. Below it the three regions collapse to the single
+  column that exists today, because a rail and a main region inside 80 columns
+  gives neither one enough to be read.
+- The recovery band keeps a fixed position rather than appearing between other
+  things, so that evidence 4 does not survive the change that was made for it.
+- `internal/tmux` gains the split direction deferred on 2026-08-06: a shell pane
+  beside the agent rather than below it. It is the same question — what a user
+  sees when they look at a task — and it was parked for the moment every screen
+  existed, which is now.
+
+Consequence: [04-functional-specification.md](04-functional-specification.md)
+FR-UI-001 and FR-UI-002 move with the code, which is the rule ADR-028, ADR-031,
+and ADR-040 followed. `github.com/charmbracelet/x/ansi` becomes a direct
+dependency, which it already was in effect. Nothing crosses the socket
+differently: no endpoint, no domain type, and no storage path changes. The
+dashboard's keys are not
+renumbered, because a user who learned them during dogfood is the only user there
+is. This is presentation work, which the maintainer batches for after every screen
+exists; it is taken now rather than in slice 14 because the three-task runs are
+read through this screen, and a screen that shows one task at a time cannot
+produce evidence about three.
+
+### ADR-042 — Showing the agent's terminal without becoming one
+
+Status: accepted  
+Recorded: slice 13, before implementation
+
+ADR-041 built the dashboard around views Feat writes itself, on the reasoning
+that the alternative was a terminal emulator inside Bubble Tea. The maintainer
+used it and said it was not what they wanted: the main region should hold the
+agent's session, and possibly a shell beside it. The reasoning was right about
+the emulator and wrong about the alternatives.
+
+Evidence:
+
+1. The main region is thin without a terminal in it. Detail and review are
+   conceptually different and share most of their content — workflow,
+   repositories, checks — and neither fills the region at 120 columns. The
+   region was built for something substantial and given something that is not.
+2. Moving the agent's pane next to the rail costs an accepted decision. Measured
+   against tmux 3.5a on a scratch socket: `join-pane` preserves the pane id and
+   every `@feat_*` option, so identity survives, but the pane's window changes
+   and the source window is destroyed when its last pane leaves. ADR-030
+   requires matching metadata at session, window, and pane scope, and slice 12's
+   reconciliation reads it, so a joined pane is a task Feat can no longer
+   discover. Pane surgery is therefore not the cheap path it looks like.
+3. Two tools solving this problem move no panes and emulate no terminals.
+   claude-squad renders a preview with `capture-pane -p -e -J` and attaches for
+   real with `attach-session` over a pty. agent-manager holds a persistent
+   `tmux -C` control-mode connection, redraws on the `%output` notification tmux
+   pushes when a pane paints, and sends input with `send-keys` and with
+   `load-buffer`/`paste-buffer -p` — the latter because `send-keys` truncates
+   around a kilobyte and bracketed paste stops an application swallowing the
+   trailing Enter. Their own note on control mode is the argument for it: a
+   focused preview then needs no per-tick process forks and no polling.
+4. Rendering tmux's output is not emulating a terminal. tmux owns the pty,
+   interprets the program's escape sequences, and maintains the screen grid.
+   `capture-pane -e` returns that finished grid as text with colour attributes.
+   What is left for Feat is placing a rectangle and cutting it by cell without
+   splitting a sequence, which is what `internal/ui/overlay.go` already does for
+   dialogs.
+5. The TUI cannot hold the connection. The `ui-is-a-client` depguard rule denies
+   `internal/ui` any import of `internal/tmux`, as `cli-is-a-client` does for the
+   CLI. That rule is the executable form of "the daemon is the only writer", and
+   sending keys to an agent is a write.
+6. Preparing a pane for display is not free and not idempotent, which evidence 3's
+   preference for control mode understated. Measured against tmux 3.7b with a
+   zoomed two-pane window already sized 179x52, reading `stty size` inside the
+   pane: a `resize-window` to the size the window already has sets the zoomed
+   pane's pty to 90 columns — its share of the split — and then back to 179. tmux
+   reports `pane_width` as 179 throughout, so the window looks motionless from
+   outside while a full-screen program repaints itself at half the region's width
+   and repaints again. The same measurement puts a settled frame's five `tmux`
+   invocations at 30.5 ms and the two it actually needs at 16.3 ms, which at a
+   60 ms focused poll is half the interval spent forking processes.
+
+Decisions:
+
+- The main region shows the selected task's agent pane. What is drawn is the
+  output of `capture-pane -p -e` against the pane ADR-030 already identifies, and
+  a shell pane may be shown beside it where one exists.
+- Feat does not implement a terminal. It keeps no screen grid, interprets no
+  cursor movement, implements no scroll regions, and stores no scrollback. Every
+  escape sequence it handles it passes through; the only thing it reads is cell
+  width, in order to clip. A change that requires Feat to understand what a
+  sequence means is a change this decision refuses.
+- This is display and never a source of truth. ADR-030's rule that the tmux
+  adapter "never parses terminal output or infers semantic completion" is
+  unchanged and is extended rather than weakened: capturing a pane in order to
+  draw it is allowed, and deriving any task, agent, attention, or workflow state
+  from those bytes is not. Agent state continues to come from provider hooks
+  (ADR-032, ADR-036). The distinction is stated because the two operations look
+  alike from outside and only one of them is permitted.
+- The daemon owns the control-mode connection and proxies. It resolves task to
+  pane, validates the target, holds one `tmux -C` client, and publishes frames
+  for the focused pane only. The TUI never names a pane and never runs tmux. This
+  keeps evidence 5's rule intact, gives the validation one home, and is the shape
+  a remote client would need if OQ-002 is ever answered yes.
+- Frames are published for what is focused, not for every task. A dashboard
+  watching three agents does not need three streams, and the cost of this
+  decision is the traffic it avoids.
+- Keys travel the same way, and focus is explicit. A key gives the pane the
+  keyboard, a key takes it back, and while the pane has it the rail stays on
+  screen and the dashboard's own keys do not fire. Text goes through
+  `load-buffer` and `paste-buffer -p` for the reason evidence 3 gives.
+- Attach stays exactly as ADR-030 defined it. Control-mode rendering is a view of
+  a terminal, not a terminal: it has no scrollback and no mouse, and the native
+  `attach-session` remains how a user gets the real thing. Both tools in evidence
+  3 keep both for the same reason.
+- Rendering a frame changes nothing that is already as it should be. The size and
+  the zoom are read first and set only where they differ, and the pane is measured
+  again only when one of them moved. Evidence 6 is the reason this is a rule
+  rather than an optimisation: a preparation step that looks idempotent from
+  tmux's side is visible to the program in the pane, and a poll that repeats it is
+  a poll that disturbs what it is trying to show. It holds for the control-mode
+  transport too, which changes when a frame is asked for and not what asking costs.
+- Detail and review become one task view rather than two tabs. Evidence 1 is the
+  reason, and a main region holding a live session leaves room for one panel
+  rather than four.
+
+Consequence: ADR-041's tab set changes and its layout does not — the rail, the
+footer, the overlays, the minimum width, and the compositor all stand, and this
+is why that work was committed before this decision rather than after it. The
+overview table's fate stops being an open question in ADR-041's terms, because
+the main region now has an occupant; whether a cross-task comparison is still
+wanted is decided with the three-task runs as before. A new endpoint and a new
+stream cross the socket, carrying rendered bytes rather than state, which is the
+first traffic of that kind and the reason it is scoped to one pane.
+
+### ADR-043 — Removing the overview table
+
+Status: accepted  
+Recorded: slice 13, after use
+
+ADR-041 kept the overview tab's wide task table provisionally, to be removed if
+the three-task runs never used it. The maintainer used the dashboard and asked
+for it to go before those runs, which answers the question earlier than planned
+and in the same direction.
+
+Evidence:
+
+1. Nothing needs it. The rail answers which task to go to next — identity,
+   attention, agent state, elapsed time, changed files, grouped by project — and
+   the task panel answers everything the table's remaining columns did, for the
+   task the rail sent you to. The table was the same facts a second time, laid
+   out for a comparison nobody made.
+2. It never fitted. Eleven columns are 158 cells against a supported width of 80
+   to 160, which is the defect ADR-041 was built to fix; `fitColumns` dropped
+   columns from the right until they fitted and told the user which were missing.
+   A view that reports what it cannot show is honest, not useful.
+3. Two things were living on it that are not overviews, and both were already
+   invisible in the three-region layout, because the page it drew them on was
+   reachable only in the narrow fallback. The recovery band — reconciliation's
+   findings and the action for each — had no other surface anywhere, in the TUI
+   or the CLI. The resource sample's notes, which say why a figure is absent, had
+   none either.
+
+Decisions:
+
+- The tab set is terminal, task, and runtime. Every tab is about the selected
+  task; the overview was the one that was not.
+- Reconciliation findings that name a listed task appear on that task's panel,
+  above the fields they contradict. A workflow of working beside a worktree that
+  is not on disk is the contradiction the pass exists to surface, and the panel
+  is where both are read and where the keys that resolve it are.
+- Everything the pass found is also in one overlay, on `!`, and the rail carries
+  its count and that key. The footer was tried first and is the wrong shape: a
+  finding is three lines — what, where, and what to do — and a machine with
+  several of them has a list rather than a line, so the footer either truncated
+  the action or became the thing nobody reads. The rail's job here is the one it
+  already does above the task list with the attention summary: say that something
+  needs a person, and let them choose when to look. The overlay is where an
+  orphan whose task record is gone, an enumeration that failed outright, and a
+  previous daemon that died rather than stopped can each have their three lines.
+- The pass carries the time it ran, and looking again is a key on the overlay.
+  Nothing repeats a pass on a timer, so what is shown is always what was true at
+  startup; a user who has just resumed a task is reading history unless the view
+  says when it was taken and offers to retake it.
+- The resource sample's notes join the machine figures in the footer, for the
+  reason FR-UI-005 gives: a figure nothing measured is shown as absent, and an
+  absent figure with no reason beside it is the same silence in another form.
+  **Amended: the figures moved to the rail and the notes stayed in the footer,
+  see ADR-044.**
+- The narrow fallback draws the rail's own entries rather than the wide table.
+  It is the only way to choose a task below the layout's minimum, and the table
+  fitted no terminal small enough to reach it.
+
+Consequence: the recovery band, the machine card, the eleven-column task row, and
+the column-fitting they needed are all deleted. Nothing in FR-UI-002 is lost —
+ADR-041 already rewrote it to the triage set the rail carries — and FR-UI-005's
+"secondary view" for per-container metrics remains a MAY that nothing implements.
+A rail entry now names a task's workflow when it has no session, because the rail
+is the only list left and a draft that reported an absent agent state read like a
+task whose agent had stopped.
+
+### ADR-044 — The machine's resources at the foot of the rail
+
+Status: accepted  
+Recorded: slice 13, after use
+
+ADR-041 put the machine's figures in the footer beside the selected task's
+worktree path, to get them out of the vertical stack that pushed the task list
+down the screen. The maintainer used that dashboard and asked for them in the
+rail instead, below the tasks and above the warning count, and then for the first
+build of that: no heading, the processor row named for what a reader looks for,
+the percentage on the bar rather than a figure after it, and Feat's orange.
+
+Evidence:
+
+1. The figures were three numbers and no proportion. "48 GiB free of 460 GiB"
+   asks the reader to divide before it answers anything, and the question the
+   block exists for — is there room to start another task — is a proportion.
+   The same free figure is roomy on one machine and nearly nothing on the next.
+2. The rail's foot already held the other machine-wide block. Reconciliation's
+   count is not about the selected task either, and the two are read the same
+   way: a glance at a corner, not a lookup. What is left in the footer — the
+   worktree path — is about the selected task, so the footer became one thing
+   rather than two unrelated ones.
+3. Moving it means reshaping it. The rail is thirty-two cells and the footer's
+   form is ninety, so this is not a relocation. A bar is what buys the width
+   back, because the total stops being a number and becomes the bar's length,
+   and FR-UI-005 asks for available memory and disk availability rather than for
+   the totals.
+
+Decisions:
+
+- The machine's resources are at the foot of the rail, below the tasks and above
+  the warning count, pinned to the bottom rather than following the task list
+  down. This is evidence 4 of ADR-041 again: something read by position is in the
+  same position every time.
+- A metric is a fixed label, a bar of the share in use, and the percentage after
+  it. Fixed columns, so that three bars start and end in the same place and can
+  be compared by eye, and the number is right-aligned in a column of its own so
+  that a machine crossing from 99% to 100% does not shift it sideways twice a
+  second. A number wider than that column takes the cells from the bar rather
+  than from the rail: a line is thirty-two cells whatever the machine is doing,
+  and a machine wanting twelve times its processors has a bar with nothing left
+  to say.
+- The number is in the label's grey, not the bar's colour. It says exactly what
+  the bar says, and a second colour would make one measurement look like two. It
+  was first put on the bar itself, to spend no width on it, and that was wrong
+  in use: it split the blocks either side of it into two runs, which read as two
+  bars rather than as one with a gap.
+- There is no heading over the three. The labels say what they are, and the
+  rail's one heading belongs to the tasks.
+- The rail's three parts are ruled apart rather than spaced apart. They are about
+  three different subjects — the tasks, the machine, and what reconciliation
+  found — and blank space between them read as one list that had stopped. The
+  rule is the grey of the divider beside it, so the rail is ruled by the frame
+  rather than decorated, and the lower rule is drawn only when there is something
+  below it.
+- The processor row is labelled `cpu` and reads as a percentage. What is measured
+  is unchanged — the daemon samples the run-queue average with the core count, as
+  ADR-035 decided, and the API still carries both — but the rail divides one by
+  the other and shows the result as a share. This is taken knowingly against
+  ADR-035's caution about figures that look alike and are not: what is lost is
+  the reader's cue that this is demand rather than occupancy. Two things are kept
+  against that. Only one measure is derived, identically on both platforms, so
+  the cross-platform half of ADR-035 stands. And the share is not clamped in the
+  number: a machine wanting more processors than it has reads 245%, which nothing
+  that was truly a utilisation percentage could, and the number is marked while
+  the bar stops at full.
+- A bar is never empty or full by rounding, in the bar or in the number. Two
+  percent draws one cell and reads `<1%`; ninety-nine leaves one cell empty and
+  reads `>99%`. The bar is read before the number and both roundings would state
+  something the sample did not find.
+- A share that cannot be computed draws no bar and says it was not measured. A
+  capacity of zero is not an empty disk; it is a filesystem nothing measured, and
+  a bar at zero would be the most readable false claim on the screen — the rule
+  ADR-028 and ADR-031 set, applied to a shape rather than to a number.
+- The bars are Feat's orange, which is also the attention colour. A bar is a
+  measure rather than a summons and the shape is what tells them apart: an
+  attention badge is a glyph beside a task and a bar is a block that fills a
+  column. Bold stays with the attention styles, so a bar never shouts and the
+  number on an overloaded machine still can.
+- The sample's notes and a failed read stay in the footer. They are sentences,
+  and thirty-two cells would truncate them into the silence ADR-043 kept them out
+  of; the rail says which figure is absent and the footer says why, on screen at
+  once.
+- There is one rendering of the machine and the narrow fallback uses it too. The
+  one-line form is deleted rather than kept for the fallback, which would have
+  been two renderings of the same sample to maintain and one of them visible only
+  below the layout's minimum.
+
+Consequence: `machineLine` and the three field renderers it composed are deleted,
+and the absolute figures they carried — free bytes and total bytes, the load
+average itself — are no longer on the dashboard; the share and the percentage
+replace them, and `GET /v1/resources` still answers with all of them.
+[04-functional-specification.md](04-functional-specification.md) FR-UI-005 moves
+with the code, as it did for ADR-035, ADR-041, and ADR-043.
+
+### ADR-045 — The status command loses its key
+
+Status: accepted  
+Recorded: slice 13, after use
+
+The task panel bound `s` to the project's configured status command, the third of
+the external commands FR-REV-002 asks for. The maintainer pressed it and reported
+that nothing happened.
+
+Evidence:
+
+1. It ran. `tea.Exec` leaves the alternate screen, runs the command in the
+   selected repository's worktree, and re-enters the alternate screen when it
+   exits. The default status command — `git status --short --branch` — prints one
+   or two lines and exits at once, so its output was written to the screen the
+   TUI had just left and was gone within a frame. Diff and editor survive the
+   same path only because a pager and an editor wait for the user; nothing about
+   the status command does.
+2. Making it visible costs more than it returns. The alternatives are a pause
+   after every short-lived external command, which puts a key press between the
+   user and a tool that finished, or rendering the output in the panel, which is
+   the internal diff surface ADR-006 refused.
+3. The panel already says it. Per repository it carries the recorded base, the
+   head, the branch, the worktree path, the changed-file count, and whether the
+   tree is dirty, merged, or ahead of its base. What `git status` adds over that
+   is the names of the uncommitted and untracked files, which `d` shows for
+   tracked work and the shell shows for all of it.
+4. The key was borrowed. `s` opens the task's shell everywhere else in the
+   dashboard, and the panel's own comment recorded that as a compromise made to
+   keep the three external commands together.
+
+Decisions:
+
+- `s` opens the task's shell on the task panel, as it does on every other view.
+  The panel's external commands are diff and editor.
+- The `review.status` configuration stays. It is still expanded, still validated
+  by `review.New` against the task's own worktrees, and still printed by
+  `feat review` in a terminal that cannot show the screen, where an expanded
+  command line is something a user can read and run themselves.
+- No external command Feat launches is wrapped in a pause. A command that wants
+  to be read is one that waits, and that is the tool's business rather than
+  Feat's.
+
+Consequence: one key case and one hint are deleted from the task panel and
+FR-REV-002 moves with the code. Nothing in the daemon, the API, the
+configuration, or `internal/review` changes: `review.KindStatus` is still one of
+the three kinds, and a project that configures a status command still gets it
+expanded and reported.
+
+### ADR-046 — Shifted keys move the frame, plain keys move the view
+
+Status: accepted  
+Recorded: slice 13, after use
+
+The maintainer reported that dashboard navigation was inconsistent: the arrow
+keys sometimes moved the task rail and sometimes moved a cursor inside the main
+region, with no way to tell which without pressing them.
+
+Evidence:
+
+1. It was true, and the split was per tab. The dashboard's fall-through key
+   handler bound the plain arrows to the rail's cursor, but a view with its own
+   keyboard is answered before that handler is reached — so the arrows moved the
+   rail on the terminal tab and a repository on the task panel, and did nothing
+   on runtime. One key, three meanings, chosen by a tab the user was not thinking
+   about.
+2. The frame already had shifted keys and they were incomplete. `shift+↑`/`↓`
+   selected a task from any view and `tab`/`shift+tab` changed view, so the rule
+   existed; the plain arrows duplicating half of it is what made it unlearnable.
+3. A terminal has no modifier bit for a shifted letter. `shift+j` arrives as
+   `J`, so the Vim-shaped binding for this is the uppercase letter itself. `J`,
+   `K`, `H`, and `L` were unbound; the capitals in use were `A`, `C`, `P`, `V`,
+   and `R`.
+4. Shifted arrows are not reliably delivered. That is why `ctrl+p`/`ctrl+n`
+   already existed beside them, and it is why the letters are the primary
+   binding rather than a convenience.
+5. The same swallowing defect had a second half, reported straight after the
+   first: `?` opened nothing from the task panel or the runtime view. Those
+   handlers answered their own keys and returned for everything else, so the
+   dashboard's keys — `?`, `!`, `n`, `z`, `x`, `v`, and on runtime `a` and `s`
+   too — were reachable only from the terminal tab. The footer on both views
+   advertised `? keys` throughout, because the frame's hints are drawn whatever
+   has the keyboard.
+
+Decisions:
+
+- Shifted keys move the frame. `J`/`K`, `shift+↓`/`shift+↑`, and `ctrl+n`/
+  `ctrl+p` select a task; `L`/`H`, `shift+→`/`shift+←`, and `tab`/`shift+tab`
+  change view. They are answered before any view sees them, so they work from
+  everywhere.
+- Plain keys move within whatever the main region draws, and never reach the
+  frame. `j`/`k`/`h`/`l` and the plain arrows are equivalent. A view with
+  nothing to move through — the terminal tab, whose unfocused pane has no cursor
+  — moves nothing, rather than reaching past itself to the rail.
+- `h`, `j`, `k`, and `l` are reserved for that movement even where a view has no
+  use for them yet. The runtime view's logs action moves from `l` to `o`.
+- The narrow fallback keeps the plain arrows on the task list. Below the
+  layout's minimum there is no rail: the list is what the single column draws,
+  so it is the main region, and the rule is unchanged rather than excepted.
+- A focused pane still takes every key except `ctrl+q`. That is not an exception
+  to this rule but the layer above it: while the keyboard belongs to the agent,
+  the dashboard has no keys at all.
+- Movement is answered before a view and actions are answered after it. A view
+  that swallowed movement would trap the user inside itself, so the frame takes
+  those keys first; a view that is overruled on its own actions would lose `r`,
+  which means compare again on the task panel, refresh on runtime, and look
+  again on the dashboard. So a view keeps every key it claims, and everything it
+  does not claim falls through to the dashboard's meaning.
+- A dialog is not a view and does not fall through. Preparation, cleanup, and a
+  pending confirmation answer every key themselves, because an overlay is
+  something to be answered before work continues.
+
+Consequence: the change is contained to `internal/ui`. No daemon, API,
+configuration, or documented CLI surface moves — `feat runtime logs` is
+unaffected by the dashboard's key for the same action. The cost is that plain
+arrows no longer select a task on the terminal tab, which is the dashboard's
+opening view; it is paid deliberately, because that binding is the one that made
+the two meanings look interchangeable.
+
+### ADR-047 — One record of a review decision
+
+Status: accepted  
+Recorded: slice 13, after use
+
+The maintainer, reading the review surface during dogfood, observed that the
+states a user can put a review into have no consequences beyond changing the
+workflow state, and asked whether they were worth having. They are — but the
+decision was being recorded twice, and that is what the objection had found.
+
+Evidence:
+
+1. Nothing read the second copy. `domain.Review.Status` reached two call sites,
+   `reviewDecision` in the TUI and `printReview` in the CLI, and both only
+   rendered it. Every behaviour in the daemon reads `Task.Workflow`: the
+   transition table, the effects table that returns a prompted task to `working`,
+   the notification conditions, and the one place approval changes anything —
+   `approvalOffer`, which offers to stop services a user approved a task with
+   still running.
+2. The copies could disagree, and one action made them. Leaving a review pending
+   was the only decision that moved the review's status without the workflow, so
+   approving and then leaving pending produced a task whose panel read `workflow
+   approved` above `decision pending`. There was no way out: `approved` has no
+   outgoing transition, so requesting changes afterwards failed with a message
+   about the agent not having asked for review.
+3. The action that produced it was never used or tested. It had no test anywhere
+   in the tree, and its key was bound on the task panel but absent from the
+   panel's hints — advertised only inside the string it would go on to
+   contradict.
+4. The decision line was offered where the decision was not available. Read from
+   the review aggregate, which knows nothing about the task, it showed "A to
+   approve" for a task that was still `working`, and the daemon then refused the
+   approval that line invited.
+
+Decisions:
+
+- The task's workflow state is the only record of a review decision. The review
+  aggregate keeps what is genuinely its own: the per-repository comparisons, the
+  agent's claim, and the check results with the reporter of each.
+- Leaving a review pending is not an action. A review nobody has decided is
+  already pending, so the action existed only to un-decide, which is what moved
+  one copy without the other. FR-REV-004's three options are satisfied without
+  it: pending is the state a review rests in, approving is a transition, and
+  revision is attaching to the agent.
+- `EventReviewChanged` carries no from and no to. It records that what is known
+  about the work changed — an agent's report, or a gate's results — and the
+  user's decision is recorded as the workflow transition it is.
+- The decision the TUI renders is derived from the workflow, so the keys appear
+  only where the transition exists.
+- The stored schema version does not move. Removing a field normally requires a
+  version and a migration, which is the rule `internal/store/fs` documents and
+  keeps; this removal is exempt because nothing has to be upgraded. The
+  information in `status` and `decided_at` is in the task snapshot beside them,
+  so an older document loads with the keys ignored and the next save writes them
+  away. A test pins that, because it is the only risk the exemption takes. The
+  exemption is an early-alpha one and does not generalise: after v0.1 there is
+  state in the wild whose owner did not write it.
+
+Consequence: `ReviewStatus`, its constants, `Review.Status`, `Review.DecidedAt`,
+`Review.Decide`, and `api.ReviewLeavePending` are deleted, and `decide` in the
+daemon collapses to a workflow transition. FR-REV-004 stands as written.
+`changes_requested` is deliberately left alone and is the next question: it tells
+the agent nothing — no inbox message is written, unlike a gate's verdict — and its
+only reader treats it exactly as it treats `review_requested`,
+`ready_for_review`, and `verification_failed`. Either it earns its place by
+carrying the user's revision note into the session, or it folds into attaching.
+
+### ADR-048 — Removing the external resource declaration
+
+Status: accepted  
+Recorded: slice 13, after use
+
+`runtime.external_resources` is the one part of the runtime model drawn from the
+reference project's shape rather than from the product's. The maintainer, asking
+what it is for, gave the answer that settles it: which database an application
+connects to is the user's deliberate choice, expressed in a connection string
+inside an environment file, and Feat has no way of knowing what is at the other
+end of it.
+
+Evidence:
+
+1. Feat cannot see the resource and is forbidden from trying. The connection
+   string lives in an environment file, which `checkEnvFiles` stats and never
+   opens because [05-security-model.md](05-security-model.md) requires it, and
+   which the runtime adapter passes to Compose by path for the same reason. The
+   declaration therefore names something Feat has committed never to look at, and
+   no code path can ever reconcile the two.
+2. The check that reports on it cannot fail. `feat doctor` stats every configured
+   Compose file, asks `docker compose config --services` whether each managed
+   service is really defined, and stats each environment file and reports its
+   permissions. For an external resource it emits an unconditional pass carrying
+   the words "referenced, never created or destroyed by Feat" — the only runtime
+   check in `internal/project/checks.go` that makes a claim about a user's
+   resource without contacting it.
+3. Its whole runtime effect duplicates a variable that is already set.
+   `FEAT_TASK_KEY` is generated for every managed service unconditionally, and an
+   external resource's `selector_variable` is given the task key — the identical
+   value. The entire behaviour of the feature is that the variable may be called
+   something else. A static override cannot do the same, because it is one file
+   for every task and cannot hold a per-task value, so the aliasing is real; it is
+   also all there is.
+4. The safety it appears to provide comes from somewhere else. Destroy runs
+   `down` on the task's own Compose project and volume removal enumerates by
+   Compose label, so a resource outside that project is excluded by construction
+   — the rule `removeVolumes` records, and the reason no cleanup path reads the
+   recorded list. `validateExternal` refuses an external resource whose
+   identifier is also a managed service, which guards a project that runs the
+   resource in Compose while declaring that Feat must not touch it; for a
+   resource that is not in Compose at all, the branch cannot fire.
+5. The record has two readers and both are display. `ExternalResources` is
+   validated, persisted, published, and rendered by `feat runtime status` and the
+   runtime panel. `domain.ExternalResource` says its lifecycle is recorded so
+   that a cleanup plan can prove it excluded the resource; no cleanup plan reads
+   it.
+6. The lifecycle it records has one inhabitant. `LifecycleManaged` appears in
+   non-test code only in its own declaration and in `Valid()`. Nothing is ever
+   recorded as managed, so the enum draws a distinction that only ever has one
+   side.
+
+Decisions:
+
+- `runtime.external_resources` is removed from the configuration model, the JSON
+  schema, the domain, the store, the API, and both display surfaces.
+- `FEAT_TASK_KEY` is the mechanism, and is documented as such in
+  [07-configuration-model.md](07-configuration-model.md) rather than left
+  implicit. Feat sets it on every managed service; a project that shares one
+  resource between tasks uses it to name its share; Feat neither knows nor asks
+  what is behind the name. Removing a documented feature and replacing it with an
+  undocumented convention would be worse than either.
+- FR-RUN-008 is amended rather than dropped. Allowing an external resource means
+  not interfering with one: Feat supplies a per-task discriminator, reads no
+  environment file, and models nothing about the resource. Provisioning,
+  migration, seeding, and reclamation stay out of v0.
+- Nothing reports on a resource Feat cannot reach. Naming an unreclaimed share in
+  a cleanup plan was considered and refused. It would assert the existence of
+  something Feat has never contacted, on the user's word alone, at the moment a
+  user is deciding whether it is safe to proceed — the same unverifiable claim as
+  evidence 2, moved somewhere it would carry more weight. A share on a server Feat
+  cannot see is the user's to reclaim, and saying so in a plan does not make it
+  Feat's.
+
+Consequence: about 240 lines across twelve non-test files and seven test files
+are deleted, together with the `externalResource` schema definition, the example
+in [07-configuration-model.md](07-configuration-model.md), and the block in
+`docs/examples/project.yaml`. No stored snapshot needs migrating: the field is
+written `omitempty` and task documents are decoded without
+`DisallowUnknownFields`, so the key in an existing snapshot is ignored. A project
+that shared a staging database by `selector_variable` reads `FEAT_TASK_KEY`
+instead, in its own configuration or in a container entrypoint that re-exports
+it. The generated Compose override loses nothing: the variable it carried is
+still there under the name Feat generates.
+
+### ADR-049 — Who owns the interrupt while another program has the terminal
+
+Status: accepted  
+Recorded: slice 13, after use
+
+The maintainer opened the Compose logs from the runtime tab and found no way out
+of them that was not also a way out of Feat.
+
+Evidence, measured against Bubble Tea 1.3.10 on a real pseudo-terminal rather
+than reasoned about, because two signal handlers disagreeing is exactly the kind
+of thing reasoning gets right in the wrong order:
+
+1. `docker compose logs --follow` ends when the user interrupts it. There is no
+   other exit: it follows until something stops it, which is what FR-RUN-006
+   asks for.
+2. The terminal driver sends the interrupt to every process in the foreground
+   process group, not to the program the user is looking at. The dashboard is in
+   that group, so it receives the key that was meant for the logs.
+3. Bubble Tea already has a policy for this. `ReleaseTerminal`, which it calls
+   before running a command, sets its `ignoreSignals` flag, and its own handler
+   drops signals while that flag is set — the program that holds the terminal is
+   the program the interrupt is for. `RestoreTerminal` clears it again.
+4. `tea.WithContext` is not covered by that flag. A cancelled external context
+   ends the event loop wherever it is, and `feat` handed the program the
+   process-wide interrupt context that `main` derives with
+   `signal.NotifyContext`. So Feat had a second signal handler that did not know
+   when the dashboard was not in charge: on a pseudo-terminal, the same program
+   with that context died on the interrupt that left its child, and without it
+   the child died, the program repainted, and the user carried on. That is the
+   defect exactly.
+5. Compose exits 130 when it is interrupted, and the dashboard turned any
+   non-zero exit from a command it ran into an error banner. Leaving the logs
+   therefore also reported a failure — evidence 9's state that cries wolf, in
+   the other adapter.
+6. Ctrl-C typed at the dashboard itself is not a signal at all. Bubble Tea holds
+   the terminal in raw mode, where the key arrives as input and the model
+   already quits on it. The interrupt context was doing nothing for the ordinary
+   path it appeared to serve.
+
+Decisions:
+
+- The dashboard's lifetime is its own. `ui.Run` detaches from the process-wide
+  interrupt context and passes no external context to the program; Bubble Tea's
+  own handling ends it, which is the one place that knows whether the dashboard
+  or a program it lent the terminal to currently owns it. `tea.ErrInterrupted`
+  joins `tea.ErrProgramKilled` as an ordinary shutdown rather than a failure.
+- An exit produced by an interrupt — 130, or the signal itself for a program
+  that installs no handler — is how a user leaves a program the dashboard ran,
+  and is not reported. Any other non-zero exit still is: a diff tool that could
+  not open is something the user needs to know about. It is ADR-034 evidence 9's
+  rule, applied at the client to the same distinction.
+- The health screen keeps its context. It renders and exits, lends the terminal
+  to nothing, and has no child whose interrupt could be mistaken for its own.
+- What this costs is stated rather than hidden: while a child holds the
+  terminal, a `SIGTERM` aimed at Feat waits for that child. The previous
+  behaviour was not better — it tore the dashboard down while another program
+  still had the terminal — and a user who needs the child gone can interrupt it,
+  which is the same key this decision exists to make work.
+
+Consequence: three small changes — the program's context, the exit status a
+command's failure is read from, and a test for each that fails against the
+behaviour it replaced. No stored format, endpoint, or key binding moves. The
+gap this leaves is discoverability: nothing on screen says that the interrupt is
+the way back, which belongs with the deferred dashboard polish rather than here.
+
 ### OQ-001 — Natural-language orchestrator
 
 Should mature natural-language commands be interpreted by a constrained master native agent or by a host-integrated model? Do not decide during v0.
@@ -1694,7 +2738,7 @@ Which remote actions users actually perform on a phone remains a product discove
 
 ### OQ-011 — External/shared database automation
 
-The dogfood project uses pre-existing staging databases. Assignment, migration, seed, and cleanup conventions need project evidence before generalization.
+The dogfood project uses pre-existing staging databases. Assignment, migration, seed, and cleanup conventions need project evidence before generalization. **Resolved: the evidence arrived and says not to generalize. The declaration Feat could not verify is removed and the per-task discriminator stays, see ADR-048.**
 
 ### OQ-012 — Per-process processor resolution on Linux
 
@@ -1710,6 +2754,41 @@ often a task's processor figure is the one a user acts on, rather than the memor
 figure or the attention badge beside it. Decide it against dogfood use, not
 before. Until then the dashboard shows what was measured and the figure is coarse
 rather than wrong, which is the rule ADR-028 set.
+
+### OQ-013 — What the explicit review request earns
+
+The agent protocol is a generated system-prompt section, a generated helper
+script, an outbox, an inbox, message validation, a poller, and a helper that
+blocks on a verdict with its own timeouts and recovery. ADR-032 and ADR-036 built
+it on the rule that an end of turn means idle and never done, and that semantic
+completion needs an explicit act by the agent.
+
+The maintainer's objection, raised while dogfooding slice 13: a user mostly wants
+to know that an agent went idle, and to review a task that changed something.
+Both are observable without the agent's cooperation — Feat already records a
+`GitObservation` per repository — and the explicit message may be paying for
+itself only in the projects that configure a completion gate.
+
+Two things are already clear and neither settles it. Idle plus changed files is
+not a substitute for the message: an agent writes files within minutes and stays
+dirty for the rest of the task, so the condition would be true at every turn
+boundary and would say nothing the idle notification does not. And the gate does
+need an explicit trigger, because a project's test suite cannot run at every
+pause — which makes the gate, rather than the notification, what the protocol is
+actually for.
+
+That points at a narrower question than "keep or remove": whether the protocol
+should be generated at all for a project that configures no checks. There, the
+whole apparatus produces a workflow state, one notification, and the agent's own
+summary in the review record — and the agent's summary is the only part nothing
+else supplies.
+
+The evidence to decide on is the measurement slice 13 already owes: how often the
+agent requested review unprompted, how often the user had to ask for it, how
+often an idle notification was already the moment they would have reviewed, and
+whether a gate ever caught something that would otherwise have been reviewed
+broken. Three real tasks answer all four. Do not decide before them, and do not
+decide the narrow question by removing the general one.
 
 ## Decision change process
 

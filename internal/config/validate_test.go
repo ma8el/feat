@@ -145,18 +145,6 @@ func TestValidationRejectsUnsafeConfiguration(t *testing.T) {
 			old: `  project_name_template: "feat-{project_id}-{task_id}"`, new: `  project_name_template: "Feat/{task_id}"`,
 			path: "runtime.project_name_template", contains: "Docker Compose rejects",
 		},
-		"external resource is also a managed service": {
-			old: "    staging_db:", new: "    worker:",
-			path: "runtime.external_resources.worker", contains: "must not be one it starts",
-		},
-		"external resource is owned by feat": {
-			old: "      lifecycle: external", new: "      lifecycle: managed",
-			path: "runtime.external_resources.staging_db.lifecycle", contains: "never provisions or destroys",
-		},
-		"selector variable is not an environment name": {
-			old: "      selector_variable: FEAT_STAGING_SCHEMA", new: "      selector_variable: 9-schema",
-			path: "runtime.external_resources.staging_db.selector_variable", contains: "environment variable name",
-		},
 		"review command uses an unknown placeholder": {
 			old: `    command: ["git", "diff", "{base_commit}"]`, new: `    command: ["git", "diff", "{base}"]`,
 			path: "review.diff.command[2]", contains: "does not expand",

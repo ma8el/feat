@@ -33,6 +33,11 @@ type drafting struct {
 	// a test can arrange an application that will not start beside an agent
 	// container that is perfectly healthy (ADR-034).
 	runtimes *runtimetest.Docker
+	// notifier stands between this harness and the user's own desktop. Every
+	// arrangement installs one, whatever else it changes, for the reason
+	// launchWith does: a suite that showed a notification for every task it
+	// launched would be a suite nobody could run twice.
+	notifier *fakeNotifier
 	layout   paths.Layout
 	env      paths.Environment
 	now      time.Time
@@ -104,7 +109,8 @@ func arrangeConfigured(t *testing.T, fixture string) *drafting {
 
 	arranged := &drafting{
 		git: fake, tmux: server, docker: docker, runtimes: runtimeDocker(),
-		layout: layout, env: env, now: now,
+		notifier: newFakeNotifier(),
+		layout:   layout, env: env, now: now,
 	}
 
 	instance, err := New(Options{
@@ -126,6 +132,7 @@ func arrangeConfigured(t *testing.T, fixture string) *drafting {
 		// Off. Every runtime test drives the actions itself, and a background
 		// poll would make what a test observes depend on when it looked.
 		RuntimeInterval: -1,
+		Notifier:        arranged.notifier,
 		Logger:          slog.New(slog.DiscardHandler),
 		Now:             func() time.Time { return now },
 	})

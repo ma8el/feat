@@ -155,6 +155,34 @@ func TestErrorResponsesBecomeStatusErrors(t *testing.T) {
 	}
 }
 
+// TestAMissingTerminalSurvivesTheSocket is what the dashboard's empty state
+// depends on.
+//
+// The sentinel the daemon wrapped cannot cross a socket, so the classification
+// travels as a code and is put back together here. A client that lost it would
+// leave the recovery offer to be decided by matching on message text.
+func TestAMissingTerminalSurvivesTheSocket(t *testing.T) {
+	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = fmt.Fprint(w,
+			`{"error":{"code":"terminal_missing","message":"not found: task 7f3a1c2e has no live tagged terminal"}}`)
+	}))
+
+	_, err := caller.TerminalFrame(context.Background(), "7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c",
+		api.TerminalView{Width: 80, Height: 24})
+
+	if !api.IsTerminalMissing(err) {
+		t.Fatalf("error = %v, want it to report a missing terminal", err)
+	}
+	// And an ordinary absence still is not one, or the offer would be made for
+	// every task identifier a user mistypes.
+	other := &StatusError{Status: http.StatusNotFound, Code: api.CodeNotFound, Message: "no task"}
+	if api.IsTerminalMissing(other) {
+		t.Error("a plain not-found was read as a missing terminal")
+	}
+}
+
 // TestErrorWithoutABodyStillExplainsItself covers a failure from something that
 // is not the daemon, such as a proxy or a half-written response.
 func TestErrorWithoutABodyStillExplainsItself(t *testing.T) {
@@ -291,3 +319,41 @@ func TestEventsEndsWithItsContext(t *testing.T) {
 }
 
 func contains(haystack, needle string) bool { return strings.Contains(haystack, needle) }
+
+// TestANoContentReplyIsASuccess is the regression for an error on every
+// keystroke.
+//
+// The terminal input endpoint answers 204, which carries no body. Decoding it
+// anyway reported the empty body as a broken one, so a user typing into a
+// focused pane saw ".../terminal/input: EOF" flash on the screen for every
+// character they typed.
+func TestANoContentReplyIsASuccess(t *testing.T) {
+	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		want := "/v1/tasks/12345678-1234-4234-8234-123456789abc/terminal/input"
+		if r.URL.Path != want {
+			t.Errorf("path = %q, want %q", r.URL.Path, want)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	err := caller.SendTerminalInput(context.Background(), "12345678-1234-4234-8234-123456789abc",
+		api.TerminalInput{Keys: []string{"Enter"}})
+	if err != nil {
+		t.Errorf("a 204 was reported as a failure: %v", err)
+	}
+}
+
+// TestATruncatedReplyIsStillAFailure keeps the fix above from swallowing a
+// response that really was cut short: an empty body is only success where the
+// daemon said there would be no body.
+func TestATruncatedReplyIsStillAFailure(t *testing.T) {
+	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	if _, err := caller.AttachInfo(context.Background(),
+		"12345678-1234-4234-8234-123456789abc"); err == nil {
+		t.Error("an empty 200 was accepted as a decoded response")
+	}
+}

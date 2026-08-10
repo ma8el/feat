@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -96,16 +97,20 @@ func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
 		"feat daemon status": true,
 		"feat daemon run":    true,
 		"feat doctor":        true,
-		"feat attach":        true,
 		"feat project add":   true,
 		"feat project list":  true,
 		"feat project show":  true,
 		"feat implement":     true,
 		"feat task list":     true,
+		// Attaching yields this process's terminal to native tmux, under both
+		// the canonical name and the alias ADR-040 kept at the top level.
+		"feat task attach": true,
+		"feat attach":      true,
 		// Review reaches the daemon and reads the task's worktrees. Invoking it
 		// here would ask the running user's daemon to observe one of their
 		// tasks.
-		"feat review": true,
+		"feat task review": true,
+		"feat review":      true,
 		// The runtime actions reach the daemon and act on one task's Compose
 		// project. Invoking one here would ask the running user's daemon to start
 		// or remove something.
@@ -118,7 +123,7 @@ func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
 		// Cleanup reaches the daemon and resolves one task's resources. Invoking
 		// it here would ask the running user's daemon about one of their tasks,
 		// and answering "yes" to a prompt would remove it.
-		"feat cleanup": true,
+		"feat task cleanup": true,
 	}
 
 	var walk func(cmd *cobra.Command)
@@ -145,4 +150,62 @@ func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
 		}
 	}
 	walk(NewRootCommand(Options{}))
+}
+
+// TestAnAliasIsOneImplementationUnderTwoNames checks ADR-040's rule for the
+// short names it kept at the top level.
+//
+// What it compares is the code pointer behind each command's RunE. An alias is
+// given the canonical command's own function value, so the two agree by
+// construction and this fails the moment somebody gives the alias a body of its
+// own and answers a change to one by editing the other.
+//
+// It deliberately does not call the same constructor twice and compare the
+// results. Two closures over one function literal do not share a code pointer:
+// the compiler inlines the constructor at each call site, which is what
+// `NewRootCommand.newAttachCommand.func4` and `newTaskCommand.newAttachCommand.func2`
+// were before the alias was made a copy instead.
+func TestAnAliasIsOneImplementationUnderTwoNames(t *testing.T) {
+	aliases := map[string]string{
+		"feat attach": "feat task attach",
+		"feat review": "feat task review",
+	}
+
+	commands := map[string]*cobra.Command{}
+	var walk func(cmd *cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		commands[cmd.CommandPath()] = cmd
+		for _, child := range cmd.Commands() {
+			walk(child)
+		}
+	}
+	walk(NewRootCommand(Options{}))
+
+	for name, canonicalName := range aliases {
+		alias, ok := commands[name]
+		if !ok {
+			t.Errorf("%s: no such command", name)
+			continue
+		}
+		canonical, ok := commands[canonicalName]
+		if !ok {
+			t.Errorf("%s: no such command", canonicalName)
+			continue
+		}
+
+		if reflect.ValueOf(alias.RunE).Pointer() != reflect.ValueOf(canonical.RunE).Pointer() {
+			t.Errorf("%s runs a different implementation from %s", name, canonicalName)
+		}
+		if !alias.Hidden {
+			// Hidden keeps `feat --help` equal to the documented surface, which
+			// is the whole reason an alias is allowed to exist (ADR-027).
+			t.Errorf("%s is an alias and is not hidden", name)
+		}
+		if canonical.Hidden {
+			t.Errorf("%s is the canonical command and is hidden", canonicalName)
+		}
+		if !strings.Contains(alias.Long, canonicalName) {
+			t.Errorf("%s does not say in its help that it is %s", name, canonicalName)
+		}
+	}
 }

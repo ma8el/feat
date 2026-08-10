@@ -38,19 +38,24 @@ type runtimeMsg struct {
 }
 
 // openRuntime shows the runtime screen for the task an action applies to.
+//
+// A draft opens it and is told there is nothing there yet, rather than being
+// refused. A tab that declines to open is a tab the cycle cannot pass, and a
+// user whose only task is a draft could otherwise reach neither the tab after it
+// nor the one before.
 func (m Model) openRuntime() (tea.Model, tea.Cmd) {
 	task, ok := m.subject()
 	if !ok {
-		return m, nil
-	}
-	if isDraft(task) {
-		m.status = "task " + task.Key + " is a draft; nothing has been created for it yet"
+		m.screen = screenRuntime
 		return m, nil
 	}
 
 	m.screen = screenRuntime
 	m.selected = task.ID
 	m.runtime = runtimeModel{task: task.ID}
+	if isDraft(task) {
+		return m, nil
+	}
 	// Opening the screen asks what is running. Nothing is started, and nothing
 	// would be: v0 starts application services only when a user asks (FR-RUN-005).
 	return m, m.runtimeAction(api.RuntimeObserve)
@@ -84,7 +89,7 @@ func (m Model) runtimeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key.String() {
 	case "esc":
-		m.screen = screenDetail
+		m.screen = screenTask
 		return m, nil
 
 	case "ctrl+c", "q":
@@ -110,10 +115,18 @@ func (m Model) runtimeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.runtime.confirming = true
 		return m, nil
 
-	case "l":
+	case "o":
+		// Opening the logs was on l until ADR-046 reserved h, j, k, and l for
+		// moving within the main region. Runtime has nothing to move through yet,
+		// so the key was free in practice and reserved in principle — and a rule
+		// with one exception is the thing this dashboard's keys were being fixed
+		// for.
 		return m.runtimeLogs()
 	}
-	return m, nil
+	// Everything this view does not claim is the dashboard's, including `a` and
+	// `s` — which the task panel implements itself and this one had no answer for
+	// at all, so attaching to the agent from the runtime view did nothing.
+	return m.dashboardKey(key)
 }
 
 // startRuntime records what the screen is waiting for and asks for it.
@@ -155,13 +168,23 @@ func (m Model) applyRuntime(message runtimeMsg) (tea.Model, tea.Cmd) {
 	return m, m.load()
 }
 
-// runtimeView renders the runtime screen.
+// runtimeView renders the runtime screen as a whole terminal, which is what the
+// narrow fallback draws when there is no room for the three regions.
 func (m Model) runtimeView() string {
+	if _, ok := m.task(m.selected); !ok {
+		return m.runtimeBody() + m.footer(keyHints(keyHint("esc", "back"), keyHint("q", "quit")))
+	}
+	return m.runtimeBody() + m.footer(runtimeHints())
+}
+
+// runtimeBody renders the runtime tab's content, without a footer: in the
+// three-region layout the frame owns the footer, so a tab that drew its own
+// would put a second one in the middle of the screen.
+func (m Model) runtimeBody() string {
 	task, ok := m.task(m.selected)
 	if !ok {
 		return headingStyle.Render("runtime") + "\n\n" +
-			mutedStyle.Render("this task is no longer listed") +
-			m.footer(keyHints(keyHint("esc", "back"), keyHint("q", "quit")))
+			mutedStyle.Render("this task is no longer listed")
 	}
 
 	var out strings.Builder
@@ -169,6 +192,9 @@ func (m Model) runtimeView() string {
 	out.WriteString(mutedStyle.Render(task.ProjectID+" · "+task.Title) + "\n\n")
 
 	switch {
+	case isDraft(task):
+		out.WriteString(mutedStyle.Render(
+			"this task is still a draft; nothing has been created for it to run") + "\n")
 	case task.Runtime == nil && !m.runtime.loaded:
 		out.WriteString(mutedStyle.Render("reading what is running…") + "\n")
 	case task.Runtime == nil:
@@ -195,16 +221,20 @@ func (m Model) runtimeView() string {
 			"Remove the containers and networks of this task? Volumes are retained.  y to confirm") + "\n")
 	}
 
-	return out.String() + m.footer(keyHints(
+	return out.String()
+}
+
+func runtimeHints() string {
+	return keyHints(
 		keyHint("c", "create"),
 		keyHint("u", "start"),
 		keyHint("t", "stop"),
-		keyHint("l", "logs"),
+		keyHint("o", "logs"),
 		keyHint("d", "destroy"),
 		keyHint("r", "refresh"),
 		keyHint("esc", "back"),
 		keyHint("q", "quit"),
-	))
+	)
 }
 
 // runtimeSummary renders what a task's services are and what they own.
@@ -274,20 +304,6 @@ func (m Model) runtimeSummary(task api.Task) string {
 			mutedStyle.Render("  retained by every destroy") + "\n")
 		for _, volume := range runtime.Volumes {
 			out.WriteString("  " + volume + "\n")
-		}
-	}
-	if len(runtime.External) > 0 {
-		out.WriteString("\n" + headingStyle.Render("external") +
-			mutedStyle.Render("  never created or destroyed by Feat") + "\n")
-		for _, resource := range runtime.External {
-			line := "  " + resource.ID
-			if resource.Kind != "" {
-				line += mutedStyle.Render("  " + resource.Kind)
-			}
-			if resource.Selector != "" {
-				line += "  " + mutedStyle.Render("this task selects "+resource.Selector)
-			}
-			out.WriteString(line + "\n")
 		}
 	}
 	return out.String()

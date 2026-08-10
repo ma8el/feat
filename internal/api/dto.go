@@ -1,6 +1,8 @@
 package api
 
 import (
+	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/ma8el/feat/internal/domain"
@@ -415,9 +417,6 @@ type Runtime struct {
 	// retained resource nobody can see is one nobody will remove.
 	Networks []string `json:"networks"`
 	Volumes  []string `json:"volumes"`
-	// External are the resources the runtime uses and Feat never creates or
-	// destroys, such as a shared staging database.
-	External []ExternalResource `json:"external_resources"`
 	// ComposeFiles, StaticOverrides, EnvFiles, and GeneratedOverridePath are the
 	// exact inputs this runtime was created from, kept so that a later action
 	// reaches the same resources even if the project's configuration has since
@@ -435,19 +434,6 @@ type Port struct {
 	Service       string `json:"service"`
 	ContainerPort int    `json:"container_port"`
 	HostPort      int    `json:"host_port"`
-}
-
-// ExternalResource is a shared resource a task's runtime uses and does not own.
-type ExternalResource struct {
-	ID   string `json:"id"`
-	Kind string `json:"kind,omitempty"`
-	// Lifecycle is always "external" in v0. It is published rather than implied
-	// so that a client can say, in the user's own words, that Feat will never
-	// create or destroy it.
-	Lifecycle string `json:"lifecycle"`
-	// Selector is the generated non-secret value this task uses to pick its
-	// share of the resource.
-	Selector string `json:"selector,omitempty"`
 }
 
 // RuntimeService is one observed service of a task's runtime.
@@ -663,8 +649,6 @@ const (
 	ReviewApprove ReviewAction = "approve"
 	// ReviewRequestChanges sends the work back for revision.
 	ReviewRequestChanges ReviewAction = "changes"
-	// ReviewLeavePending undoes a decision, leaving the review open.
-	ReviewLeavePending ReviewAction = "pending"
 	// ReviewVerify runs the project's configured checks now. It is how a gate
 	// interrupted by a restart is run again, and recovery in Feat is an action a
 	// user takes rather than something that happens on its own.
@@ -672,9 +656,14 @@ const (
 )
 
 // Valid reports whether the action is one Feat performs.
+//
+// There is deliberately no action for leaving a review pending. A review nobody
+// has decided is already pending, so the action was a way of un-deciding, and it
+// moved the review's own copy of the decision without moving the task's — which
+// is how a task came to read approved and pending at once (ADR-047).
 func (a ReviewAction) Valid() bool {
 	switch a {
-	case ReviewObserve, ReviewApprove, ReviewRequestChanges, ReviewLeavePending, ReviewVerify:
+	case ReviewObserve, ReviewApprove, ReviewRequestChanges, ReviewVerify:
 		return true
 	default:
 		return false
@@ -699,11 +688,11 @@ type ReviewStatus struct {
 	Notes []string `json:"notes"`
 }
 
-// Review is a task's review state on the wire.
+// Review is what is known about a task's work on the wire.
+//
+// It carries no decision. The user's decision is the task's workflow state,
+// which travels beside this in every response that holds one (ADR-047).
 type Review struct {
-	// Status is the user's decision so far: pending, approved, or
-	// changes_requested.
-	Status string `json:"status"`
 	// Summary is the agent's own account of what it did, which is a claim.
 	Summary string `json:"summary,omitempty"`
 	// Checks are the results, each attributed to whoever produced it.
@@ -713,8 +702,6 @@ type Review struct {
 	Gated bool `json:"gated"`
 	// RequestedAt is when the agent asked for review, or null if it has not.
 	RequestedAt *time.Time `json:"requested_at"`
-	// DecidedAt is when the user decided, or null while the review is pending.
-	DecidedAt *time.Time `json:"decided_at"`
 }
 
 // ReviewCheck is one check result.
@@ -919,7 +906,7 @@ func NewReviewStatus(result ReviewResult) ReviewStatus {
 
 func newReview(review *domain.Review) Review {
 	if review == nil {
-		return Review{Status: string(domain.ReviewPending), Checks: []ReviewCheck{}}
+		return Review{Checks: []ReviewCheck{}}
 	}
 
 	checks := make([]ReviewCheck, 0, len(review.Checks))
@@ -934,12 +921,10 @@ func newReview(review *domain.Review) Review {
 		})
 	}
 	return Review{
-		Status:      string(review.Status),
 		Summary:     review.CompletionSummary,
 		Checks:      checks,
 		Gated:       review.Gated(),
 		RequestedAt: moment(review.RequestedAt),
-		DecidedAt:   moment(review.DecidedAt),
 	}
 }
 
@@ -1110,15 +1095,6 @@ func newRuntime(runtime *domain.RuntimeEnvironment) *Runtime {
 			HostPort:      port.HostPort,
 		})
 	}
-	external := make([]ExternalResource, 0, len(runtime.ExternalResources))
-	for _, resource := range runtime.ExternalResources {
-		external = append(external, ExternalResource{
-			ID:        resource.ID,
-			Kind:      resource.Kind,
-			Lifecycle: string(resource.Lifecycle),
-			Selector:  resource.Selector,
-		})
-	}
 	return &Runtime{
 		Provider:              runtime.Provider,
 		Identity:              runtime.Identity,
@@ -1128,7 +1104,6 @@ func newRuntime(runtime *domain.RuntimeEnvironment) *Runtime {
 		Health:                string(runtime.Health),
 		Networks:              list(runtime.Networks),
 		Volumes:               list(runtime.Volumes),
-		External:              external,
 		ComposeFiles:          list(runtime.ComposeFiles),
 		StaticOverrides:       list(runtime.StaticOverrides),
 		EnvFiles:              list(runtime.EnvFiles),
@@ -1144,4 +1119,136 @@ func list(values []string) []string {
 		return []string{}
 	}
 	return values
+}
+
+// Terminal input and rendering bounds.
+//
+// Every one of these is a limit on what a client may ask the daemon to do to an
+// agent's terminal. Sending keys is a write, so the request is bounded rather
+// than trusted, which is the rule the control workspace already follows for
+// every message it accepts.
+const (
+	// MaxTerminalText is the most typed text one request may paste. It is
+	// generous enough for a brief pasted into a prompt and far short of what
+	// would make a tmux buffer a memory question.
+	MaxTerminalText = 32 << 10
+	// MaxTerminalKeys is the most key names one request may send.
+	MaxTerminalKeys = 32
+	// MaxTerminalKeyName bounds one tmux key name, the longest of which are
+	// modifier-prefixed function keys.
+	MaxTerminalKeyName = 16
+	// MaxTerminalSize bounds a requested pane size in cells.
+	MaxTerminalSize = 1000
+)
+
+// terminalKeyName is the shape of a tmux key name: Enter, Escape, Up, F12,
+// C-c, M-x, S-Up.
+//
+// A name is matched rather than passed through, so that a value arriving over
+// the socket cannot become anything tmux would read as a flag or a second
+// argument. The adapter also passes keys after a terminator; this is the check
+// that does not depend on that one.
+var terminalKeyName = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
+
+// TerminalView asks for one rendered frame of a task's pane.
+//
+// The size is the region the caller will draw into. The daemon sets the pane to
+// it before capturing, because a program wraps its own output and would
+// otherwise wrap at a width the display does not have.
+type TerminalView struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+	// Shell asks for the task's shell pane rather than the agent's.
+	Shell bool `json:"shell,omitempty"`
+}
+
+// Validate reports whether the requested size is one the daemon will set.
+func (v TerminalView) Validate() error {
+	if v.Width <= 0 || v.Height <= 0 {
+		return fmt.Errorf("%w: a terminal view needs a positive width and height, but got %dx%d",
+			ErrInvalid, v.Width, v.Height)
+	}
+	if v.Width > MaxTerminalSize || v.Height > MaxTerminalSize {
+		return fmt.Errorf("%w: a terminal view of %dx%d is larger than the %d cells Feat will set",
+			ErrInvalid, v.Width, v.Height, MaxTerminalSize)
+	}
+	return nil
+}
+
+// TerminalFrame is one pane as tmux has already rendered it.
+//
+// Content carries the escape sequences tmux emitted. Feat draws them and reads
+// nothing out of them but their width: no task, agent, attention, or workflow
+// state is derived from a terminal's contents, which remains what provider hooks
+// report (ADR-042).
+type TerminalFrame struct {
+	// Width and Height are the window's size in cells: the rectangle the panes
+	// below tile between them.
+	Width  int `json:"width"`
+	Height int `json:"height"`
+	// Panes are every pane of the task's window, each with the place it occupies.
+	//
+	// A window rather than a pane, because a pane is not what a user sees. A task
+	// window holds the agent and, once one exists, a shell beside it, and drawing
+	// one of them into a region sized for both leaves half of it empty.
+	Panes []TerminalPane `json:"panes"`
+}
+
+// TerminalPane is one pane of a window, with the place it occupies in it.
+type TerminalPane struct {
+	Pane    string   `json:"pane"`
+	Left    int      `json:"left"`
+	Top     int      `json:"top"`
+	Width   int      `json:"width"`
+	Height  int      `json:"height"`
+	CursorX int      `json:"cursor_x"`
+	CursorY int      `json:"cursor_y"`
+	Content []string `json:"content"`
+	// Active reports the pane tmux would send a key to.
+	Active bool `json:"active,omitempty"`
+	// Dead reports a pane whose program has exited and which tmux is retaining,
+	// which is a terminal to explain rather than one to keep redrawing.
+	Dead bool `json:"dead,omitempty"`
+}
+
+// TerminalInput is what a user typed into a focused pane.
+//
+// Keys and text are separate because tmux delivers them differently: a key name
+// goes through send-keys, and text goes through a bracketed paste so that the
+// application reading it cannot take a trailing newline as a submission the user
+// did not make.
+type TerminalInput struct {
+	Keys []string `json:"keys,omitempty"`
+	Text string   `json:"text,omitempty"`
+	// Paste asks for the text to arrive as a paste rather than as typing.
+	//
+	// The difference is visible to the program receiving it: an application that
+	// has enabled bracketed paste mode is told which one this was, and may insert
+	// a paste without running what a typed character runs. A keystroke is
+	// therefore not a paste, and sending one as a paste made ordinary keys
+	// behave oddly.
+	Paste bool `json:"paste,omitempty"`
+	// Shell directs the input at the task's shell pane rather than the agent's.
+	Shell bool `json:"shell,omitempty"`
+}
+
+// Validate reports whether this is input the daemon will deliver.
+func (i TerminalInput) Validate() error {
+	if len(i.Keys) == 0 && i.Text == "" {
+		return fmt.Errorf("%w: terminal input carries neither keys nor text", ErrInvalid)
+	}
+	if len(i.Keys) > MaxTerminalKeys {
+		return fmt.Errorf("%w: %d keys in one request is more than the %d Feat sends",
+			ErrInvalid, len(i.Keys), MaxTerminalKeys)
+	}
+	for _, key := range i.Keys {
+		if len(key) > MaxTerminalKeyName || !terminalKeyName.MatchString(key) {
+			return fmt.Errorf("%w: %q is not a tmux key name", ErrInvalid, key)
+		}
+	}
+	if len(i.Text) > MaxTerminalText {
+		return fmt.Errorf("%w: %d bytes of text is more than the %d Feat pastes at once",
+			ErrInvalid, len(i.Text), MaxTerminalText)
+	}
+	return nil
 }

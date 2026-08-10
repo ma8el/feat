@@ -66,28 +66,22 @@ func TestVerificationIsShownAsAClaimRatherThanAResult(t *testing.T) {
 	}
 
 	model := dashboard(newFakeBackend(), reported)
-	list := model.View()
-	if !strings.Contains(list, "2/3") {
-		t.Errorf("the task list does not show the reported counts:\n%s", list)
-	}
-	if !strings.Contains(list, "~") {
-		t.Errorf("the task list does not mark the result as the agent's claim:\n%s", list)
-	}
-
 	model.selected = reported.ID
-	model.screen = screenDetail
-	detail := model.View()
+	model.screen = screenTask
+	panel := model.taskPanel()
 
 	for _, want := range []string{"2 passed", "1 failed", "reported by the agent", "one test still fails"} {
-		if !strings.Contains(detail, want) {
-			t.Errorf("the detail view does not show %q:\n%s", want, detail)
+		if !strings.Contains(panel, want) {
+			t.Errorf("the task panel does not show %q:\n%s", want, panel)
 		}
 	}
 
-	// A task whose agent has reported nothing shows nothing, rather than a row
+	// A task whose agent has reported nothing shows nothing, rather than a count
 	// of zeroes claiming that nothing failed.
-	silent := dashboard(newFakeBackend(), liveTask()).View()
-	if strings.Contains(silent, "0/0") {
+	quiet := dashboard(newFakeBackend(), liveTask())
+	quiet.selected = liveTask().ID
+	if silent := quiet.taskPanel(); strings.Contains(silent, "0/0") ||
+		strings.Contains(silent, "0 passed") {
 		t.Errorf("a task that reported no checks was rendered as having run zero:\n%s", silent)
 	}
 }
@@ -116,55 +110,18 @@ func dashboard(backend *fakeBackend, tasks ...api.Task) Model {
 	return updated.(Model)
 }
 
-// TestTheTaskListShowsTheRequiredV0Fields is the slice 6 acceptance criterion
-// at the dashboard.
-//
-// FR-UI-002 requires eleven fields in a task row. Verification state is the one
-// this build still cannot fill, and it appears as absent rather than as a value
-// nothing measured. Resource usage is slice 10's and is filled here from a
-// sample, which a separate test covers; this one runs against a dashboard that
-// has not sampled yet, which is the state of every session's first seconds.
-func TestTheTaskListShowsTheRequiredV0Fields(t *testing.T) {
-	model := dashboard(newFakeBackend(), liveTask())
-	view := model.View()
-
-	for field, want := range map[string]string{
-		"task identifier":  "7f3a1c2e",
-		"title":            "Add a scheduled export job",
-		"repositories":     "core",
-		"read-only marker": "schema (ro)",
-		"workflow":         "working",
-		"agent state":      "running",
-		"attention":        "possibly waiting",
-		"runtime":          "absent",
-		"changed files":    "7",
-		"elapsed":          "1h30m",
-	} {
-		if !strings.Contains(view, want) {
-			t.Errorf("the task row does not show the %s %q:\n%s", field, want, view)
-		}
-	}
-
-	// Every required column has a heading, including the two nothing fills.
-	for _, heading := range []string{"CHECKS", "RESOURCES"} {
-		if !strings.Contains(view, heading) {
-			t.Errorf("the task list has no %s column:\n%s", heading, view)
-		}
-	}
-	if !strings.Contains(view, absent) {
-		t.Errorf("no unmeasured field is marked as absent:\n%s", view)
-	}
-}
-
-// TestTheDetailViewNamesTheSlicesItIsWaitingOn checks the honesty rule: a field
+// TestTheTaskPanelNamesTheSlicesItIsWaitingOn checks the honesty rule: a field
 // this build cannot fill says which slice fills it, rather than showing nothing
 // and leaving the user to guess.
-func TestTheDetailViewNamesTheSlicesItIsWaitingOn(t *testing.T) {
+//
+// It reads the panel rather than a rendered region, because the panel is taller
+// than any region and what a region shows depends on where the user scrolled to.
+func TestTheTaskPanelNamesTheSlicesItIsWaitingOn(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask())
 	model.selected = liveTask().ID
-	model.screen = screenDetail
+	model.screen = screenTask
 
-	view := model.View()
+	view := model.taskPanel()
 	for _, want := range []string{
 		// FR-UI-003's required content.
 		"Export the daily report", "core", "origin/main", "1a2b3c4d5e6f",
@@ -176,35 +133,35 @@ func TestTheDetailViewNamesTheSlicesItIsWaitingOn(t *testing.T) {
 		"slice 11",
 	} {
 		if !strings.Contains(view, want) {
-			t.Errorf("the detail view does not show %q:\n%s", want, view)
+			t.Errorf("the task panel does not show %q:\n%s", want, view)
 		}
 	}
 	// The slices that have been delivered stop being named. A screen that still
 	// promised one would be telling the user to wait for something they have.
 	for _, delivered := range []string{"slice 7", "slice 8", "slice 10"} {
 		if strings.Contains(view, delivered) {
-			t.Errorf("the detail view still names %q, which has been delivered:\n%s", delivered, view)
+			t.Errorf("the task panel still names %q, which has been delivered:\n%s", delivered, view)
 		}
 	}
 }
 
-// TestTheDetailViewShowsWhereTheAgentRuns checks that a containerised session
+// TestTheTaskPanelShowsWhereTheAgentRuns checks that a containerised session
 // says so, and says enough to be acted on.
 //
 // The identity is what a user needs to inspect or clean up the container
 // themselves; the user is the boundary the security model describes, and a
 // boundary nobody can see is one nobody can check.
-func TestTheDetailViewShowsWhereTheAgentRuns(t *testing.T) {
+func TestTheTaskPanelShowsWhereTheAgentRuns(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask())
 	model.selected = liveTask().ID
-	model.screen = screenDetail
+	model.screen = screenTask
 
-	view := model.View()
+	view := model.taskPanel()
 	for _, want := range []string{
 		"feat-agent-example-7f3a1c2e", "dev", "coder", "no Docker access", "container_name",
 	} {
 		if !strings.Contains(view, want) {
-			t.Errorf("the detail view does not show %q:\n%s", want, view)
+			t.Errorf("the task panel does not show %q:\n%s", want, view)
 		}
 	}
 }
@@ -216,7 +173,7 @@ func TestTheDetailViewShowsWhereTheAgentRuns(t *testing.T) {
 // and no terminal.
 func TestADraftIsDistinguishableFromALaunchedTask(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask(), pendingDraft())
-	view := model.View()
+	view := content(model)
 
 	if !strings.Contains(view, "draft") {
 		t.Errorf("the draft's workflow state is not shown:\n%s", view)
@@ -233,7 +190,7 @@ func TestArchivedTasksAreCountedNotListed(t *testing.T) {
 	cancelled.Workflow = "archived"
 
 	model := dashboard(newFakeBackend(), liveTask(), cancelled)
-	view := model.View()
+	view := content(model)
 
 	if strings.Contains(view, cancelled.Key) {
 		t.Errorf("an archived task is listed:\n%s", view)
@@ -323,7 +280,7 @@ func TestOnlyADraftIsCancelledFromTheDashboard(t *testing.T) {
 // TestAnEmptyDashboardSaysWhatToDo checks the quality bar for a first run.
 func TestAnEmptyDashboardSaysWhatToDo(t *testing.T) {
 	model := dashboard(newFakeBackend())
-	view := model.View()
+	view := content(model)
 
 	if !strings.Contains(view, "feat implement") {
 		t.Errorf("an empty dashboard does not say how to create a task:\n%s", view)
@@ -338,7 +295,7 @@ func TestAFailedReadIsReportedRatherThanFatal(t *testing.T) {
 	updated, _ := model.Update(tasksMsg{err: errTest})
 	model = updated.(Model)
 
-	view := model.View()
+	view := content(model)
 	if !strings.Contains(view, errTest.Error()) {
 		t.Errorf("the failure is not reported:\n%s", view)
 	}

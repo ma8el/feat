@@ -72,11 +72,6 @@ runtime:
   services:
     - app
     - worker
-  external_resources:
-    staging_db:
-      type: postgres
-      lifecycle: external
-      selector_variable: FEAT_STAGING_SCHEMA
 
 review:
   diff:

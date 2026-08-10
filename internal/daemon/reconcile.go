@@ -140,7 +140,7 @@ func (s *service) reconcileTerminals(ctx context.Context, tasks []*domain.Task, 
 			Class: reconcile.ClassTerminal, Status: reconcile.StatusDamaged,
 			Project: damaged.Project, Task: damaged.Task, Identity: damaged.ID,
 			Detail: damaged.Reason,
-			Action: "attach to the tmux server to look at it, or remove the task's terminal with `feat cleanup`. " +
+			Action: "attach to the tmux server to look at it, or remove the task's terminal with `feat task cleanup`. " +
 				"Other tasks are unaffected",
 		})
 	}
@@ -225,22 +225,15 @@ func (s *service) reconcileTerminal(
 				Class: reconcile.ClassTerminal, Status: reconcile.StatusMissing,
 				Project: current.ProjectID, Task: current.ID,
 				Detail: "the task was confirmed but has no terminal",
-				Action: "launch it again from the dashboard, or clean it up",
+				Action: "clean it up and prepare the task again; its agent never ran, so nothing " +
+					"it did is lost. Feat has no way to launch a confirmed task a second time",
 			})
 			return nil
 		}
-		from := current.Session.Process
-		if from != domain.ProcessStopped {
-			if err := current.Session.Observe(domain.ProcessStopped, s.now()); err != nil {
+		if current.Session.Process != domain.ProcessStopped {
+			if err := s.markTerminalGone(ctx, current); err != nil {
 				return err
 			}
-			if err := s.store.Tasks().Save(ctx, current); err != nil {
-				return err
-			}
-			s.record(ctx, current, domain.Event{
-				Type: domain.EventReconciled, From: string(from), To: string(domain.ProcessStopped),
-				Detail: "the recorded tmux terminal was not found; it was not restarted",
-			})
 		}
 		report.Add(reconcile.Finding{
 			Class: reconcile.ClassTerminal, Status: reconcile.StatusMissing,
@@ -302,17 +295,46 @@ func (s *service) reconcileTerminal(
 	return nil
 }
 
+// markTerminalGone records that a task's terminal is not on the machine.
+//
+// It is the one place that writes this observation, because two callers make it
+// and they must not describe it differently: a reconciliation pass that found
+// nothing where the record said, and a resume that asked tmux the same question
+// before acting on the answer. Nothing is restarted here — what the caller does
+// next is the caller's, and only one of them does anything at all.
+func (s *service) markTerminalGone(ctx context.Context, task *domain.Task) error {
+	from := task.Session.Process
+	if err := task.Session.Observe(domain.ProcessStopped, s.now()); err != nil {
+		return err
+	}
+	if err := s.store.Tasks().Save(ctx, task); err != nil {
+		return err
+	}
+	s.record(ctx, task, domain.Event{
+		Type: domain.EventReconciled, From: string(from), To: string(domain.ProcessStopped),
+		Detail: "the recorded tmux terminal was not found; it was not restarted",
+	})
+	return nil
+}
+
 // resumeAction describes the recovery a dead session is eligible for.
 //
 // Recovery is offered and never performed: a report that restarted what it
 // found would be deciding for the user, and ADR-032 deferred the decision here
 // precisely so that it could be made once for every resource class.
+//
+// An action names something a user can actually do. The no-session branch used
+// to say "start the task again from the dashboard", and there is no such
+// command: `feat task` offers attach, cleanup, list, and review, and nothing
+// launches a task that is past draft. What is true is that a task with no
+// recorded session has never held an agent conversation, so cleaning it up and
+// preparing another loses nothing but the brief.
 func (s *service) resumeAction(task *domain.Task) string {
 	if task.Session == nil || task.Session.ProviderSessionID == "" {
-		return "start the task again from the dashboard, or clean it up. " +
-			"Feat recorded no provider session to continue, so a new session would start empty"
+		return "clean it up and prepare the task again. Feat recorded no provider session to " +
+			"continue, which also means no agent ever reported working in this one"
 	}
-	return "resume it from the task detail, which continues the recorded " + task.Session.Provider +
+	return "resume it with z in the dashboard, which continues the recorded " + task.Session.Provider +
 		" session rather than starting an empty one. Feat does not restart it on its own"
 }
 
@@ -366,7 +388,7 @@ func (s *service) reconcileWorktrees(ctx context.Context, tasks []*domain.Task, 
 					Class: reconcile.ClassWorktrees, Status: reconcile.StatusMissing,
 					Project: task.ProjectID, Task: task.ID, Identity: binding.WorktreePath,
 					Detail: "the worktree of " + binding.RepositoryID.String() + " is gone",
-					Action: "the task's branch and its record are still here; `feat cleanup` can tidy them",
+					Action: "the task's branch and its record are still here; `feat task cleanup` can tidy them",
 				})
 			default:
 				report.Fail(reconcile.Problem{Class: reconcile.ClassWorktrees, Project: task.ProjectID, Task: task.ID,
@@ -570,7 +592,7 @@ func (s *service) reconcileRuntimes(ctx context.Context, tasks []*domain.Task, r
 		case domain.RuntimeStopped, domain.RuntimeFailed, domain.RuntimeDegraded:
 			status = reconcile.StatusInconsistent
 			detail = "the application services are " + string(state) + "; Feat did not restart them"
-			action = "start them from the dashboard when you want them, or remove them with `feat cleanup`"
+			action = "start them from the dashboard when you want them, or remove them with `feat task cleanup`"
 		case domain.RuntimeAbsent:
 			status = reconcile.StatusMissing
 			detail = "the recorded application Compose project has no containers"

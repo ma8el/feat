@@ -109,14 +109,6 @@
     ],
     "state": "running",
     "health": "healthy",
-    "external_resources": [
-      {
-        "id": "reporting-store",
-        "kind": "postgres",
-        "lifecycle": "external",
-        "selector": "example_7f3a1c2e"
-      }
-    ],
     "observed_at": "2026-08-04T09:56:00Z"
   }
 }

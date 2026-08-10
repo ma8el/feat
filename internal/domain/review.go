@@ -2,18 +2,22 @@ package domain
 
 import "time"
 
-// Review is the review state of one task.
+// Review is the evidence about one task's work: what changed, what the agent
+// claimed about it, and what the checks found.
 //
 // It is a task-level aggregate of repository-level comparisons: every changed
 // repository is compared against its own recorded base commit (FR-REV-001),
 // which is why the base is recorded here as well as on the binding. A review
 // that outlives a rebase, a branch move, or a configuration edit still knows
 // what it was reviewing.
+//
+// What it deliberately does not hold is the user's decision. That is the task's
+// workflow state, which is the only record of it: an aggregate carrying its own
+// copy was a second answer to one question, and the two could disagree
+// (ADR-047).
 type Review struct {
 	// TaskID is the task under review.
 	TaskID TaskID
-	// Status is the user's decision so far.
-	Status ReviewStatus
 	// Repositories are the per-repository change summaries.
 	Repositories []RepositoryChange
 	// CompletionSummary is what the agent reported when it requested review. It
@@ -24,36 +28,8 @@ type Review struct {
 	// RequestedAt is when the agent requested review, or the zero time if it
 	// has not.
 	RequestedAt time.Time
-	// DecidedAt is when the user approved or requested changes, or the zero
-	// time while the review is pending.
-	DecidedAt time.Time
 	// UpdatedAt is when the snapshot last changed.
 	UpdatedAt time.Time
-}
-
-// ReviewStatus is the user's review decision.
-type ReviewStatus string
-
-// Review statuses. They mirror the decisions in FR-REV-004: leave pending,
-// approve, or send back for revision.
-const (
-	// ReviewPending is a review the user has not decided.
-	ReviewPending ReviewStatus = "pending"
-	// ReviewApproved is an approved task. Approval never stops or destroys a
-	// runtime by itself.
-	ReviewApproved ReviewStatus = "approved"
-	// ReviewChangesRequested is a task the user sent back for revision.
-	ReviewChangesRequested ReviewStatus = "changes_requested"
-)
-
-// Valid reports whether the status is documented.
-func (s ReviewStatus) Valid() bool {
-	switch s {
-	case ReviewPending, ReviewApproved, ReviewChangesRequested:
-		return true
-	default:
-		return false
-	}
 }
 
 // RepositoryChange summarises one repository's changes against its recorded
@@ -153,11 +129,10 @@ type Check struct {
 // reason usually is, and small enough that a review document stays a document.
 const MaxCheckDetail = 4 << 10
 
-// NewReview creates a pending review for a task.
+// NewReview creates an empty review for a task.
 func NewReview(task TaskID, now time.Time) (*Review, error) {
 	review := &Review{
 		TaskID:    task,
-		Status:    ReviewPending,
 		UpdatedAt: normalizeTime(now),
 	}
 	if err := review.Validate(); err != nil {
@@ -287,26 +262,6 @@ func (r *Review) SummarizeRepository(change RepositoryChange, now time.Time) err
 	return nil
 }
 
-// Decide records the user's review decision.
-func (r *Review) Decide(status ReviewStatus, now time.Time) error {
-	if !status.Valid() {
-		return &ValidationError{
-			Entity: "review",
-			ID:     r.TaskID.String(),
-			Field:  "status",
-			Reason: "must be a documented review status, but is " + quote(string(status)),
-		}
-	}
-	r.Status = status
-	if status == ReviewPending {
-		r.DecidedAt = time.Time{}
-	} else {
-		r.DecidedAt = normalizeTime(now)
-	}
-	r.UpdatedAt = normalizeTime(now)
-	return nil
-}
-
 // Repository returns the summary recorded for one repository.
 func (r *Review) Repository(id RepositoryID) (RepositoryChange, bool) {
 	for _, change := range r.Repositories {
@@ -321,14 +276,6 @@ func (r *Review) Repository(id RepositoryID) (RepositoryChange, bool) {
 func (r *Review) Validate() error {
 	if err := r.TaskID.Validate(); err != nil {
 		return err
-	}
-	if !r.Status.Valid() {
-		return &ValidationError{
-			Entity: "review",
-			ID:     r.TaskID.String(),
-			Field:  "status",
-			Reason: "must be a documented review status, but is " + quote(string(r.Status)),
-		}
 	}
 	if r.UpdatedAt.IsZero() {
 		return &ValidationError{Entity: "review", ID: r.TaskID.String(), Field: "updated_at", Reason: "must be set"}
