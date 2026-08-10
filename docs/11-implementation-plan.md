@@ -1508,6 +1508,32 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   The dashboard's lifetime becomes its own, and an exit produced by an interrupt
   stops being reported as a failure — leaving the logs was raising an error
   banner for a key the user meant to press. See ADR-049.
+- Reconcile the agent's execution environment against the session that owns it,
+  so that the recovery reconciliation recommends is one resume will accept. A
+  devcontainer that dies leaves its task with no route back. `reconcileTerminals`
+  marks a process stopped only when the *terminal* is missing, and a tmux window
+  outlives the container it ran a command in; `reconcileEnvironments` observes
+  the container and records what it saw on the execution record without touching
+  the session's process state. So the record goes on claiming a running agent
+  indefinitely, and the same pass produces both halves of a contradiction: the
+  finding says "the agent container exists and is Exited (137); Feat did not
+  restart it — resume the task to start it again", and `resumable` then refuses
+  that resume with "the agent session of task X is running in a terminal that is
+  still there, so there is nothing to resume. Attach to it instead". The only way
+  out today is to kill the task's tmux window by hand on Feat's own socket.
+
+  Found by the maintainer while dogfooding the control-workspace fix: a
+  jobharbor-dev task's devcontainer exited 137 and nothing in the product would
+  bring it back. It is worth stating in the same change that a devcontainer has
+  no lifecycle of its own — it comes up as part of a launch or a resume and
+  nowhere else — because the first thing a user reaches for is a verb that starts
+  it, and `runtime` is the application's, not the agent's.
+
+  This is not the automatic restart FR-STATE-004 forbids. Reconciliation should
+  still report rather than repair; what has to change is the record it leaves,
+  because a session whose container is gone is not running, and saying so is what
+  makes the recovery it already recommends available to the user it recommends
+  it to.
 - Remove hard-coded assumptions discovered during dogfood.
 
 ### Acceptance criteria
@@ -1519,6 +1545,9 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   a reason a user would recognise.
 - A task can be named by what a user can see, and a name that matches two tasks
   is reported rather than resolved to either.
+- A task whose agent container died can be recovered from the product, without
+  reaching for tmux: what reconciliation reports about it and what resume will
+  accept agree.
 - Every command that takes a task can be found from `feat task --help`, no alias
   carries a second implementation, and the golden file, the specification, and
   `feat --help` describe the same surface.

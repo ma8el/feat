@@ -91,6 +91,15 @@ const (
 	// publishes it, and a notification that notified about itself would be a loop
 	// at the speed of the event bus.
 	EventNotificationSent EventType = "notification_sent"
+	// EventControlRefused records that a message the agent wrote was refused,
+	// and why.
+	//
+	// It exists because a refusal is the agent's own account of what it tried,
+	// and the only other record of it is a line in the daemon's log. A user
+	// whose agent asked for a capability Feat grants to nobody should be able to
+	// see that it asked and that Feat said no, on the task it happened to,
+	// rather than by reading the log of a background process.
+	EventControlRefused EventType = "control_message_refused"
 	// EventCleanedUp records that a cleanup removed one class of the resources a
 	// task owned, or failed part way through removing it.
 	//
@@ -107,7 +116,7 @@ func (t EventType) Valid() bool {
 	case EventTaskCreated, EventTaskUpdated, EventWorkflowChanged, EventAttentionChanged,
 		EventRepositoryObserved, EventProcessChanged, EventRuntimeChanged,
 		EventReviewChanged, EventExecutionChanged, EventReconciled, EventNotificationSent,
-		EventCleanedUp:
+		EventControlRefused, EventCleanedUp:
 		return true
 	default:
 		return false

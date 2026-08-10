@@ -427,7 +427,7 @@ func manualReport(t *testing.T, service *service, task *domain.Task) {
 		return
 	}
 	report, err := environment.Inspect(context.Background(),
-		[]string{"/feat"})
+		[]string{"/feat/outbox", "/feat/reports"})
 	if err != nil {
 		fmt.Printf("  the container could not be inspected: %v\n", err)
 		return

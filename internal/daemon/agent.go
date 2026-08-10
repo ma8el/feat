@@ -342,7 +342,9 @@ func describeReport(event agent.Event) string {
 // and only then allowed to change anything. A message that fails any of those
 // steps is recorded as seen and refused, so it is neither applied nor offered
 // again: an agent that wrote a malformed document should be told once rather
-// than have Feat retry it for ever.
+// than have Feat retry it for ever. Being told once is also what the user gets
+// — every refusal Feat concluded is recorded on the task, because a decision
+// announced only to a log file is a decision nobody made.
 func (s *service) deliverControl(ctx context.Context, task *domain.Task) error {
 	// One task's records are changed by one goroutine at a time. A completion
 	// gate runs in the background for as long as a test suite takes, and a
@@ -359,15 +361,26 @@ func (s *service) deliverControl(ctx context.Context, task *domain.Task) error {
 		return err
 	}
 
+	var failures []error
 	for _, rejection := range rejected {
 		s.logger.WarnContext(ctx, "refusing a control message",
 			slog.String("task", task.ID.String()), slog.Any("error", rejection))
-	}
-	if len(messages) == 0 {
-		return nil
+		if !rejection.Final {
+			// Reading it failed for a reason of Feat's own rather than the
+			// agent's, so the next poll tries again instead of recording a
+			// judgement nobody made.
+			continue
+		}
+		// The refusal reaches the user here rather than only the log. An agent
+		// that asked for a capability Feat grants to nobody is a thing its
+		// author should be able to see on the task it happened to.
+		s.record(ctx, task, domain.Event{Type: domain.EventControlRefused, Detail: rejection.Error()})
+		if err := workspace.MarkRefused(rejection); err != nil {
+			failures = append(failures,
+				fmt.Errorf("recording the refusal of %s for task %s: %w", rejection.File, task.ID, err))
+		}
 	}
 
-	var failures []error
 	for _, message := range messages {
 		event, applicable, err := s.agent.ParseEvent(ctx, message)
 		if err != nil {

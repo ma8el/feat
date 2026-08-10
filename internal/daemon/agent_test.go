@@ -518,6 +518,82 @@ func TestDuplicateMalformedAndOutOfTaskMessagesDoNotTransition(t *testing.T) {
 	}
 }
 
+// TestARefusedMessageIsSettledAndToldToTheUser covers what happens to a message
+// the protocol refuses, which until now was nothing.
+//
+// Two things were wrong with that. The file stayed in the outbox and was
+// re-read, re-refused, and re-logged on every poll — a quarter of a million log
+// lines a day for one bad document — and the refusal reached nobody: Feat
+// declining a capability the agent asked for was announced only to the log of a
+// background process. A refusal is now recorded on the task, once, and never
+// judged again.
+func TestARefusedMessageIsSettledAndToldToTheUser(t *testing.T) {
+	live := launch(t, hostFixture, installed(), false)
+	live.start(t)
+
+	// The capability no agent is granted, and a document claiming to be from
+	// another task: one refused for what it asked for, one for what it is.
+	live.write(t, control.TypeRuntimeRequested, `{"services":["db"]}`)
+	workspace := live.workspace(t)
+	foreign := `{"schema_version":1,"id":"from-elsewhere","task_id":"` + domain.NewTaskID().String() +
+		`","type":"review_requested","occurred_at":"2026-08-05T11:00:00Z","payload":{}}`
+	if err := os.WriteFile(filepath.Join(workspace.OutboxDir(), "foreign.json"), []byte(foreign), 0o600); err != nil {
+		t.Fatalf("writing the foreign document: %v", err)
+	}
+
+	live.deliver(t)
+
+	refusals := live.refusals(t)
+	if len(refusals) != 2 {
+		t.Fatalf("refusals recorded on the task = %d, want 2: %v", len(refusals), refusals)
+	}
+	var told bool
+	for _, detail := range refusals {
+		if strings.Contains(detail, "runtime_control") && strings.Contains(detail, "inert until the host") {
+			told = true
+		}
+	}
+	if !told {
+		t.Errorf("refusals = %v, want one naming the capability Feat declined and why", refusals)
+	}
+
+	// Every further poll of the same outbox says nothing, because both entries
+	// are settled — and they are still there, which is what makes the outbox the
+	// account of what the agent sent.
+	for range 3 {
+		live.deliver(t)
+	}
+	if again := live.refusals(t); len(again) != len(refusals) {
+		t.Errorf("refusals after three more polls = %d, want %d: a settled message was judged again",
+			len(again), len(refusals))
+	}
+	entries, err := os.ReadDir(workspace.OutboxDir())
+	if err != nil {
+		t.Fatalf("reading the outbox: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Errorf("the outbox holds %d entries, want 3: the session start, the runtime request, and the "+
+			"foreign document", len(entries))
+	}
+}
+
+// refusals returns the detail of every control refusal recorded on the task.
+func (s *session) refusals(t *testing.T) []string {
+	t.Helper()
+
+	log, err := s.service.store.Events().Replay(context.Background(), s.ref)
+	if err != nil {
+		t.Fatalf("replaying the task's events: %v", err)
+	}
+	var details []string
+	for _, event := range log.Events {
+		if event.Type == domain.EventControlRefused {
+			details = append(details, event.Detail)
+		}
+	}
+	return details
+}
+
 // TestReviewRequestIsExplicitAndDistinguishableFromIdle is the fifth slice 7
 // acceptance criterion, and it is the shape a "Stop means complete" defect
 // would take.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/ma8el/feat/internal/agent"
@@ -164,12 +165,53 @@ func taskMounts(cfg *config.Config, task *domain.Task, workspace *control.Worksp
 		})
 	}
 
-	mounts = append(mounts, execution.Mount{
+	mounts = append(mounts, controlMounts(cfg, workspace)...)
+	return mounts, nil
+}
+
+// controlMounts is the control workspace, mounted the way its own layout is
+// split.
+//
+// The tree is read-only: task.md, context/, and inbox/ are host-written and
+// agent-read, and agent/ is host-only — it holds the hooks the provider adapter
+// generated and the record of which messages have been applied, which is what
+// makes deduplication something the agent cannot reach (ADR-032, and the layout
+// docs/06-technical-architecture.md describes). Only the two directories the
+// agent reports through are writable.
+//
+// They are mounted over the tree rather than beside it. Compose merges a
+// service's volumes by target, and a nested target is a different target, so
+// what a container gets is the read-only workspace with two writable
+// directories inside it.
+func controlMounts(cfg *config.Config, workspace *control.Workspace) []execution.Mount {
+	mounts := []execution.Mount{{
 		Source:      workspace.Root(),
 		Target:      cfg.Agent.Execution.ControlPath,
-		Description: "the task control workspace",
-	})
-	return mounts, nil
+		ReadOnly:    true,
+		Description: "the task control workspace, read-only",
+	}}
+	for _, name := range control.AgentWritable() {
+		mounts = append(mounts, execution.Mount{
+			Source:      filepath.Join(workspace.Root(), name),
+			Target:      path.Join(cfg.Agent.Execution.ControlPath, name),
+			Description: "the control workspace " + name + ", which is the agent's to write",
+		})
+	}
+	return mounts
+}
+
+// controlWritable is what a launch must prove the agent can write to inside the
+// control workspace, as the agent sees it.
+//
+// It is the same two directories controlMounts makes writable, because proving
+// the workspace root writable would now be proving the opposite of what Feat
+// asks for.
+func controlWritable(cfg *config.Config) []string {
+	writable := make([]string, 0, len(control.AgentWritable()))
+	for _, name := range control.AgentWritable() {
+		writable = append(writable, path.Join(cfg.Agent.Execution.ControlPath, name))
+	}
+	return writable
 }
 
 // gitDirName is the Git metadata directory of an ordinary checkout.

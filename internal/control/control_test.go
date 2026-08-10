@@ -504,6 +504,178 @@ func TestProcessedMessagesSurviveAReopenAndAnInterruptedAppend(t *testing.T) {
 	}
 }
 
+// TestASettledEntryIsNeverOpenedAgain is the rule that makes the outbox an
+// audit trail rather than a queue that never drains.
+//
+// Messages are deliberately kept until cleanup, so a poll that re-read them
+// would cost more every hour a task runs; and a refusal that is never settled
+// is re-read, re-judged, and re-reported four times a second for the life of
+// the task. Both are the same missing step, so both are checked here: after a
+// message has been dealt with, its file is replaced by a document that would be
+// refused loudly if anything opened it.
+func TestASettledEntryIsNeverOpenedAgain(t *testing.T) {
+	t.Run("a message that was applied", func(t *testing.T) {
+		workspace, moment := newWorkspace(t)
+		write(t, workspace, "applied.json", envelope("event-applied", testTask, control.TypeProviderEvent))
+
+		messages, rejected, err := workspace.Pending()
+		if err != nil || len(messages) != 1 || len(rejected) != 0 {
+			t.Fatalf("first read returned %d messages and %d rejections: %v", len(messages), len(rejected), err)
+		}
+		if err := workspace.MarkProcessed(messages[0], control.OutcomeApplied, ""); err != nil {
+			t.Fatalf("marking processed: %v", err)
+		}
+
+		// A document that would be refused at once if anything opened it, rather
+		// than one that would be given the grace an unfinished write gets.
+		write(t, workspace, "applied.json", envelope("event-later", otherTask, control.TypeProviderEvent))
+		moment.advance(time.Minute)
+
+		messages, rejected, err = workspace.Pending()
+		if err != nil {
+			t.Fatalf("reading pending messages: %v", err)
+		}
+		if len(messages) != 0 || len(rejected) != 0 {
+			t.Errorf("a settled entry was opened again: %d messages, %v", len(messages), rejected)
+		}
+	})
+
+	t.Run("a document that was refused", func(t *testing.T) {
+		workspace, moment := newWorkspace(t)
+		write(t, workspace, "broken.json", `{"schema_version":1,`)
+
+		// Seen once, so that the grace an unfinished write is given can expire.
+		if _, rejected, err := workspace.Pending(); err != nil || len(rejected) != 0 {
+			t.Fatalf("a document still being written was judged immediately: %v, %v", rejected, err)
+		}
+		moment.advance(time.Minute)
+
+		_, rejected, err := workspace.Pending()
+		if err != nil {
+			t.Fatalf("reading pending messages: %v", err)
+		}
+		if len(rejected) != 1 {
+			t.Fatalf("rejections = %d, want 1: %v", len(rejected), rejected)
+		}
+		if rejected[0].File != "broken.json" {
+			t.Errorf("rejection file = %q, want %q: a refusal is settled by the entry it was about",
+				rejected[0].File, "broken.json")
+		}
+		if !rejected[0].Final {
+			t.Error("a document that will never parse was not final, so nothing would ever settle it")
+		}
+		if err := workspace.MarkRefused(rejected[0]); err != nil {
+			t.Fatalf("settling the refusal: %v", err)
+		}
+
+		// A different failure, so that anything re-reading the entry would say
+		// something new rather than repeat itself.
+		write(t, workspace, "broken.json", envelope("later", otherTask, control.TypeProviderEvent))
+		moment.advance(time.Minute)
+
+		messages, rejected, err := workspace.Pending()
+		if err != nil {
+			t.Fatalf("reading pending messages: %v", err)
+		}
+		if len(messages) != 0 || len(rejected) != 0 {
+			t.Errorf("a settled refusal was judged again: %d messages, %v", len(messages), rejected)
+		}
+
+		// And the entry is still there: it is the account of what the agent
+		// wrote, and removing it belongs to cleanup.
+		if _, err := os.Stat(filepath.Join(workspace.OutboxDir(), "broken.json")); err != nil {
+			t.Errorf("the refused entry was removed from the outbox: %v", err)
+		}
+	})
+
+	t.Run("a copy of a message that was already applied", func(t *testing.T) {
+		workspace, moment := newWorkspace(t)
+		write(t, workspace, "first.json", envelope("same-id", testTask, control.TypeProviderEvent))
+
+		messages, _, err := workspace.Pending()
+		if err != nil || len(messages) != 1 {
+			t.Fatalf("first read returned %d messages: %v", len(messages), err)
+		}
+		if err := workspace.MarkProcessed(messages[0], control.OutcomeApplied, ""); err != nil {
+			t.Fatalf("marking processed: %v", err)
+		}
+
+		// The same identifier under a second name, which the identifier is there
+		// to recognise. Recognising it must also stop it being opened again: an
+		// agent could otherwise leave a hundred copies of one applied message in
+		// the outbox and have every poll read all of them for ever.
+		write(t, workspace, "second.json", envelope("same-id", testTask, control.TypeProviderEvent))
+		moment.advance(time.Minute)
+		if _, rejected, err := workspace.Pending(); err != nil || len(rejected) != 0 {
+			t.Fatalf("a replayed identifier was reported as a problem: %v, %v", rejected, err)
+		}
+
+		write(t, workspace, "second.json", envelope("later", otherTask, control.TypeProviderEvent))
+		moment.advance(time.Minute)
+
+		messages, rejected, err := workspace.Pending()
+		if err != nil {
+			t.Fatalf("reading pending messages: %v", err)
+		}
+		if len(messages) != 0 || len(rejected) != 0 {
+			t.Errorf("a copy of an applied message was opened again: %d messages, %v", len(messages), rejected)
+		}
+	})
+
+	t.Run("a refusal survives a restart", func(t *testing.T) {
+		root := t.TempDir()
+		moment := &clock{at: time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)}
+		open := func() *control.Workspace {
+			t.Helper()
+			workspace, err := control.Open(root, testProject, testTask,
+				control.Options{Now: moment.now, ParseGrace: 3 * time.Second})
+			if err != nil {
+				t.Fatalf("opening a workspace: %v", err)
+			}
+			return workspace
+		}
+
+		workspace := open()
+		if err := workspace.Create(); err != nil {
+			t.Fatalf("creating the workspace: %v", err)
+		}
+		write(t, workspace, "runtime.json", envelope("wants-runtime", testTask, control.TypeRuntimeRequested))
+		moment.advance(time.Minute)
+
+		_, rejected, err := workspace.Pending()
+		if err != nil || len(rejected) != 1 {
+			t.Fatalf("first read returned %d rejections: %v", len(rejected), err)
+		}
+		if err := workspace.MarkRefused(rejected[0]); err != nil {
+			t.Fatalf("settling the refusal: %v", err)
+		}
+
+		// A restarted daemon builds a fresh workspace and must reach the same
+		// conclusion from the record alone.
+		_, rejected, err = open().Pending()
+		if err != nil {
+			t.Fatalf("reading pending messages after a restart: %v", err)
+		}
+		if len(rejected) != 0 {
+			t.Errorf("a restart re-refused a settled message: %v", rejected)
+		}
+	})
+
+	t.Run("a read that failed for Feat's own reason is not settled", func(t *testing.T) {
+		workspace, _ := newWorkspace(t)
+
+		// Nothing was judged, so there is nothing to record: a refusal to settle
+		// it is what makes the next poll try again.
+		err := workspace.MarkRefused(control.Rejection{
+			File: "unreadable.json",
+			Err:  errors.New("reading the control message unreadable.json: input/output error"),
+		})
+		if err == nil {
+			t.Error("a read failure was settled as though the document had been judged")
+		}
+	})
+}
+
 func TestRejectionErrorIsRecognisable(t *testing.T) {
 	workspace, moment := newWorkspace(t)
 	write(t, workspace, "foreign.json", envelope("a", otherTask, control.TypeProviderEvent))

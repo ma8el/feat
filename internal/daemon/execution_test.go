@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ma8el/feat/internal/config"
+	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution"
 	"github.com/ma8el/feat/internal/execution/compose/composetest"
@@ -71,7 +72,12 @@ func workingDocker() *composetest.Docker {
 		Answer(containerProbe("claude", "--version"), "2.1.220 (Claude Code)").
 		Answer(containerProbe("/bin/bash", "-c", ":"), "")
 
-	for _, directory := range []string{fixtureControl, fixtureWorkdir} {
+	// The two control directories the agent reports through, rather than the
+	// workspace root: the root is mounted read-only, and what a launch has to
+	// prove writable is what Feat asks to be writable.
+	for _, directory := range []string{
+		fixtureControl + "/outbox", fixtureControl + "/reports", fixtureWorkdir,
+	} {
 		docker = docker.
 			Answer(containerProbe("touch", directory+"/.feat-write-probe"), "").
 			Answer(containerProbe("rm", "-f", directory+"/.feat-write-probe"), "")
@@ -125,6 +131,63 @@ func TestTheGeneratedOverrideMountsWhatTheTaskOwns(t *testing.T) {
 	}
 	if _, mounted := mounts[fixtureControl]; !mounted {
 		t.Error("the control workspace is not mounted, so the agent could not report anything")
+	}
+}
+
+// TestOnlyTheAgentsOwnDirectoriesOfTheControlWorkspaceAreWritable is the mount
+// half of the control-workspace boundary.
+//
+// The workspace was mounted read-write in full, which handed the agent the two
+// things ADR-032 keeps out of its reach: agent/, holding the generated hooks
+// and the record of which messages have been applied, and inbox/, holding the
+// completion gate's verdicts on the agent's own review requests. An agent that
+// can write either can rewrite the hooks it runs under, forge the verdict it is
+// waiting for, or delete the record that stops a message being applied twice —
+// none of which needs a defect anywhere else to work.
+func TestOnlyTheAgentsOwnDirectoriesOfTheControlWorkspaceAreWritable(t *testing.T) {
+	arranged := arrangeDrafting(t)
+	task := arranged.launched(t)
+
+	workspace, err := arranged.service.controlWorkspace(task)
+	if err != nil {
+		t.Fatalf("resolving the control workspace: %v", err)
+	}
+	spec, err := arranged.service.executionSpec(arranged.config(t), task, workspace)
+	if err != nil {
+		t.Fatalf("resolving the execution specification: %v", err)
+	}
+
+	writable := make(map[string]string)
+	for _, mount := range spec.Mounts {
+		if !mount.ReadOnly {
+			writable[mount.Target] = mount.Source
+		}
+	}
+	if source, open := writable[fixtureControl]; open {
+		t.Errorf("the control workspace is mounted read-write from %s, so the agent owns the record of "+
+			"which of its messages have been applied and the hooks it runs under", source)
+	}
+
+	for _, name := range control.AgentWritable() {
+		target := fixtureControl + "/" + name
+		source, open := writable[target]
+		if !open {
+			t.Errorf("%s is not writable, and the agent has nowhere to report to; mounts: %v", target, writable)
+			continue
+		}
+		if want := filepath.Join(workspace.Root(), name); source != want {
+			t.Errorf("%s is mounted from %s, want the task's own %s", target, source, want)
+		}
+	}
+
+	// And the two host-only parts are reachable, read-only, through the mount
+	// of the tree they are in: a hook the agent cannot read is a session Feat
+	// never hears from.
+	if _, mounted := writable[fixtureControl+"/agent"]; mounted {
+		t.Error("the host-only agent directory is mounted read-write")
+	}
+	if _, mounted := writable[fixtureControl+"/inbox"]; mounted {
+		t.Error("the inbox is mounted read-write, so an agent could write its own verification verdict")
 	}
 }
 
@@ -254,10 +317,10 @@ func TestALaunchRefusedByTheContainerIsExplainable(t *testing.T) {
 		},
 		"the control workspace cannot be written to": {
 			arrange: func(d *composetest.Docker) {
-				d.Fail(containerProbe("touch", fixtureControl+"/.feat-write-probe"),
-					"touch: cannot touch '/feat/.feat-write-probe': Permission denied", 1)
+				d.Fail(containerProbe("touch", fixtureControl+"/outbox/.feat-write-probe"),
+					"touch: cannot touch '/feat/outbox/.feat-write-probe': Permission denied", 1)
 			},
-			contains: []string{fixtureControl, "Permission denied"},
+			contains: []string{fixtureControl + "/outbox", "Permission denied"},
 		},
 		"the hook toolchain is incomplete": {
 			arrange: func(d *composetest.Docker) {
