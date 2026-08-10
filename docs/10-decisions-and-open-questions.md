@@ -690,6 +690,63 @@ The Slice 3 target-machine acceptance check remains outstanding, as it did for
 slices 5, 6, and 7. Slice 8 proceeds under the same explicit maintainer
 approval.
 
+Amended a third time, after the alpha review traced acceptance criterion 1
+through the generated document:
+
+15. **The reset covered the agent's service and not what starting it starts.**
+    `Prepare` runs `docker compose up --detach <service>`, which brings up that
+    service's whole `depends_on` closure, and the override named one service. So
+    a devcontainer whose `dev` depends on a `db` with a fixed `container_name` and
+    a published port ran once per machine: the second task's launch was refused by
+    Docker over the first task's `db`, in a message about a service the user did
+    not know Feat was starting. It is ADR-034 evidence 12 exactly — "the one thing
+    a per-task Compose project exists to prevent, reintroduced by the services
+    nobody had listed" — and the runtime adapter had already fixed it while the
+    execution adapter had not.
+
+Decisions:
+
+- The generated execution override reaches every service the project's own
+  Compose files define. Which they are is read with
+  `docker compose config --services` against those files, without the generated
+  override so a stale one cannot reintroduce a removed service and so the first
+  launch does not fail on a file that does not exist yet. It prints names and
+  nothing else, so evidence 5 of ADR-034 still holds: no environment-file value is
+  rendered.
+- **A service the agent does not run in has both `container_name` and `ports`
+  reset**, which is deliberately not what ADR-034 decided for the application
+  runtime. ADR-034 keeps a published port because it is how the user reaches the
+  application they are testing; a dependency of a devcontainer is not that
+  application. Feat surfaces no port from an `feat-agent-*` project, services in
+  one Compose project reach each other over its network rather than through a
+  published port, and a host port left in place is acceptance criterion 1 failing
+  on the second task whatever the container name says. The cost is stated rather
+  than hidden: a devcontainer dependency the user reached at a fixed host port is
+  no longer published. The alternative is that the second task cannot start.
+- Such a service gets those two lines and nothing else — no task worktree, no
+  generated variable, and no ownership label. Labels here are not ADR-034's: they
+  are how `feat doctor` finds the container the agent runs in without reading
+  stored state, and putting them on a database would send that diagnostic looking
+  for Claude inside Postgres. Cleanup does not need them, because it resolves what
+  a task owns through Compose's own project label.
+- The task detail says the reset covers the agent's service and everything Compose
+  starts alongside it, in fixed words, as it already said the narrower thing.
+
+Found by review rather than by running, and the reference project could not have
+found it: its devcontainer defines one service, with no `depends_on`, no
+`container_name`, and no published port, so both resets were already no-ops there
+and acceptance criterion 1 held before this change as well as after — verified by
+two tasks running side by side on it, each with one container, alongside the
+maintainer's own hand-started devcontainer. The defect is reachable for any
+devcontainer whose agent service has a name- or port-bearing dependency, which is
+the ordinary shape of one that develops against a database.
+
+So the reproduction lives in the opt-in fixture rather than in the dogfood
+project: its devcontainer depends on such a service, and against the previous
+generator the second of three tasks fails to launch with Docker's own conflict
+message. That is the whole of the evidence, and it is worth being exact about
+which project it comes from.
+
 ### ADR-034 — Application runtime identity, generated mounts, and what a manual lifecycle owns
 
 Status: accepted

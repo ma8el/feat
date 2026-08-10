@@ -285,12 +285,25 @@ The generated override may contain:
 
 It should not contain copied secrets or unnecessary `container_name` fields.
 
-The agent execution override additionally resets `container_name` and `ports` on
-the agent service, unconditionally and in that document rather than by
-inspection. Both are global — a container name to the Docker daemon, a published
-port to the host — so a base file carrying either cannot be started twice, and
-one task per machine is not the product. The reset is stated in the task detail
-rather than done quietly, and it applies only to the service the agent runs in.
+The agent execution override additionally resets `container_name` and `ports`,
+unconditionally and in that document rather than by inspection. Both are global —
+a container name to the Docker daemon, a published port to the host — so a base
+file carrying either cannot be started twice, and one task per machine is not the
+product. The reset is stated in the task detail rather than done quietly.
+
+It applies to every service the project's own Compose files define, not only to
+the one the agent runs in. Starting that service starts whatever it depends on,
+and everything Compose starts is in the task's own Compose project; a dependency
+that kept either would be the same collision arriving one service over. A service
+the agent does not run in gets those two lines and nothing else — no task
+worktree, no generated variable, and no ownership label, because Feat's labels
+are how the container the agent does run in is found.
+
+Published ports are reset here and kept by the application runtime below, which
+is a difference in what the two documents are about rather than an inconsistency.
+The agent's Compose project is the environment the agent works in and Feat
+surfaces no port from it; the application runtime is what the user is testing, and
+reaching it is the point of the port.
 
 The application runtime's generated override resets `container_name` on every
 service the project's Compose files define and leaves published `ports` exactly
