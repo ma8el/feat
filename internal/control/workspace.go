@@ -133,6 +133,16 @@ func Open(root string, project domain.ProjectID, task domain.TaskID, opts Option
 	}, nil
 }
 
+// AgentWritable names the directories the agent writes to, in the order an
+// execution environment should mount them.
+//
+// It exists so that an environment can express the split this layout describes
+// without repeating the names of Feat's own directories: the tree is mounted
+// read-only and these are mounted read-write over it, which is what makes
+// "agent/ is host-only" a property of the mount rather than of good behaviour
+// (ADR-032).
+func AgentWritable() []string { return []string{outboxDir, reportsDir} }
+
 // Task returns the task the workspace belongs to.
 func (w *Workspace) Task() domain.TaskID { return w.task }
 

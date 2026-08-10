@@ -140,9 +140,8 @@ func (s *service) planContainerAgent(
 	}
 
 	// What the container turned out to be, rather than what it was asked to be.
-	report, err := environment.Inspect(ctx, []string{
-		cfg.Agent.Execution.ControlPath, cfg.Agent.Execution.WorkingDirectory,
-	})
+	report, err := environment.Inspect(ctx,
+		append(controlWritable(cfg), cfg.Agent.Execution.WorkingDirectory))
 	if err != nil {
 		return launchPlan{}, err
 	}

@@ -75,7 +75,13 @@ func realTask(t *testing.T, id domain.TaskID) (*compose.Environment, execution.S
 	readOnly := filepath.Join(root, "worktrees", "store")
 	control := filepath.Join(root, "control")
 
-	for _, dir := range []string{project, worktree, readOnly, control, filepath.Join(project, "base-mount")} {
+	for _, dir := range []string{
+		project, worktree, readOnly, control,
+		// The two directories the agent reports through, which the daemon mounts
+		// read-write over the read-only workspace.
+		filepath.Join(control, "outbox"), filepath.Join(control, "reports"),
+		filepath.Join(project, "base-mount"),
+	} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatalf("creating %s: %v", dir, err)
 		}
@@ -114,7 +120,11 @@ func realTask(t *testing.T, id domain.TaskID) (*compose.Environment, execution.S
 		Mounts: []execution.Mount{
 			{Source: worktree, Target: "/srv/api", Description: "the api task worktree"},
 			{Source: readOnly, Target: "/srv/store", ReadOnly: true, Description: "the store task worktree"},
-			{Source: control, Target: "/feat", Description: "the control workspace"},
+			// As the daemon mounts it: the workspace read-only, with the two
+			// directories the agent reports through mounted read-write over it.
+			{Source: control, Target: "/feat", ReadOnly: true, Description: "the control workspace, read-only"},
+			{Source: filepath.Join(control, "outbox"), Target: "/feat/outbox", Description: "the control outbox"},
+			{Source: filepath.Join(control, "reports"), Target: "/feat/reports", Description: "the control reports"},
 		},
 		ForbiddenSources: []string{filepath.Join(root, "repos", "api")},
 	}
@@ -134,6 +144,19 @@ func realTask(t *testing.T, id domain.TaskID) (*compose.Environment, execution.S
 		}
 	})
 	return environment, spec, worktree
+}
+
+// source returns the host directory one of a specification's mounts comes from.
+func source(t *testing.T, spec execution.Spec, target string) string {
+	t.Helper()
+
+	for _, mount := range spec.Mounts {
+		if mount.Target == target {
+			return mount.Source
+		}
+	}
+	t.Fatalf("the specification mounts nothing at %s", target)
+	return ""
 }
 
 // inside runs a command in the container and returns its output.
@@ -173,6 +196,22 @@ func TestRealTaskWorktreesAppearAtTheirContainerPaths(t *testing.T) {
 	}
 	if got := inside(t, environment, "cat", "/feat/control.txt"); !got.Succeeded() {
 		t.Errorf("the control workspace is not mounted at /feat: %s", got.Stderr)
+	}
+
+	// The control workspace is mounted the way its layout is split, and a
+	// nested read-write mount inside a read-only one is the part of that no
+	// generated YAML can prove: only the container runtime decides it.
+	if got := inside(t, environment, "touch", "/feat/written-by-the-agent"); got.Succeeded() {
+		t.Error("the control workspace is writable, so the agent owns the hooks it runs under " +
+			"and the record of which of its messages have been applied")
+	}
+	for _, directory := range []string{"/feat/outbox", "/feat/reports"} {
+		if got := inside(t, environment, "touch", directory+"/written-by-the-agent"); !got.Succeeded() {
+			t.Errorf("%s is not writable, so the agent could not report anything: %s", directory, got.Stderr)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(source(t, spec, "/feat/outbox"), "written-by-the-agent")); err != nil {
+		t.Errorf("what the container wrote to the outbox did not reach the host: %v", err)
 	}
 	if got := inside(t, environment, "cat", "/srv/api/base-mount.txt"); got.Succeeded() {
 		t.Error("the base file's own mount is still at /srv/api, so the agent holds both it and the task worktree")
@@ -219,7 +258,7 @@ func TestRealTheAgentHasNoDockerAccess(t *testing.T) {
 		t.Error("a Docker socket is present in the agent's container")
 	}
 
-	report, err := environment.Inspect(context.Background(), []string{"/feat", "/srv/api"})
+	report, err := environment.Inspect(context.Background(), []string{"/feat/outbox", "/feat/reports", "/srv/api"})
 	if err != nil {
 		t.Fatalf("inspecting the container: %v", err)
 	}
