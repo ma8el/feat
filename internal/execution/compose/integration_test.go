@@ -159,6 +159,30 @@ func source(t *testing.T, spec execution.Spec, target string) string {
 	return ""
 }
 
+// dependencyContainer returns the container Compose started for the service Feat
+// never named, in one task's own Compose project.
+//
+// It is asked of Docker by Compose's own project and service labels rather than
+// of the adapter, because the adapter observes the service the agent runs in and
+// this is deliberately the other one: what has to be proved is that a service
+// nothing in Feat mentions is still this task's alone.
+func dependencyContainer(t *testing.T, identity string) string {
+	t.Helper()
+
+	output, err := exec.Command(compose.Executable, "ps",
+		"--filter", "label=com.docker.compose.project="+identity,
+		"--filter", "label=com.docker.compose.service=db",
+		"--format", "{{.ID}}").Output()
+	if err != nil {
+		t.Fatalf("listing the dependency container of %s: %v", identity, err)
+	}
+	id := strings.TrimSpace(string(output))
+	if id == "" {
+		t.Fatalf("Compose project %s has no container for the service its devcontainer depends on", identity)
+	}
+	return id
+}
+
 // inside runs a command in the container and returns its output.
 func inside(t *testing.T, environment *compose.Environment, program string, args ...string) execution.Output {
 	t.Helper()
@@ -288,17 +312,24 @@ func TestRealTheAgentHasNoDockerAccess(t *testing.T) {
 // start. That is the whole reason the generated override resets them, and this
 // is what proves the reset works against the tool rather than against a golden
 // file (ADR-033 evidence 3).
+//
+// It carries them twice over: on the service Feat starts and on the one Compose
+// starts because that service depends on it. The second is the defect F7-01
+// names, and it fails here as a launch rather than as an assertion — the second
+// task's `up` is refused by Docker over the first task's `db`.
 func TestRealThreeTasksRunSideBySide(t *testing.T) {
 	realDocker(t)
 
 	const tasks = 3
 	environments := make([]*compose.Environment, 0, tasks)
+	identities := make([]string, 0, tasks)
 	for range tasks {
-		environment, _, _ := realTask(t, domain.NewTaskID())
+		environment, spec, _ := realTask(t, domain.NewTaskID())
 		if err := environment.Prepare(context.Background()); err != nil {
 			t.Fatalf("preparing environment %d of %d: %v", len(environments)+1, tasks, err)
 		}
 		environments = append(environments, environment)
+		identities = append(identities, spec.Identity)
 	}
 
 	seen := make(map[string]bool, tasks)
@@ -319,6 +350,15 @@ func TestRealThreeTasksRunSideBySide(t *testing.T) {
 		if got := inside(t, environment, "cat", "/srv/api/task-worktree.txt"); !got.Succeeded() {
 			t.Errorf("environment %d does not have its own worktree: %s", i+1, got.Stderr)
 		}
+
+		// The service nothing in Feat names is this task's own too, rather than
+		// one container three tasks are sharing.
+		dependency := dependencyContainer(t, identities[i])
+		if seen[dependency] {
+			t.Errorf("environment %d shares the container %s of the service its devcontainer depends on",
+				i+1, dependency)
+		}
+		seen[dependency] = true
 	}
 }
 
@@ -328,6 +368,11 @@ func TestRealThreeTasksRunSideBySide(t *testing.T) {
 // A container name is global to the Docker daemon and a published port is global
 // to the host. Either surviving the merge would make the second task's launch
 // fail with a message about the first task's container.
+//
+// Both containers are checked, because the override reaches both and only one of
+// them is a service Feat was asked about. A dependency that kept either is the
+// same failure one service over, and it is the one that arrives as a Compose
+// error about something the user did not know Feat was starting (F7-01).
 func TestRealTheOverrideRemovesWhatWouldCollide(t *testing.T) {
 	realDocker(t)
 
@@ -341,25 +386,33 @@ func TestRealTheOverrideRemovesWhatWouldCollide(t *testing.T) {
 		t.Fatalf("observing: %v", err)
 	}
 
-	name, err := exec.Command(compose.Executable, "inspect", "--format", "{{.Name}}", state.Container).Output()
-	if err != nil {
-		t.Fatalf("inspecting the container: %v", err)
-	}
-	if strings.Contains(string(name), "feat-test-fixed-name") {
-		t.Errorf("the container kept the base file's container_name %q, so a second task could not start",
-			strings.TrimSpace(string(name)))
-	}
-	if !strings.Contains(string(name), spec.Identity) {
-		t.Errorf("the container name %q does not belong to this task's Compose project %q",
-			strings.TrimSpace(string(name)), spec.Identity)
-	}
+	for _, container := range []struct {
+		what, id, fixedName, port string
+	}{
+		{"the agent's own service", state.Container, "feat-test-fixed-name", "59317"},
+		{"the service it depends on", dependencyContainer(t, spec.Identity),
+			"feat-test-dependency-fixed-name", "59318"},
+	} {
+		name, err := exec.Command(compose.Executable, "inspect", "--format", "{{.Name}}", container.id).Output()
+		if err != nil {
+			t.Fatalf("inspecting the container of %s: %v", container.what, err)
+		}
+		if strings.Contains(string(name), container.fixedName) {
+			t.Errorf("the container of %s kept the base file's container_name %q, so a second task "+
+				"could not start", container.what, strings.TrimSpace(string(name)))
+		}
+		if !strings.Contains(string(name), spec.Identity) {
+			t.Errorf("the container name %q of %s does not belong to this task's Compose project %q",
+				strings.TrimSpace(string(name)), container.what, spec.Identity)
+		}
 
-	ports, err := exec.Command(compose.Executable, "inspect", "--format", "{{json .NetworkSettings.Ports}}",
-		state.Container).Output()
-	if err != nil {
-		t.Fatalf("inspecting the container's ports: %v", err)
-	}
-	if strings.Contains(string(ports), "59317") {
-		t.Errorf("the container kept the base file's published port: %s", ports)
+		ports, err := exec.Command(compose.Executable, "inspect", "--format", "{{json .NetworkSettings.Ports}}",
+			container.id).Output()
+		if err != nil {
+			t.Fatalf("inspecting the ports of the container of %s: %v", container.what, err)
+		}
+		if strings.Contains(string(ports), container.port) {
+			t.Errorf("the container of %s kept the base file's published port: %s", container.what, ports)
+		}
 	}
 }
