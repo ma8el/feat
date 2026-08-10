@@ -80,7 +80,13 @@ type Workspace struct {
 	// processed is the set of applied event identifiers, loaded once and kept
 	// in step with the record on disk.
 	processed map[string]bool
-	loaded    bool
+	// settled is the set of outbox entries that have been dealt with, applied
+	// or refused. It is keyed by file rather than by identifier because a
+	// document that never parsed has no identifier, and because an entry that
+	// is never opened again is what keeps the cost of a poll proportional to
+	// what is new rather than to everything a task has ever sent.
+	settled map[string]bool
+	loaded  bool
 	// firstSeen records when an unparseable outbox entry was first noticed, so
 	// that the grace above can be measured against something.
 	firstSeen map[string]time.Time
@@ -122,6 +128,7 @@ func Open(root string, project domain.ProjectID, task domain.TaskID, opts Option
 		now:        now,
 		parseGrace: grace,
 		processed:  make(map[string]bool),
+		settled:    make(map[string]bool),
 		firstSeen:  make(map[string]time.Time),
 	}, nil
 }

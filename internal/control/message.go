@@ -181,4 +181,17 @@ func (e *RejectionError) Error() string {
 	return "the control message in " + e.File + " " + e.Reason
 }
 
-func quote(value string) string { return fmt.Sprintf("%q", value) }
+// maxQuotedBytes bounds what a refusal repeats back.
+//
+// Every value quoted here was written by an agent, and a refusal reaches a log
+// line, the host-only record of settled messages, and the task's own event log.
+// A message may be a quarter of a megabyte, and none of those readers is
+// improved by a field that long.
+const maxQuotedBytes = 96
+
+func quote(value string) string {
+	if len(value) > maxQuotedBytes {
+		return fmt.Sprintf("%q…", value[:maxQuotedBytes])
+	}
+	return fmt.Sprintf("%q", value)
+}
