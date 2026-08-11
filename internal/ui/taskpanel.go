@@ -4,15 +4,18 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/ma8el/feat/internal/api"
 )
 
 // panelPage is how far the page keys move the task panel.
 const panelPage = 10
 
-// stackedFooterHeight is what m.footer occupies in the narrow fallback: a blank
-// line, the status line, a blank line, the hints, and the daemon.
-const stackedFooterHeight = 5
+// stackedFooterHeight is what m.footer occupies in the narrow fallback: the rule
+// that separates it from the content above, a blank line, the status line, a
+// blank line, the hints, and the daemon.
+const stackedFooterHeight = 6
 
 // taskView renders the task panel as a whole terminal, which is what the narrow
 // fallback draws when there is no room for the three regions.
@@ -33,8 +36,16 @@ func (m Model) taskView() string {
 // rather than lost. The last line says what is above and below: a panel clipped
 // in silence reads as a panel that is short, and FR-UI-003 requires the brief to
 // be reachable.
+//
+// It is wrapped to the region before it is measured, and it is the one body that
+// is. Everything else the dashboard draws is a line whose width it controls, and
+// a rendered pane must never be re-flowed; this is prose — a brief, a note, a
+// sentence explaining what a field could not be filled with — and prose cut at
+// the region's edge loses the half of the sentence that says what to do about it.
+// Wrapping before the split is also what keeps the scroll honest: the lines
+// counted are the lines drawn.
 func (m Model) taskBody(width, height int) string {
-	panel := m.taskPanel()
+	panel := m.wrappedPanel(width)
 	if height <= 0 {
 		return panel
 	}
@@ -83,10 +94,22 @@ func clampScroll(offset, total, height int) int {
 // cannot write back: without it, holding pgdn past the end would build up an
 // offset that took as many presses to undo.
 func (m Model) panelScroll(delta int) int {
-	_, height := m.mainRegionSize()
-	// The tab bar and the blank line beneath it are the region's.
-	total := len(strings.Split(m.taskPanel(), "\n"))
-	return clampScroll(m.review.scroll+delta, total, height-2)
+	// The region's own size, which already excludes the card's header: the panel
+	// is drawn into what is left under the rule. It is measured wrapped, because
+	// wrapped is how it is drawn, and a bound counted on the unwrapped panel
+	// stops the scroll short of its own last lines.
+	width, height := m.mainRegionSize()
+	total := len(strings.Split(m.wrappedPanel(width), "\n"))
+	return clampScroll(m.review.scroll+delta, total, height)
+}
+
+// wrappedPanel is the task panel re-flowed to the width it will be drawn at.
+func (m Model) wrappedPanel(width int) string {
+	panel := m.taskPanel()
+	if width <= 0 {
+		return panel
+	}
+	return ansi.Wrap(panel, width, "")
 }
 
 // taskPanel renders one task: what it is, what it has changed, and what is left

@@ -1,10 +1,6 @@
 package ui
 
-import (
-	"strings"
-
-	"github.com/charmbracelet/lipgloss"
-)
+import "strings"
 
 // The three-region layout needs room for a rail and a main region that are both
 // worth reading. Below either measure the dashboard draws the single column it
@@ -15,9 +11,17 @@ const (
 	minimumHeight = 18
 )
 
-// footerHeight is how many lines the footer occupies: a status line, the
-// worktree and resource line, and the key hints.
-const footerHeight = 3
+// footerHeight is how many lines the footer occupies: the rule that separates it
+// from the regions above, a status line, the worktree and resource line, and the
+// key hints.
+const footerHeight = 4
+
+// regionGap is the blank column between the two cards.
+//
+// One cell rather than none, because two boxes sharing an edge read as one box
+// with a line down it — which is what the layout had before the cards, and what
+// a user reads as one region rather than two (ADR-051).
+const regionGap = 1
 
 // tab is which view of the selected task the main region shows.
 type tab int
@@ -69,25 +73,27 @@ func (m Model) narrow() bool {
 //
 // The three keep their positions whatever is happening, which is the point of
 // the layout: the row a user's eye learned does not move on the day
-// reconciliation finds something (ADR-041).
+// reconciliation finds something (ADR-041). Each of the two regions is a card —
+// a rounded box with its own header and a rule under it — and the footer is
+// ruled off from both (ADR-051).
 func (m Model) frame() string {
-	width, height := m.frameSize()
+	width, _ := m.frameSize()
 
-	bodyHeight := height - footerHeight
-	if bodyHeight < 1 {
-		bodyHeight = 1
-	}
-	mainWidth := width - railWidth - 1
-	if mainWidth < 1 {
-		mainWidth = 1
-	}
+	bodyHeight := m.bodyHeight()
+	mainWidth, mainHeight := m.mainRegionSize()
 
-	rail := regionStyle(railWidth, bodyHeight).Render(m.railView(bodyHeight))
-	divider := dividerStyle.Render(strings.TrimSuffix(strings.Repeat("│\n", bodyHeight), "\n"))
-	main := regionStyle(mainWidth, bodyHeight).Render(m.mainView(mainWidth, bodyHeight))
+	rail := card(m.railHeader(railWidth), m.railView(bodyHeight-cardVerticalChrome-cardHeaderHeight),
+		railWidth+cardChrome, bodyHeight, false)
+	main := card(m.mainHeader(mainWidth), m.mainBody(mainWidth, mainHeight),
+		mainWidth+cardChrome, bodyHeight, m.mainHoldsKeyboard())
 
-	body := lipgloss.JoinHorizontal(lipgloss.Top, rail, divider, main)
-	return body + "\n" + m.frameFooter(width)
+	return joinRows(rail, main, regionGap) + "\n" + m.frameFooter(width)
+}
+
+// mainHoldsKeyboard reports whether keystrokes are going to the main region's
+// own content rather than to the dashboard.
+func (m Model) mainHoldsKeyboard() bool {
+	return m.screen == screenTerminal && m.terminal.focused
 }
 
 // frameSize is the terminal, or a usable default before it has reported one.
@@ -102,18 +108,31 @@ func (m Model) frameSize() (width, height int) {
 	return width, height
 }
 
+// bodyHeight is how many lines the two cards occupy: everything above the
+// footer, and never less than a card with one line of content in it.
+func (m Model) bodyHeight() int {
+	_, height := m.frameSize()
+
+	body := height - footerHeight
+	if smallest := cardVerticalChrome + cardHeaderHeight + 1; body < smallest {
+		return smallest
+	}
+	return body
+}
+
 // mainRegionSize is the space the main region's content has, which is what a
 // pane must be sized to before it is captured.
 //
-// It subtracts what the frame spends around it: the rail and the divider
-// horizontally, the footer and the tab bar with its blank line vertically. A
-// caller asking tmux for a frame needs this exact number, because the pane wraps
-// its own output at whatever width it is told.
+// It subtracts what the frame spends around it: the rail, the gap, and both
+// cards' borders and gutters horizontally; the footer, the card's own rules, and
+// the tab bar with the rule under it vertically. A caller asking tmux for a
+// frame needs this exact number, because the pane wraps its own output at
+// whatever width it is told.
 func (m Model) mainRegionSize() (width, height int) {
-	frameWidth, frameHeight := m.frameSize()
+	frameWidth, _ := m.frameSize()
 
-	width = frameWidth - railWidth - 1
-	height = frameHeight - footerHeight - 2
+	width = frameWidth - (railWidth + cardChrome) - regionGap - cardChrome
+	height = m.bodyHeight() - cardVerticalChrome - cardHeaderHeight
 	if width < 1 {
 		width = 1
 	}
@@ -123,44 +142,59 @@ func (m Model) mainRegionSize() (width, height int) {
 	return width, height
 }
 
-// regionStyle fixes a region's size so that its neighbours do not move when its
-// content grows.
-func regionStyle(width, height int) lipgloss.Style {
-	return lipgloss.NewStyle().Width(width).Height(height).MaxWidth(width).MaxHeight(height)
-}
-
-var dividerStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.AdaptiveColor{Light: "#d0d0d0", Dark: "#3a3a3a"})
-
-// mainView renders the tab bar and whichever tab has the main region.
-func (m Model) mainView(width, height int) string {
-	body := ""
+// mainBody renders whichever tab has the main region.
+func (m Model) mainBody(width, height int) string {
 	switch m.activeTab() {
 	case tabTask:
-		body = m.taskBody(width, height-2)
+		return m.taskBody(width, height)
 	case tabRuntime:
-		body = m.runtimeBody()
+		return m.runtimeBody()
 	default:
-		// The tab bar and the blank line beneath it are the region's, so the
-		// pane gets what is left of it.
-		body = m.terminalBody(width, height-2)
+		return m.terminalBody(width, height)
 	}
-	return m.tabBar(width) + "\n\n" + body
+}
+
+// mainHeader is the card header of the main region: the tabs, and what task they
+// are all views of.
+func (m Model) mainHeader(width int) string {
+	return cardHeader(m.tabBar(width), m.headerSubject(width), width)
+}
+
+// headerSubject names the task every tab is about.
+//
+// The rail says which task is selected by moving a marker, which answers the
+// question while the eye is in the rail. The main region is where the eye
+// actually is, and a view of one task among several that does not say which one
+// is a view a user has to look away from to trust.
+func (m Model) headerSubject(width int) string {
+	task, ok := m.subject()
+	if !ok {
+		return ""
+	}
+	subject := task.Key
+	if task.Title != "" {
+		subject += " · " + task.Title
+	}
+	// Half the header at most: the tabs are the part a user acts on, and a long
+	// title must not be what decides whether they are all visible.
+	return mutedStyle.Render(truncate(subject, width/2))
 }
 
 // tabBar renders the tabs, marking the one with the main region.
+//
+// The active tab carries the accent as a background rather than as a colour. The
+// bar is the main region's header, and a header whose selected item differs from
+// the others only in shade is one a user compares rather than sees (ADR-051).
 func (m Model) tabBar(width int) string {
 	rendered := make([]string, 0, len(tabs))
 	for _, candidate := range tabs {
-		title := candidate.title()
 		if candidate == m.activeTab() {
-			rendered = append(rendered, selectedStyle.Render(title))
+			rendered = append(rendered, activeTabStyle.Render(candidate.title()))
 			continue
 		}
-		rendered = append(rendered, mutedStyle.Render(title))
+		rendered = append(rendered, tabStyle.Render(candidate.title()))
 	}
-	bar := strings.Join(rendered, mutedStyle.Render("  ·  "))
-	return truncate(bar, width)
+	return truncate(strings.Join(rendered, " "), width)
 }
 
 // frameFooter renders the status line, the selected task's worktree beside any
@@ -172,6 +206,11 @@ func (m Model) tabBar(width int) string {
 // that says why one of those figures is absent, which needs the width.
 func (m Model) frameFooter(width int) string {
 	var out strings.Builder
+
+	// The footer is ruled off from the regions above it. It is the part of the
+	// frame that holds still while they change, and a line is what says so
+	// (ADR-051).
+	out.WriteString(ruleStyle.Render(strings.Repeat(cardHorizontal, width)) + "\n")
 
 	switch {
 	case m.err != nil:
@@ -217,18 +256,18 @@ func (m Model) hints() string {
 
 	switch m.screen {
 	case screenTerminal:
-		return railHints() + mutedStyle.Render("   ") + keyHints(
+		return m.railHints() + mutedStyle.Render("   ") + keyHints(
 			keyHint("i", "type here"),
 			keyHint("w", "agent/shell"),
 			keyHint("a", "attach"),
 			keyHint("z", "resume"),
 		)
 	case screenTask:
-		return railHints() + mutedStyle.Render("   ") + taskPanelHints()
+		return m.railHints() + mutedStyle.Render("   ") + taskPanelHints()
 	case screenRuntime:
-		return railHints() + mutedStyle.Render("   ") + runtimeHints()
+		return m.railHints() + mutedStyle.Render("   ") + runtimeHints()
 	}
-	return railHints() + mutedStyle.Render("   ") + keyHints(
+	return m.railHints() + mutedStyle.Render("   ") + keyHints(
 		keyHint("a", "attach"),
 		keyHint("s", "shell"),
 		keyHint("n", "new"),
@@ -243,6 +282,15 @@ func (m Model) hints() string {
 // discovery: a view's own keys are on the view, and the frame's are not. The
 // shifted arrows and the control pair do the same thing and are not named here —
 // the footer is one line and truncates, and the full list is on `?`.
-func railHints() string {
-	return keyHints(keyHint("J K", "task"), keyHint("H L", "view"), keyHint("?", "keys"))
+//
+// Folding is named only where there is more than one project to fold, which is
+// where the control is worth anything: on a single-project rail the fold is
+// still there and the marker on the header still says so, and the footer's cells
+// are better spent on the keys of whatever view is open.
+func (m Model) railHints() string {
+	hints := []string{keyHint("J K", "task"), keyHint("H L", "view")}
+	if len(groupByProject(m.tasks)) > 1 {
+		hints = append(hints, keyHint("space", "fold"))
+	}
+	return keyHints(append(hints, keyHint("?", "keys"))...)
 }

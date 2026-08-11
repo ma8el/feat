@@ -78,7 +78,7 @@ func TestTheTaskPanelScrollsRatherThanHidingTheBrief(t *testing.T) {
 	model := sized(reviewScreen(t, newFakeBackend()), 120, 32)
 
 	width, height := model.mainRegionSize()
-	top := model.taskBody(width, height-2)
+	top := model.taskBody(width, height)
 	if strings.Contains(top, "Export the daily report") {
 		t.Skip("the panel fits this region, so there is nothing to scroll to")
 	}
@@ -91,14 +91,14 @@ func TestTheTaskPanelScrollsRatherThanHidingTheBrief(t *testing.T) {
 	at := model
 	for range 20 {
 		at = press(t, at, "pgdown")
-		if strings.Contains(at.taskBody(width, height-2), "Export the daily report") {
+		if strings.Contains(at.taskBody(width, height), "Export the daily report") {
 			if back := press(t, at, "pgup"); back.review.scroll >= at.review.scroll {
 				t.Errorf("pgup did not move back: %d then %d", at.review.scroll, back.review.scroll)
 			}
 			return
 		}
 	}
-	t.Errorf("the brief was never reached by scrolling:\n%s", at.taskBody(width, height-2))
+	t.Errorf("the brief was never reached by scrolling:\n%s", at.taskBody(width, height))
 }
 
 // TestScrollingStopsAtTheEndOfThePanel keeps a held key from building up an

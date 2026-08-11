@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/ma8el/feat/internal/api"
 )
 
@@ -21,6 +23,28 @@ const railWidth = 32
 // the rows above and below it move.
 const badgeIdle = "○"
 
+// railHeader is the rail's card header: what the region is, and how much of it
+// wants the user.
+//
+// The heading was the first line of the rail's own content until ADR-051, which
+// is what made it read as the first entry of the list under it. It is now the
+// card's header, ruled off from the tasks, and the attention summary sits beside
+// it rather than under it: a count of what is waiting belongs with the heading of
+// the thing it is counting.
+func (m Model) railHeader(width int) string {
+	aside := ""
+	if m.loaded {
+		// A count before the first task list has arrived would be a measurement
+		// nothing made, which is the rule the rest of the dashboard follows: zero
+		// tasks and no answer yet are different things.
+		aside = mutedStyle.Render(count(len(m.tasks), "task", "tasks"))
+	}
+	if summary := attentionSummary(m.tasks); summary != "" {
+		aside = attentionStyle.Render(summary)
+	}
+	return cardHeader(titleStyle.Render("tasks"), aside, width)
+}
+
 // railView renders the task selector, grouped by the project that owns each task.
 //
 // It carries the five fields FR-UI-002 requires of a list entry — identity,
@@ -36,23 +60,24 @@ const badgeIdle = "○"
 // terminal without it would lose the distinction without showing that it had.
 func (m Model) railView(height int) string {
 	var out strings.Builder
-	out.WriteString(headingStyle.Render("tasks"))
-	if summary := attentionSummary(m.tasks); summary != "" {
-		out.WriteString("\n" + attentionStyle.Render(summary))
-	}
-	out.WriteString("\n")
 
 	switch {
 	case !m.loaded && m.err == nil:
-		out.WriteString("\n" + mutedStyle.Render("reading task state…"))
+		out.WriteString(mutedStyle.Render("reading task state…"))
 
 	case len(m.tasks) == 0:
-		out.WriteString("\n" + mutedStyle.Render("no tasks yet"))
+		out.WriteString(mutedStyle.Render("no tasks yet"))
 		out.WriteString("\n" + mutedStyle.Render("press n to prepare one"))
 
 	default:
-		for _, group := range groupByProject(m.tasks) {
-			out.WriteString("\n" + mutedStyle.Render("▾ "+truncate(group.project, railWidth-2)) + "\n")
+		for i, group := range groupByProject(m.tasks) {
+			if i > 0 {
+				out.WriteString("\n")
+			}
+			out.WriteString(m.projectHeader(group) + "\n")
+			if m.folded[group.project] {
+				continue
+			}
 			for _, index := range group.indexes {
 				out.WriteString(m.railEntry(m.tasks[index], index == m.cursor))
 			}
@@ -63,6 +88,80 @@ func (m Model) railView(height int) string {
 		out.WriteString("\n" + mutedStyle.Render(truncate(archivedNote(m.archived), railWidth)))
 	}
 	return pinFoot(out.String(), m.railFoot(), height)
+}
+
+// The markers on a project header, which say what pressing space there would do.
+//
+// They were drawn before ADR-051 too, on a rail where nothing could be folded:
+// the header claimed a control that did not exist, which is a worse defect than
+// having no control at all, because a user who tries it learns to distrust the
+// rest of the screen.
+const (
+	glyphOpen   = "▾"
+	glyphFolded = "▸"
+)
+
+// projectHeader renders one project's line in the rail.
+//
+// A folded project still reports what is inside it: how many tasks, and whether
+// any of them wants the user. Folding is for reading less about projects a user
+// is not working in, and a fold that could hide the one task that stopped would
+// make the rail unsafe to fold at all (FR-UI-001).
+func (m Model) projectHeader(group projectGroup) string {
+	glyph, style := glyphOpen, mutedStyle
+	if m.folded[group.project] {
+		glyph = glyphFolded
+	}
+	if m.holdsCursor(group) {
+		style = selectedStyle
+	}
+
+	aside := mutedStyle.Render(strconv.Itoa(len(group.indexes)))
+	if m.folded[group.project] {
+		// The glyph is drawn only where the tasks themselves are not. An open
+		// project whose entries each carry their own does not need a second one on
+		// the header; a folded one has nothing else to say it with.
+		if waiting := m.groupAttention(group); waiting != "" {
+			aside = attentionStyle.Render(waiting) + " " + aside
+		}
+		// A cursor inside a fold happens when every project is folded and there
+		// is nowhere for it to go. The task is named rather than left to the
+		// header's colour, because a terminal without colour would lose the
+		// distinction without showing that it had.
+		if task, ok := m.current(); ok && m.holdsCursor(group) {
+			aside = selectedStyle.Render(task.Key) + " " + aside
+		}
+	}
+
+	name := truncate(group.project, railWidth-2-ansi.StringWidth(aside)-1)
+	return cardHeader(style.Render(glyph+" "+name), aside, railWidth)
+}
+
+// holdsCursor reports whether the selected task is one of this project's, which
+// a folded header is the only remaining sign of in the rail. The main region's
+// own header names the task in words whatever the rail is doing.
+func (m Model) holdsCursor(group projectGroup) bool {
+	for _, index := range group.indexes {
+		if index == m.cursor {
+			return true
+		}
+	}
+	return false
+}
+
+// groupAttention is the strongest attention glyph among a project's tasks, for
+// the header of a folded one.
+func (m Model) groupAttention(group projectGroup) string {
+	glyph := ""
+	for _, index := range group.indexes {
+		switch m.tasks[index].Attention {
+		case "needs_input":
+			return badgeNeedsInput
+		case "possibly_waiting":
+			glyph = badgeMaybe
+		}
+	}
+	return glyph
 }
 
 // railFoot is what the rail keeps at its bottom, whatever the task list does.
@@ -86,10 +185,10 @@ func (m Model) railFoot() string {
 // A line rather than a blank one, because the parts are three different things
 // about three different subjects — the tasks, the machine, and what
 // reconciliation found — and blank space between them read as one list that had
-// stopped. It is drawn in the same grey as the divider beside it, so that the
-// rail is ruled by the frame rather than decorated.
+// stopped. It is drawn in the colour the card around it is, so that the rail is
+// ruled by the frame rather than decorated.
 func railRule() string {
-	return dividerStyle.Render(strings.Repeat("─", railWidth))
+	return ruleStyle.Render(strings.Repeat(cardHorizontal, railWidth))
 }
 
 // pinFoot puts a block on the rail's last lines.
@@ -98,6 +197,12 @@ func railRule() string {
 // would otherwise push the block down the screen, and something read by
 // position should be in the same position each time. The narrow fallback passes
 // no height and gets it below the list, which is the bottom there too.
+//
+// A task list too long for the rail is cut here, above the foot, and says that
+// it was. The region used to be clipped by the layout, which cut from the bottom
+// and so took the machine's figures away instead — the one part of the rail that
+// is read by position. What a user does about it is fold a project, which is why
+// the note says so.
 func pinFoot(body, foot string, height int) string {
 	if foot == "" {
 		return body
@@ -106,11 +211,20 @@ func pinFoot(body, foot string, height int) string {
 		return body + "\n\n" + foot
 	}
 
-	// The foot takes the last rows, so the body is padded to everything above.
-	if pad := height - len(strings.Split(body, "\n")) - len(strings.Split(foot, "\n")); pad > 0 {
-		body += strings.Repeat("\n", pad)
+	lines := strings.Split(body, "\n")
+	room := height - len(strings.Split(foot, "\n"))
+	switch {
+	case room < 1:
+		// No room for the tasks at all, which is a terminal too short for the
+		// layout rather than a list too long. The foot is what survives.
+		return foot
+	case len(lines) > room:
+		note := "… " + count(len(lines)-room+1, "more line", "more lines") + ", space folds"
+		lines = append(lines[:room-1], mutedStyle.Render(truncate(note, railWidth)))
+	default:
+		lines = append(lines, make([]string, room-len(lines))...)
 	}
-	return body + "\n" + foot
+	return strings.Join(lines, "\n") + "\n" + foot
 }
 
 // railEntry renders one task as two lines.
