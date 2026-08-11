@@ -362,6 +362,50 @@ func TestDoctorReportsAHealthyMachine(t *testing.T) {
 	}
 }
 
+// TestDoctorDescribesTheSkipsItActuallyProduces is F5-09.
+//
+// The long help said the agent-environment checks are skipped "because nothing
+// starts that environment yet", and the summary said each skipped check "says
+// which slice delivers it". Neither has been true since the checks moved inside
+// a live container: what a skip names is the condition — no container of this
+// project is running — and what it offers is launching a task. A user read the
+// header saying the capability does not exist, the finding saying to start a
+// task, and the footer sending them to look for a slice number no finding
+// carries.
+func TestDoctorDescribesTheSkipsItActuallyProduces(t *testing.T) {
+	m := prepare(t)
+	m.configure(t, "app", projectFixture)
+
+	_, help, _ := m.run(t, "doctor", "--help")
+	for _, stale := range []string{"nothing starts that environment", "slice"} {
+		if strings.Contains(help, stale) {
+			t.Errorf("`feat doctor --help` still says %q, which the checks stopped doing:\n%s", stale, help)
+		}
+	}
+	// It has to say where the checks are asked, because that is what decides
+	// whether they run at all.
+	for _, want := range []string{"on this machine", "running container"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("`feat doctor --help` does not say %q:\n%s", want, help)
+		}
+	}
+
+	code, stdout, stderr := m.run(t, "doctor")
+	if code != ExitOK {
+		t.Fatalf("exit code = %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+	if strings.Contains(stdout, "which slice delivers it") {
+		t.Errorf("the summary sends the reader to look for a slice number:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "each one says why it did not run") {
+		t.Errorf("the summary does not say what a skipped finding carries:\n%s", stdout)
+	}
+	// And the findings have to carry it, or the summary is a claim of its own.
+	if !strings.Contains(stdout, "no container of this project is running") {
+		t.Errorf("no skipped finding names the condition the summary promises:\n%s", stdout)
+	}
+}
+
 // TestReportColumnsSurviveLongPaths checks that the tables align against real
 // data rather than only against short fixtures.
 //
