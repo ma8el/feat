@@ -229,8 +229,6 @@ func (c *checker) checkAgentEnvironment(ctx context.Context) {
 		return
 	}
 
-	c.checkContainerDockerCapability()
-
 	container, found := c.agentContainer(ctx)
 	if !found {
 		c.skipAgentEnvironmentChecks()
@@ -247,6 +245,7 @@ func (c *checker) checkAgentEnvironment(ctx context.Context) {
 		container: container,
 		user:      c.config.Agent.Execution.User,
 	}
+	c.checkContainerDockerCapability(ctx)
 	c.checkAgentExecutable(ctx)
 	for _, capability := range providerCLIs(c.config) {
 		c.checkProviderCLI(ctx, capability)
@@ -409,6 +408,10 @@ func (c *checker) skipAgentEnvironmentChecks() {
 		fmt.Sprintf("%s is not checked in the devcontainer: %s", claude.Executable, reason), noContainer)
 	c.skip("agent.execution.user",
 		fmt.Sprintf("the running process is not checked to be %q: %s", c.config.Agent.Execution.User, reason),
+		noContainer)
+	c.skip("agent.capabilities.docker",
+		fmt.Sprintf("%s: the devcontainer is not checked for a client that speaks a container runtime's API: %s",
+			c.config.Agent.Capabilities.Docker, reason),
 		noContainer)
 
 	for _, capability := range providerCLIs(c.config) {
@@ -630,15 +633,73 @@ func (c *checker) checkHostDockerCapability() {
 		"the agent runs as the user the daemon runs as, with that user's Docker")
 }
 
-// checkContainerDockerCapability reports the declared Docker capability for an
-// agent that runs in a container.
+// checkContainerDockerCapability asks the running container whether it has a
+// client that speaks a container runtime's API.
 //
-// Here the declaration is a rule rather than a description, and a launch
-// enforces it against the container it is about to use.
-func (c *checker) checkContainerDockerCapability() {
-	c.ok("agent.capabilities.docker", c.config.Agent.Capabilities.Docker+
-		": Feat mounts no socket into the agent's container and adds no client; "+
-		"a launch refuses a container that has either")
+// Here the declaration is a rule rather than a description, and this used to be
+// where `feat doctor` asserted it: it found a live container, ran three probes
+// inside it, and then reported the Docker capability as an OK finding without
+// asking that container anything. The rest of this package is careful about the
+// difference — skipAgentEnvironmentChecks exists so that an unrun check is named
+// rather than omitted — and a security property stated as verified is the one
+// place the carelessness costs something, because the claim replaces the
+// reader's own review (F6-08).
+//
+// What is asked is the half of the boundary that is a property of the image, so
+// it is the half a diagnostic can answer before any task exists. The other half
+// — what the container mounts and what its environment sets — is checked at
+// launch against that task's own specification, which is what names the
+// forbidden sources and the read-only paths, and doctor has no task. That is
+// said rather than left out.
+func (c *checker) checkContainerDockerCapability(ctx context.Context) {
+	const check = "agent.capabilities.docker"
+	declared := c.config.Agent.Capabilities.Docker
+
+	var installed []string
+	for _, client := range compose.ContainerClients {
+		// Run rather than Look: containerRunner.Look reports every failure that
+		// is not "no such executable" as the tool being present, which would turn
+		// a container that stopped between the two commands into a report that
+		// the image ships podman.
+		_, err := c.runner.Run(ctx, "", client, "--version")
+		switch {
+		case err == nil:
+			installed = append(installed, client)
+		case errors.Is(err, ErrNotInstalled):
+		default:
+			c.warn(check, fmt.Sprintf(
+				"%s: the running container could not be asked whether it has %s: %v", declared, client, err),
+				"run `docker exec "+client+" --version` in that container to see the whole message")
+			return
+		}
+	}
+
+	if len(installed) > 0 {
+		c.fail(check, fmt.Sprintf("%s, and the running container has %s installed",
+			declared, listOf(installed, "and")),
+			"remove it from the image; a launch refuses a container carrying a client that speaks a "+
+				"container runtime's API")
+		return
+	}
+	c.ok(check, fmt.Sprintf(
+		"%s: the running container has no %s; what it mounts and what its environment sets are checked "+
+			"against a task's own specification when that task launches",
+		declared, listOf(compose.ContainerClients, "or")))
+}
+
+// listOf renders names for a message, so that a finding about three executables
+// reads as a sentence rather than as a slice.
+func listOf(values []string, conjunction string) string {
+	switch len(values) {
+	case 0:
+		return ""
+	case 1:
+		return values[0]
+	case 2:
+		return values[0] + " " + conjunction + " " + values[1]
+	default:
+		return strings.Join(values[:len(values)-1], ", ") + ", " + conjunction + " " + values[len(values)-1]
+	}
 }
 
 // checkCapabilities reports the declared capabilities.
