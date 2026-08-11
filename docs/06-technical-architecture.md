@@ -430,9 +430,19 @@ on the host, with the access its worktree has. A task worktree is not a
 repository on its own: its `.git` is a file naming the main checkout's
 `.git/worktrees/<name>`, so without that directory every Git command inside the
 container fails and full Git access is false while everything else looks correct.
-The exposure is repository metadata, which the security model accepts by name;
-the working copy stays unreachable, because the checkout's directory holds
+The working copy stays unreachable, because the checkout's directory holds
 nothing else in the container.
+
+What that mount exposes is not only repository metadata. For a read-write task it
+is writable, and `hooks` and `config` in the common Git directory are shared with
+the user's own checkout, so an agent that writes either has arranged host code
+execution as the user — through `git status` in the cheapest case, and through
+the `fetch` and `worktree add` this adapter itself runs when the next task is
+created. The security model accepts repository-metadata *mutation* for a native
+host worktree, where there is no boundary to cross; it does not make this case
+acceptable by extension. [05-security-model.md](05-security-model.md) § Git
+boundary states the devcontainer case in its own terms and ADR-050 records why
+the mount stays writable and what was rejected instead.
 
 Two things are established by observing the started container rather than by
 reading the resolved Compose configuration, which would render the values of the

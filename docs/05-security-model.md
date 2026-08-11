@@ -106,7 +106,15 @@ This is an accepted v0 tradeoff. Feat must not describe it as strict repository-
 
 Devcontainer execution makes the same exposure explicit rather than incidental: each task repository's Git directory is mounted into the container at its host path, because a task worktree is not a repository without it. The working copy is not mounted, and a container that turns out to mount one is refused. So the agent can commit, branch, and read history, and cannot reach the files the user is editing themselves.
 
-A future task-local Git metadata or clone backend may reduce this exposure.
+For a read-write task that mount is writable, and it is a host code-execution path. `.git/hooks` and `.git/config` belong to the common Git directory, which the container shares with the user's ordinary checkout. An agent that writes `hooks/post-checkout`, or sets `core.fsmonitor`, `core.pager`, or `diff.external` in `config`, has arranged for a program of its choosing to run on the host, as the user, outside the container. No commit is required and in the cheapest case no user action is: `core.fsmonitor` runs on `git status`, and Feat's own `git fetch` and `git worktree add` run the `reference-transaction` and `post-checkout` hooks when the next task in that project is created.
+
+The accurate claim is:
+
+> The devcontainer is a boundary against ordinary tool access and accidental host interaction everywhere except the Git directory Feat mounts into it. That mount is writable for a read-write task, and write access to it is host code execution.
+
+This is an accepted v0 tradeoff, recorded with its rejected alternatives in ADR-050. It requires no exploit and no misconfiguration, so the container limitation stated above is not the relevant caveat: this is the supported configuration behaving as designed. It is reachable by a prompt-injected agent as readily as a deliberately hostile one.
+
+Mounting the metadata read-only is not available as a mitigation: `git commit` writes through that directory, so it would take FR-GIT-006 and FR-GIT-007 with it. A user who needs the boundary to hold without exception runs the agent against repositories they are willing to treat as trusted, or waits for a task-local Git metadata or clone backend, which is OQ-006 and would reduce this exposure.
 
 ## Network and data egress
 
