@@ -176,6 +176,11 @@ func (c *checker) checkWorktreeRoot() {
 }
 
 // checkExecution checks the agent's execution environment.
+//
+// Both modes report which one they are, because every claim below this line
+// depends on it: the same capability means different things in a container and
+// on this host, and a reader with no mode line has no way to catch a claim that
+// belongs to the other one.
 func (c *checker) checkExecution(ctx context.Context) {
 	execution := c.config.Agent.Execution
 	if !execution.Devcontainer() {
@@ -183,6 +188,15 @@ func (c *checker) checkExecution(ctx context.Context) {
 		c.checkAgentEnvironment(ctx)
 		return
 	}
+
+	// The override is named rather than resolved. It is read from the daemon's
+	// own environment (ADR-032), and `feat doctor` runs without a daemon and
+	// before one exists (ADR-028), so this command can say what would change the
+	// answer and cannot say whether it did.
+	c.ok("agent.execution.mode", fmt.Sprintf(
+		"devcontainer: the agent runs in service %s, unless the daemon was started with %s=1, "+
+			"which runs it on this host with no container boundary",
+		execution.Service, config.EnvHostAgent))
 
 	files := c.checkComposeFiles("agent.execution.compose_files", execution.ComposeFiles)
 	if files {
@@ -207,6 +221,7 @@ func (c *checker) checkExecution(ctx context.Context) {
 // Feat (ADR-033).
 func (c *checker) checkAgentEnvironment(ctx context.Context) {
 	if !c.config.Agent.Execution.Devcontainer() {
+		c.checkHostDockerCapability()
 		c.checkAgentExecutable(ctx)
 		for _, capability := range providerCLIs(c.config) {
 			c.checkProviderCLI(ctx, capability)
@@ -230,6 +245,7 @@ func (c *checker) checkAgentEnvironment(ctx context.Context) {
 		container: container,
 		user:      c.config.Agent.Execution.User,
 	}
+	c.checkContainerDockerCapability(ctx)
 	c.checkAgentExecutable(ctx)
 	for _, capability := range providerCLIs(c.config) {
 		c.checkProviderCLI(ctx, capability)
@@ -392,6 +408,10 @@ func (c *checker) skipAgentEnvironmentChecks() {
 		fmt.Sprintf("%s is not checked in the devcontainer: %s", claude.Executable, reason), noContainer)
 	c.skip("agent.execution.user",
 		fmt.Sprintf("the running process is not checked to be %q: %s", c.config.Agent.Execution.User, reason),
+		noContainer)
+	c.skip("agent.capabilities.docker",
+		fmt.Sprintf("%s: the devcontainer is not checked for a client that speaks a container runtime's API: %s",
+			c.config.Agent.Capabilities.Docker, reason),
 		noContainer)
 
 	for _, capability := range providerCLIs(c.config) {
@@ -594,15 +614,105 @@ func (c *checker) lookUp(check, program string) {
 	c.ok(check, path)
 }
 
+// checkHostDockerCapability reports what the declared Docker capability means
+// for an agent that runs on this machine.
+//
+// `denied` is what the project declared and it is not a boundary here. A
+// host-mode agent is a process of the user the daemon runs as, with that user's
+// socket and CLI already on its path, and telling that project that no Docker
+// socket and no host Docker CLI reach its agent — which is what this said, four
+// lines under `agent.execution.mode host, with no container boundary around the
+// agent` — is the overclaim CLAUDE.md's honesty rule exists for.
+//
+// There is nothing to probe. What the capability grants is nothing either way;
+// what differs is what host execution leaves within reach, and that is a fact
+// about the mode rather than about this machine.
+func (c *checker) checkHostDockerCapability() {
+	c.ok("agent.capabilities.docker", c.config.Agent.Capabilities.Docker+
+		": Feat adds no Docker socket and no Docker CLI, and host execution takes neither away — "+
+		"the agent runs as the user the daemon runs as, with that user's Docker")
+}
+
+// checkContainerDockerCapability asks the running container whether it has a
+// client that speaks a container runtime's API.
+//
+// Here the declaration is a rule rather than a description, and this used to be
+// where `feat doctor` asserted it: it found a live container, ran three probes
+// inside it, and then reported the Docker capability as an OK finding without
+// asking that container anything. The rest of this package is careful about the
+// difference — skipAgentEnvironmentChecks exists so that an unrun check is named
+// rather than omitted — and a security property stated as verified is the one
+// place the carelessness costs something, because the claim replaces the
+// reader's own review (F6-08).
+//
+// What is asked is the half of the boundary that is a property of the image, so
+// it is the half a diagnostic can answer before any task exists. The other half
+// — what the container mounts and what its environment sets — is checked at
+// launch against that task's own specification, which is what names the
+// forbidden sources and the read-only paths, and doctor has no task. That is
+// said rather than left out.
+func (c *checker) checkContainerDockerCapability(ctx context.Context) {
+	const check = "agent.capabilities.docker"
+	declared := c.config.Agent.Capabilities.Docker
+
+	var installed []string
+	for _, client := range compose.ContainerClients {
+		// Run rather than Look: containerRunner.Look reports every failure that
+		// is not "no such executable" as the tool being present, which would turn
+		// a container that stopped between the two commands into a report that
+		// the image ships podman.
+		_, err := c.runner.Run(ctx, "", client, "--version")
+		switch {
+		case err == nil:
+			installed = append(installed, client)
+		case errors.Is(err, ErrNotInstalled):
+		default:
+			c.warn(check, fmt.Sprintf(
+				"%s: the running container could not be asked whether it has %s: %v", declared, client, err),
+				"run `docker exec "+client+" --version` in that container to see the whole message")
+			return
+		}
+	}
+
+	if len(installed) > 0 {
+		c.fail(check, fmt.Sprintf("%s, and the running container has %s installed",
+			declared, listOf(installed, "and")),
+			"remove it from the image; a launch refuses a container carrying a client that speaks a "+
+				"container runtime's API")
+		return
+	}
+	c.ok(check, fmt.Sprintf(
+		"%s: the running container has no %s; what it mounts and what its environment sets are checked "+
+			"against a task's own specification when that task launches",
+		declared, listOf(compose.ContainerClients, "or")))
+}
+
+// listOf renders names for a message, so that a finding about three executables
+// reads as a sentence rather than as a slice.
+func listOf(values []string, conjunction string) string {
+	switch len(values) {
+	case 0:
+		return ""
+	case 1:
+		return values[0]
+	case 2:
+		return values[0] + " " + conjunction + " " + values[1]
+	default:
+		return strings.Join(values[:len(values)-1], ", ") + ", " + conjunction + " " + values[len(values)-1]
+	}
+}
+
 // checkCapabilities reports the declared capabilities.
 //
 // They are validated by internal/config and enforced by the execution adapter.
 // Reporting them here is what makes the security profile of a project visible
 // in one place, next to the mounts it grants.
+//
+// Docker is not among them. What `denied` means depends on where the agent runs
+// and, in a container, on what that container turns out to be, so it is reported
+// beside the rest of the checks on the agent's own environment.
 func (c *checker) checkCapabilities() {
 	capabilities := c.config.Agent.Capabilities
-	c.ok("agent.capabilities.docker",
-		capabilities.Docker+": no Docker socket and no host Docker CLI reach the agent")
 	c.ok("agent.capabilities.network",
 		capabilities.Network+": Feat does not provide network data-loss prevention")
 	c.ok("agent.capabilities.git",

@@ -142,16 +142,6 @@ type service struct {
 	pollNow chan struct{}
 }
 
-// EnvHostAgent opts a daemon in to launching agents on this host even for a
-// project that configures a container.
-//
-// It is deliberately an environment variable of the daemon rather than a flag
-// on a request or a field in project configuration. Devcontainer execution
-// arrives with slice 8; until then a project that asks for a container gets the
-// task shell and a message naming that slice, unless the person who started the
-// daemon said otherwise. See ADR-032.
-const EnvHostAgent = "FEAT_HOST_AGENT"
-
 var _ api.Service = (*service)(nil)
 
 // Health reports what the daemon knows about itself.

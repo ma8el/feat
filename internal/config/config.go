@@ -334,6 +334,21 @@ const (
 	// ModeDevcontainer runs the agent inside a configured Compose service.
 	ModeDevcontainer = "devcontainer"
 
+	// EnvHostAgent opts a daemon in to launching agents on this host even for a
+	// project that configures a container.
+	//
+	// It is deliberately an environment variable of the daemon rather than a
+	// flag on a request or a field in project configuration: a request that
+	// could move an agent outside its configured boundary would be a caller
+	// granting itself a capability (ADR-032).
+	//
+	// It is named here, beside the modes it overrides, rather than in the daemon
+	// that reads it, because the two commands that print a project's execution
+	// mode — `feat doctor` and `feat project show` — run without a daemon and
+	// cannot see its environment. What they can do is name the variable that
+	// decides whether the mode they printed is the one in force.
+	EnvHostAgent = "FEAT_HOST_AGENT"
+
 	// ProviderClaude is the Claude Code adapter.
 	ProviderClaude = "claude"
 	// ProviderCompose is the Docker Compose runtime adapter.

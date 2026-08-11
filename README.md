@@ -31,11 +31,21 @@ environment. A task may span several repositories.
 > A project configured for a devcontainer now runs its agent inside one: Feat
 > starts the configured Compose service, mounts each task worktree at the
 > container path its repository configures, mounts the task's control workspace,
-> and launches Claude there as the configured non-root user. It refuses to start
-> an agent in a container that has a Docker socket, a Docker client, or a mount
-> of your ordinary checkout, and each task gets its own Compose project so tasks
-> run side by side. Set `FEAT_HOST_AGENT=1` in the daemon's environment to run
-> Claude directly on your host instead, with no container boundary around it.
+> and launches Claude there as the configured non-root user. Before starting the
+> agent it inspects that container and refuses one that reaches a container
+> runtime's socket — by its path, by a directory holding it, or by its name; that
+> has `docker`, `podman`, or `nerdctl` installed; that sets `DOCKER_HOST` or
+> another variable pointing a client at a daemon; that mounts Feat's own runtime
+> or state directory, or your home directory; that mounts the ordinary checkout
+> of a repository the task is working in; or that leaves writable a path the task
+> holds read-only. Those are checks on how a container is configured, and they
+> are what Feat verifies rather than what it guarantees: they are not a defence
+> against a deliberate kernel or container-runtime exploit, and nothing here
+> restricts the network. Mounts *inside* your home directory are deliberately
+> allowed, so that a project can configure the credential mounts it needs. Each
+> task gets its own Compose project, so tasks run side by side. Set
+> `FEAT_HOST_AGENT=1` in the daemon's environment to run Claude directly on your
+> host instead, with no container boundary around it.
 >
 > A task's **application services** are now yours to run from Feat: create,
 > start, stop, status, logs, and destroy, each under that task's own Compose

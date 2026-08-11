@@ -52,6 +52,14 @@ func (HostRunner) Look(name string) (string, error) {
 // by diagnostics and may be reported; error output is summarised to one line,
 // because a tool's failure message is the actionable part and its full output
 // is not something Feat should copy into a diagnostic it does not understand.
+//
+// A failure is summarised from standard error and then from standard output,
+// because which of the two carries the reason is the failing tool's choice and
+// not ours. `docker exec` writes "executable file not found in $PATH" to
+// standard output and exits 127 with an empty standard error, and that sentence
+// is the whole of how containerRunner tells "there is nothing to run" from "it
+// ran and disagreed". Reading only standard error turned every absent tool in a
+// container into "exit status 127", which names no cause and matches no rule.
 func (HostRunner) Run(ctx context.Context, dir, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
@@ -68,7 +76,7 @@ func (HostRunner) Run(ctx context.Context, dir, name string, args ...string) (st
 		return "", fmt.Errorf("%s did not answer within %s", name, commandTimeout)
 	}
 	if err != nil {
-		if detail := firstLine(stderr.String()); detail != "" {
+		if detail := firstLine(stderr.String(), stdout.String()); detail != "" {
 			return "", fmt.Errorf("%s: %s", name, detail)
 		}
 		return "", fmt.Errorf("running %s: %w", name, err)
@@ -133,11 +141,14 @@ func missingInContainer(err error) bool {
 		strings.Contains(message, "no such file or directory")
 }
 
-// firstLine returns the first non-empty line of a command's error output.
-func firstLine(output string) string {
-	for _, line := range strings.Split(output, "\n") {
-		if trimmed := strings.TrimSpace(line); trimmed != "" {
-			return trimmed
+// firstLine returns the first non-empty line of a command's output, taking the
+// streams in the order given so that a caller can say which one to prefer.
+func firstLine(outputs ...string) string {
+	for _, output := range outputs {
+		for _, line := range strings.Split(output, "\n") {
+			if trimmed := strings.TrimSpace(line); trimmed != "" {
+				return trimmed
+			}
 		}
 	}
 	return ""

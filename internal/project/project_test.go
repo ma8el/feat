@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,12 @@ type fakeRunner struct {
 	missing map[string]bool
 	// failing are command lines, joined by spaces, that exit non-zero.
 	failing map[string]bool
+	// absent are command lines that fail the way Docker reports an executable a
+	// container does not have. It is its own map because the shape of that
+	// message is what containerRunner reads to tell "there is nothing to run"
+	// from "it ran and disagreed", and an unscripted command answering
+	// successfully would otherwise make every tool look installed.
+	absent map[string]bool
 	// output maps a command line to what it prints.
 	output map[string]string
 	// calls records every command line, in order.
@@ -35,6 +42,7 @@ func newFakeRunner() *fakeRunner {
 	return &fakeRunner{
 		missing: map[string]bool{},
 		failing: map[string]bool{},
+		absent:  map[string]bool{},
 		output: map[string]string{
 			"git --version":          "git version 2.51.0",
 			"tmux -V":                "tmux 3.5a",
@@ -56,6 +64,9 @@ func (f *fakeRunner) Run(_ context.Context, _, name string, args ...string) (str
 
 	if f.missing[name] {
 		return "", fmt.Errorf("%s is %w", name, project.ErrNotInstalled)
+	}
+	if f.absent[line] {
+		return "", fmt.Errorf("%s: executable file not found in $PATH", name)
 	}
 	if f.failing[line] {
 		return "", fmt.Errorf("%s: exit status 1", name)
@@ -137,6 +148,21 @@ func arrange(t *testing.T) *world {
 			},
 			Runner: runner,
 		},
+	}
+}
+
+// liveContainer arranges a running container of the project, found the way
+// `feat doctor` finds one: by Feat's own ownership labels, with no daemon and no
+// state directory to read.
+//
+// The image carries none of the clients that speak a container runtime's API,
+// which is the ordinary case and the one every other check needs, so a test
+// about something else does not have to arrange a Docker refusal.
+func (w *world) liveContainer(id string) {
+	w.runner.output["docker ps --filter label="+compose.LabelOwner+"="+compose.OwnerValue+
+		" --filter label="+compose.LabelProject+"=app --format {{.ID}}"] = id + "\n"
+	for _, client := range compose.ContainerClients {
+		w.runner.absent["docker exec --user developer "+id+" "+client+" --version"] = true
 	}
 }
 
@@ -428,9 +454,12 @@ func TestUncheckableChecksAreSkippedRatherThanPassed(t *testing.T) {
 	findings := w.only(t, report).Findings
 
 	// These need a container, and each says so and says what to do about it.
+	// The Docker capability is among them from this build on: it is the one that
+	// used to be asserted instead of either run or named (F6-08).
 	for _, check := range []string{
 		"agent.executable",
 		"agent.execution.user",
+		"agent.capabilities.docker",
 		"agent.capabilities.gitlab_cli",
 	} {
 		found := finding(t, findings, check)
@@ -530,6 +559,68 @@ func TestHostModeChecksTheEnvironmentTheAgentWillRunIn(t *testing.T) {
 		if found.Check == "agent.execution.user" {
 			t.Errorf("a host-mode project reported %s, which only a container has", found.Check)
 		}
+	}
+}
+
+// TestAHostModeProjectIsNotToldItHasAContainerBoundary is F6-06 for
+// `feat doctor`.
+//
+// The capability check used to run for every project and say the same thing to
+// all of them. A host-mode agent is a process of the user the daemon runs as,
+// with `/var/run/docker.sock` and that user's own `docker` on its path, so
+// "no Docker socket and no host Docker CLI reach the agent" was a claim about a
+// boundary the mode line above it says does not exist.
+func TestAHostModeProjectIsNotToldItHasAContainerBoundary(t *testing.T) {
+	w := arrange(t)
+	hostMode(t, w)
+	findings := w.only(t, w.diagnose(t)).Findings
+
+	mode := finding(t, findings, "agent.execution.mode")
+	if !strings.Contains(mode.Summary, "no container boundary") {
+		t.Fatalf("the fixture is not host-mode, so this test checks nothing: %q", mode.Summary)
+	}
+
+	found := finding(t, findings, "agent.capabilities.docker")
+	for _, claim := range []string{
+		"no Docker socket and no host Docker CLI reach the agent",
+		"a launch refuses a container",
+		"the agent's container",
+	} {
+		if strings.Contains(found.Summary, claim) {
+			t.Errorf("a host-mode project is told %q, and it has no container: %q", claim, found.Summary)
+		}
+	}
+	// The declaration is still reported, because it is what the project said;
+	// what it means where this agent runs is the part that had to change.
+	if !strings.HasPrefix(found.Summary, "denied") {
+		t.Errorf("the declared capability is no longer reported: %q", found.Summary)
+	}
+	if !strings.Contains(found.Summary, "the agent runs as the user the daemon runs as") {
+		t.Errorf("a host-mode project is not told what its agent can reach: %q", found.Summary)
+	}
+}
+
+// TestADevcontainerProjectNamesTheHostAgentOverride is the other half of F6-06.
+//
+// FEAT_HOST_AGENT moves a devcontainer project's agent onto the host, and it is
+// read from the daemon's own environment (ADR-032). `feat doctor` runs without a
+// daemon and before one exists (ADR-028), so it cannot know whether the mode it
+// prints is the one in force — and a diagnosis that said nothing about the
+// variable left every claim below the mode line unqualified.
+func TestADevcontainerProjectNamesTheHostAgentOverride(t *testing.T) {
+	w := arrange(t)
+	found := finding(t, w.only(t, w.diagnose(t)).Findings, "agent.execution.mode")
+
+	if found.Severity != project.SeverityOK {
+		t.Errorf("the execution mode is %q, want ok: it is a statement, not a problem", found.Severity)
+	}
+	if !strings.Contains(found.Summary, config.EnvHostAgent) {
+		t.Errorf("the execution mode does not name what overrides it: %q", found.Summary)
+	}
+	// Which service, because "devcontainer" alone does not tell a reader which
+	// of a project's services the claims below this line are about.
+	if !strings.Contains(found.Summary, "service dev") {
+		t.Errorf("the execution mode does not name the service the agent runs in: %q", found.Summary)
 	}
 }
 
@@ -849,11 +940,8 @@ func TestDiagnosisSurvivesAnUnreadableConfigurationDirectory(t *testing.T) {
 // than of this machine.
 func TestALiveContainerIsCheckedInsteadOfBeingSkipped(t *testing.T) {
 	w := arrange(t)
+	w.liveContainer("c0ffee")
 
-	// A container carrying Feat's ownership labels, which is how a diagnostic
-	// with no daemon and no state directory finds one.
-	w.runner.output["docker ps --filter label="+compose.LabelOwner+"="+compose.OwnerValue+
-		" --filter label="+compose.LabelProject+"=app --format {{.ID}}"] = "c0ffee\n"
 	w.runner.output["docker exec --user developer c0ffee claude --version"] =
 		claude.Verified() + " (Claude Code)"
 	w.runner.output["docker exec --user developer c0ffee id -u"] = "1000\n"
@@ -881,9 +969,8 @@ func TestALiveContainerIsCheckedInsteadOfBeingSkipped(t *testing.T) {
 // model, and only the running container can say so.
 func TestARootAgentInALiveContainerFailsDoctor(t *testing.T) {
 	w := arrange(t)
+	w.liveContainer("c0ffee")
 
-	w.runner.output["docker ps --filter label="+compose.LabelOwner+"="+compose.OwnerValue+
-		" --filter label="+compose.LabelProject+"=app --format {{.ID}}"] = "c0ffee\n"
 	w.runner.output["docker exec --user developer c0ffee claude --version"] =
 		claude.Verified() + " (Claude Code)"
 	w.runner.output["docker exec --user developer c0ffee id -u"] = "0\n"
@@ -894,6 +981,87 @@ func TestARootAgentInALiveContainerFailsDoctor(t *testing.T) {
 	}
 	if !strings.Contains(found.Summary, "uid 0") {
 		t.Errorf("the finding does not say what was observed: %q", found.Summary)
+	}
+}
+
+// TestTheDockerCapabilityIsProbedRatherThanAsserted is F6-08.
+//
+// `feat doctor` found a live container, ran three probes inside it, and then
+// reported the Docker capability as a green line without asking that container
+// anything. The finding has to carry evidence or say it has none; this is the
+// evidence half, and the probe has to appear in what was actually run.
+func TestTheDockerCapabilityIsProbedRatherThanAsserted(t *testing.T) {
+	w := arrange(t)
+	w.liveContainer("c0ffee")
+
+	found := finding(t, w.only(t, w.diagnose(t)).Findings, "agent.capabilities.docker")
+	if found.Severity != project.SeverityOK {
+		t.Errorf("a container with no container client is %q, want ok: %s", found.Severity, found.Summary)
+	}
+	for _, client := range compose.ContainerClients {
+		probe := "docker exec --user developer c0ffee " + client + " --version"
+		if !slices.Contains(w.runner.calls, probe) {
+			t.Errorf("the container was never asked about %s; calls:\n  %s",
+				client, strings.Join(w.runner.calls, "\n  "))
+		}
+		if !strings.Contains(found.Summary, client) {
+			t.Errorf("the finding does not say %s was looked for: %q", client, found.Summary)
+		}
+	}
+	// The half doctor cannot answer is named rather than left out: the mount
+	// rules are checked against a task's own specification, and doctor has no
+	// task.
+	if !strings.Contains(found.Summary, "when that task launches") {
+		t.Errorf("the finding does not say what it did not check: %q", found.Summary)
+	}
+}
+
+// TestAContainerClientInTheImageFailsDoctor is the other outcome of the same
+// probe.
+//
+// A launch refuses a container carrying any of these, so a diagnosis that
+// reported it as fine would be telling the user their next task will start.
+func TestAContainerClientInTheImageFailsDoctor(t *testing.T) {
+	w := arrange(t)
+	w.liveContainer("c0ffee")
+	// An image that ships podman for rootless in-container builds. It speaks the
+	// Docker API, which is the capability, whatever the executable is called.
+	delete(w.runner.absent, "docker exec --user developer c0ffee podman --version")
+	w.runner.output["docker exec --user developer c0ffee podman --version"] = "podman version 5.3.1"
+
+	found := finding(t, w.only(t, w.diagnose(t)).Findings, "agent.capabilities.docker")
+	if found.Severity != project.SeverityError {
+		t.Errorf("a container carrying podman is %q, want an error: a launch refuses it", found.Severity)
+	}
+	if !strings.Contains(found.Summary, "podman") {
+		t.Errorf("the finding does not name what was found: %q", found.Summary)
+	}
+	if strings.Contains(found.Summary, "nerdctl") {
+		t.Errorf("the finding names a client the container does not have: %q", found.Summary)
+	}
+	if !strings.Contains(found.Action, "remove it from the image") {
+		t.Errorf("action = %q, want it to name the remedy", found.Action)
+	}
+}
+
+// TestAnUnaskableContainerIsNotAnAnswer keeps the probe from inventing either
+// result.
+//
+// containerRunner.Look reports every failure that is not "no such executable" as
+// the tool being present, so a container that stopped between two commands would
+// otherwise be reported as an image shipping three container clients.
+func TestAnUnaskableContainerIsNotAnAnswer(t *testing.T) {
+	w := arrange(t)
+	w.liveContainer("c0ffee")
+	w.runner.absent["docker exec --user developer c0ffee docker --version"] = false
+	w.runner.failing["docker exec --user developer c0ffee docker --version"] = true
+
+	found := finding(t, w.only(t, w.diagnose(t)).Findings, "agent.capabilities.docker")
+	if found.Severity != project.SeverityWarning {
+		t.Errorf("an unanswerable probe is %q, want a warning: it is neither result", found.Severity)
+	}
+	if !strings.Contains(found.Summary, "could not be asked") {
+		t.Errorf("the finding does not say the question went unanswered: %q", found.Summary)
 	}
 }
 

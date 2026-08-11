@@ -16,9 +16,12 @@ Diagnostics change nothing. They run before a daemon is started and before a
 project is registered, which is the order to work in: write the configuration,
 run this, fix what it reports, then register the project.
 
-A check this build cannot run is reported as skipped rather than passed. The
-checks inside the agent's execution environment are among them, because nothing
-starts that environment yet.
+A check this build cannot run is reported as skipped rather than passed, with
+the reason it did not run. The checks inside the agent's execution environment
+are asked where that environment is: on this machine for a host-mode project,
+and inside a running container of the project for one that configures a
+devcontainer. Nothing is started to answer them, so those checks are skipped
+until the project has a task running, and running this again then checks them.
 
 The exit code is 0 when nothing failed and 1 when something did. Warnings do not
 fail the run.`
@@ -156,7 +159,10 @@ func printSummary(out io.Writer, report project.Report) {
 	printf(out, "\n%s\n", join(parts))
 
 	if counts[project.SeveritySkipped] > 0 {
-		printf(out, "skipped checks are not passing checks; each one says which slice delivers it\n")
+		// What a skipped check says is the reason, not a slice number. Naming
+		// the condition is what lets a reader act on it, and it is what the
+		// findings actually carry (ADR-033).
+		printf(out, "skipped checks are not passing checks; each one says why it did not run\n")
 	}
 }
 

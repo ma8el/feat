@@ -9,6 +9,12 @@
 # mounts the real home directory of whoever runs the test — which is the point.
 # A refusal about a path that only exists in a fixture would prove nothing about
 # how a container runtime reports the real one.
+#
+# Read-only, though the line a project would write is not. What the rule matches
+# is the source path, and the container is `sleep infinity` with nothing in it
+# that reads or writes anything, so the mount being writable adds no evidence and
+# would be a writable bind of a developer's whole home directory for as long as
+# the test runs. Docker reports it as `(bind, ro)` and the refusal is unchanged.
 services:
   dev:
     image: alpine:3.20
@@ -19,4 +25,4 @@ services:
       - "59317:80"
     volumes:
       - ./base-mount:/srv/api
-      - ${HOME}:/host-home
+      - ${HOME}:/host-home:ro

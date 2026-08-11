@@ -21,10 +21,14 @@
 //
 // Two rules shape what a finding is allowed to say:
 //
-//   - a check this build cannot run is reported as skipped, never as passing.
-//     FR-PROJ-004 asks for checks inside the agent's execution environment, and
-//     nothing starts that environment before slice 8. A diagnostic that claims
-//     a check it did not run is worse than no diagnostic.
+//   - a check this build cannot run is reported as skipped, never as passing,
+//     and the reason is named. FR-PROJ-004 asks for checks inside the agent's
+//     execution environment, which is this machine for a host-mode project and
+//     a running container of the project for a devcontainer one; `feat doctor`
+//     starts neither, so a project with no live task has nothing to look inside
+//     and is told so. Whether such a check can run is a fact about the machine
+//     rather than about which slice this build is (ADR-033). A diagnostic that
+//     claims a check it did not run is worse than no diagnostic.
 //   - secret file contents never reach a finding. Environment files are
 //     examined by path and metadata only, and the sole Compose command used is
 //     `config --services`, which lists service names. Plain `docker compose

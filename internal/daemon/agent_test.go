@@ -14,6 +14,7 @@ import (
 	"github.com/ma8el/feat/internal/agent/agenttest"
 	"github.com/ma8el/feat/internal/agent/claude"
 	"github.com/ma8el/feat/internal/api"
+	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/store"
@@ -173,7 +174,7 @@ func launchWith(
 	env := arranged.env
 	if hostAgent {
 		env.Getenv = func(name string) string {
-			if name == EnvHostAgent {
+			if name == config.EnvHostAgent {
 				return "1"
 			}
 			return ""

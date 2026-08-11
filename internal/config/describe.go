@@ -164,7 +164,7 @@ func (c *Config) describeAgent() Section {
 		Field{Name: "claude.idle_grace_period", Value: c.Agent.Claude.IdleGracePeriod,
 			Note: "idle never means complete"},
 		Field{Name: "capabilities.docker", Value: c.Agent.Capabilities.Docker,
-			Note: "no Docker socket and no host Docker CLI reach the agent"},
+			Note: dockerNote(execution.Mode)},
 		Field{Name: "capabilities.network", Value: c.Agent.Capabilities.Network,
 			Note: "Feat does not provide network data-loss prevention"},
 		Field{Name: "capabilities.git", Value: c.Agent.Capabilities.Git,
@@ -266,10 +266,32 @@ func executionNote(mode string) string {
 	case ModeHost:
 		return "no container boundary"
 	case ModeDevcontainer:
-		return "the agent runs in a configured Compose service"
+		// The variable is named because this command cannot read it: it belongs
+		// to the daemon's environment, and `feat project show` loads
+		// configuration without asking a daemon anything. Naming what overrides
+		// the mode is the honest form of a claim about the mode.
+		return "the agent runs in a configured Compose service, unless the daemon was started with " + EnvHostAgent
 	default:
 		return ""
 	}
+}
+
+// dockerNote says what the declared Docker capability means where the agent
+// runs.
+//
+// `denied` is honest in both modes and means the same thing in neither. Feat
+// mounts no socket and installs no client either way; in a container that is a
+// rule a launch then enforces against the container it is about to use, and on
+// this host the agent is a process of the user the daemon runs as, with that
+// user's socket and CLI already on its path. One gloss covering both would have
+// to be false in one of them, and it was: a host-mode project was told that no
+// Docker socket and no host Docker CLI reach its agent, four lines under
+// `execution.mode host (no container boundary)`.
+func dockerNote(mode string) string {
+	if mode == ModeDevcontainer {
+		return "Feat mounts no socket and adds no client; a launch refuses a container that has either"
+	}
+	return "host execution: the agent runs as the daemon's own user, with that user's Docker"
 }
 
 func orNone(value string) string {

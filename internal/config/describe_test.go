@@ -173,3 +173,74 @@ func TestDescribeShowsResolvedValues(t *testing.T) {
 		t.Errorf("a project with no runtime described one:\n%s", described)
 	}
 }
+
+// TestTheDockerCapabilityIsGlossedForTheModeItAppliesIn is F6-06 for
+// `feat project show`.
+//
+// The capability value is `denied` in both modes and honest in both. What it
+// means is not the same, and one gloss covering both has to be false in one of
+// them: a host-mode project was told that no Docker socket and no host Docker
+// CLI reach its agent, four lines under `execution.mode host (no container
+// boundary)`, about a process that runs as the daemon's owner with that user's
+// socket on its path.
+func TestTheDockerCapabilityIsGlossedForTheModeItAppliesIn(t *testing.T) {
+	opts, _ := testOptions(t, nil)
+
+	host := write(t, "minimal.yaml", fixture(t, "minimal.yaml"))
+	loaded, err := config.Load(host, "minimal", opts)
+	if err != nil {
+		t.Fatalf("loading the host-mode configuration: %v", err)
+	}
+	described := render(loaded.Describe())
+
+	if !strings.Contains(described, "execution.mode = host") {
+		t.Fatalf("the fixture is not host-mode, so this test checks nothing:\n%s", described)
+	}
+	for _, claim := range []string{
+		"no Docker socket and no host Docker CLI reach the agent",
+		"a launch refuses a container",
+	} {
+		if strings.Contains(described, claim) {
+			t.Errorf("a host-mode project is told %q, and it has no container:\n%s", claim, described)
+		}
+	}
+	if !strings.Contains(described, "the agent runs as the daemon's own user, with that user's Docker") {
+		t.Errorf("a host-mode project is not told what its agent can actually reach:\n%s", described)
+	}
+
+	container := write(t, "app.yaml", fixture(t, "app.yaml"))
+	loaded, err = config.Load(container, "app", opts)
+	if err != nil {
+		t.Fatalf("loading the devcontainer configuration: %v", err)
+	}
+	described = render(loaded.Describe())
+
+	if !strings.Contains(described, "Feat mounts no socket and adds no client") {
+		t.Errorf("a devcontainer project is not told what Feat does about Docker:\n%s", described)
+	}
+	if !strings.Contains(described, "a launch refuses a container that has either") {
+		t.Errorf("a devcontainer project is not told what a launch refuses:\n%s", described)
+	}
+}
+
+// TestTheHostAgentOverrideIsNamedRatherThanGuessed is the other half of F6-06.
+//
+// FEAT_HOST_AGENT lives in the daemon's environment (ADR-032) and this command
+// loads configuration without asking a daemon anything, so the mode it prints is
+// the configured one and may not be the one in force. Naming the variable is
+// what a reader needs; reading it from this process would be a second wrong
+// claim whenever the daemon was started from another shell.
+func TestTheHostAgentOverrideIsNamedRatherThanGuessed(t *testing.T) {
+	dir := write(t, "app.yaml", fixture(t, "app.yaml"))
+	opts, _ := testOptions(t, nil)
+
+	loaded, err := config.Load(dir, "app", opts)
+	if err != nil {
+		t.Fatalf("loading the devcontainer configuration: %v", err)
+	}
+	described := render(loaded.Describe())
+
+	if !strings.Contains(described, config.EnvHostAgent) {
+		t.Errorf("a devcontainer project's execution mode does not name what overrides it:\n%s", described)
+	}
+}
