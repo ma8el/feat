@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -375,6 +376,58 @@ func TestRealTheAgentHasNoDockerAccess(t *testing.T) {
 	}
 	if err := environment.Check(report); err != nil {
 		t.Errorf("a container that meets every requirement was refused: %v", err)
+	}
+}
+
+// TestRealADockerEndpointIsFoundInTheContainersOwnEnvironment is the other
+// half of the Docker boundary against a real container.
+//
+// A daemon reached over the network leaves no mount to find and no executable
+// to probe for, so the only evidence is the container's own environment. What
+// `docker inspect` reports under .Config.Env, and whether it carries what the
+// project wrote under `environment:`, is a fact about Docker rather than about
+// Feat.
+func TestRealADockerEndpointIsFoundInTheContainersOwnEnvironment(t *testing.T) {
+	realDocker(t)
+
+	environment, _, _ := realTaskFrom(t, domain.NewTaskID(), "devcontainer-docker-endpoint.yaml")
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("preparing the environment: %v", err)
+	}
+	state, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the environment: %v", err)
+	}
+
+	found, err := environment.Endpoints(context.Background(), state.Container)
+	if err != nil {
+		t.Fatalf("reading the container's environment: %v", err)
+	}
+	for _, want := range []string{"DOCKER_HOST", "DOCKER_TLS_VERIFY"} {
+		if !slices.Contains(found, want) {
+			t.Errorf("the container's environment sets %s and the check did not see it: %v", want, found)
+		}
+	}
+	// The agent's own view of it, which is what the variable would actually
+	// point a client at.
+	if got := inside(t, environment, "printenv", "DOCKER_HOST"); !strings.Contains(got.Stdout, "198.51.100.7") {
+		t.Errorf("the container does not have the endpoint the fixture set: %q", got.Stdout)
+	}
+
+	report, err := environment.Inspect(context.Background(), []string{"/srv/api"})
+	if err != nil {
+		t.Fatalf("inspecting the container: %v", err)
+	}
+	err = environment.Check(report)
+	if err == nil {
+		t.Fatal("a container pointed at a Docker daemon over the network was accepted")
+	}
+	if !strings.Contains(err.Error(), "DOCKER_HOST") {
+		t.Errorf("the refusal does not name the entry to remove: %v", err)
+	}
+	// Names, not values: this message reaches the daemon log and the API.
+	if strings.Contains(err.Error(), "198.51.100.7") {
+		t.Errorf("the refusal repeats the value of an environment entry: %v", err)
 	}
 }
 
