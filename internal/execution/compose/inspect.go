@@ -114,7 +114,9 @@ func (e *Environment) Mounts(ctx context.Context, container string) ([]execution
 //     controls the host's containers and therefore the host;
 //   - no mount exposes one of the host paths the task's specification forbids —
 //     an ordinary repository checkout, Feat's own runtime or state directory, or
-//     the home directory of the user the daemon runs as.
+//     the home directory of the user the daemon runs as;
+//   - no path the task holds read-only is writable, which is invariant 6 asked
+//     of the container rather than of the document Feat generated.
 //
 // Both failures are silent: a task with an extra mount behaves normally and
 // every record Feat keeps about it is correct. That is the failure ADR-033
@@ -135,9 +137,53 @@ func (e *Environment) CheckMounts(mounts []execution.ObservedMount) error {
 		}
 		if forbidden, found := e.forbidden(mount); found {
 			problems = append(problems, e.forbiddenProblem(mount, forbidden))
+			continue
+		}
+		if problem := e.writableProblem(mount); problem != nil {
+			problems = append(problems, problem)
 		}
 	}
 	return errors.Join(problems...)
+}
+
+// writableProblem reports a path the task holds read-only that the container
+// reports the agent can write through.
+//
+// read_only: true in the generated override is a request, and this is the answer
+// to it. Compose merges a service's volumes by target, so what a path ends up
+// being depends on every file in the project as well as on Feat's: volumes_from
+// copies another service's bindings, and a static override applied after Feat's
+// replaces them. Nothing else in the product asks this question — the field is
+// decoded from `docker inspect` and was until now read by nobody — and a task
+// that can write the code it said it may only read looks correct in every record
+// Feat keeps.
+func (e *Environment) writableProblem(mount execution.ObservedMount) error {
+	if !mount.Writable {
+		return nil
+	}
+	for _, own := range e.spec.Mounts {
+		if own.ReadOnly && samePath(mount.Destination, own.Target) {
+			return e.writableRefusal(mount, own.Description)
+		}
+	}
+	for _, volume := range e.spec.Volumes {
+		if volume.ReadOnly && samePath(mount.Destination, volume.Target) {
+			return e.writableRefusal(mount, "the "+volume.Name+" volume, read-only")
+		}
+	}
+	return nil
+}
+
+// writableRefusal says which read-only path turned out to be writable.
+func (e *Environment) writableRefusal(mount execution.ObservedMount, description string) error {
+	return fmt.Errorf(
+		"the container mounts %s at %s read-write, and this task holds that path read-only (%s). "+
+			"Feat's generated override asks for read_only: true there, so something else decides it — "+
+			"a volumes_from that copies another service's bindings, or an override applied after Feat's. "+
+			"An agent that can write what the task said it may only read makes every record Feat keeps "+
+			"about that repository wrong; make that path read-only in the Compose files that define "+
+			"service %s",
+		mount.Source, mount.Destination, description, e.spec.Service)
 }
 
 // forbiddenProblem says what a mount exposed and what to do about it.

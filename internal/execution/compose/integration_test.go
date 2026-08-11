@@ -69,6 +69,14 @@ func agentUser(t *testing.T) string {
 func realTask(t *testing.T, id domain.TaskID) (*compose.Environment, execution.Spec, string) {
 	t.Helper()
 
+	return realTaskFrom(t, id, "devcontainer.yaml")
+}
+
+// realTaskFrom arranges the same task over a named fixture, for the questions
+// that turn on what a project's own Compose file says.
+func realTaskFrom(t *testing.T, id domain.TaskID, fixtureName string) (*compose.Environment, execution.Spec, string) {
+	t.Helper()
+
 	root := t.TempDir()
 	project := filepath.Join(root, "devcontainer")
 	worktree := filepath.Join(root, "worktrees", "api")
@@ -87,7 +95,7 @@ func realTask(t *testing.T, id domain.TaskID) (*compose.Environment, execution.S
 		}
 	}
 
-	fixture, err := os.ReadFile(filepath.Join("testdata", "devcontainer.yaml"))
+	fixture, err := os.ReadFile(filepath.Join("testdata", fixtureName))
 	if err != nil {
 		t.Fatalf("reading the fixture: %v", err)
 	}
@@ -239,6 +247,90 @@ func TestRealTaskWorktreesAppearAtTheirContainerPaths(t *testing.T) {
 	}
 	if uid != spec.User {
 		t.Errorf("the agent runs as uid %q, want the configured %s", uid, spec.User)
+	}
+}
+
+// TestRealAReadOnlyMountIsObservedReadOnly pins the field the read-only check
+// rests on.
+//
+// `docker inspect` reports RW per mount, and the whole of invariant 6's
+// enforcement is the assumption that RW: false is what a read-only bind produces
+// and RW: true is what a writable one produces. That is a statement about Docker
+// rather than about Feat, so it belongs here rather than in a fake.
+func TestRealAReadOnlyMountIsObservedReadOnly(t *testing.T) {
+	realDocker(t)
+
+	environment, _, _ := realTask(t, domain.NewTaskID())
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("preparing the environment: %v", err)
+	}
+	state, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the environment: %v", err)
+	}
+	mounts, err := environment.Mounts(context.Background(), state.Container)
+	if err != nil {
+		t.Fatalf("inspecting the mounts: %v", err)
+	}
+
+	writable := map[string]bool{}
+	for _, mount := range mounts {
+		writable[mount.Destination] = mount.Writable
+	}
+	for destination, want := range map[string]bool{
+		"/srv/api":      true,
+		"/srv/store":    false,
+		"/feat":         false,
+		"/feat/outbox":  true,
+		"/feat/reports": true,
+	} {
+		got, found := writable[destination]
+		if !found {
+			t.Errorf("the container reports no mount at %s: %v", destination, mounts)
+			continue
+		}
+		if got != want {
+			t.Errorf("the container reports %s writable=%t, want %t", destination, got, want)
+		}
+	}
+	if err := environment.CheckMounts(mounts); err != nil {
+		t.Errorf("the container Feat generated was refused by its own check: %v", err)
+	}
+}
+
+// TestRealAReadOnlyPathIsNeverQuietlyWritable is the question only Docker can
+// answer: what a second spelling of a target actually produces.
+//
+// Compose merges a service's volumes by target, and the whole mount design rests
+// on that replacement. What it does with a target that means the same path
+// written differently is a property of the tool, and the three outcomes are all
+// acceptable — the project's file may be refused outright, the two entries may
+// fold into one read-only mount, or a second writable mount may appear and be
+// refused by the check. What must not happen is the fourth: a path the task
+// holds read-only, writable, in a container Feat then starts an agent in.
+func TestRealAReadOnlyPathIsNeverQuietlyWritable(t *testing.T) {
+	realDocker(t)
+
+	environment, _, _ := realTaskFrom(t, domain.NewTaskID(), "devcontainer-second-target.yaml")
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Logf("the project's own file was refused rather than merged: %v", err)
+		return
+	}
+	state, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the environment: %v", err)
+	}
+	mounts, err := environment.Mounts(context.Background(), state.Container)
+	if err != nil {
+		t.Fatalf("inspecting the mounts: %v", err)
+	}
+	t.Logf("the two spellings produced %d mounts: %v", len(mounts), compose.Sources(mounts))
+
+	refused := environment.CheckMounts(mounts) != nil
+	written := inside(t, environment, "touch", "/srv/store/written-by-the-agent").Succeeded()
+	if written && !refused {
+		t.Errorf("the container can write %s, which this task holds read-only, and the check accepted it: %v",
+			"/srv/store", compose.Sources(mounts))
 	}
 }
 

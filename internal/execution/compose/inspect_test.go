@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ma8el/feat/internal/execution"
+	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/execution/compose/composetest"
 	"github.com/ma8el/feat/internal/paths"
 )
@@ -201,6 +202,52 @@ func forbiddenPath(t *testing.T, spec execution.Spec, kind execution.ForbiddenKi
 	}
 	t.Fatalf("the specification forbids no %s path", kind)
 	return ""
+}
+
+// TestAReadOnlyMountThatIsWritableIsRefused is invariant 6 asked of the
+// container rather than of the document Feat generated.
+//
+// read_only: true in the generated override is a request. Compose merges a
+// service's volumes by target, so what a path ends up being depends on every
+// file in the project: a volumes_from copies another service's bindings, and an
+// override applied after Feat's replaces them. The evidence was already being
+// decoded from `docker inspect` and read by nobody.
+func TestAReadOnlyMountThatIsWritableIsRefused(t *testing.T) {
+	environment, _ := arrange(t, composetest.New())
+
+	err := environment.CheckMounts([]execution.ObservedMount{
+		{Type: "bind", Source: "/worktrees/store", Destination: "/srv/store", Writable: true},
+	})
+	if err == nil {
+		t.Fatal("a container that can write a read-only worktree was accepted")
+	}
+	for _, expected := range []string{"read-write", "read-only", "/srv/store"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("the message does not mention %q: %v", expected, err)
+		}
+	}
+}
+
+// TestAReadOnlyVolumeThatIsWritableIsRefused is the same question for a named
+// volume, which a project can hold read-only as well.
+func TestAReadOnlyVolumeThatIsWritableIsRefused(t *testing.T) {
+	_, spec := arrange(t, composetest.New())
+	spec.Volumes = []execution.Volume{{Name: "reference", Target: "/reference", ReadOnly: true}}
+
+	environment, err := compose.New(spec, compose.Options{Runner: composetest.New()})
+	if err != nil {
+		t.Fatalf("building the environment: %v", err)
+	}
+	err = environment.CheckMounts([]execution.ObservedMount{
+		{Type: "volume", Name: "reference", Source: "/var/lib/docker/volumes/reference/_data",
+			Destination: "/reference", Writable: true},
+	})
+	if err == nil {
+		t.Fatal("a container that can write a read-only volume was accepted")
+	}
+	if !strings.Contains(err.Error(), "reference") {
+		t.Errorf("the message does not name the volume: %v", err)
+	}
 }
 
 // TestTheTasksOwnMountsAreAccepted keeps the two refusals above from being
