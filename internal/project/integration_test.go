@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/project"
 )
 
@@ -142,6 +143,102 @@ func TestRealComposeFileIsDiagnosed(t *testing.T) {
 	if !strings.Contains(found.Summary, "absent") {
 		t.Errorf("summary %q does not name the missing service", found.Summary)
 	}
+}
+
+// TestRealTheDockerCapabilityIsProbedInALiveContainer runs the Docker
+// capability check against a real container, which is the only thing that can
+// answer the question the check rests on: how a container runtime reports an
+// executable that is not there.
+//
+// The fake runner decides that for itself. Docker 29.5.2 writes
+// "executable file not found in $PATH" to *standard output* and exits 127 with
+// an empty standard error, so a diagnostic reading only standard error saw
+// "exit status 127" — no cause, matching no rule, and every absent client
+// reported as a question that could not be asked rather than as an answer. This
+// test failed before HostRunner.Run was taught to fall back to standard output,
+// and it is here so that a runtime changing its mind about which stream carries
+// the reason fails rather than quietly turning the check back into a warning.
+func TestRealTheDockerCapabilityIsProbedInALiveContainer(t *testing.T) {
+	if os.Getenv(envIntegration) == "" {
+		t.Skipf("set %s=1 to run the tests that use the real tools", envIntegration)
+	}
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker is not installed")
+	}
+
+	w := arrange(t)
+	w.opts.Runner = project.HostRunner{}
+	// nobody, because the image is a plain alpine and the check runs as the
+	// user the agent would be.
+	rewrite(t, w, "    user: developer", "    user: nobody")
+
+	// A container wearing Feat's ownership labels, which is how a diagnostic
+	// with no daemon finds one. It is started here rather than by Feat: ADR-028
+	// forbids doctor from starting anything, and this test would not detect that
+	// rule breaking if it relied on it.
+	container := runContainer(t, "--label", compose.LabelOwner+"="+compose.OwnerValue,
+		"--label", compose.LabelProject+"=app")
+
+	found := finding(t, w.only(t, diagnose(t, w)).Findings, "agent.capabilities.docker")
+	if found.Severity != project.SeverityOK {
+		t.Fatalf("a container with no container client is %q, want ok: %s", found.Severity, found.Summary)
+	}
+	for _, client := range compose.ContainerClients {
+		if !strings.Contains(found.Summary, client) {
+			t.Errorf("the finding does not say %s was looked for: %q", client, found.Summary)
+		}
+	}
+
+	// The same container with a client on its path. Any executable of that name
+	// is the capability: what matters is that the image has one, not what it
+	// does when run.
+	install(t, container, "podman")
+
+	found = finding(t, w.only(t, diagnose(t, w)).Findings, "agent.capabilities.docker")
+	if found.Severity != project.SeverityError {
+		t.Errorf("a container carrying podman is %q, want an error: a launch refuses it", found.Severity)
+	}
+	if !strings.Contains(found.Summary, "podman") {
+		t.Errorf("the finding does not name what was found: %q", found.Summary)
+	}
+}
+
+// runContainer starts a container for a test and removes it afterwards.
+func runContainer(t *testing.T, options ...string) string {
+	t.Helper()
+
+	args := append([]string{"run", "--detach"}, options...)
+	args = append(args, "alpine:3", "sleep", "300")
+	output, err := exec.Command("docker", args...).Output()
+	if err != nil {
+		t.Skipf("starting a container: %v", err)
+	}
+	id := strings.TrimSpace(string(output))
+	t.Cleanup(func() {
+		if err := exec.Command("docker", "rm", "--force", id).Run(); err != nil {
+			t.Errorf("removing container %s: %v", id, err)
+		}
+	})
+	return id
+}
+
+// install puts an executable of a given name on a container's path.
+func install(t *testing.T, container, name string) {
+	t.Helper()
+	script := "printf '#!/bin/sh\\nexit 0\\n' > /usr/local/bin/" + name + " && chmod 0755 /usr/local/bin/" + name
+	if output, err := exec.Command("docker", "exec", container, "sh", "-c", script).CombinedOutput(); err != nil {
+		t.Fatalf("installing %s in the container: %v\n%s", name, err, output)
+	}
+}
+
+// diagnose runs a diagnosis for an integration test.
+func diagnose(t *testing.T, w *world) project.Report {
+	t.Helper()
+	report, err := project.Diagnose(context.Background(), w.opts)
+	if err != nil {
+		t.Fatalf("diagnosing: %v", err)
+	}
+	return report
 }
 
 // git runs a Git command for the test's setup.
