@@ -23,12 +23,30 @@ var ErrNotInEnvironment = execution.ErrNotInEnvironment
 // The agent must never receive one (docs/05-security-model.md, Docker
 // boundary). The list is of destinations inside the container as well as sources
 // on the host, because either end being a daemon socket is the same capability.
+// A source is compared by containment as well as by equality: a directory
+// holding one of these hands over the socket inside it without naming it.
 var DockerSocketPaths = []string{
 	"/var/run/docker.sock",
 	"/run/docker.sock",
 	"/var/run/docker.raw.sock",
 	"/run/podman/podman.sock",
+	"/var/run/podman/podman.sock",
+	"/run/containerd/containerd.sock",
 	"/var/run/containerd/containerd.sock",
+}
+
+// runtimeSocketNames are the file names a container runtime gives its API
+// socket.
+//
+// The paths above cannot be enumerated: a rootless daemon puts its socket under
+// /run/user/<uid>, a Docker Desktop replacement puts it under the user's home
+// directory, and a project is free to point its client anywhere. What does not
+// vary is the name, and every runtime named here speaks an API that creates
+// containers on the host.
+var runtimeSocketNames = []string{
+	"docker.sock",
+	"podman.sock",
+	"containerd.sock",
 }
 
 // mount decodes one binding of `docker inspect`. It is the wire shape of
@@ -104,12 +122,8 @@ func (e *Environment) CheckMounts(mounts []execution.ObservedMount) error {
 	var problems []error
 
 	for _, mount := range mounts {
-		if socket := dockerSocket(mount); socket != "" {
-			problems = append(problems, fmt.Errorf(
-				"the container mounts the Docker socket %s at %s, which would give the agent control of "+
-					"this host's Docker daemon. Feat never grants an agent Docker access; remove that mount "+
-					"from the Compose files that define service %s",
-				socket, mount.Destination, e.spec.Service))
+		if socket, inside := dockerSocket(mount); socket != "" {
+			problems = append(problems, e.socketProblem(mount, socket, inside))
 			continue
 		}
 		if checkout := e.forbidden(mount); checkout != "" {
@@ -125,22 +139,74 @@ func (e *Environment) CheckMounts(mounts []execution.ObservedMount) error {
 	return errors.Join(problems...)
 }
 
-// dockerSocket reports the socket path when a mount is one, and "" otherwise.
-func dockerSocket(mount execution.ObservedMount) string {
-	for _, socket := range DockerSocketPaths {
-		if samePath(mount.Source, socket) || samePath(mount.Destination, socket) {
-			if samePath(mount.Source, socket) {
-				return mount.Source
-			}
-			return mount.Destination
+// socketProblem says which mount reaches a daemon socket, and how.
+//
+// The two forms are worth keeping apart. A mount of the socket itself is
+// something a reader can see in their own Compose file; a mount of the directory
+// holding it is not, and telling them "the container mounts /var/run/docker.sock"
+// about the line `- /var/run:/var/run` would send them looking for a line that
+// is not there.
+func (e *Environment) socketProblem(mount execution.ObservedMount, socket string, inside bool) error {
+	if inside {
+		return fmt.Errorf(
+			"the container mounts %s at %s, and the daemon socket %s is inside it. A container that can "+
+				"reach a container runtime's socket controls this host's containers and therefore the host. "+
+				"Feat never grants an agent Docker access; mount the directories the agent needs rather than "+
+				"the one holding that socket, in the Compose files that define service %s",
+			mount.Source, mount.Destination, socket, e.spec.Service)
+	}
+	return fmt.Errorf(
+		"the container mounts the Docker socket %s at %s, which would give the agent control of "+
+			"this host's Docker daemon. Feat never grants an agent Docker access; remove that mount "+
+			"from the Compose files that define service %s",
+		socket, mount.Destination, e.spec.Service)
+}
+
+// dockerSocket reports the daemon socket a mount exposes, and whether the mount
+// reaches it through a directory rather than being the socket itself.
+//
+// Three ways, because a socket is a capability rather than a path. The mount is
+// one of the sockets this package knows; the mount is a directory holding one of
+// them, which is what `- /var/run:/var/run` does without naming it; or the mount
+// is named like a runtime socket wherever it sits, which is what a rootless
+// daemon under /run/user/<uid> and a Docker Desktop replacement under the user's
+// home directory both produce.
+func dockerSocket(mount execution.ObservedMount) (socket string, inside bool) {
+	for _, known := range DockerSocketPaths {
+		if samePath(mount.Source, known) {
+			return mount.Source, false
+		}
+		if contains(mount.Source, known) {
+			return known, true
+		}
+		if samePath(mount.Destination, known) {
+			return mount.Destination, false
 		}
 	}
-	// A socket by another name is still a socket: anything that ends in
-	// docker.sock reaches a Docker daemon whatever directory it sits in.
-	if strings.HasSuffix(path.Base(mount.Source), "docker.sock") {
-		return mount.Source
+	// A socket by another name is still a socket. The destination counts as well
+	// as the source: a path the container's own client will find is the same
+	// capability as the host path it came from.
+	if runtimeSocketName(mount.Source) {
+		return mount.Source, false
 	}
-	return ""
+	if runtimeSocketName(mount.Destination) {
+		return mount.Destination, false
+	}
+	return "", false
+}
+
+// runtimeSocketName reports whether a path is named like a runtime's socket.
+func runtimeSocketName(value string) bool {
+	if value == "" {
+		return false
+	}
+	base := path.Base(normalize(value))
+	for _, name := range runtimeSocketNames {
+		if strings.HasSuffix(base, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // forbidden reports the ordinary checkout a mount exposes, and "" otherwise.

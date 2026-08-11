@@ -33,6 +33,23 @@ func TestADockerSocketIsRefused(t *testing.T) {
 		"a podman socket": {
 			Type: "bind", Source: "/run/podman/podman.sock", Destination: "/run/podman/podman.sock",
 		},
+		// A socket reached through the directory holding it. Nothing in the
+		// Compose file says "docker.sock", which is what makes this the shape a
+		// project arrives at by accident.
+		"the directory the socket sits in": {
+			Type: "bind", Source: "/var/run", Destination: "/var/run", Writable: true,
+		},
+		"a parent of that directory": {
+			Type: "bind", Source: "/", Destination: "/host", Writable: true,
+		},
+		// A rootless daemon's socket is under a uid nobody can enumerate, so the
+		// name is what identifies it.
+		"a rootless podman socket by name": {
+			Type: "bind", Source: "/run/user/1000/podman/podman.sock", Destination: "/srv/socket",
+		},
+		"a socket the container's own client would find": {
+			Type: "bind", Source: "/opt/colima/default/sock", Destination: "/srv/.docker/run/docker.sock",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			environment, _ := arrange(t, composetest.New())
@@ -105,6 +122,11 @@ func TestTheTasksOwnMountsAreAccepted(t *testing.T) {
 		// repository, and refusing it would be a false positive nobody could
 		// work around.
 		{Type: "bind", Source: "/repos/app/api-docs", Destination: "/srv/docs"},
+		// The rule is about container runtimes rather than about sockets: a
+		// project's own service socket is an ordinary thing to share, and a
+		// directory that merely sits beside one is not a runtime's.
+		{Type: "bind", Source: "/var/run/myapp.sock", Destination: "/var/run/myapp.sock", Writable: true},
+		{Type: "bind", Source: "/var/lib/postgresql", Destination: "/var/lib/postgresql", Writable: true},
 	})
 	if err != nil {
 		t.Fatalf("the task's own mounts were refused: %v", err)
