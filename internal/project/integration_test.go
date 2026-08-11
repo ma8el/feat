@@ -5,8 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/project"
@@ -171,13 +173,22 @@ func TestRealTheDockerCapabilityIsProbedInALiveContainer(t *testing.T) {
 	// nobody, because the image is a plain alpine and the check runs as the
 	// user the agent would be.
 	rewrite(t, w, "    user: developer", "    user: nobody")
+	// A project identifier no other package can produce. Containers are the one
+	// thing these tests share with every other test on the machine, and the
+	// fixture's own id is "app" — which internal/execution/compose's integration
+	// tests also use for the containers they start. `go test ./...` runs
+	// packages in parallel, so doctor would find whichever of the two Docker
+	// listed first and this test would pass or fail by timing. That is F5-01
+	// arriving in the suite rather than in the product, and the honest way to
+	// keep it out of this test is not to share the label.
+	id := renameProject(t, w)
 
 	// A container wearing Feat's ownership labels, which is how a diagnostic
 	// with no daemon finds one. It is started here rather than by Feat: ADR-028
 	// forbids doctor from starting anything, and this test would not detect that
 	// rule breaking if it relied on it.
 	container := runContainer(t, "--label", compose.LabelOwner+"="+compose.OwnerValue,
-		"--label", compose.LabelProject+"=app")
+		"--label", compose.LabelProject+"="+id)
 
 	found := finding(t, w.only(t, diagnose(t, w)).Findings, "agent.capabilities.docker")
 	if found.Severity != project.SeverityOK {
@@ -192,7 +203,7 @@ func TestRealTheDockerCapabilityIsProbedInALiveContainer(t *testing.T) {
 	// The same container with a client on its path. Any executable of that name
 	// is the capability: what matters is that the image has one, not what it
 	// does when run.
-	install(t, container, "podman")
+	install(t, container, "nobody", "podman")
 
 	found = finding(t, w.only(t, diagnose(t, w)).Findings, "agent.capabilities.docker")
 	if found.Severity != project.SeverityError {
@@ -201,6 +212,23 @@ func TestRealTheDockerCapabilityIsProbedInALiveContainer(t *testing.T) {
 	if !strings.Contains(found.Summary, "podman") {
 		t.Errorf("the finding does not name what was found: %q", found.Summary)
 	}
+}
+
+// renameProject gives the arranged configuration an identifier unique to this
+// run, and returns it.
+//
+// The file name carries the identifier, so both move together: config.Find
+// resolves a project by the name of its file.
+func renameProject(t *testing.T, w *world) string {
+	t.Helper()
+
+	id := "probe" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	rewrite(t, w, "  id: app", "  id: "+id)
+	if err := os.Rename(filepath.Join(w.configDir, "app.yaml"),
+		filepath.Join(w.configDir, id+".yaml")); err != nil {
+		t.Fatalf("renaming the configuration: %v", err)
+	}
+	return id
 }
 
 // runContainer starts a container for a test and removes it afterwards.
@@ -222,12 +250,23 @@ func runContainer(t *testing.T, options ...string) string {
 	return id
 }
 
-// install puts an executable of a given name on a container's path.
-func install(t *testing.T, container, name string) {
+// install puts an executable of a given name on a container's path, and
+// establishes that the agent's own user can run it.
+//
+// The second half is what makes a failure of this test readable: if the probe
+// then reports the client absent, the difference is the product's and not the
+// arrangement's.
+func install(t *testing.T, container, user, name string) {
 	t.Helper()
+
 	script := "printf '#!/bin/sh\\nexit 0\\n' > /usr/local/bin/" + name + " && chmod 0755 /usr/local/bin/" + name
 	if output, err := exec.Command("docker", "exec", container, "sh", "-c", script).CombinedOutput(); err != nil {
 		t.Fatalf("installing %s in the container: %v\n%s", name, err, output)
+	}
+	if output, err := exec.Command("docker", "exec", "--user", user, container,
+		name, "--version").CombinedOutput(); err != nil {
+		t.Fatalf("%s is installed but %s cannot run it, so this test would prove nothing: %v\n%s",
+			name, user, err, output)
 	}
 }
 
