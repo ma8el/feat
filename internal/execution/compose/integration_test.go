@@ -379,6 +379,65 @@ func TestRealTheAgentHasNoDockerAccess(t *testing.T) {
 	}
 }
 
+// TestRealAMountOfTheHomeDirectoryIsRefused is the rule that needs a real path
+// to mean anything.
+//
+// Every other test of this rule states the home directory itself, which proves
+// the comparison and not the thing the comparison is about: whether a container
+// runtime, asked what it mounts, names the host's home directory in a form Feat
+// recognises. Docker Desktop reports a bind source through its own file-sharing
+// layer, so the answer is the runtime's rather than the specification's.
+//
+// It needs no daemon, no task, and no launch. The fixture's own teardown removes
+// what it made, which is why this is the way to exercise the rule by hand.
+func TestRealAMountOfTheHomeDirectoryIsRefused(t *testing.T) {
+	realDocker(t)
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("this machine has no resolvable home directory: %v", err)
+	}
+
+	_, spec, _ := realTaskFrom(t, domain.NewTaskID(), "devcontainer-home-mount.yaml")
+	// What the daemon supplies from the resolved layout, which no fixture can
+	// stand in for: this machine's own home directory.
+	spec.ForbiddenSources = append(spec.ForbiddenSources,
+		execution.ForbiddenSource{Path: home, Kind: execution.ForbiddenHome})
+
+	environment, err := compose.New(spec, compose.Options{ReadyTimeout: 90 * time.Second})
+	if err != nil {
+		t.Fatalf("building the environment: %v", err)
+	}
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("preparing the environment: %v", err)
+	}
+	state, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the environment: %v", err)
+	}
+	mounts, err := environment.Mounts(context.Background(), state.Container)
+	if err != nil {
+		t.Fatalf("inspecting the mounts: %v", err)
+	}
+	t.Logf("the container mounts %v", compose.Sources(mounts))
+
+	err = environment.CheckMounts(mounts)
+	if err == nil {
+		t.Fatal("a container mounting the whole home directory was accepted")
+	}
+	for _, expected := range []string{home, "SSH and cloud credentials", spec.Service} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("the refusal does not mention %q: %v", expected, err)
+		}
+	}
+
+	// One problem, not five: the task's own worktrees and control workspace are
+	// mounted through the same container and none of them is the home directory.
+	if problems := strings.Count(err.Error(), "the container mounts"); problems != 1 {
+		t.Errorf("the refusal names %d mounts, want 1: %v", problems, err)
+	}
+}
+
 // TestRealADockerEndpointIsFoundInTheContainersOwnEnvironment is the other
 // half of the Docker boundary against a real container.
 //
