@@ -1534,6 +1534,48 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   because a session whose container is gone is not running, and saying so is what
   makes the recovery it already recommends available to the user it recommends
   it to.
+- Make a launch that fails after its container exists recoverable, in the three
+  places it currently is not. They are one story — the container outlives the
+  request that created it — and each half was found by the maintainer while
+  dogfooding the mount-and-socket rules, on a jobharbor-dev task
+  (`d7f54fa5`) whose devcontainer Compose file had been given a mount of the
+  home directory on purpose.
+
+  The launch never reached the check it was meant to trigger. `POST
+  /v1/task-drafts/{id}/launch` failed after 10.018 seconds with `running
+  /usr/local/bin/docker: context canceled`, because `internal/client`'s
+  `requestTimeout` is ten seconds and the client cancels the request the daemon
+  is still serving. The daemon's own patience is three minutes
+  (`defaultReadyTimeout`), which is the honest budget: a launch that has to
+  create a container is not a request that answers in ten seconds, and this one
+  did not because the edited Compose file changed the service's configuration
+  hash and the container had to be recreated with a new host share. The five
+  launches before it took between 0.46 and 3.13 seconds, so the ceiling is
+  invisible until the day a project's own file changes. A launch needs a
+  timeout of its own, or a shape that does not hold a request open while a
+  container is built.
+
+  What the cancelled launch left behind, nothing can now remove. The container
+  it had already created is still on the machine, exited, with its network
+  beside it; the archived task record has `session: null`, because a failed
+  launch clears the session it had recorded before creating anything; and
+  cleanup resolves a task's resources from that record, so it plans nothing and
+  reports success. The Compose project name is derivable from the project and
+  task identifiers, and the containers carry `dev.feat.*` labels, so the
+  resources are discoverable — reconciliation finds this class for tasks that
+  have a session and has no home for the ones that do not (F2-15). Widening the
+  launch refusals makes this more frequent rather than less: every rule added in
+  `fix/mount-and-socket-rules` fires after the container is up.
+
+  And cleanup removes the control workspace without establishing that no
+  container still mounts it. The first `cleanup/execute` failed with `unlinkat
+  …/control/jobharbor-dev/d7f54fa5-…/outbox: permission denied` while the
+  container was still running; the second, after it had died, succeeded. On
+  macOS the file-sharing layer holds a directory that is an active bind-mount
+  source, so this is an ordering rule rather than a permissions bug: destroy the
+  containers, establish that they are gone, and only then remove the tree they
+  mounted. It became reachable when the control workspace stopped being one
+  mount and became three (ADR-032's read-only split).
 - Remove hard-coded assumptions discovered during dogfood.
 
 ### Acceptance criteria
@@ -1548,6 +1590,11 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
 - A task whose agent container died can be recovered from the product, without
   reaching for tmux: what reconciliation reports about it and what resume will
   accept agree.
+- A launch that fails after its container exists leaves nothing the product
+  cannot see: the client does not cancel a launch the daemon is still serving,
+  the container and network are removable by name from the task that created
+  them, and a cleanup that has to remove a control workspace establishes first
+  that nothing still mounts it.
 - Every command that takes a task can be found from `feat task --help`, no alias
   carries a second implementation, and the golden file, the specification, and
   `feat --help` describe the same surface.
