@@ -190,6 +190,14 @@ const (
 	// ForbiddenCheckout is a repository's ordinary checkout: the working copy a
 	// task exists to leave alone (ADR-033 evidence 1).
 	ForbiddenCheckout ForbiddenKind = "checkout"
+	// ForbiddenStableCheckout is the checkout of a repository the project keeps
+	// stable and read-only, which this task did not promote.
+	//
+	// It is the one kind Feat mounts itself, so it is forbidden everywhere
+	// except at the target Feat mounts it at: the project declared that the
+	// agent reads that repository from the checkout, and did not declare a
+	// second, writable path to it.
+	ForbiddenStableCheckout ForbiddenKind = "stable_checkout"
 	// ForbiddenRuntime is Feat's own runtime directory.
 	ForbiddenRuntime ForbiddenKind = "runtime"
 	// ForbiddenState is Feat's own state directory.
@@ -207,6 +215,8 @@ func (k ForbiddenKind) Describe() string {
 	switch k {
 	case ForbiddenCheckout:
 		return "a repository's ordinary checkout"
+	case ForbiddenStableCheckout:
+		return "the ordinary checkout of a repository this project keeps stable and read-only"
 	case ForbiddenRuntime:
 		return "Feat's runtime directory, which holds the daemon's API socket and the tmux control socket"
 	case ForbiddenState:
@@ -368,6 +378,12 @@ func (s Spec) validateMounts() error {
 
 		for _, forbidden := range s.ForbiddenSources {
 			if !samePath(mount.Source, forbidden.Path) {
+				continue
+			}
+			if forbidden.Kind == ForbiddenStableCheckout {
+				// The one kind Feat mounts itself, which is what this loop is
+				// checking. Whether the container ends up with a second mount of
+				// it is a question about the container, and CheckMounts asks it.
 				continue
 			}
 			if forbidden.Kind == ForbiddenCheckout {

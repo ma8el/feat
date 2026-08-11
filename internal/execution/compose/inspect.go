@@ -157,6 +157,15 @@ func (e *Environment) forbiddenProblem(mount execution.ObservedMount, forbidden 
 				"one beside it",
 			forbidden.Path, mount.Destination)
 
+	case execution.ForbiddenStableCheckout:
+		return fmt.Errorf(
+			"the container mounts %s at %s, which exposes %s. Feat mounts that checkout read-only at %s "+
+				"already, because the project declared the repository stable; a second mount of it gives the "+
+				"agent a writable path to the user's own working copy beside the read-only one. Remove that "+
+				"mount from the Compose files that define service %s, or give the repository the "+
+				"container_path those files already use",
+			mount.Source, mount.Destination, exposed(forbidden, mount), e.target(forbidden.Path), e.spec.Service)
+
 	case execution.ForbiddenRuntime:
 		return fmt.Errorf(
 			"the container mounts %s at %s, which exposes %s. A process that can reach the tmux socket runs "+
@@ -185,6 +194,21 @@ func (e *Environment) forbiddenProblem(mount execution.ObservedMount, forbidden 
 	return fmt.Errorf("the container mounts %s at %s, which exposes %s. Remove that mount from the "+
 		"Compose files that define service %s",
 		mount.Source, mount.Destination, exposed(forbidden, mount), e.spec.Service)
+}
+
+// target is where this task's own specification mounts a host path, or the path
+// itself when it mounts it nowhere.
+//
+// It exists so that a refusal about a second mount of something Feat mounts can
+// say where the first one is. A user reading "remove that mount" needs to know
+// which of the two is theirs.
+func (e *Environment) target(source string) string {
+	for _, own := range e.spec.Mounts {
+		if samePath(own.Source, source) {
+			return own.Target
+		}
+	}
+	return source
 }
 
 // exposed names the forbidden path a mount exposes, saying which it is when the
@@ -289,7 +313,8 @@ func (e *Environment) forbidden(mount execution.ObservedMount) (execution.Forbid
 		return execution.ForbiddenSource{}, false
 	}
 	for _, forbidden := range e.spec.ForbiddenSources {
-		if forbidden.Kind == execution.ForbiddenCheckout {
+		switch forbidden.Kind {
+		case execution.ForbiddenCheckout, execution.ForbiddenStableCheckout:
 			metadata := path.Join(forbidden.Path, gitDirName)
 			if samePath(mount.Source, metadata) || contains(metadata, mount.Source) {
 				continue

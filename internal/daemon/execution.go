@@ -57,7 +57,7 @@ func (s *service) executionSpec(
 		return execution.Spec{}, err
 	}
 
-	forbidden, err := s.forbiddenSources(cfg)
+	forbidden, err := s.forbiddenSources(cfg, task)
 	if err != nil {
 		return execution.Spec{}, err
 	}
@@ -152,14 +152,10 @@ func taskMounts(cfg *config.Config, task *domain.Task, workspace *control.Worksp
 	// criterion 2 Feat's to satisfy rather than the project's.
 	for _, id := range cfg.RepositoryIDs() {
 		repository := cfg.Repositories[id]
-		if repository.DefaultAccess != string(domain.DefaultAccessStableReadOnly) {
-			continue
-		}
-		if _, selected := task.Repository(domain.RepositoryID(id)); selected {
-			// The task promoted it, so it has a worktree and is mounted above.
-			continue
-		}
-		if repository.ContainerPath == "" {
+		// stable() is also what decides which checkouts are forbidden, so a
+		// repository this task promoted — which has a worktree and is mounted
+		// above — cannot be mounted here and refused there.
+		if !stable(cfg, task, id) || repository.ContainerPath == "" {
 			continue
 		}
 		mounts = append(mounts, execution.Mount{
@@ -291,7 +287,7 @@ func describeMount(binding domain.TaskRepository) string {
 // from the most direct account of what was given away to the least: the runtime
 // directory grants control, the home directory is the widest thing a reader can
 // recognise in their own Compose file, and the state directory sits inside it.
-func (s *service) forbiddenSources(cfg *config.Config) ([]execution.ForbiddenSource, error) {
+func (s *service) forbiddenSources(cfg *config.Config, task *domain.Task) ([]execution.ForbiddenSource, error) {
 	home, err := s.env.Expand("~")
 	if err != nil {
 		return nil, fmt.Errorf("resolving the home directory a task's container must not mount: %w", err)
@@ -302,8 +298,13 @@ func (s *service) forbiddenSources(cfg *config.Config) ([]execution.ForbiddenSou
 		{Path: home, Kind: execution.ForbiddenHome},
 		{Path: s.layout.State, Kind: execution.ForbiddenState},
 	}
-	for _, checkout := range checkouts(cfg) {
+	for _, checkout := range checkouts(cfg, task) {
 		sources = append(sources, execution.ForbiddenSource{Path: checkout, Kind: execution.ForbiddenCheckout})
+	}
+	for _, checkout := range stableCheckouts(cfg, task) {
+		sources = append(sources, execution.ForbiddenSource{
+			Path: checkout, Kind: execution.ForbiddenStableCheckout,
+		})
 	}
 	return sources, nil
 }
@@ -311,21 +312,58 @@ func (s *service) forbiddenSources(cfg *config.Config) ([]execution.ForbiddenSou
 // checkouts lists the ordinary repository checkouts, which must never be
 // mounted into a task's container.
 //
-// A stable read-only repository is deliberately not among them: the project
-// declared that the agent reads it from the checkout, and Feat mounts it that
-// way itself.
-func checkouts(cfg *config.Config) []string {
+// A stable read-only repository is among them only when this task selected it.
+// The project's declaration is that the agent reads that repository from the
+// checkout, and Feat mounts it that way itself — but a task may promote it, and
+// DefaultAccess.Permits allows exactly that. A promoted repository has a branch,
+// a worktree, and a mount of that worktree like any other, so its checkout is
+// the working copy the task exists to leave alone, and the rule that says so has
+// to apply to it.
+//
+// A nil task is one whose repositories are not resolved yet, and every stable
+// repository is then still the project's own to mount.
+func checkouts(cfg *config.Config, task *domain.Task) []string {
 	var paths []string
 	for _, id := range cfg.RepositoryIDs() {
 		repository := cfg.Repositories[id]
-		if repository.DefaultAccess == string(domain.DefaultAccessStableReadOnly) {
+		if stable(cfg, task, id) || repository.HostPath == "" {
 			continue
 		}
-		if repository.HostPath != "" {
-			paths = append(paths, repository.HostPath)
-		}
+		paths = append(paths, repository.HostPath)
 	}
 	return paths
+}
+
+// stableCheckouts lists the checkouts Feat mounts itself, read-only, because the
+// project keeps those repositories stable and this task did not promote them.
+//
+// They are forbidden everywhere other than the one mount Feat generates. A base
+// file mounting the same checkout at a second target is not the read-only
+// infrastructure checkout the project declared; it is the user's own working
+// copy, arriving beside it and usually writable.
+func stableCheckouts(cfg *config.Config, task *domain.Task) []string {
+	var paths []string
+	for _, id := range cfg.RepositoryIDs() {
+		repository := cfg.Repositories[id]
+		if !stable(cfg, task, id) || repository.HostPath == "" {
+			continue
+		}
+		paths = append(paths, repository.HostPath)
+	}
+	return paths
+}
+
+// stable reports whether a repository is one the project keeps stable and
+// read-only and the task left that way.
+func stable(cfg *config.Config, task *domain.Task, id string) bool {
+	if cfg.Repositories[id].DefaultAccess != string(domain.DefaultAccessStableReadOnly) {
+		return false
+	}
+	if task == nil {
+		return true
+	}
+	_, promoted := task.Repository(domain.RepositoryID(id))
+	return !promoted
 }
 
 // containerShells are the shells a task shell tries inside a container, in

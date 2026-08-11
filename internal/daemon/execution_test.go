@@ -484,11 +484,13 @@ func TestAStableRepositoryIsMountedReadOnlyFromItsCheckout(t *testing.T) {
 //
 // Mounting a checkout is normally refused, because the agent would be able to
 // edit the working copy the task exists to leave alone. A stable_read_only
-// repository is the declared exception: the project said the agent reads it from
-// the checkout, and Feat mounts it read-only itself. If it were also on the
-// forbidden list, every launch of such a project would refuse its own mount.
+// repository the task left stable is the declared exception: the project said
+// the agent reads it from the checkout, and Feat mounts it read-only itself. If
+// it were on the never-mount list, every launch of such a project would refuse
+// its own mount.
 func TestAStableRepositoryIsNotAlsoForbidden(t *testing.T) {
 	arranged := arrangeDrafting(t)
+	task := arranged.launched(t)
 	cfg := arranged.config(t)
 
 	stable := filepath.Join(arranged.env.Home, "repos", "app", "tooling")
@@ -498,15 +500,150 @@ func TestAStableRepositoryIsNotAlsoForbidden(t *testing.T) {
 		DefaultAccess: string(domain.DefaultAccessStableReadOnly),
 	}
 
-	for _, forbidden := range checkouts(cfg) {
+	for _, forbidden := range checkouts(cfg, task) {
 		if forbidden == stable {
 			t.Error("a stable read-only repository is on the forbidden list, so launching would refuse its own mount")
 		}
 	}
-	// The editable ones are still forbidden, or the rule would protect nothing.
+	// It is not unprotected either: Feat mounts it at one target and nowhere
+	// else, which is the weaker rule the stable kind carries.
+	if !slices.Contains(stableCheckouts(cfg, task), stable) {
+		t.Errorf("the stable checkout %s is not protected at all: %v", stable, stableCheckouts(cfg, task))
+	}
+	// The editable ones are still forbidden outright, or the rule would protect
+	// nothing.
 	editable := filepath.Join(arranged.env.Home, "repos", "app", "api")
-	if !slices.Contains(checkouts(cfg), editable) {
-		t.Errorf("the editable repository's checkout %s is not protected: %v", editable, checkouts(cfg))
+	if !slices.Contains(checkouts(cfg, task), editable) {
+		t.Errorf("the editable repository's checkout %s is not protected: %v", editable, checkouts(cfg, task))
+	}
+}
+
+// TestAPromotedStableRepositoryIsAnOrdinaryCheckout is the half of the rule
+// above that was missing.
+//
+// default_access: stable_read_only says how a repository participates by
+// default, and DefaultAccess.Permits lets a task promote it to read-write. A
+// promoted repository has a branch, a worktree, and a mount of that worktree
+// like any other — so its ordinary checkout is the working copy the task exists
+// to leave alone, and a base file mounting it beside the worktree is the silent
+// failure ADR-033 evidence 1 records.
+func TestAPromotedStableRepositoryIsAnOrdinaryCheckout(t *testing.T) {
+	arranged := arrangeDrafting(t)
+	task := arranged.launched(t)
+	cfg := arranged.config(t)
+
+	// The project keeps api stable, and this task promoted it: it is one of the
+	// task's repositories, with a worktree of its own.
+	repository, ok := cfg.Repository("api")
+	if !ok {
+		t.Fatal("the fixture has no api repository")
+	}
+	repository.DefaultAccess = string(domain.DefaultAccessStableReadOnly)
+	cfg.Repositories["api"] = repository
+	if _, promoted := task.Repository("api"); !promoted {
+		t.Fatal("the launched task does not select the api repository")
+	}
+
+	if !slices.Contains(checkouts(cfg, task), repository.HostPath) {
+		t.Errorf("the promoted repository's checkout %s is not forbidden: %v",
+			repository.HostPath, checkouts(cfg, task))
+	}
+	if slices.Contains(stableCheckouts(cfg, task), repository.HostPath) {
+		t.Errorf("the promoted repository's checkout %s is treated as one Feat mounts itself, "+
+			"which it no longer is", repository.HostPath)
+	}
+
+	workspace, err := arranged.service.controlWorkspace(task)
+	if err != nil {
+		t.Fatalf("resolving the control workspace: %v", err)
+	}
+	spec, err := arranged.service.executionSpec(cfg, task, workspace)
+	if err != nil {
+		t.Fatalf("resolving the execution specification: %v", err)
+	}
+	// Feat does not mount the checkout of a repository it gave a worktree to.
+	for _, mount := range spec.Mounts {
+		if mount.Source == repository.HostPath {
+			t.Errorf("the promoted repository is mounted from its checkout %s at %s", mount.Source, mount.Target)
+		}
+	}
+
+	environment, err := arranged.service.environments(spec)
+	if err != nil {
+		t.Fatalf("building the environment: %v", err)
+	}
+	err = environment.Check(execution.Report{
+		UID: 1000, UIDKnown: true, User: "developer",
+		Mounts: []execution.ObservedMount{
+			{Type: "bind", Source: repository.HostPath, Destination: "/opt/api", Writable: true},
+		},
+	})
+	if err == nil {
+		t.Fatal("a container mounting the promoted repository's own checkout was accepted")
+	}
+	if !strings.Contains(err.Error(), "leave alone") {
+		t.Errorf("the message does not say what the rule is: %v", err)
+	}
+}
+
+// TestAStableCheckoutIsRefusedAnywhereButItsOwnMount is the milder half of the
+// same defect.
+//
+// Feat mounts a stable checkout read-only at the container_path its repository
+// configures. A base file that mounts the same checkout at a different target
+// adds the user's own working copy beside it, usually writable, and Compose
+// merges by target so nothing replaces it. "Stable read-only infrastructure
+// checkout" is a category the product declares, and this is what makes it one
+// the product enforces.
+func TestAStableCheckoutIsRefusedAnywhereButItsOwnMount(t *testing.T) {
+	arranged := arrangeDrafting(t)
+	task := arranged.launched(t)
+
+	cfg := arranged.config(t)
+	stable := filepath.Join(arranged.env.Home, "repos", "app", "tooling")
+	cfg.Repositories["tooling"] = config.Repository{
+		HostPath:      stable,
+		ContainerPath: "/srv/tooling",
+		DefaultAccess: string(domain.DefaultAccessStableReadOnly),
+	}
+
+	workspace, err := arranged.service.controlWorkspace(task)
+	if err != nil {
+		t.Fatalf("resolving the control workspace: %v", err)
+	}
+	spec, err := arranged.service.executionSpec(cfg, task, workspace)
+	if err != nil {
+		t.Fatalf("resolving the execution specification: %v", err)
+	}
+	environment, err := arranged.service.environments(spec)
+	if err != nil {
+		t.Fatalf("building the environment: %v", err)
+	}
+
+	// Feat's own mount, read-only at the configured container path.
+	if err := environment.Check(execution.Report{
+		UID: 1000, UIDKnown: true, User: "developer",
+		Mounts: []execution.ObservedMount{
+			{Type: "bind", Source: stable, Destination: "/srv/tooling"},
+		},
+	}); err != nil {
+		t.Errorf("Feat's own mount of the stable checkout was refused: %v", err)
+	}
+
+	// The same checkout anywhere else is the user's working copy.
+	err = environment.Check(execution.Report{
+		UID: 1000, UIDKnown: true, User: "developer",
+		Mounts: []execution.ObservedMount{
+			{Type: "bind", Source: stable, Destination: "/opt/tooling", Writable: true},
+		},
+	})
+	if err == nil {
+		t.Fatal("a second mount of the stable checkout was accepted")
+	}
+	for _, expected := range []string{"/srv/tooling", "container_path"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("the message does not mention %q: %v", expected, err)
+		}
 	}
 }
 
