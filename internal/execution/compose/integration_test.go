@@ -126,7 +126,9 @@ func realTask(t *testing.T, id domain.TaskID) (*compose.Environment, execution.S
 			{Source: filepath.Join(control, "outbox"), Target: "/feat/outbox", Description: "the control outbox"},
 			{Source: filepath.Join(control, "reports"), Target: "/feat/reports", Description: "the control reports"},
 		},
-		ForbiddenSources: []string{filepath.Join(root, "repos", "api")},
+		ForbiddenSources: []execution.ForbiddenSource{
+			{Path: filepath.Join(root, "repos", "api"), Kind: execution.ForbiddenCheckout},
+		},
 	}
 
 	environment, err := compose.New(spec, compose.Options{ReadyTimeout: 90 * time.Second})

@@ -57,6 +57,11 @@ func (s *service) executionSpec(
 		return execution.Spec{}, err
 	}
 
+	forbidden, err := s.forbiddenSources(cfg)
+	if err != nil {
+		return execution.Spec{}, err
+	}
+
 	spec := execution.Spec{
 		Project:  task.ProjectID,
 		Task:     task.ID,
@@ -71,7 +76,7 @@ func (s *service) executionSpec(
 		User:             cfg.Agent.Execution.User,
 		WorkingDirectory: cfg.Agent.Execution.WorkingDirectory,
 		Mounts:           mounts,
-		ForbiddenSources: checkouts(cfg),
+		ForbiddenSources: forbidden,
 	}
 
 	if volume := cfg.Agent.Claude.ConfigVolume; volume != "" {
@@ -268,6 +273,39 @@ func describeMount(binding domain.TaskRepository) string {
 		access = "read-only"
 	}
 	return "the " + binding.RepositoryID.String() + " task worktree, " + access
+}
+
+// forbiddenSources is every host path a task's container must not expose to the
+// agent.
+//
+// Three of them are directories rather than checkouts, and they are the ones
+// nothing else would catch. Feat's runtime directory holds the daemon's API
+// socket and the tmux control socket, which are the two capabilities CLAUDE.md
+// names by hand: a container that reaches the first controls every task on this
+// machine, and one that reaches the second runs commands on the host outside its
+// own container. The state directory holds every other task's control workspace.
+// The home directory holds all of that plus the credentials the security model
+// says Feat must not mount by default.
+//
+// The order is the order a refusal explains a mount that exposes more than one,
+// from the most direct account of what was given away to the least: the runtime
+// directory grants control, the home directory is the widest thing a reader can
+// recognise in their own Compose file, and the state directory sits inside it.
+func (s *service) forbiddenSources(cfg *config.Config) ([]execution.ForbiddenSource, error) {
+	home, err := s.env.Expand("~")
+	if err != nil {
+		return nil, fmt.Errorf("resolving the home directory a task's container must not mount: %w", err)
+	}
+
+	sources := []execution.ForbiddenSource{
+		{Path: s.layout.Runtime, Kind: execution.ForbiddenRuntime},
+		{Path: home, Kind: execution.ForbiddenHome},
+		{Path: s.layout.State, Kind: execution.ForbiddenState},
+	}
+	for _, checkout := range checkouts(cfg) {
+		sources = append(sources, execution.ForbiddenSource{Path: checkout, Kind: execution.ForbiddenCheckout})
+	}
+	return sources, nil
 }
 
 // checkouts lists the ordinary repository checkouts, which must never be

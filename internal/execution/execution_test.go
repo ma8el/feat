@@ -30,7 +30,9 @@ func valid() execution.Spec {
 			{Source: "/worktrees/api", Target: "/srv/api", Description: "the api task worktree"},
 			{Source: "/state/control/app/" + string(task), Target: "/feat", Description: "the control workspace"},
 		},
-		ForbiddenSources: []string{"/repos/app/api"},
+		ForbiddenSources: []execution.ForbiddenSource{
+			{Path: "/repos/app/api", Kind: execution.ForbiddenCheckout},
+		},
 	}
 }
 
@@ -109,7 +111,9 @@ func TestASpecificationIsCheckedBeforeItCanCreateAnything(t *testing.T) {
 		},
 		"the ordinary checkout is named with a trailing separator": {
 			change: func(s *execution.Spec) {
-				s.ForbiddenSources = []string{"/repos/app/api/"}
+				s.ForbiddenSources = []execution.ForbiddenSource{
+					{Path: "/repos/app/api/", Kind: execution.ForbiddenCheckout},
+				}
 				s.Mounts[0].Source = "/repos/app/api"
 			},
 			contains: "the task was supposed to leave alone",

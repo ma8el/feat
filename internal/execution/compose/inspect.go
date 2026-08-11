@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ma8el/feat/internal/execution"
+	"github.com/ma8el/feat/internal/paths"
 )
 
 // ErrNotInEnvironment is the shared sentinel for an executable the agent's
@@ -109,15 +110,21 @@ func (e *Environment) Mounts(ctx context.Context, container string) ([]execution
 // Two rules, and each is a statement about the running system rather than about
 // what Feat generated:
 //
-//   - no mount is a Docker socket, because a container with one controls the
-//     host's Docker daemon and therefore the host;
-//   - no mount has one of the project's ordinary repository checkouts as its
-//     source, because the agent would then be able to edit the working copy the
-//     task exists to leave alone.
+//   - no mount is a container runtime's socket, because a container with one
+//     controls the host's containers and therefore the host;
+//   - no mount exposes one of the host paths the task's specification forbids —
+//     an ordinary repository checkout, Feat's own runtime or state directory, or
+//     the home directory of the user the daemon runs as.
 //
-// The second is the failure ADR-033 evidence 1 describes, and it is silent: a
-// task with an extra mount behaves normally and every record Feat keeps about it
-// is correct.
+// Both failures are silent: a task with an extra mount behaves normally and
+// every record Feat keeps about it is correct. That is the failure ADR-033
+// evidence 1 describes, and the reason this check reads the container.
+//
+// A mount reports at most one problem. The specification lists its forbidden
+// paths in the order a refusal should explain them, because a single mount can
+// expose several — a container that mounts the home directory reaches Feat's
+// state through it — and a reader needs the most direct account of what they
+// gave away rather than all of them.
 func (e *Environment) CheckMounts(mounts []execution.ObservedMount) error {
 	var problems []error
 
@@ -126,17 +133,71 @@ func (e *Environment) CheckMounts(mounts []execution.ObservedMount) error {
 			problems = append(problems, e.socketProblem(mount, socket, inside))
 			continue
 		}
-		if checkout := e.forbidden(mount); checkout != "" {
-			problems = append(problems, fmt.Errorf(
-				"the container mounts the ordinary checkout %s at %s. The task works in its own worktree, "+
-					"and an agent that can also reach the checkout can edit the working copy this task was "+
-					"meant to leave alone. Set the repository's container_path to the path its Compose files "+
-					"already mount it at, so Feat's generated override replaces that mount instead of adding "+
-					"one beside it",
-				checkout, mount.Destination))
+		if forbidden, found := e.forbidden(mount); found {
+			problems = append(problems, e.forbiddenProblem(mount, forbidden))
 		}
 	}
 	return errors.Join(problems...)
+}
+
+// forbiddenProblem says what a mount exposed and what to do about it.
+//
+// Every message names the mount as the container reports it, then the path it
+// exposes, then the one edit that removes it. These are the user's only route
+// out of a refused launch: the mount is in the project's own Compose files,
+// which Feat does not edit and deliberately cannot read the environment of.
+func (e *Environment) forbiddenProblem(mount execution.ObservedMount, forbidden execution.ForbiddenSource) error {
+	switch forbidden.Kind {
+	case execution.ForbiddenCheckout:
+		return fmt.Errorf(
+			"the container mounts the ordinary checkout %s at %s. The task works in its own worktree, "+
+				"and an agent that can also reach the checkout can edit the working copy this task was "+
+				"meant to leave alone. Set the repository's container_path to the path its Compose files "+
+				"already mount it at, so Feat's generated override replaces that mount instead of adding "+
+				"one beside it",
+			forbidden.Path, mount.Destination)
+
+	case execution.ForbiddenRuntime:
+		return fmt.Errorf(
+			"the container mounts %s at %s, which exposes %s. A process that can reach the tmux socket runs "+
+				"commands on this host outside the container, and one that can reach the daemon's socket can "+
+				"launch, control, and clean up every task on this machine. Remove that mount from the Compose "+
+				"files that define service %s, or set %s to a directory they do not mount",
+			mount.Source, mount.Destination, exposed(forbidden, mount), e.spec.Service, paths.EnvRuntimeOverride)
+
+	case execution.ForbiddenState:
+		return fmt.Errorf(
+			"the container mounts %s at %s, which exposes %s. This task's own control workspace is mounted "+
+				"already and is the only part of it the agent may see; the rest is every other task's "+
+				"workspace, brief, and event log. Remove that mount from the Compose files that define "+
+				"service %s",
+			mount.Source, mount.Destination, exposed(forbidden, mount), e.spec.Service)
+
+	case execution.ForbiddenHome:
+		return fmt.Errorf(
+			"the container mounts %s at %s, which exposes %s. Feat mounts the home directory nowhere: it "+
+				"carries the user's SSH and cloud credentials, their own provider configuration, and Feat's "+
+				"own state. Remove that mount from the Compose files that define service %s, and mount the "+
+				"directories the agent actually needs",
+			mount.Source, mount.Destination, exposed(forbidden, mount), e.spec.Service)
+	}
+
+	return fmt.Errorf("the container mounts %s at %s, which exposes %s. Remove that mount from the "+
+		"Compose files that define service %s",
+		mount.Source, mount.Destination, exposed(forbidden, mount), e.spec.Service)
+}
+
+// exposed names the forbidden path a mount exposes, saying which it is when the
+// mount is not that path itself.
+//
+// `- /tmp:/tmp` and a mount of the runtime directory are the same refusal and
+// read as different problems, and the first is the one nobody would find without
+// being told the path.
+func exposed(forbidden execution.ForbiddenSource, mount execution.ObservedMount) string {
+	if samePath(mount.Source, forbidden.Path) {
+		return forbidden.Kind.Describe()
+	}
+	return forbidden.Path + ", " + forbidden.Kind.Describe()
 }
 
 // socketProblem says which mount reaches a daemon socket, and how.
@@ -209,29 +270,59 @@ func runtimeSocketName(value string) bool {
 	return false
 }
 
-// forbidden reports the ordinary checkout a mount exposes, and "" otherwise.
+// forbidden reports the protected host path a mount exposes.
 //
-// What is forbidden is the working copy, at any depth in either direction: the
-// checkout itself, a directory containing it, and a directory inside it. The one
-// exception is its Git directory, which carries history rather than the user's
+// What is protected is exposed at any depth in either direction: the path
+// itself, a directory containing it, and a directory inside it. A checkout has
+// one exception, its Git directory, which carries history rather than the user's
 // files and which the agent needs mounted for its worktree to be a repository at
 // all. docs/05-security-model.md accepts that exposure by name and declines to
 // call it repository-metadata isolation.
-func (e *Environment) forbidden(mount execution.ObservedMount) string {
-	if mount.Type != "bind" || mount.Source == "" {
-		return ""
+//
+// The home directory is the one kind matched in a single direction. Mounts
+// inside it are ordinary: the security model's own list of categories ends with
+// "explicitly configured environment/credential mounts", a task's worktrees
+// usually live there, and refusing them would refuse the configuration the
+// product documents.
+func (e *Environment) forbidden(mount execution.ObservedMount) (execution.ForbiddenSource, bool) {
+	if mount.Type != "bind" || mount.Source == "" || e.declared(mount) {
+		return execution.ForbiddenSource{}, false
 	}
-	for _, checkout := range e.spec.ForbiddenSources {
-		metadata := path.Join(checkout, gitDirName)
-		if samePath(mount.Source, metadata) || contains(metadata, mount.Source) {
-			continue
+	for _, forbidden := range e.spec.ForbiddenSources {
+		if forbidden.Kind == execution.ForbiddenCheckout {
+			metadata := path.Join(forbidden.Path, gitDirName)
+			if samePath(mount.Source, metadata) || contains(metadata, mount.Source) {
+				continue
+			}
 		}
-		if samePath(mount.Source, checkout) || contains(mount.Source, checkout) ||
-			contains(checkout, mount.Source) {
-			return checkout
+		if samePath(mount.Source, forbidden.Path) || contains(mount.Source, forbidden.Path) {
+			return forbidden, true
+		}
+		if forbidden.Kind != execution.ForbiddenHome && contains(forbidden.Path, mount.Source) {
+			return forbidden, true
 		}
 	}
-	return ""
+	return execution.ForbiddenSource{}, false
+}
+
+// declared reports whether an observed mount is one this task asked for.
+//
+// Feat's own mounts sit inside the directories the rules above protect: the
+// control workspace is under the state directory, and worktrees and Git
+// directories are usually under the home directory. Without this the check would
+// refuse the launch it exists to protect.
+//
+// Source and destination must both match. The same source at a second target is
+// a different mount, and a second mount of the control workspace would give the
+// agent the host-only agent/ directory read-write — which is the boundary
+// ADR-032 draws and the one the read-only split of controlMounts implements.
+func (e *Environment) declared(mount execution.ObservedMount) bool {
+	for _, own := range e.spec.Mounts {
+		if samePath(mount.Source, own.Source) && samePath(mount.Destination, own.Target) {
+			return true
+		}
+	}
+	return false
 }
 
 // gitDirName is the Git metadata directory of an ordinary checkout.

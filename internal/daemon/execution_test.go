@@ -628,3 +628,84 @@ func TestTheWorkingCopyIsStillOutOfReach(t *testing.T) {
 		}
 	}
 }
+
+// TestFeatsOwnDirectoriesAreOutOfReachToo is the rule CLAUDE.md states by hand:
+// no daemon or runtime-control socket reaches the agent's container.
+//
+// The daemon is the only place that knows where those sockets are, so this is
+// the layer that has to name them. Feat mounts none of these directories, and a
+// project whose own Compose files mount one would otherwise hand the agent the
+// tmux server that runs every task's session, the API that launches and cleans
+// up every task, and the state directory holding every other task's control
+// workspace.
+func TestFeatsOwnDirectoriesAreOutOfReachToo(t *testing.T) {
+	arranged := arrangeDrafting(t)
+	task := arranged.launched(t)
+
+	workspace, err := arranged.service.controlWorkspace(task)
+	if err != nil {
+		t.Fatalf("resolving the control workspace: %v", err)
+	}
+	spec, err := arranged.service.executionSpec(arranged.config(t), task, workspace)
+	if err != nil {
+		t.Fatalf("resolving the execution specification: %v", err)
+	}
+	environment, err := arranged.service.environments(spec)
+	if err != nil {
+		t.Fatalf("building the environment: %v", err)
+	}
+
+	// The daemon's half: the resolved specification names them at all.
+	for kind, want := range map[execution.ForbiddenKind]string{
+		execution.ForbiddenRuntime: arranged.layout.Runtime,
+		execution.ForbiddenState:   arranged.layout.State,
+		execution.ForbiddenHome:    arranged.env.Home,
+	} {
+		var named bool
+		for _, forbidden := range spec.ForbiddenSources {
+			if forbidden.Kind == kind && forbidden.Path == want {
+				named = true
+			}
+		}
+		if !named {
+			t.Errorf("the specification does not forbid the %s directory %s: %v", kind, want, spec.ForbiddenSources)
+		}
+	}
+
+	// The adapter's half: a container that turns out to mount one is refused,
+	// whether it names the directory or a directory holding it.
+	for name, source := range map[string]string{
+		"the runtime directory":     arranged.layout.Runtime,
+		"the daemon's socket":       arranged.layout.Socket,
+		"the tmux socket":           arranged.layout.TmuxSocket(),
+		"a directory holding them":  filepath.Dir(arranged.layout.Runtime),
+		"the state directory":       arranged.layout.State,
+		"every task's control root": arranged.layout.ControlRoot(),
+		"the home directory":        arranged.env.Home,
+	} {
+		err := environment.Check(execution.Report{
+			UID: 1000, UIDKnown: true, User: "developer",
+			Mounts: []execution.ObservedMount{
+				{Type: "bind", Source: source, Destination: "/mounted", Writable: true},
+			},
+		})
+		if err == nil {
+			t.Errorf("%s (%s) was accepted as a mount", name, source)
+		}
+	}
+
+	// And this task's own control workspace, which lives inside the state
+	// directory, is still accepted: a rule that refused it would refuse every
+	// launch of every project.
+	own := make([]execution.ObservedMount, 0, len(spec.Mounts))
+	for _, mount := range spec.Mounts {
+		own = append(own, execution.ObservedMount{
+			Type: "bind", Source: mount.Source, Destination: mount.Target, Writable: !mount.ReadOnly,
+		})
+	}
+	if err := environment.Check(execution.Report{
+		UID: 1000, UIDKnown: true, User: "developer", Mounts: own,
+	}); err != nil {
+		t.Errorf("the task's own mounts were refused: %v", err)
+	}
+}
