@@ -310,7 +310,7 @@ func (s *service) planAgent(
 
 	plan := launchPlan{command: command, agentStarted: true, mode: mode}
 	if outsideBoundary {
-		plan.note = "this project configures a devcontainer, and " + EnvHostAgent +
+		plan.note = "this project configures a devcontainer, and " + config.EnvHostAgent +
 			" is set, so Claude is running directly on this host with your own access rather than inside a container"
 		s.logger.WarnContext(ctx, "launching an agent outside its configured boundary",
 			slog.String("task", task.ID.String()),

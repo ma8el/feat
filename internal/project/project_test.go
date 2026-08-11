@@ -533,6 +533,68 @@ func TestHostModeChecksTheEnvironmentTheAgentWillRunIn(t *testing.T) {
 	}
 }
 
+// TestAHostModeProjectIsNotToldItHasAContainerBoundary is F6-06 for
+// `feat doctor`.
+//
+// The capability check used to run for every project and say the same thing to
+// all of them. A host-mode agent is a process of the user the daemon runs as,
+// with `/var/run/docker.sock` and that user's own `docker` on its path, so
+// "no Docker socket and no host Docker CLI reach the agent" was a claim about a
+// boundary the mode line above it says does not exist.
+func TestAHostModeProjectIsNotToldItHasAContainerBoundary(t *testing.T) {
+	w := arrange(t)
+	hostMode(t, w)
+	findings := w.only(t, w.diagnose(t)).Findings
+
+	mode := finding(t, findings, "agent.execution.mode")
+	if !strings.Contains(mode.Summary, "no container boundary") {
+		t.Fatalf("the fixture is not host-mode, so this test checks nothing: %q", mode.Summary)
+	}
+
+	found := finding(t, findings, "agent.capabilities.docker")
+	for _, claim := range []string{
+		"no Docker socket and no host Docker CLI reach the agent",
+		"a launch refuses a container",
+		"the agent's container",
+	} {
+		if strings.Contains(found.Summary, claim) {
+			t.Errorf("a host-mode project is told %q, and it has no container: %q", claim, found.Summary)
+		}
+	}
+	// The declaration is still reported, because it is what the project said;
+	// what it means where this agent runs is the part that had to change.
+	if !strings.HasPrefix(found.Summary, "denied") {
+		t.Errorf("the declared capability is no longer reported: %q", found.Summary)
+	}
+	if !strings.Contains(found.Summary, "the agent runs as the user the daemon runs as") {
+		t.Errorf("a host-mode project is not told what its agent can reach: %q", found.Summary)
+	}
+}
+
+// TestADevcontainerProjectNamesTheHostAgentOverride is the other half of F6-06.
+//
+// FEAT_HOST_AGENT moves a devcontainer project's agent onto the host, and it is
+// read from the daemon's own environment (ADR-032). `feat doctor` runs without a
+// daemon and before one exists (ADR-028), so it cannot know whether the mode it
+// prints is the one in force — and a diagnosis that said nothing about the
+// variable left every claim below the mode line unqualified.
+func TestADevcontainerProjectNamesTheHostAgentOverride(t *testing.T) {
+	w := arrange(t)
+	found := finding(t, w.only(t, w.diagnose(t)).Findings, "agent.execution.mode")
+
+	if found.Severity != project.SeverityOK {
+		t.Errorf("the execution mode is %q, want ok: it is a statement, not a problem", found.Severity)
+	}
+	if !strings.Contains(found.Summary, config.EnvHostAgent) {
+		t.Errorf("the execution mode does not name what overrides it: %q", found.Summary)
+	}
+	// Which service, because "devcontainer" alone does not tell a reader which
+	// of a project's services the claims below this line are about.
+	if !strings.Contains(found.Summary, "service dev") {
+		t.Errorf("the execution mode does not name the service the agent runs in: %q", found.Summary)
+	}
+}
+
 func TestAMissingRequiredProviderCLIFailsDoctorAndAnOptionalOneWarns(t *testing.T) {
 	w := arrange(t)
 	hostMode(t, w)

@@ -176,6 +176,11 @@ func (c *checker) checkWorktreeRoot() {
 }
 
 // checkExecution checks the agent's execution environment.
+//
+// Both modes report which one they are, because every claim below this line
+// depends on it: the same capability means different things in a container and
+// on this host, and a reader with no mode line has no way to catch a claim that
+// belongs to the other one.
 func (c *checker) checkExecution(ctx context.Context) {
 	execution := c.config.Agent.Execution
 	if !execution.Devcontainer() {
@@ -183,6 +188,15 @@ func (c *checker) checkExecution(ctx context.Context) {
 		c.checkAgentEnvironment(ctx)
 		return
 	}
+
+	// The override is named rather than resolved. It is read from the daemon's
+	// own environment (ADR-032), and `feat doctor` runs without a daemon and
+	// before one exists (ADR-028), so this command can say what would change the
+	// answer and cannot say whether it did.
+	c.ok("agent.execution.mode", fmt.Sprintf(
+		"devcontainer: the agent runs in service %s, unless the daemon was started with %s=1, "+
+			"which runs it on this host with no container boundary",
+		execution.Service, config.EnvHostAgent))
 
 	files := c.checkComposeFiles("agent.execution.compose_files", execution.ComposeFiles)
 	if files {
@@ -207,12 +221,15 @@ func (c *checker) checkExecution(ctx context.Context) {
 // Feat (ADR-033).
 func (c *checker) checkAgentEnvironment(ctx context.Context) {
 	if !c.config.Agent.Execution.Devcontainer() {
+		c.checkHostDockerCapability()
 		c.checkAgentExecutable(ctx)
 		for _, capability := range providerCLIs(c.config) {
 			c.checkProviderCLI(ctx, capability)
 		}
 		return
 	}
+
+	c.checkContainerDockerCapability()
 
 	container, found := c.agentContainer(ctx)
 	if !found {
@@ -594,15 +611,47 @@ func (c *checker) lookUp(check, program string) {
 	c.ok(check, path)
 }
 
+// checkHostDockerCapability reports what the declared Docker capability means
+// for an agent that runs on this machine.
+//
+// `denied` is what the project declared and it is not a boundary here. A
+// host-mode agent is a process of the user the daemon runs as, with that user's
+// socket and CLI already on its path, and telling that project that no Docker
+// socket and no host Docker CLI reach its agent — which is what this said, four
+// lines under `agent.execution.mode host, with no container boundary around the
+// agent` — is the overclaim CLAUDE.md's honesty rule exists for.
+//
+// There is nothing to probe. What the capability grants is nothing either way;
+// what differs is what host execution leaves within reach, and that is a fact
+// about the mode rather than about this machine.
+func (c *checker) checkHostDockerCapability() {
+	c.ok("agent.capabilities.docker", c.config.Agent.Capabilities.Docker+
+		": Feat adds no Docker socket and no Docker CLI, and host execution takes neither away — "+
+		"the agent runs as the user the daemon runs as, with that user's Docker")
+}
+
+// checkContainerDockerCapability reports the declared Docker capability for an
+// agent that runs in a container.
+//
+// Here the declaration is a rule rather than a description, and a launch
+// enforces it against the container it is about to use.
+func (c *checker) checkContainerDockerCapability() {
+	c.ok("agent.capabilities.docker", c.config.Agent.Capabilities.Docker+
+		": Feat mounts no socket into the agent's container and adds no client; "+
+		"a launch refuses a container that has either")
+}
+
 // checkCapabilities reports the declared capabilities.
 //
 // They are validated by internal/config and enforced by the execution adapter.
 // Reporting them here is what makes the security profile of a project visible
 // in one place, next to the mounts it grants.
+//
+// Docker is not among them. What `denied` means depends on where the agent runs
+// and, in a container, on what that container turns out to be, so it is reported
+// beside the rest of the checks on the agent's own environment.
 func (c *checker) checkCapabilities() {
 	capabilities := c.config.Agent.Capabilities
-	c.ok("agent.capabilities.docker",
-		capabilities.Docker+": no Docker socket and no host Docker CLI reach the agent")
 	c.ok("agent.capabilities.network",
 		capabilities.Network+": Feat does not provide network data-loss prevention")
 	c.ok("agent.capabilities.git",

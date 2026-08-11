@@ -13,6 +13,7 @@ import (
 	"github.com/ma8el/feat/internal/agent"
 	"github.com/ma8el/feat/internal/agent/claude"
 	"github.com/ma8el/feat/internal/api"
+	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution/compose"
@@ -175,11 +176,11 @@ func New(opts Options) (*Daemon, error) {
 	// a request (ADR-032).
 	hostAgent := false
 	if env.Getenv != nil {
-		hostAgent = truthy(env.Getenv(EnvHostAgent))
+		hostAgent = truthy(env.Getenv(config.EnvHostAgent))
 	}
 	if hostAgent {
 		logger.Warn("agents will run on this host rather than in a configured devcontainer",
-			slog.String("variable", EnvHostAgent))
+			slog.String("variable", config.EnvHostAgent))
 	}
 
 	notifier := opts.Notifier
