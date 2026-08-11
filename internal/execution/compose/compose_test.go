@@ -22,6 +22,10 @@ var update = flag.Bool("update", false, "rewrite golden files")
 const (
 	task    = domain.TaskID("11111111-1111-4111-8111-111111111111")
 	project = domain.ProjectID("app")
+	// runtimeDir is where a daemon with no XDG_RUNTIME_DIR resolves its own
+	// runtime directory to, which is the case that makes a mount of /tmp reach
+	// the daemon's socket and the tmux server (internal/paths).
+	runtimeDir = "/tmp/feat-1000"
 )
 
 // arrange returns an environment over a fake Docker, with the override written
@@ -29,7 +33,12 @@ const (
 func arrange(t *testing.T, docker *composetest.Docker) (*compose.Environment, execution.Spec) {
 	t.Helper()
 
-	state := t.TempDir()
+	// The shape a resolved layout has on a real machine: the state directory
+	// under the home directory, and a runtime directory that is under neither.
+	// It matters here because three of the forbidden sources below are Feat's
+	// own directories rather than repository checkouts.
+	home := t.TempDir()
+	state := filepath.Join(home, "state")
 	spec := execution.Spec{
 		Project:          project,
 		Task:             task,
@@ -46,9 +55,17 @@ func arrange(t *testing.T, docker *composetest.Docker) (*compose.Environment, ex
 				Description: "the store task worktree, read-only"},
 			{Source: filepath.Join(state, "control"), Target: "/feat", Description: "the control workspace"},
 		},
-		Volumes:          []execution.Volume{{Name: "feat-claude", Target: "/feat-claude"}},
-		Variables:        map[string]string{"CLAUDE_CONFIG_DIR": "/feat-claude"},
-		ForbiddenSources: []string{"/repos/app/api", "/repos/app/store"},
+		Volumes:   []execution.Volume{{Name: "feat-claude", Target: "/feat-claude"}},
+		Variables: map[string]string{"CLAUDE_CONFIG_DIR": "/feat-claude"},
+		// In the order the daemon builds them, which is the order a refusal
+		// explains a mount that exposes more than one of them.
+		ForbiddenSources: []execution.ForbiddenSource{
+			{Path: runtimeDir, Kind: execution.ForbiddenRuntime},
+			{Path: home, Kind: execution.ForbiddenHome},
+			{Path: state, Kind: execution.ForbiddenState},
+			{Path: "/repos/app/api", Kind: execution.ForbiddenCheckout},
+			{Path: "/repos/app/store", Kind: execution.ForbiddenCheckout},
+		},
 	}
 
 	environment, err := compose.New(spec, compose.Options{Runner: docker, PollInterval: time.Nanosecond})

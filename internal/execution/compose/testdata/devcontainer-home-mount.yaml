@@ -1,0 +1,22 @@
+# The same fixture, sharing the whole home directory with the container.
+#
+# It is the line a project writes to carry a shell configuration into its
+# devcontainer, and it is the one the home-directory rule exists for: it hands
+# the agent ~/.ssh, ~/.aws, the user's own provider configuration, and Feat's
+# state directory with every other task's control workspace in it.
+#
+# ${HOME} is interpolated by Compose from the environment it runs in, so this
+# mounts the real home directory of whoever runs the test — which is the point.
+# A refusal about a path that only exists in a fixture would prove nothing about
+# how a container runtime reports the real one.
+services:
+  dev:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    user: "1000:1000"
+    container_name: feat-test-fixed-name
+    ports:
+      - "59317:80"
+    volumes:
+      - ./base-mount:/srv/api
+      - ${HOME}:/host-home

@@ -85,9 +85,17 @@ type Report struct {
 	// UIDKnown reports whether the identity could be read at all. An unread
 	// identity is never treated as a non-root answer.
 	UIDKnown bool
-	// DockerCLI names a Docker client found inside the environment, empty when
-	// there is none.
-	DockerCLI string
+	// DockerClients names the clients found inside the environment that speak a
+	// container runtime's API, empty when there are none. It is a list because
+	// an image can carry more than one, and a refusal that named the first
+	// would be answered by removing the first.
+	DockerClients []string
+	// DockerVariables names the environment entries inside the environment that
+	// point a client at a container daemon.
+	//
+	// Names only. A value can carry a host, a port, and a path, and what a
+	// refusal has to say is which entry to remove.
+	DockerVariables []string
 	// Mounts are the environment's observed bindings.
 	Mounts []ObservedMount
 	// MissingTools are the executables the generated hooks need and the
@@ -159,10 +167,72 @@ type Spec struct {
 	// (docs/05-security-model.md).
 	Variables map[string]string
 	// ForbiddenSources are host paths that must not be mounted into the
-	// environment: the project's ordinary repository checkouts. A container that
-	// mounts one gives the agent the user's own working copy beside its task
-	// worktree, which is the failure ADR-033 evidence 1 describes.
-	ForbiddenSources []string
+	// environment, in the order a refusal should explain them.
+	ForbiddenSources []ForbiddenSource
+}
+
+// ForbiddenSource is one host path a task's environment must not expose to the
+// agent.
+//
+// It carries a kind rather than a message. Which directory a path is can only be
+// answered where configuration and the layout are known, and what a container
+// did with it can only be answered once a container exists; a refusal has to say
+// both, so the daemon resolves the first and the adapter writes the second.
+type ForbiddenSource struct {
+	// Path is the absolute host path.
+	Path string
+	// Kind is which rule the path belongs to.
+	Kind ForbiddenKind
+}
+
+// ForbiddenKind names a category of host path that must not reach an agent.
+//
+// Each is one of the things docs/05-security-model.md forbids, and each is
+// checked against the container that exists rather than against the
+// specification Feat generated: what Feat asked for and what a project's own
+// Compose files produced are different records (CLAUDE.md architectural rules).
+type ForbiddenKind string
+
+// The categories of forbidden host path.
+const (
+	// ForbiddenCheckout is a repository's ordinary checkout: the working copy a
+	// task exists to leave alone (ADR-033 evidence 1).
+	ForbiddenCheckout ForbiddenKind = "checkout"
+	// ForbiddenStableCheckout is the checkout of a repository the project keeps
+	// stable and read-only, which this task did not promote.
+	//
+	// It is the one kind Feat mounts itself, so it is forbidden everywhere
+	// except at the target Feat mounts it at: the project declared that the
+	// agent reads that repository from the checkout, and did not declare a
+	// second, writable path to it.
+	ForbiddenStableCheckout ForbiddenKind = "stable_checkout"
+	// ForbiddenRuntime is Feat's own runtime directory.
+	ForbiddenRuntime ForbiddenKind = "runtime"
+	// ForbiddenState is Feat's own state directory.
+	ForbiddenState ForbiddenKind = "state"
+	// ForbiddenHome is the home directory of the user the daemon runs as.
+	ForbiddenHome ForbiddenKind = "home"
+)
+
+// Describe says what a kind of path is, in the user's terms.
+//
+// It is one sentence fragment, shared by the specification check and by the
+// adapter that reads a running container, so that a launch refused before
+// anything was created and a launch refused after both name the same thing.
+func (k ForbiddenKind) Describe() string {
+	switch k {
+	case ForbiddenCheckout:
+		return "a repository's ordinary checkout"
+	case ForbiddenStableCheckout:
+		return "the ordinary checkout of a repository this project keeps stable and read-only"
+	case ForbiddenRuntime:
+		return "Feat's runtime directory, which holds the daemon's API socket and the tmux control socket"
+	case ForbiddenState:
+		return "Feat's state directory, which holds every task's control workspace, brief, and event log"
+	case ForbiddenHome:
+		return "the home directory of the user this daemon runs as"
+	}
+	return "a host path that must not reach an agent"
 }
 
 // Mount is one host directory the environment exposes to the agent.
@@ -315,12 +385,24 @@ func (s Spec) validateMounts() error {
 		targets[mount.Target] = mount.Source
 
 		for _, forbidden := range s.ForbiddenSources {
-			if samePath(mount.Source, forbidden) {
+			if !samePath(mount.Source, forbidden.Path) {
+				continue
+			}
+			if forbidden.Kind == ForbiddenStableCheckout {
+				// The one kind Feat mounts itself, which is what this loop is
+				// checking. Whether the container ends up with a second mount of
+				// it is a question about the container, and CheckMounts asks it.
+				continue
+			}
+			if forbidden.Kind == ForbiddenCheckout {
 				return fmt.Errorf("task %s would mount the ordinary checkout %s at %s. "+
 					"A task works in its own worktree; mounting the checkout as well would let the agent "+
 					"edit the working copy the task was supposed to leave alone",
-					s.Task, forbidden, mount.Target)
+					s.Task, forbidden.Path, mount.Target)
 			}
+			return fmt.Errorf("task %s would mount %s at %s, which is %s. "+
+				"Nothing Feat generates may mount it (docs/05-security-model.md)",
+				s.Task, forbidden.Path, mount.Target, forbidden.Kind.Describe())
 		}
 	}
 

@@ -235,7 +235,11 @@ func (e Environment) runtimeDir() (string, error) {
 		if !filepath.IsAbs(override) {
 			return "", fmt.Errorf("%s must be an absolute path, but is %q", EnvRuntimeOverride, override)
 		}
-		return filepath.Clean(override), nil
+		cleaned := filepath.Clean(override)
+		if err := e.checkOwnable(cleaned); err != nil {
+			return "", err
+		}
+		return cleaned, nil
 	}
 	if dir := e.lookup(EnvRuntimeDir); filepath.IsAbs(dir) {
 		return filepath.Join(dir, dirName), nil
@@ -247,6 +251,42 @@ func (e Environment) runtimeDir() (string, error) {
 		return filepath.Join(dir, dirName+"-"+strconv.Itoa(e.UID)), nil
 	}
 	return filepath.Join("/tmp", dirName+"-"+strconv.Itoa(e.UID)), nil
+}
+
+// checkOwnable refuses a runtime directory the daemon must not claim as its own.
+//
+// The other three branches above each append a component of Feat's own — feat,
+// or feat-<uid> — so the directory the daemon ends up owning is one it created.
+// The override replaces the path as a whole, and what it names is then treated
+// as Feat's: the daemon restricts it to this user and puts the socket, the
+// ownership lock, the endpoint record, and the tmux socket directly in it. So
+// FEAT_RUNTIME_DIR=$HOME chmods the home directory to 0700 — and it is a
+// plausible value to try, because the message about an over-long socket path
+// says to set this variable to a shorter directory.
+//
+// Broad is the question this package already asks about directories Feat must
+// not own, and it is the right one for /tmp, /var, and every one-component path.
+// It does not answer for the home directory, which is deep enough and is an
+// ordinary worktree root — the case Broad exists for. Rather than widen Broad
+// and start refusing worktree roots that are fine, the one directory the
+// difference turns on is named here, beside the caller whose question it is.
+func (e Environment) checkOwnable(dir string) error {
+	if Broad(dir) {
+		return fmt.Errorf(
+			"%s names %s, which Feat must not take over: the daemon restricts its runtime directory to this "+
+				"user and fills it with the daemon socket, the ownership lock, the endpoint record, and the "+
+				"tmux socket. Name a directory that is Feat's alone, such as one inside that one",
+			EnvRuntimeOverride, dir)
+	}
+	home, err := e.home()
+	if err == nil && dir == home {
+		return fmt.Errorf(
+			"%s names %s, which is your home directory, and Feat would take it over: the daemon restricts "+
+				"its runtime directory to this user and fills it with the daemon socket, the ownership lock, "+
+				"the endpoint record, and the tmux socket. Name a directory inside it instead",
+			EnvRuntimeOverride, dir)
+	}
+	return nil
 }
 
 func (e Environment) lookup(key string) string {

@@ -149,6 +149,48 @@ func TestResolveRejectsRelativeRuntimeOverride(t *testing.T) {
 	}
 }
 
+// TestResolveRejectsARuntimeOverrideFeatWouldTakeOver covers what the variable
+// costs when it is pointed at a directory somebody else uses.
+//
+// The daemon treats the resolved runtime directory as its own: it restricts it
+// to the current user and fills it with the socket, the lock, the endpoint
+// record, and the tmux socket. FEAT_RUNTIME_DIR=$HOME is the plausible mistake,
+// because the over-long-socket message tells the user to set this variable to a
+// shorter directory, and it ends with the home directory at mode 0700.
+func TestResolveRejectsARuntimeOverrideFeatWouldTakeOver(t *testing.T) {
+	for name, override := range map[string]string{
+		"the home directory":     "/base/dev",
+		"a shared directory":     "/tmp",
+		"one component deep":     "/run",
+		"the filesystem root":    "/",
+		"a system directory":     "/var",
+		"an uncleaned home path": "/base/dev/",
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := testEnv("/base/dev", 501, "linux", map[string]string{EnvRuntimeOverride: override})
+
+			_, err := Resolve(env)
+			if err == nil {
+				t.Fatalf("%s was accepted as the runtime directory", override)
+			}
+			if !strings.Contains(err.Error(), EnvRuntimeOverride) {
+				t.Errorf("the error does not name the variable to fix: %v", err)
+			}
+		})
+	}
+
+	// A directory inside one of them is the answer the message points at, and it
+	// has to work, or the variable would have no usable value at all.
+	env := testEnv("/base/dev", 501, "linux", map[string]string{EnvRuntimeOverride: "/base/dev/.feat-run"})
+	layout, err := Resolve(env)
+	if err != nil {
+		t.Fatalf("a directory Feat can own was refused: %v", err)
+	}
+	if layout.Runtime != "/base/dev/.feat-run" {
+		t.Errorf("Runtime = %q", layout.Runtime)
+	}
+}
+
 func TestResolveRejectsMissingHome(t *testing.T) {
 	env := testEnv("", 501, "linux", nil)
 
@@ -160,7 +202,9 @@ func TestResolveRejectsMissingHome(t *testing.T) {
 // TestResolveRejectsUnbindableSocketPath covers the failure that is otherwise
 // reported as "invalid argument" by bind, with no mention of a length.
 func TestResolveRejectsUnbindableSocketPath(t *testing.T) {
-	long := "/" + strings.Repeat("d", 120)
+	// Deep enough to be a directory Feat may own, so that the length is the only
+	// thing wrong with it.
+	long := "/base/" + strings.Repeat("d", 120)
 
 	for _, goos := range []string{"darwin", "linux"} {
 		t.Run(goos, func(t *testing.T) {

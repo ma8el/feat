@@ -397,7 +397,7 @@ func (s *service) runtimeSpec(cfg *config.Config, task *domain.Task) (runtime.Sp
 			varTaskKey:  task.Key().String(),
 			varIdentity: identity,
 		},
-		ForbiddenSources: checkouts(cfg),
+		ForbiddenSources: checkouts(cfg, task),
 	}
 
 	if err := spec.Validate(); err != nil {

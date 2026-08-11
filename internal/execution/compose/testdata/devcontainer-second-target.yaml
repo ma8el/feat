@@ -1,0 +1,20 @@
+# The same fixture, with the base file naming a read-only target a second way.
+#
+# It exists for one question a fake Docker cannot answer: whether a target
+# spelled differently from Feat's — here a trailing separator on the path the
+# task holds read-only — is folded into one mount by Compose's merge-by-target
+# rule or produces a second, writable mount beside it.
+#
+# Whichever it turns out to be, the property under test is the same: a path the
+# task holds read-only is never quietly writable.
+services:
+  dev:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    user: "1000:1000"
+    container_name: feat-test-fixed-name
+    ports:
+      - "59317:80"
+    volumes:
+      - ./base-mount:/srv/api
+      - ./base-mount:/srv/store/

@@ -57,7 +57,10 @@ func New() *Docker {
 		Answer("up --detach dev", "").
 		Answer("ps --all --format json dev",
 			`{"ID":"c0ffee","Name":"feat-dev-1","Service":"dev","State":"running","Status":"Up 2 seconds"}`).
-		Answer("inspect --type container --format {{json .Mounts}} c0ffee", `[]`)
+		Answer("inspect --type container --format {{json .Mounts}} c0ffee", `[]`).
+		// An environment with nothing pointing at a container daemon, which is
+		// the other observation a launch refuses over.
+		Answer("inspect --type container --format {{json .Config.Env}} c0ffee", `["PATH=/usr/bin"]`)
 }
 
 // Answer arranges the standard output of one command.

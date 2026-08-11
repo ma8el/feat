@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ma8el/feat/internal/execution"
+	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/execution/compose/composetest"
 )
 
@@ -32,10 +33,13 @@ func healthy() *composetest.Docker {
 		Answer(probeKey("touch", "/feat/.feat-write-probe"), "").
 		Answer(probeKey("rm", "-f", "/feat/.feat-write-probe"), "")
 
-	// No Docker client in the container: the environment reports that there is
-	// no such executable, which is what a real Compose says.
-	return docker.Fail(probeKey("docker", "--version"),
-		`exec: "docker": executable file not found in $PATH`, 126)
+	// No client that speaks the Docker API: the environment reports that there
+	// is no such executable, which is what a real Compose says.
+	for _, client := range compose.ContainerClients {
+		docker = docker.Fail(probeKey(client, "--version"),
+			`exec: "`+client+`": executable file not found in $PATH`, 126)
+	}
+	return docker
 }
 
 // inspect runs the probes against an arranged container.
@@ -120,9 +124,71 @@ func TestAnUnreadableIdentityIsRefusedRatherThanAssumed(t *testing.T) {
 func TestADockerClientInTheContainerIsRefused(t *testing.T) {
 	err := check(t, healthy().Answer(probeKey("docker", "--version"), "Docker version 27.0.0"))
 
-	for _, expected := range []string{"Docker client", "denied", "reach the host"} {
+	for _, expected := range []string{"Docker API", "denied", "reach the host"} {
 		if !strings.Contains(err.Error(), expected) {
 			t.Errorf("the message does not mention %q: %v", expected, err)
+		}
+	}
+}
+
+// TestAClientUnderAnotherNameIsRefusedToo widens the same criterion to what a
+// container client actually is.
+//
+// podman and nerdctl speak the Docker API — podman ships a `docker` alias for
+// exactly that reason — so an image carrying either has the capability
+// agent.capabilities.docker declares denied. Probing one name and reporting "no
+// Docker client" would be a claim about something nobody looked at.
+func TestAClientUnderAnotherNameIsRefusedToo(t *testing.T) {
+	for _, client := range []string{"podman", "nerdctl"} {
+		t.Run(client, func(t *testing.T) {
+			err := check(t, healthy().Answer(probeKey(client, "--version"), client+" version 5.0.0"))
+
+			for _, expected := range []string{client, "Docker API", "denied"} {
+				if !strings.Contains(err.Error(), expected) {
+					t.Errorf("the message does not mention %q: %v", expected, err)
+				}
+			}
+		})
+	}
+}
+
+// TestADockerEndpointInTheEnvironmentIsRefused is the clause of the Docker
+// boundary that had no check at all.
+//
+// docs/05-security-model.md forbids Docker-over-TCP credentials beside the
+// socket, and a daemon reached over the network is the same capability as a
+// mounted one: no mount to see, and nothing in the container to find by
+// probing for executables.
+func TestADockerEndpointInTheEnvironmentIsRefused(t *testing.T) {
+	err := check(t, healthy().Answer("inspect --type container --format {{json .Config.Env}} c0ffee",
+		`["PATH=/usr/bin","DOCKER_HOST=tcp://198.51.100.7:2375","DOCKER_TLS_VERIFY=1"]`))
+
+	for _, expected := range []string{"DOCKER_HOST", "DOCKER_TLS_VERIFY", "denied"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("the message does not mention %q: %v", expected, err)
+		}
+	}
+	// The names are what a refusal needs. A value carries a host, a port, and a
+	// path, and it reaches the daemon log and the API through this error.
+	if strings.Contains(err.Error(), "198.51.100.7") {
+		t.Errorf("the refusal repeats the value of an environment entry: %v", err)
+	}
+}
+
+// TestTheEnvironmentIsReadFromTheContainerRatherThanTheConfiguration pins which
+// command answers that question, for the reason the mount check pins its own:
+// `docker compose config` would render the project's environment files, whose
+// values Feat must never read (ADR-028).
+func TestTheEnvironmentIsReadFromTheContainerRatherThanTheConfiguration(t *testing.T) {
+	docker := healthy()
+	inspect(t, docker)
+
+	if !docker.Ran("inspect --type container --format {{json .Config.Env}} c0ffee") {
+		t.Errorf("nothing asked the container what its environment is: %v", docker.Calls())
+	}
+	for _, call := range docker.Calls() {
+		if strings.HasPrefix(call, "config") {
+			t.Errorf("the environment was read with %q, which renders the project's environment file values", call)
 		}
 	}
 }
@@ -192,7 +258,7 @@ func TestEveryProblemIsReportedTogether(t *testing.T) {
 		Answer(probeKey("docker", "--version"), "Docker version 27.0.0").
 		Fail(probeKey("cat", "/dev/null"), `exec: "cat": executable file not found in $PATH`, 126))
 
-	for _, expected := range []string{"root", "Docker client", "cat"} {
+	for _, expected := range []string{"root", "Docker API", "cat"} {
 		if !strings.Contains(err.Error(), expected) {
 			t.Errorf("the combined message does not mention %q: %v", expected, err)
 		}

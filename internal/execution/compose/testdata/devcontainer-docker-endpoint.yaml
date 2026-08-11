@@ -1,0 +1,20 @@
+# The same fixture, with the service pointed at a Docker daemon over the network.
+#
+# It exists for one question a fake cannot answer: whether what a project writes
+# under `environment:` is what `docker inspect` reports back under .Config.Env,
+# in the form the endpoint check reads. The address is a documentation range and
+# nothing listens on it — the refusal is about the capability being configured,
+# not about a daemon being reachable today.
+services:
+  dev:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    user: "1000:1000"
+    container_name: feat-test-fixed-name
+    ports:
+      - "59317:80"
+    environment:
+      DOCKER_HOST: "tcp://198.51.100.7:2375"
+      DOCKER_TLS_VERIFY: "1"
+    volumes:
+      - ./base-mount:/srv/api

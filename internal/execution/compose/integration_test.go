@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -69,6 +70,14 @@ func agentUser(t *testing.T) string {
 func realTask(t *testing.T, id domain.TaskID) (*compose.Environment, execution.Spec, string) {
 	t.Helper()
 
+	return realTaskFrom(t, id, "devcontainer.yaml")
+}
+
+// realTaskFrom arranges the same task over a named fixture, for the questions
+// that turn on what a project's own Compose file says.
+func realTaskFrom(t *testing.T, id domain.TaskID, fixtureName string) (*compose.Environment, execution.Spec, string) {
+	t.Helper()
+
 	root := t.TempDir()
 	project := filepath.Join(root, "devcontainer")
 	worktree := filepath.Join(root, "worktrees", "api")
@@ -87,7 +96,7 @@ func realTask(t *testing.T, id domain.TaskID) (*compose.Environment, execution.S
 		}
 	}
 
-	fixture, err := os.ReadFile(filepath.Join("testdata", "devcontainer.yaml"))
+	fixture, err := os.ReadFile(filepath.Join("testdata", fixtureName))
 	if err != nil {
 		t.Fatalf("reading the fixture: %v", err)
 	}
@@ -126,7 +135,9 @@ func realTask(t *testing.T, id domain.TaskID) (*compose.Environment, execution.S
 			{Source: filepath.Join(control, "outbox"), Target: "/feat/outbox", Description: "the control outbox"},
 			{Source: filepath.Join(control, "reports"), Target: "/feat/reports", Description: "the control reports"},
 		},
-		ForbiddenSources: []string{filepath.Join(root, "repos", "api")},
+		ForbiddenSources: []execution.ForbiddenSource{
+			{Path: filepath.Join(root, "repos", "api"), Kind: execution.ForbiddenCheckout},
+		},
 	}
 
 	environment, err := compose.New(spec, compose.Options{ReadyTimeout: 90 * time.Second})
@@ -264,6 +275,90 @@ func TestRealTaskWorktreesAppearAtTheirContainerPaths(t *testing.T) {
 	}
 }
 
+// TestRealAReadOnlyMountIsObservedReadOnly pins the field the read-only check
+// rests on.
+//
+// `docker inspect` reports RW per mount, and the whole of invariant 6's
+// enforcement is the assumption that RW: false is what a read-only bind produces
+// and RW: true is what a writable one produces. That is a statement about Docker
+// rather than about Feat, so it belongs here rather than in a fake.
+func TestRealAReadOnlyMountIsObservedReadOnly(t *testing.T) {
+	realDocker(t)
+
+	environment, _, _ := realTask(t, domain.NewTaskID())
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("preparing the environment: %v", err)
+	}
+	state, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the environment: %v", err)
+	}
+	mounts, err := environment.Mounts(context.Background(), state.Container)
+	if err != nil {
+		t.Fatalf("inspecting the mounts: %v", err)
+	}
+
+	writable := map[string]bool{}
+	for _, mount := range mounts {
+		writable[mount.Destination] = mount.Writable
+	}
+	for destination, want := range map[string]bool{
+		"/srv/api":      true,
+		"/srv/store":    false,
+		"/feat":         false,
+		"/feat/outbox":  true,
+		"/feat/reports": true,
+	} {
+		got, found := writable[destination]
+		if !found {
+			t.Errorf("the container reports no mount at %s: %v", destination, mounts)
+			continue
+		}
+		if got != want {
+			t.Errorf("the container reports %s writable=%t, want %t", destination, got, want)
+		}
+	}
+	if err := environment.CheckMounts(mounts); err != nil {
+		t.Errorf("the container Feat generated was refused by its own check: %v", err)
+	}
+}
+
+// TestRealAReadOnlyPathIsNeverQuietlyWritable is the question only Docker can
+// answer: what a second spelling of a target actually produces.
+//
+// Compose merges a service's volumes by target, and the whole mount design rests
+// on that replacement. What it does with a target that means the same path
+// written differently is a property of the tool, and the three outcomes are all
+// acceptable — the project's file may be refused outright, the two entries may
+// fold into one read-only mount, or a second writable mount may appear and be
+// refused by the check. What must not happen is the fourth: a path the task
+// holds read-only, writable, in a container Feat then starts an agent in.
+func TestRealAReadOnlyPathIsNeverQuietlyWritable(t *testing.T) {
+	realDocker(t)
+
+	environment, _, _ := realTaskFrom(t, domain.NewTaskID(), "devcontainer-second-target.yaml")
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Logf("the project's own file was refused rather than merged: %v", err)
+		return
+	}
+	state, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the environment: %v", err)
+	}
+	mounts, err := environment.Mounts(context.Background(), state.Container)
+	if err != nil {
+		t.Fatalf("inspecting the mounts: %v", err)
+	}
+	t.Logf("the two spellings produced %d mounts: %v", len(mounts), compose.Sources(mounts))
+
+	refused := environment.CheckMounts(mounts) != nil
+	written := inside(t, environment, "touch", "/srv/store/written-by-the-agent").Succeeded()
+	if written && !refused {
+		t.Errorf("the container can write %s, which this task holds read-only, and the check accepted it: %v",
+			"/srv/store", compose.Sources(mounts))
+	}
+}
+
 // TestRealTheAgentHasNoDockerAccess is acceptance criterion 4 against a real
 // container.
 //
@@ -286,8 +381,11 @@ func TestRealTheAgentHasNoDockerAccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inspecting the container: %v", err)
 	}
-	if report.DockerCLI != "" {
-		t.Errorf("the container has a Docker client at %s", report.DockerCLI)
+	if len(report.DockerClients) > 0 {
+		t.Errorf("the container has a client that speaks the Docker API: %v", report.DockerClients)
+	}
+	if len(report.DockerVariables) > 0 {
+		t.Errorf("the container's environment points a client at a container daemon: %v", report.DockerVariables)
 	}
 	for _, mount := range report.Mounts {
 		if strings.Contains(mount.Source, "docker.sock") || strings.Contains(mount.Destination, "docker.sock") {
@@ -302,6 +400,117 @@ func TestRealTheAgentHasNoDockerAccess(t *testing.T) {
 	}
 	if err := environment.Check(report); err != nil {
 		t.Errorf("a container that meets every requirement was refused: %v", err)
+	}
+}
+
+// TestRealAMountOfTheHomeDirectoryIsRefused is the rule that needs a real path
+// to mean anything.
+//
+// Every other test of this rule states the home directory itself, which proves
+// the comparison and not the thing the comparison is about: whether a container
+// runtime, asked what it mounts, names the host's home directory in a form Feat
+// recognises. Docker Desktop reports a bind source through its own file-sharing
+// layer, so the answer is the runtime's rather than the specification's.
+//
+// It needs no daemon, no task, and no launch. The fixture's own teardown removes
+// what it made, which is why this is the way to exercise the rule by hand.
+func TestRealAMountOfTheHomeDirectoryIsRefused(t *testing.T) {
+	realDocker(t)
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("this machine has no resolvable home directory: %v", err)
+	}
+
+	_, spec, _ := realTaskFrom(t, domain.NewTaskID(), "devcontainer-home-mount.yaml")
+	// What the daemon supplies from the resolved layout, which no fixture can
+	// stand in for: this machine's own home directory.
+	spec.ForbiddenSources = append(spec.ForbiddenSources,
+		execution.ForbiddenSource{Path: home, Kind: execution.ForbiddenHome})
+
+	environment, err := compose.New(spec, compose.Options{ReadyTimeout: 90 * time.Second})
+	if err != nil {
+		t.Fatalf("building the environment: %v", err)
+	}
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("preparing the environment: %v", err)
+	}
+	state, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the environment: %v", err)
+	}
+	mounts, err := environment.Mounts(context.Background(), state.Container)
+	if err != nil {
+		t.Fatalf("inspecting the mounts: %v", err)
+	}
+	t.Logf("the container mounts %v", compose.Sources(mounts))
+
+	err = environment.CheckMounts(mounts)
+	if err == nil {
+		t.Fatal("a container mounting the whole home directory was accepted")
+	}
+	for _, expected := range []string{home, "SSH and cloud credentials", spec.Service} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("the refusal does not mention %q: %v", expected, err)
+		}
+	}
+
+	// One problem, not five: the task's own worktrees and control workspace are
+	// mounted through the same container and none of them is the home directory.
+	if problems := strings.Count(err.Error(), "the container mounts"); problems != 1 {
+		t.Errorf("the refusal names %d mounts, want 1: %v", problems, err)
+	}
+}
+
+// TestRealADockerEndpointIsFoundInTheContainersOwnEnvironment is the other
+// half of the Docker boundary against a real container.
+//
+// A daemon reached over the network leaves no mount to find and no executable
+// to probe for, so the only evidence is the container's own environment. What
+// `docker inspect` reports under .Config.Env, and whether it carries what the
+// project wrote under `environment:`, is a fact about Docker rather than about
+// Feat.
+func TestRealADockerEndpointIsFoundInTheContainersOwnEnvironment(t *testing.T) {
+	realDocker(t)
+
+	environment, _, _ := realTaskFrom(t, domain.NewTaskID(), "devcontainer-docker-endpoint.yaml")
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("preparing the environment: %v", err)
+	}
+	state, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the environment: %v", err)
+	}
+
+	found, err := environment.Endpoints(context.Background(), state.Container)
+	if err != nil {
+		t.Fatalf("reading the container's environment: %v", err)
+	}
+	for _, want := range []string{"DOCKER_HOST", "DOCKER_TLS_VERIFY"} {
+		if !slices.Contains(found, want) {
+			t.Errorf("the container's environment sets %s and the check did not see it: %v", want, found)
+		}
+	}
+	// The agent's own view of it, which is what the variable would actually
+	// point a client at.
+	if got := inside(t, environment, "printenv", "DOCKER_HOST"); !strings.Contains(got.Stdout, "198.51.100.7") {
+		t.Errorf("the container does not have the endpoint the fixture set: %q", got.Stdout)
+	}
+
+	report, err := environment.Inspect(context.Background(), []string{"/srv/api"})
+	if err != nil {
+		t.Fatalf("inspecting the container: %v", err)
+	}
+	err = environment.Check(report)
+	if err == nil {
+		t.Fatal("a container pointed at a Docker daemon over the network was accepted")
+	}
+	if !strings.Contains(err.Error(), "DOCKER_HOST") {
+		t.Errorf("the refusal does not name the entry to remove: %v", err)
+	}
+	// Names, not values: this message reaches the daemon log and the API.
+	if strings.Contains(err.Error(), "198.51.100.7") {
+		t.Errorf("the refusal repeats the value of an environment entry: %v", err)
 	}
 }
 
