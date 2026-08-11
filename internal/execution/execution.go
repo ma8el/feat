@@ -85,9 +85,17 @@ type Report struct {
 	// UIDKnown reports whether the identity could be read at all. An unread
 	// identity is never treated as a non-root answer.
 	UIDKnown bool
-	// DockerCLI names a Docker client found inside the environment, empty when
-	// there is none.
-	DockerCLI string
+	// DockerClients names the clients found inside the environment that speak a
+	// container runtime's API, empty when there are none. It is a list because
+	// an image can carry more than one, and a refusal that named the first
+	// would be answered by removing the first.
+	DockerClients []string
+	// DockerVariables names the environment entries inside the environment that
+	// point a client at a container daemon.
+	//
+	// Names only. A value can carry a host, a port, and a path, and what a
+	// refusal has to say is which entry to remove.
+	DockerVariables []string
 	// Mounts are the environment's observed bindings.
 	Mounts []ObservedMount
 	// MissingTools are the executables the generated hooks need and the

@@ -433,8 +433,9 @@ func manualReport(t *testing.T, service *service, task *domain.Task) {
 		return
 	}
 
-	fmt.Printf("  uid %d (%s), docker client %q, missing tools %v, unwritable %v\n",
-		report.UID, report.User, report.DockerCLI, report.MissingTools, report.Unwritable)
+	fmt.Printf("  uid %d (%s), docker clients %v, docker variables %v, missing tools %v, unwritable %v\n",
+		report.UID, report.User, report.DockerClients, report.DockerVariables,
+		report.MissingTools, report.Unwritable)
 	for _, mount := range compose.Sources(report.Mounts) {
 		fmt.Printf("    mount %s\n", mount)
 	}

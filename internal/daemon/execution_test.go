@@ -12,6 +12,7 @@ import (
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution"
+	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/execution/compose/composetest"
 	"github.com/ma8el/feat/internal/store"
 )
@@ -85,9 +86,13 @@ func workingDocker() *composetest.Docker {
 
 	// Absent, which is what the security model requires and what the fake must
 	// therefore say: an unarranged answer would be a failure of a different
-	// shape.
-	return docker.Fail(containerProbe("docker", "--version"),
-		`exec: "docker": executable file not found in $PATH`, 126)
+	// shape. Every client that speaks the Docker API, not only the one named
+	// after it.
+	for _, client := range compose.ContainerClients {
+		docker = docker.Fail(containerProbe(client, "--version"),
+			`exec: "`+client+`": executable file not found in $PATH`, 126)
+	}
+	return docker
 }
 
 // TestTheGeneratedOverrideMountsWhatTheTaskOwns is acceptance criterion 1 at the
@@ -306,7 +311,7 @@ func TestALaunchRefusedByTheContainerIsExplainable(t *testing.T) {
 			arrange: func(d *composetest.Docker) {
 				d.Answer(containerProbe("docker", "--version"), "Docker version 27.0.0")
 			},
-			contains: []string{"Docker client", "reach the host"},
+			contains: []string{"Docker API", "reach the host"},
 		},
 		"the container mounts the Docker socket": {
 			arrange: func(d *composetest.Docker) {

@@ -12,6 +12,19 @@ import (
 	"github.com/ma8el/feat/internal/execution"
 )
 
+// ContainerClients are the executables inside an environment that speak a
+// container runtime's API.
+//
+// Asking for one name was asking the wrong question. `podman` and `nerdctl` both
+// speak the Docker API — podman ships a `docker` alias for exactly that reason —
+// so an image carrying either has the capability agent.capabilities.docker
+// declares denied, and reporting "no Docker client" about it would be a claim
+// Feat had not checked.
+//
+// Each is probed by running it, as the hook tools are: --version creates
+// nothing, and only the environment reporting no such executable means absent.
+var ContainerClients = []string{Executable, "podman", "nerdctl"}
+
 // HookTools are the executables the generated provider hooks need, each with a
 // harmless way of running it.
 //
@@ -75,15 +88,17 @@ func (e *Environment) Inspect(ctx context.Context, writable []string) (execution
 		report.User = strings.TrimSpace(name.Stdout)
 	}
 
-	// A Docker client inside the agent's container is refused whether or not a
+	// A client that speaks a container runtime's API is refused whether or not a
 	// socket happens to be mounted today: it is a capability the project
 	// declared denied, and a mount can be added by an edit nobody reviewed.
-	present, err := e.present(ctx, Executable, []string{"--version"})
-	if err != nil {
-		return report, err
-	}
-	if present {
-		report.DockerCLI = Executable
+	for _, client := range ContainerClients {
+		present, err := e.present(ctx, client, []string{"--version"})
+		if err != nil {
+			return report, err
+		}
+		if present {
+			report.DockerClients = append(report.DockerClients, client)
+		}
 	}
 
 	for _, tool := range HookTools {
@@ -107,6 +122,12 @@ func (e *Environment) Inspect(ctx context.Context, writable []string) (execution
 		return report, err
 	}
 	report.Mounts = mounts
+
+	endpoints, err := e.Endpoints(ctx, state.Container)
+	if err != nil {
+		return report, err
+	}
+	report.DockerVariables = endpoints
 	return report, nil
 }
 
@@ -169,11 +190,20 @@ func (e *Environment) Check(report execution.Report) error {
 			e.spec.Service, report.User))
 	}
 
-	if report.DockerCLI != "" {
+	if len(report.DockerClients) > 0 {
 		problems = append(problems, fmt.Errorf(
-			"service %s has a Docker client at %s, and agent.capabilities.docker is denied. "+
-				"An agent that can reach a Docker daemon can reach the host; remove it from the image",
-			e.spec.Service, report.DockerCLI))
+			"service %s has a client that speaks the Docker API (%s), and agent.capabilities.docker is "+
+				"denied. An agent that can reach a container daemon can reach the host; remove it from the image",
+			e.spec.Service, strings.Join(report.DockerClients, ", ")))
+	}
+
+	if len(report.DockerVariables) > 0 {
+		problems = append(problems, fmt.Errorf(
+			"service %s sets %s in the agent's environment, which points a client at a container daemon over "+
+				"the network, and agent.capabilities.docker is denied. A daemon reached that way is the same "+
+				"capability as a mounted socket. Feat has not read the values, only the names; remove those "+
+				"entries from the Compose files that define service %s",
+			e.spec.Service, strings.Join(report.DockerVariables, ", "), e.spec.Service))
 	}
 
 	if len(report.MissingTools) > 0 {

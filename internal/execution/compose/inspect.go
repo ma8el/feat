@@ -104,6 +104,71 @@ func (e *Environment) Mounts(ctx context.Context, container string) ([]execution
 	return mounts, nil
 }
 
+// DockerEndpointVariables are the environment entries that point a client at a
+// container daemon over the network.
+//
+// docs/05-security-model.md forbids "Docker-over-TCP credentials" in the same
+// breath as the socket, and this is the form they take: a container with one of
+// these and a client to use it reaches a daemon with nothing mounted at all.
+var DockerEndpointVariables = []string{
+	"DOCKER_HOST",
+	"DOCKER_TLS_VERIFY",
+	"DOCKER_CERT_PATH",
+	"DOCKER_CONTEXT",
+}
+
+// Endpoints reports which of those entries the container's own environment sets.
+//
+// It returns names and never values. A value carries a host, a port, and a path
+// into somebody's filesystem, and what a refusal needs to say is which entry to
+// remove — the project's own Compose files are where it is written.
+//
+// The container is asked rather than the configuration, for the reason Mounts
+// gives: `docker compose config` would render the project including the values
+// of environment files Feat must not read (ADR-028).
+func (e *Environment) Endpoints(ctx context.Context, container string) ([]string, error) {
+	if container == "" {
+		return nil, fmt.Errorf("reading the environment of Compose project %s needs a container", e.spec.Identity)
+	}
+	output, err := e.runner.Run(ctx, execution.Invocation{
+		Program: e.docker,
+		Arguments: []string{
+			"inspect", "--type", "container", "--format", "{{json .Config.Env}}", container,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !output.Succeeded() {
+		return nil, fmt.Errorf("reading the environment of container %s of Compose project %s failed: %s",
+			container, e.spec.Identity, firstLine(output.Stderr, output.Stdout))
+	}
+
+	trimmed := strings.TrimSpace(output.Stdout)
+	if trimmed == "" || trimmed == "null" {
+		return nil, nil
+	}
+	var decoded []string
+	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
+		return nil, fmt.Errorf("reading the environment of container %s: %w", container, err)
+	}
+
+	var found []string
+	for _, entry := range decoded {
+		name, _, split := strings.Cut(entry, "=")
+		if !split {
+			continue
+		}
+		for _, endpoint := range DockerEndpointVariables {
+			if name == endpoint {
+				found = append(found, name)
+			}
+		}
+	}
+	sort.Strings(found)
+	return found, nil
+}
+
 // CheckMounts refuses a container whose mounts break a rule the security model
 // states.
 //

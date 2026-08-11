@@ -356,8 +356,11 @@ func TestRealTheAgentHasNoDockerAccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inspecting the container: %v", err)
 	}
-	if report.DockerCLI != "" {
-		t.Errorf("the container has a Docker client at %s", report.DockerCLI)
+	if len(report.DockerClients) > 0 {
+		t.Errorf("the container has a client that speaks the Docker API: %v", report.DockerClients)
+	}
+	if len(report.DockerVariables) > 0 {
+		t.Errorf("the container's environment points a client at a container daemon: %v", report.DockerVariables)
 	}
 	for _, mount := range report.Mounts {
 		if strings.Contains(mount.Source, "docker.sock") || strings.Contains(mount.Destination, "docker.sock") {
