@@ -445,9 +445,23 @@ the container as the configured user for the same reason — a uid that cannot
 write across a bind mount produces a session that reports nothing at all.
 
 Minimum supported Docker Compose version is 2.24, for the `!reset` tag that
-removes a base file's `container_name` and published `ports` from the agent
-service. Both are global to the daemon or the host and would otherwise make two
-concurrent task containers impossible.
+removes a base file's `container_name` and published `ports`. Both are global to
+the daemon or the host and would otherwise make two concurrent task containers
+impossible.
+
+The reset reaches every service the project's own Compose files define, not the
+agent's alone. Starting the agent's service starts its whole `depends_on`
+closure, and everything Compose starts is in the task's Compose project, so a
+dependency that kept a fixed name or a published port is the same collision one
+service over — arriving as a Compose error about a service the user did not know
+Feat was starting. Which services those are is read with
+`docker compose config --services` against the project's own files, without the
+generated override so a stale one cannot reintroduce a service the project has
+since removed; it prints service names and nothing else, so no environment-file
+value is rendered. A service the agent does not run in gets the two resets and
+nothing else: no task worktree, no generated variable, and no ownership label,
+because Feat's labels are how the container the agent *does* run in is found
+(ADR-033).
 
 ## Runtime adapter
 

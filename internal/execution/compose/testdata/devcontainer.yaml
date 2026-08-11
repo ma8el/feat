@@ -9,6 +9,13 @@
 # It also mounts a directory at the path a task worktree will be mounted at, so
 # that Compose's merge-by-target behaviour is proved rather than assumed. That
 # is the mechanism the whole mount design rests on (ADR-033 evidence 2).
+#
+# Only `dev` is the service the agent runs in. `db` is there because a real
+# devcontainer usually has one — something to develop against — and Feat never
+# names it: `up --detach dev` starts it because `dev` says so. It carries a
+# fixed name and a published port of its own, so a test that starts three tasks
+# proves the generated override reaches a service Feat was never asked to run in
+# (F7-01).
 services:
   dev:
     image: alpine:3.20
@@ -26,3 +33,14 @@ services:
       - "59317:80"
     volumes:
       - ./base-mount:/srv/api
+    depends_on:
+      db:
+        condition: service_started
+
+  db:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    user: "1000:1000"
+    container_name: feat-test-dependency-fixed-name
+    ports:
+      - "59318:80"

@@ -73,16 +73,24 @@ func TestTheGeneratedOverrideIsPinned(t *testing.T) {
 		t.Fatalf("preparing: %v", err)
 	}
 
+	compare(t, spec, "override.golden")
+}
+
+// compare holds the generated override against a golden file.
+//
+// The temporary directory changes per run, so the two paths that carry it are
+// normalised before comparison.
+func compare(t *testing.T, spec execution.Spec, name string) string {
+	t.Helper()
+
 	written, err := os.ReadFile(spec.OverridePath)
 	if err != nil {
 		t.Fatalf("reading the generated override: %v", err)
 	}
-	// The temporary directory changes per run, so the two paths that carry it
-	// are normalised before comparison.
 	normalised := strings.ReplaceAll(string(written), filepath.Dir(spec.OverridePath), "<state>")
 	normalised = strings.ReplaceAll(normalised, filepath.Dir(filepath.Dir(spec.OverridePath)), "<state>")
 
-	golden := filepath.Join("testdata", "override.golden")
+	golden := filepath.Join("testdata", name)
 	if *update {
 		if err := os.WriteFile(golden, []byte(normalised), 0o600); err != nil {
 			t.Fatalf("updating the golden file: %v", err)
@@ -94,6 +102,122 @@ func TestTheGeneratedOverrideIsPinned(t *testing.T) {
 	}
 	if normalised != string(want) {
 		t.Errorf("the generated override changed\n got:\n%s\nwant:\n%s", normalised, want)
+	}
+	return normalised
+}
+
+// dependent arranges a project whose devcontainer service needs two others,
+// which is the ordinary shape of one: a database to develop against and a cache
+// the application expects to be there.
+//
+// Compose lists them in the order of the project's files, so the fixture answers
+// out of alphabetical order: the generated document sorts them, because it is
+// rewritten on every start and a document that reordered itself would show a
+// diff nobody made.
+func dependent(t *testing.T) (*compose.Environment, execution.Spec, *composetest.Docker) {
+	t.Helper()
+
+	docker := composetest.New().Answer("config --services", "db\ndev\ncache\n")
+	environment, spec := arrange(t, docker)
+	return environment, spec, docker
+}
+
+// TestTheGeneratedOverrideCoversEveryServiceInTheProject pins what Feat writes
+// for a service the agent does not run in.
+//
+// `up --detach <service>` starts that service's whole depends_on closure, and
+// every container it starts is in this task's Compose project. A base file's
+// fixed container_name is global to the Docker daemon and its published port is
+// global to the host, so leaving either on a dependency puts the project back to
+// one task per machine — the thing the generated override exists to prevent,
+// arriving one service over (F7-01, F3-22).
+//
+// What such a service gets is those two resets and nothing else: no worktree, no
+// generated variable, and no ownership label, because the agent does not run in
+// it and Feat's labels are how the container the agent does run in is found.
+func TestTheGeneratedOverrideCoversEveryServiceInTheProject(t *testing.T) {
+	environment, spec, _ := dependent(t)
+
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("preparing: %v", err)
+	}
+	document := compare(t, spec, "override-dependencies.golden")
+
+	// The properties the golden happens to show, said as themselves, so that a
+	// deliberate update to the document cannot quietly drop one.
+	for _, required := range []string{"container_name: !reset null", "ports: !reset []"} {
+		if count := strings.Count(document, required); count != 3 {
+			t.Errorf("%d services have %q, want 3: a dependency that keeps either is a second task "+
+				"that cannot start\n%s", count, required, document)
+		}
+	}
+	for _, service := range []string{`"cache"`, `"db"`} {
+		for _, unwanted := range []string{"volumes:", "labels:", "environment:", "working_dir:"} {
+			if strings.Contains(document, service+":\n    "+unwanted) {
+				t.Errorf("the override gives %s a %s, which belongs to the service the agent runs in:\n%s",
+					service, unwanted, document)
+			}
+		}
+	}
+}
+
+// TestTheServicesAreReadWithoutTheGeneratedOverride pins how the question is
+// asked.
+//
+// Two reasons, and each is a defect avoided rather than a preference. The
+// override does not exist on a first launch, so passing it would make the first
+// thing every task does fail with a Compose error about a file Feat generates;
+// and a stale one would reintroduce a service the project has since removed,
+// which is the ADR-034 evidence-11 shape. It reads names and nothing else, so no
+// value from an environment file is rendered (ADR-028).
+func TestTheServicesAreReadWithoutTheGeneratedOverride(t *testing.T) {
+	environment, spec, docker := dependent(t)
+
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("preparing: %v", err)
+	}
+
+	vector, found := docker.Vector("config --services")
+	if !found {
+		t.Fatalf("nothing asked which services the project defines; calls: %v", docker.Calls())
+	}
+	want := []string{
+		"compose",
+		"--project-name", spec.Identity,
+		"--project-directory", spec.Directory,
+		"--file", spec.Files[0],
+		"config", "--services",
+	}
+	if !slices.Equal(vector, want) {
+		t.Errorf("the Compose invocation changed\n got: %v\nwant: %v", vector, want)
+	}
+}
+
+// TestAProjectWhoseServicesCannotBeReadStartsNothing keeps a launch that cannot
+// establish isolation from proceeding without it.
+//
+// Feat cannot reset what it cannot enumerate, so a project it could not read is
+// refused where the message can still name it rather than one container later,
+// when the collision it would have prevented has already happened.
+func TestAProjectWhoseServicesCannotBeReadStartsNothing(t *testing.T) {
+	docker := composetest.New().
+		Fail("config --services", "services.dev.depends_on contains an invalid type", 15)
+	environment, spec := arrange(t, docker)
+
+	err := environment.Prepare(context.Background())
+	if err == nil {
+		t.Fatal("a project whose services could not be read was started anyway")
+	}
+	for _, named := range []string{string(task), spec.Identity, "invalid type"} {
+		if !strings.Contains(err.Error(), named) {
+			t.Errorf("the message does not name %q: %v", named, err)
+		}
+	}
+	if _, statErr := os.Stat(spec.OverridePath); statErr == nil {
+		t.Error("a refused environment still wrote its override")
+	}
+	if docker.Ran("up --detach dev") {
+		t.Error("a refused environment still started a service")
 	}
 }
 

@@ -481,6 +481,10 @@ Three properties are checked at the adapter rather than at the outcome:
   base file carrying either can be brought up exactly once. Measured against
   Docker Compose 5.1.4, along with merge-by-target and `--project-directory`
   behaviour, before any of it was relied on;
+  **Amended: the agent service was not enough. Starting it starts its whole
+  `depends_on` closure, so a dependency keeping either put the project back to one
+  task per machine; the reset now covers every service the project defines, see
+  ADR-033 evidence 15.**
 - a launch that a container refuses leaves the task `failed`, having run no tmux
   command, with a message naming what to change. Seven such refusals have a test
   each, and they run in the default `go test ./...` against a fake Docker,
