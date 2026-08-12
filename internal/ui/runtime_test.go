@@ -155,6 +155,47 @@ func TestEachRuntimeKeyAsksForItsOwnAction(t *testing.T) {
 	}
 }
 
+// TestASecondActionWaitsForTheFirst keeps a slow start from being asked for
+// twice.
+//
+// A first start pulls the project's images and runs its builds, so the screen
+// says "waiting for start…" for minutes rather than for a moment (ADR-034
+// evidence 14). Every key press during that wait used to be another request, and
+// what a user pressing `u` twice would be asking for is the services started and
+// then started again.
+func TestASecondActionWaitsForTheFirst(t *testing.T) {
+	task := liveTask()
+	task.Runtime = runningRuntime()
+	backend := newFakeBackend()
+	backend.runtimeStatus = api.RuntimeStatus{Task: task}
+
+	model := runtimeScreen(t, backend, task)
+	// A start that has not answered yet, which is what the screen holds while
+	// Docker is working.
+	model.runtime.pending = api.RuntimeStart
+	asked := len(backend.runtimeCalls)
+
+	for _, key := range []string{"u", "c", "t", "r", "d"} {
+		updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+		next, ok := updated.(Model)
+		if !ok {
+			t.Fatalf("pressing %q produced a %T", key, updated)
+		}
+		if cmd != nil {
+			cmd()
+		}
+		if len(backend.runtimeCalls) != asked {
+			t.Fatalf("pressing %q during a start asked for something else: %v", key, backend.runtimeCalls)
+		}
+		if next.runtime.confirming {
+			t.Errorf("pressing %q during a start opened the destroy confirmation", key)
+		}
+		if !strings.Contains(next.status, "waiting for start") {
+			t.Errorf("pressing %q during a start says nothing about why: %q", key, next.status)
+		}
+	}
+}
+
 // TestDestroyingAsksFirst keeps a removal behind a confirmation.
 //
 // The point is checked at the backend rather than at the screen: what matters is

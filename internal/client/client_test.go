@@ -320,6 +320,94 @@ func TestEventsEndsWithItsContext(t *testing.T) {
 
 func contains(haystack, needle string) bool { return strings.Contains(haystack, needle) }
 
+// TestARuntimeActionOutwaitsAnOrdinaryRequest is the regression for a first
+// `runtime start` failing with `context deadline exceeded` and working when the
+// user tried it again.
+//
+// Ten seconds is right for a request the daemon answers out of what it already
+// knows and wrong for one where it is pulling images and running builds. The
+// budgets are shrunk here so that the rule under test is which one the runtime
+// endpoint gets, rather than how long either of them is.
+func TestARuntimeActionOutwaitsAnOrdinaryRequest(t *testing.T) {
+	const work = 300 * time.Millisecond
+
+	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The daemon is busy for longer than an ordinary request may take, which
+		// is what a Compose that is pulling an image looks like from here.
+		select {
+		case <-time.After(work):
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"task":{"id":"12345678-1234-4234-8234-123456789abc"},"services":[],"notes":[]}`)
+	}))
+	caller.timeout = work / 4
+	caller.runtimeTimeout = 10 * work
+
+	id := "12345678-1234-4234-8234-123456789abc"
+	if _, err := caller.Runtime(context.Background(), id, api.RuntimeStart); err != nil {
+		t.Fatalf("a start the daemon was still working on was abandoned: %v", err)
+	}
+
+	// And the ordinary budget is still short, so this is a difference between the
+	// endpoints rather than a client that waits for ever.
+	_, err := caller.Task(context.Background(), id)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want a deadline", err)
+	}
+	// What that deadline reads as: the daemon's socket, how long this client
+	// waited, and what became of the work — none of which "context deadline
+	// exceeded" says on its own.
+	for _, required := range []string{caller.Socket(), caller.timeout.String(), "stopped part way through"} {
+		if !contains(err.Error(), required) {
+			t.Errorf("the deadline does not mention %q: %v", required, err)
+		}
+	}
+}
+
+// TestTheRuntimeBudgetCoversTheDaemons keeps the two ends of one request in
+// agreement.
+//
+// The daemon stops waiting for Docker at api.RuntimeTimeout. A client that gave
+// up first would cancel a request the daemon is still serving, and cancelling
+// one kills the `docker compose up` it is waiting on part way through — so the
+// client's patience has to be the longer of the two.
+func TestTheRuntimeBudgetCoversTheDaemons(t *testing.T) {
+	if runtimeTimeout <= api.RuntimeTimeout {
+		t.Errorf("the client waits %s for an action the daemon may spend %s on",
+			runtimeTimeout, api.RuntimeTimeout)
+	}
+	if runtimeTimeout <= requestTimeout {
+		t.Errorf("a runtime action waits %s, no longer than an ordinary request's %s",
+			runtimeTimeout, requestTimeout)
+	}
+}
+
+// TestACallersOwnDeadlineIsLeftAlone keeps the client from claiming a deadline
+// as its own.
+//
+// A caller that bounds its own request is told what it asked for, in the words
+// context uses, because the number it ran out of is theirs and this client's
+// budget never fired.
+func TestACallersOwnDeadlineIsLeftAlone(t *testing.T) {
+	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := caller.Task(ctx, "12345678-1234-4234-8234-123456789abc")
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want a deadline", err)
+	}
+	if contains(err.Error(), "did not answer within") {
+		t.Errorf("the client claims the caller's own deadline as its own: %v", err)
+	}
+}
+
 // TestANoContentReplyIsASuccess is the regression for an error on every
 // keystroke.
 //

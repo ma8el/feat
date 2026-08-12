@@ -71,6 +71,13 @@ func (s *service) Runtime(
 		return api.RuntimeResult{}, fmt.Errorf("%w: %q is not a runtime action", api.ErrInvalid, action)
 	}
 
+	// One budget for the whole action rather than one per Docker command, so that
+	// the ceiling exists as a single number both ends of the request know: the
+	// client waits for it, and this stops waiting at it (api.RuntimeTimeout).
+	budget := s.runtimeBudget()
+	ctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+
 	// One task's records are changed by one goroutine at a time (ADR-036).
 	defer s.locks.lock(id)()
 
@@ -116,7 +123,7 @@ func (s *service) Runtime(
 		// Nothing is undone. A service that started may already have written to a
 		// volume or a shared database, and tidying up after a failed start is a
 		// destructive act the user did not ask for (ADR-029, ADR-033).
-		return api.RuntimeResult{}, fmt.Errorf("%w: %w", api.ErrInvalid, err)
+		return api.RuntimeResult{}, s.explainRuntime(ctx, task, action, budget, err)
 	}
 
 	var notes []string
@@ -124,6 +131,53 @@ func (s *service) Runtime(
 		notes = s.inspectRuntime(ctx, task, services, state)
 	}
 	return s.recordRuntime(ctx, task, record, state, notes, string(action))
+}
+
+// runtimeBudget is how long one manual runtime action may take.
+func (s *service) runtimeBudget() time.Duration {
+	if s.runtimeOverride > 0 {
+		return s.runtimeOverride
+	}
+	return api.RuntimeTimeout
+}
+
+// explainRuntime says what a failed action failed of.
+//
+// Two of the reasons are not the project's, and neither says so on its own: a
+// Docker that was still working when the budget ran out, and a Docker that was
+// cut short because the caller went away. Both arrive here as a Compose command
+// that did not finish, and both leave whatever Compose had already created on
+// the machine — so the message names the action that says what that is rather
+// than an outcome this cannot know. The record is a superset of it either way
+// (ADR-029, ADR-033), and the observer corrects the state on its next pass.
+//
+// A caller that went away is logged as well as reported, because there is nobody
+// left to report it to: the connection that would have carried the answer is the
+// thing that has gone, and a daemon that says nothing about it leaves a user
+// with a half-started application and an empty log.
+func (s *service) explainRuntime(
+	ctx context.Context, task *domain.Task, action api.RuntimeAction, budget time.Duration, err error,
+) error {
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		s.logger.WarnContext(ctx, "a task's runtime action ran out of time",
+			slog.String("task", task.ID.String()), slog.String("action", string(action)),
+			slog.Duration("budget", budget), slog.Any("error", err))
+		return fmt.Errorf("%w: runtime %s on task %s did not finish within %s. Docker was stopped part way "+
+			"through and nothing was removed; `feat runtime status %s` says what exists now",
+			api.ErrInvalid, action, task.ID, budget, task.Key())
+
+	case errors.Is(ctx.Err(), context.Canceled):
+		s.logger.WarnContext(context.WithoutCancel(ctx), "a task's runtime action was cancelled by its caller",
+			slog.String("task", task.ID.String()), slog.String("action", string(action)),
+			slog.Any("error", err))
+		return fmt.Errorf("%w: runtime %s on task %s was cancelled before it finished. Docker was stopped "+
+			"part way through and nothing was removed; `feat runtime status %s` says what exists now",
+			api.ErrInvalid, action, task.ID, task.Key())
+
+	default:
+		return fmt.Errorf("%w: %w", api.ErrInvalid, err)
+	}
 }
 
 // RuntimeLogs returns the command that opens a task's normal Compose logs.

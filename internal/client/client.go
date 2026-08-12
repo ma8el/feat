@@ -16,10 +16,27 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// Limits for one request. The daemon is local, so a request that takes longer
-// than this is stuck rather than slow.
+// Limits for one request.
 const (
+	// requestTimeout bounds a request the daemon answers out of what it already
+	// knows. The daemon is local and the answer is in its memory or in a file it
+	// owns, so a request that takes longer than this is stuck rather than slow.
 	requestTimeout = 10 * time.Second
+	// runtimeTimeout bounds a manual runtime action, which is not that kind of
+	// request: the daemon is driving Docker Compose, and the first start of a
+	// task's services pulls images and runs builds.
+	//
+	// It is the daemon's own budget for the action plus a margin, so that a
+	// Compose that will not finish is reported by the daemon, which knows what it
+	// was waiting for, rather than by this client giving up on a daemon that is
+	// still working. Under the ten seconds above, a first start failed with
+	// `context deadline exceeded` and worked when the user tried it again —
+	// because by then the images were pulled and the containers existed.
+	runtimeTimeout = api.RuntimeTimeout + answerMargin
+	// answerMargin is how much longer than the daemon's own budget a client waits
+	// for the answer, so that the daemon's diagnosis is what ends the request.
+	// The same margin the daemon allows a completion gate over its own.
+	answerMargin = time.Minute
 	// maxResponseBody bounds a response, so that a broken daemon cannot make a
 	// client allocate without limit.
 	maxResponseBody = 32 << 20
@@ -37,12 +54,21 @@ const host = "feat"
 type Client struct {
 	socket string
 	http   *http.Client
+	// timeout bounds an ordinary request, and runtimeTimeout the one endpoint
+	// whose answer waits on a container tool. They are fields rather than the
+	// constants themselves so that a test can shrink both and still be testing
+	// the rule — that the second is the one the runtime endpoint gets — rather
+	// than waiting out a budget measured in minutes.
+	timeout        time.Duration
+	runtimeTimeout time.Duration
 }
 
 // New returns a client for the daemon listening on the given socket.
 func New(socket string) *Client {
 	return &Client{
-		socket: socket,
+		socket:         socket,
+		timeout:        requestTimeout,
+		runtimeTimeout: runtimeTimeout,
 		http: &http.Client{
 			// No client timeout: the event stream is meant to stay open, and
 			// every other call bounds itself with a context instead.
@@ -149,12 +175,17 @@ func (c *Client) SendTerminalInput(ctx context.Context, id string, input api.Ter
 // Compose files define them, and what the command turns out to be are the
 // daemon's to resolve, for the reason the shell endpoint takes nothing to
 // execute.
+//
+// Every action waits the runtime budget rather than only the two that create
+// something. They are one endpoint with one budget on the daemon's side, and a
+// status that has to queue behind the start it is reporting on is exactly the
+// call a shorter deadline would cut off.
 func (c *Client) Runtime(ctx context.Context, id string, action api.RuntimeAction) (api.RuntimeStatus, error) {
 	path := "/tasks/" + url.PathEscape(id) + "/runtime/" + url.PathEscape(string(action))
 	if action == api.RuntimeDestroy {
-		return send[api.RuntimeStatus](ctx, c, path, api.DestroyRuntime{Confirm: true})
+		return sendWithin[api.RuntimeStatus](ctx, c, c.runtimeTimeout, path, api.DestroyRuntime{Confirm: true})
 	}
-	return send[api.RuntimeStatus](ctx, c, path, struct{}{})
+	return sendWithin[api.RuntimeStatus](ctx, c, c.runtimeTimeout, path, struct{}{})
 }
 
 // Review performs one review action and returns what the task's review shows.
@@ -246,12 +277,13 @@ func (c *Client) CancelDraft(ctx context.Context, id string) (api.Task, error) {
 func fetch[T any](ctx context.Context, c *Client, path string) (T, error) {
 	var payload T
 
-	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	caller := ctx
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
 	response, err := c.get(ctx, path, nil)
 	if err != nil {
-		return payload, err
+		return payload, c.impatient(caller, c.timeout, err)
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, response.Body)
@@ -271,21 +303,31 @@ func fetch[T any](ctx context.Context, c *Client, path string) (T, error) {
 
 // send performs one POST and decodes the response.
 func send[T any](ctx context.Context, c *Client, path string, payload any) (T, error) {
-	return submit[T](ctx, c, http.MethodPost, path, payload)
+	return submit[T](ctx, c, c.timeout, http.MethodPost, path, payload)
+}
+
+// sendWithin performs one POST that is allowed to take longer than an ordinary
+// request, because the daemon has more to do than answer it.
+func sendWithin[T any](
+	ctx context.Context, c *Client, within time.Duration, path string, payload any,
+) (T, error) {
+	return submit[T](ctx, c, within, http.MethodPost, path, payload)
 }
 
 // replace performs one PUT and decodes the response.
 func replace[T any](ctx context.Context, c *Client, path string, payload any) (T, error) {
-	return submit[T](ctx, c, http.MethodPut, path, payload)
+	return submit[T](ctx, c, c.timeout, http.MethodPut, path, payload)
 }
 
 // remove performs one DELETE and decodes the response.
 func remove[T any](ctx context.Context, c *Client, path string) (T, error) {
-	return submit[T](ctx, c, http.MethodDelete, path, nil)
+	return submit[T](ctx, c, c.timeout, http.MethodDelete, path, nil)
 }
 
 // submit performs one request that carries a body and decodes the response.
-func submit[T any](ctx context.Context, c *Client, method, path string, payload any) (T, error) {
+func submit[T any](
+	ctx context.Context, c *Client, within time.Duration, method, path string, payload any,
+) (T, error) {
 	var result T
 
 	var reader io.Reader
@@ -297,7 +339,8 @@ func submit[T any](ctx context.Context, c *Client, method, path string, payload 
 		reader = bytes.NewReader(body)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	caller := ctx
+	ctx, cancel := context.WithTimeout(ctx, within)
 	defer cancel()
 
 	request, err := http.NewRequestWithContext(ctx, method,
@@ -311,7 +354,7 @@ func submit[T any](ctx context.Context, c *Client, method, path string, payload 
 
 	response, err := c.http.Do(request)
 	if err != nil {
-		return result, c.describe(err)
+		return result, c.impatient(caller, within, c.describe(err))
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, response.Body)
@@ -351,6 +394,22 @@ func (c *Client) get(ctx context.Context, path string, header http.Header) (*htt
 		return nil, c.describe(err)
 	}
 	return response, nil
+}
+
+// impatient names the budget when this client's own deadline is what ended a
+// request.
+//
+// Without it the failure reads `Post "http://feat/v1/tasks/…/runtime/start":
+// context deadline exceeded`, which names neither how long the client waited nor
+// whose deadline it was — and the answer to both is this file rather than
+// anything the user did. A caller whose own context ended is left alone: that
+// deadline is theirs, and this one never fired.
+func (c *Client) impatient(caller context.Context, within time.Duration, err error) error {
+	if !errors.Is(err, context.DeadlineExceeded) || caller.Err() != nil {
+		return err
+	}
+	return fmt.Errorf("the daemon on %s did not answer within %s, so the request was cancelled and "+
+		"whatever it had begun was stopped part way through: %w", c.socket, within, err)
 }
 
 // describe turns a transport failure into something the user can act on.

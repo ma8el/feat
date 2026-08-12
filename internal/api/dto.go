@@ -488,6 +488,25 @@ func (a RuntimeAction) Valid() bool {
 	}
 }
 
+// RuntimeTimeout bounds one manual runtime action, from the request arriving to
+// the answer being written.
+//
+// It belongs to the endpoint's contract rather than to the daemon's private
+// business, because both ends have to hold the same number. The daemon stops
+// waiting for Docker when it runs out; a client that gave up sooner would cancel
+// a request the daemon is still serving, and cancelling one kills the
+// `docker compose up` it is waiting on part way through.
+//
+// Minutes, because the work is minutes. The first start of a task's services
+// pulls every image the project names and runs every build it defines, while the
+// second start of the same task answers in about a second — so the ceiling is
+// invisible until the first run of a project nobody has built here yet. Ten
+// seconds, which was every request's budget, is what a user met as `Post
+// "http://feat/v1/tasks/…/runtime/start": context deadline exceeded` on a start
+// that then worked when they tried it again, because by then the images were
+// pulled and the containers existed.
+const RuntimeTimeout = 15 * time.Minute
+
 // DestroyRuntime is the body of POST /v1/tasks/{task_id}/runtime/destroy.
 //
 // It carries the user's confirmation, for the reason a launch carries the

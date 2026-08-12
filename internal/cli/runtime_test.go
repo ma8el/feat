@@ -167,3 +167,36 @@ func TestTheLogsCommandIsCheckedBeforeItIsRun(t *testing.T) {
 		})
 	}
 }
+
+// TestASlowActionSaysItHasBegun keeps `feat runtime start` from looking hung.
+//
+// The daemon runs Compose and this command holds one request open until it
+// answers, which for a first start is minutes (ADR-034 evidence 14). The notice
+// goes to the error stream, so that anything reading this command's output still
+// reads the summary and nothing else.
+func TestASlowActionSaysItHasBegun(t *testing.T) {
+	for action, want := range map[api.RuntimeAction]bool{
+		api.RuntimeCreate:  true,
+		api.RuntimeStart:   true,
+		api.RuntimeStop:    false,
+		api.RuntimeObserve: false,
+	} {
+		t.Run(string(action), func(t *testing.T) {
+			var errOut bytes.Buffer
+
+			announce(&errOut, action, "7f3a1c2e")
+
+			if said := errOut.Len() > 0; said != want {
+				t.Fatalf("runtime %s announced itself = %t, want %t: %q", action, said, want, errOut.String())
+			}
+			if !want {
+				return
+			}
+			for _, required := range []string{"7f3a1c2e", string(action), "takes minutes"} {
+				if !strings.Contains(errOut.String(), required) {
+					t.Errorf("the notice does not mention %q: %q", required, errOut.String())
+				}
+			}
+		})
+	}
+}

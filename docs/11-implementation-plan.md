@@ -1559,6 +1559,16 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   timeout of its own, or a shape that does not hold a request open while a
   container is built.
 
+  The same ten seconds reached the runtime endpoint next, on the first
+  `runtime/start` of a task whose images nobody had pulled yet, and that half is
+  fixed: an action's budget is a term of the endpoint's contract
+  (`api.RuntimeTimeout`), the daemon bounds the action with it, and the client
+  waits for it plus a margin (ADR-034 evidence 14). What that leaves for this
+  entry is a launch giving itself the same treatment — the daemon's own budget
+  there is `defaultReadyTimeout` and nothing declares it to a client — and the
+  two paragraphs below, which are about what an interrupted launch leaves behind
+  rather than about how long anybody waits.
+
   What the cancelled launch left behind, nothing can now remove. The container
   it had already created is still on the machine, exited, with its network
   beside it; the archived task record has `session: null`, because a failed
