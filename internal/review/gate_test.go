@@ -112,8 +112,8 @@ func TestACheckThatDidNotFinishIsNotAFailure(t *testing.T) {
 	if !strings.Contains(result.Detail, "did not finish within") {
 		t.Errorf("the detail is %q, and it should say what happened", result.Detail)
 	}
-	if Decide(results).Passed {
-		t.Error("a gate whose check never reported was decided as passed")
+	if outcome := Decide(results).Outcome; outcome != OutcomeBlocked {
+		t.Errorf("a gate whose check never reported was decided as %q, want blocked", outcome)
 	}
 }
 
@@ -133,8 +133,58 @@ func TestACheckThatCouldNotStartIsInconclusive(t *testing.T) {
 	if !strings.Contains(results[0].Detail, "could not be started") {
 		t.Errorf("the detail is %q, and it should say the check never ran", results[0].Detail)
 	}
-	if Decide(results).Passed {
-		t.Error("a gate whose check could not be started was decided as passed")
+	if outcome := Decide(results).Outcome; outcome != OutcomeBlocked {
+		t.Errorf("a gate whose check could not be started was decided as %q, want blocked", outcome)
+	}
+}
+
+// TestAGateThatCouldNotRunIsNeitherPassedNorFailed is the distinction ADR-055
+// added, checked at the point that used to discard it.
+//
+// The verdict was one boolean, and the boolean carried two meanings: a check
+// that ran and failed, and a check that never ran, were both "not passed", so
+// the daemon's single transition sent a project with a missing check command to
+// verification_failed and told a user their work had failed its checks. The
+// three outcomes are what let the two land in different places.
+func TestAGateVerdictSeparatesAFailureFromACheckThatNeverRan(t *testing.T) {
+	now := time.Now()
+	failed := domain.Check{
+		ID: "test", RepositoryID: "api", Status: domain.CheckFailed,
+		Reporter: domain.ReporterProvider, RanAt: now,
+	}
+	blocked := domain.Check{
+		ID: "lint", RepositoryID: "api", Status: domain.CheckUnknown,
+		Reporter: domain.ReporterProvider, Detail: "could not be started", RanAt: now,
+	}
+	passed := domain.Check{
+		ID: "schema", RepositoryID: "web", Status: domain.CheckPassed,
+		Reporter: domain.ReporterProvider, RanAt: now,
+	}
+
+	for name, test := range map[string]struct {
+		results []domain.Check
+		want    Outcome
+	}{
+		"every check passed":            {results: []domain.Check{passed}, want: OutcomePassed},
+		"a check failed":                {results: []domain.Check{failed, passed}, want: OutcomeFailed},
+		"a check never ran":             {results: []domain.Check{blocked, passed}, want: OutcomeBlocked},
+		"nothing ran at all":            {results: []domain.Check{blocked}, want: OutcomeBlocked},
+		"a failure outranks a non-run":  {results: []domain.Check{blocked, failed}, want: OutcomeFailed},
+		"a skipped check decides never": {results: []domain.Check{blocked, Skip(Check{ID: "x"}, "read-only", now)}, want: OutcomeBlocked},
+	} {
+		if got := Decide(test.results).Outcome; got != test.want {
+			t.Errorf("%s: the verdict is %q, want %q", name, got, test.want)
+		}
+	}
+
+	// A failure outranks a check that never ran because it is evidence about the
+	// work and the agent can act on it — and the check that did not run is still
+	// named, because the user has to see it either way.
+	if named := NotRun([]domain.Check{blocked, failed, passed}); len(named) != 1 || named[0].ID != "lint" {
+		t.Errorf("NotRun returned %+v, want only the check that never reported", named)
+	}
+	if named := NotRun([]domain.Check{failed, passed}); len(named) != 0 {
+		t.Errorf("NotRun returned %+v for a run where everything reported", named)
 	}
 }
 
@@ -173,7 +223,7 @@ func TestASkippedCheckDoesNotBlockAPass(t *testing.T) {
 	}
 
 	verdict := Decide(results)
-	if !verdict.Passed {
+	if verdict.Outcome != OutcomePassed {
 		t.Errorf("the verdict is %+v, want a pass", verdict)
 	}
 	if !strings.Contains(verdict.Summary, "1 skipped") {
@@ -185,7 +235,7 @@ func TestASkippedCheckDoesNotBlockAPass(t *testing.T) {
 // than reported as a pass nobody measured.
 func TestAProjectWithNoChecksSaysSo(t *testing.T) {
 	verdict := Decide(nil)
-	if !verdict.Passed {
+	if verdict.Outcome != OutcomePassed {
 		t.Error("a task with no configured checks cannot fail a gate")
 	}
 	if !strings.Contains(verdict.Summary, "no checks") {

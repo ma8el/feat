@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -280,6 +281,20 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 	defer func() {
 		err = errors.Join(err, ownership.Release())
 	}()
+
+	// The spawn marker has done its job and stops here. It bounds one thing —
+	// a binary spawned with arguments it does not understand re-running the
+	// client path and spawning again — and a process holding runtime ownership
+	// is past that: it is serving. What it must not do is travel any further,
+	// because every child this daemon starts inherits its environment, and a
+	// task's own commands are children: a configured check, a tmux pane, and the
+	// agent's session would each carry a marker saying they were started as a
+	// daemon, so a `feat` invocation inside a task would refuse to start one.
+	// Found by running Feat's own integration check through its gate, where
+	// `feat daemon start` was refused by a variable no test had set.
+	if err := os.Unsetenv(envSpawned); err != nil {
+		d.logger.Warn("clearing the daemon spawn marker", slog.Any("error", err))
+	}
 
 	// The endpoint is what health reports about the process, and it exists only
 	// once ownership is established. Nothing is serving yet, so this is not a

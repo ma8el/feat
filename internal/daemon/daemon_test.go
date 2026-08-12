@@ -274,6 +274,30 @@ func TestServeStreamsEventsInOrder(t *testing.T) {
 // errStopReading ends a test's event loop without failing it.
 var errStopReading = errors.New("test has seen enough events")
 
+// TestTheSpawnMarkerDoesNotOutliveTheSpawn checks that what a task's own
+// commands inherit from the daemon does not include the daemon's private
+// bookkeeping.
+//
+// FEAT_DAEMON_SPAWNED exists to stop one thing: a binary spawned with arguments
+// it does not understand re-running the client path and spawning again. Every
+// child a serving daemon starts inherits its environment, and a task's commands
+// are children — a configured check, a tmux pane, the agent's session — so a
+// marker that survived would make a `feat` invocation inside a task refuse to
+// start a daemon, having been told it was one.
+//
+// Found by running Feat's own integration check through Feat's completion gate:
+// `feat daemon start` failed on a variable no test had set.
+func TestTheSpawnMarkerDoesNotOutliveTheSpawn(t *testing.T) {
+	t.Setenv(envSpawned, "1")
+
+	serve(t, Options{})
+
+	if value, present := os.LookupEnv(envSpawned); present {
+		t.Errorf("a serving daemon still carries %s=%q, so everything it starts for a task carries it too",
+			envSpawned, value)
+	}
+}
+
 func TestServeRefusesASecondDaemonOnTheSameSocket(t *testing.T) {
 	live := serve(t, Options{})
 

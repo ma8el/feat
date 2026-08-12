@@ -27,7 +27,7 @@ func TestBinaryLifecycle(t *testing.T) {
 
 	binary := buildBinary(t)
 	layout := testLayout(t)
-	environment := append(os.Environ(),
+	environment := append(userEnvironment(),
 		"FEAT_RUNTIME_DIR="+layout.Runtime,
 		"XDG_DATA_HOME="+filepath.Dir(layout.State),
 		"XDG_CONFIG_HOME="+filepath.Dir(layout.Config),
@@ -132,6 +132,28 @@ func TestBinaryLifecycle(t *testing.T) {
 	if _, err := os.Lstat(layout.LogFile()); err != nil {
 		t.Errorf("no daemon log at %s: %v", layout.LogFile(), err)
 	}
+}
+
+// userEnvironment is this process's environment with Feat's own bookkeeping
+// removed, which is what a user's shell would hand the binary.
+//
+// FEAT_DAEMON_SPAWNED is the one that matters: `feat daemon start` refuses to
+// start a daemon when it is set, and this test drives that command as a user
+// does. A suite run from a shell never sees it; a suite run as a check by a Feat
+// daemon inherits it, and the test then fails on the environment of whoever ran
+// it. The daemon no longer passes it on — see TestTheSpawnMarkerDoesNotOutliveTheSpawn
+// — and this keeps the harness independent of the daemon that happens to be
+// serving while the fix has not yet been deployed.
+func userEnvironment() []string {
+	environment := os.Environ()
+	clean := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, envSpawned+"=") {
+			continue
+		}
+		clean = append(clean, entry)
+	}
+	return clean
 }
 
 // buildBinary builds cmd/feat into a temporary directory.

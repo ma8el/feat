@@ -615,6 +615,7 @@ Notification policy is domain-driven and platform-adapted:
 - idle after grace period and only if not attached;
 - review requested/ready;
 - verification failed;
+- verification blocked, which is a check that could not be run at all;
 - session/runtime failure.
 
 The conditions are pinned tables in `internal/notify`, in the shape ADR-026 used
@@ -622,7 +623,10 @@ for the workflow transitions. Their most important property is an absence:
 nothing maps an end of turn or an idle process to a notification, because idle is
 not a state a task arrives in but one it stays in. That is armed by a grace timer
 instead, so "idle notifications do not fire immediately" is a property of the
-mechanism rather than of a configured value.
+mechanism rather than of a configured value. A blocked gate is named by the
+daemon for the same reason: it leaves the task in `review_requested`, and what
+has to be said is about the run rather than about where the task landed
+(ADR-055).
 
 Whether the user is attached is asked of tmux, per window, through
 `window_active_clients`. It is an observation rather than a memory of somebody
@@ -701,6 +705,15 @@ rather than failed, and an inconclusive check does not pass the gate: a task
 reaching `ready_for_review` on the strength of a check nobody managed to run
 would claim a verification that did not happen. The bounds are fixed constants
 rather than configuration.
+
+Nor does it fail the gate. A run in which nothing reported failure and something
+never reported at all is blocked: the task stays in `review_requested`, where a
+review request Feat has no verdict for always rests, the user is interrupted with
+`verification_blocked`, and the helper exits zero so the session is not sent back
+into its loop over a check configuration it must not edit. A run holding both a
+failure and a check that never ran is a failed one, because a check that reported
+is evidence about the work — the ones that did not are still named in what the
+agent is told, in the task's history, and on the review screen (ADR-055).
 
 A gate does not outlive the process that started it, so a task found in
 `verifying` at startup returns to `review_requested` with an event saying the

@@ -1396,6 +1396,26 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   project. The information exists at every layer and is discarded at the one
   point that decides what to say.
 
+  The verdict becomes three-valued, a run that established nothing leaves the
+  task in `review_requested` rather than `verification_failed`, and a new
+  `verification_blocked` notification is what reaches the person who can fix it.
+  The helper exits zero on that verdict, so a configuration the agent must not
+  edit is not handed back to its loop. No workflow state is added. See ADR-055.
+
+- Stop the daemon's own bookkeeping from reaching the commands it runs for a
+  task. `FEAT_DAEMON_SPAWNED` marks a process that `Spawn` started, so that a
+  binary spawned with arguments it does not understand cannot re-run the client
+  path and spawn again. It is set on the daemon and never cleared, and every
+  child a serving daemon starts inherits its environment — a configured check, a
+  tmux pane, the agent's session — so a `feat` invocation anywhere inside a task
+  refuses to start a daemon, having been told it was one.
+
+  Found by running Feat's own integration check through Feat's completion gate:
+  `feat daemon start` failed on a variable no test had set. The marker is
+  cleared once the daemon holds runtime ownership, which is the point past which
+  the case it guards cannot happen, and the binary lifecycle test builds the
+  environment a user's shell would have rather than inheriting the runner's.
+
 - Diagnose a check command before a task depends on it. `feat doctor` reports a
   check configured to run in the agent's environment as skipped, because there is
   no container to look inside (ADR-033's rule for a check this build cannot run).

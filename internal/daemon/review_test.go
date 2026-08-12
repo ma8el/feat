@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,6 +66,45 @@ checks:
   store:
     - id: schema
       command: ["check-schema"]
+      execution: host
+`
+
+// twoCheckFixture puts both checks on the repository the task holds read-write,
+// so that a run can hold a check that failed and a check that never ran at once.
+const twoCheckFixture = `version: 1
+
+project:
+  id: app
+  name: Example Application
+  primary_repository: api
+
+repositories:
+  api:
+    host_path: ~/repos/app/api
+    container_path: /srv/api
+    default_access: read_write
+  store:
+    host_path: ~/repos/app/store
+    container_path: /srv/store
+    default_access: read_only
+
+git:
+  base_policy: remote
+  branch_template: "feat/{task_key}-{slug}"
+
+agent:
+  execution:
+    mode: host
+  claude:
+    idle_grace_period: 5s
+
+checks:
+  api:
+    - id: unit
+      command: ["run-tests", "{repository_id}"]
+      execution: agent
+    - id: lint
+      command: ["ruff", "check"]
       execution: host
 `
 
@@ -459,6 +499,136 @@ func TestAFailedCheckReturnsTheTaskToTheAgentLoop(t *testing.T) {
 	}
 }
 
+// TestACheckThatCouldNotRunGoesToTheUserRatherThanTheAgent is the defect
+// ADR-055 removed, found on the reference project's first real feature run.
+//
+// A check was configured as a bare program the agent's environment did not have.
+// The gate recorded it as not having reported, which is right, and then the
+// verdict collapsed that into "did not pass": the task landed in
+// verification_failed, which says the work failed its checks, and the failure
+// went back into the agent's loop. The agent diagnosed it, named the
+// configuration file, and declined to edit the configuration governing its own
+// gate — which is the correct refusal — and there was nowhere for it to go.
+//
+// Everything asserted here is one property: the run established nothing, so
+// nothing claims it did, and the person who can fix it is the one who is told.
+func TestACheckThatCouldNotRunGoesToTheUserRatherThanTheAgent(t *testing.T) {
+	live := launchForReview(t, nil)
+	live.watchable()
+	live.checks.errs["unit"] = errors.New("run-tests is not installed in the agent's environment")
+
+	request := live.requestReview(t, `{"summary":"ready"}`)
+
+	// Not a failure of the work, and not a pass either. The review request
+	// stands, which is where a request Feat has no verdict for always rests.
+	if got := live.task(t).Workflow; got != domain.WorkflowReviewRequested {
+		t.Fatalf("workflow = %q, want review_requested: nothing verified this task's work", got)
+	}
+	for _, event := range history(t, live.session) {
+		if event.Type != domain.EventWorkflowChanged {
+			continue
+		}
+		if event.To == string(domain.WorkflowVerificationFailed) {
+			t.Fatal("a check that never ran was reported to the user as work that failed its checks")
+		}
+		if event.To == string(domain.WorkflowReadyForReview) {
+			t.Fatal("a task reached ready_for_review on the strength of a check nobody managed to run")
+		}
+	}
+
+	// The user is interrupted about the run rather than about the state it
+	// landed in, and the task's own history names the check and its repository
+	// so that the notification has somewhere to lead.
+	delivered := live.notifier.sent()
+	if len(delivered) != 1 {
+		t.Fatalf("a gate that could not run produced %d notifications, want one: %+v", len(delivered), delivered)
+	}
+	if !strings.Contains(delivered[0].Body, "could not run") {
+		t.Errorf("the notification is %+v, want one saying the checks could not run", delivered[0])
+	}
+	if !anyEvent(history(t, live.session), "unit (api)") {
+		t.Error("the task's history does not name the check that could not run, so the user has nowhere to look")
+	}
+
+	// The waiting agent is told, and is not handed a failed command over a
+	// configuration it correctly will not edit.
+	verdict := readVerdict(t, live.session, request)
+	if !strings.HasPrefix(verdict, "feat-verification 1 blocked") {
+		t.Fatalf("the verdict is %q, want a blocked one", firstLine(verdict))
+	}
+	if !strings.Contains(verdict, "not yours") {
+		t.Errorf("the verdict does not tell the agent the configuration is not its to change: %q", verdict)
+	}
+
+	// And the evidence is on the review screen, with the reason the check gave.
+	record, err := live.service.store.Reviews().Load(context.Background(), live.ref)
+	if err != nil {
+		t.Fatalf("loading the review: %v", err)
+	}
+	result, found := checkResult(record, "unit")
+	if !found {
+		t.Fatal("the check that could not run was dropped rather than recorded")
+	}
+	if result.Status != domain.CheckUnknown {
+		t.Errorf("the check that could not run is %q, want unknown", result.Status)
+	}
+	if !strings.Contains(result.Detail, "not installed") {
+		t.Errorf("the detail is %q, and it should carry why the check never started", result.Detail)
+	}
+}
+
+// TestARunThatCouldNotVerifyCanBeVerifiedAgain checks the exit the defect had
+// none of: the user fixes the configuration and asks for the checks again,
+// without the agent having to do anything.
+func TestARunThatCouldNotVerifyCanBeVerifiedAgain(t *testing.T) {
+	live := launchForReview(t, nil)
+	live.checks.errs["unit"] = errors.New("run-tests is not installed in the agent's environment")
+
+	live.requestReview(t, `{"summary":"ready"}`)
+	if got := live.task(t).Workflow; got != domain.WorkflowReviewRequested {
+		t.Fatalf("workflow = %q, want review_requested", got)
+	}
+
+	// The configuration is fixed and the checks run.
+	delete(live.checks.errs, "unit")
+	live.checks.outputs["unit"] = review.Output{Stdout: "84 passed"}
+	live.review(t, api.ReviewVerify)
+	live.awaitGate(t)
+
+	if got := live.task(t).Workflow; got != domain.WorkflowReadyForReview {
+		t.Errorf("workflow after the checks were fixed and run again = %q, want ready_for_review", got)
+	}
+}
+
+// TestAFailingCheckOutranksOneThatCouldNotRun checks the precedence ADR-055 set.
+//
+// A check that ran and failed is evidence about the work and the agent can act
+// on it, so a run holding both is a failed one — with the check that never ran
+// still named, because the user has to see it either way.
+func TestAFailingCheckOutranksOneThatCouldNotRun(t *testing.T) {
+	checks := newFakeChecks()
+	live := launchWith(t, twoCheckFixture, installed(), false, func(options *Options) {
+		options.Checks = checks
+	})
+	live.start(t)
+	checks.outputs["unit"] = review.Output{Stdout: "2 failed, 82 passed", ExitCode: 1}
+	checks.errs["lint"] = errors.New("ruff is not installed in the agent's environment")
+
+	session := &reviewSession{session: live, checks: checks}
+	request := session.requestReview(t, `{"summary":"ready"}`)
+
+	if got := live.task(t).Workflow; got != domain.WorkflowVerificationFailed {
+		t.Fatalf("workflow = %q, want verification_failed: a check ran and failed", got)
+	}
+	verdict := readVerdict(t, live, request)
+	if !strings.HasPrefix(verdict, "feat-verification 1 failed") {
+		t.Fatalf("the verdict is %q, want a failed one", firstLine(verdict))
+	}
+	if !strings.Contains(verdict, "lint") {
+		t.Error("the verdict does not name the check that could not run, so it is invisible to the agent")
+	}
+}
+
 // TestAPassingGateReachesReadyForReview is the other half of the fifth
 // criterion: the states this slice makes reachable are reached, and only by
 // running the checks.
@@ -808,6 +978,16 @@ func checkResult(record *domain.Review, id string) (domain.Check, bool) {
 func containsArgument(arguments []string, want string) bool {
 	for _, argument := range arguments {
 		if argument == want {
+			return true
+		}
+	}
+	return false
+}
+
+// anyEvent reports whether the task's history says something.
+func anyEvent(events []domain.Event, want string) bool {
+	for _, event := range events {
+		if strings.Contains(event.Detail, want) {
 			return true
 		}
 	}

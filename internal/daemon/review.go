@@ -16,6 +16,7 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution"
 	"github.com/ma8el/feat/internal/git"
+	"github.com/ma8el/feat/internal/notify"
 	"github.com/ma8el/feat/internal/review"
 	"github.com/ma8el/feat/internal/store"
 )
@@ -517,6 +518,7 @@ func (s *service) finishGate(
 		return err
 	}
 	verdict := review.Decide(results)
+	landing := gateLanding(results, verdict)
 
 	record, err := s.loadReview(ctx, task)
 	if err != nil {
@@ -530,29 +532,103 @@ func (s *service) finishGate(
 	}
 	s.record(ctx, task, domain.Event{
 		Type:   domain.EventReviewChanged,
-		Detail: "Feat ran the project's configured checks: " + verdict.Summary,
+		Detail: landing.detail,
 	})
-
-	status := control.VerificationFailed
-	if verdict.Passed {
-		status = control.VerificationPassed
-	}
 
 	// The results are recorded whatever the task did meanwhile; the transition
 	// is only for a task that is still where the gate left it. A user who
 	// approved while the suite ran has decided, and a gate must not undo that.
 	if task.Workflow == domain.WorkflowVerifying {
-		next := domain.WorkflowVerificationFailed
-		if verdict.Passed {
-			next = domain.WorkflowReadyForReview
-		}
-		if err := s.transition(ctx, task, next, verdict.Summary); err != nil {
+		if err := s.transition(ctx, task, landing.workflow, landing.detail); err != nil {
 			return err
 		}
-		s.notifyChange(ctx, task, true, false)
+		// The condition is named here rather than looked up from the task's new
+		// state, because a blocked gate leaves it in review_requested and that
+		// state's own condition is the one a gate about to run suppresses. What
+		// has to be said is about the run.
+		s.notifyTask(ctx, task, landing.condition, 0)
 	}
 
-	return s.answer(task, request, status, gateReport(results, verdict))
+	return s.answer(task, request, landing.status, gateReport(results, verdict))
+}
+
+// landing is where one gate run leaves the task, and what it says about it.
+type landing struct {
+	// workflow is the state a task still in verifying moves to.
+	workflow domain.WorkflowState
+	// condition is what the user is interrupted for.
+	condition notify.Condition
+	// status is what the waiting agent's helper reads.
+	status string
+	// detail is the one line the task's history carries. It names the checks
+	// that did not run, and never what a check printed: a check's output is
+	// bounded into the review record and deliberately kept out of the event
+	// stream (ADR-036 evidence 6).
+	detail string
+}
+
+// gateLanding decides all four together, because they are one decision.
+//
+// They were three expressions of one boolean until ADR-055, and the boolean had
+// two meanings: a check that failed and a check that never ran both produced
+// verification_failed, so a project whose check command was missing was told its
+// work had failed its checks and the agent was handed a configuration it could
+// not fix. A run that established nothing about the code now says so, and lands
+// where a review request with no verdict always lands.
+func gateLanding(results []domain.Check, verdict review.Verdict) landing {
+	switch verdict.Outcome {
+	case review.OutcomePassed:
+		return landing{
+			workflow:  domain.WorkflowReadyForReview,
+			condition: notify.ConditionReadyForReview,
+			status:    control.VerificationPassed,
+			detail:    "Feat ran the project's configured checks: " + verdict.Summary,
+		}
+	case review.OutcomeBlocked:
+		return landing{
+			// Back where the review request was. Nothing verified the work, so
+			// this is the state docs/02-user-workflows.md §6 already describes
+			// for a project with no completion gate: the request stands, and a
+			// person decides.
+			workflow:  domain.WorkflowReviewRequested,
+			condition: notify.ConditionVerificationBlocked,
+			status:    control.VerificationBlocked,
+			detail: "Feat could not run the project's configured checks (" + verdict.Summary +
+				"): " + checkNames(review.NotRun(results)) +
+				". The review request stands; open review for the reason each one gave",
+		}
+	default:
+		return landing{
+			workflow:  domain.WorkflowVerificationFailed,
+			condition: notify.ConditionVerificationFailed,
+			status:    control.VerificationFailed,
+			detail:    "Feat ran the project's configured checks: " + verdict.Summary,
+		}
+	}
+}
+
+// checkNames lists results as a person would name them: the configured check
+// identifier and the repository it belongs to, and nothing a check printed.
+//
+// It is bounded, because an event is one line a user reads in a history and a
+// project may configure a great many checks. The count is kept rather than
+// dropped: "and 9 more" is a number to act on, and a list that stops without
+// saying so is a list somebody trusts.
+func checkNames(results []domain.Check) string {
+	const most = 5
+
+	names := make([]string, 0, min(len(results), most)+1)
+	for _, result := range results[:min(len(results), most)] {
+		name := result.ID
+		if result.RepositoryID != "" {
+			name += " (" + result.RepositoryID.String() + ")"
+		}
+		names = append(names, name)
+	}
+	if len(results) > most {
+		names = append(names, fmt.Sprintf("and %d more", len(results)-most))
+	}
+	return strings.Join(names, ", ")
 }
 
 // gateRunner builds the gate for one task.
@@ -717,13 +793,28 @@ func (s *service) answer(task *domain.Task, request, status, report string) erro
 // It names every check that did not pass and carries what it printed, because
 // the agent is about to act on it: a report that said "2 failed" and nothing
 // else would send the session back to run the suite again to find out what.
+//
+// A blocked run is the one case where what the agent is told is that there is
+// nothing for it to do. The helper exits zero on it, so the session is not sent
+// back into its loop over a check that never ran, and the report says why rather
+// than leaving the model to work out that the failure was not its own — the run
+// that produced ADR-055 ended with the agent correctly declining to edit the
+// configuration governing its own gate, and then having nowhere to go.
 func gateReport(results []domain.Check, verdict review.Verdict) string {
-	if verdict.Passed {
-		return "Feat ran the project's configured checks and they passed: " + verdict.Summary + "."
-	}
-
 	var b strings.Builder
-	fmt.Fprintf(&b, "Feat ran the project's configured checks: %s.\n", verdict.Summary)
+	switch verdict.Outcome {
+	case review.OutcomePassed:
+		return "Feat ran the project's configured checks and they passed: " + verdict.Summary + "."
+	case review.OutcomeBlocked:
+		fmt.Fprintf(&b, "Feat could not run the project's configured checks: %s.\n"+
+			"Nothing has been established about your work, in either direction. This is the "+
+			"project's check configuration or the environment the checks run in, which is the "+
+			"user's to fix and not yours: do not change the configuration that decides how your "+
+			"work is verified. Feat has told them, and your review request stands.\n",
+			verdict.Summary)
+	default:
+		fmt.Fprintf(&b, "Feat ran the project's configured checks: %s.\n", verdict.Summary)
+	}
 	for _, result := range results {
 		if result.Status == domain.CheckPassed || result.Status == domain.CheckSkipped {
 			continue
