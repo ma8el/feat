@@ -1267,11 +1267,16 @@ func (m Model) footer(hints string) string {
 	// fallback is a different layout of the same dashboard, not a different one
 	// (ADR-051).
 	out.WriteString("\n" + ruleStyle.Render(strings.Repeat(cardHorizontal, width)))
+	// Both are cut to the frame and flattened to one line. The footer is a fixed
+	// number of rows that the regions above it are sized against, and an error is
+	// the one string here Feat did not write: a wrapped one carries the output it
+	// wrapped, line breaks and all, and would push the frame apart from the bottom
+	// (ADR-054).
 	switch {
 	case m.err != nil:
-		out.WriteString("\n" + failureStyle.Render(m.err.Error()) + "\n")
+		out.WriteString("\n" + failureStyle.Render(truncate(plainLine(m.err.Error()), width)) + "\n")
 	case m.status != "":
-		out.WriteString("\n" + mutedStyle.Render(m.status) + "\n")
+		out.WriteString("\n" + mutedStyle.Render(truncate(plainLine(m.status), width)) + "\n")
 	default:
 		out.WriteString("\n")
 	}

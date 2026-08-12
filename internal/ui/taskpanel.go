@@ -104,8 +104,14 @@ func (m Model) panelScroll(delta int) int {
 }
 
 // wrappedPanel is the task panel re-flowed to the width it will be drawn at.
+//
+// Made measurable before it is measured. Most of the panel is Feat's own text,
+// but the parts a user reads it for are not: a brief they wrote, a check's
+// captured output, an error another program produced. Those carry tabs and
+// carriage returns, which are worth nothing to the wrap and everything to the
+// terminal (ADR-054).
 func (m Model) wrappedPanel(width int) string {
-	panel := m.taskPanel()
+	panel := plainText(m.taskPanel())
 	if width <= 0 {
 		return panel
 	}

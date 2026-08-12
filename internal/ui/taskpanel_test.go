@@ -1,8 +1,11 @@
 package ui
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // TestTheTaskPanelCarriesBothHalvesOnce is the merge.
@@ -46,6 +49,132 @@ func TestTheTaskPanelCarriesBothHalvesOnce(t *testing.T) {
 	} {
 		if got := strings.Count(panel, needle); got != 1 {
 			t.Errorf("%s appears %d times, want once:\n%s", what, got, panel)
+		}
+	}
+}
+
+// TestTextFeatDidNotWriteCannotBreakTheFrame is the reported defect.
+//
+// A check's detail and a task's brief are text from outside: a captured command's
+// output, a file the user wrote. `go test` separates its columns with tabs, and a
+// tab is one byte of zero display width that the terminal draws as a jump to the
+// next multiple of eight. Every measurement the dashboard makes — the wrap, the
+// cut to the region, the padding before the border — agreed that those lines fit,
+// and the terminal drew them across the border, through the rail, and down the
+// rest of the frame.
+func TestTextFeatDidNotWriteCannotBreakTheFrame(t *testing.T) {
+	backend := newFakeBackend()
+	status := reviewed()
+	status.Review.Checks[0].Detail = "go test -race ./...\n" +
+		"ok\tgithub.com/ma8el/feat/internal/api\t1.383s\n" +
+		"ok\tgithub.com/ma8el/feat/internal/daemon\t12.703s [no tests to run]\n" +
+		"?\tgithub.com/ma8el/feat/internal/agent/agenttest\t[no test files]"
+	// A carriage return does the same thing more violently: it puts the rest of
+	// the line back at the terminal's left edge, over whatever is already there.
+	status.Task.Brief = "Progress was reported like this:\r100%\vand then some\bmore."
+	backend.reviewStatus = status
+
+	model := sized(press(t, dashboard(backend, status.Task), "v"), 120, 40)
+	width, _ := model.mainRegionSize()
+
+	// The whole panel rather than the window the scroll happens to show, because
+	// the defect is in what the region is asked to draw and any line of it can be
+	// scrolled to.
+	panel := model.wrappedPanel(width)
+	for name, control := range map[string]string{
+		"a tab": "\t", "a carriage return": "\r", "a vertical tab": "\v",
+		"a backspace": "\b",
+	} {
+		if strings.Contains(panel, control) {
+			t.Errorf("the panel carries %s, which it cannot measure and the terminal will not draw as one cell:\n%s",
+				name, panel)
+		}
+	}
+	for i, line := range strings.Split(panel, "\n") {
+		if got := ansi.StringWidth(line); got > width {
+			t.Errorf("panel line %d is %d cells against a region of %d: %q", i, got, width, line)
+		}
+	}
+
+	// The columns the tabs were holding apart are still held apart, at the stops
+	// the terminal would have used: the detail is indented six, so "ok" ends at
+	// column eight and the path starts at sixteen. A tab dropped rather than
+	// expanded would have run `go test`'s three columns together.
+	if !strings.Contains(panel, "      ok        github.com/ma8el/feat/internal/api") {
+		t.Errorf("the tabbed columns did not survive as spacing:\n%s", panel)
+	}
+
+	// And the frame around it holds: every line is the width the layout claims.
+	for i, line := range strings.Split(model.View(), "\n") {
+		if got := ansi.StringWidth(line); got > 120 {
+			t.Errorf("line %d is %d cells wide against a terminal of 120: %q", i, got, line)
+		}
+	}
+}
+
+// TestATitleWithALineBreakCannotAddARailRow is the same defect where it would be
+// worst.
+//
+// The rail counts the lines it draws to pin its foot and to cut a list that does
+// not fit. A title is a user's sentence about their own work — pasted from an
+// issue, written into a brief — and one carrying a line break would have made the
+// rail's arithmetic wrong about its own entries.
+func TestATitleWithALineBreakCannotAddARailRow(t *testing.T) {
+	task := liveTask()
+	task.Title = "Add a scheduled\nexport\tjob"
+
+	model := sized(dashboard(newFakeBackend(), task), 120, 32)
+
+	// The entry itself, because the rail's foot is pinned by padding the list to
+	// the region: an entry that grew a third line would push a task off the bottom
+	// and the rail would still be exactly as tall as it claims.
+	entry := model.railEntry(task, true)
+	if got := strings.Count(entry, "\n"); got != 2 {
+		t.Errorf("the entry is %d lines, want the two FR-UI-002 lays out: %q", got, entry)
+	}
+	if strings.ContainsAny(entry, "\t") {
+		t.Errorf("the rail drew a tab: %q", entry)
+	}
+
+	rail := model.railView(20)
+	if got := len(strings.Split(rail, "\n")); got != 20 {
+		t.Errorf("the rail is %d lines against a region of 20:\n%s", got, rail)
+	}
+}
+
+// TestAnErrorCannotPushTheFooterApart is the same defect in the one part of the
+// frame that holds still.
+//
+// The footer is a fixed number of rows, and the regions above it are sized
+// against that count. A wrapped error carries whatever it wrapped — a command's
+// output, with its line breaks — and was written into the footer whole.
+func TestAnErrorCannotPushTheFooterApart(t *testing.T) {
+	model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
+	model.err = errors.New("reading tasks failed: the daemon said\n\tstatus 500\n\tno such task\r")
+
+	// Both footers: the frame's, which the three regions are sized against, and
+	// the stacked fallback's, which the narrow layout is.
+	for _, footer := range []struct {
+		what string
+		body string
+		want int
+	}{
+		{"the frame's footer", model.frameFooter(120), footerHeight},
+		{"the stacked footer", model.footer(keyHints(keyHint("q", "quit"))), stackedFooterHeight},
+	} {
+		if got := len(strings.Split(footer.body, "\n")); got != footer.want {
+			t.Errorf("%s is %d lines with an error in it, want %d:\n%s",
+				footer.what, got, footer.want, footer.body)
+		}
+		for _, line := range strings.Split(footer.body, "\n") {
+			if got := ansi.StringWidth(line); got > 120 {
+				t.Errorf("a line of %s is %d cells against a terminal of 120: %q",
+					footer.what, got, line)
+			}
+		}
+		// It still says what went wrong, up to the width there is for it.
+		if !strings.Contains(ansi.Strip(footer.body), "reading tasks failed") {
+			t.Errorf("%s cut the error before it said anything:\n%s", footer.what, footer.body)
 		}
 	}
 }

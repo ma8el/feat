@@ -236,7 +236,7 @@ func pinFoot(body, foot string, height int) string {
 // footer — and it belongs beside the task it applies to rather than above the
 // pane, where it had to be read and then went away.
 func (m Model) railEntry(task api.Task, selected bool) string {
-	title := task.Title
+	title := plainLine(task.Title)
 	if title == "" {
 		title = "(untitled)"
 	}

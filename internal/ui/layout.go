@@ -172,8 +172,8 @@ func (m Model) headerSubject(width int) string {
 		return ""
 	}
 	subject := task.Key
-	if task.Title != "" {
-		subject += " · " + task.Title
+	if title := plainLine(task.Title); title != "" {
+		subject += " · " + title
 	}
 	// Half the header at most: the tabs are the part a user acts on, and a long
 	// title must not be what decides whether they are all visible.
@@ -212,11 +212,15 @@ func (m Model) frameFooter(width int) string {
 	// (ADR-051).
 	out.WriteString(ruleStyle.Render(strings.Repeat(cardHorizontal, width)) + "\n")
 
+	// Flattened before it is cut. The cut is by display width and a line break is
+	// worth none of it, so a wrapped error carrying a command's output passed
+	// through whole and pushed the footer past the rows the regions were sized
+	// against (ADR-054).
 	switch {
 	case m.err != nil:
-		out.WriteString(truncate(failureStyle.Render(m.err.Error()), width))
+		out.WriteString(truncate(failureStyle.Render(plainLine(m.err.Error())), width))
 	case m.status != "":
-		out.WriteString(truncate(mutedStyle.Render(m.status), width))
+		out.WriteString(truncate(mutedStyle.Render(plainLine(m.status)), width))
 	}
 	out.WriteString("\n")
 
