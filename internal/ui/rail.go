@@ -124,10 +124,11 @@ func (m Model) projectHeader(group projectGroup) string {
 		if waiting := m.groupAttention(group); waiting != "" {
 			aside = attentionStyle.Render(waiting) + " " + aside
 		}
-		// A cursor inside a fold happens when every project is folded and there
-		// is nowhere for it to go. The task is named rather than left to the
-		// header's colour, because a terminal without colour would lose the
-		// distinction without showing that it had.
+		// A fold is a cursor stop of its own (ADR-052), so the header is where the
+		// selected task is reported for as long as the cursor is parked on one.
+		// The task is named rather than left to the header's colour, because a
+		// terminal without colour would lose the distinction without showing that
+		// it had.
 		if task, ok := m.current(); ok && m.holdsCursor(group) {
 			aside = selectedStyle.Render(task.Key) + " " + aside
 		}

@@ -286,11 +286,18 @@ func (m Model) hints() string {
 // Folding is named only where there is more than one project to fold, which is
 // where the control is worth anything: on a single-project rail the fold is
 // still there and the marker on the header still says so, and the footer's cells
-// are better spent on the keys of whatever view is open.
+// are better spent on the keys of whatever view is open. It is named for what the
+// key would do where the cursor is, because space is one control in two
+// directions and the marker beside the cursor is the only other thing that says
+// which one is coming.
 func (m Model) railHints() string {
 	hints := []string{keyHint("J K", "task"), keyHint("H L", "view")}
 	if len(groupByProject(m.tasks)) > 1 {
-		hints = append(hints, keyHint("space", "fold"))
+		fold := "fold"
+		if task, ok := m.current(); ok && m.folded[task.ProjectID] {
+			fold = "open"
+		}
+		hints = append(hints, keyHint("space", fold))
 	}
 	return keyHints(append(hints, keyHint("?", "keys"))...)
 }

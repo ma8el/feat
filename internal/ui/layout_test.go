@@ -864,6 +864,9 @@ func TestTheMainRegionNamesTheTaskItIsAbout(t *testing.T) {
 func TestAProjectFoldsAwayAndKeepsSayingWhatItHolds(t *testing.T) {
 	waiting := liveTask()
 	waiting.Attention = "needs_input"
+	// Short enough that the rail draws it whole, so that its absence is the
+	// entry's absence rather than a truncation.
+	waiting.Title = "Export job"
 
 	model := sized(dashboard(newFakeBackend(), waiting, otherTask()), 120, 32)
 	if !strings.Contains(ansi.Strip(model.View()), waiting.Key) {
@@ -873,8 +876,15 @@ func TestAProjectFoldsAwayAndKeepsSayingWhatItHolds(t *testing.T) {
 	folded := press(t, model, " ")
 	view := strings.Join(railLines(ansi.Strip(folded.View())), "\n")
 
-	if strings.Contains(view, waiting.Key) {
+	// The entry is gone, which is what folding is for. The key itself survives on
+	// the header, because the fold is holding the selection (ADR-052) and that is
+	// where it is now reported — once, on the one line the project has left.
+	if strings.Contains(view, waiting.Title) {
 		t.Errorf("a folded project still lists its tasks:\n%s", view)
+	}
+	if got := strings.Count(view, waiting.Key); got != 1 {
+		t.Errorf("the folded task's key is drawn %d times, want once, on the header:\n%s",
+			got, view)
 	}
 	header := headerLine(strings.Split(view, "\n"), waiting.ProjectID)
 	if header == "" {
@@ -925,36 +935,88 @@ func headerLine(lines []string, project string) string {
 	return ""
 }
 
-// TestFoldingNeverLeavesTheCursorOnAHiddenTask is what makes folding safe to
-// press.
+// TestFoldingKeepsTheSelectionOnTheProjectItFolded is the other half of what
+// makes space one control rather than two.
 //
-// The main region draws whatever the cursor is on, so a cursor left inside a
-// folded project would be a view of a task the rail is not showing — and the
-// keys that act on the selected task would act on it.
-func TestFoldingNeverLeavesTheCursorOnAHiddenTask(t *testing.T) {
-	second := otherTask()
-	model := sized(dashboard(newFakeBackend(), liveTask(), second), 120, 32)
+// Folding used to move the cursor to the next task the rail still listed, which
+// took the user's selection away as the price of reading less about other
+// projects — and left the fold with no cursor position to press space on again
+// (ADR-052).
+func TestFoldingKeepsTheSelectionOnTheProjectItFolded(t *testing.T) {
+	first := liveTask()
+	model := sized(dashboard(newFakeBackend(), first, otherTask()), 120, 32)
 
 	folded := press(t, model, " ")
 	current, ok := folded.current()
 	if !ok {
 		t.Fatal("folding left no task selected at all")
 	}
-	if current.ID != second.ID {
-		t.Errorf("folding left the cursor on %s, want the next listed task %s",
-			current.Key, second.Key)
+	if current.ID != first.ID {
+		t.Errorf("folding moved the selection to %s, want the task it was on, %s",
+			current.Key, first.Key)
 	}
-	if folded.selected != second.ID {
-		t.Errorf("the open view still holds %s, want %s", folded.selected, second.ID)
+	// The open view is left alone too: nothing was selected by folding, so
+	// nothing it was showing moves.
+	if folded.selected != model.selected {
+		t.Errorf("folding changed the open view to %q, want %q", folded.selected, model.selected)
 	}
 
-	// Moving does not step back into what was folded, in either direction.
-	for _, key := range []string{"J", "K"} {
-		moved := press(t, folded, key)
-		if got, _ := moved.current(); got.ProjectID == liveTask().ProjectID {
-			t.Errorf("%q selected %s, which is inside the folded project", key, got.Key)
+	// And the header holding it says so, because the entry that used to is gone.
+	view := railLines(ansi.Strip(folded.View()))
+	if header := headerLine(view, first.ProjectID); !strings.Contains(header, first.Key) {
+		t.Errorf("the fold holding the selection does not name it: %q", header)
+	}
+}
+
+// TestAFoldedProjectIsOneCursorStop is the reported defect: a project could be
+// folded and then never opened again.
+//
+// Folded projects were stepped over entirely, so no key put the cursor back on
+// one, and space acts on the project the cursor is in. A fold is now a single
+// stop — one for the whole project, not one per hidden task — which is both what
+// makes it reachable and what keeps it cheap to move past.
+func TestAFoldedProjectIsOneCursorStop(t *testing.T) {
+	first, sibling, other := liveTask(), siblingTask(), otherTask()
+	model := sized(dashboard(newFakeBackend(), first, sibling, other), 120, 32)
+
+	folded := press(t, model, " ")
+	// Moving off the fold leaves the project rather than landing on the task
+	// hidden beside the selected one.
+	down := press(t, folded, "J")
+	if got, _ := down.current(); got.ID != other.ID {
+		t.Fatalf("J from a folded project selected %s, want the next project's task %s",
+			got.Key, other.Key)
+	}
+
+	// And moving back returns to the fold, which is the position that was missing.
+	back := press(t, down, "K")
+	got, ok := back.current()
+	if !ok || got.ProjectID != first.ProjectID {
+		t.Fatalf("K did not return to the folded project: %+v", got)
+	}
+	if got.ID != first.ID {
+		t.Errorf("returning to the fold selected %s, want the task it was holding, %s",
+			got.Key, first.Key)
+	}
+
+	opened := press(t, back, " ")
+	view := strings.Join(railLines(ansi.Strip(opened.View())), "\n")
+	for _, task := range []api.Task{first, sibling} {
+		if !strings.Contains(view, task.Key) {
+			t.Errorf("the project did not open again: %s is still hidden:\n%s", task.Key, view)
 		}
 	}
+}
+
+// siblingTask is a second task in the first task's project, so that a fold holds
+// more than one and stepping over it can be told from stepping through it.
+func siblingTask() api.Task {
+	task := liveTask()
+	task.ID = "8a11bc22-1111-2222-3333-444455556666"
+	task.Key = "8a11bc22"
+	task.Title = "Back-fill last quarter's exports"
+	task.Attention = "none"
+	return task
 }
 
 // TestFoldingEveryProjectKeepsTheSelection is the end of the same rule: there is
@@ -963,7 +1025,9 @@ func TestFoldingNeverLeavesTheCursorOnAHiddenTask(t *testing.T) {
 func TestFoldingEveryProjectKeepsTheSelection(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
 
-	folded := press(t, press(t, model, " "), " ")
+	// One project at a time, moving between them: space folds where the cursor
+	// is, and the cursor no longer leaves the project it folded.
+	folded := press(t, press(t, press(t, model, " "), "J"), " ")
 	if _, ok := folded.current(); !ok {
 		t.Fatal("folding every project left no task selected")
 	}

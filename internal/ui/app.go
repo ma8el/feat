@@ -627,7 +627,7 @@ func (m Model) frameKey(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 // holds what it was told about one task, and leaving it behind after the
 // selection moved would show one task's services under another task's name.
 func (m Model) selectTask(delta int) (tea.Model, tea.Cmd) {
-	next, ok := m.nextListed(m.cursor, delta)
+	next, ok := m.nextStop(m.cursor, delta)
 	if !ok {
 		return m, nil
 	}
@@ -639,34 +639,70 @@ func (m Model) selectTask(delta int) (tea.Model, tea.Cmd) {
 	return m.selectTab(m.activeTab())
 }
 
-// nextListed is the task delta steps away that the rail is actually listing,
-// wrapping at both ends.
+// nextStop is the task delta steps away in the rail, wrapping at both ends.
 //
-// Folded projects are stepped over rather than through. A cursor that stopped on
-// a task the rail is not drawing would move the main region to a task the user
-// cannot see, which is the one thing folding must not be able to do.
-func (m Model) nextListed(from, delta int) (int, bool) {
+// A folded project is one stop rather than a run of hidden tasks: the fold is
+// the thing the cursor moves to, because the fold is what space opens. Folded
+// projects used to be stepped over entirely, which made folding a one-way door —
+// nothing could put the cursor back on a folded project, so nothing could open
+// one again (ADR-052).
+func (m Model) nextStop(from, delta int) (int, bool) {
 	if len(m.tasks) == 0 || delta == 0 {
 		return from, false
 	}
-	for step := 1; step <= len(m.tasks); step++ {
-		at := ((from+delta*step)%len(m.tasks) + len(m.tasks)) % len(m.tasks)
-		if !m.folded[m.tasks[at].ProjectID] {
-			return at, true
+
+	stops, at := m.railStops()
+	here, ok := at[from]
+	if !ok {
+		return from, false
+	}
+	next := stops[((here+delta)%len(stops)+len(stops))%len(stops)]
+	if next == from {
+		// One stop, which is a rail whose every project is folded into the one
+		// holding the cursor. The selection stays where it is, and the folded
+		// header it belongs to keeps saying where that is.
+		return from, false
+	}
+	return next, true
+}
+
+// railStops is the cursor positions the rail offers, in the order it draws them,
+// and where in that sequence each task index sits.
+//
+// Every task of an open project is its own stop. A folded project contributes
+// one, which is the task the cursor is already on when the fold holds it: moving
+// onto a fold and back off it must not quietly re-select a different task inside
+// it, and the fold's header names the one it is holding.
+func (m Model) railStops() ([]int, map[int]int) {
+	stops := make([]int, 0, len(m.tasks))
+	at := make(map[int]int, len(m.tasks))
+
+	for _, group := range groupByProject(m.tasks) {
+		if m.folded[group.project] {
+			stop := group.indexes[0]
+			if m.holdsCursor(group) {
+				stop = m.cursor
+			}
+			for _, index := range group.indexes {
+				at[index] = len(stops)
+			}
+			stops = append(stops, stop)
+			continue
+		}
+		for _, index := range group.indexes {
+			at[index] = len(stops)
+			stops = append(stops, index)
 		}
 	}
-	// Every project is folded, so there is nowhere to move to. The selection
-	// stays where it is, and the header of its project keeps saying where that
-	// is.
-	return from, false
+	return stops, at
 }
 
 // foldProject folds or unfolds the project of the task under the cursor.
 //
-// Folding the project the cursor is in moves the cursor to the next task the
-// rail still lists, so that what the main region draws is always something the
-// rail is showing. When there is nowhere left to move — every project folded —
-// the selection stays, and the folded header it belongs to is marked.
+// The cursor stays where it is, so space is the same control in both directions:
+// what folded a project opens it again, on the project it was pressed on. The
+// task it holds goes on being the selected one and the folded header names it,
+// which is what makes the fold something a user can move back to (ADR-052).
 func (m Model) foldProject() (tea.Model, tea.Cmd) {
 	task, ok := m.current()
 	if !ok {
@@ -683,10 +719,6 @@ func (m Model) foldProject() (tea.Model, tea.Cmd) {
 	}
 	m.folded = folded
 	m.status = ""
-
-	if m.folded[task.ProjectID] {
-		return m.selectTask(1)
-	}
 	return m, nil
 }
 
@@ -1085,17 +1117,11 @@ func (m *Model) clampCursor() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
-	// A task list that arrives while a project is folded can leave the cursor on
-	// a task the rail is not drawing: a new task is listed first, so every index
-	// after it moves. The cursor follows to the next task that is listed, because
-	// the alternative is a main region showing a task the rail cannot show is
-	// selected.
-	if current, ok := m.current(); ok && m.folded[current.ProjectID] {
-		if next, moved := m.nextListed(m.cursor, 1); moved {
-			m.cursor = next
-			m.selected = m.tasks[next].ID
-		}
-	}
+	// A cursor inside a folded project is left there. A task list that arrives
+	// while one is folded can put it there without the user moving — a new task is
+	// listed first, so every index after it moves — and the fold is a place the
+	// cursor may rest in its own right since ADR-052: the header holding it names
+	// the task, and space opens the project it is in.
 }
 
 // sortTasks orders tasks so that the list does not reorder itself under the

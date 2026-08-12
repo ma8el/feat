@@ -144,7 +144,7 @@ func keyMap(width int) string {
 			{"shift+↓ ↑ → ←", "the same, in arrows"},
 			{"ctrl+n / ctrl+p", "where shift is eaten"},
 			{"tab / shift+tab", "view, the same way"},
-			{"space", "fold this project away"},
+			{"space", "fold or open a project"},
 		}},
 		{"the view · plain keys stay in it", [][2]string{
 			{"j k h l  ↓↑←→", "move within the view"},
