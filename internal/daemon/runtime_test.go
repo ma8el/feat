@@ -2,11 +2,13 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/domain"
@@ -607,6 +609,84 @@ func TestAStoppedRuntimeIsNeverRestarted(t *testing.T) {
 		if strings.HasPrefix(call, "up") || strings.HasPrefix(call, "start") || strings.HasPrefix(call, "create") {
 			t.Errorf("observing a stopped runtime ran %q", call)
 		}
+	}
+}
+
+// TestAStartThatOutlastsItsBudgetSaysWhatHappened is the regression for the
+// failure a user met as `context deadline exceeded` on a first start.
+//
+// The budget is the daemon's own (api.RuntimeTimeout), and what it produces has
+// to be a diagnosis rather than a transport error: the action is named, the
+// budget is named, and so is the command that says what is on the machine now.
+// It is ErrInvalid for the same reason every other Compose failure is — that is
+// what carries a message to the user instead of "the daemon could not complete
+// the request".
+func TestAStartThatOutlastsItsBudgetSaysWhatHappened(t *testing.T) {
+	arranged := arrangeConfigured(t, runtimeFixture)
+	task := arranged.launched(t)
+	arranged.answerFor(task, "running", "Up 2 seconds")
+
+	arranged.service.runtimeOverride = 20 * time.Millisecond
+	// A Docker that takes longer than the whole action is allowed to take. The
+	// sleep is in the first command rather than the start itself, so the deadline
+	// has certainly passed by the time the start is attempted.
+	arranged.runtimes.Before("config --services", func() { time.Sleep(60 * time.Millisecond) })
+
+	_, err := arranged.service.Runtime(context.Background(), task.ID, api.RuntimeStart)
+
+	if err == nil {
+		t.Fatal("a start that outlasted its budget was reported as a success")
+	}
+	if !errors.Is(err, api.ErrInvalid) {
+		t.Errorf("the failure is not carried to the user as an invalid request: %v", err)
+	}
+	for _, required := range []string{"runtime start", "20ms", "feat runtime status " + task.Key().String()} {
+		if !strings.Contains(err.Error(), required) {
+			t.Errorf("the failure does not mention %q: %v", required, err)
+		}
+	}
+	if arranged.runtimes.Ran("up --detach api") {
+		t.Error("the start ran after its budget had already gone")
+	}
+	// Nothing was claimed about services nobody managed to look at. The record
+	// still names the Compose project, which is what makes what Docker did create
+	// findable (ADR-029, ADR-033).
+	reloaded := arranged.reload(t, task.ID)
+	if state := reloaded.Runtime.State; state != domain.RuntimeAbsent {
+		t.Errorf("the runtime is recorded as %q after a start that never finished, want absent", state)
+	}
+	if reloaded.Runtime.Identity != "feat-app-"+task.Key().String() {
+		t.Errorf("the record does not name the Compose project the start may have created: %+v",
+			reloaded.Runtime)
+	}
+}
+
+// TestACallerThatGoesAwayMidStartIsSaidToHave separates the two ways a Compose
+// command is cut short.
+//
+// A caller that disconnected and a budget that ran out both leave a half-created
+// Compose project, and only one of them is Feat's own patience. The daemon logs
+// this one as well as reporting it, because the connection that would have
+// carried the report is what has gone.
+func TestACallerThatGoesAwayMidStartIsSaidToHave(t *testing.T) {
+	arranged := arrangeConfigured(t, runtimeFixture)
+	task := arranged.launched(t)
+	arranged.answerFor(task, "running", "Up 2 seconds")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	arranged.runtimes.Before("config --services", cancel)
+
+	_, err := arranged.service.Runtime(ctx, task.ID, api.RuntimeStart)
+
+	if err == nil {
+		t.Fatal("a start whose caller went away was reported as a success")
+	}
+	if !strings.Contains(err.Error(), "cancelled before it finished") {
+		t.Errorf("a cancelled start is not reported as one: %v", err)
+	}
+	if strings.Contains(err.Error(), "did not finish within") {
+		t.Errorf("a cancelled start is reported as Feat running out of patience: %v", err)
 	}
 }
 

@@ -987,6 +987,47 @@ has to account for everything Compose brings with them. The opt-in fixture's
 one-shot dependency is now built rather than pulled, so the defect fails a test
 against real Docker rather than waiting for the next new task.
 
+Amended a fifth time, after a user started a task's services for the first time:
+
+14. **The client stopped waiting before the work could finish.** A
+    `runtime/start` failed with `Post "http://feat/v1/tasks/…/runtime/start":
+    context deadline exceeded` and succeeded when the user asked again.
+    `internal/client` bounded every request at ten seconds, on the reasoning that
+    the daemon is local and a local request that takes longer is stuck rather
+    than slow. That reasoning holds for every endpoint that answers out of what
+    the daemon already knows and for none of the ones where it drives Docker: a
+    first start pulls the images the project names and runs the builds it
+    defines, and the second start of the same task answers in about a second —
+    which is why the ceiling is invisible until the first run of a project
+    nobody has built on that machine, and why trying again looks like a fix.
+
+    It is the launch defect of slice 13's work list, at a second endpoint and
+    with worse consequences. The client's deadline cancels the request, the
+    daemon's handler context is the request's, and `exec.CommandContext` kills
+    the process when its context ends — so the ten seconds did not only produce
+    a misleading error, it killed a `docker compose up` part way through
+    creating a project. Nothing was written about it anywhere: the failure
+    classifies as an invalid request, the daemon logs only what it answers with
+    a 500, and the connection the answer would have gone to had already gone.
+
+Decision: one manual runtime action has one budget, `api.RuntimeTimeout`, which
+lives in the API package because it is a term of the endpoint's contract rather
+than either end's private business. The daemon bounds the whole action with it
+instead of relying on the ten minutes `runtime.HostRunner` allows each Docker
+command, so the ceiling is a single number rather than an unknown multiple of
+one. The client waits for that number plus a minute, the same margin the daemon
+already allows a completion gate over its own timeout, so what ends a slow
+request is the daemon's diagnosis rather than the client's silence.
+
+Both ways of running out — Feat's own budget, and a caller that went away — are
+reported as what they are, name the action and what it did not finish, and point
+at `feat runtime status`, because what they leave behind is a Compose project
+that may be half created. The record already names it before anything is created
+(ADR-029, ADR-033), the observer corrects the state within one poll, and neither
+path undoes anything: tidying up after a start that was interrupted is the
+destructive act nobody asked for. A caller that went away is logged as well,
+since by definition there is nobody left to answer.
+
 ### ADR-035 — Resource observation, notification policy, and what a machine can honestly report
 
 Status: accepted

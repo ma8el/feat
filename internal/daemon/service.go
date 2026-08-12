@@ -102,6 +102,11 @@ type service struct {
 	// resourceOverride replaces the projects' configured sampling interval. Only
 	// a test sets it, so that a sample can be forced without waiting for one.
 	resourceOverride time.Duration
+	// runtimeOverride replaces api.RuntimeTimeout as the budget for one manual
+	// runtime action. Only a test sets it, so that what a daemon does when a
+	// Compose command outlasts its budget can be observed without a test that
+	// takes as long as the budget.
+	runtimeOverride time.Duration
 
 	// idle holds the pending end-of-turn transitions, one per task.
 	idle *idleTimers

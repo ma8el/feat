@@ -162,7 +162,14 @@ func (d *Docker) Look(name string) (string, error) {
 // Run answers an arranged command, and reports an unarranged one rather than
 // inventing an answer: a fake that succeeds by default hides the call a test
 // meant to make.
-func (d *Docker) Run(_ context.Context, invocation runtime.Invocation) (runtime.Output, error) {
+func (d *Docker) Run(ctx context.Context, invocation runtime.Invocation) (runtime.Output, error) {
+	// A real Docker is a process the runner kills when its context ends, so a
+	// fake that answered anyway would let a test pass over a budget that nothing
+	// actually enforces.
+	if err := ctx.Err(); err != nil {
+		return runtime.Output{}, err
+	}
+
 	key := Shorten(invocation.Arguments)
 
 	d.mu.Lock()
