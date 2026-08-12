@@ -441,6 +441,16 @@ func TestAFailedGateReachesTheAgentAsAFailedCommand(t *testing.T) {
 			report:   "2 passed",
 			wantText: "2 passed",
 		},
+		{
+			// A check that never ran is not handed back to the session as a
+			// failed command: the configuration that decides how the work is
+			// verified is not the agent's to change, so the loop has nowhere to
+			// take it and the user is the one who was told (ADR-051).
+			name:     "a check could not run",
+			status:   control.VerificationBlocked,
+			report:   "check test (api): unknown\n  pytest could not be started",
+			wantText: "pytest could not be started",
+		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, workspace := prepareWith(t, false, agent.Gate{

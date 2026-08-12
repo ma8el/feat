@@ -340,6 +340,11 @@ func reviewChecksSummary(review api.Review) string {
 }
 
 // reviewChecks renders one line per check result.
+//
+// A check that never reported is named as that rather than as "unknown", in the
+// same words the summary line above it uses. The screen is where a user sent
+// here by a blocked gate reads which check it was and why it did not run, so the
+// two lines have to be about the same thing (ADR-051).
 func reviewChecks(checks []api.ReviewCheck) string {
 	var out strings.Builder
 	for _, check := range checks {
@@ -349,8 +354,14 @@ func reviewChecks(checks []api.ReviewCheck) string {
 		}
 
 		status := check.Status
-		if check.Status == "failed" {
+		switch check.Status {
+		case "failed":
 			status = failureStyle.Render(status)
+		case "passed", "skipped":
+		default:
+			// Amber rather than red: it needs the user, and it is not a verdict
+			// against the work.
+			status = attentionStyle.Render("did not report")
 		}
 		reporter := "the agent reported this"
 		if check.Reporter == "provider" {

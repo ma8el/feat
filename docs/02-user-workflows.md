@@ -112,6 +112,13 @@ Observable agent process state and semantic workflow state are separate.
   agent used to request review exits non-zero with the failing output, so the
   agent reads it and carries on in the same turn. The task rests in
   `verification_failed` until it asks again or the user acts.
+- A check that could not run at all is not a failed gate. Nothing was established
+  about the work, so the task rests in `review_requested` as it would in a
+  project with no gate, the helper exits zero rather than sending the session
+  after a configuration it must not edit, and the user is told that the checks
+  could not run. The review screen names each check that did not report and the
+  reason it gave, and running them again is an action the user takes once the
+  configuration or the environment is fixed (ADR-051).
 
 ## 7. Manual runtime lifecycle in v0
 

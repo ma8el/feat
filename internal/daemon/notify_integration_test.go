@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -102,6 +103,23 @@ func TestRealNotificationReachesTheDesktop(t *testing.T) {
 				live := launchForReview(t, nil)
 				live.session.delivering().watchable()
 				live.checks.outputs["unit"] = review.Output{Stdout: "2 failed, 82 passed", ExitCode: 1}
+				live.checks.outputs["schema"] = review.Output{}
+
+				live.requestReview(t, `{"summary":"ready"}`)
+				return live.service, live.ref
+			},
+		},
+		{
+			// A check that never ran. It is the user's to fix and nobody else's,
+			// which is the whole reason it is a condition of its own: the agent
+			// cannot edit the configuration governing its own gate, so a
+			// notification is the only thing that reaches somebody who can
+			// (ADR-051).
+			condition: notify.ConditionVerificationBlocked,
+			deliver: func(t *testing.T) (*service, store.TaskRef) {
+				live := launchForReview(t, nil)
+				live.session.delivering().watchable()
+				live.checks.errs["unit"] = errors.New("run-tests is not installed in the agent's environment")
 				live.checks.outputs["schema"] = review.Output{}
 
 				live.requestReview(t, `{"summary":"ready"}`)

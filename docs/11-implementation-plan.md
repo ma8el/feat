@@ -1396,6 +1396,12 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   project. The information exists at every layer and is discarded at the one
   point that decides what to say.
 
+  The verdict becomes three-valued, a run that established nothing leaves the
+  task in `review_requested` rather than `verification_failed`, and a new
+  `verification_blocked` notification is what reaches the person who can fix it.
+  The helper exits zero on that verdict, so a configuration the agent must not
+  edit is not handed back to its loop. No workflow state is added. See ADR-051.
+
 - Diagnose a check command before a task depends on it. `feat doctor` reports a
   check configured to run in the agent's environment as skipped, because there is
   no container to look inside (ADR-033's rule for a check this build cannot run).

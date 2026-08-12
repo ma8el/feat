@@ -43,8 +43,13 @@ const (
 	VerificationAccepted = "accepted"
 	// VerificationPassed reports that every check that ran passed.
 	VerificationPassed = "passed"
-	// VerificationFailed reports that a check failed or did not report.
+	// VerificationFailed reports that a check ran and failed.
 	VerificationFailed = "failed"
+	// VerificationBlocked reports that a check never ran, so nothing was
+	// established about the work. It is deliberately not the failed status: the
+	// helper exits zero on it, because a configuration the agent cannot fix is
+	// not something to hand back to the agent's loop (ADR-051).
+	VerificationBlocked = "blocked"
 	// VerificationSkipped reports that there was nothing to run.
 	VerificationSkipped = "skipped"
 )
@@ -88,7 +93,7 @@ func (w *Workspace) WriteVerification(request string, verification Verification)
 		return fmt.Errorf("recording a verification result: %w", err)
 	}
 	switch verification.Status {
-	case VerificationAccepted, VerificationPassed, VerificationFailed, VerificationSkipped:
+	case VerificationAccepted, VerificationPassed, VerificationFailed, VerificationBlocked, VerificationSkipped:
 	default:
 		return fmt.Errorf("recording a verification result: %q is not a documented status", verification.Status)
 	}

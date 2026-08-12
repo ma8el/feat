@@ -30,6 +30,16 @@ func TestTheNotifiableStatesArePinned(t *testing.T) {
 		}
 	}
 
+	// The condition a gate produces that no workflow state does. A run that
+	// could not establish anything leaves the task in review_requested, so the
+	// table above cannot be what says it: review_requested's own condition is
+	// the one a gate about to run suppresses, and looking it up would announce a
+	// blocked gate as a fresh review request or as nothing at all (ADR-051).
+	if condition, ok := ForWorkflow(domain.WorkflowReviewRequested); !ok || condition == ConditionVerificationBlocked {
+		t.Errorf("ForWorkflow(review_requested) = %q, %v; a blocked gate is named by the daemon that ran it",
+			condition, ok)
+	}
+
 	// The states nobody is interrupted for, and the reason each is absent.
 	for state, why := range map[domain.WorkflowState]string{
 		domain.WorkflowDraft:            "a draft is something the user is holding",
@@ -110,15 +120,26 @@ func TestASubjectCarriesIdentificationAndNothingElse(t *testing.T) {
 func TestEveryConditionComposesAMessage(t *testing.T) {
 	subject := Subject{Key: "7f3a1c2e", Title: "Add a scheduled export job", Project: "example"}
 
-	for condition, want := range map[Condition]string{
-		ConditionIdle:               "idle",
-		ConditionReviewRequested:    "review",
-		ConditionReadyForReview:     "ready",
-		ConditionVerificationFailed: "checks",
-		ConditionTaskFailed:         "failed",
-		ConditionSessionFailed:      "session",
-		ConditionRuntimeFailed:      "services",
-	} {
+	phrases := map[Condition]string{
+		ConditionIdle:                "idle",
+		ConditionReviewRequested:     "review",
+		ConditionReadyForReview:      "ready",
+		ConditionVerificationFailed:  "checks failed",
+		ConditionVerificationBlocked: "checks could not run",
+		ConditionTaskFailed:          "failed",
+		ConditionSessionFailed:       "session",
+		ConditionRuntimeFailed:       "services",
+	}
+
+	// A condition added later has to say something too, and a table extended by
+	// hand is a table that eventually is not.
+	for _, condition := range Conditions() {
+		if _, described := phrases[condition]; !described {
+			t.Errorf("%s composes no message in this test: every notifiable condition needs one", condition)
+		}
+	}
+
+	for condition, want := range phrases {
 		notification, ok := Compose(condition, subject, 12*time.Second)
 		if !ok {
 			t.Fatalf("Compose(%s) reports no notification", condition)

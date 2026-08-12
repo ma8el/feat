@@ -27,6 +27,12 @@ const (
 	ConditionReadyForReview Condition = "ready_for_review"
 	// ConditionVerificationFailed is a task whose checks failed.
 	ConditionVerificationFailed Condition = "verification_failed"
+	// ConditionVerificationBlocked is a task whose checks could not be run at
+	// all. It is separate from a failure because it is the user's to fix and the
+	// agent's to do nothing about: a check that never started is a statement
+	// about the project's configuration or the environment it runs in, and
+	// nothing has been established about the work (ADR-051).
+	ConditionVerificationBlocked Condition = "verification_blocked"
 	// ConditionTaskFailed is a task whose lifecycle failed.
 	ConditionTaskFailed Condition = "task_failed"
 	// ConditionSessionFailed is an agent process that died while the task itself
@@ -48,6 +54,7 @@ func Conditions() []Condition {
 		ConditionReviewRequested,
 		ConditionReadyForReview,
 		ConditionVerificationFailed,
+		ConditionVerificationBlocked,
 		ConditionTaskFailed,
 		ConditionSessionFailed,
 		ConditionRuntimeFailed,
@@ -66,6 +73,13 @@ func Conditions() []Condition {
 // decides whether it is worth saying. That is armed by the daemon's grace timer
 // instead, which is what makes "idle notifications do not fire immediately" a
 // property of the mechanism rather than of a value somebody chose.
+//
+// Two conditions are deliberately not here, for the same reason: neither is a
+// state a task arrives in. Idle is a duration, and a gate that could not run
+// leaves the task in review_requested — the request stands and a person decides,
+// exactly as it does for a project that configures no checks — so what has to be
+// said is about the run rather than about where the task landed. The daemon
+// names those two itself (ADR-051).
 var notifiableWorkflow = map[domain.WorkflowState]Condition{
 	domain.WorkflowReviewRequested:    ConditionReviewRequested,
 	domain.WorkflowReadyForReview:     ConditionReadyForReview,
@@ -184,13 +198,14 @@ type Notifier interface {
 // tool's output is where a path, a command, or a value from somebody's
 // environment would come from.
 var phrases = map[Condition]string{
-	ConditionIdle:               "the agent has been idle",
-	ConditionReviewRequested:    "the agent asked for review",
-	ConditionReadyForReview:     "ready for review",
-	ConditionVerificationFailed: "its checks failed",
-	ConditionTaskFailed:         "the task failed",
-	ConditionSessionFailed:      "the agent session failed",
-	ConditionRuntimeFailed:      "its application services failed",
+	ConditionIdle:                "the agent has been idle",
+	ConditionReviewRequested:     "the agent asked for review",
+	ConditionReadyForReview:      "ready for review",
+	ConditionVerificationFailed:  "its checks failed",
+	ConditionVerificationBlocked: "its checks could not run",
+	ConditionTaskFailed:          "the task failed",
+	ConditionSessionFailed:       "the agent session failed",
+	ConditionRuntimeFailed:       "its application services failed",
 }
 
 // maxTitle bounds how much of a task's title reaches a notification.

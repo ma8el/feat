@@ -184,10 +184,34 @@ func Skip(check Check, reason string, now time.Time) domain.Check {
 	}
 }
 
+// Outcome is what a gate run amounts to.
+//
+// Three values rather than a boolean, because "did not pass" covers two things
+// that belong to different people. A check that ran and reported failure is
+// evidence about the work, and the agent is the one who can act on it. A check
+// that never ran at all is a statement about the project's check configuration
+// or about the environment it runs in, and it belongs with the user: the agent
+// cannot fix the configuration that governs its own gate, and should not, since
+// an agent that chooses its own check command certifies itself (ADR-051).
+type Outcome string
+
+// Gate outcomes.
+const (
+	// OutcomePassed is a run in which every check that ran passed.
+	OutcomePassed Outcome = "passed"
+	// OutcomeFailed is a run in which a check ran and reported failure.
+	OutcomeFailed Outcome = "failed"
+	// OutcomeBlocked is a run in which nothing reported failure and at least one
+	// check never reported at all.
+	OutcomeBlocked Outcome = "blocked"
+)
+
 // Verdict is what a gate run means for the task.
 type Verdict struct {
-	// Passed reports that every check the gate ran reported success.
-	Passed bool
+	// Outcome is what the run amounts to. It is the only record of that: a
+	// separate "passed" flag beside it would be a second answer to one question,
+	// which is the shape ADR-047 removed from the review decision.
+	Outcome Outcome
 	// Summary says what happened, in one line.
 	Summary string
 	// Failed and Inconclusive count the results that decided it.
@@ -205,6 +229,13 @@ type Verdict struct {
 // would be claiming a verification that did not happen, which is the whole thing
 // the reporter distinction exists to prevent.
 //
+// It does not fail either, which is the distinction ADR-051 added. Failure
+// outranks inconclusiveness where both appear — a check that reported is
+// evidence about the work, and the checks that did not run are still named in
+// what the agent is told and on the review screen — but a run with nothing to
+// report is blocked rather than failed, because nobody has learned anything
+// about the code.
+//
 // A deliberately skipped check does not block, because skipping one is Feat's
 // own decision and it says so on the screen.
 func Decide(results []domain.Check) Verdict {
@@ -221,7 +252,14 @@ func Decide(results []domain.Check) Verdict {
 			verdict.Inconclusive++
 		}
 	}
-	verdict.Passed = verdict.Failed == 0 && verdict.Inconclusive == 0
+	switch {
+	case verdict.Failed > 0:
+		verdict.Outcome = OutcomeFailed
+	case verdict.Inconclusive > 0:
+		verdict.Outcome = OutcomeBlocked
+	default:
+		verdict.Outcome = OutcomePassed
+	}
 
 	var parts []string
 	if verdict.Passing > 0 {
@@ -242,6 +280,25 @@ func Decide(results []domain.Check) Verdict {
 	}
 	verdict.Summary = strings.Join(parts, ", ")
 	return verdict
+}
+
+// NotRun returns the results of the checks that never reported, in the order
+// they were given.
+//
+// It exists so that the line a blocked gate leaves in the task's history names
+// them from the same definition Decide counts them by. A check that did not run
+// is never absent (ADR-028's rule for diagnostics), and a summary saying "1 did
+// not report" without saying which one is absence with a number in front of it.
+func NotRun(results []domain.Check) []domain.Check {
+	var out []domain.Check
+	for _, result := range results {
+		switch result.Status {
+		case domain.CheckPassed, domain.CheckFailed, domain.CheckSkipped:
+		default:
+			out = append(out, result)
+		}
+	}
+	return out
 }
 
 // excerpt renders the tail of what a check printed.
