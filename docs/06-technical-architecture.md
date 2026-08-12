@@ -626,7 +626,7 @@ instead, so "idle notifications do not fire immediately" is a property of the
 mechanism rather than of a configured value. A blocked gate is named by the
 daemon for the same reason: it leaves the task in `review_requested`, and what
 has to be said is about the run rather than about where the task landed
-(ADR-051).
+(ADR-055).
 
 Whether the user is attached is asked of tmux, per window, through
 `window_active_clients`. It is an observation rather than a memory of somebody
@@ -713,7 +713,7 @@ review request Feat has no verdict for always rests, the user is interrupted wit
 into its loop over a check configuration it must not edit. A run holding both a
 failure and a check that never ran is a failed one, because a check that reported
 is evidence about the work — the ones that did not are still named in what the
-agent is told, in the task's history, and on the review screen (ADR-051).
+agent is told, in the task's history, and on the review screen (ADR-055).
 
 A gate does not outlive the process that started it, so a task found in
 `verifying` at startup returns to `review_requested` with an event saying the

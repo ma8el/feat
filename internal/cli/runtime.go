@@ -57,6 +57,8 @@ func newRuntimeActionCommand(env *environment, action api.RuntimeAction, use, sh
 		Args:  checkArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withRuntimeClient(env, cmd, func(caller *client.Client) error {
+				announce(cmd.ErrOrStderr(), action, args[0])
+
 				status, err := caller.Runtime(cmd.Context(), args[0], action)
 				if err != nil {
 					return err
@@ -66,6 +68,25 @@ func newRuntimeActionCommand(env *environment, action api.RuntimeAction, use, sh
 			})
 		},
 	}
+}
+
+// announce says that a slow action has begun.
+//
+// Compose is not asked to narrate: the daemon runs it and this command holds one
+// request open until it answers, which for a first create or start is the images
+// being pulled and the builds being run — minutes, against about a second for
+// every start after it (ADR-034 evidence 14). A command that printed nothing for
+// that long would read as a hang, and interrupting it is how a user would leave
+// Compose stopped part way through creating their application.
+//
+// On the error stream, so that whatever parses this command's output reads the
+// same thing it always did.
+func announce(err io.Writer, action api.RuntimeAction, task string) {
+	if action != api.RuntimeCreate && action != api.RuntimeStart {
+		return
+	}
+	printf(err, "feat: asking the daemon to %s the services of task %s; "+
+		"the first one pulls images and runs builds, which takes minutes\n", action, task)
 }
 
 const destroyLong = `Remove the containers and networks of the task's application services.

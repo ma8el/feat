@@ -445,7 +445,7 @@ func TestAFailedGateReachesTheAgentAsAFailedCommand(t *testing.T) {
 			// A check that never ran is not handed back to the session as a
 			// failed command: the configuration that decides how the work is
 			// verified is not the agent's to change, so the loop has nowhere to
-			// take it and the user is the one who was told (ADR-051).
+			// take it and the user is the one who was told (ADR-055).
 			name:     "a check could not run",
 			status:   control.VerificationBlocked,
 			report:   "check test (api): unknown\n  pytest could not be started",

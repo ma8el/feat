@@ -138,7 +138,7 @@ func TestACheckThatCouldNotStartIsInconclusive(t *testing.T) {
 	}
 }
 
-// TestAGateThatCouldNotRunIsNeitherPassedNorFailed is the distinction ADR-051
+// TestAGateThatCouldNotRunIsNeitherPassedNorFailed is the distinction ADR-055
 // added, checked at the point that used to discard it.
 //
 // The verdict was one boolean, and the boolean carried two meanings: a check

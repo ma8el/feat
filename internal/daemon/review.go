@@ -569,7 +569,7 @@ type landing struct {
 
 // gateLanding decides all four together, because they are one decision.
 //
-// They were three expressions of one boolean until ADR-051, and the boolean had
+// They were three expressions of one boolean until ADR-055, and the boolean had
 // two meanings: a check that failed and a check that never ran both produced
 // verification_failed, so a project whose check command was missing was told its
 // work had failed its checks and the agent was handed a configuration it could
@@ -798,7 +798,7 @@ func (s *service) answer(task *domain.Task, request, status, report string) erro
 // nothing for it to do. The helper exits zero on it, so the session is not sent
 // back into its loop over a check that never ran, and the report says why rather
 // than leaving the model to work out that the failure was not its own — the run
-// that produced ADR-051 ended with the agent correctly declining to edit the
+// that produced ADR-055 ended with the agent correctly declining to edit the
 // configuration governing its own gate, and then having nowhere to go.
 func gateReport(results []domain.Check, verdict review.Verdict) string {
 	var b strings.Builder

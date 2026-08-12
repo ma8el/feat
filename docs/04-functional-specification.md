@@ -208,6 +208,8 @@ The dashboard SHOULD show active tasks across projects with project drill-down. 
 
 The dashboard MUST keep the task list, the selected task's view, and the machine's resources on screen together. A view that replaces all three MUST be limited to a transaction the user opened and can cancel; see ADR-041.
 
+A project's tasks MAY be folded away so that the list is about the projects a user is working in. A folded project MUST still report how many tasks it holds and whether any of them needs the user, and the list MUST always say which task is selected — on the entry, or on the fold holding it; see ADR-051 and ADR-052. Folding MUST be reversible by the same control that folded, on a position the list's own movement keys can reach. Any control the list draws MUST do something: a marker that offers a fold is a control.
+
 ### FR-UI-002 — Task list entry
 
 Each entry in the task list MUST show task ID/title, agent state, attention state, elapsed time, and changed-file count, and MUST NOT require horizontal scrolling or line wrapping at the supported terminal width.

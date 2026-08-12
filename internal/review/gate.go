@@ -192,7 +192,7 @@ func Skip(check Check, reason string, now time.Time) domain.Check {
 // that never ran at all is a statement about the project's check configuration
 // or about the environment it runs in, and it belongs with the user: the agent
 // cannot fix the configuration that governs its own gate, and should not, since
-// an agent that chooses its own check command certifies itself (ADR-051).
+// an agent that chooses its own check command certifies itself (ADR-055).
 type Outcome string
 
 // Gate outcomes.
@@ -229,7 +229,7 @@ type Verdict struct {
 // would be claiming a verification that did not happen, which is the whole thing
 // the reporter distinction exists to prevent.
 //
-// It does not fail either, which is the distinction ADR-051 added. Failure
+// It does not fail either, which is the distinction ADR-055 added. Failure
 // outranks inconclusiveness where both appear — a check that reported is
 // evidence about the work, and the checks that did not run are still named in
 // what the agent is told and on the review screen — but a run with nothing to

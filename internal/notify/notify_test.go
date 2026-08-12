@@ -34,7 +34,7 @@ func TestTheNotifiableStatesArePinned(t *testing.T) {
 	// could not establish anything leaves the task in review_requested, so the
 	// table above cannot be what says it: review_requested's own condition is
 	// the one a gate about to run suppresses, and looking it up would announce a
-	// blocked gate as a fresh review request or as nothing at all (ADR-051).
+	// blocked gate as a fresh review request or as nothing at all (ADR-055).
 	if condition, ok := ForWorkflow(domain.WorkflowReviewRequested); !ok || condition == ConditionVerificationBlocked {
 		t.Errorf("ForWorkflow(review_requested) = %q, %v; a blocked gate is named by the daemon that ran it",
 			condition, ok)

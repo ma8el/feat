@@ -118,7 +118,7 @@ Observable agent process state and semantic workflow state are separate.
   after a configuration it must not edit, and the user is told that the checks
   could not run. The review screen names each check that did not report and the
   reason it gave, and running them again is an action the user takes once the
-  configuration or the environment is fixed (ADR-051).
+  configuration or the environment is fixed (ADR-055).
 
 ## 7. Manual runtime lifecycle in v0
 

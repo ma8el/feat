@@ -90,12 +90,16 @@ feat task attach <task>   # or just: feat attach <task>
 
 The dashboard is one window: a rail of tasks grouped by project on the left, a
 tabbed view of the selected task in the middle, and a footer holding that task's
-worktree path and what the machine has left. `tab` moves between views and
-`shift+↑`/`shift+↓` change task from any of them — the plain arrows belong to
-whichever view has the keyboard, so review spends them on its repository cursor.
-`?` lists every key. Preparing a task or cleaning one up opens over the dashboard
-rather than replacing it, so the tasks you were watching stay on screen. A
-terminal too narrow for three regions falls back to one column.
+worktree path and what the machine has left. Each region is a panel with its own
+header — the rail says how many tasks want you, the main region says which task
+its tabs are about — and the footer is ruled off from both. `tab` moves between
+views and `shift+↑`/`shift+↓` change task from any of them — the plain arrows
+belong to whichever view has the keyboard, so review spends them on its
+repository cursor. `space` folds a project away, and a folded project still says
+how many tasks it holds and whether any of them needs you. `?` lists every key.
+Preparing a task or cleaning one up opens over the dashboard rather than
+replacing it, so the tasks you were watching stay on screen. A terminal too
+narrow for three regions falls back to one column.
 
 Everything that acts on a task you already have is under `feat task`. Attaching
 and reviewing are typed often enough to keep their shorter top-level names too.

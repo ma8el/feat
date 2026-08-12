@@ -1400,7 +1400,7 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   task in `review_requested` rather than `verification_failed`, and a new
   `verification_blocked` notification is what reaches the person who can fix it.
   The helper exits zero on that verdict, so a configuration the agent must not
-  edit is not handed back to its loop. No workflow state is added. See ADR-051.
+  edit is not handed back to its loop. No workflow state is added. See ADR-055.
 
 - Stop the daemon's own bookkeeping from reaching the commands it runs for a
   task. `FEAT_DAEMON_SPAWNED` marks a process that `Spawn` started, so that a
@@ -1579,6 +1579,16 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   timeout of its own, or a shape that does not hold a request open while a
   container is built.
 
+  The same ten seconds reached the runtime endpoint next, on the first
+  `runtime/start` of a task whose images nobody had pulled yet, and that half is
+  fixed: an action's budget is a term of the endpoint's contract
+  (`api.RuntimeTimeout`), the daemon bounds the action with it, and the client
+  waits for it plus a margin (ADR-034 evidence 14). What that leaves for this
+  entry is a launch giving itself the same treatment — the daemon's own budget
+  there is `defaultReadyTimeout` and nothing declares it to a client — and the
+  two paragraphs below, which are about what an interrupted launch leaves behind
+  rather than about how long anybody waits.
+
   What the cancelled launch left behind, nothing can now remove. The container
   it had already created is still on the machine, exited, with its network
   beside it; the archived task record has `session: null`, because a failed
@@ -1600,6 +1610,25 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   containers, establish that they are gone, and only then remove the tree they
   mounted. It became reachable when the control workspace stopped being one
   mount and became three (ADR-032's read-only split).
+- Give the dashboard the design its shape was waiting for. ADR-041 decided where
+  the regions are and left what they look like to whatever each screen was
+  written with, and the maintainer read the result in use: the selection colour
+  and the attention colour are not from one family, every project header offers a
+  fold that does nothing, neither region's header is separated from its content,
+  and the footer is not separated from either.
+
+  Each is a rule the dashboard did not have. The palette becomes six named
+  colours chosen as a set, with the accent and the amber at the same weight so
+  that the difference between them reads as meaning rather than as loudness. Each
+  region becomes a card — a rounded box, a header of its own, a rule under it —
+  with a blank column between the two rather than a drawn one, and the footer
+  ruled off from both. The rail's heading and the tab bar become those headers and
+  each gains a summary on its right. `space` folds a project, which is what its
+  marker has been promising since the rail was written, and a folded project
+  keeps saying how many tasks it holds and whether any of them wants the user. The
+  box is drawn a line at a time rather than by lipgloss, because the main region
+  holds a rendered tmux pane and a re-flow through a layout engine cuts escape
+  sequences in half. See ADR-051.
 - Remove hard-coded assumptions discovered during dogfood.
 
 ### Acceptance criteria

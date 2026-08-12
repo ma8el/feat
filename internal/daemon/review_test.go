@@ -500,7 +500,7 @@ func TestAFailedCheckReturnsTheTaskToTheAgentLoop(t *testing.T) {
 }
 
 // TestACheckThatCouldNotRunGoesToTheUserRatherThanTheAgent is the defect
-// ADR-051 removed, found on the reference project's first real feature run.
+// ADR-055 removed, found on the reference project's first real feature run.
 //
 // A check was configured as a bare program the agent's environment did not have.
 // The gate recorded it as not having reported, which is right, and then the
@@ -600,7 +600,7 @@ func TestARunThatCouldNotVerifyCanBeVerifiedAgain(t *testing.T) {
 	}
 }
 
-// TestAFailingCheckOutranksOneThatCouldNotRun checks the precedence ADR-051 set.
+// TestAFailingCheckOutranksOneThatCouldNotRun checks the precedence ADR-055 set.
 //
 // A check that ran and failed is evidence about the work and the agent can act
 // on it, so a run holding both is a failed one — with the check that never ran

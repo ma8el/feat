@@ -114,7 +114,7 @@ func TestRealNotificationReachesTheDesktop(t *testing.T) {
 			// which is the whole reason it is a condition of its own: the agent
 			// cannot edit the configuration governing its own gate, so a
 			// notification is the only thing that reaches somebody who can
-			// (ADR-051).
+			// (ADR-055).
 			condition: notify.ConditionVerificationBlocked,
 			deliver: func(t *testing.T) (*service, store.TaskRef) {
 				live := launchForReview(t, nil)

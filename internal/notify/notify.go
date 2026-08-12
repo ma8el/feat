@@ -31,7 +31,7 @@ const (
 	// all. It is separate from a failure because it is the user's to fix and the
 	// agent's to do nothing about: a check that never started is a statement
 	// about the project's configuration or the environment it runs in, and
-	// nothing has been established about the work (ADR-051).
+	// nothing has been established about the work (ADR-055).
 	ConditionVerificationBlocked Condition = "verification_blocked"
 	// ConditionTaskFailed is a task whose lifecycle failed.
 	ConditionTaskFailed Condition = "task_failed"
@@ -79,7 +79,7 @@ func Conditions() []Condition {
 // leaves the task in review_requested — the request stands and a person decides,
 // exactly as it does for a project that configures no checks — so what has to be
 // said is about the run rather than about where the task landed. The daemon
-// names those two itself (ADR-051).
+// names those two itself (ADR-055).
 var notifiableWorkflow = map[domain.WorkflowState]Condition{
 	domain.WorkflowReviewRequested:    ConditionReviewRequested,
 	domain.WorkflowReadyForReview:     ConditionReadyForReview,

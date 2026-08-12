@@ -78,8 +78,7 @@ func (m Model) runtimeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch key.String() {
 		case "y", "Y":
 			m.runtime.confirming = false
-			m.runtime.pending = api.RuntimeDestroy
-			return m, m.runtimeAction(api.RuntimeDestroy)
+			return m.startRuntime(api.RuntimeDestroy)
 		default:
 			m.runtime.confirming = false
 			m.status = "nothing was removed"
@@ -112,6 +111,9 @@ func (m Model) runtimeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		// Asked rather than done. Removing something is the one action on this
 		// screen that a stray key press must not carry out.
+		if m.runtime.pending != "" {
+			return m.busyRuntime()
+		}
 		m.runtime.confirming = true
 		return m, nil
 
@@ -130,11 +132,27 @@ func (m Model) runtimeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // startRuntime records what the screen is waiting for and asks for it.
+//
+// One at a time. A first start pulls images and runs builds, so the wait is
+// minutes rather than the moment it is for a task whose services have been up
+// before (ADR-034 evidence 14), and every key press during it would be another
+// request queueing behind the same task's lock in the daemon — a user who
+// pressed `u` twice would be starting the services and then starting them again.
 func (m Model) startRuntime(action api.RuntimeAction) (tea.Model, tea.Cmd) {
+	if m.runtime.pending != "" {
+		return m.busyRuntime()
+	}
+
 	m.runtime.pending = action
 	m.runtime.err = nil
 	m.status = ""
 	return m, m.runtimeAction(action)
+}
+
+// busyRuntime says why a key did nothing.
+func (m Model) busyRuntime() (tea.Model, tea.Cmd) {
+	m.status = "waiting for " + string(m.runtime.pending) + " to finish first"
+	return m, nil
 }
 
 // runtimeLogs yields this terminal to the task's normal Compose logs.
@@ -214,7 +232,14 @@ func (m Model) runtimeBody() string {
 		out.WriteString("\n" + failureStyle.Render(m.runtime.err.Error()) + "\n")
 	}
 	if m.runtime.pending != "" {
-		out.WriteString("\n" + mutedStyle.Render("waiting for "+string(m.runtime.pending)+"…") + "\n")
+		waiting := "waiting for " + string(m.runtime.pending) + "…"
+		if m.runtime.pending == api.RuntimeCreate || m.runtime.pending == api.RuntimeStart {
+			// Said rather than left to be wondered about: the first one on a
+			// machine pulls the project's images and runs its builds, and a wait
+			// nobody explained is a wait a user reads as a hang.
+			waiting += "  (the first one pulls images and runs builds, which takes minutes)"
+		}
+		out.WriteString("\n" + mutedStyle.Render(waiting) + "\n")
 	}
 	if m.runtime.confirming {
 		out.WriteString("\n" + attentionStyle.Render(

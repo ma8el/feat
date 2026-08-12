@@ -21,6 +21,12 @@ func (m Model) listView() string {
 	width, _ := m.frameSize()
 
 	var out strings.Builder
+	// The fallback has no cards to put a header in, so the rail's header and the
+	// rule under it are drawn here: below the layout's minimum this list is the
+	// whole screen, and a heading run together with its first entry reads the same
+	// way in one column as it did in two (ADR-051).
+	out.WriteString(m.railHeader(width) + "\n")
+	out.WriteString(ruleStyle.Render(strings.Repeat(cardHorizontal, width)) + "\n")
 	out.WriteString(m.railView(0))
 	if m.loaded && len(m.tasks) == 0 {
 		// The rail says which key prepares a task; this has room to say that

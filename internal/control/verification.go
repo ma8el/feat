@@ -48,7 +48,7 @@ const (
 	// VerificationBlocked reports that a check never ran, so nothing was
 	// established about the work. It is deliberately not the failed status: the
 	// helper exits zero on it, because a configuration the agent cannot fix is
-	// not something to hand back to the agent's loop (ADR-051).
+	// not something to hand back to the agent's loop (ADR-055).
 	VerificationBlocked = "blocked"
 	// VerificationSkipped reports that there was nothing to run.
 	VerificationSkipped = "skipped"
