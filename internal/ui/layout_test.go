@@ -17,6 +17,12 @@ import (
 // layout itself is the subject, the tests below call View.
 func content(m Model) string { return m.stackedView() }
 
+// flowed folds a rendered block into one run of words.
+//
+// A test about what the dashboard says is not a test about where the region it
+// is drawn in wrapped the sentence, and the task panel is wrapped to its region.
+func flowed(block string) string { return strings.Join(strings.Fields(ansi.Strip(block)), " ") }
+
 // sized gives a model a terminal, which is what decides between the three
 // regions and the stacked fallback.
 func sized(m Model, width, height int) Model {
@@ -778,6 +784,314 @@ func TestTheFrameKeysSurviveTruncation(t *testing.T) {
 	for _, want := range []string{"J K", "H L", "?"} {
 		if !strings.Contains(footer, want) {
 			t.Errorf("the review footer lost %q to truncation:\n%s", want, footer)
+		}
+	}
+}
+
+// TestTheRegionsAreCardsWithRuledHeaders is what ADR-051 changed about the
+// frame.
+//
+// The rail's heading and the tab bar were the first line of their own content,
+// which is what made a heading read as the first entry of the list under it.
+// Each region is now a box with a header of its own and a rule between that
+// header and what it heads.
+func TestTheRegionsAreCardsWithRuledHeaders(t *testing.T) {
+	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
+	lines := strings.Split(ansi.Strip(model.View()), "\n")
+
+	if !strings.HasPrefix(lines[0], cardTopLeft) || !strings.HasSuffix(lines[0], cardTopRight) {
+		t.Errorf("the frame does not open with two rounded boxes: %q", lines[0])
+	}
+	if !strings.Contains(lines[1], "tasks") || !strings.Contains(lines[1], "terminal") {
+		t.Errorf("the two headers are not on the frame's second row: %q", lines[1])
+	}
+	if strings.Count(lines[2], cardHeaderLeft) != 2 || strings.Count(lines[2], cardHeaderRight) != 2 {
+		t.Errorf("both headers are not ruled off from their content: %q", lines[2])
+	}
+	// And the two boxes are separated rather than sharing an edge, so that they
+	// read as two regions.
+	if !strings.Contains(lines[0], cardTopRight+strings.Repeat(" ", regionGap)+cardTopLeft) {
+		t.Errorf("the two cards are not set apart: %q", lines[0])
+	}
+}
+
+// TestTheFooterIsRuledOffFromTheRegions is the other half of the same rule. The
+// footer is the part of the frame that holds still while the regions change, and
+// a line is what says so.
+func TestTheFooterIsRuledOffFromTheRegions(t *testing.T) {
+	model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
+	lines := strings.Split(ansi.Strip(model.View()), "\n")
+
+	if got := len(lines); got != 32 {
+		t.Fatalf("the frame is %d lines of the terminal's 32:\n%s", got, model.View())
+	}
+	rule := lines[len(lines)-footerHeight]
+	if rule != strings.Repeat(cardHorizontal, 120) {
+		t.Errorf("the footer is not ruled off from the regions above it: %q", rule)
+	}
+	// The rest of the footer is still there, under the rule.
+	if !strings.Contains(strings.Join(lines[len(lines)-footerHeight:], "\n"), "J K") {
+		t.Errorf("the footer lost its hints:\n%s", strings.Join(lines[len(lines)-footerHeight:], "\n"))
+	}
+}
+
+// TestTheMainRegionNamesTheTaskItIsAbout checks the header's other half.
+//
+// Every tab is a view of the selected task, and the rail answers which one by
+// moving a marker the eye has to go back to. The main region is where the eye
+// already is.
+func TestTheMainRegionNamesTheTaskItIsAbout(t *testing.T) {
+	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
+
+	header := ansi.Strip(model.mainHeader(80))
+	if !strings.Contains(header, liveTask().Key) {
+		t.Errorf("the main region's header does not name the selected task: %q", header)
+	}
+
+	moved := press(t, model, "J")
+	if header := ansi.Strip(moved.mainHeader(80)); !strings.Contains(header, otherTask().Key) {
+		t.Errorf("the header did not follow the selection: %q", header)
+	}
+}
+
+// TestAProjectFoldsAwayAndKeepsSayingWhatItHolds is the marker's promise.
+//
+// Every project header has drawn a fold marker since the rail was written, on a
+// rail where nothing could be folded. Folding one now hides its tasks, and the
+// header goes on reporting how many there are and whether any of them wants the
+// user — a fold that could hide the one task that stopped would make the rail
+// unsafe to fold at all.
+func TestAProjectFoldsAwayAndKeepsSayingWhatItHolds(t *testing.T) {
+	waiting := liveTask()
+	waiting.Attention = "needs_input"
+	// Short enough that the rail draws it whole, so that its absence is the
+	// entry's absence rather than a truncation.
+	waiting.Title = "Export job"
+
+	model := sized(dashboard(newFakeBackend(), waiting, otherTask()), 120, 32)
+	if !strings.Contains(ansi.Strip(model.View()), waiting.Key) {
+		t.Fatalf("the task is not in the rail before folding:\n%s", model.View())
+	}
+
+	folded := press(t, model, " ")
+	view := strings.Join(railLines(ansi.Strip(folded.View())), "\n")
+
+	// The entry is gone, which is what folding is for. The key itself survives on
+	// the header, because the fold is holding the selection (ADR-052) and that is
+	// where it is now reported — once, on the one line the project has left.
+	if strings.Contains(view, waiting.Title) {
+		t.Errorf("a folded project still lists its tasks:\n%s", view)
+	}
+	if got := strings.Count(view, waiting.Key); got != 1 {
+		t.Errorf("the folded task's key is drawn %d times, want once, on the header:\n%s",
+			got, view)
+	}
+	header := headerLine(strings.Split(view, "\n"), waiting.ProjectID)
+	if header == "" {
+		t.Fatalf("the folded project is not named at all:\n%s", view)
+	}
+	if !strings.Contains(header, glyphFolded) {
+		t.Errorf("the folded project's marker still points down: %q", header)
+	}
+	if !strings.Contains(header, badgeNeedsInput) {
+		t.Errorf("a folded project hid a task that needs the user: %q", header)
+	}
+	if !strings.Contains(header, "1") {
+		t.Errorf("the folded project does not say how many tasks it holds: %q", header)
+	}
+
+	// And the other project is untouched: folding is one project at a time.
+	if !strings.Contains(view, otherTask().Key) {
+		t.Errorf("folding one project took another's tasks with it:\n%s", view)
+	}
+
+	if again := press(t, folded, " "); !strings.Contains(ansi.Strip(again.View()), waiting.Key) {
+		t.Errorf("the project did not unfold:\n%s", again.View())
+	}
+}
+
+// railLines is the rail's half of a rendered frame, so that a test about the
+// task list is not answered by the main region beside it or by the footer under
+// it — both of which name tasks of their own.
+func railLines(view string) []string {
+	lines := strings.Split(view, "\n")
+	if len(lines) > footerHeight {
+		lines = lines[:len(lines)-footerHeight]
+	}
+	rail := make([]string, 0, len(lines))
+	for _, line := range lines {
+		rail = append(rail, ansi.Cut(line, 0, railWidth+cardChrome))
+	}
+	return rail
+}
+
+// headerLine is the rail line naming a project.
+func headerLine(lines []string, project string) string {
+	for _, line := range lines {
+		if strings.Contains(line, project) {
+			return line
+		}
+	}
+	return ""
+}
+
+// TestFoldingKeepsTheSelectionOnTheProjectItFolded is the other half of what
+// makes space one control rather than two.
+//
+// Folding used to move the cursor to the next task the rail still listed, which
+// took the user's selection away as the price of reading less about other
+// projects — and left the fold with no cursor position to press space on again
+// (ADR-052).
+func TestFoldingKeepsTheSelectionOnTheProjectItFolded(t *testing.T) {
+	first := liveTask()
+	model := sized(dashboard(newFakeBackend(), first, otherTask()), 120, 32)
+
+	folded := press(t, model, " ")
+	current, ok := folded.current()
+	if !ok {
+		t.Fatal("folding left no task selected at all")
+	}
+	if current.ID != first.ID {
+		t.Errorf("folding moved the selection to %s, want the task it was on, %s",
+			current.Key, first.Key)
+	}
+	// The open view is left alone too: nothing was selected by folding, so
+	// nothing it was showing moves.
+	if folded.selected != model.selected {
+		t.Errorf("folding changed the open view to %q, want %q", folded.selected, model.selected)
+	}
+
+	// And the header holding it says so, because the entry that used to is gone.
+	view := railLines(ansi.Strip(folded.View()))
+	if header := headerLine(view, first.ProjectID); !strings.Contains(header, first.Key) {
+		t.Errorf("the fold holding the selection does not name it: %q", header)
+	}
+}
+
+// TestAFoldedProjectIsOneCursorStop is the reported defect: a project could be
+// folded and then never opened again.
+//
+// Folded projects were stepped over entirely, so no key put the cursor back on
+// one, and space acts on the project the cursor is in. A fold is now a single
+// stop — one for the whole project, not one per hidden task — which is both what
+// makes it reachable and what keeps it cheap to move past.
+func TestAFoldedProjectIsOneCursorStop(t *testing.T) {
+	first, sibling, other := liveTask(), siblingTask(), otherTask()
+	model := sized(dashboard(newFakeBackend(), first, sibling, other), 120, 32)
+
+	folded := press(t, model, " ")
+	// Moving off the fold leaves the project rather than landing on the task
+	// hidden beside the selected one.
+	down := press(t, folded, "J")
+	if got, _ := down.current(); got.ID != other.ID {
+		t.Fatalf("J from a folded project selected %s, want the next project's task %s",
+			got.Key, other.Key)
+	}
+
+	// And moving back returns to the fold, which is the position that was missing.
+	back := press(t, down, "K")
+	got, ok := back.current()
+	if !ok || got.ProjectID != first.ProjectID {
+		t.Fatalf("K did not return to the folded project: %+v", got)
+	}
+	if got.ID != first.ID {
+		t.Errorf("returning to the fold selected %s, want the task it was holding, %s",
+			got.Key, first.Key)
+	}
+
+	opened := press(t, back, " ")
+	view := strings.Join(railLines(ansi.Strip(opened.View())), "\n")
+	for _, task := range []api.Task{first, sibling} {
+		if !strings.Contains(view, task.Key) {
+			t.Errorf("the project did not open again: %s is still hidden:\n%s", task.Key, view)
+		}
+	}
+}
+
+// siblingTask is a second task in the first task's project, so that a fold holds
+// more than one and stepping over it can be told from stepping through it.
+func siblingTask() api.Task {
+	task := liveTask()
+	task.ID = "8a11bc22-1111-2222-3333-444455556666"
+	task.Key = "8a11bc22"
+	task.Title = "Back-fill last quarter's exports"
+	task.Attention = "none"
+	return task
+}
+
+// TestFoldingEveryProjectKeepsTheSelection is the end of the same rule: there is
+// nowhere to move the cursor to, so it stays and its project header says where
+// it is.
+func TestFoldingEveryProjectKeepsTheSelection(t *testing.T) {
+	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
+
+	// One project at a time, moving between them: space folds where the cursor
+	// is, and the cursor no longer leaves the project it folded.
+	folded := press(t, press(t, press(t, model, " "), "J"), " ")
+	if _, ok := folded.current(); !ok {
+		t.Fatal("folding every project left no task selected")
+	}
+	view := strings.Join(railLines(ansi.Strip(folded.View())), "\n")
+	// No entries: the elapsed time is the second line of one, and nothing else
+	// in the rail carries it.
+	if strings.Contains(view, "1h30m") {
+		t.Errorf("a folded rail still lists task entries:\n%s", view)
+	}
+	for _, project := range []string{liveTask().ProjectID, otherTask().ProjectID} {
+		if !strings.Contains(view, project) {
+			t.Errorf("the rail lost the project %q entirely:\n%s", project, view)
+		}
+	}
+	// And the fold holding the selection names it, rather than leaving the
+	// difference to the header's colour.
+	selected, _ := folded.current()
+	if !strings.Contains(headerLine(strings.Split(view, "\n"), selected.ProjectID), selected.Key) {
+		t.Errorf("the fold holding the selected task does not name it:\n%s", view)
+	}
+}
+
+// TestFoldingDoesNotReachBackIntoTheModelItCameFrom checks that the fold is
+// carried by value like the rest of the model.
+//
+// Bubble Tea copies the model on every message. A map shared between the copies
+// would make folding a project change models that were already returned, which
+// is the sort of thing that stays invisible until something replays a key.
+func TestFoldingDoesNotReachBackIntoTheModelItCameFrom(t *testing.T) {
+	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
+
+	press(t, model, " ")
+	if !strings.Contains(ansi.Strip(model.View()), liveTask().Key) {
+		t.Errorf("folding a copy of the model folded the original:\n%s", model.View())
+	}
+}
+
+// TestTheRailSaysWhenTheListDoesNotFit keeps the machine's figures where they
+// are read from.
+//
+// The rail's foot is read by position — the same corner every time the eye drops
+// to it — and a task list longer than the region used to push it off the bottom.
+// The list is cut instead, and says so, and names the key that makes room.
+func TestTheRailSaysWhenTheListDoesNotFit(t *testing.T) {
+	tasks := make([]api.Task, 0, 8)
+	for i := range 8 {
+		task := liveTask()
+		task.ID = strings.Repeat(string(rune('a'+i)), 8) + "-0000-0000-0000-000000000000"
+		task.Key = strings.Repeat(string(rune('a'+i)), 8)
+		tasks = append(tasks, task)
+	}
+
+	model := sized(withResources(dashboard(newFakeBackend(), tasks...), sampled(), nil), 120, 24)
+	rail := strings.Join(railLines(ansi.Strip(model.View())), "\n")
+
+	if !strings.Contains(rail, "more lines") {
+		t.Errorf("a rail that could not draw every task did not say so:\n%s", rail)
+	}
+	if !strings.Contains(rail, "space folds") {
+		t.Errorf("the rail does not name the key that makes room:\n%s", rail)
+	}
+	for _, figure := range []string{"cpu", "memory", "disk"} {
+		if !strings.Contains(rail, figure) {
+			t.Errorf("the task list pushed %q off the rail:\n%s", figure, rail)
 		}
 	}
 }

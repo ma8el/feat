@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // absent is what a field Feat cannot fill yet renders as.
@@ -15,24 +16,21 @@ import (
 const absent = "—"
 
 var (
-	headingStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#1a1a1a", Dark: "#fafafa"})
+	headingStyle = lipgloss.NewStyle().Bold(true).Foreground(colourText)
 
-	mutedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#6c6c6c", Dark: "#8a8a8a"})
+	mutedStyle = lipgloss.NewStyle().Foreground(colourMuted)
 
-	selectedStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#0b5cad", Dark: "#7cc4ff"})
+	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(colourAccent)
 
-	attentionStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#a35200", Dark: "#ffb454"})
+	attentionStyle = lipgloss.NewStyle().Bold(true).Foreground(colourAttention)
 
-	failureStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#a3161b", Dark: "#ff8189"})
+	failureStyle = lipgloss.NewStyle().Bold(true).Foreground(colourFailure)
+
+	// titleStyle is a region's own heading — the rail's "tasks", the header of a
+	// card. It is the accent rather than the text colour, because a header that
+	// is only bold reads as the first line of the content under it, which is what
+	// the rule beneath it and this colour together stop it from doing.
+	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(colourAccent)
 
 	// focusedEntryStyle marks the task whose terminal is taking the keyboard.
 	// A background rather than a colour, because it has to be legible at a
@@ -40,21 +38,33 @@ var (
 	// keystrokes going".
 	focusedEntryStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.AdaptiveColor{Light: "#ffffff", Dark: "#0b1b2b"}).
-				Background(lipgloss.AdaptiveColor{Light: "#0b5cad", Dark: "#7cc4ff"})
+				Foreground(colourOnAccent).
+				Background(colourAccent)
 
-	// barStyle is the used part of a resource bar and the number on it. Feat's
-	// orange, which is also the attention colour: a bar is a measure rather than
-	// a summons, and what tells the two apart is the shape — a badge is a glyph
-	// beside a task and this is a block that fills a column. Bold is left to the
-	// attention styles, so that a bar never shouts and an overloaded machine's
-	// number still can.
-	barStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#a35200", Dark: "#ffb454"})
+	// activeTabStyle is the tab the main region is drawing.
+	//
+	// It carries the accent as a background for the same reason the focused entry
+	// does: the tab bar is the header of the region beside the rail, and a header
+	// whose selected item differs only in shade is one a user has to compare
+	// rather than see.
+	activeTabStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(colourOnAccent).
+			Background(colourAccent).
+			Padding(0, 1)
 
-	fieldStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#6c6c6c", Dark: "#8a8a8a"}).
-			Width(fieldWidth)
+	// tabStyle is a tab the main region is not drawing. It keeps the active tab's
+	// padding so that moving between tabs does not move the bar.
+	tabStyle = lipgloss.NewStyle().Foreground(colourMuted).Padding(0, 1)
+
+	// barStyle is the used part of a resource bar and the number on it. The
+	// attention colour, because a bar is a measure rather than a summons and what
+	// tells the two apart is the shape: a badge is a glyph beside a task and this
+	// is a block that fills a column. Bold is left to the attention styles, so
+	// that a bar never shouts and an overloaded machine's number still can.
+	barStyle = lipgloss.NewStyle().Foreground(colourAttention)
+
+	fieldStyle = lipgloss.NewStyle().Foreground(colourMuted).Width(fieldWidth)
 )
 
 // fieldWidth is the label column of the task panel, in cells.
@@ -101,26 +111,82 @@ func pad(cell string, width int) string {
 		return cell
 	}
 	cell = truncate(cell, width)
-	if missing := width - lipgloss.Width(cell); missing > 0 {
+	if missing := width - ansi.StringWidth(cell); missing > 0 {
 		return cell + strings.Repeat(" ", missing)
 	}
 	return cell
 }
 
+// tabStop is where a terminal puts a tab: the next multiple of eight.
+const tabStop = 8
+
+// plainText is text Feat did not write, made into something Feat can measure.
+//
+// The dashboard is drawn by cell arithmetic — wrapped to the region, cut to it,
+// padded out to the border — and every one of those measurements asks how wide a
+// string is. A tab answers zero and the terminal draws it as a jump to the next
+// multiple of eight, so a captured `go test` line measured forty-eight cells and
+// was drawn as sixty-two: across the border, through the region beside it, and
+// down the rest of the frame. A carriage return is worse, because it puts what
+// follows back at the terminal's left edge over whatever is already there.
+//
+// So the tabs are expanded here, where the column they land in is still known,
+// and the rest of the C0 controls are dropped: they move the cursor, and nothing
+// that moves the cursor may reach a screen laid out by counting cells. Escape
+// sequences pass through untouched — the styling is Feat's own, and a rendered
+// pane is not drawn through here at all.
+func plainText(s string) string {
+	if !strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 && r != '\n' || r == 0x7f }) {
+		return s
+	}
+
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		var out strings.Builder
+		for at := range len(line) {
+			switch c := line[at]; {
+			case c == '\t':
+				// Measured rather than counted, so that a tab after a styled run
+				// lands where the terminal will put it.
+				width := ansi.StringWidth(out.String())
+				out.WriteString(strings.Repeat(" ", tabStop-width%tabStop))
+			case c == 0x1b:
+				// The introducer of an escape sequence; the bytes after it are all
+				// printable and are copied by the branch below.
+				out.WriteByte(c)
+			case c < 0x20 || c == 0x7f:
+			default:
+				out.WriteByte(c)
+			}
+		}
+		lines[i] = out.String()
+	}
+	return strings.Join(lines, "\n")
+}
+
+// plainLine is plainText for a value drawn on one line.
+//
+// A line break in a task's title is the same defect as a tab in a check's
+// output — the rail counts the lines it draws — and a title is a user's sentence
+// about their own work, which may have come from anywhere.
+func plainLine(s string) string {
+	return strings.ReplaceAll(plainText(s), "\n", " ")
+}
+
 // truncate shortens a cell that does not fit, marking that it was shortened.
+//
+// It cuts by cell rather than by rune, through the same escape-aware primitive
+// the overlay and the cards use. A styled cell — a tab drawn on a background, a
+// line of a rendered pane — cut by rune loses half an escape sequence, and what
+// the terminal does with the remaining half is set a colour and keep it.
 func truncate(cell string, width int) string {
-	if width <= 0 || lipgloss.Width(cell) <= width {
+	if width <= 0 || ansi.StringWidth(cell) <= width {
 		return cell
 	}
 	if width == 1 {
 		return "…"
 	}
-
-	runes := []rune(cell)
-	for len(runes) > 0 && lipgloss.Width(string(runes))+1 > width {
-		runes = runes[:len(runes)-1]
-	}
-	return string(runes) + "…"
+	return ansi.Truncate(cell, width, "…")
 }
 
 // keyHint renders one key and what it does, for a footer.

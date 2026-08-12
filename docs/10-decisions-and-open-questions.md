@@ -2863,6 +2863,253 @@ to schedule. The user-facing text is not edited here; the README block that
 enumerates what Feat refuses hedges only against kernel exploits and the network,
 and belongs to `fix/security-claims`.
 
+### ADR-051 — What the dashboard looks like
+
+Status: accepted  
+Recorded: alpha review, after slice 13
+
+ADR-041 decided what the dashboard is *shaped* like — a rail, a main region, and
+a footer, all on screen at once — and left what it looks like to whatever each
+screen was written with. The maintainer read the result in use and reported four
+things, and each of them turned out to be a rule the dashboard did not have
+rather than a preference about taste.
+
+Evidence:
+
+1. The two colours a user reads most are not from the same family. The selection
+   colour was a pale sky blue (`#7cc4ff` on dark) and the attention colour a
+   saturated orange (`#ffb454`), which differ in saturation as much as in hue:
+   one is washed out and the other shouts. A rail holding both reads as two
+   programs sharing a window, and the difference the eye actually registers is
+   loudness rather than meaning.
+2. Every project header offered a control that did not exist. The rail drew
+   `▾ project` above each group from the day it was written, which is the
+   universal marker for a disclosure triangle, and nothing was bound to it. A
+   control a user tries and finds inert is worse than no control: what it teaches
+   is that the rest of the screen may also be decoration.
+3. Neither region's header was separated from its content. The rail's heading and
+   the tab bar were the first line of their own block, so an eye scanning down met
+   `tasks` and the first task, or the tab bar and the first line of a rendered
+   pane, as two entries of one list. The tab bar had the same defect twice over:
+   the selected tab differed from the others in shade alone, which is a
+   comparison rather than a thing seen.
+4. The footer was not separated either. It is the one part of the frame that
+   holds still while the regions change, and nothing said so.
+5. The regions were divided by a column of `│`. Two blocks sharing one drawn edge
+   read as one block with a line down it, which is the opposite of what the layout
+   is for: the rail and the main region are about different things and answer
+   different questions.
+6. Sizing was left to lipgloss, which re-flows what it is given. A line wider than
+   the region was wrapped rather than cut, so the task panel's long sentences put
+   their tails against the region's left edge, under an indented label they did
+   not belong to — and the panel's own scroll arithmetic, which counts lines
+   before they are drawn, could not see it.
+
+Decisions:
+
+- The palette is six named colours in one file, chosen as a set: an accent for
+  what the user has chosen, an amber for what may want them, a red for what has
+  failed, two neutrals for text and its labels, and one quiet colour for every
+  line the layout is drawn with. The accent and the amber are at the same weight,
+  so the eye reads the difference as meaning. Every colour stays adaptive, because
+  a terminal's background belongs to the user.
+- Each region is a card: a rounded box with a header row, a rule between that
+  header and its content, and content that is cut to the box rather than re-flowed
+  inside it. The two are set apart by a blank column rather than joined by a drawn
+  one. The footer is ruled off from both.
+- The rail's heading and the tab bar become those headers, and each carries a
+  summary on its right: how many tasks are waiting, and which task every tab is a
+  view of. The selected tab takes the accent as a background, which is what the
+  focused task entry already did.
+- The region holding the keyboard says so by taking the accent for its border.
+  An overlay's border is always the accent, because an overlay always has the
+  keyboard.
+- A project folds, on the space bar, which is what its marker has been promising.
+  A folded project keeps saying how many tasks it holds and whether any of them
+  wants the user: a fold that could hide the one task that stopped would make the
+  rail unsafe to fold at all. The cursor never stays inside a fold, because the
+  main region draws whatever the cursor is on and the keys act on it.
+- The box is drawn by Feat rather than by lipgloss, a line at a time, cutting by
+  cell through the escape-aware primitives the overlay already uses and ending
+  each line's styling before the border it is about to write. The content of the
+  main region is a rendered tmux pane: a capture carries the colour tmux emitted
+  and not the clearing tmux does as it draws, so a line re-flowed mid-escape-
+  sequence sets a colour and keeps it, across the border and the region beside it.
+- The one body that is re-flowed is the task panel, deliberately and before it is
+  measured. It is the only prose the dashboard draws, its sentences say what to do
+  about what they report, and wrapping before the split is what keeps the scroll
+  honest: the lines counted are the lines drawn.
+- A task list too long for the rail is cut above the rail's foot and says so,
+  naming the key that makes room. The region used to be clipped by the layout,
+  which cut from the bottom and so took the machine's figures — the one part of
+  the rail that is read by position — instead of the tasks.
+
+Consequence: the frame is four cells narrower and two lines shorter for its
+content than it was, which the main region pays: 79 cells at a 120-column
+terminal and 55 at the narrowest supported width, where it was 87 and 63. That is
+the price of the borders and the gutters, and it buys the separation the four
+reports above were all about. No stored format, endpoint, or state moves; the
+task-preparation dialog is also sized to the dialog it is drawn in rather than to
+the terminal, which is where its ellipsis-per-line came from. `space` is the one
+new binding.
+
+Amended by ADR-052: the rule that the cursor never stays inside a fold is what
+made folding a one-way door, and a fold is now a cursor position of its own.
+
+### ADR-052 — A folded project is a cursor position
+
+Status: accepted  
+Recorded: alpha review, after ADR-051 shipped
+
+ADR-051 gave the rail's fold marker the control it had always been promising, and
+paired it with a rule: the cursor never stays inside a fold, because the main
+region draws whatever the cursor is on and the keys act on it. Both halves of the
+rail obeyed it — folding a project moved the cursor to the next task still
+listed, and `J`/`K` stepped over folded projects rather than through them.
+
+Evidence: the maintainer folded a project in use and could not open it again.
+`space` acts on the project the cursor is in, and the two halves of the rule
+together mean no cursor position exists inside a folded project: nothing moves
+onto one, so nothing can press `space` on one. The only case that worked was
+folding every project, where the cursor had nowhere to go and stayed by accident
+— which is also the case the header was already written to draw, naming the task
+the fold was holding. Folding was a one-way door for as long as one project
+remained open, and the control the ADR added to stop the rail claiming a control
+it did not have now claimed a reversal it did not have.
+
+Decisions:
+
+- A folded project is one cursor stop: `J`/`K` move onto the fold, and past it in
+  one step whatever it holds. One stop for the project rather than one per hidden
+  task is what keeps folding worth pressing — the point is to move past a project
+  quickly — and is what makes the fold reachable at all.
+- `space` folds and opens the project the cursor is in, and does not move the
+  cursor either way. The task under the cursor stays selected across a fold, so
+  folding no longer takes a user's selection away as the price of reading less
+  about other projects.
+- What the rail must always say is which task is selected, not that the selected
+  task has an entry. A fold holding the cursor names the task's key on its header,
+  beside the count and the attention glyph it already carried, which is the
+  rendering ADR-051 wrote for the all-folded case and is now the general one.
+- The footer names the key for what it would do where the cursor is — `space
+  fold` or `space open` — because one control in two directions is otherwise
+  legible only from the marker beside the cursor.
+
+Consequence: the main region can draw a task whose rail entry is hidden, which is
+what ADR-051's rule was protecting against. It is bounded by the header naming
+that task, by the main region's own header naming it in words, and by the user
+having pressed a key to get there. No stored format, endpoint, or state moves,
+and no new binding: `space` is the same key with a reachable inverse.
+
+### ADR-053 — The palette is ordered by chroma, and measured
+
+Status: accepted  
+Recorded: alpha review, after ADR-052
+
+ADR-051 chose the six colours as a set and said what the set was for: the
+selection colour and the attention colour at one weight, so that the eye reads
+the difference between them as meaning rather than as loudness. It did not say
+what weight meant, and the values it shipped were taken from an existing terminal
+theme. The maintainer read the result in use and reported that the orange was
+right and the blue was not.
+
+Evidence, all of it measured in OKLCH and in simulated colour-vision deficiency
+(Machado 2009 at full severity) rather than argued from taste:
+
+1. The pair was not at one weight after all. On dark the accent carried chroma
+   0.132 against the attention colour's 0.106, so the blue led; on light it was
+   0.178 against 0.108, which is half again as much. The rule the ADR set was
+   satisfied on neither theme.
+2. The accent shared a hue with every neutral in the palette — 264° against the
+   text's 268.5°, the muted colour's 269°, the rule's 272.7°. The effect is
+   smaller than it sounds, because those neutrals are nearly grey, but it is
+   exactly where the focused card's border changes: rule to accent was a change of
+   lightness and chroma with no change of hue.
+3. The palette's closest pair was not the one the ADR was about. Attention against
+   failure measured 0.086 in OKLab distance under deuteranopia — orange and red
+   are neighbours, and at the old weights lightness was nearly all that separated
+   them. The pair the ADR did protect measured 0.254.
+4. A cooler accent was proposed, argued for on hue separation, and withdrawn on
+   measurement: teal at 200° loses two fifths of the accent/attention separation
+   under the two common deficiencies, and at the light theme's lightness sRGB
+   holds no more than 0.086 chroma there — less than the orange's 0.108 — so the
+   equal-weight rule would have been unsatisfiable on one theme by construction.
+   Violet is worse: 0.094 against the orange under tritanopia.
+
+Decisions:
+
+- The set is ordered by chroma: failure above attention, attention level with the
+  accent. Hue and lightness distinguish colours within a rank; chroma is the rank.
+- The accent stays blue and is re-weighted to the orange rather than re-hued away
+  from it. Nearly opposite in hue and lower in lightness is the pairing that keeps
+  working when a channel is missing.
+- The dark values are `#53a0ff`, `#f5a623`, and `#ff6287`. The red moved because
+  the orange did: at the orange's new chroma the old red no longer outranked it.
+- The light values are `#1f4e88`, `#8a5a00`, and `#a8202a`. The light accent
+  copies the dark relationship — same chroma as the orange, about a tenth darker —
+  rather than matching it on every axis, which measured worse: a pair matched on
+  lightness and chroma has only hue left to lose.
+- The light theme's orange is not the dark one adjusted. `#f5a623` reads at 2.03:1
+  on white, and `#8a5a00` is already the most chroma the hue holds at a lightness
+  that is legible there. The product's colour is a dark-theme value, and the light
+  theme has an ochre standing in for it.
+
+Consequence: every pair in the palette separates further than it did, including
+the one nobody had looked at — attention against failure goes from 0.086 to 0.135
+under deuteranopia, and accent against attention from 0.254 to 0.334. Nothing
+outside `internal/ui/palette.go` changes; no format, endpoint, or state moves. The
+figures above are reproducible from the hexes in that file, and a future change to
+them should be measured the same way rather than compared by eye.
+
+### ADR-054 — Text Feat did not write is made measurable before it is measured
+
+Status: accepted  
+Recorded: alpha review, after ADR-053
+
+ADR-051 made the dashboard draw its own frame a line at a time, cutting by cell
+through escape-aware primitives, precisely so that content could not run into the
+border. Every measurement it added asks one question of a string — how wide is it
+— and answers it with the display width of the characters in it.
+
+Evidence: the maintainer opened the task tab on a task whose gate had captured
+`go test` output, and the frame came apart. The panel's lines crossed the border,
+the rail was overwritten, the footer was drawn halfway up the screen, and the
+machine block appeared three times with different figures. The cause is one byte.
+`go test` separates its columns with tabs; a tab has a display width of zero and
+is drawn by the terminal as a jump to the next multiple of eight. A captured line
+measured forty-eight cells and was drawn as sixty-two. Everything below it was
+then painted over rows the renderer believed were somewhere else. The same defect
+was in two further places, neither reported: a task title carrying a line break
+would have added a row to a rail that counts its own rows, and a wrapped error
+carrying a command's output was written into a footer whose height the regions
+above it are sized against.
+
+Decisions:
+
+- Text from outside — a brief, a captured check detail, an error another program
+  produced, a title a user pasted — is converted before it is measured. Tabs are
+  expanded to the terminal's own stops, so the columns they were holding apart
+  survive as spacing; the other C0 controls are dropped, because they move the
+  cursor and nothing that moves the cursor may reach a screen laid out by counting
+  cells.
+- Escape sequences are not touched. The styling is Feat's own, and the conversion
+  is by byte in a range no escape sequence uses.
+- Values drawn on one line have their line breaks removed as well as their
+  controls. A count of rows is the rail's and the footer's arithmetic, and a
+  string that can add one is a string that can break it.
+- The rendered tmux pane is not converted, and must not be. It is drawn by the
+  splice ADR-042 describes, which is by cell and passes every escape through; its
+  content is a grid tmux has already laid out, so the controls that break a layout
+  are not in it.
+- Storage keeps what the command actually emitted. The width constraint belongs to
+  the screen, not to the record.
+
+Consequence: `internal/ui` gains one conversion and three call sites — the task
+panel before it is wrapped, the rail's title, and both footers. No stored format,
+endpoint, or state moves. The general rule this leaves behind is worth more than
+the fix: anything the dashboard did not compose is untrusted input to a layout,
+and a region that measures what it draws has to be given something measurable.
+
 ### OQ-001 — Natural-language orchestrator
 
 Should mature natural-language commands be interpreted by a constrained master native agent or by a host-integrated model? Do not decide during v0.

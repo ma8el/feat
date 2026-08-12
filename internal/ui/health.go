@@ -72,24 +72,16 @@ func (m healthModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m healthModel) View() string { return renderHealth(m.health, true) }
 
+// The health screen's own layout. Its colours are the dashboard's, so that the
+// two screens of the same program do not look like two programs.
 var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#1a1a1a", Dark: "#fafafa"})
+	labelStyle = lipgloss.NewStyle().Foreground(colourMuted).Width(10)
 
-	subtitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#6c6c6c", Dark: "#8a8a8a"})
-
-	labelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#6c6c6c", Dark: "#8a8a8a"}).
-			Width(10)
-
-	valueStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#1a1a1a", Dark: "#fafafa"})
+	valueStyle = lipgloss.NewStyle().Foreground(colourText)
 
 	frameStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.AdaptiveColor{Light: "#c4c4c4", Dark: "#4a4a4a"}).
+			BorderForeground(colourRule).
 			Padding(1, 3)
 )
 
@@ -119,13 +111,13 @@ func renderHealth(h Health, styled bool) string {
 
 	lines := []string{
 		titleStyle.Render("feat"),
-		subtitleStyle.Render("pre-alpha skeleton"),
+		mutedStyle.Render("pre-alpha skeleton"),
 		"",
 	}
 	for _, field := range fields {
 		lines = append(lines, labelStyle.Render(field[0])+valueStyle.Render(field[1]))
 	}
-	lines = append(lines, "", subtitleStyle.Render("q  quit"))
+	lines = append(lines, "", mutedStyle.Render("q  quit"))
 
 	return frameStyle.Render(strings.Join(lines, "\n"))
 }
