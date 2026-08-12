@@ -1590,6 +1590,25 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   containers, establish that they are gone, and only then remove the tree they
   mounted. It became reachable when the control workspace stopped being one
   mount and became three (ADR-032's read-only split).
+- Give the dashboard the design its shape was waiting for. ADR-041 decided where
+  the regions are and left what they look like to whatever each screen was
+  written with, and the maintainer read the result in use: the selection colour
+  and the attention colour are not from one family, every project header offers a
+  fold that does nothing, neither region's header is separated from its content,
+  and the footer is not separated from either.
+
+  Each is a rule the dashboard did not have. The palette becomes six named
+  colours chosen as a set, with the accent and the amber at the same weight so
+  that the difference between them reads as meaning rather than as loudness. Each
+  region becomes a card — a rounded box, a header of its own, a rule under it —
+  with a blank column between the two rather than a drawn one, and the footer
+  ruled off from both. The rail's heading and the tab bar become those headers and
+  each gains a summary on its right. `space` folds a project, which is what its
+  marker has been promising since the rail was written, and a folded project
+  keeps saying how many tasks it holds and whether any of them wants the user. The
+  box is drawn a line at a time rather than by lipgloss, because the main region
+  holds a rendered tmux pane and a re-flow through a layout engine cuts escape
+  sequences in half. See ADR-051.
 - Remove hard-coded assumptions discovered during dogfood.
 
 ### Acceptance criteria

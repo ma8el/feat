@@ -22,14 +22,29 @@ func dialogBox(title, body string, limit, tallest int) string {
 	}
 	inner := limit - 4
 
-	content := headingStyle.Render(truncate(title, inner)) + "\n\n" + clampBlock(body, inner)
+	heading := titleStyle.Render(truncate(title, inner))
+	content := clampBlock(body, inner)
 	if fits, _ := blockSize(content); fits < inner {
-		inner = fits
+		// The title is part of what has to fit, so a dialog is never narrower
+		// than its own name.
+		inner = max(fits, blockWidth(heading))
 	}
+	// The heading is ruled off from the content, as a card's is: a dialog is the
+	// same kind of thing drawn over the dashboard rather than beside it
+	// (ADR-051).
+	content = heading + "\n" + ruleStyle.Render(strings.Repeat(cardHorizontal, inner)) +
+		"\n" + content
+
 	// The border takes a line above and below, so the content gets what is left
 	// of the body region. A dialog taller than that would draw over the footer,
 	// which is the one part of the frame that never moves.
 	return dialogStyle.Width(inner + 2).Render(clampHeight(content, tallest-2, inner))
+}
+
+// blockWidth is the widest line of a block, in cells.
+func blockWidth(block string) int {
+	width, _ := blockSize(block)
+	return width
 }
 
 // clampHeight drops the lines of a block that do not fit, saying that it did.
@@ -50,10 +65,27 @@ func clampHeight(block string, height, width int) string {
 	return strings.Join(append(kept, mutedStyle.Render(truncate(note, width))), "\n")
 }
 
+// dialogStyle is the box an overlay is drawn in.
+//
+// Its border is the accent rather than the cards' quiet rule, and that is the
+// one place the two differ: an overlay always has the keyboard, and the frame
+// already says so about a region by taking the same colour (ADR-051).
 var dialogStyle = lipgloss.NewStyle().
 	Border(lipgloss.RoundedBorder()).
-	BorderForeground(lipgloss.AdaptiveColor{Light: "#0b5cad", Dark: "#7cc4ff"}).
+	BorderForeground(colourAccent).
 	Padding(0, 1)
+
+// clampRows drops the lines of a block that a region has no room for.
+func clampRows(block string, height int) string {
+	if height < 1 {
+		height = 1
+	}
+	lines := strings.Split(block, "\n")
+	if len(lines) <= height {
+		return block
+	}
+	return strings.Join(lines[:height], "\n")
+}
 
 // clampBlock truncates every line of a block to a width.
 //
@@ -112,6 +144,7 @@ func keyMap(width int) string {
 			{"shift+↓ ↑ → ←", "the same, in arrows"},
 			{"ctrl+n / ctrl+p", "where shift is eaten"},
 			{"tab / shift+tab", "view, the same way"},
+			{"space", "fold or open a project"},
 		}},
 		{"the view · plain keys stay in it", [][2]string{
 			{"j k h l  ↓↑←→", "move within the view"},

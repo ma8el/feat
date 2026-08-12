@@ -154,12 +154,20 @@ func (m Model) terminalBody(width, height int) string {
 		return out.String()
 	}
 
-	out.WriteString(m.composeWindow(width, height))
-
+	// The note about a dead pane takes a row of the region rather than a row
+	// after it. The region is a card with a rule under it, and a line written
+	// past the last row is a line nobody sees — which is what a note explaining a
+	// terminal that has stopped must not be.
+	note := ""
 	if dead := deadPanes(m.terminal.frame); dead > 0 {
-		out.WriteString("\n" + failureStyle.Render(
-			count(dead, "pane's program has", "panes' programs have")+
-				" exited; the terminal is retained so it can be read"))
+		note = failureStyle.Render(count(dead, "pane's program has", "panes' programs have") +
+			" exited; the terminal is retained so it can be read")
+		height--
+	}
+
+	out.WriteString(m.composeWindow(width, height))
+	if note != "" {
+		out.WriteString("\n" + note)
 	}
 	return out.String()
 }
@@ -180,9 +188,9 @@ func (m Model) terminalBody(width, height int) string {
 // worse than saying so.
 //
 // The lines are wrapped where they are written rather than left to the region,
-// which truncates: the main region is sixty-three cells at the narrowest
-// terminal the three-region layout supports, and a remedy cut off halfway is one
-// nobody can act on. It is the same hand-wrapping executionDetail does.
+// which truncates: the main region is fifty-five cells at the narrowest terminal
+// the three-region layout supports, and a remedy cut off halfway is one nobody
+// can act on. It is the same hand-wrapping executionDetail does.
 func missingTerminal(task api.Task) string {
 	var out strings.Builder
 	out.WriteString(failureStyle.Render("  missing  terminal") + "\n")
@@ -265,8 +273,11 @@ func (m Model) composeWindow(width, height int) string {
 	}
 	// Clip first, then end each line: a truncation can cut a line in the middle
 	// of a styled run, and the reset has to come after the cut rather than
-	// before it.
-	return terminate(clampBlock(canvas, width))
+	// before it. The clip is vertical as well as horizontal, because the window
+	// is whatever tmux reported and the region is what there is to draw it in: a
+	// frame that arrived taller than the region would otherwise push whatever
+	// follows it out of the card.
+	return terminate(clampBlock(clampRows(canvas, height), width))
 }
 
 // paneDivider is the line tmux draws between two panes.
@@ -274,7 +285,7 @@ func paneDivider(height int) string {
 	if height <= 0 {
 		height = 1
 	}
-	return strings.TrimSuffix(strings.Repeat(dividerStyle.Render("│")+"\n", height), "\n")
+	return strings.TrimSuffix(strings.Repeat(ruleStyle.Render(cardVertical)+"\n", height), "\n")
 }
 
 // deadPanes counts the panes whose program has exited.

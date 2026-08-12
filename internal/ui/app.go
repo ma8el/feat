@@ -142,6 +142,15 @@ type Model struct {
 	// refresh cannot make the panel show a different task.
 	selected string
 	archived int
+	// folded is the projects whose tasks the rail is not listing, by project
+	// identifier.
+	//
+	// It is replaced rather than written to when it changes. The model is a
+	// value, copied on every message, and a map shared between the copies would
+	// make folding a project reach backwards into every model already returned —
+	// which is the sort of thing that is invisible until a test presses a key on a
+	// model it meant to keep.
+	folded map[string]bool
 
 	// resources is the daemon's most recent sample, and resourceErr is why there
 	// is none. A failure here never hides the task list: metrics are
@@ -448,7 +457,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = message.Width, message.Height
-		m.prepare.resize(message.Width, message.Height)
+		m.prepare.resize(m.preparationSize())
 		return m, nil
 
 	case tasksMsg:
@@ -618,15 +627,99 @@ func (m Model) frameKey(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 // holds what it was told about one task, and leaving it behind after the
 // selection moved would show one task's services under another task's name.
 func (m Model) selectTask(delta int) (tea.Model, tea.Cmd) {
-	if len(m.tasks) == 0 {
+	next, ok := m.nextStop(m.cursor, delta)
+	if !ok {
 		return m, nil
 	}
 
-	m.cursor = (m.cursor + delta%len(m.tasks) + len(m.tasks)) % len(m.tasks)
+	m.cursor = next
 	task := m.tasks[m.cursor]
 	m.selected = task.ID
 	m.status = ""
 	return m.selectTab(m.activeTab())
+}
+
+// nextStop is the task delta steps away in the rail, wrapping at both ends.
+//
+// A folded project is one stop rather than a run of hidden tasks: the fold is
+// the thing the cursor moves to, because the fold is what space opens. Folded
+// projects used to be stepped over entirely, which made folding a one-way door —
+// nothing could put the cursor back on a folded project, so nothing could open
+// one again (ADR-052).
+func (m Model) nextStop(from, delta int) (int, bool) {
+	if len(m.tasks) == 0 || delta == 0 {
+		return from, false
+	}
+
+	stops, at := m.railStops()
+	here, ok := at[from]
+	if !ok {
+		return from, false
+	}
+	next := stops[((here+delta)%len(stops)+len(stops))%len(stops)]
+	if next == from {
+		// One stop, which is a rail whose every project is folded into the one
+		// holding the cursor. The selection stays where it is, and the folded
+		// header it belongs to keeps saying where that is.
+		return from, false
+	}
+	return next, true
+}
+
+// railStops is the cursor positions the rail offers, in the order it draws them,
+// and where in that sequence each task index sits.
+//
+// Every task of an open project is its own stop. A folded project contributes
+// one, which is the task the cursor is already on when the fold holds it: moving
+// onto a fold and back off it must not quietly re-select a different task inside
+// it, and the fold's header names the one it is holding.
+func (m Model) railStops() ([]int, map[int]int) {
+	stops := make([]int, 0, len(m.tasks))
+	at := make(map[int]int, len(m.tasks))
+
+	for _, group := range groupByProject(m.tasks) {
+		if m.folded[group.project] {
+			stop := group.indexes[0]
+			if m.holdsCursor(group) {
+				stop = m.cursor
+			}
+			for _, index := range group.indexes {
+				at[index] = len(stops)
+			}
+			stops = append(stops, stop)
+			continue
+		}
+		for _, index := range group.indexes {
+			at[index] = len(stops)
+			stops = append(stops, index)
+		}
+	}
+	return stops, at
+}
+
+// foldProject folds or unfolds the project of the task under the cursor.
+//
+// The cursor stays where it is, so space is the same control in both directions:
+// what folded a project opens it again, on the project it was pressed on. The
+// task it holds goes on being the selected one and the folded header names it,
+// which is what makes the fold something a user can move back to (ADR-052).
+func (m Model) foldProject() (tea.Model, tea.Cmd) {
+	task, ok := m.current()
+	if !ok {
+		return m, nil
+	}
+
+	folded := make(map[string]bool, len(m.folded)+1)
+	for project, hidden := range m.folded {
+		folded[project] = hidden
+	}
+	folded[task.ProjectID] = !folded[task.ProjectID]
+	if !folded[task.ProjectID] {
+		delete(folded, task.ProjectID)
+	}
+	m.folded = folded
+	m.status = ""
+	return m, nil
 }
 
 // nextTab is the tab delta places along from active, wrapping at both ends.
@@ -824,6 +917,13 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	// Folding is the rail's own control, and the marker on every project header
+	// has been offering it since the rail was written (ADR-051). It is on the
+	// space bar rather than on a letter because the letters are actions on a task
+	// and this is not one: nothing is created, resumed, or removed by it.
+	case " ", "space":
+		return m.foldProject()
+
 	case "enter":
 		return m.openTask()
 
@@ -1017,6 +1117,11 @@ func (m *Model) clampCursor() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
+	// A cursor inside a folded project is left there. A task list that arrives
+	// while one is folded can put it there without the user moving — a new task is
+	// listed first, so every index after it moves — and the fold is a place the
+	// cursor may rest in its own right since ADR-052: the header holding it names
+	// the task, and space opens the project it is in.
 }
 
 // sortTasks orders tasks so that the list does not reorder itself under the
@@ -1079,15 +1184,20 @@ func (m Model) stackedView() string {
 	}
 }
 
+// dialogLimits are the widest and tallest a dialog may be drawn.
+//
+// A dialog takes most of the terminal but never all of it. What is left is the
+// task list and the resources behind it, which is the reason ADR-041 chose an
+// overlay over a screen that replaces them. It never reaches the footer, which
+// is the part of the frame that holds still.
+func (m Model) dialogLimits() (widest, tallest int) {
+	width, height := m.frameSize()
+	return width * 3 / 4, height - footerHeight
+}
+
 // dialogView renders the open overlay, or nothing when none is open.
 func (m Model) dialogView() string {
-	width, height := m.frameSize()
-	// A dialog takes most of the terminal but never all of it. What is left is
-	// the task list and the resources behind it, which is the reason ADR-041
-	// chose an overlay over a screen that replaces them. It never reaches the
-	// footer, which is the part of the frame that holds still.
-	inner := width * 3 / 4
-	tallest := height - footerHeight
+	inner, tallest := m.dialogLimits()
 
 	switch m.screen {
 	case screenPrepare:
@@ -1109,6 +1219,23 @@ func (m Model) dialogView() string {
 	default:
 		return ""
 	}
+}
+
+// preparationSize is the space task preparation is drawn in: the inside of the
+// dialog where the frame is drawn, and the whole terminal where it is not.
+//
+// It is the dialog's rather than the terminal's because the fields size
+// themselves to what they are told: a text area given the terminal's width and
+// drawn in three quarters of it is one whose every line ends in an ellipsis, and
+// the ellipsis is on the line the user is typing.
+func (m Model) preparationSize() (width, height int) {
+	if m.narrow() {
+		return m.frameSize()
+	}
+	widest, tallest := m.dialogLimits()
+	// What the box itself spends: a border and a gutter on each side, and a
+	// border above and below.
+	return widest - cardChrome, tallest - cardVerticalChrome
 }
 
 // activeTab is what the main region draws.
@@ -1133,12 +1260,23 @@ func (m *Model) rememberTab() {
 // footer renders the status line, any error, and the daemon the dashboard is
 // talking to.
 func (m Model) footer(hints string) string {
+	width, _ := m.frameSize()
+
 	var out strings.Builder
+	// Ruled off from the content above it, as the three-region footer is: the
+	// fallback is a different layout of the same dashboard, not a different one
+	// (ADR-051).
+	out.WriteString("\n" + ruleStyle.Render(strings.Repeat(cardHorizontal, width)))
+	// Both are cut to the frame and flattened to one line. The footer is a fixed
+	// number of rows that the regions above it are sized against, and an error is
+	// the one string here Feat did not write: a wrapped one carries the output it
+	// wrapped, line breaks and all, and would push the frame apart from the bottom
+	// (ADR-054).
 	switch {
 	case m.err != nil:
-		out.WriteString("\n" + failureStyle.Render(m.err.Error()) + "\n")
+		out.WriteString("\n" + failureStyle.Render(truncate(plainLine(m.err.Error()), width)) + "\n")
 	case m.status != "":
-		out.WriteString("\n" + mutedStyle.Render(m.status) + "\n")
+		out.WriteString("\n" + mutedStyle.Render(truncate(plainLine(m.status), width)) + "\n")
 	default:
 		out.WriteString("\n")
 	}

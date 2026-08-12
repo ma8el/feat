@@ -260,16 +260,18 @@ func TestApprovalOffersToStopTheRuntimeWithoutStopping(t *testing.T) {
 	model.selected = task.ID
 	model.screen = screenTask
 
+	// Read as words rather than as lines: the panel is wrapped to the region it
+	// is drawn in, and where a sentence breaks is the layout's business.
 	detail := content(model)
-	if !strings.Contains(detail, "press t to stop") {
+	if !strings.Contains(flowed(detail), "press t to stop") {
 		t.Errorf("the task detail does not offer to stop the runtime:\n%s", detail)
 	}
-	if !strings.Contains(detail, "never stops them for you") {
+	if !strings.Contains(flowed(detail), "never stops them for you") {
 		t.Errorf("the task detail does not say that Feat leaves it running:\n%s", detail)
 	}
 
 	screen := runtimeScreen(t, backend, task)
-	if !strings.Contains(content(screen), "press t to stop") {
+	if !strings.Contains(flowed(content(screen)), "press t to stop") {
 		t.Errorf("the runtime screen does not offer to stop the runtime:\n%s", content(screen))
 	}
 
