@@ -418,10 +418,51 @@ func TestCommandSpecRejectsValuesTmuxCouldInterpret(t *testing.T) {
 		{Program: "/bin/sh", Directory: "relative"},
 		{Program: "/bin/sh\nkill-server", Directory: "/work"},
 		{Program: "/bin/sh", Arguments: []string{"ok\nbad"}, Directory: "/work"},
+		{Program: "/bin/sh", Directory: "/work", Variables: map[string]string{"": "value"}},
+		{Program: "/bin/sh", Directory: "/work", Variables: map[string]string{"NAME=X": "value"}},
+		{Program: "/bin/sh", Directory: "/work", Variables: map[string]string{"NAME": "one\nkill-server"}},
+		{Program: "/bin/sh", Directory: "/work", Variables: map[string]string{"-e": "value"}},
 	} {
 		if err := spec.Validate(); err == nil {
 			t.Errorf("Validate(%+v) succeeded", spec)
 		}
+	}
+}
+
+// TestTheCommandEnvironmentReachesThePane pins where the entries go.
+//
+// tmux applies -e to the process it respawns, and the order matters: every flag
+// has to precede the program, or tmux reads the program as the value of the
+// flag before it and the pane starts something else entirely.
+func TestTheCommandEnvironmentReachesThePane(t *testing.T) {
+	runner := newFakeTmux()
+	backend, err := New("/run/user/501/feat/tmux.sock", runner)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if _, err := backend.EnsureTask(context.Background(), testProject, testTask, CommandSpec{
+		Program:   "/usr/bin/claude",
+		Directory: "/work/primary",
+		Variables: map[string]string{"SECOND": "2", "FIRST": "1"},
+	}); err != nil {
+		t.Fatalf("EnsureTask: %v", err)
+	}
+
+	var respawn []string
+	for _, call := range runner.calls {
+		if call[0] == "respawn-pane" {
+			respawn = call
+		}
+	}
+	if respawn == nil {
+		t.Fatalf("no pane was respawned: %v", runner.calls)
+	}
+
+	// Sorted, so the same specification is the same command every time.
+	want := []string{"-e", "FIRST=1", "-e", "SECOND=2", "-c", "/work/primary", "/usr/bin/claude"}
+	if !strings.Contains(strings.Join(respawn, " "), strings.Join(want, " ")) {
+		t.Errorf("respawn-pane = %q, want the sorted environment before the working directory and program", respawn)
 	}
 }
 

@@ -362,7 +362,15 @@ func (t *Tmux) createWindow(ctx context.Context, session string, project domain.
 // the exact object just created rather than leaving it for reconciliation: the
 // retention rule in ADR-030 protects work entered in a pane, and there is none.
 func (t *Tmux) start(ctx context.Context, pane string, command CommandSpec) error {
-	args := []string{"respawn-pane", "-k", "-t", pane, "-c", command.Directory, command.Program}
+	// Every flag precedes the program, and the environment precedes the working
+	// directory: -e takes one value and the program follows -c, so the pane's
+	// command stays the last thing on the line and nothing variadic can swallow
+	// it (ADR-030).
+	args := []string{"respawn-pane", "-k", "-t", pane}
+	for _, entry := range command.Entries() {
+		args = append(args, "-e", entry)
+	}
+	args = append(args, "-c", command.Directory, command.Program)
 	args = append(args, command.Arguments...)
 	if _, err := t.runner.Run(ctx, t.socket, args...); err != nil {
 		return fmt.Errorf("starting %s in tmux pane %s: %w", command.Program, pane, err)

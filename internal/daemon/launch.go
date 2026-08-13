@@ -12,6 +12,7 @@ import (
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution"
+	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/tmux"
 )
 
@@ -178,11 +179,15 @@ func (s *service) planContainerAgent(
 		return launchPlan{}, err
 	}
 
+	values, err := agentVariables(spec2.Environment)
+	if err != nil {
+		return launchPlan{}, err
+	}
 	invocation, err := environment.Command(ctx, execution.Command{
 		Program:     spec2.Program,
 		Arguments:   spec2.Arguments,
 		Directory:   spec2.Directory,
-		Variables:   variables(spec2.Environment),
+		Variables:   values,
 		Interactive: true,
 	})
 	if err != nil {
@@ -207,6 +212,30 @@ func (s *service) planContainerAgent(
 			"container paths and resets container_name and published ports for that service and for every " +
 			"service Compose starts alongside it, so several tasks can run at once",
 	}, nil
+}
+
+// agentVariables is the environment a task's agent process runs with.
+//
+// It is what the provider adapter asked for plus what every process working in
+// a task worktree needs, whichever provider and whichever execution mode: the
+// worktrees are Feat's, the Git directory they share is the user's, and neither
+// fact is the adapter's to know (git.WorktreeEnvironment, ADR-056).
+//
+// A name set by both is refused rather than resolved. Feat's entries are there
+// to stop a silent loss of somebody's work, so quietly letting an adapter
+// replace one — or quietly replacing the adapter's — would be this function
+// deciding which loss is acceptable.
+func agentVariables(adapter []string) (map[string]string, error) {
+	values := variables(git.WorktreeEnvironment())
+	for name, value := range variables(adapter) {
+		if _, taken := values[name]; taken {
+			return nil, fmt.Errorf(
+				"%w: the agent adapter sets %s, which Feat already sets for every task worktree",
+				api.ErrInvalid, name)
+		}
+		values[name] = value
+	}
+	return values, nil
 }
 
 // variables turns an adapter's KEY=VALUE entries into a map.
@@ -299,10 +328,15 @@ func (s *service) planAgent(
 		return launchPlan{}, err
 	}
 
+	values, err := agentVariables(spec.Environment)
+	if err != nil {
+		return launchPlan{}, err
+	}
 	command := tmux.CommandSpec{
 		Program:   spec.Program,
 		Arguments: spec.Arguments,
 		Directory: spec.Directory,
+		Variables: values,
 	}
 	if err := command.Validate(); err != nil {
 		return launchPlan{}, err

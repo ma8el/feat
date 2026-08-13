@@ -3,6 +3,7 @@ package tmux
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/ma8el/feat/internal/domain"
@@ -27,6 +28,11 @@ type CommandSpec struct {
 	Program   string
 	Arguments []string
 	Directory string
+	// Variables are environment entries the process starts with, on top of the
+	// environment the tmux server itself passes down. They are generated,
+	// non-secret values: tmux reports a pane's environment to anyone who can
+	// reach the server, and the server outlives the process.
+	Variables map[string]string
 }
 
 // Validate reports whether the command can be passed to tmux without tmux
@@ -54,7 +60,40 @@ func (s CommandSpec) Validate() error {
 			return err
 		}
 	}
+	for name, value := range s.Variables {
+		if name == "" {
+			return fmt.Errorf("a tmux command environment variable has no name")
+		}
+		if strings.Contains(name, "=") {
+			return fmt.Errorf("the tmux command environment variable %q must not contain %q", name, "=")
+		}
+		if err := safeArgument("environment variable "+name, name+"="+value, false); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// Entries renders the variables as sorted KEY=VALUE arguments.
+//
+// A map's iteration order does not repeat, and these reach an argument vector,
+// so sorting makes the same specification the same command every time — which
+// is what lets a test pin one.
+func (s CommandSpec) Entries() []string {
+	if len(s.Variables) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(s.Variables))
+	for name := range s.Variables {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	entries := make([]string, 0, len(names))
+	for _, name := range names {
+		entries = append(entries, name+"="+s.Variables[name])
+	}
+	return entries
 }
 
 // Discovery is what one pass over the dedicated server found.

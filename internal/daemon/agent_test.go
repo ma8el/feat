@@ -3,8 +3,10 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +19,7 @@ import (
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/store"
 	"github.com/ma8el/feat/internal/tmux/tmuxtest"
 )
@@ -308,6 +311,90 @@ func (s *session) task(t *testing.T) *domain.Task {
 func (s *session) start(t *testing.T) {
 	t.Helper()
 	s.hook(t, "SessionStart", `{"session_id":"claude-session-1","source":"startup"}`)
+}
+
+// TestEveryAgentLaunchTurnsOffAutostash covers both execution modes, because a
+// guard that holds in one of them is a guard the user cannot rely on.
+//
+// A task's worktrees share one Git directory with the user's checkout and with
+// every other task, and the stash is one stack across all of them. An agent can
+// be told not to stash; `rebase.autoStash` and `merge.autoStash` are read from
+// the shared configuration, which is the user's, so a session obeying the
+// instruction perfectly would still stash onto that stack from a rebase. The
+// settings travel as environment rather than as a configuration write, so
+// nothing outside the session's own processes changes (ADR-056).
+func TestEveryAgentLaunchTurnsOffAutostash(t *testing.T) {
+	t.Run("host", func(t *testing.T) {
+		live := launch(t, hostFixture, installed(), false)
+
+		command := agentCommand(t, live.tmux.Calls(), claude.Executable)
+		for _, entry := range git.WorktreeEnvironment() {
+			if !slices.Contains(command, entry) {
+				t.Errorf("the host launch does not carry %s: %v", entry, command)
+			}
+		}
+	})
+
+	t.Run("devcontainer", func(t *testing.T) {
+		arranged := arrangeDrafting(t)
+		arranged.launched(t)
+
+		// The agent runs through `docker compose exec`, which takes each entry
+		// as the value of its own --env flag.
+		command := agentCommand(t, arranged.tmux.Calls(), claude.Executable)
+		for _, entry := range git.WorktreeEnvironment() {
+			if !slices.Contains(command, entry) {
+				t.Errorf("the devcontainer launch does not carry %s: %v", entry, command)
+			}
+		}
+	})
+}
+
+// TestAnAdapterCannotQuietlyReplaceFeatsGitSettings pins the conflict rule.
+//
+// A provider adapter is free to ask for its own environment, and nothing stops
+// a future one asking for a Git setting. If it named one of Feat's, taking
+// either value silently would decide, on nobody's behalf, whose work may be
+// lost — so the launch stops and says which name is in dispute.
+func TestAnAdapterCannotQuietlyReplaceFeatsGitSettings(t *testing.T) {
+	values, err := agentVariables([]string{"CLAUDE_CODE_EXAMPLE=1"})
+	if err != nil {
+		t.Fatalf("an adapter's own variable was refused: %v", err)
+	}
+	if values["CLAUDE_CODE_EXAMPLE"] != "1" {
+		t.Errorf("the adapter's variable did not survive: %v", values)
+	}
+	if values["GIT_CONFIG_COUNT"] == "" {
+		t.Errorf("Feat's own settings were dropped: %v", values)
+	}
+
+	_, err = agentVariables([]string{"GIT_CONFIG_COUNT=9"})
+	if err == nil {
+		t.Fatal("an adapter replaced a setting Feat applies to every task worktree")
+	}
+	if !errors.Is(err, api.ErrInvalid) {
+		t.Errorf("the conflict is reported as %v, want an invalid-request error", err)
+	}
+	if !strings.Contains(err.Error(), "GIT_CONFIG_COUNT") {
+		t.Errorf("the error does not name the variable in dispute: %v", err)
+	}
+}
+
+// agentCommand returns the tmux call that started the agent, whole.
+//
+// Launches() reports the program and its arguments, which is what most tests
+// want and is exactly what this one cannot use: the environment reaches the
+// pane as flags before the program, so the assertion has to see the call as it
+// was sent.
+func agentCommand(t *testing.T, calls [][]string, program string) []string {
+	t.Helper()
+	for _, call := range calls {
+		if len(call) > 0 && call[0] == "respawn-pane" && slices.Contains(call, program) {
+			return call
+		}
+	}
+	t.Fatalf("no tmux call started %s: %v", program, calls)
+	return nil
 }
 
 // TestClaudeLaunchesInTheTaskWorkingDirectoryWithTheFinalBrief is the first
