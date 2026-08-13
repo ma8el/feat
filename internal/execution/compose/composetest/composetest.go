@@ -55,6 +55,10 @@ func New() *Docker {
 		Answer("version --short", "5.1.4").
 		Answer("config --services", "dev").
 		Answer("up --detach dev", "").
+		// A stop that succeeds and removes nothing. It is arranged here rather
+		// than per test because it is what Compose does: `stop` on a project
+		// whose containers are already stopped succeeds too.
+		Answer("stop", "").
 		Answer("ps --all --format json dev",
 			`{"ID":"c0ffee","Name":"feat-dev-1","Service":"dev","State":"running","Status":"Up 2 seconds"}`).
 		Answer("inspect --type container --format {{json .Mounts}} c0ffee", `[]`).

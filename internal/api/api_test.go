@@ -431,6 +431,20 @@ func (f *fakeService) Resume(_ context.Context, id domain.TaskID) (*domain.Task,
 	return nil, fmt.Errorf("%w: no task %s", ErrNotFound, id)
 }
 
+func (f *fakeService) Stop(_ context.Context, id domain.TaskID) (*domain.Task, error) {
+	if err := f.check(); err != nil {
+		return nil, err
+	}
+	f.actions = append(f.actions, "stop")
+
+	for _, task := range f.tasks {
+		if task.ID == id {
+			return task, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: no task %s", ErrNotFound, id)
+}
+
 func (f *fakeService) RuntimeLogs(_ context.Context, id domain.TaskID) (RuntimeCommand, error) {
 	if err := f.check(); err != nil {
 		return RuntimeCommand{}, err

@@ -136,6 +136,18 @@ Submitting a new user prompt in a review state SHOULD conservatively transition 
 
 Projects MAY grant Claude access to `gh` and/or `glab` within its execution environment. Feat SHOULD validate CLI authentication. Provider access MUST NOT imply Docker access.
 
+### FR-AGENT-011 — Environment owned by its session
+
+A task's agent execution environment MUST be owned by the agent session that runs in it. It MUST come into existence only as part of launching or resuming that session, and Feat MUST NOT offer a verb that starts or creates one without a session (ADR-057).
+
+### FR-AGENT-012 — Stop and resume
+
+A user MUST be able to stop the environment a task's agent runs in and to bring it back by resuming the session. Stopping MUST keep the task's worktrees, branches, control workspace, volumes, and terminal, MUST NOT change the task's workflow state, and MUST NOT act on the task's application runtime. Both actions MUST be reachable from the command line and from the dashboard.
+
+### FR-AGENT-013 — A session is not alive without its environment
+
+Feat MUST NOT record an agent process as alive while the environment it runs in is observed not to be running. An environment that stopped without the user asking MUST be reported as a session failure, and what reconciliation recommends about such a task MUST be an action the product will accept (ADR-057).
+
 ## tmux execution
 
 ### FR-TMUX-001 — Dedicated server

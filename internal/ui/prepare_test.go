@@ -75,6 +75,12 @@ type fakeBackend struct {
 	// resumed records every task whose session was resumed. Its most important
 	// assertion is that it stays empty.
 	resumed []string
+	// stopped records every task whose agent environment was stopped, and
+	// stopErr is what the daemon answered. Both matter for the same reason
+	// resumed does: a key that stops a working agent must reach the daemon only
+	// when the user meant it to.
+	stopped []string
+	stopErr error
 	// reconciled counts the passes the dashboard asked the daemon to run, and
 	// reconciliation is what a read answers with.
 	reconciled     int
@@ -282,6 +288,17 @@ func (f *fakeBackend) Resume(_ context.Context, id string) (api.Task, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.resumed = append(f.resumed, id)
+	return api.Task{ID: id}, nil
+}
+
+func (f *fakeBackend) Stop(_ context.Context, id string) (api.Task, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stopped = append(f.stopped, id)
+
+	if f.stopErr != nil {
+		return api.Task{}, f.stopErr
+	}
 	return api.Task{ID: id}, nil
 }
 

@@ -217,6 +217,11 @@ func (m Model) frameFooter(width int) string {
 	// through whole and pushed the footer past the rows the regions were sized
 	// against (ADR-054).
 	switch {
+	// A pending question outranks both, because it is the only line here the
+	// user has to answer before any other key means anything.
+	case m.stopping != "":
+		out.WriteString(truncate(attentionStyle.Render(
+			"Stop the agent of this task? It is working, and stopping it ends the turn.  y to confirm"), width))
 	case m.err != nil:
 		out.WriteString(truncate(failureStyle.Render(plainLine(m.err.Error())), width))
 	case m.status != "":
@@ -264,7 +269,11 @@ func (m Model) hints() string {
 			keyHint("i", "type here"),
 			keyHint("w", "agent/shell"),
 			keyHint("a", "attach"),
+			// The pair, on the view that draws the pane they move. A resume
+			// named without its inverse is how somebody learns that the only way
+			// to stop a task's agent is to clean the task up.
 			keyHint("z", "resume"),
+			keyHint("t", "stop"),
 		)
 	case screenTask:
 		return m.railHints() + mutedStyle.Render("   ") + taskPanelHints()

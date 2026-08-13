@@ -507,6 +507,25 @@ func (a RuntimeAction) Valid() bool {
 // pulled and the containers existed.
 const RuntimeTimeout = 15 * time.Minute
 
+// AgentTimeout bounds one request that creates or stops a task's agent
+// environment: a launch, a resume, or a stop.
+//
+// It exists for the reason RuntimeTimeout does, and it was found the same way. A
+// launch that had to recreate its container because the project's own Compose
+// file had changed took 10.018 seconds and was cancelled by the client at ten,
+// while the daemon went on serving it — leaving a container the request that
+// created it no longer knew about. The five launches before it took between 0.46
+// and 3.13 seconds, so the ceiling is invisible until the day a project's file
+// changes.
+//
+// It is three minutes rather than fifteen because the daemon's own patience for
+// a container to come up is three (compose.defaultReadyTimeout), and a budget
+// wider than the one the work is bounded by would only postpone the same answer.
+// The application runtime's is longer because it pulls and builds a project's
+// whole service graph; an agent environment is one service that has usually been
+// built already.
+const AgentTimeout = 3 * time.Minute
+
 // DestroyRuntime is the body of POST /v1/tasks/{task_id}/runtime/destroy.
 //
 // It carries the user's confirmation, for the reason a launch carries the

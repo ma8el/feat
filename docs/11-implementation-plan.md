@@ -1558,6 +1558,28 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   because a session whose container is gone is not running, and saying so is what
   makes the recovery it already recommends available to the user it recommends
   it to.
+
+  Assessed and widened to the surface, because the dead end above is the visible
+  end of one story rather than a defect of its own. The maintainer asked why a
+  devcontainer has no management at all, when the application runtime beside it
+  has six verbs — and the answer was three things at once. The record was wrong:
+  observing the container wrote to the execution record and left the session
+  claiming a running agent. The guard was wrong: `resumable` read liveness as the
+  *existence* of a tmux object, and Feat's own `remain-on-exit` keeps a dead pane
+  reported. And the surface was missing: `Resume` had no command at all, so the
+  action reconciliation recommends was reachable only from the dashboard, and
+  `feat task cleanup` was the only way to stop a container — which is to say the
+  only way to free a machine overnight was to destroy the task.
+
+  One container per project was evaluated as the alternative and refused: the
+  generated override replaces mounts *by container path* with this task's
+  worktrees at this task's access, so which worktree is at a given path is the
+  task's identity written as container configuration (ADR-033). A `start` verb was
+  refused too, because a container with no session behind it is the class a
+  failed launch already leaves and cleanup already cannot resolve. What lands is
+  one invariant — an agent process cannot be alive while its environment is not
+  running — and one pair of verbs, `feat task resume` and `feat task stop`. See
+  ADR-057.
 - Make a launch that fails after its container exists recoverable, in the three
   places it currently is not. They are one story — the container outlives the
   request that created it — and each half was found by the maintainer while
@@ -1588,6 +1610,14 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   there is `defaultReadyTimeout` and nothing declares it to a client — and the
   two paragraphs below, which are about what an interrupted launch leaves behind
   rather than about how long anybody waits.
+
+  The timeout half is now done, with the lifecycle work above and for the same
+  reason: a resume runs the whole launch path, so shipping `feat task resume`
+  onto a ten-second budget would have been shipping this defect on a new command.
+  `api.AgentTimeout` is three minutes, matching the daemon's own patience for a
+  container; the daemon bounds a launch, a resume, and a stop with it, and the
+  client waits for it plus the margin. What is left of this entry is the two
+  paragraphs below (ADR-057).
 
   What the cancelled launch left behind, nothing can now remove. The container
   it had already created is still on the machine, exited, with its network
@@ -1643,6 +1673,9 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
 - A task whose agent container died can be recovered from the product, without
   reaching for tmux: what reconciliation reports about it and what resume will
   accept agree.
+- The environment a task's agent runs in can be stopped and brought back from
+  both the command line and the dashboard, without removing anything the work
+  lives in and without a verb that starts a container no session owns.
 - A launch that fails after its container exists leaves nothing the product
   cannot see: the client does not cancel a launch the daemon is still serving,
   the container and network are removable by name from the task that created

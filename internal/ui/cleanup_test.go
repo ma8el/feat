@@ -498,3 +498,85 @@ func TestResumingIsAKeyTheUserPresses(t *testing.T) {
 		t.Fatalf("pressing the resume key resumed %d sessions, want 1", len(backend.resumed))
 	}
 }
+
+// TestStoppingAWorkingAgentIsAskedAboutFirst covers the one key on this
+// dashboard that interrupts a turn.
+//
+// A stop is reversible and destroys nothing, so it does not get cleanup's
+// per-class confirmation. What it does get is a question when there is something
+// to interrupt: the agent of the fixture task is running, and a key is easier to
+// hit by accident than a typed command.
+func TestStoppingAWorkingAgentIsAskedAboutFirst(t *testing.T) {
+	backend := newFakeBackend()
+	model := dashboard(backend, liveTask())
+
+	updated, cmd := model.Update(key("t"))
+	model = updated.(Model)
+	runCommands(t, cmd)
+
+	if len(backend.stopped) != 0 {
+		t.Fatalf("a working agent was stopped before anybody answered: %v", backend.stopped)
+	}
+	if view := sized(model, 200, 32).View(); !strings.Contains(view, "y to confirm") {
+		t.Errorf("the dashboard does not say how to answer:\n%s", view)
+	}
+
+	// Anything other than a yes leaves the agent alone.
+	updated, cmd = model.Update(key("n"))
+	model = updated.(Model)
+	runCommands(t, cmd)
+	if len(backend.stopped) != 0 {
+		t.Fatalf("declining the question stopped the agent anyway: %v", backend.stopped)
+	}
+
+	updated, cmd = model.Update(key("t"))
+	model = updated.(Model)
+	runCommands(t, cmd)
+	_, cmd = model.Update(key("y"))
+	runCommands(t, cmd)
+
+	if len(backend.stopped) != 1 {
+		t.Fatalf("confirming stopped %d agents, want 1", len(backend.stopped))
+	}
+}
+
+// TestStoppingAnIdleAgentAsksNothing is the other half of that rule.
+//
+// A question with an obvious answer teaches people to answer without reading it,
+// and an agent that is not mid-turn has nothing a stop would interrupt.
+func TestStoppingAnIdleAgentAsksNothing(t *testing.T) {
+	task := liveTask()
+	task.Session.Process = "idle"
+
+	backend := newFakeBackend()
+	model := dashboard(backend, task)
+
+	_, cmd := model.Update(key("t"))
+	runCommands(t, cmd)
+
+	if len(backend.stopped) != 1 {
+		t.Fatalf("stopping an idle agent stopped %d, want 1 and no question", len(backend.stopped))
+	}
+}
+
+// TestStoppingAHostNativeAgentIsRefusedBeforeTheDaemon keeps the dashboard from
+// asking the daemon something it can answer itself.
+func TestStoppingAHostNativeAgentIsRefusedBeforeTheDaemon(t *testing.T) {
+	task := liveTask()
+	task.Session.ExecutionMode = "host"
+	task.Session.Execution = nil
+
+	backend := newFakeBackend()
+	model := dashboard(backend, task)
+
+	updated, cmd := model.Update(key("t"))
+	model = updated.(Model)
+	runCommands(t, cmd)
+
+	if len(backend.stopped) != 0 {
+		t.Fatalf("a host-native agent was sent to the daemon to be stopped: %v", backend.stopped)
+	}
+	if view := sized(model, 200, 32).View(); !strings.Contains(view, "no container to stop") {
+		t.Errorf("the dashboard does not say why nothing happened:\n%s", view)
+	}
+}

@@ -234,6 +234,13 @@ func (s *service) planDraft(ctx context.Context, ref store.TaskRef) (api.Resolve
 // is written down before anything is created, and a failure part way through
 // leaves the task failed with a record naming a superset of what exists.
 func (s *service) LaunchDraft(ctx context.Context, id domain.TaskID, fingerprint string) (*domain.Task, error) {
+	// A launch that has to create a container is not a request that answers in
+	// an ordinary request's budget, and the day it does not is the day the
+	// project's own Compose file changed and the service has to be recreated.
+	// One number bounds it at both ends (api.AgentTimeout).
+	ctx, cancel := context.WithTimeout(ctx, s.agentBudget())
+	defer cancel()
+
 	ref, err := s.draftRef(ctx, id)
 	if err != nil {
 		return nil, err

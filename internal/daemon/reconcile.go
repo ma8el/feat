@@ -231,7 +231,7 @@ func (s *service) reconcileTerminal(
 			return nil
 		}
 		if current.Session.Process != domain.ProcessStopped {
-			if err := s.markTerminalGone(ctx, current); err != nil {
+			if err := s.markSessionEnded(ctx, current, terminalGone); err != nil {
 				return err
 			}
 		}
@@ -295,14 +295,22 @@ func (s *service) reconcileTerminal(
 	return nil
 }
 
-// markTerminalGone records that a task's terminal is not on the machine.
+// terminalGone is why a session ended when its tmux terminal is not there.
+const terminalGone = "the recorded tmux terminal was not found; it was not restarted"
+
+// markSessionEnded records that a task's agent process is over.
 //
-// It is the one place that writes this observation, because two callers make it
-// and they must not describe it differently: a reconciliation pass that found
-// nothing where the record said, and a resume that asked tmux the same question
-// before acting on the answer. Nothing is restarted here — what the caller does
-// next is the caller's, and only one of them does anything at all.
-func (s *service) markTerminalGone(ctx context.Context, task *domain.Task) error {
+// It is the one place that writes this observation, because three callers make
+// it and they must not describe it differently: a reconciliation pass that found
+// nothing where the record said, a resume that asked tmux the same question
+// before acting on the answer, and a resume that found the terminal but not the
+// container the agent was running in. The reason is the caller's, because only
+// the caller knows which of the three it is; the state, the event, and the order
+// they are written in are not.
+//
+// Nothing is restarted here — what the caller does next is the caller's, and
+// only one of them does anything at all.
+func (s *service) markSessionEnded(ctx context.Context, task *domain.Task, reason string) error {
 	from := task.Session.Process
 	if err := task.Session.Observe(domain.ProcessStopped, s.now()); err != nil {
 		return err
@@ -312,7 +320,7 @@ func (s *service) markTerminalGone(ctx context.Context, task *domain.Task) error
 	}
 	s.record(ctx, task, domain.Event{
 		Type: domain.EventReconciled, From: string(from), To: string(domain.ProcessStopped),
-		Detail: "the recorded tmux terminal was not found; it was not restarted",
+		Detail: reason,
 	})
 	return nil
 }
@@ -325,16 +333,20 @@ func (s *service) markTerminalGone(ctx context.Context, task *domain.Task) error
 //
 // An action names something a user can actually do. The no-session branch used
 // to say "start the task again from the dashboard", and there is no such
-// command: `feat task` offers attach, cleanup, list, and review, and nothing
-// launches a task that is past draft. What is true is that a task with no
-// recorded session has never held an agent conversation, so cleaning it up and
-// preparing another loses nothing but the brief.
+// command: nothing launches a task that is past draft. What is true is that a
+// task with no recorded session has never held an agent conversation, so
+// cleaning it up and preparing another loses nothing but the brief.
+//
+// The command is named beside the key because the key was the only route for a
+// while, and a recovery a user can read about but not reach from where they are
+// reading is not one the product offers (ADR-057).
 func (s *service) resumeAction(task *domain.Task) string {
 	if task.Session == nil || task.Session.ProviderSessionID == "" {
 		return "clean it up and prepare the task again. Feat recorded no provider session to " +
 			"continue, which also means no agent ever reported working in this one"
 	}
-	return "resume it with z in the dashboard, which continues the recorded " + task.Session.Provider +
+	return "resume it with `feat task resume " + task.Key().String() + "`, or z in the dashboard, " +
+		"which continues the recorded " + task.Session.Provider +
 		" session rather than starting an empty one. Feat does not restart it on its own"
 }
 
@@ -535,6 +547,25 @@ func (s *service) reconcileEnvironments(ctx context.Context, tasks []*domain.Tas
 
 // recordObservedEnvironment writes down what an agent environment turned out to
 // be, under the task's own lock.
+//
+// It also applies the invariant that ties the two halves of a session together:
+// an agent process cannot be alive while the environment it runs in is not
+// running. The terminal pass cannot see a devcontainer's death on its own,
+// because the pane's own process is on the host side of the container and
+// outlives it — so recording the container and leaving the session claiming a
+// running agent produced both halves of a contradiction in one pass, a finding
+// saying to resume and a resume refusing because an agent was already running
+// (ADR-057).
+//
+// The state is failed rather than stopped because a stop the user asked for
+// records itself: `Stop` writes the process state it intended before this ever
+// observes the container. So an alive process against a container that is not
+// running is a death nobody asked for, which is exactly what session_failed
+// exists to interrupt somebody about.
+//
+// None of it is the automatic restart FR-STATE-004 forbids. Nothing is started
+// or stopped here; what changes is what the record says about a process that has
+// already ended.
 func (s *service) recordObservedEnvironment(ctx context.Context, task *domain.Task, state executionState) error {
 	defer s.locks.lock(task.ID)()
 
@@ -547,9 +578,18 @@ func (s *service) recordObservedEnvironment(ctx context.Context, task *domain.Ta
 	}
 	before := current.Session.Execution.Running
 	current.Session.Execution.Observe(state.Container, state.Running, state.Status, state.Health, s.now())
+
+	died := !state.Running && current.Session.Process.Alive()
+	from := current.Session.Process
+	if died {
+		if err := current.Session.Observe(domain.ProcessFailed, s.now()); err != nil {
+			return err
+		}
+	}
 	if err := s.store.Tasks().Save(ctx, current); err != nil {
 		return err
 	}
+
 	if before != state.Running {
 		s.record(ctx, current, domain.Event{
 			Type: domain.EventExecutionChanged, To: current.Session.Execution.Identity,
@@ -557,7 +597,27 @@ func (s *service) recordObservedEnvironment(ctx context.Context, task *domain.Ta
 				"; it was not started or stopped",
 		})
 	}
+	if died {
+		s.record(ctx, current, domain.Event{
+			Type: domain.EventReconciled, From: string(from), To: string(domain.ProcessFailed),
+			Detail: "the agent container is " + describeStatus(state) +
+				", so the session running inside it has ended; it was not restarted",
+		})
+		s.notifyChange(ctx, current, false, true)
+	}
 	return nil
+}
+
+// describeStatus renders what an environment observation says about a container,
+// for a person reading an event log.
+func describeStatus(state executionState) string {
+	if state.Status != "" {
+		return state.Status
+	}
+	if !state.Present {
+		return "gone"
+	}
+	return "not running"
 }
 
 func describeRunning(running bool) string {

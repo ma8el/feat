@@ -48,6 +48,9 @@ type Environment interface {
 	// here. It is separate from Inspect so that diagnostics can show the same
 	// facts a launch refuses over.
 	Check(report Report) error
+	// Stop stops the containers of this environment and keeps them, so that a
+	// resume can start the same containers again. It removes nothing.
+	Stop(ctx context.Context) (State, error)
 	// Destroy removes the containers and networks this environment owns, and no
 	// volume. It is only ever reached from a cleanup the user confirmed.
 	Destroy(ctx context.Context) (State, error)

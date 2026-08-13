@@ -36,6 +36,12 @@ import (
 // automatic restart: that rule is about recovery starting things by itself, and
 // this is a user asking.
 func (s *service) Resume(ctx context.Context, id domain.TaskID) (*domain.Task, error) {
+	// A resume brings a container up, which is not work that finishes inside an
+	// ordinary request's budget. One number bounds it at both ends
+	// (api.AgentTimeout).
+	ctx, cancel := context.WithTimeout(ctx, s.agentBudget())
+	defer cancel()
+
 	defer s.locks.lock(id)()
 
 	task, err := s.Task(ctx, id)
@@ -43,8 +49,8 @@ func (s *service) Resume(ctx context.Context, id domain.TaskID) (*domain.Task, e
 		return nil, err
 	}
 
-	// A record claiming a live process is the one case where tmux has to be
-	// asked, and it is asked rather than believed. Nothing watches tmux
+	// A record claiming a live process is the one case where the machine has to
+	// be asked, and it is asked rather than believed. Nothing watches tmux
 	// continuously, so that record only becomes stopped when a reconciliation
 	// pass runs or the provider's own end-of-session hook lands: a window killed
 	// from tmux leaves it saying idle while there is nothing there, and refusing
@@ -53,26 +59,20 @@ func (s *service) Resume(ctx context.Context, id domain.TaskID) (*domain.Task, e
 	// it. A tmux server that is not running discovers as empty rather than
 	// failing, so a machine that rebooted arrives here with live false and
 	// resumes (ADR-037).
-	live := false
-	if task.Session != nil && task.Session.Process.Alive() {
-		_, found, err := s.terminals.Find(ctx, task.ProjectID, task.ID)
-		if err != nil {
-			// An unreadable tmux is not evidence of a dead terminal, and a resume
-			// that assumed it was would start a second agent beside a live one.
-			return nil, err
-		}
-		live = found
+	live, reason, err := s.attachable(ctx, task)
+	if err != nil {
+		return nil, err
 	}
 	if err := resumable(task, live); err != nil {
 		return nil, err
 	}
-	// Passing with a record that still claims a live process means tmux answered
-	// that the terminal is gone. It is corrected before anything acts on it: the
-	// container comes up and the agent starts over the seconds that follow, and a
-	// dashboard claiming idle throughout would be describing the session this
-	// call is replacing.
+	// Passing with a record that still claims a live process means the machine
+	// answered that there is nothing there. It is corrected before anything acts
+	// on it: the container comes up and the agent starts over the seconds that
+	// follow, and a dashboard claiming idle throughout would be describing the
+	// session this call is replacing.
 	if task.Session.Process.Alive() {
-		if err := s.markTerminalGone(ctx, task); err != nil {
+		if err := s.markSessionEnded(ctx, task, reason); err != nil {
 			return nil, err
 		}
 	}
@@ -120,6 +120,65 @@ func (s *service) Resume(ctx context.Context, id domain.TaskID) (*domain.Task, e
 		slog.String("provider_session", task.Session.ProviderSessionID))
 
 	return s.ensureTerminal(ctx, task, cfg, plan)
+}
+
+// attachable reports whether a recorded session is something a user could attach
+// to instead of resuming, and why it is not when it is not.
+//
+// Three things have to hold and the record on its own establishes none of them.
+// The window has to be there, because one killed from tmux leaves the record
+// saying idle. Its agent pane has to be alive, because Feat sets remain-on-exit
+// on every pane it creates, so that a program which exits leaves its output and
+// its status behind (ADR-030) — and a pane held open that way is still a pane
+// tmux reports, with nothing running in it. And the environment the agent runs
+// in has to be running, because the pane's own process is on the host side of a
+// container and outlives it, which is how a devcontainer that exited 137 left a
+// task with a finding telling the user to resume and a resume telling them to
+// attach instead (ADR-057).
+//
+// A record that does not claim a live process is not asked about at all. There
+// is nothing to contradict, and a resume of a task already known to be stopped
+// should not spend a container command establishing it twice.
+func (s *service) attachable(ctx context.Context, task *domain.Task) (bool, string, error) {
+	if task.Session == nil || !task.Session.Process.Alive() {
+		return false, "", nil
+	}
+
+	terminal, found, err := s.terminals.Find(ctx, task.ProjectID, task.ID)
+	if err != nil {
+		// An unreadable tmux is not evidence of a dead terminal, and a resume
+		// that assumed it was would start a second agent beside a live one.
+		return false, "", err
+	}
+	if !found {
+		return false, terminalGone, nil
+	}
+	if !terminal.ProcessState().Alive() {
+		return false, "the agent in the recorded tmux pane had already exited; " +
+			"the pane it left behind was reused rather than replaced", nil
+	}
+
+	// A host-native session records no environment, and the host is not
+	// something that can be missing from itself.
+	if task.Session.Execution == nil {
+		return true, "", nil
+	}
+	environment, err := s.environmentFor(task)
+	if err != nil {
+		return false, "", fmt.Errorf("%w: the agent environment of task %s could not be resolved: %w",
+			api.ErrInvalid, task.ID, err)
+	}
+	state, err := environment.Observe(ctx)
+	if err != nil {
+		// The rule tmux gets above: not being able to look is not evidence of
+		// what is there.
+		return false, "", fmt.Errorf("the agent environment of task %s could not be observed: %w", task.ID, err)
+	}
+	if state.Running {
+		return true, "", nil
+	}
+	return false, "the agent container was " + describeStatus(state) +
+		", so the session running inside it had already ended", nil
 }
 
 // resumable reports why a task cannot be resumed, in terms that name the remedy.

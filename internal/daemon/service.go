@@ -107,6 +107,9 @@ type service struct {
 	// Compose command outlasts its budget can be observed without a test that
 	// takes as long as the budget.
 	runtimeOverride time.Duration
+	// agentOverride replaces api.AgentTimeout as the budget for one launch,
+	// resume, or stop. Only a test sets it, for the reason above.
+	agentOverride time.Duration
 
 	// idle holds the pending end-of-turn transitions, one per task.
 	idle *idleTimers

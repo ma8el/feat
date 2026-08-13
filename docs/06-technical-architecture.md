@@ -140,6 +140,7 @@ POST   /v1/tasks/{task_id}/review/verify
 POST   /v1/tasks/{task_id}/cleanup/plan
 POST   /v1/tasks/{task_id}/cleanup/execute
 POST   /v1/tasks/{task_id}/resume            continues the recorded agent session
+POST   /v1/tasks/{task_id}/stop              stops the environment that session runs in
 GET    /v1/reconciliation                    the most recent recovery pass
 POST   /v1/reconciliation                    looks again and records what it saw
 ```
@@ -153,6 +154,8 @@ Task endpoints address a task by its identifier alone, as the command surface do
 A draft is a task in `draft` state, so `{draft_id}` is a task identifier and a draft appears in `GET /v1/tasks` as the draft it is. Preparation is three requests rather than two: resolving fetches, so it follows a key the user pressed rather than a field they edited, and launching carries the fingerprint of the plan that was displayed so that what is created is what the user read. A draft that changed in between is refused rather than re-resolved. Cancelling archives the record. See ADR-031.
 
 `POST /v1/tasks/{task_id}/shell` carries an identifier and nothing to execute; the daemon builds the command, for the reason destructive requests carry resource identifiers rather than paths.
+
+`resume` and `stop` are the two verbs of an agent environment's lifecycle, and there is deliberately no third: a launch creates one, a resume brings one back, and cleanup removes it, so no endpoint produces a container that no session owns. Both, and the draft launch, are bounded by `api.AgentTimeout` rather than by an ordinary request's budget — the daemon stops waiting for Docker at it and the client waits for it plus a margin, because a client that gave up first would cancel a request the daemon is still serving and leave behind a container the answer never named. See ADR-057.
 
 The runtime endpoints are one per manual action, because each is a separate
 thing a user asks for and the path is what names it: an action Feat does not

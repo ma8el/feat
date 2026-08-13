@@ -15,6 +15,30 @@ import (
 // the values of the project's environment files (ADR-028, ADR-034).
 const composeProjectLabel = "com.docker.compose.project"
 
+// Stop stops this task's agent containers and keeps them.
+//
+// `stop` rather than `down`: what a user is asking for is the task's agent to
+// sleep, and the container that comes back has the same identity, the same
+// generated mounts, and the same volumes as the one that went away. Removing it
+// is cleanup's, and cleanup asks first.
+//
+// It names no service, so it stops the whole of this task's Compose project.
+// Stopping only the agent service would leave whatever the devcontainer's own
+// file starts beside it — a database, a message broker — running and holding its
+// resources with no agent to use them, which is the shape ADR-034 evidence 12
+// recorded for the application runtime and is no different here.
+func (e *Environment) Stop(ctx context.Context) (execution.State, error) {
+	output, err := e.runner.Run(ctx, e.invoke("stop"))
+	if err != nil {
+		return execution.State{}, err
+	}
+	if !output.Succeeded() {
+		return execution.State{}, fmt.Errorf("stopping the agent containers of Compose project %s failed: %s",
+			e.spec.Identity, lastLine(output.Stderr, output.Stdout))
+	}
+	return e.Observe(ctx)
+}
+
 // Destroy removes the containers and networks of this task's agent environment.
 //
 // It is the method ADR-033 deferred to the slice that owns what cleanup retains.

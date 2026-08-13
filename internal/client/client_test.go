@@ -384,6 +384,60 @@ func TestTheRuntimeBudgetCoversTheDaemons(t *testing.T) {
 	}
 }
 
+// TestTheAgentBudgetCoversTheDaemons is the same agreement for the three
+// requests that create or stop a task's agent environment.
+//
+// It is the regression for the launch that found the rule: `POST
+// /v1/task-drafts/{id}/launch` failed after 10.018 seconds with `context
+// canceled` while the daemon went on serving it, because the project's own
+// Compose file had changed and the service had to be recreated. What the
+// cancelled launch left behind — a container the record no longer named — is
+// what makes this a data problem rather than a slow one.
+func TestTheAgentBudgetCoversTheDaemons(t *testing.T) {
+	if agentTimeout <= api.AgentTimeout {
+		t.Errorf("the client waits %s for work the daemon may spend %s on",
+			agentTimeout, api.AgentTimeout)
+	}
+	if agentTimeout <= requestTimeout {
+		t.Errorf("a launch, resume, or stop waits %s, no longer than an ordinary request's %s",
+			agentTimeout, requestTimeout)
+	}
+}
+
+// TestEveryAgentEnvironmentRequestOutwaitsAnOrdinaryOne checks that all three
+// carry the longer budget.
+//
+// One of the three having been left on the ordinary budget is exactly the defect
+// this exists for, and it is invisible until the day a container has to be
+// built: the five launches before the one that failed took between 0.46 and 3.13
+// seconds.
+func TestEveryAgentEnvironmentRequestOutwaitsAnOrdinaryOne(t *testing.T) {
+	const work = 300 * time.Millisecond
+	const id = "12345678-1234-4234-8234-123456789abc"
+
+	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(work):
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"id":%q}`, id)
+	}))
+	caller.timeout = work / 4
+	caller.agentTimeout = 10 * work
+
+	for name, request := range map[string]func() error{
+		"launch": func() error { _, err := caller.LaunchDraft(context.Background(), id, "fingerprint"); return err },
+		"resume": func() error { _, err := caller.Resume(context.Background(), id); return err },
+		"stop":   func() error { _, err := caller.Stop(context.Background(), id); return err },
+	} {
+		if err := request(); err != nil {
+			t.Errorf("a %s the daemon was still working on was abandoned: %v", name, err)
+		}
+	}
+}
+
 // TestACallersOwnDeadlineIsLeftAlone keeps the client from claiming a deadline
 // as its own.
 //
