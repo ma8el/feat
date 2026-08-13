@@ -56,6 +56,8 @@ feat project show <project>
 feat task list
 feat task attach <task>
 feat task review <task>
+feat task resume <task>
+feat task stop <task>
 feat task cleanup <task>
 feat runtime create <task>
 feat runtime start <task>
@@ -82,6 +84,14 @@ Every `<task>` above is a task's short key, its whole identifier, or any prefix
 of that identifier. The key is what every list prints, the identifier is what the
 dashboard's task detail shows, and a prefix matching two tasks is reported rather
 than resolved to either. See ADR-038.
+
+`feat task resume` and `feat task stop` are the whole lifecycle of the
+environment a task's agent runs in. A launch creates it, a stop puts it to sleep
+keeping the worktrees, branches, control workspace, volumes, and terminal, a
+resume brings the same containers back and continues the recorded session, and
+cleanup removes it. There is deliberately no verb that starts one without a
+session: every route to a running agent environment goes through the session that
+owns it, so no container exists that no task accounts for. See ADR-057.
 
 `feat runtime` carries the six manual actions FR-RUN-005 names. Each is an
 explicit user request: no workflow transition and no agent reaches one, and

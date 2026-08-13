@@ -124,6 +124,11 @@ func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
 		// it here would ask the running user's daemon about one of their tasks,
 		// and answering "yes" to a prompt would remove it.
 		"feat task cleanup": true,
+		// Resume and stop reach the daemon and act on one task's agent
+		// environment. Invoking either here would start or stop a container
+		// belonging to one of the running user's tasks.
+		"feat task resume": true,
+		"feat task stop":   true,
 	}
 
 	var walk func(cmd *cobra.Command)

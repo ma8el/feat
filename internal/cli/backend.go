@@ -119,6 +119,11 @@ func (b *backend) Resume(ctx context.Context, id string) (api.Task, error) {
 	return b.client.Resume(ctx, id)
 }
 
+// Stop stops the environment a task's agent session runs in.
+func (b *backend) Stop(ctx context.Context, id string) (api.Task, error) {
+	return b.client.Stop(ctx, id)
+}
+
 // TerminalFrame asks the daemon for one rendered view of a task's pane.
 func (b *backend) TerminalFrame(ctx context.Context, id string, view api.TerminalView) (api.TerminalFrame, error) {
 	return b.client.TerminalFrame(ctx, id, view)

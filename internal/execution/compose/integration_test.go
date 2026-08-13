@@ -625,3 +625,64 @@ func TestRealTheOverrideRemovesWhatWouldCollide(t *testing.T) {
 		}
 	}
 }
+
+// TestRealAStoppedEnvironmentKeepsItsContainerAndComesBack is the lifecycle a
+// user drives, against the container runtime that decides it.
+//
+// The three claims a fake cannot answer: that `stop` leaves the container in
+// place rather than removing it as `down` would, that what comes back after a
+// second `up` is the same container rather than a new one, and that what the
+// agent wrote inside it survives the round trip. The last is what makes a stop
+// reversible in the sense a user means — a container that came back empty would
+// be a launch wearing a resume's name (ADR-057).
+func TestRealAStoppedEnvironmentKeepsItsContainerAndComesBack(t *testing.T) {
+	realDocker(t)
+
+	environment, _, _ := realTask(t, domain.NewTaskID())
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("preparing the environment: %v", err)
+	}
+
+	started, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the started environment: %v", err)
+	}
+	if !started.Running {
+		t.Fatalf("the prepared environment is not running: %s", started.Status)
+	}
+	// Something inside the container's own filesystem, above any mount, so that
+	// what survives is the container rather than the host directory under it.
+	if got := inside(t, environment, "touch", "/tmp/written-before-the-stop"); !got.Succeeded() {
+		t.Fatalf("writing inside the container: %s", got.Stderr)
+	}
+
+	stopped, err := environment.Stop(context.Background())
+	if err != nil {
+		t.Fatalf("stopping: %v", err)
+	}
+	if stopped.Running {
+		t.Errorf("the environment is still running after a stop: %s", stopped.Status)
+	}
+	// Present rather than gone is the whole difference between this and cleanup.
+	if !stopped.Present {
+		t.Error("stopping removed the container; `stop` keeps it and `down` is cleanup's")
+	}
+
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("bringing the stopped environment back: %v", err)
+	}
+	resumed, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the resumed environment: %v", err)
+	}
+	if !resumed.Running {
+		t.Fatalf("the environment did not come back: %s", resumed.Status)
+	}
+	if resumed.Container != started.Container {
+		t.Errorf("the container is %s after a stop and a start, want the same %s it was before",
+			resumed.Container, started.Container)
+	}
+	if got := inside(t, environment, "cat", "/tmp/written-before-the-stop"); !got.Succeeded() {
+		t.Errorf("what was written before the stop did not survive it: %s", got.Stderr)
+	}
+}

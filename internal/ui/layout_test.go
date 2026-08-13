@@ -1095,3 +1095,37 @@ func TestTheRailSaysWhenTheListDoesNotFit(t *testing.T) {
 		}
 	}
 }
+
+// TestAResumeIsNeverOfferedWithoutItsStop keeps the two halves of one lifecycle
+// on screen together.
+//
+// The footer names what is reachable from where the user is standing rather than
+// every key, so it is a judgement each view makes — but resume and stop are one
+// pair, and a view that named only the resume shipped that way: `t` was bound,
+// worked, and appeared in the `?` overlay, and no footer said it existed.
+// Reported by the maintainer on the first run of the new commands.
+//
+// The rule is symmetry rather than presence. A view is free to name neither.
+func TestAResumeIsNeverOfferedWithoutItsStop(t *testing.T) {
+	backend := newFakeBackend()
+
+	for name, screen := range map[string]func() Model{
+		"the whole dashboard": func() Model {
+			return sized(dashboard(backend, liveTask()), 200, 40)
+		},
+		"a terminal too narrow for three regions": func() Model {
+			return sized(dashboard(backend, liveTask()), 70, 30)
+		},
+		"the task panel": func() Model {
+			return press(t, sized(dashboard(backend, liveTask()), 200, 40), "v")
+		},
+	} {
+		view := screen().View()
+		resume := strings.Contains(view, "z resume")
+		stop := strings.Contains(view, "t stop")
+		if resume != stop {
+			t.Errorf("%s offers resume=%v and stop=%v; they are one pair and the footer "+
+				"names both or neither:\n%s", name, resume, stop, view)
+		}
+	}
+}

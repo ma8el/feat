@@ -49,6 +49,7 @@ func (m Model) listView() string {
 		keyHint("R", "runtime"),
 		keyHint("C", "cleanup"),
 		keyHint("z", "resume"),
+		keyHint("t", "stop"),
 		keyHint("r", "refresh"),
 		keyHint("q", "quit"),
 	))

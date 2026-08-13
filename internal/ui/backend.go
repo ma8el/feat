@@ -60,6 +60,10 @@ type Backend interface {
 	// Resume continues a task's recorded agent session. Nothing but a user
 	// reaches it: recovery is offered and never automatic (FR-STATE-004).
 	Resume(ctx context.Context, id string) (api.Task, error)
+	// Stop stops the environment a task's agent session runs in, keeping the
+	// containers so that a resume starts the same ones again. It is the only
+	// way to stop a task's agent short of removing it (ADR-057).
+	Stop(ctx context.Context, id string) (api.Task, error)
 	// Reconciliation returns the daemon's most recent recovery pass, so the
 	// dashboard can show what needs attention. Reading it runs nothing.
 	Reconciliation(ctx context.Context) (api.Reconciliation, error)

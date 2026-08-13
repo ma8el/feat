@@ -123,6 +123,24 @@ a task reaches review only when the agent explicitly asks for it. The first
 launch in a new worktree waits for Claude's own workspace-trust prompt; Feat
 says a task is waiting rather than answering on your behalf.
 
+```sh
+feat task stop <task>     # put the agent's container to sleep, or press t
+feat task resume <task>   # bring it back and continue the same session, or z
+```
+
+A task you are not working on today does not need its container running. Stopping
+one keeps everything the work lives in — the worktrees, the branches, the control
+workspace, the volumes, and the terminal holding what the session printed — and
+resuming brings the same containers back and continues the recorded conversation
+rather than opening an empty one. The application's services are separate and
+stay where you left them.
+
+That pair is the whole lifecycle. There is no command that starts a task's
+container by itself: coming back is always a resume of the session that owns it,
+which is what keeps every container on your machine something a task can account
+for. If one dies on its own, Feat says so, says the session inside it is over,
+and offers you the resume.
+
 ## Running the application
 
 Each task's services are its own: Feat gives them their own Compose project,

@@ -33,6 +33,12 @@ const (
 	// `context deadline exceeded` and worked when the user tried it again —
 	// because by then the images were pulled and the containers existed.
 	runtimeTimeout = api.RuntimeTimeout + answerMargin
+	// agentTimeout bounds a request that creates or stops a task's agent
+	// environment: a launch, a resume, or a stop. Same shape as the line above
+	// and the same reason — the daemon is driving Docker Compose, and a launch
+	// whose service has to be recreated took ten seconds and one hundredth of a
+	// second on the day the project's own Compose file changed.
+	agentTimeout = api.AgentTimeout + answerMargin
 	// answerMargin is how much longer than the daemon's own budget a client waits
 	// for the answer, so that the daemon's diagnosis is what ends the request.
 	// The same margin the daemon allows a completion gate over its own.
@@ -54,13 +60,14 @@ const host = "feat"
 type Client struct {
 	socket string
 	http   *http.Client
-	// timeout bounds an ordinary request, and runtimeTimeout the one endpoint
-	// whose answer waits on a container tool. They are fields rather than the
-	// constants themselves so that a test can shrink both and still be testing
-	// the rule — that the second is the one the runtime endpoint gets — rather
+	// timeout bounds an ordinary request; runtimeTimeout and agentTimeout the
+	// endpoints whose answers wait on a container tool. They are fields rather
+	// than the constants themselves so that a test can shrink them and still be
+	// testing the rule — that these endpoints get the longer budgets — rather
 	// than waiting out a budget measured in minutes.
 	timeout        time.Duration
 	runtimeTimeout time.Duration
+	agentTimeout   time.Duration
 }
 
 // New returns a client for the daemon listening on the given socket.
@@ -69,6 +76,7 @@ func New(socket string) *Client {
 		socket:         socket,
 		timeout:        requestTimeout,
 		runtimeTimeout: runtimeTimeout,
+		agentTimeout:   agentTimeout,
 		http: &http.Client{
 			// No client timeout: the event stream is meant to stay open, and
 			// every other call bounds itself with a context instead.
@@ -238,8 +246,16 @@ func (c *Client) Cleanup(
 }
 
 // Resume continues a task's recorded agent session.
+//
+// It waits on the agent budget rather than an ordinary one, because a resume
+// brings the task's container back up before the agent can be started in it.
 func (c *Client) Resume(ctx context.Context, id string) (api.Task, error) {
-	return send[api.Task](ctx, c, "/tasks/"+url.PathEscape(id)+"/resume", struct{}{})
+	return sendWithin[api.Task](ctx, c, c.agentTimeout, "/tasks/"+url.PathEscape(id)+"/resume", struct{}{})
+}
+
+// Stop stops the environment a task's agent session runs in.
+func (c *Client) Stop(ctx context.Context, id string) (api.Task, error) {
+	return sendWithin[api.Task](ctx, c, c.agentTimeout, "/tasks/"+url.PathEscape(id)+"/stop", struct{}{})
 }
 
 // CreateDraft records a new task draft and creates nothing else.
@@ -263,8 +279,13 @@ func (c *Client) PlanDraft(ctx context.Context, id string) (api.DraftPlan, error
 
 // LaunchDraft confirms a draft, carrying the fingerprint of the plan that was
 // displayed so that what is created is what the user saw.
+//
+// It waits on the agent budget for the reason Resume does, and it is the request
+// that found the rule: a launch whose service had to be recreated because the
+// project's own Compose file had changed took 10.018 seconds against a ten-second
+// ceiling, and the client cancelled a launch the daemon was still serving.
 func (c *Client) LaunchDraft(ctx context.Context, id, fingerprint string) (api.Task, error) {
-	return send[api.Task](ctx, c, "/task-drafts/"+url.PathEscape(id)+"/launch",
+	return sendWithin[api.Task](ctx, c, c.agentTimeout, "/task-drafts/"+url.PathEscape(id)+"/launch",
 		api.LaunchDraft{Fingerprint: fingerprint})
 }
 

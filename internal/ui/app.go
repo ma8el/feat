@@ -206,6 +206,15 @@ type Model struct {
 	err    error
 	status string
 
+	// stopping is the task a stop is waiting for a yes about, by identifier.
+	//
+	// Only a task whose agent is mid-turn asks. Stopping one interrupts what it
+	// was doing, and a key is easier to hit by accident than a typed command —
+	// while a task that is idle or already stopped has nothing to interrupt, and
+	// a question with an obvious answer teaches people to answer without reading
+	// (the rule ADR-037 applies to cleanup's warnings).
+	stopping string
+
 	width, height int
 	loaded        bool
 	quitting      bool
@@ -847,6 +856,21 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 // there while it cleans a task up here. A view that claims a key keeps it, and
 // everything else lands on the dashboard's own meaning.
 func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// A pending confirmation takes the keyboard, as it does on the runtime
+	// screen: while Feat is asking whether to interrupt a working agent, no
+	// other key means anything.
+	if m.stopping != "" {
+		id := m.stopping
+		m.stopping = ""
+		switch key.String() {
+		case "y", "Y":
+			return m.stopAgent(id)
+		default:
+			m.status = "the agent was left running"
+			return m, nil
+		}
+	}
+
 	switch key.String() {
 	case "ctrl+c", "q":
 		m.quitting = true
@@ -951,6 +975,9 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "z":
 		return m.resume()
 
+	case "t":
+		return m.stop()
+
 	case "x":
 		return m.cancel()
 
@@ -1030,6 +1057,50 @@ func (m Model) resume() (tea.Model, tea.Cmd) {
 	// resolves what the recovery band was reporting.
 	return m, tea.Batch(func() tea.Msg {
 		if _, err := backend.Resume(context.Background(), id); err != nil {
+			return tasksMsg{err: err}
+		}
+		tasks, err := backend.Tasks(context.Background())
+		return tasksMsg{tasks: tasks, err: err}
+	}, m.reconcile())
+}
+
+// stop puts the selected task's agent to sleep.
+//
+// It asks first only when there is something to interrupt. An agent that is
+// running is mid-turn, and stopping it ends that turn wherever it had got to;
+// one that is idle, stopped, or failed is not doing anything a user would want
+// to be warned about losing.
+func (m Model) stop() (tea.Model, tea.Cmd) {
+	task, ok := m.subject()
+	if !ok {
+		return m, nil
+	}
+	if task.Session == nil {
+		m.status = "task " + task.Key + " has no agent session to stop"
+		return m, nil
+	}
+	if task.Session.Execution == nil {
+		m.status = "the agent of task " + task.Key + " runs on this machine, " +
+			"where Feat owns no container to stop"
+		return m, nil
+	}
+	// The string rather than a domain constant, because the dashboard reads the
+	// API's task and never imports the domain (ui-is-a-client).
+	if task.Session.Process == "running" {
+		m.stopping = task.ID
+		return m, nil
+	}
+	return m.stopAgent(task.ID)
+}
+
+// stopAgent sends the stop and reads the result back.
+func (m Model) stopAgent(id string) (tea.Model, tea.Cmd) {
+	backend := m.backend
+	m.status = "stopping the agent environment…"
+	// A new pass follows for the reason a resume runs one: a stop is the other
+	// act that changes what the recovery band is reporting about a container.
+	return m, tea.Batch(func() tea.Msg {
+		if _, err := backend.Stop(context.Background(), id); err != nil {
 			return tasksMsg{err: err}
 		}
 		tasks, err := backend.Tasks(context.Background())

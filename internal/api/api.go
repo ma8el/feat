@@ -132,6 +132,13 @@ type Service interface {
 	// reconciliation reaches it, and it continues the provider session the task
 	// recorded rather than opening an empty one (ADR-032, ADR-037).
 	Resume(ctx context.Context, id domain.TaskID) (*domain.Task, error)
+	// Stop stops the environment a task's agent session runs in, keeping the
+	// containers so that a resume starts the same ones again.
+	//
+	// It is the only way to stop a task's agent short of removing it, and it is
+	// reversible by exactly one act: resuming the session that owns the
+	// environment (ADR-057).
+	Stop(ctx context.Context, id domain.TaskID) (*domain.Task, error)
 	// Resources returns the most recent resource sample.
 	//
 	// It reads what a background sampler collected rather than taking a sample:
@@ -240,6 +247,12 @@ func NewHandler(opts Options) http.Handler {
 	// session can be resumed and never resumes one.
 	mux.Handle("/v1/tasks/{task_id}/resume", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.resume,
+	}))
+	// Stopping one is the inverse and is a sibling rather than an action under a
+	// noun of its own: there is no third verb for an agent environment, because
+	// coming back is always a resume of the session that owns it (ADR-057).
+	mux.Handle("/v1/tasks/{task_id}/stop", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.stop,
 	}))
 	// Reading the last pass and running a new one are the same resource: GET
 	// answers with what was found, and POST looks again. It is the shape slice 9
@@ -584,6 +597,25 @@ func (s *server) resume(w http.ResponseWriter, r *http.Request) {
 	}
 
 	task, err := s.service.Resume(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newTask(task, nil))
+}
+
+// stop stops the environment a task's agent session runs in.
+func (s *server) stop(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "task_id")
+	if !ok {
+		return
+	}
+	if err := decodeEmptyBody(r); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	task, err := s.service.Stop(r.Context(), id)
 	if err != nil {
 		s.fail(w, r, err)
 		return
