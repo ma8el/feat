@@ -789,6 +789,29 @@ func TestTheHostBoundaryIsStatedRatherThanImplied(t *testing.T) {
 	}
 }
 
+// TestTheSessionIsToldItsStashIsSharedWithEveryoneElse pins the one thing in
+// the generated instructions that is not about the protocol.
+//
+// A task's repositories are linked worktrees, and Git keeps one stash stack per
+// repository rather than one per worktree — so `git stash pop` in a task takes
+// whatever entry is newest, which may be another task's work or the user's, and
+// says nothing unusual while it does it. Nothing about the session's own view
+// reveals that, which is why it is stated rather than left to be discovered
+// (ADR-056).
+func TestTheSessionIsToldItsStashIsSharedWithEveryoneElse(t *testing.T) {
+	_, workspace := prepared(t, false)
+	body := instructions(t, workspace)
+
+	for _, phrase := range []string{"worktree", "stash", "task branch"} {
+		if !strings.Contains(body, phrase) {
+			t.Errorf("the generated instructions do not mention %q: %q", phrase, body)
+		}
+	}
+	if !strings.Contains(body, "git stash pop") {
+		t.Error("the generated instructions do not name the command that takes somebody else's entry")
+	}
+}
+
 // TestArgumentsAreSingleLine keeps the launch passable to the terminal backend.
 //
 // internal/tmux refuses an argument containing a newline, because its own

@@ -200,9 +200,12 @@ func initialPrompt(seen agentPaths) string {
 
 // systemPrompt is the Feat protocol, appended to Claude's own system prompt.
 //
-// It is deliberately short and entirely about the protocol. Nothing here tells
-// the agent how to do its work: the project's own CLAUDE.md does that, and it
-// still applies.
+// It is deliberately short and almost entirely about the protocol. Nothing here
+// tells the agent how to do its work: the project's own CLAUDE.md does that, and
+// it still applies. The one exception is the stash, which is not advice about
+// the work but a fact about the environment Feat built — a task's repositories
+// are linked worktrees sharing one Git directory, and a session cannot see from
+// inside that its stash is somebody else's too (ADR-056).
 func systemPrompt(req agent.PrepareRequest, seen agentPaths) string {
 	var b strings.Builder
 
@@ -243,6 +246,16 @@ func systemPrompt(req agent.PrepareRequest, seen agentPaths) string {
 	fmt.Fprintf(&b, "The same helper takes completion_report and open_question. Use %s open_question with ",
 		seen.report())
 	b.WriteString("{\"question\": \"...\"} when you are blocked on a decision only the user can make.\n\n")
+
+	b.WriteString("Your repositories are Git worktrees. Each has its own working tree, index, and branch, ")
+	b.WriteString("and shares one Git directory with the user's own checkout and with every other task — ")
+	b.WriteString("including the stash, which Git keeps as a single stack per repository rather than per worktree. ")
+	b.WriteString("Entries you cannot see are on it, and `git stash pop` takes the newest one in the repository, ")
+	b.WriteString("which may be another task's work or the user's. Commit work in progress on your task branch instead. ")
+	b.WriteString("Never run `git stash pop`, `git stash drop`, or `git stash clear`: they destroy an entry, ")
+	b.WriteString("and the entry may not be yours. Feat turns off `rebase.autoStash` and `merge.autoStash` ")
+	b.WriteString("for this session for the same reason, so a rebase with a dirty tree stops and asks ")
+	b.WriteString("rather than stashing onto that shared stack.\n\n")
 
 	if req.Environment.OutsideConfiguredBoundary {
 		// The agent is told, because it is true and because a session that
