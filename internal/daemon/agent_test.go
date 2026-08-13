@@ -1063,6 +1063,107 @@ func TestAttentionClearsWhenTheAgentGetsThroughItsTurn(t *testing.T) {
 	}
 }
 
+// TestAReviewRequestDoesNotClaimTheSessionIsWaiting comes from the dogfood runs
+// ADR-058 records.
+//
+// The agent writes its review request in the middle of a turn it then carries
+// on with: through the completion gate, and back into its own loop when the gate
+// fails. Attention said possibly-waiting for all of it — seven minutes of active
+// work on two real tasks — and cleared at the end of the turn, which is the one
+// moment it was true. The dashboard counted a working agent into "may need you".
+func TestAReviewRequestDoesNotClaimTheSessionIsWaiting(t *testing.T) {
+	live := launch(t, hostFixture, installed(), false)
+	live.start(t)
+
+	live.emit(t, control.TypeReviewRequested, `{"summary":"Ready for review."}`)
+
+	task := live.task(t)
+	if task.Workflow != domain.WorkflowReviewRequested {
+		t.Fatalf("workflow = %q, want review_requested", task.Workflow)
+	}
+	if task.Attention != domain.AttentionNone {
+		t.Errorf("attention after a review request = %q, want none: the workflow says the task is in review, "+
+			"and nothing has reported that the session is waiting for a person", task.Attention)
+	}
+	if task.Session.Process != domain.ProcessRunning {
+		t.Errorf("process after a review request = %q, want running", task.Session.Process)
+	}
+
+	// The end of the turn and the idle grace after it are what decide the
+	// attention, here as everywhere else.
+	live.hook(t, "Stop", `{"session_id":"claude-session-1"}`)
+	live.timer.fire()
+	if task := live.task(t); task.Attention != domain.AttentionPossiblyWaiting {
+		t.Errorf("attention once the turn ended and the grace passed = %q, want possibly_waiting", task.Attention)
+	}
+}
+
+// TestAnIdleSessionExplainsTheAttentionItSets covers the other half of ADR-058:
+// the state used to be written to the task and left out of its history, so the
+// one place a user could ask why a task was counted as needing them said only
+// that the process had gone idle.
+func TestAnIdleSessionExplainsTheAttentionItSets(t *testing.T) {
+	live := launch(t, hostFixture, installed(), false)
+	live.start(t)
+
+	live.hook(t, "Stop", `{"session_id":"claude-session-1"}`)
+	live.timer.fire()
+
+	if task := live.task(t); task.Attention != domain.AttentionPossiblyWaiting {
+		t.Fatalf("attention after the grace period = %q, want possibly_waiting", task.Attention)
+	}
+	found := false
+	for _, event := range events(t, live.service, live.preparation) {
+		if event.Type != domain.EventAttentionChanged || event.To != string(domain.AttentionPossiblyWaiting) {
+			continue
+		}
+		found = true
+		if event.From != string(domain.AttentionNone) {
+			t.Errorf("attention event from = %q, want none: the recorded transition must be the one that happened",
+				event.From)
+		}
+		if event.Detail == "" {
+			t.Error("the attention event says nothing about why Feat may be waiting")
+		}
+	}
+	if !found {
+		t.Error("nothing on the event stream explains why the task now says it may need the user")
+	}
+}
+
+// TestSilenceDoesNotRecordATransitionThatDidNotHappen is the third defect in
+// ADR-058, seen in a real event log: a task resumed while carrying needs-input
+// from its previous life stayed silent for the startup grace, and the history
+// gained "none -> needs_input" for a state that had not moved.
+func TestSilenceDoesNotRecordATransitionThatDidNotHappen(t *testing.T) {
+	live := launch(t, hostFixture, installed(), false)
+
+	// Something already says this task needs a person. Nothing has been heard
+	// from the agent either, which is the case the startup grace is about.
+	task := live.task(t)
+	if err := task.SetAttention(domain.AttentionNeedsInput, reconcileTime); err != nil {
+		t.Fatalf("recording what the task already needs: %v", err)
+	}
+	if err := live.service.store.Tasks().Save(context.Background(), task); err != nil {
+		t.Fatalf("saving the task: %v", err)
+	}
+	before := len(events(t, live.service, live.preparation))
+
+	live.timer.fire()
+
+	if task := live.task(t); task.Attention != domain.AttentionNeedsInput {
+		t.Errorf("attention = %q, want needs_input: silence is weaker than a report and must not overwrite one",
+			task.Attention)
+	}
+	history := events(t, live.service, live.preparation)
+	for _, event := range history[min(before, len(history)):] {
+		if event.Type == domain.EventAttentionChanged {
+			t.Errorf("silence recorded %q -> %q, and the attention state did not move",
+				event.From, event.To)
+		}
+	}
+}
+
 func TestAClearedSessionDoesNotReRunTheLaunchTransition(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
