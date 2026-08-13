@@ -109,8 +109,17 @@ var effects = map[agent.EventKind]effect{
 	// The explicit semantic event. It is the only entry in this table that
 	// reaches a review state, and it exists only because an agent authored a
 	// message saying so.
+	//
+	// It sets no attention. A review request is something the agent wrote in the
+	// middle of a turn it then carries on with — through a completion gate, and
+	// back into its own loop when the gate fails — and the conservative
+	// possibly-waiting this row used to set stayed on the task for the whole of
+	// that work, then cleared at the end of the turn, which is the one moment it
+	// was true. What the user needs to look at is the workflow state; whether
+	// the session is waiting for a person is decided where it always is, by the
+	// end of a turn and the idle grace after it (ADR-058).
 	agent.KindReviewRequested: {
-		attention: domain.AttentionPossiblyWaiting, cancels: true,
+		cancels: true,
 		workflow: func(current domain.WorkflowState) domain.WorkflowState {
 			switch current {
 			case domain.WorkflowWorking:
@@ -507,23 +516,31 @@ func (s *service) reportSilentStart(ctx context.Context, id domain.TaskID) {
 		return
 	}
 
+	// Something already says this task needs a person — a resumed task carrying
+	// needs-input from its previous life, or a failure recorded while the grace
+	// period ran. Silence adds nothing to it, and the event this used to record
+	// anyway claimed a transition from none that never happened (ADR-058).
+	if task.Attention != domain.AttentionNone {
+		s.logger.InfoContext(ctx, "an agent has not reported starting, and its task already says it needs the user",
+			slog.String("task", id.String()), slog.String("attention", string(task.Attention)))
+		return
+	}
+
 	// Possibly waiting rather than needs-input: the provider reported nothing,
 	// so Feat knows it has not heard from the agent and does not know that the
 	// agent is blocked. Claiming the stronger state would be inventing a report
 	// nobody made (docs/03-domain-model.md).
-	if task.Attention == domain.AttentionNone {
-		if err := task.SetAttention(domain.AttentionPossiblyWaiting, s.now()); err != nil {
-			s.logger.ErrorContext(ctx, "recording a silent agent", slog.Any("error", err))
-			return
-		}
-		if err := s.store.Tasks().Save(ctx, task); err != nil {
-			s.logger.ErrorContext(ctx, "saving a silent agent", slog.Any("error", err))
-			return
-		}
+	if err := task.SetAttention(domain.AttentionPossiblyWaiting, s.now()); err != nil {
+		s.logger.ErrorContext(ctx, "recording a silent agent", slog.Any("error", err))
+		return
+	}
+	if err := s.store.Tasks().Save(ctx, task); err != nil {
+		s.logger.ErrorContext(ctx, "saving a silent agent", slog.Any("error", err))
+		return
 	}
 	s.record(ctx, task, domain.Event{
 		Type: domain.EventAttentionChanged,
-		From: string(domain.AttentionNone), To: string(task.Attention),
+		From: string(domain.AttentionNone), To: string(domain.AttentionPossiblyWaiting),
 		Detail: "the agent has not reported starting within " + startupGrace.String() +
 			"; attach to the task to see what its terminal is waiting for",
 	})
@@ -553,11 +570,13 @@ func (s *service) becomeIdle(ctx context.Context, id domain.TaskID) {
 		s.logger.ErrorContext(ctx, "recording an idle session", slog.Any("error", err))
 		return
 	}
+	attended := false
 	if task.Attention == domain.AttentionNone {
 		if err := task.SetAttention(domain.AttentionPossiblyWaiting, now); err != nil {
 			s.logger.ErrorContext(ctx, "recording idle attention", slog.Any("error", err))
 			return
 		}
+		attended = true
 	}
 	if err := s.store.Tasks().Save(ctx, task); err != nil {
 		s.logger.ErrorContext(ctx, "saving an idle session", slog.Any("error", err))
@@ -567,6 +586,17 @@ func (s *service) becomeIdle(ctx context.Context, id domain.TaskID) {
 		Type: domain.EventProcessChanged, From: string(domain.ProcessRunning), To: string(domain.ProcessIdle),
 		Detail: "the agent has been quiet for the idle grace period; idle does not mean the task is complete",
 	})
+	if attended {
+		// Recorded rather than left to be inferred from the process change above.
+		// The dashboard counts this state into "may need you", and an attention
+		// state that appears there with nothing in the task's history to explain
+		// it is one a user cannot argue with (ADR-058).
+		s.record(ctx, task, domain.Event{
+			Type: domain.EventAttentionChanged,
+			From: string(domain.AttentionNone), To: string(domain.AttentionPossiblyWaiting),
+			Detail: "the session went idle, and Feat cannot tell a finished turn from a question",
+		})
+	}
 
 	// The dashboard says idle now; whether it is worth interrupting somebody
 	// about is a second question, asked after the task has stayed idle for the
