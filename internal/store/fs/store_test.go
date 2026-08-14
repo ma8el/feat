@@ -59,17 +59,94 @@ func TestTaskWithSeveralRepositoriesRoundTripsExactly(t *testing.T) {
 	}
 }
 
+// TestAFailedTaskKeepsItsReason is the round trip that matters for a task
+// nobody is looking at yet.
+//
+// The reason a task failed is what a user reads minutes or hours later, which is
+// after a daemon restart as often as not. A field that survived only in memory
+// would answer the question exactly when it is not being asked.
+func TestAFailedTaskKeepsItsReason(t *testing.T) {
+	ctx := context.Background()
+	fixture := storetest.Failed()
+	tasks := newStore(t).Tasks()
+
+	if err := tasks.Save(ctx, fixture); err != nil {
+		t.Fatalf("saving the failed task: %v", err)
+	}
+	loaded, err := tasks.Load(ctx, store.Ref(fixture))
+	if err != nil {
+		t.Fatalf("loading the failed task: %v", err)
+	}
+
+	if !reflect.DeepEqual(fixture, loaded) {
+		t.Errorf("the failed task changed on the way through storage.\n got: %#v\nwant: %#v", loaded, fixture)
+	}
+	if loaded.Failure == nil {
+		t.Fatal("the task came back with no reason for its failure")
+	}
+	if loaded.Failure.Reason != fixture.Failure.Reason {
+		t.Errorf("reason = %q, want the recorded %q", loaded.Failure.Reason, fixture.Failure.Reason)
+	}
+	if loaded.Failure.At != fixture.Failure.At {
+		t.Errorf("failed at %s, want %s", loaded.Failure.At, fixture.Failure.At)
+	}
+}
+
+// TestASnapshotWithoutAFailureIsNotACorruptOne is the compatibility rule the
+// codec states: a field added at the same schema version leaves an older
+// document readable, and a task written before this build simply has no reason
+// recorded.
+func TestASnapshotWithoutAFailureIsNotACorruptOne(t *testing.T) {
+	ctx := context.Background()
+	filestore := newStore(t)
+	tasks := filestore.Tasks()
+	fixture := storetest.Failed()
+
+	if err := tasks.Save(ctx, fixture); err != nil {
+		t.Fatalf("saving the task: %v", err)
+	}
+	path := filepath.Join(filestore.Root(), projectsDir, storetest.ProjectID.String(),
+		tasksDir, storetest.FailedID.String(), taskFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the snapshot: %v", err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("decoding the snapshot: %v", err)
+	}
+	delete(document, "failure")
+	rewritten, err := json.Marshal(document)
+	if err != nil {
+		t.Fatalf("encoding the snapshot: %v", err)
+	}
+	if err := os.WriteFile(path, rewritten, 0o600); err != nil {
+		t.Fatalf("writing the snapshot: %v", err)
+	}
+
+	loaded, err := tasks.Load(ctx, store.Ref(fixture))
+	if err != nil {
+		t.Fatalf("loading a snapshot with no failure recorded: %v", err)
+	}
+	if loaded.Failure != nil {
+		t.Errorf("a snapshot with no failure came back with one: %+v", loaded.Failure)
+	}
+}
+
 // TestFixturesPopulateEveryPersistedField is what makes the round-trip tests
 // mean something: a field that no fixture sets would round-trip perfectly
 // without ever being written.
 func TestFixturesPopulateEveryPersistedField(t *testing.T) {
-	fixtures := map[string]any{
-		"project": storetest.Project(),
-		"task":    storetest.Task(),
-		"review":  storetest.Review(),
+	fixtures := map[string][]any{
+		"project": {storetest.Project()},
+		// Two tasks, because two of a task's fields exclude each other: the
+		// reason it failed exists only while it is failed, and the fixture that
+		// has reached review cannot also be.
+		"task":   {storetest.Task(), storetest.Failed()},
+		"review": {storetest.Review()},
 	}
 	for name, fixture := range fixtures {
-		if unpopulated := storetest.UnpopulatedFields(fixture); len(unpopulated) > 0 {
+		if unpopulated := storetest.UnpopulatedFields(fixture...); len(unpopulated) > 0 {
 			t.Errorf("the %s fixture leaves %v unset, so the round-trip test does not cover them",
 				name, unpopulated)
 		}

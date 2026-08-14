@@ -26,6 +26,7 @@ type taskDocument struct {
 	Source        sourceDocument           `json:"source"`
 	Workflow      string                   `json:"workflow"`
 	Attention     string                   `json:"attention"`
+	Failure       *failureDocument         `json:"failure,omitempty"`
 	CreatedAt     time.Time                `json:"created_at"`
 	Repositories  []taskRepositoryDocument `json:"repositories,omitempty"`
 	Session       *sessionDocument         `json:"session,omitempty"`
@@ -35,6 +36,18 @@ type taskDocument struct {
 type sourceDocument struct {
 	Kind      string `json:"kind"`
 	Reference string `json:"reference,omitempty"`
+}
+
+// failureDocument is why a task is in `failed`.
+//
+// It is an added optional field at the same schema version, which is what this
+// codec's rule allows: a build that adds a field without changing the meaning of
+// the existing ones stays readable by the build before it. A snapshot written
+// earlier has no failure and decodes to none, which is the truth about a record
+// that never held one.
+type failureDocument struct {
+	Reason string    `json:"reason"`
+	At     time.Time `json:"at"`
 }
 
 type taskRepositoryDocument struct {
@@ -239,6 +252,7 @@ func encodeTask(task *domain.Task) taskDocument {
 		Source:        sourceDocument{Kind: string(task.Source.Kind), Reference: task.Source.Reference},
 		Workflow:      string(task.Workflow),
 		Attention:     string(task.Attention),
+		Failure:       encodeFailure(task.Failure),
 		CreatedAt:     task.CreatedAt.UTC(),
 	}
 	for _, binding := range task.Repositories {
@@ -276,6 +290,20 @@ func encodeTask(task *domain.Task) taskDocument {
 		document.Runtime = encodeRuntime(task.Runtime)
 	}
 	return document
+}
+
+func encodeFailure(failure *domain.TaskFailure) *failureDocument {
+	if failure == nil {
+		return nil
+	}
+	return &failureDocument{Reason: failure.Reason, At: failure.At.UTC()}
+}
+
+func decodeFailure(document *failureDocument) *domain.TaskFailure {
+	if document == nil {
+		return nil
+	}
+	return &domain.TaskFailure{Reason: document.Reason, At: document.At.UTC()}
 }
 
 func encodeObservation(observation *domain.GitObservation) *observationDocument {
@@ -329,6 +357,7 @@ func decodeTask(document taskDocument, brief string) *domain.Task {
 		},
 		Workflow:  domain.WorkflowState(document.Workflow),
 		Attention: domain.AttentionState(document.Attention),
+		Failure:   decodeFailure(document.Failure),
 		CreatedAt: document.CreatedAt.UTC(),
 		UpdatedAt: document.UpdatedAt.UTC(),
 	}

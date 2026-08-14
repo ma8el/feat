@@ -234,6 +234,12 @@ Repositories, runtime state, and verification state are required of the selected
 
 Task detail MUST expose the task brief, repository/base mapping, tmux target, runtime services, completion/check summary, and actions. It need not reproduce the last Claude response.
 
+A failed task MUST show why it failed, beside the state that says it did. The
+reason is recorded on the task when it enters `failed` and is shown as it was
+reported: an error banner that has already gone and an event log on disk are
+between them the whole of what a user had before, and neither is where anybody
+looks. See ADR-060.
+
 ### FR-UI-004 — Notifications
 
 v0.1 MUST support TUI attention badges and macOS desktop notifications for significant idle/failure/review transitions. Linux desktop notifications are required for public v0 where supported.

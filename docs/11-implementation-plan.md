@@ -1656,6 +1656,30 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   see. Cleanup refuses an archived task and reconciliation skips one, so those are
   removable by hand and by nothing in the product; it is a state no build from
   here on can create.
+- Say why a task failed where a user is looking. Reported by the maintainer while
+  exercising the refusals above: the dashboard shows `workflow failed` and
+  nothing more. The reason was recorded all along as the detail of the workflow
+  transition, and it was reachable from nowhere — the event log is a file on
+  disk, the launch's error banner is cleared by the next key, `api.Task` had no
+  field for it, and the dashboard drops the detail its own event stream carries.
+
+  It is every failed task rather than every failed launch: all five paths into
+  the state go through one call and lost the reason the same way. The task
+  carries it now, recorded by the transition so the state and its explanation
+  cannot be written apart, discarded when the task leaves `failed` so a recovered
+  task stops explaining what it recovered from, and printed under the workflow on
+  the panel. Stored as an optional field at the same schema version, which is
+  what the codec's compatibility rule allows and what keeps this free of a
+  migration. See ADR-060.
+
+  What it does not do is make a task's history readable. The event log is still a
+  file nothing in the product opens, and reconciliation still has no surface
+  outside the dashboard — `feat --help` has no reconcile command and
+  `feat daemon status` prints no findings, so the pass that exists to make a
+  half-created task recoverable is reachable from one screen and from nowhere a
+  script or a terminal-first user would look. Both are recorded here rather than
+  fixed: they are a new endpoint and a new command, and slice 13 is closing
+  defects rather than adding surface.
 - Give the dashboard the design its shape was waiting for. ADR-041 decided where
   the regions are and left what they look like to whatever each screen was
   written with, and the maintainer read the result in use: the selection colour
