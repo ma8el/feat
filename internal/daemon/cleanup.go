@@ -169,6 +169,7 @@ func (s *service) resolveTerminalCleanup(ctx context.Context, task *domain.Task,
 // resolveEnvironmentCleanup fills the agent container and volume targets.
 func (s *service) resolveEnvironmentCleanup(ctx context.Context, task *domain.Task, plan *reconcile.Plan) {
 	if task.Session == nil || task.Session.Execution == nil {
+		s.resolveUnrecordedEnvironmentCleanup(ctx, task, plan)
 		return
 	}
 	recorded := task.Session.Execution
@@ -208,6 +209,62 @@ func (s *service) resolveEnvironmentCleanup(ctx context.Context, task *domain.Ta
 			// the volume class is removable only when this exact warning was
 			// confirmed, so retention by default does not depend on the daemon
 			// remembering to attach it (FR-CLEAN-004).
+			Warnings: []string{reconcile.WarningVolume},
+		})
+	}
+}
+
+// resolveUnrecordedEnvironmentCleanup names the containers, networks, and
+// volumes of a task whose record carries no environment.
+//
+// A launch that fails after its container exists leaves exactly that. The
+// container and its network are on the machine, the session that would have
+// recorded them is never created, and this function's absence is what made the
+// first `cleanup/execute` of such a task plan nothing, report success, and
+// archive the task over resources nothing could then remove.
+//
+// It is a derivation and not a scan. The Compose project name comes from this
+// task's own two identifiers, so what it finds belongs to this task by
+// construction — which is the exactness FR-CLEAN-001 asks for, reached without
+// the record that would ordinarily supply it. Nothing else on the machine is
+// looked at, and a task that never had a container finds nothing rather than
+// finding somebody else's.
+func (s *service) resolveUnrecordedEnvironmentCleanup(
+	ctx context.Context, task *domain.Task, plan *reconcile.Plan,
+) {
+	project := s.agentProject(task)
+	if project == nil {
+		return
+	}
+
+	remains, err := project.Remains(ctx)
+	if err != nil {
+		plan.Problems = append(plan.Problems, fmt.Sprintf(
+			"Compose project %s could not be observed: %s", project.Identity(), err))
+		return
+	}
+	if !remains.Empty() {
+		plan.Targets = append(plan.Targets, reconcile.Target{
+			Class:    reconcile.ClassAgentContainers,
+			Identity: project.Identity(),
+			Detail: "the containers and networks of the agent's Compose project, which a launch left behind " +
+				"and no session records: " + remains.Describe(),
+			Present: true,
+		})
+	}
+
+	volumes, err := project.Volumes(ctx)
+	if err != nil {
+		plan.Problems = append(plan.Problems, fmt.Sprintf(
+			"the volumes of Compose project %s could not be listed: %s", project.Identity(), err))
+		return
+	}
+	for _, volume := range volumes {
+		plan.Targets = append(plan.Targets, reconcile.Target{
+			Class:    reconcile.ClassVolumes,
+			Identity: volume,
+			Detail:   "a volume of the agent's Compose project",
+			Present:  true,
 			Warnings: []string{reconcile.WarningVolume},
 		})
 	}
@@ -395,6 +452,9 @@ func (s *service) removeAgentContainers(
 	if len(targets) == 0 {
 		return nil, nil
 	}
+	if task.Session == nil || task.Session.Execution == nil {
+		return s.removeUnrecordedAgentContainers(ctx, task, targets)
+	}
 	environment, err := s.environmentFor(task)
 	if err != nil {
 		return nil, err
@@ -408,6 +468,33 @@ func (s *service) removeAgentContainers(
 		if err := s.store.Tasks().Save(ctx, task); err != nil {
 			return nil, err
 		}
+	}
+	return []api.CleanupRemoval{{
+		Class: string(reconcile.ClassAgentContainers), Identity: targets[0].Identity, Removed: true,
+	}}, nil
+}
+
+// removeUnrecordedAgentContainers removes what a launch left behind, by name.
+//
+// There is no record to update afterwards, which is the whole difference from
+// the recorded path: the session that would carry the observation does not
+// exist. What happened is written to the event log by recordCleanup like every
+// other class, so the account of the removal survives the archive.
+func (s *service) removeUnrecordedAgentContainers(
+	ctx context.Context, task *domain.Task, targets []reconcile.Target,
+) ([]api.CleanupRemoval, error) {
+	project := s.agentProject(task)
+	if project == nil {
+		// The plan is re-resolved immediately before this runs and its token
+		// compared, so a target exists only because this same call answered a
+		// moment ago. Reaching here means the project stopped being resolvable in
+		// between, and removing nothing while reporting a removal is the one
+		// outcome that must not happen.
+		return nil, fmt.Errorf("the agent Compose project of task %s can no longer be resolved, "+
+			"so %s was not removed; ask for the plan again", task.ID, targets[0].Identity)
+	}
+	if err := project.Destroy(ctx); err != nil {
+		return nil, err
 	}
 	return []api.CleanupRemoval{{
 		Class: string(reconcile.ClassAgentContainers), Identity: targets[0].Identity, Removed: true,
@@ -456,7 +543,8 @@ func (s *service) removeVolumes(
 	}
 
 	var removed []string
-	if task.Session != nil && task.Session.Execution != nil {
+	switch {
+	case task.Session != nil && task.Session.Execution != nil:
 		environment, err := s.environmentFor(task)
 		if err != nil {
 			return nil, err
@@ -465,6 +553,17 @@ func (s *service) removeVolumes(
 		removed = append(removed, gone...)
 		if err != nil {
 			return volumeRemovals(names, removed), err
+		}
+	default:
+		// A volume of a launch that left no record. It is asked by name for the
+		// same reason its containers are: a volume the launch created carries the
+		// project's label whether or not anything wrote the project down.
+		if project := s.agentProject(task); project != nil {
+			gone, err := project.RemoveVolumes(ctx, names)
+			removed = append(removed, gone...)
+			if err != nil {
+				return volumeRemovals(names, removed), err
+			}
 		}
 	}
 	if task.Runtime != nil {
@@ -602,12 +701,17 @@ func (s *service) gitRemoveRequest(task *domain.Task) (map[domain.RepositoryID]g
 	return requests, nil
 }
 
+// removeControl removes the task's control workspace, once nothing Feat started
+// is still holding it.
 func (s *service) removeControl(
 	ctx context.Context, task *domain.Task, plan *reconcile.Plan,
 ) ([]api.CleanupRemoval, error) {
 	targets := plan.For(reconcile.ClassControl)
 	if len(targets) == 0 {
 		return nil, nil
+	}
+	if err := s.controlWorkspaceReleased(ctx, task); err != nil {
+		return nil, err
 	}
 	workspace, err := s.controlWorkspace(task)
 	if err != nil {
@@ -628,6 +732,55 @@ func (s *service) removeControl(
 	return []api.CleanupRemoval{{
 		Class: string(reconcile.ClassControl), Identity: targets[0].Identity, Removed: gone,
 	}}, nil
+}
+
+// controlWorkspaceReleased establishes that no container of the task's agent
+// Compose project is still there.
+//
+// The workspace is a bind-mount source for that container, and ADR-032's
+// read-only split made it three of them. On macOS the file-sharing layer holds a
+// directory that is an active mount source: the first `cleanup/execute` of a
+// task whose container was still running failed with `unlinkat …/outbox:
+// permission denied`, and the second, once the container had died, succeeded. So
+// this is an ordering rule rather than a permissions bug — destroy the
+// containers, establish that they are gone, and only then remove the tree they
+// mounted.
+//
+// The class order alone does not establish it. It removes the agent containers
+// before the control workspace, but only when a user chose both, and a launch
+// that failed after its container exists leaves a container the record does not
+// name in a task whose plan may contain nothing else.
+//
+// What it asks about is containers rather than mounts, and the difference is
+// worth stating: Feat can establish that the containers it started for this task
+// are gone, and cannot establish that nothing at all on the machine has the
+// directory open. Only the agent's Compose project is asked, because it is the
+// only one the workspace is mounted into — the application runtime's generated
+// override mounts worktrees and never the control tree (ADR-034).
+//
+// An unanswerable question refuses. Feat cannot say the tree is unheld while
+// Docker will not say what it holds, and a refusal that names why leaves the
+// user a workspace they can still remove after fixing it — where proceeding
+// leaves a half-removed tree and no account of it.
+func (s *service) controlWorkspaceReleased(ctx context.Context, task *domain.Task) error {
+	project := s.agentProject(task)
+	if project == nil {
+		return nil
+	}
+
+	remains, err := project.Remains(ctx)
+	if err != nil {
+		return fmt.Errorf("the Compose project %s could not be observed, so Feat cannot establish that no "+
+			"container still mounts the control workspace of task %s: %w", project.Identity(), task.ID, err)
+	}
+	held := remains.Containers()
+	if held.Empty() {
+		return nil
+	}
+	return fmt.Errorf("the control workspace of task %s is mounted into %s of Compose project %s, "+
+		"so removing it now would fail part way through. Remove the agent containers first — a cleanup that "+
+		"selects them as well as the control workspace does both in that order",
+		task.ID, held.Describe(), project.Identity())
 }
 
 // recordCleanup writes what one class removed to the task's event log.

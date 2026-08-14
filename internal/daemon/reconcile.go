@@ -497,6 +497,7 @@ func holdsAClaimedWorktree(path string, claimed map[string]bool) bool {
 func (s *service) reconcileEnvironments(ctx context.Context, tasks []*domain.Task, report *reconcile.Report) {
 	for _, task := range tasks {
 		if task.Session == nil || task.Session.Execution == nil {
+			s.reportUnrecordedEnvironment(ctx, task, report)
 			continue
 		}
 		recorded := task.Session.Execution
@@ -543,6 +544,49 @@ func (s *service) reconcileEnvironments(ctx context.Context, tasks []*domain.Tas
 			})
 		}
 	}
+}
+
+// reportUnrecordedEnvironment looks for the containers of a task whose record
+// names none.
+//
+// It is the half of this pass F2-15 found missing. A launch that fails after its
+// container exists records no environment, this pass asked only about the tasks
+// that have one, and the containers and networks it left were therefore in no
+// report and in no cleanup plan: the product could not see them, and nothing in
+// it could name them.
+//
+// Nothing is adopted and nothing is removed. The finding names the task the
+// resources were created for — they are an orphan of the record rather than of
+// the machine, since the Compose project name is this task's own — and the
+// action is the cleanup that now resolves them.
+//
+// It describes one moment, as every finding here does. A launch that is in
+// flight has its container before it has its session, so a pass requested during
+// those seconds reports what is true then; the next one, once the session
+// exists, reports the same container as present.
+func (s *service) reportUnrecordedEnvironment(ctx context.Context, task *domain.Task, report *reconcile.Report) {
+	project := s.agentProject(task)
+	if project == nil {
+		return
+	}
+
+	remains, err := project.Remains(ctx)
+	if err != nil {
+		report.Fail(reconcile.Problem{Class: reconcile.ClassAgentContainers, Project: task.ProjectID, Task: task.ID,
+			Reason: fmt.Sprintf("Compose project %s could not be observed: %s", project.Identity(), err)})
+		return
+	}
+	if remains.Empty() {
+		return
+	}
+	report.Add(reconcile.Finding{
+		Class: reconcile.ClassAgentContainers, Status: reconcile.StatusOrphaned,
+		Project: task.ProjectID, Task: task.ID, Identity: project.Identity(),
+		Detail: "a launch of this task left " + remains.Describe() +
+			", and the task records no agent session to own them",
+		Action: "clean the task up with `feat task cleanup " + task.Key().String() +
+			"`, which resolves them by the Compose project name this task derives",
+	})
 }
 
 // recordObservedEnvironment writes down what an agent environment turned out to

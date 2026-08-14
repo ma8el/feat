@@ -686,3 +686,67 @@ func TestRealAStoppedEnvironmentKeepsItsContainerAndComesBack(t *testing.T) {
 		t.Errorf("what was written before the stop did not survive it: %s", got.Stderr)
 	}
 }
+
+// TestRealAProjectIsFoundAndRemovedByNameAlone is the claim the whole by-name
+// path rests on, asked of the tool rather than of a fake: `ps` and `down` given
+// a project name and no Compose file operate on what Docker holds.
+//
+// It matters because the case it exists for cannot supply the files. A launch
+// that failed after its container exists left a task with no record of what it
+// created, and the file that would have to be read is often the one whose change
+// made the launch slow enough to be interrupted in the first place.
+//
+// The container is stopped rather than running when it is looked for, which is
+// the state the dogfood run found — `Exited (137)`, hours later, with its
+// network beside it.
+func TestRealAProjectIsFoundAndRemovedByNameAlone(t *testing.T) {
+	realDocker(t)
+
+	environment, spec, _ := realTask(t, domain.NewTaskID())
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("preparing the environment: %v", err)
+	}
+	if _, err := environment.Stop(context.Background()); err != nil {
+		t.Fatalf("stopping the environment: %v", err)
+	}
+
+	project, err := compose.ByName(spec.Identity, compose.Options{})
+	if err != nil {
+		t.Fatalf("addressing Compose project %s by name: %v", spec.Identity, err)
+	}
+
+	remains, err := project.Remains(context.Background())
+	if err != nil {
+		t.Fatalf("asking what %s still has: %v", spec.Identity, err)
+	}
+	if remains.Containers().Empty() {
+		t.Fatalf("a stopped container was not found by project name alone: %s", remains.Describe())
+	}
+	var networks bool
+	for _, entry := range remains {
+		if entry.Kind == compose.KindNetwork {
+			networks = true
+		}
+	}
+	if !networks {
+		t.Errorf("the network Compose created was not found by project name alone: %s", remains.Describe())
+	}
+
+	if err := project.Destroy(context.Background()); err != nil {
+		t.Fatalf("removing %s by name: %v", spec.Identity, err)
+	}
+	after, err := project.Remains(context.Background())
+	if err != nil {
+		t.Fatalf("asking what %s has after the removal: %v", spec.Identity, err)
+	}
+	if !after.Empty() {
+		t.Errorf("removing by name left %s", after.Describe())
+	}
+
+	// And again over nothing: a removal of what is already absent is what a
+	// user asked for, so it succeeds rather than reporting a project that is
+	// not there.
+	if err := project.Destroy(context.Background()); err != nil {
+		t.Errorf("removing an empty project reported a failure: %v", err)
+	}
+}

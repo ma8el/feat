@@ -1640,6 +1640,22 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   containers, establish that they are gone, and only then remove the tree they
   mounted. It became reachable when the control workspace stopped being one
   mount and became three (ADR-032's read-only split).
+
+  Both are now done, and they went together because the second cannot be
+  established without the first: a guard that asks the record which containers
+  hold the workspace finds nothing for exactly the task that has one. What lands
+  is one route rather than two — the agent's Compose project addressed by its
+  derived name, which observes and removes and can never create — so
+  reconciliation reports what a failed launch left, cleanup plans it, archiving
+  is refused over it by the rule that already existed, and the control workspace
+  is removed only once Docker has said the containers are gone. Measured against
+  real Docker rather than reasoned about: `--project-name` with no `--file` finds
+  an exited container and its network and removes both. See ADR-059.
+
+  What stays open is a task an earlier build archived over resources nobody could
+  see. Cleanup refuses an archived task and reconciliation skips one, so those are
+  removable by hand and by nothing in the product; it is a state no build from
+  here on can create.
 - Give the dashboard the design its shape was waiting for. ADR-041 decided where
   the regions are and left what they look like to whatever each screen was
   written with, and the maintainer read the result in use: the selection colour

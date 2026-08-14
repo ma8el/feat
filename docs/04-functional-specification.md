@@ -286,6 +286,12 @@ Feat MUST NOT automatically restart stopped containers after recovery.
 
 Feat MUST enumerate the exact task-owned resources before cleanup.
 
+The enumeration is not limited to what the task's record names. A launch that
+fails after its container exists records no environment, and its containers,
+networks, and volumes are enumerated by the Compose project name the task
+derives — which names this task's resources by construction, so the inventory
+stays exact. See ADR-059.
+
 ### FR-CLEAN-002 — Separate destructive classes
 
 Stopping/removing containers, removing volumes, removing worktrees, and deleting branches MUST be separate choices.
@@ -297,6 +303,11 @@ resources a task owns, and FR-CLEAN-001 requires the inventory to be exact. The
 seven classes are removed in a fixed order — terminal, agent containers,
 application containers, volumes, worktrees, branches, control workspace — so that
 whatever holds a file is stopped before the file is removed. See ADR-037.
+
+Because the classes are independent choices, the order alone does not establish
+that. Removing the control workspace therefore asks first whether any container
+of the task's agent Compose project is still there, and refuses rather than
+removing a directory that is an active bind-mount source. See ADR-059.
 
 ### FR-CLEAN-003 — Dirty/unmerged protection
 
