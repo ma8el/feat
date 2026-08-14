@@ -449,7 +449,7 @@ func TestRealAMountOfTheHomeDirectoryIsRefused(t *testing.T) {
 	if err == nil {
 		t.Fatal("a container mounting the whole home directory was accepted")
 	}
-	for _, expected := range []string{home, "SSH and cloud credentials", spec.Service} {
+	for _, expected := range []string{home, "does not allow home directory mounts", spec.Service} {
 		if !strings.Contains(err.Error(), expected) {
 			t.Errorf("the refusal does not mention %q: %v", expected, err)
 		}
