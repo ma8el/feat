@@ -26,8 +26,37 @@ import (
 const (
 	sessionFormat = "#{session_id}\t#{@feat_managed}\t#{@feat_schema}\t#{@feat_project_id}"
 	windowFormat  = "#{session_id}\t#{window_id}\t#{@feat_managed}\t#{@feat_schema}\t#{@feat_project_id}\t#{@feat_task_id}\t#{window_active_clients}"
-	paneFormat    = "#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_current_path}\t#{@feat_managed}\t#{@feat_schema}\t#{@feat_project_id}\t#{@feat_task_id}\t#{@feat_pane_role}\t#{pane_pid}"
+	paneFormat    = "#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_current_path}\t#{@feat_managed}\t#{@feat_schema}\t#{@feat_project_id}\t#{@feat_task_id}\t#{@feat_pane_role}\t#{pane_pid}\t#{pane_dead_signal}"
 )
+
+// The pane format asks how a dead pane died, and not only whether it is dead,
+// because on tmux 3.4 those are two facts that arrive at different moments.
+//
+// `pane_dead` there is `wp->fd == -1`, while `pane_dead_status` additionally
+// requires `PANE_STATUSREADY` — the flag tmux sets once it has reaped the child
+// and recorded its wait status. So a pane can report itself dead with no outcome
+// published yet, and a reader that took the first of those and asked for the
+// second in the same breath would see a process that had failed and call it
+// stopped. tmux 3.7 closed the gap by making `pane_dead` require the same flag,
+// which is why this is invisible on a machine with a current tmux and why it
+// showed up on Linux CI first.
+//
+// Feat therefore derives the guarantee rather than depending on the version
+// having it: a pane is dead when tmux can say how it ended, by an exit status or
+// by a signal. Until then the pane is reported as it was — running — which is
+// exactly what tmux 3.7 says about the same moment.
+//
+// The field counts below are derived from the formats rather than written beside
+// them. A format that gains a field and a parser that keeps the old count is an
+// index out of range on a line every discovery reads, and both fakes in the
+// tests happened to emit the wider line — so the panic waited for real tmux.
+var (
+	sessionFields = fieldCount(sessionFormat)
+	windowFields  = fieldCount(windowFormat)
+	paneFields    = fieldCount(paneFormat)
+)
+
+func fieldCount(format string) int { return strings.Count(format, "\t") + 1 }
 
 var (
 	sessionIDPattern = regexp.MustCompile(`^\$[0-9]+$`)
@@ -117,7 +146,7 @@ func parseSessions(output string) (map[string]sessionRecord, []Damaged) {
 	projects := make(map[domain.ProjectID]string)
 	var damaged []Damaged
 	for _, line := range outputLines(output) {
-		fields := splitFields(line, 4)
+		fields := splitFields(line, sessionFields)
 		if fields[1] != "1" {
 			continue
 		}
@@ -163,7 +192,7 @@ func parseWindows(output string) (map[string]windowRecord, []Damaged) {
 	records := make(map[string]windowRecord)
 	var damaged []Damaged
 	for _, line := range outputLines(output) {
-		fields := splitFields(line, 7)
+		fields := splitFields(line, windowFields)
 		if fields[2] != "1" || fields[5] == "" {
 			continue
 		}
@@ -207,7 +236,7 @@ func parsePanes(output string) ([]paneRecord, []Damaged) {
 	var records []paneRecord
 	var damaged []Damaged
 	for _, line := range outputLines(output) {
-		fields := splitFields(line, 12)
+		fields := splitFields(line, paneFields)
 		// User-created panes in a managed window inherit window options. A role
 		// is the pane-local marker that says Feat owns this pane, and a pane
 		// without one is the user's rather than damage.
@@ -244,13 +273,13 @@ func parsePanes(output string) ([]paneRecord, []Damaged) {
 			continue
 		}
 
-		dead, err := parseBool(fields[3])
+		reported, err := parseBool(fields[3])
 		if err != nil {
 			hurt("the pane's dead flag %s", err)
 			continue
 		}
 		var status *int
-		if dead && fields[4] != "" {
+		if reported && fields[4] != "" {
 			code, err := strconv.Atoi(fields[4])
 			if err != nil {
 				hurt("the pane's exit status %q is not a number", fields[4])
@@ -258,13 +287,22 @@ func parsePanes(output string) ([]paneRecord, []Damaged) {
 			}
 			status = &code
 		}
+		signal := ""
+		if reported {
+			signal = fields[12]
+		}
+		// Dead when tmux can say how it ended, and not merely when the pane's
+		// file descriptor has gone; see the note on paneFormat.
+		dead := reported && (status != nil || signal != "")
+
 		records = append(records, paneRecord{
 			session: fields[0],
 			window:  fields[1],
 			project: project,
 			task:    task,
 			pane: Pane{
-				ID: id, Role: fields[10], Directory: fields[5], Dead: dead, ExitStatus: status,
+				ID: id, Role: fields[10], Directory: fields[5],
+				Dead: dead, ExitStatus: status, Signal: signal,
 				// The process tmux started in the pane. What the task is really
 				// using is that process and everything it started, which the
 				// resource observer walks; the pane itself is only where the walk

@@ -46,8 +46,16 @@ type Terminal struct {
 	Shell     string // pane id of the on-demand shell pane; empty for none
 	Directory string
 	Dead      bool
-	Exit      int    // exit status, reported only when the pane is dead
-	Schema    string // metadata version; empty means the current one
+	Exit      int // exit status, reported only when the pane is dead
+	// Signal is the name of the signal that killed the pane's process, such as
+	// "KILL". A pane that carries one has no exit status, which is what tmux
+	// reports for a process it did not see exit on its own.
+	Signal string
+	// Unreaped is a pane tmux reports as dead before it has published how it
+	// ended: `pane_dead` is the closed descriptor on tmux 3.4, and the status
+	// arrives with the child being reaped. It is the state Linux CI caught.
+	Unreaped bool
+	Schema   string // metadata version; empty means the current one
 	// Viewers is how many attached clients are looking at this task's window,
 	// which is what tmux answers with window_active_clients. It is how a test
 	// arranges a user who is watching one task while others run unwatched.
@@ -77,6 +85,7 @@ type paneObject struct {
 	program   string
 	dead      bool
 	status    string
+	signal    string
 	pid       int
 	options   map[string]string
 	// content is what a capture of this pane returns, and cursorX/cursorY where
@@ -355,12 +364,17 @@ func (s *Server) seed(terminal Terminal) {
 
 func (s *Server) seedPane(terminal Terminal, schema, id, role string) *paneObject {
 	status := ""
-	if terminal.Dead {
+	if terminal.Dead && terminal.Signal == "" && !terminal.Unreaped {
 		status = strconv.Itoa(terminal.Exit)
+	}
+	signal := ""
+	if terminal.Dead && !terminal.Unreaped {
+		signal = terminal.Signal
 	}
 	return &paneObject{
 		id: id, window: terminal.Window, session: terminal.Session,
-		directory: terminal.Directory, dead: terminal.Dead, status: status, pid: terminal.PID,
+		directory: terminal.Directory, dead: terminal.Dead || terminal.Unreaped,
+		status: status, signal: signal, pid: terminal.PID,
 		options: map[string]string{
 			"@feat_managed":    "1",
 			"@feat_schema":     schema,
@@ -517,6 +531,7 @@ func (s *Server) paneValues() []map[string]string {
 			"pane_id":           record.id,
 			"pane_dead":         flag(record.dead),
 			"pane_dead_status":  record.status,
+			"pane_dead_signal":  record.signal,
 			"pane_current_path": record.directory,
 			"pane_pid":          strconv.Itoa(record.pid),
 			"pane_left":         strconv.Itoa(left),
@@ -761,6 +776,7 @@ func (s *Server) measurements(target string) (map[string]string, error) {
 		"cursor_y":           strconv.Itoa(pane.cursorY),
 		"pane_dead":          flag(pane.dead),
 		"pane_dead_status":   pane.status,
+		"pane_dead_signal":   pane.signal,
 		"pane_current_path":  pane.directory,
 		"pane_pid":           strconv.Itoa(pane.pid),
 	}, pane.options), nil

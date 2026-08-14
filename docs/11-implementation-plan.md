@@ -1680,6 +1680,35 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   script or a terminal-first user would look. Both are recorded here rather than
   fixed: they are a new endpoint and a new command, and slice 13 is closing
   defects rather than adding surface.
+- Read a dead pane the way the tmux Feat runs on defines it. Linux CI failed
+  where macOS passes: `process state = "stopped", want failed` with no exit
+  status, from the regression test that exercises an agent binary which exits at
+  once.
+
+  It is a version difference with a product defect behind it. On tmux 3.4, which
+  is what `apt-get install tmux` gives an Ubuntu runner, `pane_dead` is the
+  pane's closed file descriptor alone, while `pane_dead_status` waits for the
+  flag tmux sets once it has reaped the child; tmux 3.7 made `pane_dead` require
+  the same flag. So on the older one a pane reports itself dead before tmux can
+  say how it ended, and Feat read the absent status as a clean exit — which is
+  also what it did for an agent killed by a signal, where the status is absent
+  for good and `pane_dead_signal` carries the answer. An agent the OOM killer
+  takes is the ordinary way that happens inside a container.
+
+  A pane is therefore dead when tmux can say how it ended, by a status or by a
+  signal, which is tmux 3.7's own definition derived rather than depended on. The
+  race was not reproduced on this machine — five runs of the test against tmux
+  3.4 on Ubuntu, and a direct probe of the three format variables, always found
+  the child already reaped — so what is recorded here is the mechanism from
+  tmux's own source and a failure signature that matches it exactly. If CI fails
+  again it will fail differently, and that difference is the next piece of
+  evidence.
+
+  The change also caught a near miss of its own: the parser padded pane lines to
+  a field count written beside the format rather than derived from it, and both
+  test fakes happened to emit the wider line, so a format that gained a field
+  would have panicked in front of a user and not in a test. The counts come from
+  the formats now.
 - Give the dashboard the design its shape was waiting for. ADR-041 decided where
   the regions are and left what they look like to whatever each screen was
   written with, and the maintainer read the result in use: the selection colour
