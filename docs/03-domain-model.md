@@ -53,6 +53,10 @@ Properties:
 - project ID;
 - immutable creation timestamp;
 - workflow state;
+- why it failed and when, while the workflow state is `failed` and never
+  otherwise: the state carries its own explanation, because a user who can read
+  one and not the other is told that something went wrong and not what
+  (ADR-060);
 - attention state;
 - selected repositories and base commits;
 - one agent session;

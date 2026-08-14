@@ -19,9 +19,17 @@ import (
 // Field paths ignore slice indexes, so a field set on one element of a slice
 // counts as populated: a read-only repository binding legitimately has no
 // branch, and requiring one everywhere would describe a task that cannot exist.
-func UnpopulatedFields(value any) []string {
+//
+// Several values of one type may be passed, and a field any of them populates
+// counts as covered. Some fields exclude each other — a task carries the reason
+// it failed only while it is failed, and the fixture that is in review cannot
+// also be — so coverage of those is a union over fixtures rather than a demand
+// that one fixture hold a state no task could be in.
+func UnpopulatedFields(values ...any) []string {
 	populated := make(map[string]bool)
-	walk("", reflect.ValueOf(value), populated)
+	for _, value := range values {
+		walk("", reflect.ValueOf(value), populated)
+	}
 
 	var unpopulated []string
 	for path, seen := range populated {

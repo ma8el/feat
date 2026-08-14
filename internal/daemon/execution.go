@@ -65,7 +65,7 @@ func (s *service) executionSpec(
 	spec := execution.Spec{
 		Project:  task.ProjectID,
 		Task:     task.ID,
-		Identity: identityPrefix + "-" + task.ProjectID.String() + "-" + task.ID.String(),
+		Identity: agentIdentity(task),
 		Files:    append([]string(nil), cfg.Agent.Execution.ComposeFiles...),
 		// The first configured file's directory, so that file's own relative
 		// sources and build contexts resolve as they do when the user runs
@@ -91,6 +91,76 @@ func (s *service) executionSpec(
 		return execution.Spec{}, err
 	}
 	return spec, nil
+}
+
+// agentIdentity is the Compose project name a task's agent environment has.
+//
+// It is derived from the two identifiers and reads nothing, which is what lets
+// it answer for a task whose record does not carry it. A launch that fails after
+// its container exists is exactly that task: the session the identity is
+// recorded on is created after the container, so an interruption in between
+// leaves containers on the machine and nothing in the snapshot naming them.
+//
+// The derivation is safe to rely on because the template is Feat's own. ADR-033
+// refused to make it configurable, so there is one name a launch of this task
+// can have ever used, and the same launch writes it to the event log before
+// creating anything (recordEnvironment) — so the two records agree by
+// construction rather than by luck.
+func agentIdentity(task *domain.Task) string {
+	return identityPrefix + "-" + task.ProjectID.String() + "-" + task.ID.String()
+}
+
+// agentComposeProject is the name of the Compose project a task's agent runs in:
+// the one its session recorded, or the derived one when no session carries it.
+//
+// The recorded name wins for the reason environmentFor prefers the whole
+// recorded specification: a task's environment is the one it was launched with,
+// and an edited project file must not point an action at a different container.
+func agentComposeProject(task *domain.Task) string {
+	if task.Session != nil && task.Session.Execution != nil && task.Session.Execution.Identity != "" {
+		return task.Session.Execution.Identity
+	}
+	return agentIdentity(task)
+}
+
+// agentProject addresses a task's agent Compose project by name, for the two
+// questions that can be asked without a specification: what is still there, and
+// remove it.
+//
+// It returns nil where there is nothing to ask about, and each case is an
+// absence rather than a failure: a draft has had nothing created for it
+// (domain.WorkflowDraft), a project that runs its agent on this host has no
+// Compose project of its own, and a machine with no Docker holds no container.
+// None of them belongs in a report or a plan, because a question that does not
+// apply has no answer to be missing.
+//
+// The configuration is read as a way of not asking rather than as a way of
+// answering, which is why an unreadable one does not stop the question. The name
+// depends on nothing but the two identifiers, so Docker can be asked whatever
+// the project file says or fails to say — and for the case this exists for, the
+// project file is often exactly what changed. What the configuration saves is
+// the pointless query about a host-mode task, and a project that cannot be read
+// gives that up rather than giving up the answer.
+func (s *service) agentProject(task *domain.Task) *compose.Project {
+	if task.Workflow == domain.WorkflowDraft {
+		return nil
+	}
+	if task.Session == nil || task.Session.Execution == nil {
+		cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
+		if err == nil && !cfg.Agent.Execution.Devcontainer() {
+			return nil
+		}
+	}
+
+	project, err := compose.ByName(agentComposeProject(task), compose.Options{Runner: s.docker})
+	if err != nil {
+		// The only thing ByName asks of this machine is Docker itself, and a
+		// machine without it has no container of any task to find. Reporting the
+		// absence of a tool as the absence of an answer would put a problem in
+		// every report on every machine that runs its agents on the host.
+		return nil
+	}
+	return project
 }
 
 // overridePath is where a task's generated Compose override is written.

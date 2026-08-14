@@ -1027,16 +1027,25 @@ func TestDegradedHealthIsReportedNotFailed(t *testing.T) {
 // fields somebody remembered: the fixtures populate every domain field, so a
 // field the DTO forgets shows up as a zero value here.
 func TestTaskPayloadCarriesNoUnmappedField(t *testing.T) {
-	handler := NewHandler(Options{Service: newFakeService()})
+	service := newFakeService()
+	// Two tasks, because two of a task's fields exclude each other: the reason
+	// it failed travels only with a failed task, and the fixture that has
+	// reached review cannot also be one.
+	service.tasks = append(service.tasks, storetest.Failed())
+	handler := NewHandler(Options{Service: service})
 
-	response := request(t, handler, http.MethodGet, "/v1/tasks/"+storetest.TaskID.String())
+	var payloads []any
+	for _, id := range []domain.TaskID{storetest.TaskID, storetest.FailedID} {
+		response := request(t, handler, http.MethodGet, "/v1/tasks/"+id.String())
 
-	var task Task
-	if err := json.Unmarshal(response.Body.Bytes(), &task); err != nil {
-		t.Fatalf("decoding: %v", err)
+		var task Task
+		if err := json.Unmarshal(response.Body.Bytes(), &task); err != nil {
+			t.Fatalf("decoding %s: %v", id, err)
+		}
+		payloads = append(payloads, task)
 	}
-	if unpopulated := storetest.UnpopulatedFields(task); len(unpopulated) > 0 {
-		t.Errorf("the task payload leaves fields empty that the fixture populates: %v", unpopulated)
+	if unpopulated := storetest.UnpopulatedFields(payloads...); len(unpopulated) > 0 {
+		t.Errorf("the task payload leaves fields empty that the fixtures populate: %v", unpopulated)
 	}
 }
 

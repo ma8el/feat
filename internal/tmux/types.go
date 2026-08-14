@@ -183,9 +183,18 @@ func (t Terminal) Watched() bool { return t.Viewers > 0 }
 
 // ProcessState maps the agent pane's observable process state onto the domain.
 // It deliberately says nothing about agent idleness or task completion.
+//
+// A pane that ended on a signal is failed rather than stopped, and it has no
+// exit status to say so with: `pane_dead_status` is the status of a process that
+// exited, and tmux publishes a killed one as `pane_dead_signal` instead. Reading
+// the absent status as a clean exit would report an agent the kernel killed —
+// the OOM killer is the ordinary way that happens — as one that finished.
 func (t Terminal) ProcessState() domain.ProcessState {
 	if !t.Agent.Dead {
 		return domain.ProcessRunning
+	}
+	if t.Agent.Signal != "" {
+		return domain.ProcessFailed
 	}
 	if t.Agent.ExitStatus != nil && *t.Agent.ExitStatus != 0 {
 		return domain.ProcessFailed
@@ -195,11 +204,20 @@ func (t Terminal) ProcessState() domain.ProcessState {
 
 // Pane is one tagged pane in a task window.
 type Pane struct {
-	ID         string
-	Role       string
-	Directory  string
-	Dead       bool
+	ID        string
+	Role      string
+	Directory string
+	// Dead reports a pane whose process has ended and whose ending tmux can
+	// describe. A pane whose descriptor has closed and whose child has not been
+	// reaped yet is not dead here, because nothing can yet be said about how it
+	// went; see the note on paneFormat.
+	Dead bool
+	// ExitStatus is the status of a pane process that exited, nil for one that
+	// was killed.
 	ExitStatus *int
+	// Signal is the name of the signal that killed the pane's process, empty
+	// for one that exited on its own.
+	Signal string
 	// PID is the process tmux started in the pane, or zero when there is none.
 	// It is where a resource observer starts walking, never an identity.
 	PID int

@@ -496,3 +496,62 @@ func resolvePrimary(t *testing.T, task *Task) {
 		t.Fatalf("resolving the base: %v", err)
 	}
 }
+
+// TestAFailedTaskCarriesItsReason is the rule that keeps a state and its
+// explanation from being written apart.
+//
+// The reason a task failed was recorded only as the detail of a workflow event,
+// which lives in the task's log on disk. What a user looks at is the task, and
+// what it said was `failed` and nothing else.
+func TestAFailedTaskCarriesItsReason(t *testing.T) {
+	task := launchedTask(t)
+
+	const reason = "the container mounts a Docker socket at /var/run/docker.sock"
+	if err := task.FailWith(reason, origin.Add(time.Minute)); err != nil {
+		t.Fatalf("failing the task: %v", err)
+	}
+
+	if task.Workflow != WorkflowFailed {
+		t.Fatalf("workflow = %s, want failed", task.Workflow)
+	}
+	if task.Failure == nil {
+		t.Fatal("the failed task records no reason")
+	}
+	if task.Failure.Reason != reason {
+		t.Errorf("reason = %q, want it kept verbatim: %q", task.Failure.Reason, reason)
+	}
+	if !task.Failure.At.Equal(origin.Add(time.Minute)) {
+		t.Errorf("failed at %s, want the moment it failed", task.Failure.At)
+	}
+}
+
+// TestAFailureWithNoReasonIsRefused keeps "failed for an unknown reason" out of
+// the record. Whatever failed knows what it was.
+func TestAFailureWithNoReasonIsRefused(t *testing.T) {
+	task := launchedTask(t)
+
+	if err := task.FailWith("   ", origin); err == nil {
+		t.Fatal("a task was failed with no reason")
+	}
+	if task.Workflow == WorkflowFailed {
+		t.Error("the refused failure moved the task anyway")
+	}
+}
+
+// TestATaskPutBackToWorkStopsExplainingItsFailure is the other half of the rule.
+//
+// A recovered task that still carried the reason it once failed would be read as
+// failing now: a stale explanation beside a live state is worse than none.
+func TestATaskPutBackToWorkStopsExplainingItsFailure(t *testing.T) {
+	task := launchedTask(t)
+	if err := task.FailWith("the agent could not be started", origin); err != nil {
+		t.Fatalf("failing the task: %v", err)
+	}
+
+	if err := task.TransitionTo(WorkflowWorking, origin.Add(time.Minute)); err != nil {
+		t.Fatalf("putting the task back to work: %v", err)
+	}
+	if task.Failure != nil {
+		t.Errorf("a working task still explains a failure it recovered from: %+v", task.Failure)
+	}
+}

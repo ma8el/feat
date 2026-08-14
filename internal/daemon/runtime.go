@@ -83,11 +83,11 @@ func (s *service) Runtime(
 
 	task, cfg, err := s.runtimeTask(ctx, id)
 	if err != nil {
-		return api.RuntimeResult{}, err
+		return api.RuntimeResult{}, s.explainRuntime(ctx, id, action, budget, beforeTheAction, err)
 	}
 	services, record, err := s.runtimeFor(ctx, cfg, task, action)
 	if err != nil {
-		return api.RuntimeResult{}, err
+		return api.RuntimeResult{}, s.explainRuntime(ctx, id, action, budget, beforeTheAction, err)
 	}
 
 	if action == api.RuntimeObserve {
@@ -96,14 +96,17 @@ func (s *service) Runtime(
 		// Docker Compose is too old to start anything.
 		state, err := services.Observe(ctx)
 		if err != nil {
-			return api.RuntimeResult{}, err
+			return api.RuntimeResult{}, s.explainRuntime(ctx, id, action, budget, duringTheAction, err)
 		}
 		return s.recordRuntime(ctx, task, record, state, nil, "status")
 	}
 
 	if err := services.Validate(ctx); err != nil {
-		return api.RuntimeResult{}, fmt.Errorf("%w: task %s cannot manage its application services: %w",
-			api.ErrInvalid, task.ID, err)
+		// Pre-wrapped, so that a genuine validation failure keeps the sentence
+		// written for it and only a budget that has gone replaces it.
+		return api.RuntimeResult{}, s.explainRuntime(ctx, id, action, budget, beforeTheAction,
+			fmt.Errorf("%w: task %s cannot manage its application services: %w",
+				api.ErrInvalid, task.ID, err))
 	}
 
 	var state runtime.State
@@ -123,7 +126,7 @@ func (s *service) Runtime(
 		// Nothing is undone. A service that started may already have written to a
 		// volume or a shared database, and tidying up after a failed start is a
 		// destructive act the user did not ask for (ADR-029, ADR-033).
-		return api.RuntimeResult{}, s.explainRuntime(ctx, task, action, budget, err)
+		return api.RuntimeResult{}, s.explainRuntime(ctx, id, action, budget, duringTheAction, err)
 	}
 
 	var notes []string
@@ -141,6 +144,12 @@ func (s *service) runtimeBudget() time.Duration {
 	return api.RuntimeTimeout
 }
 
+// Where in an action the clock ran out, for the two sentences that differ by it.
+const (
+	beforeTheAction = false
+	duringTheAction = true
+)
+
 // explainRuntime says what a failed action failed of.
 //
 // Two of the reasons are not the project's, and neither says so on its own: a
@@ -151,29 +160,56 @@ func (s *service) runtimeBudget() time.Duration {
 // than an outcome this cannot know. The record is a superset of it either way
 // (ADR-029, ADR-033), and the observer corrects the state on its next pass.
 //
+// Every step of an action reports through this, not only the Compose command
+// that does the work. Which step noticed the clock is Feat's business rather
+// than the user's: a start whose budget went while the daemon was still asking
+// Docker its version failed for the same reason as one whose budget went inside
+// `up`, and the first used to arrive as `task X cannot manage its application
+// services: context deadline exceeded` — the transport error this budget exists
+// to replace (ADR-034). It also arrived that way only sometimes, because which
+// step is holding the clock when it runs out depends on how loaded the machine
+// is, which is how a user meets the same failure with two different messages.
+//
+// What genuinely differs is what may exist afterwards, and that is what the
+// sentences differ in: an action that had not begun created nothing, and there
+// is no half-finished Compose command to warn about.
+//
 // A caller that went away is logged as well as reported, because there is nobody
 // left to report it to: the connection that would have carried the answer is the
 // thing that has gone, and a daemon that says nothing about it leaves a user
 // with a half-started application and an empty log.
+//
+// An error that already carries ErrInvalid is returned as it stands. It is a
+// message somebody wrote for this user, and wrapping it again would produce a
+// sentence that says the request was invalid twice.
 func (s *service) explainRuntime(
-	ctx context.Context, task *domain.Task, action api.RuntimeAction, budget time.Duration, err error,
+	ctx context.Context, id domain.TaskID, action api.RuntimeAction,
+	budget time.Duration, started bool, err error,
 ) error {
+	left := "Docker was stopped part way through and nothing was removed"
+	if !started {
+		left = "the action had not started, so nothing was created"
+	}
+
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		s.logger.WarnContext(ctx, "a task's runtime action ran out of time",
-			slog.String("task", task.ID.String()), slog.String("action", string(action)),
-			slog.Duration("budget", budget), slog.Any("error", err))
-		return fmt.Errorf("%w: runtime %s on task %s did not finish within %s. Docker was stopped part way "+
-			"through and nothing was removed; `feat runtime status %s` says what exists now",
-			api.ErrInvalid, action, task.ID, budget, task.Key())
+			slog.String("task", id.String()), slog.String("action", string(action)),
+			slog.Duration("budget", budget), slog.Bool("started", started), slog.Any("error", err))
+		return fmt.Errorf("%w: runtime %s on task %s did not finish within %s. %s; "+
+			"`feat runtime status %s` says what exists now",
+			api.ErrInvalid, action, id, budget, left, id.Key())
 
 	case errors.Is(ctx.Err(), context.Canceled):
 		s.logger.WarnContext(context.WithoutCancel(ctx), "a task's runtime action was cancelled by its caller",
-			slog.String("task", task.ID.String()), slog.String("action", string(action)),
-			slog.Any("error", err))
-		return fmt.Errorf("%w: runtime %s on task %s was cancelled before it finished. Docker was stopped "+
-			"part way through and nothing was removed; `feat runtime status %s` says what exists now",
-			api.ErrInvalid, action, task.ID, task.Key())
+			slog.String("task", id.String()), slog.String("action", string(action)),
+			slog.Bool("started", started), slog.Any("error", err))
+		return fmt.Errorf("%w: runtime %s on task %s was cancelled before it finished. %s; "+
+			"`feat runtime status %s` says what exists now",
+			api.ErrInvalid, action, id, left, id.Key())
+
+	case errors.Is(err, api.ErrInvalid):
+		return err
 
 	default:
 		return fmt.Errorf("%w: %w", api.ErrInvalid, err)

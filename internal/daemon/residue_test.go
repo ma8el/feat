@@ -1,0 +1,308 @@
+package daemon
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/ma8el/feat/internal/api"
+	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/reconcile"
+)
+
+// abandonedLaunch arranges the case F2-15 found: a devcontainer launch that
+// failed after its container existed.
+//
+// The refusal it uses is one of the launch's own, and it is deliberately one of
+// the late ones — every rule that inspects the container fires after the
+// container is up (ADR-033), which is why widening those refusals made this
+// class of leftovers more frequent rather than less. What it leaves is a task
+// with no session at all and a Compose project on the machine.
+func abandonedLaunch(t *testing.T) (*drafting, *domain.Task) {
+	t.Helper()
+
+	arranged := arrangeDrafting(t)
+	arranged.docker.Answer("inspect --type container --format {{json .Mounts}} c0ffee",
+		`[{"Type":"bind","Source":"/var/run/docker.sock","Destination":"/var/run/docker.sock","RW":true}]`)
+
+	draft := arranged.draft(t, "Add a rate limit")
+	arranged.selectRepositories(t, draft.ID)
+	displayed := arranged.resolve(t, draft.ID)
+	if _, err := arranged.service.LaunchDraft(context.Background(), draft.ID, displayed.Fingerprint); err == nil {
+		t.Fatal("the launch succeeded, so it left nothing behind to find")
+	}
+
+	task := arranged.reload(t, draft.ID)
+	if task.Session != nil {
+		t.Fatal("the failed launch recorded a session, which is not the case under test")
+	}
+	arranged.leftBehind(task)
+	return arranged, task
+}
+
+// leftBehind arranges the Docker of a machine that still holds what the launch
+// created: the container it made, exited, and the network beside it.
+func (d *drafting) leftBehind(task *domain.Task) {
+	identity := agentIdentity(task)
+	d.docker.
+		Answer("ps --all --format json", `{"ID":"c0ffee","Name":"`+identity+`-dev-1","Service":"dev",`+
+			`"State":"exited","Status":"Exited (137) 3 hours ago"}`).
+		Answer("network ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}",
+			identity+"_default\n").
+		Answer("volume ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}", "").
+		Answer("down", "")
+}
+
+// tookThemAway arranges the same Docker once the containers and networks are
+// gone.
+func (d *drafting) tookThemAway(task *domain.Task) {
+	identity := agentIdentity(task)
+	d.docker.
+		Answer("ps --all --format json", "").
+		Answer("network ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}", "")
+}
+
+// planOf resolves what a task of the drafting harness owns.
+func (d *drafting) planOf(t *testing.T, task *domain.Task) api.CleanupPlan {
+	t.Helper()
+
+	plan, err := d.service.CleanupPlan(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("CleanupPlan: %v", err)
+	}
+	return plan
+}
+
+// TestALaunchThatFailedAfterItsContainerIsStillRemovable is the criterion this
+// exists for: what such a launch leaves is removable by name from the task that
+// created it.
+//
+// Before this, cleanup resolved a task's containers from the record alone. A
+// launch that fails clears — or never reaches — the session that record lives
+// on, so the plan named nothing, the cleanup reported success, and the container
+// and its network stayed on the machine with nothing in the product able to name
+// them.
+func TestALaunchThatFailedAfterItsContainerIsStillRemovable(t *testing.T) {
+	arranged, task := abandonedLaunch(t)
+	identity := agentIdentity(task)
+
+	plan := arranged.planOf(t, task)
+	containers, ok := classOf(plan, reconcile.ClassAgentContainers)
+	if !ok {
+		t.Fatal("the plan names no agent containers, though the launch left one")
+	}
+	if containers.Targets[0].Identity != identity {
+		t.Errorf("the plan names %q, want the Compose project name this task derives, %q",
+			containers.Targets[0].Identity, identity)
+	}
+	for _, expected := range []string{"container", "network", "Exited (137)"} {
+		if !strings.Contains(containers.Targets[0].Detail, expected) {
+			t.Errorf("the plan does not say what is there: %q does not mention %q",
+				containers.Targets[0].Detail, expected)
+		}
+	}
+
+	result, err := arranged.service.Cleanup(context.Background(), task.ID,
+		selectAll(plan, reconcile.ClassAgentContainers))
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if !arranged.docker.Ran("down") {
+		t.Errorf("nothing removed the Compose project: %v", arranged.docker.Calls())
+	}
+	if len(result.Removed) != 1 || result.Removed[0].Identity != identity || !result.Removed[0].Removed {
+		t.Errorf("the cleanup reported %+v, want the agent containers of %s removed", result.Removed, identity)
+	}
+}
+
+// TestArchivingIsRefusedOverALaunchsLeftovers is the other half of the same
+// defect.
+//
+// The dogfood run's cleanup did not merely fail to remove the container: it
+// archived the task over it, and an archived task is one reconciliation stops
+// looking at. So the resources were left with nothing recording that they
+// belonged to anybody, which is exactly what the archive rule exists to prevent
+// — it just could not see them.
+func TestArchivingIsRefusedOverALaunchsLeftovers(t *testing.T) {
+	arranged, task := abandonedLaunch(t)
+
+	plan := arranged.planOf(t, task)
+	_, err := arranged.service.Cleanup(context.Background(), task.ID,
+		api.CleanupSelection{Token: plan.Token, Archive: true})
+	if err == nil {
+		t.Fatal("the task was archived while a launch's container was still on the machine")
+	}
+	if !strings.Contains(err.Error(), reconcile.ClassAgentContainers.Title()) {
+		t.Errorf("error = %v, want it to name the containers that stopped the archive", err)
+	}
+	if after := arranged.reload(t, task.ID); after.Workflow == domain.WorkflowArchived {
+		t.Error("a refused archive still archived the task")
+	}
+}
+
+// TestTheControlWorkspaceIsNotRemovedWhileAContainerHoldsIt is the ordering rule.
+//
+// On macOS the file-sharing layer holds a directory that is an active bind-mount
+// source: the first cleanup of a task whose container was still running failed
+// with `unlinkat …/outbox: permission denied`, and the second, after it had
+// died, succeeded. The class order removes containers before the workspace, but
+// only when a user chose both — so the rule is established rather than assumed,
+// and a cleanup that would fail part way through refuses before it removes
+// anything.
+func TestTheControlWorkspaceIsNotRemovedWhileAContainerHoldsIt(t *testing.T) {
+	arranged, task := abandonedLaunch(t)
+
+	workspace, err := arranged.service.controlWorkspace(task)
+	if err != nil {
+		t.Fatalf("resolving the control workspace: %v", err)
+	}
+	if !workspace.Exists() {
+		t.Fatal("the failed launch left no control workspace, so there is nothing to hold")
+	}
+
+	plan := arranged.planOf(t, task)
+	_, err = arranged.service.Cleanup(context.Background(), task.ID, selectAll(plan, reconcile.ClassControl))
+	if err == nil {
+		t.Fatal("the control workspace was removed while a container still mounted it")
+	}
+	for _, expected := range []string{"control workspace", agentIdentity(task) + "-dev-1", "agent containers"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("the refusal does not mention %q: %v", expected, err)
+		}
+	}
+	if !workspace.Exists() {
+		t.Error("the refused cleanup removed the workspace anyway")
+	}
+
+	// And once the containers are gone, the same choice goes through: the rule is
+	// an ordering, not a prohibition.
+	arranged.tookThemAway(task)
+	after := arranged.planOf(t, task)
+	if _, err := arranged.service.Cleanup(context.Background(), task.ID,
+		selectAll(after, reconcile.ClassControl)); err != nil {
+		t.Fatalf("removing the control workspace of a task with no container: %v", err)
+	}
+	if workspace.Exists() {
+		t.Error("the control workspace is still there")
+	}
+}
+
+// TestADockerThatCannotAnswerReleasesNothing keeps "establish" from meaning
+// "assume".
+//
+// A Docker that will not say what it holds leaves the question unanswered, and
+// removing the tree on an unanswered question is what produced the half-removed
+// workspace in the first place.
+//
+// It is checked on the rule rather than through a whole cleanup, because a
+// cleanup would refuse earlier and for a different reason: the plan is resolved
+// again immediately before it runs, so a Docker that stopped answering between
+// the two produces a plan that no longer names the same resources, and the token
+// says so. Both refusals are right; only this one is about the mount.
+func TestADockerThatCannotAnswerReleasesNothing(t *testing.T) {
+	arranged, task := abandonedLaunch(t)
+	arranged.docker.Fail("ps --all --format json", "Cannot connect to the Docker daemon", 1)
+
+	err := arranged.service.controlWorkspaceReleased(context.Background(), task)
+	if err == nil {
+		t.Fatal("an unanswerable Docker was read as nothing holding the workspace")
+	}
+	for _, expected := range []string{"could not be observed", task.ID.String(), agentIdentity(task)} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("the refusal does not mention %q: %v", expected, err)
+		}
+	}
+}
+
+// TestALaunchsLeftoversAreReportedByReconciliation is the seeing half of "leaves
+// nothing the product cannot see".
+//
+// Reconciliation asked only about tasks whose record named an environment, so
+// this class of resource was in no report at all. Nothing is restarted or
+// removed here: the finding names the task the containers were created for and
+// the command that resolves them (FR-STATE-004).
+func TestALaunchsLeftoversAreReportedByReconciliation(t *testing.T) {
+	arranged, task := abandonedLaunch(t)
+
+	before := len(arranged.docker.Calls())
+	report, err := arranged.service.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	var found bool
+	for _, finding := range report.Findings {
+		if finding.Class != string(reconcile.ClassAgentContainers) {
+			continue
+		}
+		found = true
+		if finding.Status != string(reconcile.StatusOrphaned) {
+			t.Errorf("status = %q, want orphaned: nothing records these containers", finding.Status)
+		}
+		if finding.TaskID != task.ID.String() {
+			t.Errorf("the finding names task %q, want %q: an orphan of the record still belongs to a task",
+				finding.TaskID, task.ID)
+		}
+		if !strings.Contains(finding.Action, "cleanup") {
+			t.Errorf("the finding offers no action a user can take: %q", finding.Action)
+		}
+	}
+	if !found {
+		t.Errorf("no finding names the containers the launch left: %+v", report.Findings)
+	}
+	for _, call := range arranged.docker.Calls()[before:] {
+		if call == "down" || call == "up --detach dev" || call == "stop" {
+			t.Errorf("reconciliation removed or started something: %q", call)
+		}
+	}
+}
+
+// TestAnUnreadableProjectStillFindsWhatTheLaunchLeft is why the configuration is
+// read as a way of not asking rather than as a way of answering.
+//
+// The name a launch used depends on the two identifiers and on nothing else, so
+// a project file that cannot be read does not make the containers unfindable —
+// and the file is often exactly what changed, since a change to it is what makes
+// a launch slow enough to be interrupted. What the configuration saves is the
+// pointless query about a host-mode task, and that is all it may cost when it
+// goes missing.
+func TestAnUnreadableProjectStillFindsWhatTheLaunchLeft(t *testing.T) {
+	arranged, task := abandonedLaunch(t)
+	if err := os.WriteFile(filepath.Join(arranged.layout.ProjectConfigDir(), "app.yaml"),
+		[]byte("this is not a project\n"), 0o600); err != nil {
+		t.Fatalf("replacing the project configuration: %v", err)
+	}
+
+	plan := arranged.planOf(t, task)
+	containers, ok := classOf(plan, reconcile.ClassAgentContainers)
+	if !ok {
+		t.Fatalf("the plan names no agent containers: %+v", plan.Problems)
+	}
+	if containers.Targets[0].Identity != agentIdentity(task) {
+		t.Errorf("the plan names %q, want %q", containers.Targets[0].Identity, agentIdentity(task))
+	}
+}
+
+// TestATaskWithNoContainerIsNotAskedAbout keeps the derivation from becoming a
+// scan.
+//
+// A draft has had nothing created for it and a project that runs its agent on
+// this host has no Compose project at all, so neither is a question for Docker.
+// It is checked at the adapter: that Docker was never asked is a stronger
+// statement than that the answer was empty.
+func TestATaskWithNoContainerIsNotAskedAbout(t *testing.T) {
+	arranged := arrangeDrafting(t)
+	draft := arranged.draft(t, "Add a rate limit")
+	arranged.selectRepositories(t, draft.ID)
+	arranged.resolve(t, draft.ID)
+
+	before := len(arranged.docker.Calls())
+	if _, err := arranged.service.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if asked := arranged.docker.Calls()[before:]; len(asked) != 0 {
+		t.Errorf("reconciliation asked Docker about a draft: %v", asked)
+	}
+}

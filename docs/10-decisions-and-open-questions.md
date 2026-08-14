@@ -3635,6 +3635,163 @@ that has already fired cannot be cancelled, so a prompt arriving in that window
 can still be followed by `becomeIdle` marking a working session idle. It needs a
 generation check rather than a decision.
 
+### ADR-059 — A task's containers are addressable by name, and a mounted directory is released before it is removed
+
+Status: accepted  
+Recorded: slice 13, from dogfooding the mount-and-socket rules
+
+Both halves of this are one sentence: the container outlives the request that
+created it. A launch that fails after its container exists leaves resources the
+product could not see, and a cleanup that removes the tree those resources mount
+fails part way through. ADR-057 closed the third half — the client no longer
+cancels a launch the daemon is still serving — and left these two, saying so.
+
+Evidence, from a jobharbor-dev task (`d7f54fa5`) whose devcontainer Compose file
+had been given a mount of the home directory on purpose:
+
+1. Nothing in the product could remove what the cancelled launch had created.
+   The container was on the machine, exited, with its network beside it; the task
+   record had `session: null`, because the session is created after the container
+   and a launch that fails never reaches it; and both passes that could have
+   found it resolved from that record. `resolveEnvironmentCleanup` and
+   `reconcileEnvironments` each began by returning early for a task with no
+   recorded environment, so cleanup planned nothing and reported success, and no
+   reconciliation pass mentioned the containers at all.
+2. It was archived over. Cleanup archives a task once the classes a user chose
+   are gone, and refuses to archive one that still owns resources — but the
+   refusal reads the plan, and the plan was empty. So the record that named the
+   task was retired while its containers stayed, and an archived task is one
+   reconciliation stops looking at.
+3. Widening the launch refusals makes it more frequent rather than less. Every
+   rule added in `fix/mount-and-socket-rules` inspects the started container, so
+   every one of them fires after the container is up (ADR-033's amendment to
+   ADR-032). The refusals are right; what they leave behind was not resolvable.
+4. Removing the control workspace failed while a container still mounted it. The
+   first `cleanup/execute` failed with `unlinkat …/control/jobharbor-dev/
+   d7f54fa5-…/outbox: permission denied`; the second, after the container had
+   died, succeeded. On macOS the file-sharing layer holds a directory that is an
+   active bind-mount source, so this is an ordering rule rather than a
+   permissions bug. It became reachable when the control workspace stopped being
+   one mount and became three (ADR-032's read-only split).
+5. The class order alone does not establish the ordering. Cleanup removes the
+   agent containers before the control workspace, but only when a user chose
+   both — the classes are independent choices (FR-CLEAN-002) — and the case above
+   is a task whose plan named containers nowhere at all.
+6. The name was there the whole time. The agent's Compose project is
+   `feat-agent-{project_id}-{task_id}`, generated rather than configured
+   precisely so it cannot collide (ADR-033), and Compose labels every container,
+   network, and volume with the project it belongs to. `docker compose
+   --project-name <name> ps --all` and `down` were measured against real Docker
+   with no `--file` at all: they find an exited container and its network, they
+   remove both, and they exit zero over a project that no longer has anything.
+
+Decisions:
+
+- A task's agent Compose project is addressable by its name alone, and the name
+  is derived from the two identifiers rather than read from a record. That makes
+  it total: a task that never recorded an environment has the name it would have
+  used, and a project whose own Compose file has changed since — which is what
+  made the launch slow enough to be interrupted — still answers, because nothing
+  in the query reads that file.
+- This is a derivation and not a scan. What it finds belongs to the task by
+  construction, which is the exactness FR-CLEAN-001 asks for reached without the
+  record that ordinarily supplies it. Feat looks at nothing else on the machine
+  and adopts nothing: a container carrying another project's name is not a thing
+  this can name.
+- Reconciliation reports it as an orphan of the record — the finding names the
+  task the containers were created for, and the action is the cleanup that
+  resolves them. Nothing is restarted or removed there, as in every other pass
+  (FR-STATE-004).
+- Cleanup plans them as the agent-container class it already has, with the
+  volumes carrying the same label as the volume class they already are. No new
+  class and no new state: what changes is that the two passes have an answer for
+  a task whose record has none. Archiving is refused over them by the rule that
+  already existed, now that the plan can see them.
+- The control workspace is removed only after establishing that no container of
+  the task's agent Compose project is still there. Only that project is asked
+  about, because it is the only one the workspace is mounted into — the
+  application runtime's override mounts worktrees and never the control tree.
+- What is established is about Feat's own containers, and the wording says so. A
+  container somebody else pointed at that directory is not one Feat knows to ask
+  about, and claiming the directory is unheld would be the overclaim the honesty
+  rule exists for.
+- An unanswerable question refuses. A Docker that will not say what it holds
+  leaves a user with a workspace they can still remove once it is fixed; removing
+  it on an unanswered question leaves a half-removed tree, which is the outcome
+  this rule exists to prevent.
+
+Consequence: one type in the Compose execution adapter — a project addressed by
+name, which observes and removes and can never create — and the two early
+returns replaced. The recorded path is untouched: a task with a session still
+resolves its environment from the specification its launch recorded, because a
+task's environment is the one it was launched with (ADR-033, ADR-057).
+[06-technical-architecture.md](06-technical-architecture.md) states both rules
+where a reader meets them. What stays open is a task archived by an earlier build
+over resources nobody could see: cleanup refuses an archived task and
+reconciliation skips one, so those are removable by `docker compose --project-name
+feat-agent-{project}-{task} down` and by nothing in the product. It is a state no
+build from here on can create, and closing it for the machines that already have
+it would mean tracking a task Feat has stopped tracking.
+
+### ADR-060 — A failed task carries the reason it failed
+
+Status: accepted  
+Recorded: slice 13, from dogfooding the launch refusals
+
+The maintainer, watching a launch fail on purpose to test ADR-059: it is not
+clear in the TUI why the task launch failed.
+
+Evidence:
+
+1. The reason existed and was reachable from nowhere. `transition` writes it as
+   the `Detail` of the workflow event, so it is in `events.jsonl` on disk, and
+   the dashboard's own launch path put it in `m.err` — a banner cleared by the
+   next action. A user looking at the task a minute later saw `workflow failed`
+   and stopped.
+2. Nothing else could have shown it. `api.Task` had no field for it, there is no
+   per-task events endpoint, and the dashboard discards the events it streams
+   (`case eventMsg: return m, tea.Batch(m.load(), m.awaitEvent())`) — including
+   the `Detail` the stream carries. So the one copy was the file.
+3. It is every failed task, not every failed launch. A Git apply that fails, a
+   resume that cannot start, a session the provider reported as failed: all five
+   paths into `failed` go through one call, and all five lost their reason the
+   same way.
+4. The event log's stated job is that "Feat can explain what happened later"
+   ([06-technical-architecture.md](06-technical-architecture.md)). Nothing in the
+   product reads it.
+
+Decisions:
+
+- The task carries the reason it failed and the moment it did. The workflow state
+  and its explanation are one fact, and a state a user cannot act on is one that
+  only describes itself.
+- It is recorded by the transition rather than beside it. `FailWith` is the only
+  way into `failed` that records anything, so a caller cannot write the state and
+  the reason apart, and a blank reason is refused: whatever failed knows what it
+  was.
+- Leaving `failed` discards it. A recovered task that still carried its old
+  reason would be read as failing now, and a stale explanation beside a live
+  state is worse than none.
+- The reason is kept verbatim. It is the same sentence the caller was given;
+  rewording it here would produce a second account of one event.
+- It is stored as an optional field at the same schema version, which is what the
+  storage codec's own rule allows: a build that adds a field without changing the
+  meaning of the existing ones stays readable by the build before it, and a
+  snapshot written earlier decodes to no failure — which is the truth about a
+  record that never held one. No migration, and none owed.
+- The panel prints it under the workflow and wraps it rather than truncating it.
+  A reason names a service, a mount, or a path, and every one of those is at the
+  end of the sentence.
+
+Consequence: one domain field and one method, one stored field, one DTO field,
+and one block on the task panel. The `failed` state itself, the transition table,
+and every notification are unchanged. The fixtures grow a second task — a task
+carries a reason only while it is failed, so the fixture that has reached review
+cannot also cover it, and the coverage tests that keep the round trip honest now
+take the union over both. What this does not do is make a task's history
+readable: the event log is still a file nothing in the product opens, and a
+per-task events endpoint stays a separate piece of work.
+
 ## Decision change process
 
 During implementation:

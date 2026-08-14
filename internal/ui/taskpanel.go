@@ -145,6 +145,7 @@ func (m Model) taskPanel() string {
 	out.WriteString(m.recoveryBlock(m.recoveryFindings(task)))
 
 	out.WriteString(field("workflow", task.Workflow))
+	out.WriteString(failureBlock(task))
 	out.WriteString(field("attention", attentionState(task)))
 	out.WriteString(field("agent", agentDetail(task)))
 	// The runtime field carries the offer to stop services after an approval,
@@ -211,6 +212,29 @@ func (m Model) taskPanel() string {
 	out.WriteString("\n" + headingStyle.Render("brief") + "\n")
 	out.WriteString(indent(task.Brief, "  ") + "\n")
 
+	return out.String()
+}
+
+// failureBlock is why a failed task failed, under the state it explains.
+//
+// It sits there rather than in a section of its own because it is not a separate
+// fact: `failed` and its reason are one thing said twice, and a user reading the
+// state has to travel no further to learn what it means. Before this the reason
+// was in the task's event log on disk and in an error banner that had already
+// gone, so the panel could say a launch failed and never why.
+//
+// The reason is printed as it was reported and wrapped by the panel rather than
+// truncated. It names a Compose service, a mount, or a path, and a cut sentence
+// loses exactly the end that identifies which one.
+func failureBlock(task api.Task) string {
+	if task.Failure == nil {
+		return ""
+	}
+	var out strings.Builder
+	out.WriteString("  " + failureStyle.Render(task.Failure.Reason) + "\n")
+	if !task.Failure.At.IsZero() {
+		out.WriteString(mutedStyle.Render("  failed at "+task.Failure.At.Local().Format("15:04:05")) + "\n")
+	}
 	return out.String()
 }
 

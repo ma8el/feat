@@ -262,7 +262,11 @@ type Task struct {
 	Workflow string `json:"workflow"`
 	// Attention records whether the user may need to intervene. It is separate
 	// from every other dimension on purpose.
-	Attention    string           `json:"attention"`
+	Attention string `json:"attention"`
+	// Failure is why the task is in `failed`, and null in every other state. It
+	// travels with the state because a client that can show one and not the
+	// other can only report that something went wrong.
+	Failure      *TaskFailure     `json:"failure,omitempty"`
 	Repositories []TaskRepository `json:"repositories"`
 	// Session is the task's agent session, or null before it is launched.
 	Session *Session `json:"session"`
@@ -274,6 +278,14 @@ type Task struct {
 	Verification *Verification `json:"verification"`
 	CreatedAt    time.Time     `json:"created_at"`
 	UpdatedAt    time.Time     `json:"updated_at"`
+}
+
+// TaskFailure is why a task is in `failed`, in the words of whatever failed.
+type TaskFailure struct {
+	// Reason is what failed.
+	Reason string `json:"reason"`
+	// At is when the task entered `failed`.
+	At time.Time `json:"at"`
 }
 
 // Verification is a task's check results, attributed to whoever produced them.
@@ -1040,6 +1052,7 @@ func newTask(task *domain.Task, verification *Verification) Task {
 		},
 		Workflow:     string(task.Workflow),
 		Attention:    string(task.Attention),
+		Failure:      newTaskFailure(task.Failure),
 		Repositories: repositories,
 		Session:      newSession(task.Session),
 		Runtime:      newRuntime(task.Runtime),
@@ -1059,6 +1072,13 @@ func newTasks(tasks []*domain.Task, verifications map[string]Verification) []Tas
 		out = append(out, newTask(task, verification))
 	}
 	return out
+}
+
+func newTaskFailure(failure *domain.TaskFailure) *TaskFailure {
+	if failure == nil {
+		return nil
+	}
+	return &TaskFailure{Reason: failure.Reason, At: failure.At}
 }
 
 func newObservation(observation *domain.GitObservation) *GitObservation {

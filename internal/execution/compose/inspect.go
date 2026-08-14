@@ -295,9 +295,8 @@ func (e *Environment) forbiddenProblem(mount execution.ObservedMount, forbidden 
 
 	case execution.ForbiddenHome:
 		return fmt.Errorf(
-			"the container mounts %s at %s, which exposes %s. Feat mounts the home directory nowhere: it "+
-				"carries the user's SSH and cloud credentials, their own provider configuration, and Feat's "+
-				"own state. Remove that mount from the Compose files that define service %s, and mount the "+
+			"the container mounts %s at %s, which exposes %s. Feat does not allow home directory mounts. "+
+				"Remove that mount from the Compose files that define service %s, and mount the "+
 				"directories the agent actually needs",
 			mount.Source, mount.Destination, exposed(forbidden, mount), e.spec.Service)
 	}

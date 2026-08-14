@@ -234,6 +234,12 @@ Repositories, runtime state, and verification state are required of the selected
 
 Task detail MUST expose the task brief, repository/base mapping, tmux target, runtime services, completion/check summary, and actions. It need not reproduce the last Claude response.
 
+A failed task MUST show why it failed, beside the state that says it did. The
+reason is recorded on the task when it enters `failed` and is shown as it was
+reported: an error banner that has already gone and an event log on disk are
+between them the whole of what a user had before, and neither is where anybody
+looks. See ADR-060.
+
 ### FR-UI-004 — Notifications
 
 v0.1 MUST support TUI attention badges and macOS desktop notifications for significant idle/failure/review transitions. Linux desktop notifications are required for public v0 where supported.
@@ -286,6 +292,12 @@ Feat MUST NOT automatically restart stopped containers after recovery.
 
 Feat MUST enumerate the exact task-owned resources before cleanup.
 
+The enumeration is not limited to what the task's record names. A launch that
+fails after its container exists records no environment, and its containers,
+networks, and volumes are enumerated by the Compose project name the task
+derives — which names this task's resources by construction, so the inventory
+stays exact. See ADR-059.
+
 ### FR-CLEAN-002 — Separate destructive classes
 
 Stopping/removing containers, removing volumes, removing worktrees, and deleting branches MUST be separate choices.
@@ -297,6 +309,11 @@ resources a task owns, and FR-CLEAN-001 requires the inventory to be exact. The
 seven classes are removed in a fixed order — terminal, agent containers,
 application containers, volumes, worktrees, branches, control workspace — so that
 whatever holds a file is stopped before the file is removed. See ADR-037.
+
+Because the classes are independent choices, the order alone does not establish
+that. Removing the control workspace therefore asks first whether any container
+of the task's agent Compose project is still there, and refuses rather than
+removing a directory that is an active bind-mount source. See ADR-059.
 
 ### FR-CLEAN-003 — Dirty/unmerged protection
 

@@ -1640,6 +1640,75 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   containers, establish that they are gone, and only then remove the tree they
   mounted. It became reachable when the control workspace stopped being one
   mount and became three (ADR-032's read-only split).
+
+  Both are now done, and they went together because the second cannot be
+  established without the first: a guard that asks the record which containers
+  hold the workspace finds nothing for exactly the task that has one. What lands
+  is one route rather than two — the agent's Compose project addressed by its
+  derived name, which observes and removes and can never create — so
+  reconciliation reports what a failed launch left, cleanup plans it, archiving
+  is refused over it by the rule that already existed, and the control workspace
+  is removed only once Docker has said the containers are gone. Measured against
+  real Docker rather than reasoned about: `--project-name` with no `--file` finds
+  an exited container and its network and removes both. See ADR-059.
+
+  What stays open is a task an earlier build archived over resources nobody could
+  see. Cleanup refuses an archived task and reconciliation skips one, so those are
+  removable by hand and by nothing in the product; it is a state no build from
+  here on can create.
+- Say why a task failed where a user is looking. Reported by the maintainer while
+  exercising the refusals above: the dashboard shows `workflow failed` and
+  nothing more. The reason was recorded all along as the detail of the workflow
+  transition, and it was reachable from nowhere — the event log is a file on
+  disk, the launch's error banner is cleared by the next key, `api.Task` had no
+  field for it, and the dashboard drops the detail its own event stream carries.
+
+  It is every failed task rather than every failed launch: all five paths into
+  the state go through one call and lost the reason the same way. The task
+  carries it now, recorded by the transition so the state and its explanation
+  cannot be written apart, discarded when the task leaves `failed` so a recovered
+  task stops explaining what it recovered from, and printed under the workflow on
+  the panel. Stored as an optional field at the same schema version, which is
+  what the codec's compatibility rule allows and what keeps this free of a
+  migration. See ADR-060.
+
+  What it does not do is make a task's history readable. The event log is still a
+  file nothing in the product opens, and reconciliation still has no surface
+  outside the dashboard — `feat --help` has no reconcile command and
+  `feat daemon status` prints no findings, so the pass that exists to make a
+  half-created task recoverable is reachable from one screen and from nowhere a
+  script or a terminal-first user would look. Both are recorded here rather than
+  fixed: they are a new endpoint and a new command, and slice 13 is closing
+  defects rather than adding surface.
+- Read a dead pane the way the tmux Feat runs on defines it. Linux CI failed
+  where macOS passes: `process state = "stopped", want failed` with no exit
+  status, from the regression test that exercises an agent binary which exits at
+  once.
+
+  It is a version difference with a product defect behind it. On tmux 3.4, which
+  is what `apt-get install tmux` gives an Ubuntu runner, `pane_dead` is the
+  pane's closed file descriptor alone, while `pane_dead_status` waits for the
+  flag tmux sets once it has reaped the child; tmux 3.7 made `pane_dead` require
+  the same flag. So on the older one a pane reports itself dead before tmux can
+  say how it ended, and Feat read the absent status as a clean exit — which is
+  also what it did for an agent killed by a signal, where the status is absent
+  for good and `pane_dead_signal` carries the answer. An agent the OOM killer
+  takes is the ordinary way that happens inside a container.
+
+  A pane is therefore dead when tmux can say how it ended, by a status or by a
+  signal, which is tmux 3.7's own definition derived rather than depended on. The
+  race was not reproduced on this machine — five runs of the test against tmux
+  3.4 on Ubuntu, and a direct probe of the three format variables, always found
+  the child already reaped — so what is recorded here is the mechanism from
+  tmux's own source and a failure signature that matches it exactly. If CI fails
+  again it will fail differently, and that difference is the next piece of
+  evidence.
+
+  The change also caught a near miss of its own: the parser padded pane lines to
+  a field count written beside the format rather than derived from it, and both
+  test fakes happened to emit the wider line, so a format that gained a field
+  would have panicked in front of a user and not in a test. The counts come from
+  the formats now.
 - Give the dashboard the design its shape was waiting for. ADR-041 decided where
   the regions are and left what they look like to whatever each screen was
   written with, and the maintainer read the result in use: the selection colour

@@ -2,6 +2,7 @@ package domain
 
 import (
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -42,6 +43,20 @@ type Task struct {
 	// Repositories are the repositories bound to the task. A task may bind
 	// several (invariant 5).
 	Repositories []TaskRepository
+	// Failure is why the task last entered `failed`, and is nil in every other
+	// state.
+	//
+	// The reason existed before this field and was reachable from nowhere: it is
+	// the detail of the workflow transition, which lives in the task's event log
+	// on disk and in whatever error the caller saw once. A user looking at a
+	// failed task a minute later was told the state and never the cause. The
+	// state carries its own explanation instead, because the two are the same
+	// fact and a state a user cannot act on is one that only describes itself.
+	//
+	// It is maintained with the state rather than beside it: FailWith records it
+	// and TransitionTo clears it, so a task that has left `failed` cannot go on
+	// explaining a failure it recovered from.
+	Failure *TaskFailure
 	// Session is the task's single agent session (invariant 2). It is nil until
 	// the task is launched.
 	Session *AgentSession
@@ -52,6 +67,18 @@ type Task struct {
 	CreatedAt time.Time
 	// UpdatedAt is when the snapshot last changed.
 	UpdatedAt time.Time
+}
+
+// TaskFailure is why a task is in `failed`, and when it got there.
+//
+// The reason is whatever the act that failed reported, kept verbatim: it is the
+// same sentence the user would have seen at the moment, and rewording it here
+// would produce a second account of one event.
+type TaskFailure struct {
+	// Reason is what failed, in the words of whatever failed.
+	Reason string
+	// At is when the task entered `failed`.
+	At time.Time
 }
 
 // SourceKind records where a task's brief came from.
@@ -289,6 +316,10 @@ func (t *Task) ObserveRepository(id RepositoryID, observation GitObservation, no
 //
 // It rejects a state the transition table does not allow, and a state the task
 // is not ready for. Both produce a *TransitionError naming what is missing.
+//
+// Leaving `failed` discards the recorded failure. A task that has been put back
+// to work is no longer explained by what went wrong before, and a stale reason
+// beside a live state is worse than none: it is read as current.
 func (t *Task) TransitionTo(next WorkflowState, now time.Time) error {
 	if !next.Valid() {
 		return &TransitionError{
@@ -322,7 +353,36 @@ func (t *Task) TransitionTo(next WorkflowState, now time.Time) error {
 		}
 	}
 	t.Workflow = next
+	if next != WorkflowFailed {
+		t.Failure = nil
+	}
 	t.touch(now)
+	return nil
+}
+
+// FailWith moves the task to `failed` and records why.
+//
+// It is the only way the reason is recorded, so that the state and its
+// explanation cannot be written apart: a caller that transitions without one
+// leaves a task saying it failed and nothing else, which is the defect this
+// exists to close.
+//
+// The reason is required. Whatever failed knows what it was, and "failed for an
+// unknown reason" is a sentence Feat should never have to write about its own
+// operations.
+func (t *Task) FailWith(reason string, now time.Time) error {
+	if strings.TrimSpace(reason) == "" {
+		return &ValidationError{
+			Entity: "task",
+			ID:     t.ID.String(),
+			Field:  "failure.reason",
+			Reason: "must say what failed, because a failed task with no reason cannot be acted on",
+		}
+	}
+	if err := t.TransitionTo(WorkflowFailed, now); err != nil {
+		return err
+	}
+	t.Failure = &TaskFailure{Reason: reason, At: normalizeTime(now)}
 	return nil
 }
 

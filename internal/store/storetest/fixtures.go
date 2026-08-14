@@ -24,6 +24,10 @@ const (
 	// and after confirmation can both be exercised. A draft is a task in draft
 	// state rather than an entity of its own (ADR-031).
 	DraftID = domain.TaskID("2c4e6a80-1b3d-4f52-8a7c-9e0d1f2a3b4c")
+	// FailedID is a fixture task whose launch failed. It is a fixture of its own
+	// because the state excludes the one above: a task carries the reason it
+	// failed only while it is failed, so no single fixture can cover both.
+	FailedID = domain.TaskID("5d9b0e14-7c2a-42f6-8b31-0a4c6e8d1f35")
 )
 
 // Base commits recorded for the fixture task. They are immutable for the
@@ -127,6 +131,38 @@ func Task() *domain.Task {
 	must(task.AttachRuntime(Runtime(), after(25)))
 	must(task.TransitionTo(domain.WorkflowReviewRequested, after(30)))
 	must(task.SetAttention(domain.AttentionPossiblyWaiting, after(30)))
+
+	return task
+}
+
+// Failed returns a fixture task whose launch failed after its container
+// existed.
+//
+// It is the state a user meets and can do least about: the task is `failed`, no
+// session was ever recorded, and the only thing that explains it is the reason
+// the transition carried. The reason here is a real one, verbatim from a launch
+// refused by the mount rules, because a fixture with a tidy sentence in it would
+// not show what a panel has to render.
+func Failed() *domain.Task {
+	task, err := domain.NewTask(FailedID, ProjectID, "Add a rate limit",
+		domain.TaskSource{Kind: domain.SourcePrompt}, Origin)
+	must(err)
+
+	must(task.SetBrief(Brief, after(1)))
+	must(task.Bind(domain.TaskRepository{
+		RepositoryID:  PrimaryRepositoryID,
+		Access:        domain.TaskAccessReadWrite,
+		Branch:        "feat/5d9b0e14-add-a-rate-limit",
+		WorktreePath:  "/srv/state/worktrees/example/5d9b0e14/core",
+		ContainerPath: "/src/core",
+	}, after(2)))
+	must(task.ResolveBase(PrimaryRepositoryID, "origin/main", PrimaryBaseCommit, after(3)))
+
+	must(task.TransitionTo(domain.WorkflowPreparing, after(4)))
+	must(task.FailWith("task 5d9b0e14 cannot run its agent in service dev of feat-agent-example-5d9b0e14: "+
+		"the container mounts the home directory of the user the daemon runs as at /host-home, which reaches "+
+		"the credentials the security model says Feat must not give an agent", after(5)))
+	must(task.SetAttention(domain.AttentionNeedsInput, after(5)))
 
 	return task
 }

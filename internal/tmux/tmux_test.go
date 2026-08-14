@@ -39,6 +39,7 @@ type fakePane struct {
 	program   string
 	dead      bool
 	status    string
+	signal    string
 	options   map[string]string
 }
 
@@ -228,7 +229,7 @@ func (f *fakeTmux) listPanes() string {
 		lines = append(lines, strings.Join([]string{
 			pane.session, pane.window, pane.id, dead, pane.status, pane.directory,
 			pane.options[optionManaged], pane.options[optionVersion], pane.options[optionProject],
-			pane.options[optionTask], pane.options[optionRole],
+			pane.options[optionTask], pane.options[optionRole], "0", pane.signal,
 		}, "\t"))
 	}
 	return strings.Join(lines, "\n")

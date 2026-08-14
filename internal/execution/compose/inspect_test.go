@@ -164,13 +164,13 @@ func TestFeatsOwnDirectoriesAreRefused(t *testing.T) {
 		},
 		"the home directory": {
 			mount:    execution.ObservedMount{Type: "bind", Source: home, Destination: "/host", Writable: true},
-			contains: "SSH and cloud credentials",
+			contains: "does not allow home directory mounts",
 		},
 		"a directory holding every user's": {
 			mount: execution.ObservedMount{
 				Type: "bind", Source: filepath.Dir(home), Destination: "/hosts", Writable: true,
 			},
-			contains: "SSH and cloud credentials",
+			contains: "does not allow home directory mounts",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

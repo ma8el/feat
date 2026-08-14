@@ -422,6 +422,15 @@ cannot collide with a project the user brings up by hand from the same files.
 file's relative sources and build contexts keep resolving while the generated
 override lives under the state directory.
 
+Because the name is derived from the two identifiers rather than stored, it is
+also resolvable for a task whose record names no environment. A launch that fails
+after its container exists is exactly that task — the session the identity is
+recorded on is created after the container — so its containers, networks, and
+volumes are addressed by the derived name instead: `docker compose --project-name
+<name>` reads Compose's own labels and needs no Compose file, which is what lets
+it answer for a project whose file has since changed. Reconciliation reports what
+it finds as an orphan of the record, and cleanup removes it. See ADR-059.
+
 Compose merges a service's `volumes` by target path, so the generated override
 takes over whatever the base files mounted at a configured `container_path`
 rather than adding a second mount beside it. A `container_path` that disagrees
@@ -730,13 +739,20 @@ On startup:
 2. validate schema versions;
 3. discover tagged tmux objects;
 4. query Git worktrees and branches;
-5. query configured Compose projects;
+5. query configured Compose projects, and the derived one of every task that
+   records none;
 6. scan unprocessed control messages;
 7. compare desired and observed state;
 8. update observations and publish recovery events;
 9. offer actions for inconsistent resources.
 
 Stopped application containers are reported, not restarted.
+
+Cleanup removes classes in a fixed order, so that what holds a file is gone
+before the file is. The control workspace is last, and its removal establishes
+rather than assumes the order: a task's agent containers are asked about by name
+first, and a workspace still mounted into one is refused rather than removed
+half way. See ADR-059.
 
 ## Future remote architecture
 

@@ -136,7 +136,15 @@ func (s *service) recordPlan(ctx context.Context, task *domain.Task, plan *git.P
 // change in the task's history.
 func (s *service) transition(ctx context.Context, task *domain.Task, next domain.WorkflowState, detail string) error {
 	from := task.Workflow
-	if err := task.TransitionTo(next, s.now()); err != nil {
+	// The detail is the reason when the state is `failed`, so it is recorded on
+	// the task and not only on the event. Every path into that state comes
+	// through here — a launch, a Git apply, a resume, a terminal, and a session
+	// the provider reported as failed — which is why one branch covers them all.
+	move := func() error { return task.TransitionTo(next, s.now()) }
+	if next == domain.WorkflowFailed {
+		move = func() error { return task.FailWith(detail, s.now()) }
+	}
+	if err := move(); err != nil {
 		return err
 	}
 	if err := s.store.Tasks().Save(ctx, task); err != nil {
