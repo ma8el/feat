@@ -101,7 +101,14 @@ func TestRealCheckoutIsInspected(t *testing.T) {
 		t.Skip("git is not installed")
 	}
 
-	root := t.TempDir()
+	// Symbolic links are resolved rather than assumed away: Git answers with the
+	// real path of a working tree, and on macOS the temporary directory is
+	// reached through one. The expectation is therefore the resolved path, which
+	// is also what a configuration ends up holding.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolving the temporary directory: %v", err)
+	}
 	origin := filepath.Join(root, "origin.git")
 	clone := filepath.Join(root, "clone")
 	solitary := filepath.Join(root, "solitary")

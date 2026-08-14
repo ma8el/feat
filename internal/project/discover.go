@@ -26,7 +26,10 @@ import (
 // reporting.
 type Checkout struct {
 	// Root is the absolute path of the working tree's root, which is not
-	// necessarily the directory that was asked.
+	// necessarily the directory that was asked: a subdirectory answers with the
+	// tree it is in, and a path reached through a symbolic link comes back
+	// resolved, because both are Git's own answer rather than a rewriting of the
+	// question.
 	Root string
 	// Remote is the remote a base policy would fetch: "origin" when there is
 	// one, otherwise the only other remote, otherwise empty.
