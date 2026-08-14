@@ -626,11 +626,15 @@ func TestAStartThatOutlastsItsBudgetSaysWhatHappened(t *testing.T) {
 	task := arranged.launched(t)
 	arranged.answerFor(task, "running", "Up 2 seconds")
 
-	arranged.service.runtimeOverride = 20 * time.Millisecond
-	// A Docker that takes longer than the whole action is allowed to take. The
-	// sleep is in the first command rather than the start itself, so the deadline
-	// has certainly passed by the time the start is attempted.
-	arranged.runtimes.Before("config --services", func() { time.Sleep(60 * time.Millisecond) })
+	arranged.service.runtimeOverride = 100 * time.Millisecond
+	// A Docker command that outlasts the whole action's budget. Which step is
+	// holding the clock when it runs out is not asserted here: the budget is one
+	// number for the whole action, and a loaded machine spends part of it on the
+	// steps before Docker is reached, so a test that pinned the step would be
+	// pinning how fast the machine is. It failed that way on Linux CI and under
+	// `make check` while passing when run alone; what every step owes the user is
+	// checked below, without a clock.
+	arranged.runtimes.Before("config --services", func() { time.Sleep(200 * time.Millisecond) })
 
 	_, err := arranged.service.Runtime(context.Background(), task.ID, api.RuntimeStart)
 
@@ -640,7 +644,7 @@ func TestAStartThatOutlastsItsBudgetSaysWhatHappened(t *testing.T) {
 	if !errors.Is(err, api.ErrInvalid) {
 		t.Errorf("the failure is not carried to the user as an invalid request: %v", err)
 	}
-	for _, required := range []string{"runtime start", "20ms", "feat runtime status " + task.Key().String()} {
+	for _, required := range []string{"runtime start", "100ms", "feat runtime status " + task.Key().String()} {
 		if !strings.Contains(err.Error(), required) {
 			t.Errorf("the failure does not mention %q: %v", required, err)
 		}
@@ -658,6 +662,86 @@ func TestAStartThatOutlastsItsBudgetSaysWhatHappened(t *testing.T) {
 	if reloaded.Runtime.Identity != "feat-app-"+task.Key().String() {
 		t.Errorf("the record does not name the Compose project the start may have created: %+v",
 			reloaded.Runtime)
+	}
+}
+
+// TestEveryStepOfARuntimeActionReportsTheBudget is the rule the test above
+// stopped depending on the machine for.
+//
+// A start whose clock goes while the daemon is still asking Docker its version
+// failed for the same reason as one whose clock goes inside `up`, and the user
+// is owed the same three things either way: the action, the budget, and the
+// command that says what is on the machine now. Before this, only the second
+// reported them — the first arrived as `cannot manage its application services:
+// context deadline exceeded`, which is the transport error the budget exists to
+// replace, and which of the two a user met depended on how loaded their machine
+// was.
+//
+// What differs is the one thing that is actually different: whether there is a
+// half-finished Compose command to warn about.
+func TestEveryStepOfARuntimeActionReportsTheBudget(t *testing.T) {
+	arranged := arrangeConfigured(t, runtimeFixture)
+	task := arranged.launched(t)
+
+	// Already past, so the reading is exact rather than raced.
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	for name, testCase := range map[string]struct {
+		started bool
+		expects string
+		absent  string
+	}{
+		"before the action started": {
+			started: beforeTheAction,
+			expects: "the action had not started",
+			absent:  "Docker was stopped part way through",
+		},
+		"while the action was running": {
+			started: duringTheAction,
+			expects: "Docker was stopped part way through",
+			absent:  "the action had not started",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := arranged.service.explainRuntime(ctx, task.ID, api.RuntimeStart,
+				90*time.Second, testCase.started, context.DeadlineExceeded)
+
+			if !errors.Is(err, api.ErrInvalid) {
+				t.Errorf("the failure is not carried to the user as an invalid request: %v", err)
+			}
+			for _, required := range []string{
+				"runtime start", "1m30s", "feat runtime status " + task.Key().String(), testCase.expects,
+			} {
+				if !strings.Contains(err.Error(), required) {
+					t.Errorf("the failure does not mention %q: %v", required, err)
+				}
+			}
+			if strings.Contains(err.Error(), testCase.absent) {
+				t.Errorf("the failure claims %q, which is not true of this one: %v", testCase.absent, err)
+			}
+		})
+	}
+}
+
+// TestAValidationFailureKeepsItsOwnSentence is the other half of routing every
+// step through one explanation: a project whose Docker Compose is too old fails
+// for its own reason, and the budget must not take the message over.
+func TestAValidationFailureKeepsItsOwnSentence(t *testing.T) {
+	arranged := arrangeConfigured(t, runtimeFixture)
+	task := arranged.launched(t)
+	arranged.runtimes.Answer("version --short", "2.20.0")
+
+	_, err := arranged.service.Runtime(context.Background(), task.ID, api.RuntimeStart)
+
+	if err == nil {
+		t.Fatal("a Compose too old to run the project was accepted")
+	}
+	if !strings.Contains(err.Error(), "cannot manage its application services") {
+		t.Errorf("the validation failure lost its own sentence: %v", err)
+	}
+	if strings.Contains(err.Error(), "did not finish within") {
+		t.Errorf("a validation failure was reported as a budget that ran out: %v", err)
 	}
 }
 

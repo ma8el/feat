@@ -184,6 +184,14 @@ func (d *Docker) Run(ctx context.Context, invocation runtime.Invocation) (runtim
 		hook()
 	}
 
+	// Asked again after the hook, because a hook is how a test arranges a
+	// command that takes time: a real Docker that outlasts its context is killed
+	// and reports that, and a fake that answered anyway would let a command
+	// succeed after the budget it was running under had gone.
+	if err := ctx.Err(); err != nil {
+		return runtime.Output{}, err
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
