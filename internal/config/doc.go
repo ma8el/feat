@@ -18,6 +18,13 @@
 //   - Validate reports every rule the result breaks rather than the first,
 //     because a configuration file is edited by hand.
 //
+// Configuration is also composed here rather than only read: Draft is the
+// answers `feat project init` collects, and it renders a file, parses it,
+// resolves it, and validates it through the same three stages. A caller can
+// therefore obtain a generated configuration only by obtaining one Feat
+// accepts, and the rules live in one place for a file that was typed and a file
+// that was answered.
+//
 // This package checks shape and safety; it never asks the host a question.
 // Whether a path exists, holds a Git repository, or names a real Compose
 // service is diagnostics, and that lives in internal/project. The line between

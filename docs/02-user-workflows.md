@@ -2,16 +2,41 @@
 
 ## 1. Register a project
 
-v0.1 uses manually authored YAML.
+A project is one YAML file. It can be written by answering questions or by hand,
+and the two produce the same thing: `feat project init` composes the file, and
+every command afterwards reads it as though it had been typed.
 
-1. The user creates a local project configuration describing repositories, base branches, container paths, agent execution, Compose files, runtime services, and review commands.
-2. The user runs `feat doctor`.
-3. Feat validates paths and required executables on the host.
-4. For devcontainer execution, Feat validates the configured service, non-root user, Claude executable, required mounts, and optional `gh`/`glab` availability inside the environment.
-5. Feat resolves and prints the effective configuration without printing secret values.
-6. The user registers the project.
+```text
+feat project init
+feat project init <project>
+feat project init --dry-run
+```
 
-An interactive onboarding wizard is a public-v0 or later feature.
+Flow:
+
+1. The user runs `feat project init` in one of the project's checkouts.
+2. Feat asks which repositories take part and how each takes part by default,
+   where the agent runs, which provider CLI it uses, whether a task runs
+   application services, and what verifies the work.
+3. Feat answers from the host what the host can answer: whether a path is a Git
+   repository, its working-tree root, its remote, its default branch, the
+   Compose files beside it, and the services those files declare. Each is shown
+   as a proposal, and pressing Enter accepts it.
+4. Feat validates the composed configuration, displays the whole file, and
+   writes nothing until the user confirms. An existing configuration is never
+   overwritten.
+5. Feat offers to run the diagnosis, which is `feat doctor` for the new project.
+6. Feat offers to register the project when a daemon is running, which is
+   `feat project add`.
+
+Writing the file by hand is the same workflow without the first five steps: copy
+`docs/examples/project.yaml`, edit it, and run `feat doctor` before registering.
+Either way:
+
+1. `feat doctor` validates paths and required executables on the host.
+2. For devcontainer execution, Feat validates the configured service, non-root user, Claude executable, required mounts, and optional `gh`/`glab` availability inside the environment.
+3. Feat resolves and prints the effective configuration without printing secret values.
+4. The user registers the project.
 
 ## 2. Implement an ad hoc task
 

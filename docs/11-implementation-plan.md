@@ -1728,10 +1728,35 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   box is drawn a line at a time rather than by lipgloss, because the main region
   holds a rendered tmux pane and a re-flow through a layout engine cuts escape
   sequences in half. See ADR-051.
+- Let a project be configured by answering questions. Adding a project means
+  authoring its YAML by hand, copied from a 176-line example, with `feat doctor`
+  as the only feedback loop — and it is the first thing anybody does. Found by
+  adding a second project to a machine that already ran Feat.
+
+  Most of the file is not a decision. The working-tree root, the remote, the
+  default branch, the Compose files beside a checkout, and the services they
+  declare are facts a tool can read, and retyping them is how a configuration
+  acquires a value that was never true. What is left is six questions.
+
+  `feat project init` asks those, derives the rest, renders one draft, and
+  parses, resolves, and validates it before displaying it: what the user
+  confirms is a configuration Feat accepts. Nothing is written until they
+  confirm, an existing file is never overwritten, and diagnosing and registering
+  stay the commands they already are — the wizard offers each at the end and
+  calls exactly those. Writing the file by hand is unchanged.
+
+  Pulled forward from slice 14, which made it conditional on manual
+  configuration being the dominant public blocker: dogfooding answered that, and
+  the first-run path is not one the public milestone should meet for the first
+  time. See ADR-061.
 - Remove hard-coded assumptions discovered during dogfood.
 
 ### Acceptance criteria
 
+- A project can be configured without authoring YAML by hand: what the host can
+  answer is derived rather than asked, the composed configuration is validated
+  before it is displayed, nothing is written until it is confirmed, and an
+  existing configuration is never overwritten.
 - Full v0.1 acceptance checklist passes.
 - No unresolved data-loss or cross-task runtime defect remains.
 - Every notifiable condition has been shown to reach a real desktop once, from
@@ -1794,7 +1819,11 @@ A new macOS/Linux user can use Feat outside the reference project.
   of done for public v0 and not in the v0.1 acceptance criteria — and it is best
   written against what the dogfood runs turn out to need rather than before them.
 - Verify no telemetry.
-- Add onboarding wizard only if manual configuration is the dominant public blocker.
+- Revisit the onboarding wizard against what public users hit. Slice 13
+  delivered `feat project init` (ADR-061) once dogfooding showed manual
+  configuration to be the hardest step; what is left here is whatever a machine
+  that has never run Feat turns out to need, which the first-task documentation
+  above is written against.
 - Add Shortcut only if all core reliability work is complete.
 
 ### Acceptance criteria

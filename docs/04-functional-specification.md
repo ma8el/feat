@@ -32,6 +32,22 @@ A project MUST identify a primary editable repository/workspace used as the defa
 
 It MUST redact secret values and SHOULD show resolved paths and commands.
 
+### FR-PROJ-005 — Guided configuration
+
+Feat MUST provide a command that writes a project's configuration by asking for
+what has to be decided, so that a first project does not require a file to be
+authored by hand.
+
+It MUST derive what the host can answer — whether a directory is a Git
+repository, its working-tree root, its remote, its default branch, the Compose
+files beside it, and the services those files declare — rather than asking for
+it, and it MUST show each proposal as a proposal.
+
+It MUST validate the configuration it composed before offering it, display the
+whole file, and write nothing until the user confirms. It MUST NOT overwrite an
+existing configuration, and it MUST NOT register the project without being
+asked. Registration and diagnosis remain the commands they already are.
+
 ## Task preparation
 
 ### FR-TASK-001 — Ad hoc prompt

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -41,6 +42,11 @@ type Options struct {
 	// against. A nil value reads the wall clock; a test supplies its own so
 	// that its output does not change between runs.
 	Now func() time.Time
+	// Input is where a command that asks questions reads its answers. A nil
+	// value reads the process's standard input, which is what the real binary
+	// wants; a test supplies a script so that a conversation can be driven
+	// without a terminal.
+	Input io.Reader
 }
 
 // environment is what commands need from the process: where Feat's directories
@@ -175,6 +181,12 @@ func NewRootCommand(opts Options) *cobra.Command {
 				Daemon:  ui.Daemon{Version: env.build.Version, Socket: layout.Socket},
 			})
 		},
+	}
+
+	if opts.Input != nil {
+		// Cobra hands this to every command through InOrStdin, so the whole
+		// tree reads the same script a test supplied.
+		root.SetIn(opts.Input)
 	}
 
 	// Shell completion is delivered by slice 14. Hiding the generated command

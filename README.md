@@ -21,6 +21,12 @@ environment. A task may span several repositories.
 > tmux backend with tagged stable identity, native attachment, shell-pane
 > creation, and daemon-restart reconciliation.
 >
+> **Setting a project up** starts with `feat project init`: it asks about the
+> project, finds out what it can from your checkouts — the working-tree root, the
+> remote, the default branch, the Compose files beside them and the services they
+> define — and writes a configuration it has already validated, once you have seen
+> the whole of it.
+>
 > You can prepare, confirm, launch, list, and inspect a task: `feat` opens the
 > dashboard, `feat implement` opens task preparation, and `feat task attach` yields
 > your terminal to a task's own. **A task now runs a real Claude Code session**
@@ -271,7 +277,24 @@ not get always has an answer.
 ## Configuring a project
 
 A project is one YAML file, one per project, named after the project's
-identifier:
+identifier. Run this in one of its checkouts and answer the questions:
+
+```sh
+feat project init                                # write the file by answering questions
+```
+
+It asks what has to be decided — which repositories take part, where the agent
+runs, what verifies the work — and finds out the rest for itself: whether a path
+is a Git repository, its remote and default branch, the Compose files beside it
+and the services they define. Every proposal is in brackets and Enter accepts
+it. The whole file is shown, already validated, before anything is written;
+nothing is written until you say so; an existing configuration is never
+overwritten. It then offers to check the project against your machine and to
+register it, which are the two commands below.
+
+`--dry-run` prints the file it would write and writes nothing.
+
+To write one by hand instead, or to edit the one it wrote:
 
 ```sh
 $EDITOR ~/.config/feat/projects/myproject.yaml   # see docs/examples/project.yaml
