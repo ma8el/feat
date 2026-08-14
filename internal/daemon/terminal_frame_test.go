@@ -336,6 +336,48 @@ func TestAResizedRegionStillReachesTheWindow(t *testing.T) {
 	}
 }
 
+// TestAStoppedAgentKeepsTheScreenItStoppedOn is the reported glitch at the level
+// a user met it: for some tasks the agent's prompt was drawn over two rows in
+// the terminal tab, and stayed there.
+//
+// Those were the tasks whose agent had stopped. Feat keeps their pane on purpose
+// — it is the account of what the session did — and a kept pane has nobody left
+// to repaint it, so sizing its window to the region made tmux reflow the screen
+// it stopped on and nothing ever put it back.
+func TestAStoppedAgentKeepsTheScreenItStoppedOn(t *testing.T) {
+	service, arranged, server := launched(t)
+	ctx := context.Background()
+
+	task, err := service.Task(ctx, arranged.ref.Task)
+	if err != nil {
+		t.Fatalf("reading the task: %v", err)
+	}
+	window := task.Session.Tmux.Window
+
+	// The screen was painted at the region the dashboard was showing it in.
+	if _, err := service.TerminalFrame(ctx, arranged.ref.Task,
+		api.TerminalView{Width: 100, Height: 30}); err != nil {
+		t.Fatalf("the frame before the agent stopped: %v", err)
+	}
+	server.Died(task.Session.Tmux.Pane, 0)
+
+	// And then the same task is looked at from a narrower terminal.
+	frame, err := service.TerminalFrame(ctx, arranged.ref.Task,
+		api.TerminalView{Width: 80, Height: 20})
+	if err != nil {
+		t.Fatalf("the frame after the agent stopped: %v", err)
+	}
+
+	if size, _ := server.PaneSize(window); size != [2]int{100, 30} {
+		t.Errorf("the window of a stopped agent was resized to %v, want the 100x30 its screen was painted at", size)
+	}
+	// The frame says how big it really is, so that the renderer clips it rather
+	// than drawing it as though it fitted.
+	if frame.Width != 100 || frame.Height != 30 {
+		t.Errorf("the frame reports %dx%d, want the size the pane kept", frame.Width, frame.Height)
+	}
+}
+
 // TestAWatchedWindowIsNotResizedByTheDashboard closes the other route to the
 // same defect.
 //

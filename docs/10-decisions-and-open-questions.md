@@ -2242,6 +2242,25 @@ Evidence:
    and repaints again. The same measurement puts a settled frame's five `tmux`
    invocations at 30.5 ms and the two it actually needs at 16.3 ms, which at a
    60 ms focused poll is half the interval spent forking processes.
+7. A resize is a request to repaint, and a pane whose program has ended cannot
+   answer it. tmux reflows the screen instead. Measured against tmux 3.5a, a
+   pane retained by `remain-on-exit` holding a full-width prompt, sized from 20
+   columns to 14 and back:
+
+   ```
+   20 columns              14 columns
+   │ > type here      │    │ > type here
+   ╰──────────────────╯         │
+                           ╰─────────────
+                           ─────╯
+   ```
+
+   The maintainer reported it as the terminal tab drawing an agent's prompt over
+   two rows, for some tasks and not others: the tasks whose agent had stopped.
+   Feat keeps those panes on purpose — a stopped agent's pane is the account of
+   what the session did (ADR-030) — and the same measurement back at 20 columns
+   returns the box whole, because tmux rejoins exactly the rows it split. So the
+   damage is one-directional and so is the repair.
 
 Decisions:
 
@@ -2283,6 +2302,19 @@ Decisions:
   tmux's side is visible to the program in the pane, and a poll that repeats it is
   a poll that disturbs what it is trying to show. It holds for the control-mode
   transport too, which changes when a frame is asked for and not what asking costs.
+- A window holding a pane that has stopped is never made smaller. Evidence 7 is
+  the reason: sizing it reflows a screen nothing will repaint, and the reflow is
+  then permanent. Growing one stays allowed and is the repair. The question is
+  asked about the window rather than about the pane being drawn, because a resize
+  reflows every pane in the window — including the stopped agent behind a live
+  shell — and it is answered inside the measurement a frame already takes.
+- What the region cannot fit, the renderer clips, and it clips to the foot. A
+  window is larger than the region whenever Feat is not the one sizing it: the
+  window a native client owns, and now the window of a stopped pane. A terminal's
+  newest output is at its bottom and the prompt a user reads is its last row, so
+  the rows to drop are the ones above — ending at the last row the panes wrote,
+  because a window with blank rows under its content has a foot that is not the
+  content's.
 - Detail and review become one task view rather than two tabs. Evidence 1 is the
   reason, and a main region holding a live session leaves room for one panel
   rather than four.

@@ -162,6 +162,21 @@ func (s *Server) Watch(window string, viewers int) {
 	}
 }
 
+// Died ends the program of a pane that is already on the server, leaving the
+// pane where it is with the exit status tmux would report.
+//
+// It is what Feat's own remain-on-exit produces, arranged after a launch rather
+// than seeded: a task whose agent has stopped keeps its window, and the screen
+// the agent stopped on is kept with it.
+func (s *Server) Died(pane string, status int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record, exists := s.panes[pane]; exists {
+		record.dead = true
+		record.status = strconv.Itoa(status)
+	}
+}
+
 // SetPanePID sets the process tmux started in a pane, which is where a resource
 // observer begins walking a task's process tree.
 func (s *Server) SetPanePID(pane string, pid int) {
@@ -744,6 +759,7 @@ func (s *Server) measurements(target string) (map[string]string, error) {
 			"window_zoomed_flag":    flag(s.zoomed[window.id] != ""),
 			"window_panes":          strconv.Itoa(s.windowPanes(window.id)),
 			"window_active_clients": strconv.Itoa(window.viewers),
+			"P:#{pane_dead}":        s.paneFlags(window.id),
 		}, window.options), nil
 	}
 
@@ -779,7 +795,27 @@ func (s *Server) measurements(target string) (map[string]string, error) {
 		"pane_dead_signal":   pane.signal,
 		"pane_current_path":  pane.directory,
 		"pane_pid":           strconv.Itoa(pane.pid),
+		"P:#{pane_dead}":     s.paneFlags(pane.window),
 	}, pane.options), nil
+}
+
+// paneFlags renders tmux's loop over the panes of a window, which answers a
+// question about the window and not about the target: one character per pane, in
+// pane order.
+func (s *Server) paneFlags(window string) string {
+	ids := make([]string, 0, len(s.panes))
+	for id, pane := range s.panes {
+		if pane.window == window {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+
+	var flags strings.Builder
+	for _, id := range ids {
+		flags.WriteString(flag(s.panes[id].dead))
+	}
+	return flags.String()
 }
 
 // windowSize is the size a window was resized to, or the server's default.

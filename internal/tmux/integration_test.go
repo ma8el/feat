@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -626,5 +627,98 @@ func TestRealPaneCaptureAndInputRoundTrip(t *testing.T) {
 	buffers, err := server.runner.Run(ctx, server.socket, "list-buffers")
 	if err == nil && strings.Contains(buffers, inputBuffer) {
 		t.Errorf("Feat's input buffer outlived the paste: %s", buffers)
+	}
+}
+
+// TestRealAStoppedPaneKeepsTheScreenItStoppedOn is the reported glitch against
+// tmux itself: an agent's prompt drawn over two rows in the terminal tab, for
+// tasks whose agent had stopped.
+//
+// tmux reflows a pane when its width changes, and a pane whose program has ended
+// has nobody to repaint it, so the reflow is the last word. Feat's own
+// remain-on-exit is what keeps such a pane readable (ADR-030), and rendering it
+// used to size its window to the dashboard's region — which took the retained
+// screen apart. The first half of this measures the reflow, so that the second
+// half is a check on Feat rather than on a claim about tmux.
+func TestRealAStoppedPaneKeepsTheScreenItStoppedOn(t *testing.T) {
+	server := realTmux(t)
+	ctx := context.Background()
+
+	backend, err := New(server.socket, server.runner)
+	if err != nil {
+		t.Fatalf("building the adapter: %v", err)
+	}
+	// A prompt as wide as an agent's own, printed by a command that then ends. It
+	// is the shape of what a stopped agent leaves behind: a full-width box nothing
+	// will draw again.
+	//
+	// Three of them, because tmux scrolls the screen by one row to write its own
+	// "Pane is dead" line under it: a prompt printed on the first row would be in
+	// the history rather than on the screen, and a capture reads the screen.
+	prompt := "│ > " + strings.Repeat(" ", 66) + "│"
+	terminal, err := backend.EnsureTask(ctx, testProject, testTask, CommandSpec{
+		Program:   "/bin/sh",
+		Arguments: []string{"-c", "printf '%s\\n'" + strings.Repeat(" '"+prompt+"'", 3)},
+		Directory: server.dir,
+	})
+	if err != nil {
+		t.Fatalf("EnsureTask: %v", err)
+	}
+	window, pane := terminal.Target.Window, terminal.Target.Pane
+	awaitDeadAgent(t, backend)
+
+	painted, err := backend.CapturePane(ctx, pane)
+	if err != nil {
+		t.Fatalf("CapturePane: %v", err)
+	}
+	if !slices.Contains(painted.Content, prompt) {
+		t.Fatalf("the pane is %d cells and never held the whole %d-cell prompt, "+
+			"so this proves nothing:\n%q", painted.Width, len([]rune(prompt)), painted.Content)
+	}
+	// The height stays where it is throughout. Taking rows away from a dead pane
+	// pushes the screen into the history, which is a different loss from the one
+	// this is about.
+	region := painted.Height
+	narrow := len([]rune(prompt)) - 6
+
+	// What tmux does to it, measured here so that the assertions below are about
+	// Feat's choice rather than about a claim about some version's behaviour.
+	if err := backend.ResizeWindow(ctx, window, narrow, region); err != nil {
+		t.Fatalf("ResizeWindow smaller: %v", err)
+	}
+	reflowed, err := backend.CapturePane(ctx, pane)
+	if err != nil {
+		t.Fatalf("CapturePane after shrinking: %v", err)
+	}
+	if slices.Contains(reflowed.Content, prompt) {
+		t.Skip("this tmux does not reflow a dead pane, so there is nothing here to prevent")
+	}
+	if err := backend.ResizeWindow(ctx, window, painted.Width, region); err != nil {
+		t.Fatalf("ResizeWindow back: %v", err)
+	}
+
+	// And now the same shrink through the call the dashboard actually makes.
+	frame, err := backend.RenderPane(ctx, window, pane, narrow, region, true)
+	if err != nil {
+		t.Fatalf("RenderPane: %v", err)
+	}
+	if !slices.Contains(frame.Content, prompt) {
+		t.Errorf("rendering a stopped pane into a narrower region took its screen apart:\n%q", frame.Content)
+	}
+	if frame.Width != painted.Width {
+		t.Errorf("the frame reports %d cells, want the %d the pane stopped at", frame.Width, painted.Width)
+	}
+
+	// A region with room for it is the repair: tmux rejoins what it split, so a
+	// screen an earlier Feat already wrapped comes back whole.
+	if err := backend.ResizeWindow(ctx, window, narrow, region); err != nil {
+		t.Fatalf("ResizeWindow to the wrapped state: %v", err)
+	}
+	repaired, err := backend.RenderPane(ctx, window, pane, painted.Width, region, true)
+	if err != nil {
+		t.Fatalf("RenderPane at the full width: %v", err)
+	}
+	if !slices.Contains(repaired.Content, prompt) {
+		t.Errorf("a stopped pane with room to spare was not grown back:\n%q", repaired.Content)
 	}
 }

@@ -379,7 +379,7 @@ func TestARenderThatNeedsNothingChangesNothing(t *testing.T) {
 	runner := newScriptedRunner()
 	// A 100x30 window, zoomed on this pane, which is the state a settled
 	// dashboard leaves behind between polls.
-	runner.replies["display-message"] = "100\t30\t1\t1\t2\t100\t30\t4\t2\t0"
+	runner.replies["display-message"] = "100\t30\t1\t1\t2\t100\t30\t4\t2\t0\t00"
 	runner.replies["capture-pane"] = "working\n"
 
 	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 100, 30, true)
@@ -413,7 +413,7 @@ func TestARenderSizesTheWindowWhenTheRegionChanged(t *testing.T) {
 	runner := newScriptedRunner()
 	// An unzoomed 80x24 window whose pane holds half of it, and then the pane as
 	// it stands once the window has been sized and the pane zoomed.
-	runner.script("display-message", "80\t24\t0\t1\t2\t39\t24\t0\t0\t0", "100\t30\t0\t0\t0")
+	runner.script("display-message", "80\t24\t0\t1\t2\t39\t24\t0\t0\t0\t00", "100\t30\t0\t0\t0")
 	runner.replies["capture-pane"] = "working\n"
 
 	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 100, 30, true)
@@ -433,6 +433,107 @@ func TestARenderSizesTheWindowWhenTheRegionChanged(t *testing.T) {
 	}
 	if frame.Width != 100 || frame.Height != 30 {
 		t.Errorf("the frame reports %dx%d, want the size it was just given", frame.Width, frame.Height)
+	}
+}
+
+// TestARenderDoesNotShrinkAWindowHoldingAStoppedPane is the glitch a user
+// reported: an agent's prompt drawn over two rows, and staying there.
+//
+// A resize is a request to repaint and a stopped pane cannot answer it. tmux
+// reflows the screen it stopped on instead, so a full-width prompt comes apart
+// onto the row below and stays there for as long as the pane is retained — which
+// is for as long as the task is kept, because the retained pane is the account of
+// what the agent did.
+func TestARenderDoesNotShrinkAWindowHoldingAStoppedPane(t *testing.T) {
+	runner := newScriptedRunner()
+	// One dead pane in a 100x30 window, drawn into a region of 80x20.
+	runner.replies["display-message"] = "100\t30\t0\t1\t1\t100\t30\t0\t0\t1\t1"
+	runner.replies["capture-pane"] = "│ > type here                    │\n"
+
+	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 80, 20, true)
+	if err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	for _, command := range []string{"resize-window", "set-window-option"} {
+		if args, found := runner.call(command); found {
+			t.Errorf("a stopped pane was reflowed by %q", strings.Join(args, " "))
+		}
+	}
+	// And it is reported at the size it kept, so the renderer clips it rather
+	// than believing it is the size of the region.
+	if frame.Width != 100 || frame.Height != 30 {
+		t.Errorf("the frame reports %dx%d, want the 100x30 the pane stopped at", frame.Width, frame.Height)
+	}
+}
+
+// TestAStoppedPaneIsMeasuredByItsWindow keeps the rule about the window rather
+// than about the pane being drawn.
+//
+// A resize reflows every pane of a window, including the ones the dashboard is
+// not showing. A live shell beside a stopped agent must therefore not be the
+// reason the agent's last screen is taken apart.
+func TestAStoppedPaneIsMeasuredByItsWindow(t *testing.T) {
+	runner := newScriptedRunner()
+	// Two panes, this one live and zoomed, the other one dead.
+	runner.replies["display-message"] = "100\t30\t1\t1\t2\t100\t30\t0\t0\t0\t10"
+	runner.replies["capture-pane"] = "$ \n"
+
+	if _, err := captureAdapter(t, runner).RenderPane(
+		context.Background(), "@3", "%7", 80, 20, true); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	if args, found := runner.call("resize-window"); found {
+		t.Errorf("the window of a stopped pane was resized by %q", strings.Join(args, " "))
+	}
+}
+
+// TestARenderGrowsAWindowHoldingAStoppedPane keeps the rule one-directional.
+//
+// Growing is the repair rather than more of the damage: tmux rejoins exactly the
+// rows it split, so a screen a narrower region already took apart comes back
+// whole as soon as there is room for it.
+func TestARenderGrowsAWindowHoldingAStoppedPane(t *testing.T) {
+	runner := newScriptedRunner()
+	runner.script("display-message", "60\t20\t0\t1\t1\t60\t20\t0\t0\t1\t1", "100\t30\t0\t0\t1")
+	runner.replies["capture-pane"] = "working\n"
+
+	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 100, 30, true)
+	if err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	sized, found := runner.call("resize-window")
+	if !found {
+		t.Fatal("a stopped pane with room to spare was not grown back")
+	}
+	if got := strings.Join(sized, " "); got != "resize-window -t @3 -x 100 -y 30" {
+		t.Errorf("resized with %q", got)
+	}
+	if frame.Width != 100 || frame.Height != 30 {
+		t.Errorf("the frame reports %dx%d, want the size it was just given", frame.Width, frame.Height)
+	}
+}
+
+// TestARenderStillShrinksAWindowOfLivePanes is the other half of the same rule:
+// a program that can repaint is told about the region, whichever way it moved.
+func TestARenderStillShrinksAWindowOfLivePanes(t *testing.T) {
+	runner := newScriptedRunner()
+	runner.script("display-message", "100\t30\t0\t1\t1\t100\t30\t0\t0\t0\t0", "80\t20\t0\t0\t0")
+	runner.replies["capture-pane"] = "working\n"
+
+	if _, err := captureAdapter(t, runner).RenderPane(
+		context.Background(), "@3", "%7", 80, 20, true); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	sized, found := runner.call("resize-window")
+	if !found {
+		t.Fatal("a live pane was not resized to the smaller region")
+	}
+	if got := strings.Join(sized, " "); got != "resize-window -t @3 -x 80 -y 20" {
+		t.Errorf("resized with %q", got)
 	}
 }
 

@@ -30,13 +30,25 @@ const frameFormat = "#{pane_width}\t#{pane_height}\t#{cursor_x}\t#{cursor_y}\t#{
 // zoomFormat is what a zoom decision needs to know.
 const zoomFormat = "#{window_zoomed_flag}\t#{pane_active}\t#{window_panes}"
 
+// frozenFormat asks whether any pane of the window has stopped.
+//
+// It loops over the window's panes rather than asking about the one being drawn,
+// because a resize is a window operation: it reflows every pane in the window,
+// including the ones the dashboard is not showing. tmux renders one character
+// per pane, so a "1" anywhere in the answer is a pane that will never repaint
+// what a resize takes apart. Anything else — a window of live panes, or a tmux
+// too old to know the loop — is read as nothing frozen, which is what Feat did
+// before this.
+const frozenFormat = "#{P:#{pane_dead}}"
+
 // renderFormat is everything RenderPane needs, in one query.
 //
 // The window's size joins the zoom state and the pane's own measurements so that
 // a frame with nothing to change costs two tmux invocations rather than five.
 // Each one is a process, and while the pane has the keyboard this runs sixteen
 // times a second: measured against tmux 3.7b, 30.5 ms a frame became 16.3 ms.
-const renderFormat = "#{window_width}\t#{window_height}\t" + zoomFormat + "\t" + frameFormat
+const renderFormat = "#{window_width}\t#{window_height}\t" + zoomFormat + "\t" +
+	frameFormat + "\t" + frozenFormat
 
 // PaneFrame is one pane as tmux has already drawn it.
 //
@@ -231,6 +243,9 @@ func (t *Tmux) PasteText(ctx context.Context, pane, text string) error {
 //
 // Sizing and zooming are skipped entirely for a window somebody is attached to,
 // which keeps a rendering from resizing a real client's terminal.
+//
+// A window holding a pane whose program has ended is never made smaller, for the
+// reason given at frozenSize.
 func (t *Tmux) RenderPane(ctx context.Context, window, pane string, width, height int, prepare bool) (PaneFrame, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -245,6 +260,9 @@ func (t *Tmux) RenderPane(ctx context.Context, window, pane string, width, heigh
 	state, err := t.renderState(ctx, pane)
 	if err != nil {
 		return PaneFrame{}, err
+	}
+	if state.frozen {
+		width, height = frozenSize(state, width, height)
 	}
 
 	moved := false
@@ -270,11 +288,44 @@ func (t *Tmux) RenderPane(ctx context.Context, window, pane string, width, heigh
 	return t.captureInto(ctx, frame)
 }
 
+// frozenSize is the size a window holding a stopped pane may be given: this one
+// or the one it has, whichever is larger.
+//
+// A resize is a request to repaint, and a pane whose program has ended cannot
+// answer it. tmux reflows the screen it stopped on instead, so the last thing
+// the program drew comes apart at the new width and stays that way for as long
+// as the pane is retained — which is for as long as the user keeps the task,
+// because a retained pane is the account of what the agent did (ADR-030).
+// Measured against tmux 3.5a, a dead pane holding a full-width prompt and sized
+// from 20 columns to 14:
+//
+//	20 columns              14 columns
+//	│ > type here      │    │ > type here
+//	╰──────────────────╯         │
+//	                        ╰─────────────
+//	                        ─────╯
+//
+// Growing one is allowed and is the repair: the same measurement back at 20
+// columns returns the box whole, because tmux rejoins exactly the rows it split.
+// So the rule is one-directional rather than "never resize a dead pane", and a
+// pane a narrower region already took apart comes back as soon as there is room
+// for it.
+//
+// What the region cannot fit is then wider or taller than the region, and the
+// renderer clips it — which is what it already does for the window a native
+// client owns.
+func frozenSize(state renderState, width, height int) (int, int) {
+	return max(width, state.windowWidth), max(height, state.windowHeight)
+}
+
 // renderState is a pane and the window around it, as one measurement.
 type renderState struct {
 	windowWidth, windowHeight int
 	zoom                      zoomState
 	frame                     PaneFrame
+	// frozen reports that some pane of this window has stopped, and that a
+	// resize would therefore reflow a screen nothing will repaint.
+	frozen bool
 }
 
 // renderState reads everything RenderPane decides on.
@@ -288,9 +339,9 @@ func (t *Tmux) renderState(ctx context.Context, pane string) (renderState, error
 		return renderState{}, fmt.Errorf("measuring pane %s and its window: %w", pane, err)
 	}
 	fields := strings.Split(strings.TrimRight(measured, "\n"), "\t")
-	if len(fields) != 10 {
+	if len(fields) != 11 {
 		return renderState{}, fmt.Errorf(
-			"measuring pane %s and its window returned %d fields, want 10: %q", pane, len(fields), measured)
+			"measuring pane %s and its window returned %d fields, want 11: %q", pane, len(fields), measured)
 	}
 
 	state := renderState{}
@@ -305,9 +356,13 @@ func (t *Tmux) renderState(ctx context.Context, pane string) (renderState, error
 	if state.zoom, err = parseZoom(pane, fields[2:5]); err != nil {
 		return renderState{}, err
 	}
-	if state.frame, err = parseFrame(pane, strings.Join(fields[5:], "\t")); err != nil {
+	if state.frame, err = parseFrame(pane, strings.Join(fields[5:10], "\t")); err != nil {
 		return renderState{}, err
 	}
+	// One character per pane, so a stopped pane anywhere in the window is a "1"
+	// anywhere in the field. Nothing is parsed out of it: which pane stopped is
+	// not a question a resize decision asks.
+	state.frozen = strings.Contains(fields[10], "1")
 	return state, nil
 }
 
