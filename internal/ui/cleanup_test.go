@@ -1,9 +1,12 @@
 package ui
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ma8el/feat/internal/api"
 )
@@ -36,11 +39,17 @@ func cleanupFixture() api.CleanupPlan {
 	}
 }
 
-// openCleanupScreen opens the cleanup screen over a plan.
+// openCleanupScreen opens the cleanup screen over the fixture.
 func openCleanupScreen(t *testing.T, backend *fakeBackend) Model {
 	t.Helper()
+	return openCleanupPlan(t, backend, cleanupFixture())
+}
 
-	backend.cleanupPlan = cleanupFixture()
+// openCleanupPlan opens the cleanup screen over a plan.
+func openCleanupPlan(t *testing.T, backend *fakeBackend, plan api.CleanupPlan) Model {
+	t.Helper()
+
+	backend.cleanupPlan = plan
 	model := dashboard(backend, liveTask())
 
 	updated, cmd := model.Update(key("C"))
@@ -192,6 +201,177 @@ func TestArchivingIsOfferedOnlyWhenEverythingIsSelected(t *testing.T) {
 	model = updated.(Model)
 	if model.cleanup.archive {
 		t.Error("deselecting a class left the archive set")
+	}
+}
+
+// TestTheInventoryOnTheScreenIsTheInventoryTheCommandPrints is FR-CLEAN-001 at
+// the dashboard.
+//
+// The screen drew each target's identity and nothing else, so a worktree said a
+// path, a volume said a name beginning with a Compose project, and a tmux window
+// said `@3`. Everything that made those readable — the sentence the plan writes
+// for each target, and the project and workflow the removal is happening in —
+// was in `feat task cleanup` alone, which is to say a user had to leave the
+// dashboard to find out what they were about to remove.
+func TestTheInventoryOnTheScreenIsTheInventoryTheCommandPrints(t *testing.T) {
+	backend := newFakeBackend()
+	plan := cleanupFixture()
+	plan.Classes[0].Targets[0].Present = false
+
+	model := openCleanupPlan(t, backend, plan)
+	view := flowed(content(model))
+
+	for _, want := range []string{
+		// What is being cleaned up: a task still working on something is a
+		// different decision from an approved one.
+		"project example", "approved",
+		// And what each target is, beside what it is called.
+		"@3", "the task's tmux window",
+		"/state/feat/worktrees/example/7f3a1c2e/api", "the task worktree of api",
+		// A target that is already gone still says so.
+		"(already gone)",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the inventory does not show %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestAWarningIsDrawnBesideTheTargetItIsTrueOf keeps a class of several
+// resources from saying only that one of them would lose work.
+//
+// The class's warnings are the distinct set of its targets', so a class of three
+// worktrees with one dirty one carries a single line saying a worktree has
+// uncommitted changes. Under the title that is all it says; beside the worktree
+// it is true of, it says which.
+func TestAWarningIsDrawnBesideTheTargetItIsTrueOf(t *testing.T) {
+	backend := newFakeBackend()
+	plan := cleanupFixture()
+	plan.Classes[1].Targets = append(plan.Classes[1].Targets, api.CleanupTarget{
+		Identity: "/state/feat/worktrees/example/7f3a1c2e/web",
+		Detail:   "the task worktree of web",
+		Present:  true,
+	})
+
+	model := openCleanupPlan(t, backend, plan)
+	lines := strings.Split(ansi.Strip(content(model)), "\n")
+
+	dirty := lineWith(t, lines, "/7f3a1c2e/api")
+	warning := lineWith(t, lines, "! the worktree has uncommitted")
+	clean := lineWith(t, lines, "/7f3a1c2e/web")
+	if dirty >= warning || warning >= clean {
+		t.Errorf("the warning is not beside the worktree it is true of:\n%s",
+			strings.Join(lines, "\n"))
+	}
+
+	// The class still says that it is the thing needing a confirmation, and says
+	// so again once one has been given.
+	if !strings.Contains(flowed(content(model)), "worktrees (needs confirmation)") {
+		t.Errorf("the class does not say it needs a confirmation:\n%s", content(model))
+	}
+	for _, press := range []string{"down", " ", "y"} {
+		updated, _ := model.Update(key(press))
+		model = updated.(Model)
+	}
+	if !strings.Contains(flowed(content(model)), "worktrees (confirmed)") {
+		t.Errorf("the class does not say the confirmation was given:\n%s", content(model))
+	}
+}
+
+// lineWith is the index of the one line holding a fragment.
+func lineWith(t *testing.T, lines []string, want string) int {
+	t.Helper()
+
+	found := -1
+	for i, line := range lines {
+		if strings.Contains(line, want) {
+			if found >= 0 {
+				t.Fatalf("%q is on more than one line:\n%s", want, strings.Join(lines, "\n"))
+			}
+			found = i
+		}
+	}
+	if found < 0 {
+		t.Fatalf("%q is on no line:\n%s", want, strings.Join(lines, "\n"))
+	}
+	return found
+}
+
+// longCleanupPlan is an inventory taller than any dialog it is drawn in, which
+// is what a task with several repositories owns.
+func longCleanupPlan(classes int) api.CleanupPlan {
+	plan := api.CleanupPlan{
+		TaskID: liveTask().ID, TaskKey: liveTask().Key,
+		ProjectID: "example", Workflow: "approved", Token: "0f1e2d3c",
+	}
+	for i := range classes {
+		name := "class" + strconv.Itoa(i)
+		plan.Classes = append(plan.Classes, api.CleanupClass{
+			Class: name, Title: name,
+			Targets: []api.CleanupTarget{
+				{Identity: name + "/one", Detail: "the first of " + name, Present: true},
+				{Identity: name + "/two", Detail: "the second of " + name, Present: true},
+			},
+		})
+	}
+	return plan
+}
+
+// TestALongInventoryScrollsRatherThanBeingClipped keeps every class reachable on
+// a terminal smaller than the plan.
+//
+// The overlay cut what did not fit and left a note counting the lines it had
+// dropped, and nothing moved the window: a task whose inventory was taller than
+// the dialog could be read only by running `feat task cleanup`, and a class the
+// cursor was on could be selected without ever having been drawn.
+func TestALongInventoryScrollsRatherThanBeingClipped(t *testing.T) {
+	backend := newFakeBackend()
+	backend.cleanupPlan = longCleanupPlan(6)
+
+	model := sized(dashboard(backend, liveTask()), 90, 20)
+	updated, cmd := model.Update(key("C"))
+	model = updated.(Model)
+	runCommands(t, cmd)
+	updated, _ = model.Update(cleanupPlanMsg{plan: backend.cleanupPlan})
+	model = updated.(Model)
+
+	view := flowed(content(model))
+	if !strings.Contains(view, "class0") {
+		t.Fatalf("the first class is not drawn:\n%s", content(model))
+	}
+	if !strings.Contains(view, "lines below") {
+		t.Errorf("the screen does not say there is more of the inventory:\n%s", content(model))
+	}
+	if strings.Contains(view, "class5") {
+		t.Fatalf("the whole inventory fits, so this proves nothing:\n%s", content(model))
+	}
+
+	// Moving to the last class brings the window with it.
+	for range 5 {
+		updated, _ = model.Update(key("down"))
+		model = updated.(Model)
+	}
+	view = flowed(content(model))
+	if !strings.Contains(view, "class5") || !strings.Contains(view, "the second of class5") {
+		t.Errorf("moving the cursor did not bring the class it is on into view:\n%s", content(model))
+	}
+	if !strings.Contains(view, "lines above") {
+		t.Errorf("the screen does not say what it scrolled past:\n%s", content(model))
+	}
+
+	// And the page keys move the window without moving the choice, which is what
+	// reaches a class whose own targets are more than the region holds.
+	cursor := model.cleanup.cursor
+	updated, _ = model.Update(key("pgup"))
+	model = updated.(Model)
+	if model.cleanup.cursor != cursor {
+		t.Errorf("cursor = %d, want the page key to leave the choice where it was", model.cleanup.cursor)
+	}
+	if model.cleanup.scroll == 0 {
+		t.Fatal("pgup left the window at the top of an inventory it was at the bottom of")
+	}
+	if !strings.Contains(flowed(content(model)), "lines below") {
+		t.Errorf("paging up did not move the window:\n%s", content(model))
 	}
 }
 

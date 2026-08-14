@@ -1728,6 +1728,35 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   box is drawn a line at a time rather than by lipgloss, because the main region
   holds a rendered tmux pane and a re-flow through a layout engine cuts escape
   sequences in half. See ADR-051.
+- Make the dashboard's cleanup screen an inventory rather than a list of names.
+  Reported as "cleanup is only executable from the CLI", which is not literally
+  true — the screen has been on `C` since slice 12 — and is what using it leads
+  a person to conclude, for two reasons.
+
+  It drew each target's identity and nothing else. The plan carries a sentence
+  per target and `feat task cleanup` has printed it since the command existed, so
+  the dashboard said `@3`, a volume name beginning with a Compose project, and a
+  path, where the command said what each of them was. The plan's `workflow` is
+  documented as being there "so a screen can say what is being cleaned up" and no
+  screen said it. And a class's warnings are the distinct set of its targets', so
+  a class of three worktrees with one dirty one said only that a worktree had
+  uncommitted work, without saying which — the exactness FR-CLEAN-001 asks for,
+  lost in the summarising.
+
+  It also could not be read. The overlay clamps what does not fit and leaves a
+  note counting the lines it dropped, and nothing moved the window: the six
+  classes of a task with three repositories are about forty lines with the detail
+  restored, against twenty in the dialog on a terminal at the layout's minimum.
+  A user could move the cursor onto a class the screen had never drawn and select
+  it. So the class list scrolls, following the cursor as it moves and on the page
+  keys the task panel already uses, and it says what is above and below it in the
+  words `taskBody` uses for the same thing.
+
+  The screen's own hint line was ninety cells inside a dialog that is sixty-eight
+  on that terminal, so its last two hints were truncated away. It is the frame's
+  key style now, short enough to survive, and the page keys are named in the
+  scroll note rather than in it — the one place they are worth naming is when
+  there is something to scroll to.
 - Remove hard-coded assumptions discovered during dogfood.
 
 ### Acceptance criteria
@@ -1756,6 +1785,10 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
 - Three concurrent tasks are legible at once on an ordinary terminal, no line
   wraps at the supported width, and every field FR-UI-002 requires is reachable
   without leaving the task that was selected.
+- What a task owns can be read as well as removed from the dashboard: the
+  screen's inventory says everything `feat task cleanup` prints about each
+  target, a warning true of one resource of several is drawn beside that one,
+  and a plan taller than the terminal is scrolled to rather than clipped.
 
 ## Slice 14 — Public v0.2
 

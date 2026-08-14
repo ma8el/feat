@@ -298,6 +298,14 @@ networks, and volumes are enumerated by the Compose project name the task
 derives — which names this task's resources by construction, so the inventory
 stays exact. See ADR-059.
 
+The enumeration is also what every surface offering the choice shows.
+`feat task cleanup` and the dashboard's cleanup screen present the same targets,
+each with what it is and whether it is still there, and a warning that is true of
+some of a class's resources is shown against those resources rather than against
+the class. A surface too small for the inventory scrolls rather than dropping the
+end of it: a choice made against a summary is a choice made against something
+other than the plan that will be executed.
+
 ### FR-CLEAN-002 — Separate destructive classes
 
 Stopping/removing containers, removing volumes, removing worktrees, and deleting branches MUST be separate choices.
