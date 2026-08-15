@@ -86,7 +86,7 @@ func newProjectInitCommand(env *environment) *cobra.Command {
 // wizard builds the project wizard for this machine.
 //
 // It is on the environment because both askers need one built the same way: the
-// command below, and the dashboard through its backend (ADR-062).
+// command below, and the dashboard through its backend (ADR-063).
 func (e *environment) wizard(id string) (*wizard.Wizard, error) {
 	layout, options, err := e.project()
 	if err != nil {

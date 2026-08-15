@@ -23,7 +23,7 @@ Initial location:
 
 The file name carries the project identifier and must match `project.id`, so that one project is never described by two answers to the same question. `.yml` is accepted; a project configured by both extensions is an error rather than a preference.
 
-The file may be written by hand or composed by `feat project init`, which asks for what has to be decided and derives the rest from the host. What it writes is what was decided: a field Feat has a default for is left out, because a default written down is a value that stops following Feat when Feat's own changes, and `feat project show` prints the resolved configuration with every default filled in. See ADR-061.
+The file may be written by hand or composed by `feat project init`, which asks for what has to be decided and derives the rest from the host. What it writes is what was decided: a field Feat has a default for is left out, because a default written down is a value that stops following Feat when Feat's own changes, and `feat project show` prints the resolved configuration with every default filled in. See ADR-062.
 
 v0.1 is local-only. A later optional `.feat.yaml` may hold shareable repository conventions, but absolute machine paths and credential references remain local.
 

@@ -231,7 +231,7 @@ func TestAttachAndShellUseTheSelectedTask(t *testing.T) {
 }
 
 // TestTheProjectWizardOpensFromEveryView checks that configuring a project is
-// one key from wherever the user is (ADR-062).
+// one key from wherever the user is (ADR-063).
 //
 // It is not an action on the selected task, and the assertion that it touched
 // none is the point: every other key on this list resumes, stops, cancels, or

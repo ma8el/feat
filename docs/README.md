@@ -80,13 +80,13 @@ requiring it to be authored by hand. It derives from the host what the host can
 answer, validates the configuration it composed before displaying it, writes
 nothing until the user confirms, and never overwrites an existing configuration.
 Diagnosing and registering stay the commands they already are; the wizard offers
-each and runs neither on its own. See ADR-061.
+each and runs neither on its own. See ADR-062.
 
 The questions themselves are `internal/wizard`, which owns the sequence, the
 proposals, and the validation, and reaches the machine through a Host the
 command implements. The dashboard drives the same flow on `p`, as a dialog with
 a cursor and a step back out of an answer, so that neither asker can drift from
-the other. See ADR-062.
+the other. See ADR-063.
 
 Every command that acts on an existing task lives under `feat task`, because
 naming a task is what they have in common. `feat implement` stays at the top

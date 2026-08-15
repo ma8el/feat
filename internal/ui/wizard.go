@@ -25,7 +25,7 @@ const (
 	// wizardChecking is the written project against this machine. The questions
 	// could not ask the host anything — whether the Compose service exists,
 	// whether the agent is installed, whether a remote resolves — so this is
-	// where those answers arrive (ADR-063).
+	// where those answers arrive (ADR-064).
 	wizardChecking
 	// wizardRegistering is the offer that follows a written file.
 	wizardRegistering
@@ -34,7 +34,7 @@ const (
 )
 
 // wizardModel configures a project by asking the same questions
-// `feat project init` asks (ADR-062).
+// `feat project init` asks (ADR-063).
 //
 // It holds the flow and draws it. Which question comes next, what it proposes,
 // and whether an answer is acceptable are decided in internal/wizard, so this
@@ -171,7 +171,7 @@ func (w wizardModel) Update(message tea.Msg) (wizardModel, tea.Cmd) {
 		// Run rather than offered. The user has just asked for this project to
 		// exist and is waiting for it either way; the checks change nothing, and
 		// what they find is the difference between a file and a project that
-		// works (ADR-063).
+		// works (ADR-064).
 		w.check = w.check.start(w.flow.ID())
 		return w, diagnose(w.backend, w.flow.ID())
 
@@ -484,10 +484,11 @@ func (w wizardModel) reviewLines() int {
 // The count below is what every other line of this screen spends: the trail and
 // the blank under it, the path and the blank under it, the "more lines" note,
 // the blank and the sentence saying nothing has been written, the status line
-// with a blank on each side, the blank above the hints and the hints, and the
-// dialog's own heading and rule. Getting it wrong is not cosmetic — the box
-// clamps from the bottom, so an overrun costs the user the assurance that
-// nothing has been written and the keys that write it.
+// with a blank on each side, the blank above the hints and the hints, and what
+// is left of the dialog's own heading and rule once preparationSize has taken
+// the card's share of it. Getting it wrong is not cosmetic — the box clamps from
+// the bottom, so an overrun costs the user the assurance that nothing has been
+// written and the keys that write it.
 func (w wizardModel) reviewHeight() int {
 	const chrome = 14
 	return max(3, w.height-chrome)

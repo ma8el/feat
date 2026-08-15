@@ -50,7 +50,7 @@ func (w wizardModel) View() string {
 //
 // The sections are fixed and the questions inside one are not, so this is what
 // can be said about progress honestly: a user answering a second repository is
-// still in the same part of the file (ADR-062).
+// still in the same part of the file (ADR-063).
 func (w wizardModel) trail() string {
 	if w.step != wizardAsking || !w.asked {
 		// The dialog's own heading already names this screen, and the steps that
@@ -125,7 +125,7 @@ func (w wizardModel) optionsView() string {
 //
 // It is the whole file and it is already validated: what the user is looking at
 // is a configuration Feat accepts, and confirming writes exactly these bytes
-// (ADR-061).
+// (ADR-062).
 func (w wizardModel) reviewView() string {
 	var out strings.Builder
 	out.WriteString(w.wrap(fieldStyle.Render("file")+w.review.Path) + "\n\n")

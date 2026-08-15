@@ -13,7 +13,7 @@ import (
 //
 // It holds a report and a cursor over it and nothing else: the checks run in
 // the backend, where the host commands are built, and what arrives here is
-// data (ADR-063). The same body is drawn inside the project wizard, which is
+// data (ADR-064). The same body is drawn inside the project wizard, which is
 // why the rendering is on this type rather than on the screen that opens it.
 type diagnosisModel struct {
 	// project is what was checked, empty for every configured project.
@@ -267,16 +267,20 @@ func (d diagnosisModel) title() string {
 	return "diagnosis · " + d.project
 }
 
-// diagnosisChrome is what the screen spends on everything that is not a
-// finding: the dialog's heading and the rule under it, the two notes saying how
-// much of the report is above and below the window, the blank and the counts,
-// the sentence a skipped check earns, the line saying where the checks ran, and
-// the blank and the hints.
+// diagnosisTailHeight is what this screen draws around the scrolling report:
+// the two notes saying how much of it is above and below the window, the blank
+// and the counts, the sentence a skipped check earns, the line saying where the
+// checks ran, and the blank and the hints.
 //
-// The dialog clamps from the bottom, so an overrun costs the user the counts and
-// the key that runs the checks again — which is the one action this screen
-// offers. TestTheDiagnosisFitsItsDialog is what keeps this honest.
-const diagnosisChrome = 11
+// The dialog's own cost is dialogVerticalChrome, which the box names so that the
+// arithmetic is not written twice. The dialog clamps from the bottom, so an
+// overrun costs the user the counts and the key that runs the checks again —
+// which is the one action this screen offers. TestTheDiagnosisFitsItsDialog is
+// what keeps this honest.
+const (
+	diagnosisTailHeight = 7
+	diagnosisChrome     = dialogVerticalChrome + diagnosisTailHeight
+)
 
 // diagnosisHints are the keys the report answers.
 func (m Model) diagnosisHints() string {

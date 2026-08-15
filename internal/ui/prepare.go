@@ -278,7 +278,7 @@ func (p prepareModel) chooseProject() (prepareModel, tea.Cmd) {
 		//
 		// It is named as a key rather than as a command, because this screen has
 		// the keyboard and the wizard is one press away from the screen behind it
-		// (ADR-062). `feat project init` is the same conversation for somebody who
+		// (ADR-063). `feat project init` is the same conversation for somebody who
 		// would rather leave.
 		p.err = errors.New("no project is registered; press esc, then p, to configure one")
 		return p, nil

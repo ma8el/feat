@@ -216,7 +216,7 @@ func (b *backend) EditorCommand(path string) (tea.ExecCommand, error) {
 // paths resolve against, and a host that runs Git and reads Compose files. The
 // dashboard has none of those and is not meant to — it drives the questions and
 // draws them, and everything underneath them is this side of the interface
-// (ADR-062).
+// (ADR-063).
 func (b *backend) NewWizard() (*wizard.Wizard, error) {
 	return b.env.wizard("")
 }
@@ -238,7 +238,7 @@ func (b *backend) WriteProject(flow *wizard.Wizard) (string, error) {
 // (ADR-028), so making it a daemon request would be a second implementation of
 // the same checks — and the second one would answer about a different process's
 // environment. What crosses to the dashboard is data, so the screen that draws
-// it reaches no adapter (ADR-031, ADR-063).
+// it reaches no adapter (ADR-031, ADR-064).
 func (b *backend) Diagnose(ctx context.Context, id string) (api.Diagnosis, error) {
 	layout, options, err := b.env.project()
 	if err != nil {

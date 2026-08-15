@@ -544,9 +544,9 @@ func prepared(t *testing.T, backend *fakeBackend) prepareModel {
 //
 // It is the error a new user is most likely to meet, and the step that clears it
 // is writing a configuration: naming `feat project add` names a registration
-// with nothing to register (ADR-061). What it names instead is the key that
+// with nothing to register (ADR-062). What it names instead is the key that
 // opens the wizard, because that is the shortest route from where the user is
-// standing when they read it (ADR-062).
+// standing when they read it (ADR-063).
 func TestAFirstRunIsPointedAtTheWizard(t *testing.T) {
 	backend := newFakeBackend()
 	backend.projects = nil

@@ -42,7 +42,7 @@ func diagnosisReport() api.Diagnosis {
 }
 
 // TestDiagnosisOpensForTheSelectedTasksProject checks the standalone screen: the
-// checks `feat doctor` runs, read where the tasks they are about are (ADR-063).
+// checks `feat doctor` runs, read where the tasks they are about are (ADR-064).
 func TestDiagnosisOpensForTheSelectedTasksProject(t *testing.T) {
 	backend := newFakeBackend()
 	backend.diagnosis = diagnosisReport()

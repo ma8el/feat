@@ -102,7 +102,7 @@ and a path; the notification policy receives a resolved `Policy` and a `Subject`
 carrying a task's key, title, and project, and can reach nothing else. See
 ADR-035.
 
-`internal/wizard` is added by slice 13 and holds the sequence of questions that composes a project configuration: which question comes next, what it proposes, and whether an answer is acceptable. It reaches nothing — what it needs to know about the machine it asks through a `Host` that `internal/cli` implements over `internal/project` — so both askers can drive it: `feat project init` as a line conversation, and the dashboard as a dialog. See ADR-062.
+`internal/wizard` is added by slice 13 and holds the sequence of questions that composes a project configuration: which question comes next, what it proposes, and whether an answer is acceptable. It reaches nothing — what it needs to know about the machine it asks through a `Host` that `internal/cli` implements over `internal/project` — so both askers can drive it: `feat project init` as a line conversation, and the dashboard as a dialog. See ADR-063.
 
 `internal/config` and `internal/project` are implemented by slice 3, which draws one boundary between them: `internal/config` decides whether a configuration is well formed and safe, and asks the host nothing; `internal/project` asks the host and reports what it found. A configuration therefore stays loadable on a machine where a repository is temporarily missing, which is the machine `feat doctor` is most useful on. See ADR-028.
 

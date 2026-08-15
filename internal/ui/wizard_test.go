@@ -79,7 +79,7 @@ func question(t *testing.T, model Model) string {
 }
 
 // TestTheWizardAsksTheFlowsQuestions checks that the dialog draws what the flow
-// says to ask, including what the machine answered for the user (ADR-062).
+// says to ask, including what the machine answered for the user (ADR-063).
 func TestTheWizardAsksTheFlowsQuestions(t *testing.T) {
 	backend := newFakeBackend()
 	model := wizardScreen(t, backend)
@@ -226,7 +226,7 @@ func TestNothingIsWrittenBeforeTheFileIsConfirmed(t *testing.T) {
 }
 
 // TestTheWrittenProjectIsCheckedAgainstTheMachine is the answer to what the
-// questions could not ask (ADR-063).
+// questions could not ask (ADR-064).
 //
 // The checks run once the file exists, because that is what they are about, and
 // they run rather than being offered: the user is waiting either way, and

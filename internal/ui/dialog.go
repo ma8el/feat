@@ -7,6 +7,26 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// What a dialog spends on itself.
+//
+// They are named because a body that sizes its own content has to subtract them
+// before it counts lines: the cleanup inventory scrolls, and something that
+// scrolls has to know what it does not fit in. Arithmetic written twice is
+// arithmetic that drifts, so the box and its callers read it from here.
+const (
+	// dialogChrome is the horizontal cost: a border and a gutter on each side.
+	dialogChrome = 4
+	// dialogBorderHeight is the border above and below.
+	dialogBorderHeight = 2
+	// dialogHeadingHeight is the title and the rule under it.
+	dialogHeadingHeight = 2
+	// dialogVerticalChrome is both together, which is how many lines fewer than
+	// its caller's limit a dialog's body is drawn in.
+	dialogVerticalChrome = dialogBorderHeight + dialogHeadingHeight
+	// dialogSmallest is the narrowest a dialog is drawn, whatever it was allowed.
+	dialogSmallest = 24
+)
+
 // dialogBox draws a titled border around an overlay's content.
 //
 // The border is what separates the dialog from the dashboard behind it. Without
@@ -17,10 +37,10 @@ import (
 // sized to the terminal rather than to its content covers the task list with
 // blank cells, which is the thing an overlay was chosen to avoid.
 func dialogBox(title, body string, limit, tallest int) string {
-	if limit < 24 {
-		limit = 24
+	if limit < dialogSmallest {
+		limit = dialogSmallest
 	}
-	inner := limit - 4
+	inner := limit - dialogChrome
 
 	heading := titleStyle.Render(truncate(title, inner))
 	content := clampBlock(body, inner)
@@ -38,7 +58,7 @@ func dialogBox(title, body string, limit, tallest int) string {
 	// The border takes a line above and below, so the content gets what is left
 	// of the body region. A dialog taller than that would draw over the footer,
 	// which is the one part of the frame that never moves.
-	return dialogStyle.Width(inner + 2).Render(clampHeight(content, tallest-2, inner))
+	return dialogStyle.Width(inner + 2).Render(clampHeight(content, tallest-dialogBorderHeight, inner))
 }
 
 // blockWidth is the widest line of a block, in cells.

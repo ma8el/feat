@@ -73,7 +73,7 @@ const (
 	screenCleanup
 	// screenDiagnosis is what `feat doctor` found, read on the dashboard. It is
 	// an overlay because it is about a project rather than the selected task, and
-	// because it is read and left rather than worked in (ADR-063).
+	// because it is read and left rather than worked in (ADR-064).
 	screenDiagnosis
 	screenKeys
 	// screenRecovery is everything the last reconciliation pass wants looked at.
@@ -170,7 +170,7 @@ type Model struct {
 	prepare prepareModel
 	// wizard is the project wizard's own state: the questions, where the answers
 	// have reached, and what was written. It holds no dashboard state, and the
-	// dashboard holds none of its (ADR-062).
+	// dashboard holds none of its (ADR-063).
 	wizard wizardModel
 	// diagnosis is the last `feat doctor` run the user asked for, and what it
 	// found. It is never run on its own: the checks shell out to Git, Compose,
@@ -1104,7 +1104,7 @@ func (m Model) diagnosisKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 //
 // The questions are `feat project init`'s own, in internal/wizard, and this
 // screen is a second asker rather than a second wizard: what it adds is a
-// cursor, a step back out of an answer, and the dashboard behind it (ADR-062).
+// cursor, a step back out of an answer, and the dashboard behind it (ADR-063).
 func (m Model) configureProject() (tea.Model, tea.Cmd) {
 	m.rememberTab()
 	m.screen = screenWizard

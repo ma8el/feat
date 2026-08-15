@@ -15,7 +15,7 @@ import (
 // It is the one place the flow's questions meet the host: Git is run here,
 // Compose files are read here, and paths are expanded here. The flow itself
 // names none of it, which is what lets the dashboard drive the same questions
-// without reaching an adapter of its own (ADR-031, ADR-062).
+// without reaching an adapter of its own (ADR-031, ADR-063).
 type machineHost struct {
 	process paths.Environment
 	runner  project.Runner

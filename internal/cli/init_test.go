@@ -510,7 +510,7 @@ func TestProjectInitRegistersWithARunningDaemon(t *testing.T) {
 // TestTheBackendBuildsTheWizardTheDashboardAsks checks the dashboard's half of
 // the wiring: it drives the questions itself, and everything underneath them —
 // the configuration directory, the host that runs Git, the file that gets
-// written — is built here (ADR-062).
+// written — is built here (ADR-063).
 //
 // The questions themselves are internal/wizard's and are tested there. What
 // this checks is that a wizard built the way the dashboard builds one composes
@@ -592,7 +592,7 @@ func TestInspectAndComposeDiscoveryFeedTheProposals(t *testing.T) {
 
 // TestTheDashboardGetsTheChecksTheCommandRuns is the other half of the
 // dashboard's diagnosis: the checks are `feat doctor`'s, and what crosses to the
-// screen is data (ADR-063).
+// screen is data (ADR-064).
 func TestTheDashboardGetsTheChecksTheCommandRuns(t *testing.T) {
 	m := prepareWizard(t)
 	m.configure(t, "app", projectFixture)

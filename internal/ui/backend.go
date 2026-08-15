@@ -99,7 +99,7 @@ type Backend interface {
 	// NewWizard builds the questions that compose a project's configuration.
 	// They are `feat project init`'s own questions, in their own package, so
 	// that the dialog that draws them is a second asker rather than a second
-	// wizard (ADR-062). Nothing is created by building one.
+	// wizard (ADR-063). Nothing is created by building one.
 	NewWizard() (*wizard.Wizard, error)
 	// WriteProject writes the configuration the wizard composed and returns the
 	// file it wrote. It is asked for rather than done here because the dashboard
@@ -113,7 +113,7 @@ type Backend interface {
 	// found, changing nothing. An empty identifier checks every configured
 	// project. It runs the checks `feat doctor` runs, in this process, so what
 	// comes back describes the environment the dashboard is running in
-	// (ADR-063).
+	// (ADR-064).
 	Diagnose(ctx context.Context, id string) (api.Diagnosis, error)
 }
 
