@@ -2261,6 +2261,34 @@ Evidence:
    what the session did (ADR-030) — and the same measurement back at 20 columns
    returns the box whole, because tmux rejoins exactly the rows it split. So the
    damage is one-directional and so is the repair.
+8. Releasing the pinned size as the attach target is handed out does not survive
+   the attach. The maintainer reported it after the release was already in
+   place: attaching to a task showed the agent in part of the terminal with
+   tmux's fill characters over the rest. Read off the running dedicated server
+   afterwards, every task window was `window-size manual` at 171x49 — the
+   dashboard's main region — while the terminal attaching was larger.
+
+   The gap is between the release and the client. Starting a `tmux` client takes
+   tens of milliseconds, the terminal tab polls every 250 ms and every 60 ms
+   while the pane has the keyboard, and a frame drawn in that gap asks tmux who
+   is attached, is told nobody, and pins the window again. The client then
+   arrives to exactly the state the release existed to prevent.
+
+   It stays there because nothing looks again. Bubble Tea's `tea.Exec` blocks
+   the event loop for as long as the terminal is handed over (`tea.go`: "NB:
+   this blocks"), so the dashboard that would have noticed the client is not
+   polling at all — which is why this reads as permanent rather than as a flash.
+
+   Measured against tmux 3.7b, a window pinned at 171x49 with a control-mode
+   client attached and sized to 200x60 with `refresh-client -C`:
+
+   ```
+   left alone          -u window-size
+   171x49              200x60
+   ```
+
+   So the option coming off is what hands the window back, and it takes effect
+   the moment it does.
 
 Decisions:
 
@@ -2308,6 +2336,24 @@ Decisions:
   asked about the window rather than about the pane being drawn, because a resize
   reflows every pane in the window — including the stopped agent behind a live
   shell — and it is answered inside the measurement a frame already takes.
+- A window a client is on belongs to that client, and Feat's sizing comes off it.
+  Evidence 8 is the reason. The release at hand-over stays, because it makes the
+  common attach correct with no frame in between, but it is no longer the whole
+  of it: a rendering that finds a client on a window Feat pinned releases the pin
+  rather than only declining to resize. That covers the client the daemon never
+  saw — a user attaching with `tmux` itself, or from a second terminal while this
+  dashboard polls — and it is the only step of a frame that acts on a watched
+  window at all. It costs nothing per frame: the option's value rides along in
+  the measurement a frame already takes, and an unpinned window is left alone.
+- A terminal handed to a client is left alone until that client arrives or is
+  judged not to be coming. The daemon remembers which task's window it last gave
+  an attach target for, and a rendering treats that task as watched for five
+  seconds. Evidence 8's gap is the reason, and the record is held against the
+  render rather than only consulted by it: a frame that has already asked tmux
+  who is attached would otherwise pin the window immediately after the release,
+  which is the same defect a few milliseconds later. Nothing about this is
+  persistent — a daemon that restarted has no attach in flight — and a client
+  that never arrives costs one wrongly-sized frame after the grace expires.
 - What the region cannot fit, the renderer clips, and it clips to the foot. A
   window is larger than the region whenever Feat is not the one sizing it: the
   window a native client owns, and now the window of a stopped pane. A terminal's

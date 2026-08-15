@@ -295,6 +295,131 @@ func TestRealDetachEndsTheNativeClient(t *testing.T) {
 	}
 }
 
+// TestRealAnAttachedClientGetsItsOwnSizeBack is the reported defect against tmux
+// itself: attaching to a task and finding the agent drawn into part of the
+// terminal, with tmux's fill characters over the rest of it.
+//
+// A rendering sizes the window to the dashboard's main region, and tmux holds a
+// sized window there however large the client attaching is. Releasing the size
+// as the attach target is handed out is not enough on its own, because a frame
+// drawn between that release and the client arriving is told nobody is attached
+// and pins the window again. This is the other half: the first frame that finds
+// a client on a window Feat pinned gives the size back.
+//
+// The first part measures what tmux does, so the assertion afterwards is about
+// Feat's choice rather than about a claim about some version's behaviour.
+func TestRealAnAttachedClientGetsItsOwnSizeBack(t *testing.T) {
+	server := realTmux(t)
+	backend, _ := New(server.socket, server.runner)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	terminal, err := backend.EnsureTask(ctx, testProject, testTask, CommandSpec{
+		Program: "/bin/sh", Arguments: []string{"-c", "sleep 60"}, Directory: server.dir,
+	})
+	if err != nil {
+		t.Fatalf("EnsureTask: %v", err)
+	}
+	window, pane := terminal.Target.Window, terminal.Target.Pane
+
+	// The dashboard draws the pane into its main region, which pins the window.
+	const regionWidth, regionHeight = 87, 21
+	if _, err := backend.RenderPane(ctx, window, pane, regionWidth, regionHeight, false); err != nil {
+		t.Fatalf("RenderPane for the dashboard: %v", err)
+	}
+
+	// And a user attaches, in a terminal larger than that region.
+	const clientWidth, clientHeight = 132, 40
+	client, output := attachClient(ctx, t, server, terminal, clientWidth, clientHeight)
+	defer client()
+	waitForWatched(ctx, t, backend, terminal.Task, true, output)
+
+	// What tmux does with the pin still on: the client's terminal is not the
+	// window's size, which is the blank space the user reported.
+	held, err := backend.CapturePane(ctx, pane)
+	if err != nil {
+		t.Fatalf("CapturePane while pinned: %v", err)
+	}
+	if held.Width >= clientWidth {
+		t.Skipf("this tmux gave a pinned window to its client anyway (%d cells), "+
+			"so there is nothing here to prevent", held.Width)
+	}
+
+	// The frame the dashboard draws next is what repairs it.
+	frame, err := backend.RenderPane(ctx, window, pane, regionWidth, regionHeight, true)
+	if err != nil {
+		t.Fatalf("RenderPane for a watched window: %v", err)
+	}
+	if frame.Width != clientWidth || frame.Height != clientHeight {
+		t.Errorf("the attached client was left with a %dx%d window, want its own %dx%d",
+			frame.Width, frame.Height, clientWidth, clientHeight)
+	}
+	// And the option is off rather than set to some value of Feat's, so the
+	// window keeps following the client from here on.
+	option, err := server.runner.Run(ctx, server.socket, "show-window-options", "-t", window, "window-size")
+	if err != nil {
+		t.Fatalf("reading the released window's sizing: %v", err)
+	}
+	if strings.Contains(option, "manual") {
+		t.Errorf("the window is still pinned against its client: %q", strings.TrimSpace(option))
+	}
+}
+
+// attachClient attaches a real control-mode client of a given size and returns
+// the function that detaches it.
+//
+// Control mode avoids needing a human terminal while keeping tmux's attach
+// lifecycle. Such a client has no window size of its own, so it is given one:
+// refresh-client is how tmux itself lets a control client say how big it is, and
+// a size is the whole point of these tests.
+func attachClient(
+	ctx context.Context, t *testing.T, server *realServer, terminal Terminal, width, height int,
+) (func(), *bytes.Buffer) {
+	t.Helper()
+
+	target := terminal.Target.Session + ":" + terminal.Target.Window + "." + terminal.Target.Pane
+	client := exec.CommandContext(ctx, Executable, "-C", "-S", server.socket, "attach-session", "-t", target)
+	stdin, err := client.StdinPipe()
+	if err != nil {
+		t.Fatalf("attach stdin: %v", err)
+	}
+	output := &bytes.Buffer{}
+	client.Stdout, client.Stderr = output, output
+	client.Env = withoutTmux(client.Environ())
+	if err := client.Start(); err != nil {
+		t.Fatalf("starting attach: %v", err)
+	}
+	detach := func() {
+		_, _ = server.runner.Run(context.WithoutCancel(ctx), server.socket,
+			"detach-client", "-s", terminal.Target.Session)
+		_ = stdin.Close()
+		_ = client.Wait()
+	}
+
+	name := ""
+	deadline := time.Now().Add(5 * time.Second)
+	for name == "" {
+		if time.Now().After(deadline) {
+			detach()
+			t.Fatalf("attach client did not appear\n%s", output.String())
+		}
+		listed, err := server.runner.Run(ctx, server.socket, "list-clients", "-F", "#{client_name}")
+		if err == nil {
+			name = strings.TrimSpace(listed)
+		}
+		if name == "" {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if _, err := server.runner.Run(ctx, server.socket, "refresh-client",
+		"-t", name, "-C", strconv.Itoa(width)+"x"+strconv.Itoa(height)); err != nil {
+		detach()
+		t.Fatalf("sizing the attached client: %v\n%s", err, output.String())
+	}
+	return detach, output
+}
+
 func withoutTmux(environment []string) []string {
 	out := make([]string, 0, len(environment))
 	for _, entry := range environment {
@@ -698,7 +823,7 @@ func TestRealAStoppedPaneKeepsTheScreenItStoppedOn(t *testing.T) {
 	}
 
 	// And now the same shrink through the call the dashboard actually makes.
-	frame, err := backend.RenderPane(ctx, window, pane, narrow, region, true)
+	frame, err := backend.RenderPane(ctx, window, pane, narrow, region, false)
 	if err != nil {
 		t.Fatalf("RenderPane: %v", err)
 	}
@@ -714,7 +839,7 @@ func TestRealAStoppedPaneKeepsTheScreenItStoppedOn(t *testing.T) {
 	if err := backend.ResizeWindow(ctx, window, narrow, region); err != nil {
 		t.Fatalf("ResizeWindow to the wrapped state: %v", err)
 	}
-	repaired, err := backend.RenderPane(ctx, window, pane, painted.Width, region, true)
+	repaired, err := backend.RenderPane(ctx, window, pane, painted.Width, region, false)
 	if err != nil {
 		t.Fatalf("RenderPane at the full width: %v", err)
 	}

@@ -377,12 +377,12 @@ func TestZoomingReleasesAnotherPanesZoomFirst(t *testing.T) {
 // is invisible from outside the pane and has to be a rule here.
 func TestARenderThatNeedsNothingChangesNothing(t *testing.T) {
 	runner := newScriptedRunner()
-	// A 100x30 window, zoomed on this pane, which is the state a settled
-	// dashboard leaves behind between polls.
-	runner.replies["display-message"] = "100\t30\t1\t1\t2\t100\t30\t4\t2\t0\t00"
+	// A 100x30 window, zoomed on this pane and pinned at that size, which is the
+	// state a settled dashboard leaves behind between polls.
+	runner.replies["display-message"] = "100\t30\t1\t1\t2\t100\t30\t4\t2\t0\t00\tmanual"
 	runner.replies["capture-pane"] = "working\n"
 
-	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 100, 30, true)
+	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 100, 30, false)
 	if err != nil {
 		t.Fatalf("rendering: %v", err)
 	}
@@ -413,10 +413,10 @@ func TestARenderSizesTheWindowWhenTheRegionChanged(t *testing.T) {
 	runner := newScriptedRunner()
 	// An unzoomed 80x24 window whose pane holds half of it, and then the pane as
 	// it stands once the window has been sized and the pane zoomed.
-	runner.script("display-message", "80\t24\t0\t1\t2\t39\t24\t0\t0\t0\t00", "100\t30\t0\t0\t0")
+	runner.script("display-message", "80\t24\t0\t1\t2\t39\t24\t0\t0\t0\t00\tlatest", "100\t30\t0\t0\t0")
 	runner.replies["capture-pane"] = "working\n"
 
-	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 100, 30, true)
+	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 100, 30, false)
 	if err != nil {
 		t.Fatalf("rendering: %v", err)
 	}
@@ -447,10 +447,10 @@ func TestARenderSizesTheWindowWhenTheRegionChanged(t *testing.T) {
 func TestARenderDoesNotShrinkAWindowHoldingAStoppedPane(t *testing.T) {
 	runner := newScriptedRunner()
 	// One dead pane in a 100x30 window, drawn into a region of 80x20.
-	runner.replies["display-message"] = "100\t30\t0\t1\t1\t100\t30\t0\t0\t1\t1"
+	runner.replies["display-message"] = "100\t30\t0\t1\t1\t100\t30\t0\t0\t1\t1\tmanual"
 	runner.replies["capture-pane"] = "│ > type here                    │\n"
 
-	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 80, 20, true)
+	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 80, 20, false)
 	if err != nil {
 		t.Fatalf("rendering: %v", err)
 	}
@@ -476,11 +476,11 @@ func TestARenderDoesNotShrinkAWindowHoldingAStoppedPane(t *testing.T) {
 func TestAStoppedPaneIsMeasuredByItsWindow(t *testing.T) {
 	runner := newScriptedRunner()
 	// Two panes, this one live and zoomed, the other one dead.
-	runner.replies["display-message"] = "100\t30\t1\t1\t2\t100\t30\t0\t0\t0\t10"
+	runner.replies["display-message"] = "100\t30\t1\t1\t2\t100\t30\t0\t0\t0\t10\tmanual"
 	runner.replies["capture-pane"] = "$ \n"
 
 	if _, err := captureAdapter(t, runner).RenderPane(
-		context.Background(), "@3", "%7", 80, 20, true); err != nil {
+		context.Background(), "@3", "%7", 80, 20, false); err != nil {
 		t.Fatalf("rendering: %v", err)
 	}
 
@@ -496,10 +496,10 @@ func TestAStoppedPaneIsMeasuredByItsWindow(t *testing.T) {
 // whole as soon as there is room for it.
 func TestARenderGrowsAWindowHoldingAStoppedPane(t *testing.T) {
 	runner := newScriptedRunner()
-	runner.script("display-message", "60\t20\t0\t1\t1\t60\t20\t0\t0\t1\t1", "100\t30\t0\t0\t1")
+	runner.script("display-message", "60\t20\t0\t1\t1\t60\t20\t0\t0\t1\t1\tmanual", "100\t30\t0\t0\t1")
 	runner.replies["capture-pane"] = "working\n"
 
-	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 100, 30, true)
+	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 100, 30, false)
 	if err != nil {
 		t.Fatalf("rendering: %v", err)
 	}
@@ -520,11 +520,11 @@ func TestARenderGrowsAWindowHoldingAStoppedPane(t *testing.T) {
 // a program that can repaint is told about the region, whichever way it moved.
 func TestARenderStillShrinksAWindowOfLivePanes(t *testing.T) {
 	runner := newScriptedRunner()
-	runner.script("display-message", "100\t30\t0\t1\t1\t100\t30\t0\t0\t0\t0", "80\t20\t0\t0\t0")
+	runner.script("display-message", "100\t30\t0\t1\t1\t100\t30\t0\t0\t0\t0\tmanual", "80\t20\t0\t0\t0")
 	runner.replies["capture-pane"] = "working\n"
 
 	if _, err := captureAdapter(t, runner).RenderPane(
-		context.Background(), "@3", "%7", 80, 20, true); err != nil {
+		context.Background(), "@3", "%7", 80, 20, false); err != nil {
 		t.Fatalf("rendering: %v", err)
 	}
 
@@ -541,11 +541,13 @@ func TestARenderStillShrinksAWindowOfLivePanes(t *testing.T) {
 // somebody is sitting in.
 func TestAWatchedRenderTouchesNothing(t *testing.T) {
 	runner := newScriptedRunner()
-	runner.replies["display-message"] = "200\t50\t0\t0\t0"
+	// A 200x50 window sized by the client attached to it, so there is no pin of
+	// Feat's to take off.
+	runner.replies["display-message"] = "200\t50\t0\t1\t1\t200\t50\t0\t0\t0\t0\tlatest"
 	runner.replies["capture-pane"] = "working\n"
 
 	if _, err := captureAdapter(t, runner).RenderPane(
-		context.Background(), "@3", "%7", 100, 30, false); err != nil {
+		context.Background(), "@3", "%7", 100, 30, true); err != nil {
 		t.Fatalf("rendering: %v", err)
 	}
 
@@ -553,6 +555,54 @@ func TestAWatchedRenderTouchesNothing(t *testing.T) {
 		if args, found := runner.call(command); found {
 			t.Errorf("rendering a watched window ran %q", strings.Join(args, " "))
 		}
+	}
+}
+
+// TestAWatchedRenderReleasesThePin is the half of the attach defect that the
+// release at hand-over cannot reach.
+//
+// Sizing a window pins it, and tmux then holds it at that size however large the
+// client attaching is. The size is released as the attach target is handed out,
+// but the client takes tens of milliseconds to arrive and a frame drawn in that
+// gap is told nobody is attached and pins the window again. The client then
+// lands in a terminal showing the dashboard's main region with the rest filled
+// in with dots — and stays there, because the dashboard that would notice is
+// blocked for as long as it has given its terminal away.
+//
+// So the first frame that sees a client on a window Feat has pinned hands the
+// size back, whichever way that client got there.
+func TestAWatchedRenderReleasesThePin(t *testing.T) {
+	runner := newScriptedRunner()
+	// A window still pinned at the dashboard's 100x30, and the pane as it stands
+	// once tmux has given the window back to its 200x50 client.
+	runner.script("display-message", "100\t30\t0\t1\t1\t100\t30\t0\t0\t0\t0\tmanual", "200\t50\t0\t0\t0")
+	runner.replies["capture-pane"] = "working\n"
+
+	frame, err := captureAdapter(t, runner).RenderPane(context.Background(), "@3", "%7", 100, 30, true)
+	if err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	released, found := runner.call("set-window-option")
+	if !found {
+		t.Fatal("a watched window was left pinned at the region's size")
+	}
+	if got := strings.Join(released, " "); got != "set-window-option -u -t @3 window-size" {
+		t.Errorf("released with %q", got)
+	}
+	// Released, not resized: a rendering must not choose the size of a terminal
+	// somebody is sitting in, and resizing would pin it again.
+	for _, command := range []string{"resize-window", "resize-pane"} {
+		if args, found := runner.call(command); found {
+			t.Errorf("rendering a watched window ran %q", strings.Join(args, " "))
+		}
+	}
+	// And the frame is measured again, because releasing the pin is what makes
+	// tmux resize the window to its client: reporting the pinned size would tell
+	// the renderer to draw the client's screen as the region's.
+	if frame.Width != 200 || frame.Height != 50 {
+		t.Errorf("the frame reports %dx%d, want the 200x50 the client gave it",
+			frame.Width, frame.Height)
 	}
 }
 

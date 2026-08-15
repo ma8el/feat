@@ -128,6 +128,13 @@ type service struct {
 	// locks serialise the read-modify-write cycles of one task's records, which
 	// the background gate made concurrent with everything else (ADR-036).
 	locks *taskLocks
+	// handovers records the terminals a client has been sent to attach to, so
+	// that a rendering does not pin a window out from under a client that is
+	// still on its way to it. It is separate from locks because a frame must not
+	// wait behind a launch or a completion gate: those hold a task's lock for as
+	// long as their work takes, and the terminal view is what a user watches
+	// while they run.
+	handovers *handovers
 	// report is the most recent reconciliation pass, which the local API serves
 	// and the dashboard shows. It is deliberately not persisted: it describes
 	// what was observed at one moment, and a stored copy would be read later as

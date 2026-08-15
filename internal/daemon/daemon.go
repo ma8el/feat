@@ -234,6 +234,7 @@ func New(opts Options) (*Daemon, error) {
 			startup:          newIdleTimers(opts.Timer),
 			gate:             newGates(),
 			locks:            newTaskLocks(),
+			handovers:        newHandovers(),
 			workspaces:       make(map[domain.TaskID]*control.Workspace),
 			pollNow:          make(chan struct{}, 1),
 		},

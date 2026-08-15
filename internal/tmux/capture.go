@@ -41,14 +41,35 @@ const zoomFormat = "#{window_zoomed_flag}\t#{pane_active}\t#{window_panes}"
 // before this.
 const frozenFormat = "#{P:#{pane_dead}}"
 
+// pinnedFormat asks whether Feat's own sizing is still on the window.
+//
+// tmux exposes an option's value under its own name, so this costs no extra
+// invocation: it rides along with the measurements. The value is the effective
+// one, so a user whose configuration sets window-size manual globally always
+// reads as pinned — which is the answer they asked for, and the release below
+// then has nothing of Feat's to take off.
+const pinnedFormat = "#{window-size}"
+
 // renderFormat is everything RenderPane needs, in one query.
 //
 // The window's size joins the zoom state and the pane's own measurements so that
 // a frame with nothing to change costs two tmux invocations rather than five.
 // Each one is a process, and while the pane has the keyboard this runs sixteen
 // times a second: measured against tmux 3.7b, 30.5 ms a frame became 16.3 ms.
+//
+// Fields are appended at the end, as discovery's formats are, so that adding an
+// observation cannot move the index another one is read from.
 const renderFormat = "#{window_width}\t#{window_height}\t" + zoomFormat + "\t" +
-	frameFormat + "\t" + frozenFormat
+	frameFormat + "\t" + frozenFormat + "\t" + pinnedFormat
+
+// The field counts these parsers expect, derived from the formats rather than
+// written beside them: a format that gains a field and a parser that keeps the
+// old count is a wrong answer on a query every frame makes.
+var (
+	zoomFields   = fieldCount(zoomFormat)
+	frameFields  = fieldCount(frameFormat)
+	renderFields = fieldCount(renderFormat)
+)
 
 // PaneFrame is one pane as tmux has already drawn it.
 //
@@ -125,9 +146,9 @@ func (t *Tmux) captureInto(ctx context.Context, frame PaneFrame) (PaneFrame, err
 // parseFrame reads the measurements that accompany a capture.
 func parseFrame(pane, measured string) (PaneFrame, error) {
 	fields := strings.Split(strings.TrimRight(measured, "\n"), "\t")
-	if len(fields) != 5 {
-		return PaneFrame{}, fmt.Errorf("measuring pane %s returned %d fields, want 5: %q",
-			pane, len(fields), measured)
+	if len(fields) != frameFields {
+		return PaneFrame{}, fmt.Errorf("measuring pane %s returned %d fields, want %d: %q",
+			pane, len(fields), frameFields, measured)
 	}
 
 	frame := PaneFrame{Pane: pane, Dead: fields[4] == "1"}
@@ -241,46 +262,76 @@ func (t *Tmux) PasteText(ctx context.Context, pane, text string) error {
 // tmux reports pane_width as 179 throughout, which is why sampling the window
 // from outside shows a state that never moves while the display flickers.
 //
-// Sizing and zooming are skipped entirely for a window somebody is attached to,
-// which keeps a rendering from resizing a real client's terminal.
+// A window somebody is attached to is neither sized nor zoomed, which keeps a
+// rendering from resizing a real client's terminal. What it does get is the
+// opposite operation: Feat's pin comes off it. A window is pinned for as long as
+// the dashboard is the only thing looking at it, and tmux holds a pinned window
+// at that size however large the terminal attaching to it is — so a client that
+// arrives while the pin is on sits in a terminal showing the dashboard's main
+// region with the rest of the screen filled in with dots. Releasing here is what
+// makes that unrecoverable state impossible to stay in: whichever way a client
+// reached this window, the next frame hands the size back to it. Measured
+// against tmux 3.7b, a window pinned at 171x49 with a 200x60 client attached:
 //
-// A window holding a pane whose program has ended is never made smaller, for the
-// reason given at frozenSize.
-func (t *Tmux) RenderPane(ctx context.Context, window, pane string, width, height int, prepare bool) (PaneFrame, error) {
+//	left alone          -u window-size
+//	171x49              200x60
+//
+// The release is one-way. Nothing here pins a window a client owns, so a window
+// that is already unpinned costs nothing, and the option is unset once per
+// attach rather than once per frame.
+//
+// A window holding a pane whose program has ended is released like any other,
+// even though a resize is what takes a stopped pane's screen apart (frozenSize).
+// The client is the one resizing it, and a user attached to a window owns it:
+// pinning it against them would leave them looking at a window larger or smaller
+// than their terminal, with no way to see the rest of it.
+//
+// A window nobody is watching is sized to the region and zoomed onto the pane,
+// and a window holding a pane whose program has ended is never made smaller, for
+// the reason given at frozenSize.
+func (t *Tmux) RenderPane(ctx context.Context, window, pane string, width, height int, watched bool) (PaneFrame, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if !prepare {
-		return t.capturePane(ctx, pane)
-	}
 	if !windowID.MatchString(window) {
 		return PaneFrame{}, fmt.Errorf("rendering needs a tmux window identifier, but got %q", window)
 	}
-
 	state, err := t.renderState(ctx, pane)
 	if err != nil {
 		return PaneFrame{}, err
 	}
-	if state.frozen {
-		width, height = frozenSize(state, width, height)
-	}
 
-	moved := false
-	if state.windowWidth != width || state.windowHeight != height {
-		if err := t.resizeWindow(ctx, window, width, height); err != nil {
+	changed := false
+	if watched {
+		if state.pinned {
+			if err := t.releaseWindowSize(ctx, window); err != nil {
+				return PaneFrame{}, err
+			}
+			changed = true
+		}
+	} else {
+		if state.frozen {
+			width, height = frozenSize(state, width, height)
+		}
+		if state.windowWidth != width || state.windowHeight != height {
+			if err := t.resizeWindow(ctx, window, width, height); err != nil {
+				return PaneFrame{}, err
+			}
+			changed = true
+		}
+		zoomed, err := t.applyZoom(ctx, pane, state.zoom)
+		if err != nil {
 			return PaneFrame{}, err
 		}
-		moved = true
-	}
-	zoomed, err := t.applyZoom(ctx, pane, state.zoom)
-	if err != nil {
-		return PaneFrame{}, err
+		changed = changed || zoomed
 	}
 
 	// The measurement came with the state, and stands unless one of the steps
-	// above has just invalidated it.
+	// above has just invalidated it. Releasing a pin is one of them: tmux resizes
+	// the window to its client the moment the option comes off, so the pane the
+	// state measured is no longer the size it reported.
 	frame := state.frame
-	if moved || zoomed {
+	if changed {
 		if frame, err = t.measurePane(ctx, pane); err != nil {
 			return PaneFrame{}, err
 		}
@@ -326,6 +377,9 @@ type renderState struct {
 	// frozen reports that some pane of this window has stopped, and that a
 	// resize would therefore reflow a screen nothing will repaint.
 	frozen bool
+	// pinned reports that the window is held at a size of its own rather than
+	// at whichever client's, which is what rendering it leaves behind.
+	pinned bool
 }
 
 // renderState reads everything RenderPane decides on.
@@ -339,10 +393,20 @@ func (t *Tmux) renderState(ctx context.Context, pane string) (renderState, error
 		return renderState{}, fmt.Errorf("measuring pane %s and its window: %w", pane, err)
 	}
 	fields := strings.Split(strings.TrimRight(measured, "\n"), "\t")
-	if len(fields) != 11 {
+	if len(fields) != renderFields {
 		return renderState{}, fmt.Errorf(
-			"measuring pane %s and its window returned %d fields, want 11: %q", pane, len(fields), measured)
+			"measuring pane %s and its window returned %d fields, want %d: %q",
+			pane, len(fields), renderFields, measured)
 	}
+
+	// Where each format's fields begin, counted from the ones before it rather
+	// than written down, so that a format gaining a field moves every later
+	// index with it.
+	const sizeFields = 2
+	zoomAt := sizeFields
+	frameAt := zoomAt + zoomFields
+	frozenAt := frameAt + frameFields
+	pinnedAt := frozenAt + 1
 
 	state := renderState{}
 	for i, target := range []*int{&state.windowWidth, &state.windowHeight} {
@@ -353,16 +417,20 @@ func (t *Tmux) renderState(ctx context.Context, pane string) (renderState, error
 		}
 		*target = value
 	}
-	if state.zoom, err = parseZoom(pane, fields[2:5]); err != nil {
+	if state.zoom, err = parseZoom(pane, fields[zoomAt:frameAt]); err != nil {
 		return renderState{}, err
 	}
-	if state.frame, err = parseFrame(pane, strings.Join(fields[5:10], "\t")); err != nil {
+	if state.frame, err = parseFrame(pane, strings.Join(fields[frameAt:frozenAt], "\t")); err != nil {
 		return renderState{}, err
 	}
 	// One character per pane, so a stopped pane anywhere in the window is a "1"
 	// anywhere in the field. Nothing is parsed out of it: which pane stopped is
 	// not a question a resize decision asks.
-	state.frozen = strings.Contains(fields[10], "1")
+	state.frozen = strings.Contains(fields[frozenAt], "1")
+	// Anything other than the pinning tmux applies is left alone. A tmux too old
+	// to answer for an option in a format returns an empty field here, and the
+	// window is then read as unpinned — which is what Feat did before this.
+	state.pinned = fields[pinnedAt] == manualSize
 	return state, nil
 }
 
@@ -491,17 +559,31 @@ func (t *Tmux) UnzoomWindow(ctx context.Context, window string) error {
 // Unsetting rather than setting a value restores the user's own preference:
 // ADR-030 has Feat load their normal configuration, so a global window-size of
 // largest stays largest.
+// Releasing is not on its own enough to keep an attach correct, and the other
+// half is in RenderPane: a poll landing between this release and the client
+// actually arriving would size the window again, at a moment when tmux still
+// reports nobody attached.
 func (t *Tmux) ReleaseWindowSize(ctx context.Context, window string) error {
 	if !windowID.MatchString(window) {
 		return fmt.Errorf("releasing a size needs a tmux window identifier, but got %q", window)
 	}
+	return t.releaseWindowSize(ctx, window)
+}
 
+func (t *Tmux) releaseWindowSize(ctx context.Context, window string) error {
 	if _, err := t.runner.Run(ctx, t.socket,
-		"set-window-option", "-u", "-t", window, "window-size"); err != nil {
+		"set-window-option", "-u", "-t", window, sizeOption); err != nil {
 		return fmt.Errorf("returning window %s to automatic sizing: %w", window, err)
 	}
 	return nil
 }
+
+// sizeOption is the window option that decides who a window is sized for, and
+// manualSize is the value that makes it Feat.
+const (
+	sizeOption = "window-size"
+	manualSize = "manual"
+)
 
 // ResizeWindow sets a window's size in cells.
 //
@@ -530,7 +612,7 @@ func (t *Tmux) resizeWindow(ctx context.Context, window string, width, height in
 	}
 
 	if _, err := t.runner.Run(ctx, t.socket,
-		"set-window-option", "-t", window, "window-size", "manual"); err != nil {
+		"set-window-option", "-t", window, sizeOption, manualSize); err != nil {
 		return fmt.Errorf("taking manual control of window %s: %w", window, err)
 	}
 	if _, err := t.runner.Run(ctx, t.socket, "resize-window", "-t", window,
