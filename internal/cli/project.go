@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/client"
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/daemon"
@@ -17,10 +18,11 @@ import (
 const projectLong = `Register and inspect projects.
 
 A project is described by a YAML file in the configuration directory, one file
-per project, named after the project's identifier. Registering it tells the
-daemon the project exists; the file stays where it is and remains the source of
-truth. Run ` + "`feat doctor`" + ` first: it validates the file and checks the
-host without registering anything.`
+per project, named after the project's identifier. ` + "`feat project init`" + ` writes
+one by asking about the project; registering it tells the daemon the project
+exists. Either way the file stays where it is and remains the source of truth.
+Run ` + "`feat doctor`" + ` before registering: it validates the file and checks
+the host without registering anything.`
 
 func newProjectCommand(env *environment) *cobra.Command {
 	cmd := &cobra.Command{
@@ -30,6 +32,7 @@ func newProjectCommand(env *environment) *cobra.Command {
 	}
 	cmd.AddCommand(
 		newProjectAddCommand(env),
+		newProjectInitCommand(env),
 		newProjectListCommand(env),
 		newProjectShowCommand(env),
 	)
@@ -78,23 +81,31 @@ were launched with.`,
 				return err
 			}
 
-			out := cmd.OutOrStdout()
-			verb := "updated"
-			if registration.Created {
-				verb = "registered"
-			}
-			printf(out, "%s %s (%s)\n", verb, registration.Project.ID, registration.Project.Name)
-			for _, repository := range registration.Project.Repositories {
-				marker := " "
-				if repository.ID == registration.Project.PrimaryRepository {
-					marker = "*"
-				}
-				printf(out, "  %s %-16s %s\n", marker, repository.ID, repository.HostPath)
-			}
-			printf(out, "\nrun `feat doctor` to check this project against the host\n")
+			printRegistration(cmd.OutOrStdout(), registration)
 			return nil
 		},
 	}
+}
+
+// printRegistration reports what the daemon recorded.
+//
+// It is shared with `feat project init`, which registers through the same call:
+// a user who registered from the wizard and a user who ran the command are
+// looking at the same thing, and should be told it the same way.
+func printRegistration(out io.Writer, registration api.Registration) {
+	verb := "updated"
+	if registration.Created {
+		verb = "registered"
+	}
+	printf(out, "%s %s (%s)\n", verb, registration.Project.ID, registration.Project.Name)
+	for _, repository := range registration.Project.Repositories {
+		marker := " "
+		if repository.ID == registration.Project.PrimaryRepository {
+			marker = "*"
+		}
+		printf(out, "  %s %-16s %s\n", marker, repository.ID, repository.HostPath)
+	}
+	printf(out, "\nrun `feat doctor` to check this project against the host\n")
 }
 
 func newProjectListCommand(env *environment) *cobra.Command {
@@ -135,7 +146,7 @@ registration is something Feat knows about.`,
 			}
 			if len(registered) == 0 && len(configured) == 0 {
 				printf(out, "no projects are registered\n")
-				printf(out, "write one at %s and register it with `feat project add <project>`\n",
+				printf(out, "run `feat project init` to configure one at %s, or write it there by hand\n",
 					layout.ProjectConfigDir())
 				return nil
 			}
@@ -209,7 +220,11 @@ secrets are listed by path; their contents are never read.`,
 // daemon to ask.
 func printConfigured(out io.Writer, ids []string, dir string) {
 	if len(ids) == 0 {
+		// A machine with no configuration and no daemon is a first run, and the
+		// error that follows this asks for the daemon. The wizard comes before
+		// that: it writes a file without one, and ends by saying to start it.
 		printf(out, "no projects are configured in %s\n", dir)
+		printf(out, "run `feat project init` to write one\n")
 		return
 	}
 	printf(out, "configured in %s: %s\n", dir, strings.Join(ids, ", "))

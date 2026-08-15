@@ -406,6 +406,33 @@ linters:
             - pkg: github.com/charmbracelet
             - pkg: github.com/spf13/cobra
 
+        # ADR-062: the wizard's questions are asked by two askers, so the flow
+        # itself must belong to neither. It reaches no terminal, no screen, and
+        # no adapter: what it needs to know about the machine it asks through
+        # its own Host interface, which internal/cli implements.
+        wizard-asks-through-its-host:
+          files:
+            - "**/internal/wizard/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/cli
+              desc: the command drives the flow; the flow does not know the command
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/execution
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/project
+              desc: host discovery reaches the flow through Host, so both askers can supply it
+            - pkg: github.com/ma8el/feat/internal/store
+            - pkg: github.com/ma8el/feat/internal/tmux
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+              desc: the questions are asked by a screen and by a shell; they belong to neither
+            - pkg: github.com/spf13/cobra
+            - pkg: os/exec
+              desc: the flow describes questions; a Host runs processes
+
         # The TUI is a client. It renders daemon state and never touches
         # persistent state or an adapter directly.
         ui-is-a-client:

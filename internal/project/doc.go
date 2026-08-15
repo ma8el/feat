@@ -11,7 +11,13 @@
 //   - check that configured repositories, remotes, branches, Compose files, and
 //     services resolve;
 //   - report repository and container path mappings accurately;
-//   - report each provider CLI capability as disabled, optional, or required.
+//   - report each provider CLI capability as disabled, optional, or required;
+//   - discover what a directory can say about itself — the working tree it is
+//     in, its remote, its default branch, the Compose files beside it, and the
+//     services those files declare — which is what `feat project init` proposes
+//     from. Discovery answers or says nothing; it never guesses, because a
+//     guessed value written into a configuration is indistinguishable from an
+//     established one.
 //
 // Diagnostics run without a daemon and without a registered project, because
 // docs/02-user-workflows.md §1 puts `feat doctor` before both: the user writes

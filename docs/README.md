@@ -50,6 +50,7 @@ feat
 feat implement
 feat implement --file task.md
 feat implement --project <project>
+feat project init [<project>]
 feat project add <project>
 feat project list
 feat project show <project>
@@ -73,6 +74,19 @@ feat daemon run
 `feat` without arguments opens the dashboard. `feat implement` opens task preparation and creates nothing until the user confirms the final task brief and repository selection. Confirming creates exactly what was displayed: a draft that changed since the plan was shown is refused rather than launched, and `--project` preselects the project without removing the confirmation. See ADR-031.
 
 `feat project add` takes the project's identifier, which is also its configuration file's name; the daemon reads the file from the configuration directory rather than from a path a caller supplies. See ADR-028.
+
+`feat project init` writes that file by asking about the project rather than
+requiring it to be authored by hand. It derives from the host what the host can
+answer, validates the configuration it composed before displaying it, writes
+nothing until the user confirms, and never overwrites an existing configuration.
+Diagnosing and registering stay the commands they already are; the wizard offers
+each and runs neither on its own. See ADR-062.
+
+The questions themselves are `internal/wizard`, which owns the sequence, the
+proposals, and the validation, and reaches the machine through a Host the
+command implements. The dashboard drives the same flow on `p`, as a dialog with
+a cursor and a step back out of an answer, so that neither asker can drift from
+the other. See ADR-063.
 
 Every command that acts on an existing task lives under `feat task`, because
 naming a task is what they have in common. `feat implement` stays at the top

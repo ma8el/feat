@@ -32,6 +32,35 @@ A project MUST identify a primary editable repository/workspace used as the defa
 
 It MUST redact secret values and SHOULD show resolved paths and commands.
 
+The dashboard MUST be able to run the same checks and display what they found,
+for the selected task's project or for every configured project, and MUST run
+them only when the user asks. It MUST report which environment the checks ran
+in, because a check is only true of the process that ran it. A skipped check
+MUST NOT be displayed or counted as a pass.
+
+### FR-PROJ-005 — Guided configuration
+
+Feat MUST provide a command that writes a project's configuration by asking for
+what has to be decided, so that a first project does not require a file to be
+authored by hand.
+
+It MUST derive what the host can answer — whether a directory is a Git
+repository, its working-tree root, its remote, its default branch, the Compose
+files beside it, and the services those files declare — rather than asking for
+it, and it MUST show each proposal as a proposal.
+
+It MUST validate the configuration it composed before offering it, display the
+whole file, and write nothing until the user confirms. It MUST NOT overwrite an
+existing configuration, and it MUST NOT register the project without being
+asked. Registration and diagnosis remain the commands they already are.
+
+The dashboard MUST offer the same questions, because it is where a user with no
+project configured already is. The questions, their proposals, their validation,
+and their order MUST have one implementation, which both the command and the
+dashboard drive. The dashboard MUST allow an answer to be stepped back out of,
+MUST display the whole composed file before writing it, and MUST leave the
+machine unchanged when it is cancelled.
+
 ## Task preparation
 
 ### FR-TASK-001 — Ad hoc prompt
@@ -298,6 +327,14 @@ networks, and volumes are enumerated by the Compose project name the task
 derives — which names this task's resources by construction, so the inventory
 stays exact. See ADR-059.
 
+The enumeration is also what every surface offering the choice shows.
+`feat task cleanup` and the dashboard's cleanup screen present the same targets,
+each with what it is and whether it is still there, and a warning that is true of
+some of a class's resources is shown against those resources rather than against
+the class. A surface too small for the inventory scrolls rather than dropping the
+end of it: a choice made against a summary is a choice made against something
+other than the plan that will be executed.
+
 ### FR-CLEAN-002 — Separate destructive classes
 
 Stopping/removing containers, removing volumes, removing worktrees, and deleting branches MUST be separate choices.
@@ -318,6 +355,23 @@ removing a directory that is an active bind-mount source. See ADR-059.
 ### FR-CLEAN-003 — Dirty/unmerged protection
 
 Dirty worktrees, unpushed commits, and unmerged branches MUST produce explicit warnings and confirmation.
+
+The warning and the confirmation are separate obligations, and a surface satisfies
+them where each belongs. The warning is shown against the resource it is true of,
+for as long as that resource is on the screen. The confirmation is of the removal:
+it names what would go, lists every warning of everything selected, and defaults
+to no. A surface that can display a selection before acting on it MUST NOT ask
+per selection — a question raised while the user is still choosing interrupts a
+decision that has not been made, and consent given that early is consent to
+something the eventual removal may not match. A surface with no selection to
+display, such as a sequence of prompts on a terminal, asks as it goes.
+
+The confirmation MUST be put against a freshly resolved plan. A task being
+cleaned up may still have an agent working in its resources, so the warnings a
+surface displayed when it opened are not necessarily the warnings that are true
+when the user answers — and removal is refused for a warning that was not
+confirmed. A surface that resolves only on opening therefore reports that refusal
+after the fact rather than the warning before it. See ADR-061.
 
 ### FR-CLEAN-004 — Volume retention
 
