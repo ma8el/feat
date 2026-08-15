@@ -146,7 +146,7 @@ registration is something Feat knows about.`,
 			}
 			if len(registered) == 0 && len(configured) == 0 {
 				printf(out, "no projects are registered\n")
-				printf(out, "write one at %s and register it with `feat project add <project>`\n",
+				printf(out, "run `feat project init` to configure one at %s, or write it there by hand\n",
 					layout.ProjectConfigDir())
 				return nil
 			}
@@ -220,7 +220,11 @@ secrets are listed by path; their contents are never read.`,
 // daemon to ask.
 func printConfigured(out io.Writer, ids []string, dir string) {
 	if len(ids) == 0 {
+		// A machine with no configuration and no daemon is a first run, and the
+		// error that follows this asks for the daemon. The wizard comes before
+		// that: it writes a file without one, and ends by saying to start it.
 		printf(out, "no projects are configured in %s\n", dir)
+		printf(out, "run `feat project init` to write one\n")
 		return
 	}
 	printf(out, "configured in %s: %s\n", dir, strings.Join(ids, ", "))

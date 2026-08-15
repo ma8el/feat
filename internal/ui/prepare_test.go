@@ -429,6 +429,31 @@ func prepared(t *testing.T, backend *fakeBackend) prepareModel {
 	return model
 }
 
+// TestAFirstRunIsPointedAtTheWizard checks what preparation says on a machine
+// where nothing is configured yet.
+//
+// It is the error a new user is most likely to meet, and the step that clears it
+// is writing a configuration: naming `feat project add` names a registration
+// with nothing to register (ADR-061). The command is not reachable from here,
+// which is why the message says to leave.
+func TestAFirstRunIsPointedAtTheWizard(t *testing.T) {
+	backend := newFakeBackend()
+	backend.projects = nil
+
+	model := newPrepare(backend, "", "", api.Source{Kind: "prompt"})
+	model = settle(t, model, model.Init())
+
+	if model.err == nil {
+		t.Fatal("preparation with nothing registered reported no error")
+	}
+	if !strings.Contains(model.err.Error(), "feat project init") {
+		t.Errorf("error = %q, want the command that configures a project", model.err)
+	}
+	if view := model.View(); !strings.Contains(view, "feat project init") {
+		t.Errorf("the screen does not show the way out of a first run:\n%s", view)
+	}
+}
+
 // TestNothingIsCreatedBeforeTheUserConfirms is FR-TASK-003 at the screen that
 // implements it.
 //

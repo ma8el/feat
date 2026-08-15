@@ -92,7 +92,8 @@ func printReport(out io.Writer, report project.Report, configDir string) {
 
 	if len(report.Projects) == 0 {
 		printf(out, "\nno projects are configured in %s\n", configDir)
-		printf(out, "write one there, named <project>.yaml, and register it with `feat project add <project>`\n")
+		printf(out, "run `feat project init` to write one by answering questions, "+
+			"or write <project>.yaml there by hand\n")
 	}
 	printSummary(out, report)
 }
