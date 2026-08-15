@@ -1728,6 +1728,89 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   box is drawn a line at a time rather than by lipgloss, because the main region
   holds a rendered tmux pane and a re-flow through a layout engine cuts escape
   sequences in half. See ADR-051.
+- Make the dashboard's cleanup screen an inventory rather than a list of names.
+  Reported as "cleanup is only executable from the CLI", which is not literally
+  true — the screen has been on `C` since slice 12 — and is what using it leads
+  a person to conclude, for two reasons.
+
+  It drew each target's identity and nothing else. The plan carries a sentence
+  per target and `feat task cleanup` has printed it since the command existed, so
+  the dashboard said `@3`, a volume name beginning with a Compose project, and a
+  path, where the command said what each of them was. The plan's `workflow` is
+  documented as being there "so a screen can say what is being cleaned up" and no
+  screen said it. And a class's warnings are the distinct set of its targets', so
+  a class of three worktrees with one dirty one said only that a worktree had
+  uncommitted work, without saying which — the exactness FR-CLEAN-001 asks for,
+  lost in the summarising.
+
+  It also could not be read. The overlay clamps what does not fit and leaves a
+  note counting the lines it dropped, and nothing moved the window: the six
+  classes of a task with three repositories are about forty lines with the detail
+  restored, against twenty in the dialog on a terminal at the layout's minimum.
+  A user could move the cursor onto a class the screen had never drawn and select
+  it. So the class list scrolls, following the cursor as it moves and on the page
+  keys the task panel already uses, and it says what is above and below it in the
+  words `taskBody` uses for the same thing.
+
+  The screen's own hint line was ninety cells inside a dialog that is sixty-eight
+  on that terminal, so its last two hints were truncated away. It is the frame's
+  key style now, short enough to survive, and the page keys are named in the
+  scroll note rather than in it — the one place they are worth naming is when
+  there is something to scroll to.
+- Ask the cleanup screen's question once, where the consent is given. Reported as
+  the dialog being clunky: the extra confirmation and the extra archive button.
+
+  It asked twice. Ticking a class with warnings raised a `y/N` that took the
+  keyboard there and then, and `enter` raised another — three risky classes was
+  four questions interleaved with the three ticks. The first of those bought
+  nothing: the request carries the plan's own warning strings whatever was
+  accepted, so ADR-037's defence against a stale confirmation is the daemon's
+  comparison and one question sends what two sent. And since the inventory change
+  above, the modal was reading back a line already on the screen behind it.
+
+  So one confirmation, at the removal, naming the classes and listing every
+  distinct warning of everything selected — the question first, because a region
+  too small for both must keep the line that says what answering does. The
+  warnings stay beside their resources and the class title carries a marker, so a
+  class does not read as free once the window has scrolled past them. The command
+  keeps its sequence: a terminal prompt has nothing to tick, so there the
+  question is the selection rather than an interruption of it.
+
+  The archive choice had a key of its own, `A`, which made it the one checkbox
+  the cursor could not land on and a key that did nothing for most of the
+  interaction. It is a row now, reached and ticked the way every other choice on
+  the screen is. It was also rendered only once every class was selected, and it
+  sits under the inventory that is sized by what the tail takes — so ticking the
+  last class moved the list it was ticked in, and blinked a cursor stop into
+  existence. It is drawn throughout, greyed and saying what it waits for. The
+  rule it waits for is unchanged.
+
+  And `r` looked dead, which asking what it was for showed to be the right
+  reaction: it always asked the daemon and always replaced the inventory, but on a
+  task nothing had touched it redrew an identical list, and it cleared the status
+  line while doing so. The case it existed for is real and narrow — a task being
+  cleaned up often still has an agent working in its worktrees, so a worktree that
+  was clean when it was ticked can be dirty when enter is pressed, and the daemon
+  refuses that as a warning the user was never shown. But that case is answered by
+  looking when the answer matters, not by a key somebody has to know to press.
+
+  So enter resolves before it asks, and `r` is gone. A cost that moved asks
+  anyway, with the new warning in the question. A resource gained or lost does
+  not: the confirmation names classes, so a class that grew a third worktree would
+  be confirmed by a user who read two — the inventory is replaced and the question
+  waits for another enter. The plan has carried the moment it was resolved since
+  the endpoint existed and nothing displayed it; the screen says it now, because a
+  dialog left open for ten minutes is an observation and not a live view.
+
+  And a finished cleanup closes the dialog. It is a transaction the user opened
+  and the transaction is over; what stayed open was a screen about a decision
+  already taken, over an inventory of what was left rather than what had been
+  asked about — and for an archived task, over one the daemon refuses to resolve
+  again. What it did becomes a line of the footer, naming the classes chosen and
+  counting what was already gone. A cleanup that failed halfway keeps the dialog
+  and re-reads the plan, because there the screen is the only account of what
+  happened and the inventory on it describes a machine that no longer exists. See
+  ADR-061.
 - Remove hard-coded assumptions discovered during dogfood.
 
 ### Acceptance criteria
@@ -1756,6 +1839,23 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
 - Three concurrent tasks are legible at once on an ordinary terminal, no line
   wraps at the supported width, and every field FR-UI-002 requires is reachable
   without leaving the task that was selected.
+- What a task owns can be read as well as removed from the dashboard: the
+  screen's inventory says everything `feat task cleanup` prints about each
+  target, a warning true of one resource of several is drawn beside that one,
+  and a plan taller than the terminal is scrolled to rather than clipped.
+- Removing from the dashboard is one question, asked when the removal is
+  requested rather than as it is assembled, carrying every warning of everything
+  selected; it stays legible on a terminal at the layout's minimum width, and no
+  key the screen offers is one the outstanding question has taken.
+- Every choice on the cleanup screen, the archive included, is reached with the
+  cursor and taken with the same key.
+- The cleanup screen says the moment its inventory was taken, and the removal is
+  confirmed against a plan resolved when it was asked for: a warning that appeared
+  while the screen was open is in the question rather than in the daemon's
+  refusal, and a resource that appeared is read before it can be confirmed.
+- A cleanup that finished leaves the dashboard showing what it did; one that
+  failed halfway leaves the screen that explains it, over an inventory read after
+  the attempt rather than before it.
 
 ## Slice 14 — Public v0.2
 

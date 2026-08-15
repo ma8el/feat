@@ -64,10 +64,12 @@ environment. A task may span several repositories.
 > what the machine actually has, reports whatever is missing, orphaned,
 > inconsistent, or unreadable, and repairs none of it on its own — a dead agent
 > session can be resumed, continuing the recorded conversation rather than
-> starting an empty one, but only when you ask. `feat task cleanup` prints the exact
-> inventory of what a task owns and removes only what you select, one class at a
-> time, with volumes retained unless chosen and a second confirmation for
-> anything that would lose work. Nothing here is usable for real work yet.
+> starting an empty one, but only when you ask. `C` on the dashboard and
+> `feat task cleanup` show the same exact inventory of what a task owns — every
+> resource, what it is, and whether it is still there — and remove only what you
+> select, one class at a time, with volumes retained unless chosen. Anything that
+> would lose work says so beside the resource it would lose it on, and again in
+> the confirmation that removes it. Nothing here is usable for real work yet.
 
 ## Preparing a task
 
