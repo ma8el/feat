@@ -14,8 +14,9 @@ import (
 
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/client"
-	"github.com/ma8el/feat/internal/paths"
+	"github.com/ma8el/feat/internal/project"
 	"github.com/ma8el/feat/internal/ui"
+	"github.com/ma8el/feat/internal/wizard"
 )
 
 // fallbackEditor is used when the environment names none.
@@ -26,14 +27,19 @@ const fallbackEditor = "vi"
 
 // backend adapts the daemon client to what the dashboard needs.
 //
-// It exists in internal/cli rather than in internal/ui because of the three
-// commands it builds: native tmux attach, a task shell, and the user's editor.
-// Constructing them here keeps os/exec out of the TUI, which is the boundary
-// ADR-031 records, and puts the terminal-yielding commands beside the
-// `feat attach` implementation they share (ADR-030).
+// It exists in internal/cli rather than in internal/ui because of the commands
+// it builds: native tmux attach, a task shell, the user's editor, and the
+// project wizard. Constructing them here keeps os/exec out of the TUI, which is
+// the boundary ADR-031 records, and puts the terminal-yielding commands beside
+// the `feat attach` implementation they share (ADR-030).
+//
+// It holds the process environment rather than the resolved paths, because the
+// wizard needs what a project command needs — the configuration directory, what
+// paths resolve against, and the runner it inspects checkouts with — and those
+// are the same values `feat project init` asks the environment for.
 type backend struct {
 	client *client.Client
-	env    paths.Environment
+	env    *environment
 }
 
 var _ ui.Backend = (*backend)(nil)
@@ -204,6 +210,117 @@ func (b *backend) EditorCommand(path string) (tea.ExecCommand, error) {
 	return execCommand{command}, nil
 }
 
+// NewWizard builds the project wizard the dashboard asks its questions from.
+//
+// It is built here because of what it needs: the configuration directory, what
+// paths resolve against, and a host that runs Git and reads Compose files. The
+// dashboard has none of those and is not meant to — it drives the questions and
+// draws them, and everything underneath them is this side of the interface
+// (ADR-062).
+func (b *backend) NewWizard() (*wizard.Wizard, error) {
+	return b.env.wizard("")
+}
+
+// WriteProject writes the configuration the wizard composed.
+//
+// The dashboard asks for it rather than doing it, so that the exclusive create
+// that protects an existing configuration is the same one `feat project init`
+// writes through, in the same package, with no second implementation to keep
+// honest.
+func (b *backend) WriteProject(flow *wizard.Wizard) (string, error) {
+	return flow.Write()
+}
+
+// Diagnose checks one project against this machine, and the machine itself.
+//
+// The checks run here, in the process the user is in front of, for the reason
+// `feat doctor` does: diagnosis works before a daemon or a registration exists
+// (ADR-028), so making it a daemon request would be a second implementation of
+// the same checks — and the second one would answer about a different process's
+// environment. What crosses to the dashboard is data, so the screen that draws
+// it reaches no adapter (ADR-031, ADR-063).
+func (b *backend) Diagnose(ctx context.Context, id string) (api.Diagnosis, error) {
+	layout, options, err := b.env.project()
+	if err != nil {
+		return api.Diagnosis{}, err
+	}
+
+	report, err := project.Diagnose(ctx, project.Options{
+		ConfigDir:  layout.ProjectConfigDir(),
+		Resolve:    options,
+		Runner:     b.env.runner,
+		Projects:   projectList(id),
+		Registered: b.registered(ctx),
+	})
+	if err != nil {
+		return api.Diagnosis{}, err
+	}
+	return diagnosis(report), nil
+}
+
+// projectList limits a run to one project, or to every configured one.
+func projectList(id string) []string {
+	if id == "" {
+		return nil
+	}
+	return []string{id}
+}
+
+// registered answers whether a project is registered, from the daemon this
+// dashboard is already talking to.
+//
+// A failed read reports every project as unregistered rather than failing the
+// diagnosis: the daemon is one of the things being diagnosed.
+func (b *backend) registered(ctx context.Context) func(string) bool {
+	projects, err := b.client.Projects(ctx)
+	if err != nil {
+		return func(string) bool { return false }
+	}
+	known := make(map[string]bool, len(projects))
+	for _, project := range projects {
+		known[project.ID] = true
+	}
+	return func(id string) bool { return known[id] }
+}
+
+// diagnosis converts a report into what a screen draws.
+func diagnosis(report project.Report) api.Diagnosis {
+	converted := api.Diagnosis{
+		Host:        findings(report.Host),
+		Environment: "this terminal",
+	}
+	for _, checked := range report.Projects {
+		converted.Projects = append(converted.Projects, api.ProjectDiagnosis{
+			ID:       checked.ID,
+			File:     checked.File,
+			Findings: findings(checked.Findings),
+		})
+	}
+	return converted
+}
+
+func findings(found []project.Finding) []api.Finding {
+	converted := make([]api.Finding, 0, len(found))
+	for _, finding := range found {
+		converted = append(converted, api.Finding{
+			Check:    finding.Check,
+			Severity: string(finding.Severity),
+			Summary:  finding.Summary,
+			Action:   finding.Action,
+		})
+	}
+	return converted
+}
+
+// RegisterProject registers a written project with the running daemon.
+//
+// It is the request `feat project add` makes, and it is made only when the user
+// asks for it: a file on disk and a project the daemon knows about stay
+// different things (ADR-028).
+func (b *backend) RegisterProject(ctx context.Context, id string) (api.Registration, error) {
+	return b.client.RegisterProject(ctx, id)
+}
+
 // editor returns the editor command from the environment.
 func (b *backend) editor() string {
 	for _, name := range []string{"VISUAL", "EDITOR"} {
@@ -215,10 +332,13 @@ func (b *backend) editor() string {
 }
 
 func (b *backend) lookup(name string) string {
-	if b.env.Getenv != nil {
-		return b.env.Getenv(name)
+	// An environment that cannot be resolved is not a reason to have no editor:
+	// the process's own is what a resolved one would have read anyway.
+	current, err := b.env.current()
+	if err != nil || current.Getenv == nil {
+		return os.Getenv(name)
 	}
-	return os.Getenv(name)
+	return current.Getenv(name)
 }
 
 // execCommand adapts an exec.Cmd to what Bubble Tea runs while it has released

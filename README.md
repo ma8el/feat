@@ -21,11 +21,12 @@ environment. A task may span several repositories.
 > tmux backend with tagged stable identity, native attachment, shell-pane
 > creation, and daemon-restart reconciliation.
 >
-> **Setting a project up** starts with `feat project init`: it asks about the
+> **Setting a project up** starts with `feat project init`, or with `p` in the
+> dashboard, which asks the same questions as a dialog. It asks about the
 > project, finds out what it can from your checkouts — the working-tree root, the
 > remote, the default branch, the Compose files beside them and the services they
-> define — and writes a configuration it has already validated, once you have seen
-> the whole of it.
+> define — and writes a configuration it has already validated, once you have
+> seen the whole of it.
 >
 > You can prepare, confirm, launch, list, and inspect a task: `feat` opens the
 > dashboard, `feat implement` opens task preparation, and `feat task attach` yields
@@ -102,9 +103,11 @@ its tabs are about — and the footer is ruled off from both. `tab` moves betwee
 views and `shift+↑`/`shift+↓` change task from any of them — the plain arrows
 belong to whichever view has the keyboard, so review spends them on its
 repository cursor. `space` folds a project away, and a folded project still says
-how many tasks it holds and whether any of them needs you. `?` lists every key.
-Preparing a task or cleaning one up opens over the dashboard rather than
-replacing it, so the tasks you were watching stay on screen. A terminal too
+how many tasks it holds and whether any of them needs you. `p` configures a new
+project and `D` checks the selected one against your machine. `?` lists every
+key. Preparing a task, configuring a project, reading a diagnosis, or cleaning a
+task up opens over the dashboard rather than replacing it, so the tasks you were
+watching stay on screen. A terminal too
 narrow for three regions falls back to one column.
 
 Everything that acts on a task you already have is under `feat task`. Attaching
@@ -283,6 +286,11 @@ identifier. Run this in one of its checkouts and answer the questions:
 feat project init                                # write the file by answering questions
 ```
 
+Pressing `p` in the dashboard asks the same questions as a dialog over your task
+list, with `esc` to step back out of an answer and the whole file scrolled in
+front of you before it is written. Both are one flow, so neither can drift from
+the other: what differs is the cursor, not the questions.
+
 It asks what has to be decided — which repositories take part, where the agent
 runs, what verifies the work — and finds out the rest for itself: whether a path
 is a Git repository, its remote and default branch, the Compose files beside it
@@ -307,6 +315,13 @@ feat project show myproject                      # what Feat will act on
 `feat doctor` changes nothing and needs no daemon, so it is the first thing to
 run. It reports what it checked, what it found, and what to do about it, and a
 check this build cannot run yet is reported as skipped rather than passing.
+
+The dashboard runs the same checks on `D`, for the project of the task you have
+selected, and `r` runs them again once you have fixed something. The wizard runs
+them itself as soon as it has written a file, because that is the moment they
+answer what the questions could not ask. Wherever they are read, the report says
+it was checked from your terminal: a tool on this terminal's PATH is not
+necessarily on the daemon's.
 
 [`docs/examples/project.yaml`](docs/examples/project.yaml) is a commented
 example showing every field with its default; the semantics are in

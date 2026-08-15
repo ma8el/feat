@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/ma8el/feat/internal/api"
+	"github.com/ma8el/feat/internal/wizard"
 )
 
 // Backend is everything the dashboard needs from the daemon.
@@ -95,6 +96,25 @@ type Backend interface {
 	// fallback FR-REV-003 asks for when a project configures no editor command:
 	// $EDITOR belongs to this process's environment, not the daemon's.
 	EditorCommand(path string) (tea.ExecCommand, error)
+	// NewWizard builds the questions that compose a project's configuration.
+	// They are `feat project init`'s own questions, in their own package, so
+	// that the dialog that draws them is a second asker rather than a second
+	// wizard (ADR-062). Nothing is created by building one.
+	NewWizard() (*wizard.Wizard, error)
+	// WriteProject writes the configuration the wizard composed and returns the
+	// file it wrote. It is asked for rather than done here because the dashboard
+	// reaches no adapter of its own, and because the exclusive create that
+	// refuses to replace an existing configuration must have one implementation.
+	WriteProject(flow *wizard.Wizard) (string, error)
+	// RegisterProject registers a written project with the daemon, which is what
+	// `feat project add` does and is separate from writing the file.
+	RegisterProject(ctx context.Context, id string) (api.Registration, error)
+	// Diagnose checks one project against this machine and reports what it
+	// found, changing nothing. An empty identifier checks every configured
+	// project. It runs the checks `feat doctor` runs, in this process, so what
+	// comes back describes the environment the dashboard is running in
+	// (ADR-063).
+	Diagnose(ctx context.Context, id string) (api.Diagnosis, error)
 }
 
 // Daemon identifies the daemon the dashboard is talking to, for the footer.

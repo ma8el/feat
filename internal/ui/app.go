@@ -65,8 +65,16 @@ const (
 	// workflow, and their repository list.
 	screenTask
 	screenPrepare
+	// screenWizard is a project being configured. It is an overlay for the same
+	// reason preparation is: it is answered before work continues, and the tasks
+	// the user was watching stay on the screen behind it (ADR-041).
+	screenWizard
 	screenRuntime
 	screenCleanup
+	// screenDiagnosis is what `feat doctor` found, read on the dashboard. It is
+	// an overlay because it is about a project rather than the selected task, and
+	// because it is read and left rather than worked in (ADR-063).
+	screenDiagnosis
 	screenKeys
 	// screenRecovery is everything the last reconciliation pass wants looked at.
 	// It is an overlay because it is not about the selected task and because a
@@ -83,7 +91,7 @@ const (
 // answered before work continues.
 func (s screen) mainRegion() bool {
 	switch s {
-	case screenPrepare, screenCleanup, screenKeys, screenRecovery:
+	case screenPrepare, screenWizard, screenCleanup, screenDiagnosis, screenKeys, screenRecovery:
 		return false
 	default:
 		return true
@@ -160,6 +168,15 @@ type Model struct {
 	resourceErr error
 
 	prepare prepareModel
+	// wizard is the project wizard's own state: the questions, where the answers
+	// have reached, and what was written. It holds no dashboard state, and the
+	// dashboard holds none of its (ADR-062).
+	wizard wizardModel
+	// diagnosis is the last `feat doctor` run the user asked for, and what it
+	// found. It is never run on its own: the checks shell out to Git, Compose,
+	// and the container runtime, and a dashboard that ran them on a timer would
+	// be a dashboard nobody could leave open.
+	diagnosis diagnosisModel
 	// runtime is the application-runtime screen's own state: what the last
 	// action observed, what is in flight, and whether a destroy is waiting for a
 	// confirmation.
@@ -467,6 +484,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = message.Width, message.Height
 		m.prepare.resize(m.preparationSize())
+		m.wizard.resize(m.preparationSize())
 		return m, nil
 
 	case tasksMsg:
@@ -528,6 +546,20 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case preparedMsg:
 		return m.finishPreparation(message)
 
+	case wizardClosedMsg:
+		return m.finishWizard()
+
+	case diagnosedMsg:
+		// The wizard has a diagnosis of its own, drawn inside its dialog, so a
+		// pass it asked for belongs to it.
+		if m.screen == screenWizard {
+			updated, cmd := m.wizard.Update(message)
+			m.wizard = updated
+			return m, cmd
+		}
+		m.diagnosis = m.diagnosis.apply(message)
+		return m, nil
+
 	case runtimeMsg:
 		return m.applyRuntime(message)
 
@@ -584,6 +616,11 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	if m.screen == screenPrepare {
 		updated, cmd := m.prepare.Update(message)
 		m.prepare = updated
+		return m, cmd
+	}
+	if m.screen == screenWizard {
+		updated, cmd := m.wizard.Update(message)
+		m.wizard = updated
 		return m, cmd
 	}
 	return m, nil
@@ -781,6 +818,9 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// A reading overlay answers only the keys that close it. One that passed
 	// every other key through would act on a task the user cannot see while they
 	// are reading about how to act on it.
+	if m.screen == screenDiagnosis {
+		return m.diagnosisKey(key)
+	}
 	if m.screen == screenKeys || m.screen == screenRecovery {
 		switch key.String() {
 		case "esc", "?", "!":
@@ -803,6 +843,13 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.screen == screenPrepare {
 		updated, cmd := m.prepare.Update(key)
 		m.prepare = updated
+		return m, cmd
+	}
+	// The wizard takes every key, including the frame's. It is a form with a
+	// text field in it, and a user typing a repository path types J and K.
+	if m.screen == screenWizard {
+		updated, cmd := m.wizard.Update(key)
+		m.wizard = updated
 		return m, cmd
 	}
 
@@ -957,6 +1004,12 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.prepare = m.prepare.restart()
 		return m, m.prepare.Init()
 
+	case "p":
+		return m.configureProject()
+
+	case "D":
+		return m.openDiagnosis()
+
 	case "a":
 		return m.attach()
 
@@ -989,6 +1042,86 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.load(), m.loadResources(), m.reconcile())
 	}
 	return m, nil
+}
+
+// openDiagnosis checks the selected task's project against this machine.
+//
+// The subject is the project rather than the task, because that is what a
+// configuration is about: a check that a Compose service exists or that the
+// agent is installed is true of every task in the project or of none of them.
+// With no task selected there is nothing to name, so every configured project
+// is checked, which is what `feat doctor` does.
+func (m Model) openDiagnosis() (tea.Model, tea.Cmd) {
+	project := ""
+	if task, ok := m.current(); ok {
+		project = task.ProjectID
+	}
+
+	m.rememberTab()
+	m.screen = screenDiagnosis
+	m.diagnosis = m.diagnosis.start(project)
+	return m, diagnose(m.backend, project)
+}
+
+// diagnosisKey answers the report: read it, run it again, or leave.
+func (m Model) diagnosisKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	_, height := m.dialogLimits()
+
+	switch key.String() {
+	case "esc", "D":
+		m.screen = screenFor(m.tab)
+		return m, nil
+
+	case "ctrl+c", "q":
+		m.quitting = true
+		m.stopStream()
+		return m, tea.Quit
+
+	case "r":
+		// Looking again is the action this overlay offers, and it is why the
+		// findings are worth having here rather than in a command: a user who has
+		// just fixed a path wants the same screen to answer differently.
+		if m.diagnosis.running {
+			return m, nil
+		}
+		project := m.diagnosis.project
+		m.diagnosis = m.diagnosis.start(project)
+		return m, diagnose(m.backend, project)
+
+	case "up", "k":
+		m.diagnosis = m.diagnosis.scrollBy(-1)
+	case "down", "j":
+		m.diagnosis = m.diagnosis.scrollBy(1)
+	case "pgup":
+		m.diagnosis = m.diagnosis.scrollBy(-height)
+	case "pgdown":
+		m.diagnosis = m.diagnosis.scrollBy(height)
+	}
+	return m, nil
+}
+
+// configureProject opens the project wizard.
+//
+// The questions are `feat project init`'s own, in internal/wizard, and this
+// screen is a second asker rather than a second wizard: what it adds is a
+// cursor, a step back out of an answer, and the dashboard behind it (ADR-062).
+func (m Model) configureProject() (tea.Model, tea.Cmd) {
+	m.rememberTab()
+	m.screen = screenWizard
+	m.wizard = newWizard(m.backend)
+	m.wizard.resize(m.preparationSize())
+	return m, m.wizard.Init()
+}
+
+// finishWizard closes the wizard and looks again.
+//
+// A project may have been written and registered while it was open, and the
+// rail is grouped by project: reading state again is how the dashboard finds
+// out, as it is after every other screen that changes something.
+func (m Model) finishWizard() (tea.Model, tea.Cmd) {
+	m.screen = screenFor(m.tab)
+	m.wizard = wizardModel{}
+	return m, tea.Batch(m.load(), m.loadReconciliation())
 }
 
 // attach yields the terminal to the task's agent pane.
@@ -1239,6 +1372,12 @@ func (m Model) stackedView() string {
 	switch m.screen {
 	case screenPrepare:
 		return m.prepare.View()
+	case screenWizard:
+		return m.wizard.View()
+	case screenDiagnosis:
+		width, height := m.frameSize()
+		return m.diagnosis.body(width, height-footerHeight-diagnosisChrome) +
+			m.footer(m.diagnosisHints())
 	case screenTask:
 		return m.taskView()
 	case screenRuntime:
@@ -1273,6 +1412,12 @@ func (m Model) dialogView() string {
 	switch m.screen {
 	case screenPrepare:
 		return dialogBox("prepare a task", m.prepare.View(), inner, tallest)
+	case screenWizard:
+		return dialogBox("configure a project", m.wizard.View(), inner, tallest)
+	case screenDiagnosis:
+		return dialogBox(m.diagnosis.title(),
+			m.diagnosis.body(inner-cardChrome, tallest-diagnosisChrome)+"\n"+m.diagnosisHints(),
+			inner, tallest)
 	case screenCleanup:
 		// The dialog carries cleanup's own keys, because the frame's footer says
 		// how to close a dialog and this says what this one can do.

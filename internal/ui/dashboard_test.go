@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -226,6 +227,65 @@ func TestAttachAndShellUseTheSelectedTask(t *testing.T) {
 		if got := action.record(); len(got) != 1 || got[0] != liveTask().ID {
 			t.Errorf("%s asked for %v, want the selected task", action.name, got)
 		}
+	}
+}
+
+// TestTheProjectWizardOpensFromEveryView checks that configuring a project is
+// one key from wherever the user is (ADR-062).
+//
+// It is not an action on the selected task, and the assertion that it touched
+// none is the point: every other key on this list resumes, stops, cancels, or
+// attaches to one, and this one opens a screen about a project that may not
+// exist yet.
+func TestTheProjectWizardOpensFromEveryView(t *testing.T) {
+	for _, open := range []string{"", "v", "R"} {
+		backend := newFakeBackend()
+		model := sized(dashboard(backend, liveTask()), 120, 32)
+		if open != "" {
+			model = press(t, model, open)
+		}
+
+		opened := press(t, model, "p")
+
+		if opened.screen != screenWizard {
+			t.Errorf("p from %q left the screen at %v, want the wizard", open, opened.screen)
+		}
+		if backend.wizards != 1 {
+			t.Errorf("p from %q asked for %d wizards, want one", open, backend.wizards)
+		}
+		if touched := len(backend.attached) + len(backend.resumed) + len(backend.stopped) +
+			len(backend.cancelled) + len(backend.launched); touched != 0 {
+			t.Errorf("p from %q acted on the selected task", open)
+		}
+
+		// And closing it returns to the view it was opened from.
+		closed := press(t, opened, "ctrl+c")
+		if closed.activeTab() != model.activeTab() {
+			t.Errorf("closing the wizard from %q returned to %v, want %v",
+				open, closed.activeTab(), model.activeTab())
+		}
+	}
+}
+
+// TestAWizardThatCannotStartIsReported checks the failure a first run is most
+// likely to meet: a machine whose configuration directory cannot be resolved.
+//
+// It is reported on the screen that was opened for it, where the user is
+// looking, rather than in the footer of the dashboard behind it.
+func TestAWizardThatCannotStartIsReported(t *testing.T) {
+	backend := newFakeBackend()
+	backend.wizardErr = errors.New("$HOME is not an absolute path")
+
+	model := press(t, sized(dashboard(backend, liveTask()), 120, 32), "p")
+
+	if model.wizard.err == nil {
+		t.Fatal("a wizard that could not be built reported nothing")
+	}
+	if !strings.Contains(model.wizard.err.Error(), "$HOME") {
+		t.Errorf("err = %q, want the reason the wizard could not start", model.wizard.err)
+	}
+	if view := content(model); !strings.Contains(view, "$HOME") {
+		t.Errorf("the reason is not drawn:\n%s", view)
 	}
 }
 

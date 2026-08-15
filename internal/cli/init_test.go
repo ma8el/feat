@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ma8el/feat/internal/api"
+	"github.com/ma8el/feat/internal/client"
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/project"
 )
@@ -194,6 +196,18 @@ func TestProjectInitWritesAConfigurationThatLoads(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "wrote "+filepath.Join(m.layout.ProjectConfigDir(), "app.yaml")) {
 		t.Errorf("the wizard does not say what it wrote:\n%s", stdout)
+	}
+
+	// Every group of questions is announced. A section can hold more than one —
+	// where the agent runs and which provider CLI it expects are both about the
+	// agent — and a conversation is one column of text, so the headings are the
+	// only thing that says which part of the file is being answered.
+	for _, heading := range []string{
+		"Repositories", "Where the agent runs", "Provider CLI", "Application services", "Verification",
+	} {
+		if !strings.Contains(stdout, "\n"+heading+"\n") {
+			t.Errorf("the conversation does not announce %q:\n%s", heading, stdout)
+		}
 	}
 }
 
@@ -493,6 +507,67 @@ func TestProjectInitRegistersWithARunningDaemon(t *testing.T) {
 	}
 }
 
+// TestTheBackendBuildsTheWizardTheDashboardAsks checks the dashboard's half of
+// the wiring: it drives the questions itself, and everything underneath them —
+// the configuration directory, the host that runs Git, the file that gets
+// written — is built here (ADR-062).
+//
+// The questions themselves are internal/wizard's and are tested there. What
+// this checks is that a wizard built the way the dashboard builds one composes
+// a configuration this machine can load.
+func TestTheBackendBuildsTheWizardTheDashboardAsks(t *testing.T) {
+	m := prepareWizard(t)
+	dashboard := &backend{env: &environment{
+		layout:  &m.layout,
+		process: &m.env,
+		runner:  m.runner,
+	}}
+
+	flow, err := dashboard.NewWizard()
+	if err != nil {
+		t.Fatalf("building the wizard the dashboard asks: %v", err)
+	}
+
+	for _, answer := range []string{
+		"app",               // project identifier
+		"Example",           // display name
+		m.repository("api"), // path of the checkout
+		"api",               // repository identifier
+		"",                  // default access: read_write
+		"n",                 // no second repository
+		"",                  // execution mode: host
+		"",                  // provider CLI: none
+		"n",                 // no application services
+		"",                  // no verification command
+	} {
+		if err := flow.Answer(context.Background(), answer); err != nil {
+			t.Fatalf("answering %q: %v", answer, err)
+		}
+	}
+	if !flow.Complete() {
+		question, _ := flow.Step()
+		t.Fatalf("the flow is still asking %s", question.ID)
+	}
+
+	file, err := dashboard.WriteProject(flow)
+	if err != nil {
+		t.Fatalf("writing the configuration: %v", err)
+	}
+	if want := filepath.Join(m.layout.ProjectConfigDir(), "app.yaml"); file != want {
+		t.Errorf("wrote %s, want %s", file, want)
+	}
+
+	cfg := m.load(t, "app")
+	if cfg.Project.Name != "Example" {
+		t.Errorf("project.name is %q, want %q", cfg.Project.Name, "Example")
+	}
+	// Read from the checkout rather than asked for, through the host the backend
+	// supplied.
+	if repository, ok := cfg.Repository("api"); !ok || repository.DefaultBranch != "main" {
+		t.Errorf("the repository the dashboard's wizard wrote is %+v", repository)
+	}
+}
+
 // TestInspectAndComposeDiscoveryFeedTheProposals checks the two discoveries the
 // wizard's proposals are built from, against the fake host the tests use.
 func TestInspectAndComposeDiscoveryFeedTheProposals(t *testing.T) {
@@ -512,5 +587,60 @@ func TestInspectAndComposeDiscoveryFeedTheProposals(t *testing.T) {
 	}
 	if services := project.ComposeServices(files...); strings.Join(services, ",") != "dev,worker" {
 		t.Errorf("the Compose file defines %v", services)
+	}
+}
+
+// TestTheDashboardGetsTheChecksTheCommandRuns is the other half of the
+// dashboard's diagnosis: the checks are `feat doctor`'s, and what crosses to the
+// screen is data (ADR-063).
+func TestTheDashboardGetsTheChecksTheCommandRuns(t *testing.T) {
+	m := prepareWizard(t)
+	m.configure(t, "app", projectFixture)
+
+	// A client for a socket no daemon is listening on, which is the machine a
+	// first diagnosis runs on: registration is one of the things being checked,
+	// so a daemon that cannot be reached is an answer rather than a failure.
+	caller := client.New(m.layout.Socket)
+	defer caller.Close()
+
+	dashboard := &backend{client: caller, env: &environment{
+		layout:  &m.layout,
+		process: &m.env,
+		runner:  m.runner,
+	}}
+
+	report, err := dashboard.Diagnose(context.Background(), "app")
+	if err != nil {
+		t.Fatalf("diagnosing: %v", err)
+	}
+
+	if len(report.Projects) != 1 || report.Projects[0].ID != "app" {
+		t.Fatalf("the report covers %d projects, want the one that was named", len(report.Projects))
+	}
+	if len(report.Projects[0].Findings) == 0 {
+		t.Error("the project was checked and reported nothing")
+	}
+	if len(report.Host) == 0 {
+		t.Error("the machine itself was not checked")
+	}
+	// What the checks are true of. They ran in this process, and the daemon that
+	// launches agents is another one with an environment of its own.
+	if report.Environment == "" {
+		t.Error("the report does not say where the checks ran")
+	}
+
+	// Every finding arrives with a severity the screen knows how to draw, and an
+	// action wherever one is required.
+	known := map[string]bool{
+		api.SeverityOK: true, api.SeveritySkipped: true,
+		api.SeverityWarning: true, api.SeverityError: true,
+	}
+	for _, finding := range append(report.Host, report.Projects[0].Findings...) {
+		if !known[finding.Severity] {
+			t.Errorf("%s carries severity %q, which no screen renders", finding.Check, finding.Severity)
+		}
+		if finding.Severity == api.SeverityError && finding.Action == "" {
+			t.Errorf("%s reports a problem with nothing to do about it", finding.Check)
+		}
 	}
 }

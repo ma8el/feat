@@ -47,42 +47,6 @@ func (p *prompter) ask(question, proposed string) (string, error) {
 	return answer, nil
 }
 
-// askUntil repeats a question until the answer passes.
-//
-// A rejected answer is answered with the reason and the same question, because
-// the alternative is a command that fails at the end of a conversation over
-// something the user could have corrected when they typed it.
-func (p *prompter) askUntil(question, proposed string, check func(string) error) (string, error) {
-	for {
-		answer, err := p.ask(question, proposed)
-		if err != nil {
-			return "", err
-		}
-		if answer == "" {
-			p.say("    an answer is needed here\n")
-			continue
-		}
-		if err := check(answer); err != nil {
-			p.say("    %v\n", err)
-			continue
-		}
-		return answer, nil
-	}
-}
-
-// choose puts a question with a closed set of answers.
-func (p *prompter) choose(question string, options []string, proposed string) (string, error) {
-	return p.askUntil(fmt.Sprintf("%s (%s)", question, strings.Join(options, "/")), proposed,
-		func(value string) error {
-			for _, option := range options {
-				if value == option {
-					return nil
-				}
-			}
-			return fmt.Errorf("%q is not one of %s", value, strings.Join(options, ", "))
-		})
-}
-
 // confirm puts a yes-or-no question.
 //
 // An answer that is neither is asked again rather than read as the proposal.
@@ -118,15 +82,5 @@ func (p *prompter) confirm(question string, proposed bool) (bool, error) {
 		default:
 			p.say("    answer \"y\" or \"n\"\n")
 		}
-	}
-}
-
-// notEmpty rejects an empty answer, naming what was asked for.
-func notEmpty(what string) func(string) error {
-	return func(value string) error {
-		if strings.TrimSpace(value) == "" {
-			return errors.New("name " + what)
-		}
-		return nil
 	}
 }

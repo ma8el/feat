@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/ma8el/feat/internal/api"
+	"github.com/ma8el/feat/internal/config"
+	"github.com/ma8el/feat/internal/paths"
+	"github.com/ma8el/feat/internal/wizard"
 )
 
 // fakeBackend answers the dashboard from fixtures and records what it was
@@ -47,6 +51,22 @@ type fakeBackend struct {
 	// reviewRan records every external command a screen ran, so a test can
 	// assert which repository's tools were opened.
 	reviewRan []api.ReviewCommand
+	// wizards counts the flows the dashboard asked for, written the projects it
+	// asked to write, and registered the ones it asked the daemon to record.
+	// Their most important assertion is that they stay empty until the user has
+	// answered the screen that offers each.
+	wizards     int
+	written     []string
+	registered  []string
+	root        string
+	wizardErr   error
+	writeErr    error
+	registerErr error
+	// diagnosed records every project the checks were asked about, and diagnosis
+	// is what they answered with.
+	diagnosed   []string
+	diagnosis   api.Diagnosis
+	diagnoseErr error
 
 	// frames records every request for a rendered pane and inputs everything
 	// sent to one, so a test can assert what reached the daemon rather than what
@@ -97,6 +117,7 @@ type fakeBackend struct {
 
 func newFakeBackend() *fakeBackend {
 	return &fakeBackend{
+		root: filepath.Join(os.TempDir(), "feat-ui-test"),
 		projects: []api.Project{{
 			ID:                "example",
 			Name:              "Example",
@@ -338,6 +359,95 @@ func (f *fakeBackend) EditorCommand(path string) (tea.ExecCommand, error) {
 	return noopCommand{}, nil
 }
 
+// NewWizard builds a flow over a machine with one repository on it, so that the
+// dialog can be driven end to end without Git, a configuration directory, or a
+// file.
+//
+// The questions themselves are internal/wizard's and are tested there. What a
+// test here asserts is what the dialog does with them.
+func (f *fakeBackend) NewWizard() (*wizard.Wizard, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.wizards++
+
+	if f.wizardErr != nil {
+		return nil, f.wizardErr
+	}
+	return wizard.New(wizard.Options{
+		Host:      fakeHost{root: f.root},
+		ConfigDir: filepath.Join(f.root, "config"),
+		Resolve: config.Options{
+			Env:      paths.Environment{Getenv: func(string) string { return "" }, Home: f.root},
+			StateDir: filepath.Join(f.root, "state"),
+		},
+	})
+}
+
+// WriteProject records that the file was asked for rather than writing one: the
+// exclusive create belongs to internal/wizard, and what a screen test can assert
+// is that nothing asked for it until the user confirmed.
+func (f *fakeBackend) WriteProject(flow *wizard.Wizard) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.written = append(f.written, flow.ID())
+
+	if f.writeErr != nil {
+		return "", f.writeErr
+	}
+	return filepath.Join(f.root, "config", flow.ID()+".yaml"), nil
+}
+
+// Diagnose records that the checks were asked for and answers with whatever the
+// test arranged. Its most important assertion is that it stays at zero: the
+// checks shell out to Git, Compose, and the container runtime, so nothing but a
+// user may start one.
+func (f *fakeBackend) Diagnose(_ context.Context, id string) (api.Diagnosis, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.diagnosed = append(f.diagnosed, id)
+
+	if f.diagnoseErr != nil {
+		return api.Diagnosis{}, f.diagnoseErr
+	}
+	if f.diagnosis.Environment == "" {
+		f.diagnosis.Environment = "this terminal"
+	}
+	return f.diagnosis, nil
+}
+
+// RegisterProject records what the dashboard asked the daemon to register.
+func (f *fakeBackend) RegisterProject(_ context.Context, id string) (api.Registration, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.registered = append(f.registered, id)
+
+	if f.registerErr != nil {
+		return api.Registration{}, f.registerErr
+	}
+	return api.Registration{Created: true, Project: api.Project{ID: id, Name: id}}, nil
+}
+
+// fakeHost is a machine with one repository on it, at root/repo.
+type fakeHost struct{ root string }
+
+func (h fakeHost) Inspect(_ context.Context, path string) (wizard.Checkout, error) {
+	if path != filepath.Join(h.root, "repo") {
+		return wizard.Checkout{}, errors.New(path + " is not a Git repository")
+	}
+	return wizard.Checkout{Root: path, Remote: "origin", DefaultBranch: "main"}, nil
+}
+
+func (h fakeHost) ComposeFiles(string) []string       { return nil }
+func (h fakeHost) ComposeServices(...string) []string { return nil }
+func (h fakeHost) Exists(string) bool                 { return true }
+func (h fakeHost) WorkingDirectory() string           { return filepath.Join(h.root, "repo") }
+func (h fakeHost) Absolute(value string) (string, error) {
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value), nil
+	}
+	return filepath.Join(h.root, value), nil
+}
+
 // noopCommand stands in for a program that would take over the terminal.
 type noopCommand struct{}
 
@@ -434,8 +544,9 @@ func prepared(t *testing.T, backend *fakeBackend) prepareModel {
 //
 // It is the error a new user is most likely to meet, and the step that clears it
 // is writing a configuration: naming `feat project add` names a registration
-// with nothing to register (ADR-061). The command is not reachable from here,
-// which is why the message says to leave.
+// with nothing to register (ADR-061). What it names instead is the key that
+// opens the wizard, because that is the shortest route from where the user is
+// standing when they read it (ADR-062).
 func TestAFirstRunIsPointedAtTheWizard(t *testing.T) {
 	backend := newFakeBackend()
 	backend.projects = nil
@@ -446,10 +557,10 @@ func TestAFirstRunIsPointedAtTheWizard(t *testing.T) {
 	if model.err == nil {
 		t.Fatal("preparation with nothing registered reported no error")
 	}
-	if !strings.Contains(model.err.Error(), "feat project init") {
-		t.Errorf("error = %q, want the command that configures a project", model.err)
+	if !strings.Contains(model.err.Error(), "press esc, then p,") {
+		t.Errorf("error = %q, want the keys that reach the wizard from here", model.err)
 	}
-	if view := model.View(); !strings.Contains(view, "feat project init") {
+	if view := model.View(); !strings.Contains(view, "configure one") {
 		t.Errorf("the screen does not show the way out of a first run:\n%s", view)
 	}
 }

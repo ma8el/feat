@@ -1749,6 +1749,24 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   configuration being the dominant public blocker: dogfooding answered that, and
   the first-run path is not one the public milestone should meet for the first
   time. See ADR-061.
+- Ask the same questions from the dashboard. `feat` with no subcommand opens on
+  a machine with no project as readily as on one with twelve, and the only thing
+  the dashboard had to say to the first was a command to quit and go and type.
+  Preparing a task — the key a new user presses first — could only fail there.
+
+  The questions move to `internal/wizard`, which owns the sequence, the
+  proposals, the validation, and what an answer decides about the next question;
+  it reaches the machine through a Host the command implements. `feat project
+  init` drives it as the conversation it already was, and `p` in the dashboard
+  drives it as a dialog with a cursor, a step back out of an answer, and the
+  composed file scrolled before it is written. Neither owns a question. See
+  ADR-062.
+- Show what `feat doctor` found on the dashboard. Configuring a project from the
+  dashboard could not say whether the project worked, and that is where a first
+  project fails: a Compose service that is not there, an agent that is not
+  installed, a remote that does not resolve. The checks run in this process and
+  arrive as data, `D` opens them for the selected task's project, `r` runs them
+  again, and the wizard runs them itself once the file exists. See ADR-063.
 - Remove hard-coded assumptions discovered during dogfood.
 
 ### Acceptance criteria
@@ -1757,6 +1775,13 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   answer is derived rather than asked, the composed configuration is validated
   before it is displayed, nothing is written until it is confirmed, and an
   existing configuration is never overwritten.
+- The same questions are reachable from the dashboard without leaving it, from
+  one implementation both askers drive; an answer can be stepped back out of, the
+  whole file is shown before it is written, and cancelling leaves the machine
+  unchanged.
+- What `feat doctor` checks can be read on the dashboard, for a project or for
+  the machine, on demand and never on a timer; the report says which environment
+  it is true of, and a skipped check is neither shown nor counted as a pass.
 - Full v0.1 acceptance checklist passes.
 - No unresolved data-loss or cross-task runtime defect remains.
 - Every notifiable condition has been shown to reach a real desktop once, from

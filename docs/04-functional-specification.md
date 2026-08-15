@@ -32,6 +32,12 @@ A project MUST identify a primary editable repository/workspace used as the defa
 
 It MUST redact secret values and SHOULD show resolved paths and commands.
 
+The dashboard MUST be able to run the same checks and display what they found,
+for the selected task's project or for every configured project, and MUST run
+them only when the user asks. It MUST report which environment the checks ran
+in, because a check is only true of the process that ran it. A skipped check
+MUST NOT be displayed or counted as a pass.
+
 ### FR-PROJ-005 — Guided configuration
 
 Feat MUST provide a command that writes a project's configuration by asking for
@@ -47,6 +53,13 @@ It MUST validate the configuration it composed before offering it, display the
 whole file, and write nothing until the user confirms. It MUST NOT overwrite an
 existing configuration, and it MUST NOT register the project without being
 asked. Registration and diagnosis remain the commands they already are.
+
+The dashboard MUST offer the same questions, because it is where a user with no
+project configured already is. The questions, their proposals, their validation,
+and their order MUST have one implementation, which both the command and the
+dashboard drive. The dashboard MUST allow an answer to be stepped back out of,
+MUST display the whole composed file before writing it, and MUST leave the
+machine unchanged when it is cancelled.
 
 ## Task preparation
 
