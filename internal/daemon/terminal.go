@@ -198,10 +198,7 @@ func (s *service) OpenShell(ctx context.Context, id domain.TaskID) (api.AttachIn
 	}
 	// As with the agent pane: a native client takes this window at its own size,
 	// and sees every pane it has rather than the one the dashboard was showing.
-	if err := s.terminals.UnzoomWindow(ctx, terminal.Target.Window); err != nil {
-		return api.AttachInfo{}, err
-	}
-	if err := s.terminals.ReleaseWindowSize(ctx, terminal.Target.Window); err != nil {
+	if err := s.yieldWindow(ctx, id, terminal.Target.Window); err != nil {
 		return api.AttachInfo{}, err
 	}
 	return api.AttachInfo{
@@ -235,10 +232,7 @@ func (s *service) AttachInfo(ctx context.Context, id domain.TaskID) (api.AttachI
 	// size the dashboard pinned for rendering is released first. Without this an
 	// attach inherits the main region's dimensions and leaves the rest of the
 	// terminal blank (ADR-042).
-	if err := s.terminals.UnzoomWindow(ctx, terminal.Target.Window); err != nil {
-		return api.AttachInfo{}, err
-	}
-	if err := s.terminals.ReleaseWindowSize(ctx, terminal.Target.Window); err != nil {
+	if err := s.yieldWindow(ctx, id, terminal.Target.Window); err != nil {
 		return api.AttachInfo{}, err
 	}
 
@@ -258,12 +252,33 @@ func (s *service) AttachInfo(ctx context.Context, id domain.TaskID) (api.AttachI
 	}, nil
 }
 
+// yieldWindow gives a task's window to the native client that is about to
+// attach to it.
+//
+// The window is unzoomed, so the client sees every pane the task has rather than
+// the one the dashboard was showing, and Feat's own sizing comes off, so the
+// client's terminal is the size the window takes. Both are recorded as a
+// handover first: the client is not there yet, and a frame drawn in the meantime
+// would ask tmux who is attached, be told nobody, and pin the window again
+// before the client ever arrives (handovers).
+func (s *service) yieldWindow(ctx context.Context, id domain.TaskID, window string) error {
+	defer s.handovers.hold()()
+	s.handovers.take(id, s.now())
+
+	if err := s.terminals.UnzoomWindow(ctx, window); err != nil {
+		return err
+	}
+	return s.terminals.ReleaseWindowSize(ctx, window)
+}
+
 // TerminalFrame renders one view of a task's pane.
 //
 // The pane is sized to the region the caller will draw into before it is
 // captured, because a program wraps its own output: a pane left at another size
 // would come back wrapped at a column the display does not have, and no amount
-// of care in the renderer would straighten it.
+// of care in the renderer would straighten it. The exception is a terminal a
+// native client has, or is about to have, which is sized by that client and
+// clipped by the renderer instead.
 //
 // Nothing here reads what the pane contains. Feat draws these bytes and derives
 // no state from them, which is ADR-042's boundary and the reason this sits
@@ -272,25 +287,34 @@ func (s *service) TerminalFrame(ctx context.Context, id domain.TaskID, view api.
 	if err := view.Validate(); err != nil {
 		return api.TerminalFrame{}, err
 	}
+
+	// Held across the whole frame, and not only across the question it answers. A
+	// client that is handed this terminal while the render is deciding would
+	// otherwise have its release undone by the pin this is about to apply, which
+	// is the last few milliseconds of the defect the handover record exists for.
+	defer s.handovers.hold()()
+
 	terminal, pane, err := s.terminalPane(ctx, id, view.Shell)
 	if err != nil {
 		return api.TerminalFrame{}, err
 	}
 
-	// A window somebody is attached to keeps the size their terminal gives it.
-	// Sizing it here would shrink a native client's screen to the dashboard's
-	// main region every time this poll came round, which is the same defect as
-	// attaching to a pinned window and arrives by the other route. The frame then
-	// comes back at the viewer's size and the renderer clips it: a real client
-	// wins over a rendering of one.
+	// A window somebody is attached to is neither sized nor zoomed: their client
+	// owns it, and a rendering must not resize the terminal they are sitting in.
+	// The frame comes back at their size and the renderer clips it — a real
+	// client wins over a rendering of one — and Feat's own sizing is taken off
+	// the window, because tmux would otherwise hold it at the dashboard's main
+	// region and leave the rest of their screen blank.
+	//
+	// A client that has been sent here and not arrived yet counts as attached,
+	// for the same reason and a few milliseconds earlier.
+	//
 	// One operation rather than three, because zoom is a toggle and two callers
 	// racing on it cancel each other out — a poll and a keystroke arriving
 	// together made the agent flicker between the region's width and half of it.
-	//
-	// A window somebody is attached to is neither sized nor zoomed: their client
-	// owns it, and a rendering must not resize the terminal they are sitting in.
+	watched := terminal.Watched() || s.handovers.pending(id, s.now())
 	captured, err := s.terminals.RenderPane(ctx, terminal.Target.Window, pane,
-		view.Width, view.Height, !terminal.Watched())
+		view.Width, view.Height, watched)
 	if err != nil {
 		return api.TerminalFrame{}, err
 	}

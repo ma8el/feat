@@ -346,6 +346,87 @@ func TestADeadPaneIsExplainedRatherThanLeftBlank(t *testing.T) {
 	}
 }
 
+// TestAPaneTallerThanTheRegionShowsItsFoot is what a region has to do with a
+// window it is not the one sizing.
+//
+// Two of them arrive that way: the window a native client is attached to keeps
+// its client's size, and the window of a pane whose program has ended is never
+// made smaller, because a resize would reflow a screen nothing will repaint. The
+// rows to drop are then the ones above — a terminal's newest output is at its
+// foot, and the prompt a user is reading is the last row of all.
+func TestAPaneTallerThanTheRegionShowsItsFoot(t *testing.T) {
+	content := make([]string, 24)
+	for row := range content {
+		content[row] = fmt.Sprintf("row %d", row)
+	}
+	content[23] = "│ > the prompt │"
+
+	model := terminalDashboard(t, newFakeBackend(), liveTask())
+	loaded, _ := model.Update(terminalFrameMsg{
+		task: liveTask().ID,
+		frame: api.TerminalFrame{Width: 80, Height: 24, Panes: []api.TerminalPane{
+			{Pane: "%11", Width: 80, Height: 24, Active: true, Content: content},
+		}},
+	})
+
+	body := ansi.Strip(loaded.(Model).composeWindow(80, 6))
+	if !strings.Contains(body, "│ > the prompt │") {
+		t.Errorf("the foot of the pane was clipped away:\n%s", body)
+	}
+	if strings.Contains(body, "row 0\n") {
+		t.Errorf("the region showed the head of a pane it had no room for:\n%s", body)
+	}
+	if rows := strings.Count(body, "\n") + 1; rows != 6 {
+		t.Errorf("the pane was drawn in %d rows, want the 6 the region has", rows)
+	}
+}
+
+// TestAPaneThatHasNotFilledItsWindowIsDrawnFromTheTop is the other half of the
+// same clip.
+//
+// A window sized for forty rows of an agent that has printed ten holds thirty
+// blank ones underneath, and a rendering anchored on the window's foot would show
+// the blanks. The clip ends at what the panes wrote rather than at the window's
+// own height.
+func TestAPaneThatHasNotFilledItsWindowIsDrawnFromTheTop(t *testing.T) {
+	model := terminalDashboard(t, newFakeBackend(), liveTask())
+	loaded, _ := model.Update(terminalFrameMsg{
+		task: liveTask().ID,
+		frame: api.TerminalFrame{Width: 80, Height: 24, Panes: []api.TerminalPane{
+			{Pane: "%11", Width: 80, Height: 24, Active: true, Content: []string{"the agent started", "> "}},
+		}},
+	})
+
+	body := ansi.Strip(loaded.(Model).composeWindow(80, 6))
+	if !strings.Contains(body, "the agent started") {
+		t.Errorf("a pane with room to spare was drawn from its blank foot:\n%s", body)
+	}
+}
+
+// TestTheCursorSurvivesTheClip keeps the one row a user typing cannot lose.
+//
+// A capture stops at the last row with something on it, and the cursor may
+// already be on the blank row after it — which is where it sits the moment a
+// program clears its prompt. Clipping a taller-than-the-region window to what was
+// written would then cut off the block that says where the keystrokes are going.
+func TestTheCursorSurvivesTheClip(t *testing.T) {
+	frame := api.TerminalFrame{Width: 80, Height: 24, Panes: []api.TerminalPane{
+		{Pane: "%11", Width: 80, Height: 24, Active: true, CursorX: 0, CursorY: 12,
+			Content: []string{"the agent stopped for input"}},
+	}}
+
+	backend := newFakeBackend()
+	backend.frame = frame
+	model := terminalDashboard(t, backend, liveTask())
+	loaded, _ := model.Update(terminalFrameMsg{task: liveTask().ID, frame: frame})
+	focused := press(t, loaded.(Model), "i")
+
+	body := focused.composeWindow(80, 6)
+	if !strings.Contains(body, "\x1b[7m") {
+		t.Errorf("the cursor was clipped out of the region:\n%q", ansi.Strip(body))
+	}
+}
+
 // TestSwitchingPanesDiscardsTheFrameWithIt stops the agent's contents being
 // drawn under the shell's name for a tick.
 func TestSwitchingPanesDiscardsTheFrameWithIt(t *testing.T) {

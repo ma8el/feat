@@ -4,9 +4,22 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ma8el/feat/internal/api"
 )
+
+// theClientNeverArrived moves the clock past the handover grace.
+//
+// Asking for an attach target hands the window to a client, and rendering leaves
+// it alone until that client is either attached or judged not to be coming. A
+// test that wants the dashboard's own sizing back says so with this rather than
+// by having no attach in its history, because the attach is usually the thing it
+// is testing the far side of.
+func theClientNeverArrived(service *service) {
+	at := service.now().Add(attachGrace)
+	service.now = func() time.Time { return at }
+}
 
 // TestAFrameIsSizedBeforeItIsCaptured is the reason the daemon resizes rather
 // than the renderer coping.
@@ -179,6 +192,9 @@ func TestTheRegionShowsOnePaneFillingIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the task: %v", err)
 	}
+	// Opening a shell hands the terminal to a native client, and this is about
+	// what the dashboard draws once that client is out of the picture.
+	theClientNeverArrived(service)
 
 	frame, err := service.TerminalFrame(ctx, arranged.ref.Task,
 		api.TerminalView{Width: 100, Height: 30})
@@ -211,6 +227,7 @@ func TestAttachingShowsEveryPaneAgain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the task: %v", err)
 	}
+	theClientNeverArrived(service)
 	if _, err := service.TerminalFrame(ctx, arranged.ref.Task,
 		api.TerminalView{Width: 100, Height: 30}); err != nil {
 		t.Fatalf("TerminalFrame: %v", err)
@@ -336,6 +353,48 @@ func TestAResizedRegionStillReachesTheWindow(t *testing.T) {
 	}
 }
 
+// TestAStoppedAgentKeepsTheScreenItStoppedOn is the reported glitch at the level
+// a user met it: for some tasks the agent's prompt was drawn over two rows in
+// the terminal tab, and stayed there.
+//
+// Those were the tasks whose agent had stopped. Feat keeps their pane on purpose
+// — it is the account of what the session did — and a kept pane has nobody left
+// to repaint it, so sizing its window to the region made tmux reflow the screen
+// it stopped on and nothing ever put it back.
+func TestAStoppedAgentKeepsTheScreenItStoppedOn(t *testing.T) {
+	service, arranged, server := launched(t)
+	ctx := context.Background()
+
+	task, err := service.Task(ctx, arranged.ref.Task)
+	if err != nil {
+		t.Fatalf("reading the task: %v", err)
+	}
+	window := task.Session.Tmux.Window
+
+	// The screen was painted at the region the dashboard was showing it in.
+	if _, err := service.TerminalFrame(ctx, arranged.ref.Task,
+		api.TerminalView{Width: 100, Height: 30}); err != nil {
+		t.Fatalf("the frame before the agent stopped: %v", err)
+	}
+	server.Died(task.Session.Tmux.Pane, 0)
+
+	// And then the same task is looked at from a narrower terminal.
+	frame, err := service.TerminalFrame(ctx, arranged.ref.Task,
+		api.TerminalView{Width: 80, Height: 20})
+	if err != nil {
+		t.Fatalf("the frame after the agent stopped: %v", err)
+	}
+
+	if size, _ := server.PaneSize(window); size != [2]int{100, 30} {
+		t.Errorf("the window of a stopped agent was resized to %v, want the 100x30 its screen was painted at", size)
+	}
+	// The frame says how big it really is, so that the renderer clips it rather
+	// than drawing it as though it fitted.
+	if frame.Width != 100 || frame.Height != 30 {
+		t.Errorf("the frame reports %dx%d, want the size the pane kept", frame.Width, frame.Height)
+	}
+}
+
 // TestAWatchedWindowIsNotResizedByTheDashboard closes the other route to the
 // same defect.
 //
@@ -361,5 +420,117 @@ func TestAWatchedWindowIsNotResizedByTheDashboard(t *testing.T) {
 
 	if size, pinned := server.PaneSize(task.Session.Tmux.Window); pinned {
 		t.Errorf("a watched window was resized to %v by a dashboard poll", size)
+	}
+}
+
+// TestAFrameDuringAnAttachLeavesTheWindowToTheClient is the defect that survived
+// the first fix, at the level a user met it.
+//
+// Asking for an attach target releases the size rendering pinned. The client
+// then takes tens of milliseconds to start, and the dashboard polls up to
+// sixteen times a second, so a frame lands in the gap: tmux is asked who is
+// attached, says nobody, and the window is pinned again before the client ever
+// arrives. The user attaches into the dashboard's main region with tmux's fill
+// characters over the rest of their terminal — and stays there, because a
+// dashboard that has handed its terminal away is not polling to notice.
+func TestAFrameDuringAnAttachLeavesTheWindowToTheClient(t *testing.T) {
+	service, arranged, server := launched(t)
+	ctx := context.Background()
+
+	task, err := service.Task(ctx, arranged.ref.Task)
+	if err != nil {
+		t.Fatalf("reading the task: %v", err)
+	}
+	window := task.Session.Tmux.Window
+
+	view := api.TerminalView{Width: 87, Height: 21}
+	if _, err := service.TerminalFrame(ctx, arranged.ref.Task, view); err != nil {
+		t.Fatalf("the frame before the attach: %v", err)
+	}
+	if _, pinned := server.PaneSize(window); !pinned {
+		t.Fatal("rendering did not pin the window, so this proves nothing")
+	}
+
+	// The user presses a. The client is on its way and has not arrived: nothing
+	// is attached to this window yet.
+	if _, err := service.AttachInfo(ctx, arranged.ref.Task); err != nil {
+		t.Fatalf("AttachInfo: %v", err)
+	}
+	if _, err := service.TerminalFrame(ctx, arranged.ref.Task, view); err != nil {
+		t.Fatalf("the frame during the attach: %v", err)
+	}
+
+	if size, pinned := server.PaneSize(window); pinned {
+		t.Errorf("a frame drawn while a client was attaching pinned the window at %v", size)
+	}
+	if zoomed := server.Zoomed(window); zoomed != "" {
+		t.Errorf("a frame drawn while a client was attaching zoomed it onto %s", zoomed)
+	}
+}
+
+// TestTheDashboardTakesTheWindowBackWhenNoClientCame keeps the handover a pause
+// rather than a surrender.
+//
+// An attach can fail, or a user can change their mind before tmux starts. The
+// window is nobody's then, and the dashboard has to be able to draw it properly
+// again — otherwise one attach that never happened would leave the pane wrapping
+// at a width the region does not have for as long as the daemon ran.
+func TestTheDashboardTakesTheWindowBackWhenNoClientCame(t *testing.T) {
+	service, arranged, server := launched(t)
+	ctx := context.Background()
+
+	task, err := service.Task(ctx, arranged.ref.Task)
+	if err != nil {
+		t.Fatalf("reading the task: %v", err)
+	}
+	if _, err := service.AttachInfo(ctx, arranged.ref.Task); err != nil {
+		t.Fatalf("AttachInfo: %v", err)
+	}
+	theClientNeverArrived(service)
+
+	if _, err := service.TerminalFrame(ctx, arranged.ref.Task,
+		api.TerminalView{Width: 87, Height: 21}); err != nil {
+		t.Fatalf("TerminalFrame: %v", err)
+	}
+
+	size, pinned := server.PaneSize(task.Session.Tmux.Window)
+	if !pinned || size != [2]int{87, 21} {
+		t.Errorf("the dashboard drew into a window sized %v (pinned: %t), want its own 87x21", size, pinned)
+	}
+}
+
+// TestAWatchedWindowIsReleasedByTheDashboard is the repair for a client that
+// arrived by a route the daemon never saw.
+//
+// A user can attach with tmux itself, or from a second terminal while this
+// dashboard polls, and a window Feat pinned before any of that would hold them
+// at the main region's size indefinitely. Whichever way a client got there, the
+// first frame that sees one hands the size back.
+func TestAWatchedWindowIsReleasedByTheDashboard(t *testing.T) {
+	service, arranged, server := launched(t)
+	ctx := context.Background()
+
+	task, err := service.Task(ctx, arranged.ref.Task)
+	if err != nil {
+		t.Fatalf("reading the task: %v", err)
+	}
+	window := task.Session.Tmux.Window
+
+	view := api.TerminalView{Width: 87, Height: 21}
+	if _, err := service.TerminalFrame(ctx, arranged.ref.Task, view); err != nil {
+		t.Fatalf("the frame before the attach: %v", err)
+	}
+	if _, pinned := server.PaneSize(window); !pinned {
+		t.Fatal("rendering did not pin the window, so this proves nothing")
+	}
+
+	// Somebody attaches, without going through the daemon to do it.
+	server.Watch(window, 1)
+	if _, err := service.TerminalFrame(ctx, arranged.ref.Task, view); err != nil {
+		t.Fatalf("the frame after the attach: %v", err)
+	}
+
+	if size, pinned := server.PaneSize(window); pinned {
+		t.Errorf("a window with a client on it was left pinned at %v", size)
 	}
 }

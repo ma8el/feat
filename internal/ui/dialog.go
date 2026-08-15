@@ -95,18 +95,6 @@ var dialogStyle = lipgloss.NewStyle().
 	BorderForeground(colourAccent).
 	Padding(0, 1)
 
-// clampRows drops the lines of a block that a region has no room for.
-func clampRows(block string, height int) string {
-	if height < 1 {
-		height = 1
-	}
-	lines := strings.Split(block, "\n")
-	if len(lines) <= height {
-		return block
-	}
-	return strings.Join(lines[:height], "\n")
-}
-
 // clampBlock truncates every line of a block to a width.
 //
 // A dialog is composited over the dashboard by cell, so a line wider than the

@@ -254,12 +254,26 @@ func (m Model) composeWindow(width, height int) string {
 	}
 	canvas := strings.TrimSuffix(strings.Repeat("\n", rows), "\n")
 
+	// written is the row after the last one any pane put something on. It is
+	// arithmetic on what tmux reported rather than anything read out of the
+	// content: a capture ends at the last row the program wrote, and the rows
+	// after it are the blank ones this canvas was made of.
+	//
+	// The cursor counts as written. A capture stops at the last row with
+	// something on it and the cursor may already be on the blank one after it,
+	// which is where it sits the moment a program clears its prompt — and a
+	// cursor clipped off the bottom is the one thing a user typing must not lose.
+	written := 0
 	for _, pane := range frame.Panes {
 		block := strings.Join(pane.Content, "\n")
 		if pane.Width > 0 {
 			block = clampBlock(block, pane.Width)
 		}
 		canvas = overlayOn(canvas, block, pane.Left, pane.Top)
+		written = max(written, pane.Top+len(pane.Content))
+		if m.terminal.focused && pane.Active && pane.CursorY >= 0 {
+			written = max(written, pane.Top+pane.CursorY+1)
+		}
 
 		// The divider tmux draws between panes is part of its own rendering and
 		// not part of any pane's capture, so it is drawn here.
@@ -277,7 +291,35 @@ func (m Model) composeWindow(width, height int) string {
 	// is whatever tmux reported and the region is what there is to draw it in: a
 	// frame that arrived taller than the region would otherwise push whatever
 	// follows it out of the card.
-	return terminate(clampBlock(clampRows(canvas, height), width))
+	return terminate(clampBlock(fitRows(canvas, written, height), width))
+}
+
+// fitRows takes the rows of a window a region has room for, ending at the last
+// one the panes wrote on.
+//
+// The end matters as much as the count. A window is taller than the region
+// whenever Feat is not the one sizing it — a native client owns the window it is
+// attached to, and a window holding a pane whose program has ended is never made
+// smaller (tmux.RenderPane) — and the rows to drop are then the ones above. It is
+// the opposite of what a dialog does with a body that does not fit: a dialog is
+// read from the top and its first line is its title, while a terminal's newest
+// output is at its foot and the prompt a user would type into is the last row of
+// all.
+//
+// A pane that has not filled its window is still drawn from its first row, which
+// is why this ends at what was written rather than at the window's own height. A
+// window sized for forty rows of an agent that has printed ten holds thirty blank
+// ones underneath, and a rendering anchored on those would show the blanks.
+func fitRows(block string, written, height int) string {
+	if height < 1 {
+		height = 1
+	}
+	lines := strings.Split(block, "\n")
+	if len(lines) <= height {
+		return block
+	}
+	end := min(max(written, height), len(lines))
+	return strings.Join(lines[end-height:end], "\n")
 }
 
 // paneDivider is the line tmux draws between two panes.

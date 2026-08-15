@@ -113,6 +113,11 @@ type Server struct {
 	// measurement, so that a test can check the size Feat asked for is the size
 	// it draws into.
 	size map[string][2]int
+	// pinned is which windows are held at a size of their own rather than at
+	// whichever client's. tmux sets it on any resize that names a size, with or
+	// without being asked, and holds the window there however large a client
+	// attaching is — which is what makes releasing it part of attaching.
+	pinned map[string]bool
 	// buffers holds what was staged for a paste, and pastes records what reached
 	// each pane, so that a test can assert on delivered input rather than on the
 	// command that delivered it.
@@ -132,6 +137,7 @@ func New(terminals ...Terminal) *Server {
 		panes:       make(map[string]*paneObject),
 		fail:        make(map[string]error),
 		size:        make(map[string][2]int),
+		pinned:      make(map[string]bool),
 		buffers:     make(map[string]string),
 		pastes:      make(map[string][]string),
 		keys:        make(map[string][]string),
@@ -159,6 +165,21 @@ func (s *Server) Watch(window string, viewers int) {
 	defer s.mu.Unlock()
 	if record, exists := s.windows[window]; exists {
 		record.viewers = viewers
+	}
+}
+
+// Died ends the program of a pane that is already on the server, leaving the
+// pane where it is with the exit status tmux would report.
+//
+// It is what Feat's own remain-on-exit produces, arranged after a launch rather
+// than seeded: a task whose agent has stopped keeps its window, and the screen
+// the agent stopped on is kept with it.
+func (s *Server) Died(pane string, status int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record, exists := s.panes[pane]; exists {
+		record.dead = true
+		record.status = strconv.Itoa(status)
 	}
 }
 
@@ -321,7 +342,13 @@ func (s *Server) Run(_ context.Context, socket string, args ...string) (string, 
 		// resizes it when a client attaches, which this fake stands in for by
 		// forgetting the size: nothing here has a client to be sized to.
 		if len(args) > 1 && args[1] == "-u" {
-			delete(s.size, value(args, "-t"))
+			window := value(args, "-t")
+			delete(s.size, window)
+			delete(s.pinned, window)
+			return "", nil
+		}
+		if last(args) == "manual" {
+			s.pinned[value(args, "-t")] = true
 		}
 		return "", nil
 	case "resize-window":
@@ -744,6 +771,8 @@ func (s *Server) measurements(target string) (map[string]string, error) {
 			"window_zoomed_flag":    flag(s.zoomed[window.id] != ""),
 			"window_panes":          strconv.Itoa(s.windowPanes(window.id)),
 			"window_active_clients": strconv.Itoa(window.viewers),
+			"window-size":           s.sizing(window.id),
+			"P:#{pane_dead}":        s.paneFlags(window.id),
 		}, window.options), nil
 	}
 
@@ -779,7 +808,38 @@ func (s *Server) measurements(target string) (map[string]string, error) {
 		"pane_dead_signal":   pane.signal,
 		"pane_current_path":  pane.directory,
 		"pane_pid":           strconv.Itoa(pane.pid),
+		"window-size":        s.sizing(pane.window),
+		"P:#{pane_dead}":     s.paneFlags(pane.window),
 	}, pane.options), nil
+}
+
+// sizing is the value of the window-size option, as tmux reports it: the
+// effective one, so an unpinned window answers with the server's default rather
+// than with nothing.
+func (s *Server) sizing(window string) string {
+	if s.pinned[window] {
+		return "manual"
+	}
+	return "latest"
+}
+
+// paneFlags renders tmux's loop over the panes of a window, which answers a
+// question about the window and not about the target: one character per pane, in
+// pane order.
+func (s *Server) paneFlags(window string) string {
+	ids := make([]string, 0, len(s.panes))
+	for id, pane := range s.panes {
+		if pane.window == window {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+
+	var flags strings.Builder
+	for _, id := range ids {
+		flags.WriteString(flag(s.panes[id].dead))
+	}
+	return flags.String()
 }
 
 // windowSize is the size a window was resized to, or the server's default.
@@ -893,6 +953,10 @@ func (s *Server) resizeWindow(args []string) error {
 		return fmt.Errorf("tmuxtest: resize height %q: %w", value(args, "-y"), err)
 	}
 	s.size[target] = [2]int{width, height}
+	// tmux pins a window it is told the size of, whether or not the option was
+	// set first. Modelled here so that a release has something to undo even for a
+	// caller that resized without asking for manual sizing.
+	s.pinned[target] = true
 	return nil
 }
 
