@@ -86,6 +86,93 @@ func TestRealGitRepositoryIsDiagnosed(t *testing.T) {
 	}
 }
 
+// TestRealCheckoutIsInspected runs the discovery `feat project init` proposes
+// from against real repositories.
+//
+// The unit tests decide what Git says. This one asks it, which is the only way
+// to find out that "symbolic-ref --short refs/remotes/origin/HEAD" is still how
+// a clone reports its default branch, and that a repository without one still
+// answers something usable.
+func TestRealCheckoutIsInspected(t *testing.T) {
+	if os.Getenv(envIntegration) == "" {
+		t.Skipf("set %s=1 to run the tests that use the real tools", envIntegration)
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	// Symbolic links are resolved rather than assumed away: Git answers with the
+	// real path of a working tree, and on macOS the temporary directory is
+	// reached through one. The expectation is therefore the resolved path, which
+	// is also what a configuration ends up holding.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolving the temporary directory: %v", err)
+	}
+	origin := filepath.Join(root, "origin.git")
+	clone := filepath.Join(root, "clone")
+	solitary := filepath.Join(root, "solitary")
+
+	git(t, "", "init", "--bare", "--initial-branch=trunk", origin)
+	git(t, "", "init", "--initial-branch=trunk", solitary)
+	git(t, solitary, "config", "user.email", "wizard@example.invalid")
+	git(t, solitary, "config", "user.name", "Wizard")
+	git(t, solitary, "commit", "--allow-empty", "--message", "initial")
+	git(t, solitary, "push", "--quiet", origin, "trunk")
+	git(t, "", "clone", "--quiet", origin, clone)
+
+	ctx := context.Background()
+
+	// A clone knows both answers, and it knows the branch from the remote
+	// rather than from what happens to be checked out.
+	git(t, clone, "checkout", "--quiet", "-b", "a-feature")
+	checkout, err := project.Inspect(ctx, project.HostRunner{}, clone)
+	if err != nil {
+		t.Fatalf("inspecting a clone: %v", err)
+	}
+	if checkout.Root != clone {
+		t.Errorf("the root is %q, want %q", checkout.Root, clone)
+	}
+	if checkout.Remote != "origin" {
+		t.Errorf("the remote is %q, want %q", checkout.Remote, "origin")
+	}
+	if checkout.DefaultBranch != "trunk" {
+		t.Errorf("the default branch is %q, want the branch the remote publishes", checkout.DefaultBranch)
+	}
+
+	// A subdirectory is answered with the working tree it is in, because that
+	// is the path a repository is configured by.
+	nested := filepath.Join(clone, "nested")
+	if err := os.MkdirAll(nested, 0o700); err != nil {
+		t.Fatalf("creating a subdirectory: %v", err)
+	}
+	if inside, err := project.Inspect(ctx, project.HostRunner{}, nested); err != nil {
+		t.Errorf("inspecting a subdirectory: %v", err)
+	} else if inside.Root != clone {
+		t.Errorf("a subdirectory answers with root %q, want %q", inside.Root, clone)
+	}
+
+	// A repository with no remote answers with the branch it is on, and no
+	// remote, which is what makes the wizard resolve bases locally.
+	solo, err := project.Inspect(ctx, project.HostRunner{}, solitary)
+	if err != nil {
+		t.Fatalf("inspecting a repository with no remote: %v", err)
+	}
+	if solo.Remote != "" {
+		t.Errorf("a repository with no remote answers with %q", solo.Remote)
+	}
+	if solo.DefaultBranch != "trunk" {
+		t.Errorf("the default branch is %q, want the branch that is checked out", solo.DefaultBranch)
+	}
+
+	// A directory that is in no repository is the one answer that is an error:
+	// there is nothing to configure.
+	outside := t.TempDir()
+	if _, err := project.Inspect(ctx, project.HostRunner{}, outside); err == nil {
+		t.Errorf("%s was inspected as a repository", outside)
+	}
+}
+
 // TestRealComposeFileIsDiagnosed runs the Compose checks against the real
 // Docker Compose CLI.
 func TestRealComposeFileIsDiagnosed(t *testing.T) {

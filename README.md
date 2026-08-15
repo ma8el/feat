@@ -21,6 +21,13 @@ environment. A task may span several repositories.
 > tmux backend with tagged stable identity, native attachment, shell-pane
 > creation, and daemon-restart reconciliation.
 >
+> **Setting a project up** starts with `feat project init`, or with `p` in the
+> dashboard, which asks the same questions as a dialog. It asks about the
+> project, finds out what it can from your checkouts — the working-tree root, the
+> remote, the default branch, the Compose files beside them and the services they
+> define — and writes a configuration it has already validated, once you have
+> seen the whole of it.
+>
 > You can prepare, confirm, launch, list, and inspect a task: `feat` opens the
 > dashboard, `feat implement` opens task preparation, and `feat task attach` yields
 > your terminal to a task's own. **A task now runs a real Claude Code session**
@@ -98,10 +105,12 @@ its tabs are about — and the footer is ruled off from both. `tab` moves betwee
 views and `shift+↑`/`shift+↓` change task from any of them — the plain arrows
 belong to whichever view has the keyboard, so review spends them on its
 repository cursor. `space` folds a project away, and a folded project still says
-how many tasks it holds and whether any of them needs you. `?` lists every key.
-Preparing a task or cleaning one up opens over the dashboard rather than
-replacing it, so the tasks you were watching stay on screen. A terminal too
-narrow for three regions falls back to one column.
+how many tasks it holds and whether any of them needs you. `p` configures a new
+project and `D` checks the selected one against your machine. `?` lists every
+key. Preparing a task, configuring a project, reading a diagnosis, or cleaning a
+task up opens over the dashboard rather than replacing it, so the tasks you were
+watching stay on screen. A terminal too narrow for three regions falls back to
+one column.
 
 Everything that acts on a task you already have is under `feat task`. Attaching
 and reviewing are typed often enough to keep their shorter top-level names too.
@@ -273,7 +282,29 @@ not get always has an answer.
 ## Configuring a project
 
 A project is one YAML file, one per project, named after the project's
-identifier:
+identifier. Run this in one of its checkouts and answer the questions:
+
+```sh
+feat project init                                # write the file by answering questions
+```
+
+Pressing `p` in the dashboard asks the same questions as a dialog over your task
+list, with `esc` to step back out of an answer and the whole file scrolled in
+front of you before it is written. Both are one flow, so neither can drift from
+the other: what differs is the cursor, not the questions.
+
+It asks what has to be decided — which repositories take part, where the agent
+runs, what verifies the work — and finds out the rest for itself: whether a path
+is a Git repository, its remote and default branch, the Compose files beside it
+and the services they define. Every proposal is in brackets and Enter accepts
+it. The whole file is shown, already validated, before anything is written;
+nothing is written until you say so; an existing configuration is never
+overwritten. It then offers to check the project against your machine and to
+register it, which are the two commands below.
+
+`--dry-run` prints the file it would write and writes nothing.
+
+To write one by hand instead, or to edit the one it wrote:
 
 ```sh
 $EDITOR ~/.config/feat/projects/myproject.yaml   # see docs/examples/project.yaml
@@ -286,6 +317,13 @@ feat project show myproject                      # what Feat will act on
 `feat doctor` changes nothing and needs no daemon, so it is the first thing to
 run. It reports what it checked, what it found, and what to do about it, and a
 check this build cannot run yet is reported as skipped rather than passing.
+
+The dashboard runs the same checks on `D`, for the project of the task you have
+selected, and `r` runs them again once you have fixed something. The wizard runs
+them itself as soon as it has written a file, because that is the moment they
+answer what the questions could not ask. Wherever they are read, the report says
+it was checked from your terminal: a tool on this terminal's PATH is not
+necessarily on the daemon's.
 
 [`docs/examples/project.yaml`](docs/examples/project.yaml) is a commented
 example showing every field with its default; the semantics are in

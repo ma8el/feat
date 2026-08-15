@@ -3952,6 +3952,226 @@ per-warning question is worth its own press on top of its per-class one; it is
 the same sequence it has always been, and no evidence from using it says
 otherwise yet.
 
+### ADR-062 — A project is configured by answering questions, and the answers are checked before there is a file
+
+Status: accepted  
+Recorded: slice 13, from the cost of adding a project by hand
+
+The maintainer, adding a second project: adding a project to Feat is quite
+involved as it stands — the YAML file has to be created by hand, copied from the
+template.
+
+Evidence:
+
+1. The first thing a new user does is the thing with no help in it. Every other
+   command explains itself and validates its input; the file every one of them
+   reads is written in an editor, against a 176-line example, with `feat doctor`
+   as the only feedback loop.
+2. Most of what the file asks for is already true of the machine. The
+   working-tree root, the remote, the default branch, the Compose files beside a
+   checkout, and the services those files declare are all facts a tool can read,
+   and every one of them was being retyped — which is also how a configuration
+   acquires a value that was never true, such as `main` in a repository whose
+   branch is `trunk`.
+3. The parts that are decisions are few: which repositories take part, how each
+   takes part by default, where the agent runs, which provider CLI it expects,
+   whether a task runs application services, and what verifies the work. Six
+   questions, against a file with sixty fields in it.
+4. [02-user-workflows.md](02-user-workflows.md) had already put a wizard in
+   public v0 and [11-implementation-plan.md](11-implementation-plan.md) had made
+   it conditional on manual configuration being "the dominant public blocker".
+   Dogfooding answered that question ahead of schedule: it is the step that is
+   hardest and the only one Feat does not help with.
+
+Decisions:
+
+- The wizard is a conversation on the command line, not a screen. `feat project
+  init` runs before there is a daemon, before there is a project, and possibly
+  before Feat has ever run on the machine, and the dashboard is a client of a
+  daemon. A line-oriented conversation is also what a user can read back in
+  their scrollback, which is what somebody debugging their own configuration
+  does next.
+- The answers are collected into `config.Draft`, and the file is rendered from
+  it once. Nothing is written down as it is answered, so an interrupted run
+  leaves nothing behind, and the text the user is shown is rendered from the
+  same value the file is written from.
+- The rendering is parsed, resolved, and validated before it is displayed. What
+  is offered is therefore a configuration Feat accepts, not a proposal that might
+  be; a rule the questions failed to cover fails while the answers still exist,
+  naming its field, rather than after the file is on disk.
+- What Feat can find out, it finds out; what it assumes, it says. A path is
+  inspected rather than trusted, and a repository with no remote is reported as
+  having none and gets the local base policy — which is the one value the wizard
+  decides on the user's behalf, decided from what it found rather than from a
+  preference.
+- The file states decisions and omits defaults. A default written into a
+  generated file is a value that stops following Feat when Feat's own changes,
+  and `feat project show` already prints the resolved configuration. The
+  capability block is the deliberate exception: what the agent may reach is
+  written down, with the sentence saying why it cannot vary, because that is the
+  paragraph somebody deciding to run Feat on their own work will look for.
+- Nothing is written until the whole file has been displayed and confirmed, and
+  an existing configuration is never overwritten — the create is exclusive, so
+  even a file that appeared during the conversation is left alone. There is no
+  `--force`: a project's configuration is the one thing on the machine Feat asks
+  the user to author, and losing it to a mistyped command is not a trade this
+  command makes.
+- Diagnosing and registering stay the commands they already are. The wizard
+  offers each at the end and runs neither on its own: `feat doctor` is what
+  checks the project against the host, `feat project add` is what the daemon
+  records, and the wizard calls exactly those rather than growing versions of
+  its own.
+- Writing a file by hand remains supported and unchanged. Outside a terminal the
+  command refuses and names the example to copy, rather than asking questions
+  into a pipe.
+
+Consequence: one command, one draft type in `internal/config` whose only
+capability is to render itself and be validated, and two host discoveries in
+`internal/project` — what a checkout says about itself, and which services a
+Compose file declares. The configuration schema does not change, no field is
+added, and the file the wizard writes is a file the previous build would have
+read. What this does not do is keep an edited file in step with anything: the
+wizard writes a project once, and the file is the user's from then on.
+
+### ADR-063 — One flow, two askers: the wizard's questions are a package, and the dashboard asks them itself
+
+Status: accepted  
+Recorded: slice 13, from asking whether the wizard is reachable from the TUI
+
+The maintainer, after `feat project init` landed: is it possible to execute the
+project wizard in the TUI? It was not. The dashboard's only answer to an
+unconfigured machine was a sentence telling the user to quit and go and type.
+Asked next whether it should be a dialog rather than a released terminal: it
+should.
+
+Evidence:
+
+1. The dashboard is where a new user is. `feat` with no subcommand opens it, and
+   it opens on a machine with no project as readily as on one with twelve — at
+   which point the one thing that would help was somewhere else. Preparing a
+   task, the key a new user presses first, could only fail there.
+2. Releasing the terminal to the line conversation worked and cost two
+   workarounds, which is what a wrong seam costs. Bubble Tea holds the interrupt
+   while it has released the terminal (ADR-049) and the conversation ran in the
+   same process, so Ctrl-C could not reach it and a Ctrl-D exit had to be taught;
+   and the dashboard repaints the moment the command returns, so a "press Enter"
+   pause had to be added to stop it eating the outcome.
+3. Task preparation is already a multi-step form drawn as a dialog, with a step
+   back out of an answer and the rail still visible behind it. Next to that, a
+   released terminal reads as the odd one out: no going back, no cursor between
+   fields, none of the dashboard's own shape.
+4. What the two askers would share is most of what the wizard is. The draft
+   renders and validates itself in `internal/config`, and the host discoveries
+   live in `internal/project`; what was in the command was the sequence — each
+   question's proposal, its validation, and what it decides about the next one.
+
+Decisions:
+
+- The questions are a package, `internal/wizard`, and both askers drive it.
+  `Step` says what to ask, `Answer` applies one answer, `Back` undoes one, and
+  `Review` renders and validates. Neither asker decides what comes next, what is
+  proposed, or whether an answer is acceptable.
+- The flow reaches nothing. What it needs to know about the machine — whether a
+  path is a checkout, what Git says about it, which Compose files are beside it
+  and what they declare — it asks through `Host`, which `internal/cli`
+  implements over `internal/project`. That is what lets the dashboard drive the
+  same questions while remaining a client that reaches no adapter (ADR-031).
+- `feat project init` keeps its conversation and owns its presentation: the
+  headings, the indentation, the brackets around a proposal, and the offers to
+  diagnose and register at the end. ADR-062's reasons stand — it runs before
+  there is a daemon, and its scrollback is what somebody debugging their own
+  configuration reads back.
+- The dashboard asks the same questions on `p`, as a dialog over the rail. It
+  adds what a screen can add and a conversation cannot: a cursor on the closed
+  questions, `esc` to step back out of an answer, and the file scrolled in a pane
+  before it is written. It does not add a question, a proposal, or a rule.
+- A proposal is a placeholder, never the field's contents. Enter takes it and
+  typing replaces it, which is what the brackets mean at a shell — prefilling
+  the field meant typing appended to it, and an identifier proposed from the
+  working directory became that directory's name with the answer stuck on the
+  end.
+- Stepping back restores a snapshot rather than replaying the answers. An answer
+  changes more than the field it names — an access mode decides whether a
+  repository is asked for a mount point, a mode decides whether the devcontainer
+  is asked about at all — so the flow keeps the state each answer replaced.
+- The dashboard asks its backend to write the file and to register the project.
+  The exclusive create that refuses to replace an existing configuration lives
+  once, in `internal/wizard`, and the daemon is reached over the socket as it is
+  for everything else.
+- Diagnosis stays a command. The dialog says `feat doctor` checks the project
+  against the host and does not run it: a report of findings is a screen of its
+  own, and the dashboard has never had one.
+
+Consequence: `internal/wizard` holds the flow and its tests; `internal/cli` holds
+the conversation, the host, and the file; `internal/ui` holds a dialog that draws
+questions it does not author. A question added to the flow appears in both
+askers, which is the property the split exists for. What this does not do is
+diagnose from the dashboard, or offer the wizard where there is no daemon — the
+dashboard is a client, and `feat project init` is the answer on a machine that
+has never run Feat.
+
+### ADR-064 — Diagnosis is read on the dashboard, and it says which process it is true of
+
+Status: accepted  
+Recorded: slice 13, from the hole ADR-063 left
+
+The dashboard could configure a project and could not tell the user whether it
+worked. The wizard's last screen named `feat doctor`, which is a command — so
+the first-run path closed for writing a configuration and not for having one
+that works, and that is where a project actually fails: a Compose service that
+is not there, an agent that is not installed, a remote that does not resolve.
+
+Evidence:
+
+1. The questions cannot ask the host anything. Every proposal the wizard derives
+   is about what a checkout *is*, not about whether the project *works*, and the
+   difference is the whole of what `feat doctor` reports.
+2. The findings are already data. `project.Diagnose` returns a report of
+   `{check, severity, summary, action}`; the command's printer is one renderer
+   of it, and a screen is another.
+3. Diagnosis is worth having a second time. The first run tells a new user
+   whether their configuration is right; every run after that is somebody whose
+   task has stopped working, who is already looking at the dashboard.
+
+Decisions:
+
+- The checks run in the process the user is in front of, and reach the dashboard
+  as data. `feat doctor` works before a daemon exists (ADR-028), so a daemon
+  endpoint would be a second implementation of the same checks — and the answer
+  would be about the daemon's environment rather than the one the user asked
+  about. The dashboard's backend runs them and converts the report to `api`
+  types, so the screen that draws them reaches no adapter (ADR-031).
+- The screen says where the checks ran. A tool on this terminal's PATH is not
+  necessarily on the daemon's, and the daemon is what launches agents: "checked
+  from this terminal" is what the report is honestly about, and it is drawn with
+  the findings rather than left to be assumed.
+- Nothing runs a diagnosis on its own. The checks shell out to Git, Compose, and
+  the container runtime; a dashboard that ran them on a timer would be one
+  nobody could leave open. `D` runs one, `r` runs it again, and that is all.
+- The subject is a project, not a task. Whether a Compose service exists is true
+  of every task in a project or of none of them, so the screen checks the
+  selected task's project — and every configured project when no task is
+  selected, which is what `feat doctor` does.
+- The wizard runs the checks itself once the file exists, rather than offering
+  them. The user has just asked for the project to exist and is waiting either
+  way, and the checks change nothing. What they find never fails the setup: the
+  file is written, and a finding is a thing to fix rather than a reason to undo
+  a project.
+- A report opens at the first finding that is not a pass, with the heading it
+  belongs to. Most of a report is passes and the pane holds a dozen lines; what
+  is above the window is counted rather than hidden, so nothing is lost by
+  starting where the problem is.
+- A skipped check is drawn as a skipped check. It is not a pass, it says why it
+  did not run, and it is counted separately wherever findings are counted
+  (ADR-033).
+
+Consequence: `api.Diagnosis` describes a report, `internal/cli` runs it, and
+`internal/ui` draws it in two places — the dashboard's own screen and the
+wizard's last step. The command is unchanged. What this does not do is diagnose
+from the daemon, which is the only way to answer about the daemon's own
+environment; that stays an open question for the machine where the two
+environments differ.
+
 ## Decision change process
 
 During implementation:

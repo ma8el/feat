@@ -196,6 +196,8 @@ func keyMap(width int) string {
 		{"everything else", [][2]string{
 			{"!", "what recovery found"},
 			{"n", "prepare a new task"},
+			{"p", "configure a project"},
+			{"D", "check against the host"},
 			{"C", "clean up a task"},
 			{"r", "look again"},
 			{"?", "this list"},

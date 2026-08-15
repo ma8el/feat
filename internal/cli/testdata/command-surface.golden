@@ -9,6 +9,7 @@ feat doctor
 feat implement [--file] [--project]
 feat project
 feat project add <project>
+feat project init [<project>] [--dry-run]
 feat project list
 feat project show <project>
 feat review <task>

@@ -272,7 +272,15 @@ func (p prepareModel) back() (prepareModel, tea.Cmd) {
 // chooseProject moves past the project step when there is nothing to choose.
 func (p prepareModel) chooseProject() (prepareModel, tea.Cmd) {
 	if len(p.projects) == 0 {
-		p.err = errors.New("no project is registered; write one and run `feat project add <project>`")
+		// The first step is writing a configuration, not registering one: a user
+		// with nothing configured has nothing for `feat project add` to take, and
+		// the wizard offers registration itself once the file exists.
+		//
+		// It is named as a key rather than as a command, because this screen has
+		// the keyboard and the wizard is one press away from the screen behind it
+		// (ADR-063). `feat project init` is the same conversation for somebody who
+		// would rather leave.
+		p.err = errors.New("no project is registered; press esc, then p, to configure one")
 		return p, nil
 	}
 	if p.project != "" {

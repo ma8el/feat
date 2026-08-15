@@ -81,13 +81,9 @@ func newImplementCommand(env *environment) *cobra.Command {
 
 			caller := client.New(layout.Socket)
 			defer caller.Close()
-			current, err := env.current()
-			if err != nil {
-				return err
-			}
 
 			return ui.Run(cmd.Context(), ui.Options{
-				Backend: &backend{client: caller, env: current},
+				Backend: &backend{client: caller, env: env},
 				Daemon:  describeBackend(cmd, caller, layout),
 				Project: project,
 				Prepare: true,

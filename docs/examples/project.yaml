@@ -1,5 +1,10 @@
 # An example Feat project configuration.
 #
+# `feat project init` writes one of these by asking about the project, and finds
+# out what it can — the checkout, its remote and default branch, the Compose
+# files beside it — for itself. This file is for reading, for editing what that
+# wrote, and for writing one by hand.
+#
 # Save it as ~/.config/feat/projects/<project-id>.yaml. The file name must match
 # project.id, so this file belongs at ~/.config/feat/projects/app.yaml.
 #

@@ -100,8 +100,12 @@ func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
 		"feat project add":   true,
 		"feat project list":  true,
 		"feat project show":  true,
-		"feat implement":     true,
-		"feat task list":     true,
+		// Initialising a project reads the running user's configuration
+		// directory, and with no terminal it refuses rather than asking
+		// questions into a pipe. Invoking it here would do neither usefully.
+		"feat project init": true,
+		"feat implement":    true,
+		"feat task list":    true,
 		// Attaching yields this process's terminal to native tmux, under both
 		// the canonical name and the alias ADR-040 kept at the top level.
 		"feat task attach": true,
