@@ -1757,6 +1757,51 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   key style now, short enough to survive, and the page keys are named in the
   scroll note rather than in it — the one place they are worth naming is when
   there is something to scroll to.
+- Ask the cleanup screen's question once, where the consent is given. Reported as
+  the dialog being clunky: the extra confirmation and the extra archive button.
+
+  It asked twice. Ticking a class with warnings raised a `y/N` that took the
+  keyboard there and then, and `enter` raised another — three risky classes was
+  four questions interleaved with the three ticks. The first of those bought
+  nothing: the request carries the plan's own warning strings whatever was
+  accepted, so ADR-037's defence against a stale confirmation is the daemon's
+  comparison and one question sends what two sent. And since the inventory change
+  above, the modal was reading back a line already on the screen behind it.
+
+  So one confirmation, at the removal, naming the classes and listing every
+  distinct warning of everything selected — the question first, because a region
+  too small for both must keep the line that says what answering does. The
+  warnings stay beside their resources and the class title carries a marker, so a
+  class does not read as free once the window has scrolled past them. The command
+  keeps its sequence: a terminal prompt has nothing to tick, so there the
+  question is the selection rather than an interruption of it.
+
+  The archive choice had a key of its own, `A`, which made it the one checkbox
+  the cursor could not land on and a key that did nothing for most of the
+  interaction. It is a row now, reached and ticked the way every other choice on
+  the screen is. It was also rendered only once every class was selected, and it
+  sits under the inventory that is sized by what the tail takes — so ticking the
+  last class moved the list it was ticked in, and blinked a cursor stop into
+  existence. It is drawn throughout, greyed and saying what it waits for. The
+  rule it waits for is unchanged.
+
+  And `r` looked dead, which asking what it was for showed to be the right
+  reaction: it always asked the daemon and always replaced the inventory, but on a
+  task nothing had touched it redrew an identical list, and it cleared the status
+  line while doing so. The case it existed for is real and narrow — a task being
+  cleaned up often still has an agent working in its worktrees, so a worktree that
+  was clean when it was ticked can be dirty when enter is pressed, and the daemon
+  refuses that as a warning the user was never shown. But that case is answered by
+  looking when the answer matters, not by a key somebody has to know to press.
+
+  So enter resolves before it asks, and `r` is gone. A cost that moved asks
+  anyway, with the new warning in the question. A resource gained or lost does
+  not: the confirmation names classes, so a class that grew a third worktree would
+  be confirmed by a user who read two — the inventory is replaced and the question
+  waits for another enter. The plan has carried the moment it was resolved since
+  the endpoint existed and nothing displayed it; the screen says it now, because a
+  dialog left open for ten minutes is an observation and not a live view. See
+  ADR-061.
 - Remove hard-coded assumptions discovered during dogfood.
 
 ### Acceptance criteria
@@ -1789,6 +1834,16 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   screen's inventory says everything `feat task cleanup` prints about each
   target, a warning true of one resource of several is drawn beside that one,
   and a plan taller than the terminal is scrolled to rather than clipped.
+- Removing from the dashboard is one question, asked when the removal is
+  requested rather than as it is assembled, carrying every warning of everything
+  selected; it stays legible on a terminal at the layout's minimum width, and no
+  key the screen offers is one the outstanding question has taken.
+- Every choice on the cleanup screen, the archive included, is reached with the
+  cursor and taken with the same key.
+- The cleanup screen says the moment its inventory was taken, and the removal is
+  confirmed against a plan resolved when it was asked for: a warning that appeared
+  while the screen was open is in the question rather than in the daemon's
+  refusal, and a resource that appeared is read before it can be confirmed.
 
 ## Slice 14 — Public v0.2
 

@@ -19,6 +19,7 @@ func cleanupFixture() api.CleanupPlan {
 		ProjectID:  "example",
 		Workflow:   "approved",
 		Token:      "0f1e2d3c",
+		ResolvedAt: time.Date(2026, 8, 15, 14, 9, 3, 0, time.UTC),
 		Archivable: true,
 		Classes: []api.CleanupClass{
 			{
@@ -43,6 +44,24 @@ func cleanupFixture() api.CleanupPlan {
 func openCleanupScreen(t *testing.T, backend *fakeBackend) Model {
 	t.Helper()
 	return openCleanupPlan(t, backend, cleanupFixture())
+}
+
+// requestCleanup presses enter and answers the resolve it fires.
+//
+// Enter asks the daemon what the task owns before it asks the user anything, so
+// the confirmation appears only once a plan has come back. The plan given here is
+// what comes back.
+func requestCleanup(t *testing.T, model Model, plan api.CleanupPlan) Model {
+	t.Helper()
+
+	updated, cmd := model.Update(key("enter"))
+	model = updated.(Model)
+	if !model.cleanup.pending {
+		t.Fatal("enter did not ask what the task owns before asking the user")
+	}
+	runCommands(t, cmd)
+	updated, _ = model.Update(cleanupPlanMsg{plan: plan})
+	return updated.(Model)
 }
 
 // openCleanupPlan opens the cleanup screen over a plan.
@@ -84,12 +103,14 @@ func TestOpeningCleanupResolvesAndRemovesNothing(t *testing.T) {
 	}
 }
 
-// TestRemovingNeedsASelectionAndItsConfirmation is FR-CLEAN-002 and
+// TestRemovingIsOneConfirmationCarryingWhatItWouldCost is FR-CLEAN-002 and
 // FR-CLEAN-003 at the screen.
 //
-// Pressing enter with nothing selected removes nothing; selecting a class whose
-// removal would lose work asks again, and declining leaves the class alone.
-func TestRemovingNeedsASelectionAndItsConfirmation(t *testing.T) {
+// Pressing enter with nothing selected removes nothing. Selecting asks nothing —
+// a tick is a decision being assembled, and the screen already draws what each
+// class would cost beside the resources it is true of. The one question is the
+// removal's, and it carries the warnings of everything chosen (ADR-061).
+func TestRemovingIsOneConfirmationCarryingWhatItWouldCost(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
 
@@ -99,47 +120,51 @@ func TestRemovingNeedsASelectionAndItsConfirmation(t *testing.T) {
 	if len(backend.cleanupSelections) != 0 {
 		t.Fatal("enter removed something with nothing selected")
 	}
+	if !strings.Contains(model.status, "select") {
+		t.Errorf("status = %q, want it to say there is nothing selected", model.status)
+	}
 
-	// Select the risky class: the screen asks about the warning rather than
-	// taking the selection as consent.
+	// Selecting the class that would lose work interrupts nothing.
 	updated, _ = model.Update(key("down"))
 	model = updated.(Model)
 	updated, _ = model.Update(key(" "))
 	model = updated.(Model)
-	if model.cleanup.confirming == "" {
-		t.Fatal("selecting a class that would lose work asked nothing")
+	if !model.cleanup.chosen["worktrees"] {
+		t.Fatal("space did not select the class under the cursor")
 	}
-	if !strings.Contains(content(model), "anyway?") {
-		t.Errorf("the confirmation is not on the screen:\n%s", content(model))
-	}
-
-	// Declining leaves the class alone.
-	updated, _ = model.Update(key("n"))
-	model = updated.(Model)
-	if model.cleanup.chosen["worktrees"] {
-		t.Error("declining the warning left the class selected")
+	if model.cleanup.executing || strings.Contains(content(model), "[y/N]") {
+		t.Errorf("selecting a class put a question on the screen:\n%s", content(model))
 	}
 
-	// Accepting it makes the class removable.
-	updated, _ = model.Update(key(" "))
-	model = updated.(Model)
-	updated, _ = model.Update(key("y"))
-	model = updated.(Model)
-	if !model.cleanup.accepted["worktrees"] {
-		t.Fatal("accepting the warning did not record the confirmation")
-	}
-
-	// And removal still asks once more, naming what will go.
-	updated, _ = model.Update(key("enter"))
-	model = updated.(Model)
+	// Enter asks once, naming what will go and what that costs.
+	model = requestCleanup(t, model, backend.cleanupPlan)
 	if !model.cleanup.executing {
-		t.Fatal("enter removed without a final confirmation")
+		t.Fatal("enter removed without a confirmation")
 	}
 	if len(backend.cleanupSelections) != 0 {
-		t.Fatal("the final confirmation was skipped")
+		t.Fatal("the confirmation was skipped")
+	}
+	view := flowed(content(model))
+	for _, want := range []string{"Remove the worktrees", "[y/N]", "uncommitted or untracked"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the confirmation does not carry %q:\n%s", want, content(model))
+		}
 	}
 
-	updated, cmd := model.Update(key("y"))
+	// Anything other than a yes removes nothing and leaves the selection alone,
+	// so a mistyped answer does not cost the user their choices.
+	updated, cmd := model.Update(key("n"))
+	model = updated.(Model)
+	runCommands(t, cmd)
+	if len(backend.cleanupSelections) != 0 {
+		t.Fatal("declining the confirmation removed something anyway")
+	}
+	if !model.cleanup.chosen["worktrees"] {
+		t.Error("declining the confirmation discarded the selection")
+	}
+
+	model = requestCleanup(t, model, backend.cleanupPlan)
+	updated, cmd = model.Update(key("y"))
 	model = updated.(Model)
 	runCommands(t, cmd)
 
@@ -153,23 +178,64 @@ func TestRemovingNeedsASelectionAndItsConfirmation(t *testing.T) {
 	if len(selection.Classes) != 1 || selection.Classes[0].Class != "worktrees" {
 		t.Fatalf("classes = %+v, want only the worktrees", selection.Classes)
 	}
+	// The warnings still go back as the plan's own strings, so the daemon can
+	// refuse a confirmation that what is true has overtaken (ADR-037).
 	if len(selection.Classes[0].ConfirmedWarnings) != 1 {
-		t.Errorf("confirmations = %+v, want the warning the user accepted", selection.Classes[0])
+		t.Errorf("confirmations = %+v, want the warning the user was shown", selection.Classes[0])
 	}
 }
 
-// TestArchivingIsOfferedOnlyWhenEverythingIsSelected keeps the screen from
-// offering something the daemon would refuse.
-func TestArchivingIsOfferedOnlyWhenEverythingIsSelected(t *testing.T) {
+// TestTheConfirmationCollectsTheWarningsOfEverythingChosen keeps a removal of
+// several risky classes from putting only one of their costs to the user.
+func TestTheConfirmationCollectsTheWarningsOfEverythingChosen(t *testing.T) {
+	backend := newFakeBackend()
+	plan := cleanupFixture()
+	plan.Classes[0].Warnings = []string{"removing a volume discards whatever it holds"}
+	plan.Classes[0].Targets[0].Warnings = plan.Classes[0].Warnings
+
+	model := openCleanupPlan(t, backend, plan)
+	for _, press := range []string{" ", "down", " "} {
+		updated, _ := model.Update(key(press))
+		model = updated.(Model)
+	}
+	model = requestCleanup(t, model, plan)
+
+	view := flowed(content(model))
+	for _, want := range []string{"discards whatever it holds", "uncommitted or untracked"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the confirmation does not carry %q:\n%s", want, content(model))
+		}
+	}
+}
+
+// TestArchivingIsARowLikeAnyOther is the archive choice reached the way
+// everything else on the screen is: down to it, space to tick it.
+//
+// It had a key of its own, which made it the one checkbox the cursor could not
+// land on and a key that did nothing for most of the interaction (ADR-061).
+func TestArchivingIsARowLikeAnyOther(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
 
-	updated, _ := model.Update(key(" "))
-	model = updated.(Model)
-	if model.cleanup.archivable() {
-		t.Error("archiving was offered with one class still unselected")
+	// It is after the classes, and the cursor reaches it.
+	classes := len(model.cleanup.plan.Classes)
+	for range classes {
+		updated, _ := model.Update(key("down"))
+		model = updated.(Model)
 	}
-	updated, _ = model.Update(key("A"))
+	if model.cleanup.cursor != classes {
+		t.Fatalf("cursor = %d after %d downs, want the archive row at %d",
+			model.cleanup.cursor, classes, classes)
+	}
+	if updated, _ := model.Update(key("down")); updated.(Model).cleanup.cursor != classes {
+		t.Error("the cursor moved past the last row of the screen")
+	}
+	if !strings.Contains(flowed(content(model)), "> [ ] archive") {
+		t.Errorf("the archive row does not show the cursor on it:\n%s", content(model))
+	}
+
+	// Space on it says why, while a class is still unselected.
+	updated, _ := model.Update(key(" "))
 	model = updated.(Model)
 	if model.cleanup.archive {
 		t.Error("archiving was set while a class was unselected")
@@ -177,30 +243,70 @@ func TestArchivingIsOfferedOnlyWhenEverythingIsSelected(t *testing.T) {
 	if !strings.Contains(model.status, "every class") {
 		t.Errorf("status = %q, want it to say why archiving is not offered", model.status)
 	}
+	// And the row says it too, so the answer is written where the press happened.
+	if !strings.Contains(flowed(content(model)), "select every class") {
+		t.Errorf("the screen does not say what archiving is waiting for:\n%s", content(model))
+	}
 
-	// Selecting the rest, and confirming its warning, makes it available.
-	updated, _ = model.Update(key("down"))
-	model = updated.(Model)
-	updated, _ = model.Update(key(" "))
-	model = updated.(Model)
-	updated, _ = model.Update(key("y"))
-	model = updated.(Model)
-
+	// Selecting every class makes the same press take.
+	for range classes {
+		updated, _ = model.Update(key("up"))
+		model = updated.(Model)
+	}
+	for range classes {
+		updated, _ = model.Update(key(" "))
+		model = updated.(Model)
+		updated, _ = model.Update(key("down"))
+		model = updated.(Model)
+	}
 	if !model.cleanup.archivable() {
 		t.Fatal("archiving was not offered with every class selected")
 	}
-	updated, _ = model.Update(key("A"))
+
+	updated, _ = model.Update(key(" "))
 	model = updated.(Model)
 	if !model.cleanup.archive {
-		t.Error("archiving was not set when it was offered")
+		t.Error("space on the archive row did not set it when it was offered")
 	}
 
 	// Deselecting anything takes the archive with it, because it would no
 	// longer be removing everything the plan names.
+	updated, _ = model.Update(key("up"))
+	model = updated.(Model)
 	updated, _ = model.Update(key(" "))
 	model = updated.(Model)
 	if model.cleanup.archive {
 		t.Error("deselecting a class left the archive set")
+	}
+}
+
+// TestTheArchiveRowDoesNotMoveTheInventoryAboveIt is why it is drawn whether or
+// not it may be taken.
+//
+// It sits under the inventory, and the inventory is sized by what the tail
+// takes, so a row that appeared when the last class was ticked moved the list
+// the user was ticking it in — and moved a cursor stop in and out of existence
+// underneath them.
+func TestTheArchiveRowDoesNotMoveTheInventoryAboveIt(t *testing.T) {
+	backend := newFakeBackend()
+	model := openCleanupScreen(t, backend)
+
+	width, _ := model.cleanupInventorySize()
+	unselected := drawnLines(model.cleanupTail(width))
+
+	for range len(model.cleanup.plan.Classes) {
+		updated, _ := model.Update(key(" "))
+		model = updated.(Model)
+		updated, _ = model.Update(key("down"))
+		model = updated.(Model)
+	}
+	if !model.cleanup.archivable() {
+		t.Fatal("the fixture does not reach an archivable selection")
+	}
+
+	if got := drawnLines(model.cleanupTail(width)); got != unselected {
+		t.Errorf("the tail is %d lines with everything selected and %d with nothing: "+
+			"the inventory above it moves as classes are ticked", got, unselected)
 	}
 }
 
@@ -264,17 +370,10 @@ func TestAWarningIsDrawnBesideTheTargetItIsTrueOf(t *testing.T) {
 			strings.Join(lines, "\n"))
 	}
 
-	// The class still says that it is the thing needing a confirmation, and says
-	// so again once one has been given.
-	if !strings.Contains(flowed(content(model)), "worktrees (needs confirmation)") {
-		t.Errorf("the class does not say it needs a confirmation:\n%s", content(model))
-	}
-	for _, press := range []string{"down", " ", "y"} {
-		updated, _ := model.Update(key(press))
-		model = updated.(Model)
-	}
-	if !strings.Contains(flowed(content(model)), "worktrees (confirmed)") {
-		t.Errorf("the class does not say the confirmation was given:\n%s", content(model))
+	// The title says it too, because the title is what stays visible when the
+	// window is scrolled to the foot of a long class.
+	if !strings.Contains(flowed(content(model)), "worktrees (would lose work)") {
+		t.Errorf("the class title does not say it would lose work:\n%s", content(model))
 	}
 }
 
@@ -372,6 +471,294 @@ func TestALongInventoryScrollsRatherThanBeingClipped(t *testing.T) {
 	}
 	if !strings.Contains(flowed(content(model)), "lines below") {
 		t.Errorf("paging up did not move the window:\n%s", content(model))
+	}
+}
+
+// TestTheConfirmationSurvivesATerminalTooSmallForTheInventory is the worst case
+// the one-question design has to hold in.
+//
+// Six risky classes on a terminal at the layout's minimum: the confirmation and
+// every warning it collected are more than the region has, and the inventory
+// gives up its lines rather than the question giving up its own. A question a
+// user cannot read whole is one the answer means nothing about — and the
+// inventory it displaced is still counted rather than dropped in silence.
+func TestTheConfirmationSurvivesATerminalTooSmallForTheInventory(t *testing.T) {
+	backend := newFakeBackend()
+	plan := longCleanupPlan(6)
+	for i := range plan.Classes {
+		plan.Classes[i].Warnings = []string{"removing " + plan.Classes[i].Class + " loses something"}
+		plan.Classes[i].Targets[0].Warnings = plan.Classes[i].Warnings
+	}
+	backend.cleanupPlan = plan
+
+	model := sized(dashboard(backend, liveTask()), 90, 20)
+	updated, cmd := model.Update(key("C"))
+	model = updated.(Model)
+	runCommands(t, cmd)
+	updated, _ = model.Update(cleanupPlanMsg{plan: plan})
+	model = updated.(Model)
+
+	for range len(plan.Classes) {
+		updated, _ = model.Update(key(" "))
+		model = updated.(Model)
+		updated, _ = model.Update(key("down"))
+		model = updated.(Model)
+	}
+	model = requestCleanup(t, model, plan)
+
+	view := flowed(content(model))
+	if !strings.Contains(view, "[y/N]") {
+		t.Fatalf("the question did not survive the region:\n%s", content(model))
+	}
+	for _, class := range plan.Classes {
+		if !strings.Contains(view, "removing "+class.Class+" loses something") {
+			t.Errorf("the confirmation dropped the warning of %s:\n%s", class.Class, content(model))
+		}
+	}
+	if !strings.Contains(view, "lines above") || !strings.Contains(view, "lines below") {
+		t.Errorf("the displaced inventory is not counted:\n%s", content(model))
+	}
+	// And it stops offering the keys it took. Every key answers the question
+	// while it is up, so a note naming pgup is a note about nothing.
+	if strings.Contains(view, "pgup to") || strings.Contains(view, "pgdn to") {
+		t.Errorf("the scroll note offers a key the confirmation has taken:\n%s", content(model))
+	}
+	if !strings.Contains(flowed(model.View()), "y remove") {
+		t.Errorf("the key map does not answer the question that is up:\n%s", model.View())
+	}
+}
+
+// TestTheKeyMapSaysWhatEnterActsOnAndFitsSayingIt is the hint line at the width
+// it has least of.
+//
+// Enter takes the whole selection and not the row the cursor is on, and the
+// screen has to say which without spending more than a dialog has: this line has
+// been truncated before, and a hint cut in half is a key nobody finds.
+func TestTheKeyMapSaysWhatEnterActsOnAndFitsSayingIt(t *testing.T) {
+	backend := newFakeBackend()
+	model := sized(openCleanupScreen(t, backend), minimumWidth, 32)
+
+	hints := ansi.Strip(model.cleanupHints())
+	if !strings.Contains(hints, "cleanup selected") {
+		t.Errorf("the key map does not say what enter acts on: %q", hints)
+	}
+
+	// Every hint intact in the dialog as it is actually drawn, not merely in the
+	// line before the box clamps it.
+	widest, _ := model.dialogLimits()
+	if got := ansi.StringWidth(hints); got > widest-dialogChrome {
+		t.Errorf("the key map is %d cells in a dialog of %d: %q",
+			got, widest-dialogChrome, hints)
+	}
+	view := flowed(model.View())
+	for _, want := range []string{"space select", "enter cleanup selected", "esc back"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("%q is not on the screen at %d cells:\n%s", want, minimumWidth, model.View())
+		}
+	}
+}
+
+// TestTheInventorySaysTheMomentItWasTaken is what makes the screen an
+// observation rather than a claim about now.
+func TestTheInventorySaysTheMomentItWasTaken(t *testing.T) {
+	backend := newFakeBackend()
+	model := openCleanupScreen(t, backend)
+
+	if !strings.Contains(flowed(content(model)), "resolved "+
+		cleanupFixture().ResolvedAt.Local().Format("15:04:05")) {
+		t.Errorf("the screen does not say when the inventory was taken:\n%s", content(model))
+	}
+
+	// And says so while it is taking another, which enter does before it asks.
+	updated, _ := model.Update(key(" "))
+	model = updated.(Model)
+	updated, _ = model.Update(key("enter"))
+	model = updated.(Model)
+	if !strings.Contains(flowed(content(model)), "resolving…") {
+		t.Errorf("the screen does not say a request is in flight:\n%s", content(model))
+	}
+}
+
+// TestEnterResolvesBeforeItAsks is the freshness the screen has instead of a
+// re-resolve key.
+//
+// `r` was a key a user had to know to press to find out something they could not
+// know they needed. The moment freshness is worth anything is the moment consent
+// is given, so that is when Feat looks: enter resolves, and the question is put
+// against what came back.
+func TestEnterResolvesBeforeItAsks(t *testing.T) {
+	backend := newFakeBackend()
+	model := openCleanupScreen(t, backend)
+
+	updated, _ := model.Update(key(" "))
+	model = updated.(Model)
+
+	before := len(backend.cleanupCalls)
+	updated, cmd := model.Update(key("enter"))
+	model = updated.(Model)
+	if model.cleanup.executing {
+		t.Fatal("the question went up before the plan it is about came back")
+	}
+	runCommands(t, cmd)
+	if len(backend.cleanupCalls) != before+1 {
+		t.Fatalf("enter made %d requests in total, want %d", len(backend.cleanupCalls), before+1)
+	}
+
+	// A tick landing while the resolve is in flight would put a class into the
+	// question that the plan under it was never checked for.
+	updated, _ = model.Update(key("down"))
+	model = updated.(Model)
+	updated, _ = model.Update(key(" "))
+	model = updated.(Model)
+	if model.cleanup.chosen["worktrees"] {
+		t.Error("a class was selected while the question was being prepared")
+	}
+
+	updated, _ = model.Update(cleanupPlanMsg{plan: backend.cleanupPlan})
+	model = updated.(Model)
+	if !model.cleanup.executing {
+		t.Fatal("the plan came back and no question was asked")
+	}
+}
+
+// TestACostThatMovedIsInTheQuestionItMoved is the case the token cannot see, and
+// the likeliest one to happen.
+//
+// The token covers what a plan would remove and deliberately not what removing it
+// would cost, so that an agent writing a file is not reported as a stale plan
+// (ADR-037). But an agent writing a file is exactly what changes under an open
+// cleanup screen: a worktree that was clean when it was ticked is dirty by the
+// time enter is pressed. Resolving on enter is what puts that warning in front of
+// the user instead of in the daemon's refusal.
+func TestACostThatMovedIsInTheQuestionItMoved(t *testing.T) {
+	backend := newFakeBackend()
+	model := openCleanupScreen(t, backend)
+
+	// The same resources, one of which has become dirty since the screen opened.
+	// The token is unchanged by construction, because nothing was gained or lost.
+	dirtied := cleanupFixture()
+	dirtied.ResolvedAt = dirtied.ResolvedAt.Add(time.Minute)
+	dirtied.Classes[0].Targets[0].Warnings = []string{"the window has a process still running in it"}
+	dirtied.Classes[0].Warnings = dirtied.Classes[0].Targets[0].Warnings
+	if dirtied.Token != cleanupFixture().Token {
+		t.Fatal("the fixture changed the token, so this proves nothing about the other axis")
+	}
+
+	updated, _ := model.Update(key(" "))
+	model = updated.(Model)
+	model = requestCleanup(t, model, dirtied)
+
+	if !model.cleanup.executing {
+		t.Fatal("a cost that moved under the same resources stopped the question")
+	}
+	view := flowed(content(model))
+	if !strings.Contains(view, "still running in it") {
+		t.Errorf("the warning that appeared is not in the question:\n%s", content(model))
+	}
+	if !strings.Contains(model.status, "cost has changed since you looked") {
+		t.Errorf("status = %q, want it to say the cost moved", model.status)
+	}
+}
+
+// TestAChangedResourceSetStopsShortOfTheQuestion keeps a confirmation from
+// covering something nobody has read.
+//
+// A gained or lost resource is a different plan, and the confirmation names
+// classes rather than targets — so a class that quietly grew a third worktree
+// would be confirmed by a user who had seen two. The inventory is replaced and
+// the question waits for another enter, which is the same rule FR-CLEAN-001 makes
+// about choosing against a summary.
+func TestAChangedResourceSetStopsShortOfTheQuestion(t *testing.T) {
+	backend := newFakeBackend()
+	model := openCleanupScreen(t, backend)
+
+	gained := cleanupFixture()
+	gained.Token = "5c4b3a29"
+	gained.ResolvedAt = gained.ResolvedAt.Add(time.Minute)
+	gained.Classes[1].Targets = append(gained.Classes[1].Targets, api.CleanupTarget{
+		Identity: "/state/feat/worktrees/example/7f3a1c2e/web",
+		Detail:   "the task worktree of web",
+		Present:  true,
+	})
+
+	updated, _ := model.Update(key("down"))
+	model = updated.(Model)
+	updated, _ = model.Update(key(" "))
+	model = updated.(Model)
+	model = requestCleanup(t, model, gained)
+
+	if model.cleanup.executing {
+		t.Fatal("a plan that gained a resource was confirmed without being read")
+	}
+	if !strings.Contains(model.status, "press enter again") {
+		t.Errorf("status = %q, want it to say what to do about the change", model.status)
+	}
+	view := flowed(content(model))
+	if !strings.Contains(view, "/7f3a1c2e/web") {
+		t.Errorf("the resource that appeared is not in the inventory:\n%s", content(model))
+	}
+	if !strings.Contains(view, "resolved "+gained.ResolvedAt.Local().Format("15:04:05")) {
+		t.Errorf("the screen still says the old moment:\n%s", content(model))
+	}
+	// The selection survives, so pressing enter again is one press and not four.
+	if !model.cleanup.chosen["worktrees"] {
+		t.Error("the selection was discarded by the change it was warned about")
+	}
+}
+
+// TestASelectionOutlivedByItsResourcesIsForgotten is the other half of that.
+//
+// A tick is a choice about a resource, and a resource that has gone takes its
+// choice with it: left behind it is a selection the screen cannot draw and the
+// daemon would refuse, reported as neither.
+func TestASelectionOutlivedByItsResourcesIsForgotten(t *testing.T) {
+	backend := newFakeBackend()
+	model := openCleanupScreen(t, backend)
+
+	gone := cleanupFixture()
+	gone.Token = "5c4b3a29"
+	gone.Classes = gone.Classes[:1]
+
+	updated, _ := model.Update(key("down"))
+	model = updated.(Model)
+	updated, _ = model.Update(key(" "))
+	model = updated.(Model)
+	model = requestCleanup(t, model, gone)
+
+	if model.cleanup.chosen["worktrees"] {
+		t.Error("a class the plan no longer names is still selected")
+	}
+	if model.cleanup.executing {
+		t.Fatal("a question was asked about a selection that is empty")
+	}
+	if !strings.Contains(model.status, "nothing you selected is still there") {
+		t.Errorf("status = %q, want it to say the selection outlived its resources", model.status)
+	}
+}
+
+// TestOpeningAndCleaningUpAskNoQuestion keeps the confirmation to the key that
+// asks for it.
+//
+// Both resolve plans, and neither is a user pressing enter. A screen that put a
+// removal question up because a cleanup had just finished would be asking about
+// something nobody requested.
+func TestOpeningAndCleaningUpAskNoQuestion(t *testing.T) {
+	backend := newFakeBackend()
+	model := openCleanupScreen(t, backend)
+
+	if model.cleanup.executing || model.status != "" {
+		t.Errorf("opening the screen asked something: executing=%v status=%q",
+			model.cleanup.executing, model.status)
+	}
+
+	updated, cmd := model.Update(cleanupDoneMsg{status: api.CleanupStatus{}})
+	model = updated.(Model)
+	runCommands(t, cmd)
+	updated, _ = model.Update(cleanupPlanMsg{plan: backend.cleanupPlan})
+	model = updated.(Model)
+
+	if model.cleanup.executing {
+		t.Error("a finished cleanup put a removal question up")
 	}
 }
 

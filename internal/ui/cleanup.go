@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -31,22 +32,29 @@ type cleanupModel struct {
 	scroll int
 	// chosen records which classes are selected, by class identifier.
 	chosen map[string]bool
-	// accepted records which classes had their warnings confirmed. A class with
-	// warnings is not removable until it is in here, which is what makes the
-	// confirmation explicit rather than implied by the selection (FR-CLEAN-003).
-	accepted map[string]bool
 	// archive asks for the task's metadata to be archived afterwards.
 	archive bool
-	// confirming is the class whose warnings are being put to the user, empty
-	// when none is.
-	confirming string
-	// executing reports that the final confirmation is outstanding.
+	// executing reports that the removal's confirmation is outstanding.
+	//
+	// It is the only question the screen asks, and it carries the warnings of
+	// everything selected. FR-CLEAN-003 asks for an explicit confirmation of work
+	// that would be lost, which is a property of the removal rather than of each
+	// tick that led to it: a question per class interrupts the selection it is
+	// part of, and asks about a decision the user has not finished making
+	// (ADR-061).
 	executing bool
 	// result is what the last cleanup removed.
 	result api.CleanupStatus
 	done   bool
 	// working reports that a request is in flight.
 	working bool
+	// pending reports that a confirmation is waiting on the plan in flight.
+	//
+	// Enter resolves before it asks, so that the question is put against what is
+	// true now rather than against what was true when the screen opened. A task
+	// being cleaned up is often one whose agent is still working in it, and the
+	// warnings are what move while a user reads (ADR-061).
+	pending bool
 	// err is a failed plan or cleanup, shown rather than thrown.
 	err error
 }
@@ -82,11 +90,10 @@ func (m Model) openCleanup() (tea.Model, tea.Cmd) {
 	m.screen = screenCleanup
 	m.selected = task.ID
 	m.cleanup = cleanupModel{
-		task:     task.ID,
-		key:      task.Key,
-		chosen:   make(map[string]bool),
-		accepted: make(map[string]bool),
-		working:  true,
+		task:    task.ID,
+		key:     task.Key,
+		chosen:  make(map[string]bool),
+		working: true,
 	}
 	return m, m.cleanupPlan()
 }
@@ -129,22 +136,65 @@ func (c cleanupModel) selection() api.CleanupSelection {
 	return selection
 }
 
-// removable reports whether every selected class is ready to be removed.
+// removable reports whether there is anything to remove.
+//
+// Only that something is selected. What removing it would cost is put to the
+// user by the confirmation rather than gating the key that opens it: a class is
+// selected by one press and removed by two more, and the second of those is
+// where the warnings are (ADR-061).
 func (c cleanupModel) removable() bool {
-	chosen := false
+	for _, class := range c.plan.Classes {
+		if c.chosen[class.Class] {
+			return true
+		}
+	}
+	return false
+}
+
+// pendingWarnings is every distinct warning of everything selected, in the order
+// the plan removes the classes in.
+//
+// Distinct across classes as well as within one, because the volumes of three
+// repositories carry the same standing sentence and a confirmation that says it
+// three times is one a user reads once.
+func (c cleanupModel) pendingWarnings() []string {
+	var warnings []string
 	for _, class := range c.plan.Classes {
 		if !c.chosen[class.Class] {
 			continue
 		}
-		chosen = true
-		if len(class.Warnings) > 0 && !c.accepted[class.Class] {
-			return false
+		for _, warning := range class.Warnings {
+			if !slices.Contains(warnings, warning) {
+				warnings = append(warnings, warning)
+			}
 		}
 	}
-	return chosen
+	return warnings
 }
 
-// archivable reports whether archiving may be offered.
+// archiveRow is where the cursor finds the archive choice, and -1 for a plan
+// that has none.
+//
+// It is a row of the screen rather than a key of its own, so that everything on
+// the screen with a checkbox is reached the same way: down to it, space to tick
+// it. It sits after the classes because that is where it is drawn, and it is
+// drawn there because it is what happens once they are gone (ADR-061).
+func (c cleanupModel) archiveRow() int {
+	if !c.plan.Archivable || len(c.plan.Classes) == 0 {
+		return -1
+	}
+	return len(c.plan.Classes)
+}
+
+// lastRow is the furthest down the cursor goes.
+func (c cleanupModel) lastRow() int {
+	if row := c.archiveRow(); row >= 0 {
+		return row
+	}
+	return len(c.plan.Classes) - 1
+}
+
+// archivable reports whether archiving may be taken.
 //
 // Only when every class the plan names is selected, because the daemon refuses
 // it otherwise: an archived task that still owns a running container is exactly
@@ -166,18 +216,6 @@ func (m Model) cleanupKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// A pending question takes the keyboard, as it does on the runtime screen:
 	// while Feat is asking whether to remove something, no other key means
 	// anything.
-	if m.cleanup.confirming != "" {
-		class := m.cleanup.confirming
-		m.cleanup.confirming = ""
-		switch key.String() {
-		case "y", "Y":
-			m.cleanup.accepted[class] = true
-		default:
-			m.cleanup.chosen[class] = false
-			m.status = "left the " + m.cleanup.title(class) + " alone"
-		}
-		return m, nil
-	}
 	if m.cleanup.executing {
 		m.cleanup.executing = false
 		switch key.String() {
@@ -188,6 +226,18 @@ func (m Model) cleanupKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "nothing was removed"
 			return m, nil
 		}
+	}
+	// A question being prepared takes it too. The selection this is resolving
+	// against is the one enter was pressed on, and a tick landing in between would
+	// put a class into the confirmation that the plan under it was never checked
+	// for. Escape abandons the question rather than the screen, because a user who
+	// changed their mind about asking has not asked to leave.
+	if m.cleanup.pending {
+		if key.String() == "esc" {
+			m.cleanup.pending = false
+			m.status = "nothing was removed"
+		}
+		return m, nil
 	}
 
 	switch key.String() {
@@ -211,7 +261,7 @@ func (m Model) cleanupKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "down", "j":
-		if m.cleanup.cursor < len(m.cleanup.plan.Classes)-1 {
+		if m.cleanup.cursor < m.cleanup.lastRow() {
 			m.cleanup.cursor++
 			m.cleanup.scroll = m.cleanupFollow()
 		}
@@ -230,69 +280,61 @@ func (m Model) cleanupKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case " ", "x":
-		return m.toggleCleanupClass()
-
-	case "A":
-		if m.cleanup.archivable() {
-			m.cleanup.archive = !m.cleanup.archive
-		} else {
-			m.status = "archiving needs every class selected: a task Feat stops tracking must own nothing"
-		}
-		return m, nil
+		return m.toggleCleanupRow()
 
 	case "enter":
 		if !m.cleanup.removable() {
-			m.status = "select a class first; a class with warnings needs its confirmation too"
+			m.status = "select what to remove first"
 			return m, nil
 		}
-		m.cleanup.executing = true
-		return m, nil
-
-	case "r":
-		m.cleanup.working = true
+		// The question is asked of a plan resolved now. Everything on the screen
+		// is an observation of the moment it was taken, and the moment a user
+		// decides is this one.
+		m.cleanup.working, m.cleanup.pending = true, true
 		m.status = ""
 		return m, m.cleanupPlan()
 	}
 	return m, nil
 }
 
-// toggleCleanupClass selects or deselects the class under the cursor, asking
-// about its warnings when it is selected.
-func (m Model) toggleCleanupClass() (tea.Model, tea.Cmd) {
+// toggleCleanupRow ticks whatever the cursor is on.
+//
+// One key for every checkbox on the screen. The archive choice used to have a
+// key of its own, which meant a row the cursor could not reach and a key that
+// did nothing for most of the interaction — a second way of doing the one thing
+// this screen does (ADR-061).
+//
+// Ticking asks nothing. It is a user assembling a decision, not making one, and
+// the screen already draws what each class would cost beside the resources it is
+// true of, so a question here would be about something still being read.
+func (m Model) toggleCleanupRow() (tea.Model, tea.Cmd) {
+	if m.cleanup.cursor == m.cleanup.archiveRow() {
+		if !m.cleanup.archivable() {
+			m.status = "archiving needs every class selected: a task Feat stops tracking must own nothing"
+			return m, nil
+		}
+		m.cleanup.archive = !m.cleanup.archive
+		return m, nil
+	}
 	if m.cleanup.cursor >= len(m.cleanup.plan.Classes) {
 		return m, nil
 	}
 	class := m.cleanup.plan.Classes[m.cleanup.cursor]
 
-	if m.cleanup.chosen[class.Class] {
-		m.cleanup.chosen[class.Class] = false
-		m.cleanup.accepted[class.Class] = false
+	m.cleanup.chosen[class.Class] = !m.cleanup.chosen[class.Class]
+	if !m.cleanup.chosen[class.Class] {
 		// Deselecting anything invalidates an archive: it would no longer be
 		// removing everything the plan names.
 		m.cleanup.archive = false
-		return m, nil
-	}
-
-	m.cleanup.chosen[class.Class] = true
-	if len(class.Warnings) > 0 && !m.cleanup.accepted[class.Class] {
-		m.cleanup.confirming = class.Class
 	}
 	return m, nil
 }
 
-// title renders a class the way the plan named it.
-func (c cleanupModel) title(class string) string {
-	for _, entry := range c.plan.Classes {
-		if entry.Class == class {
-			return entry.Title
-		}
-	}
-	return class
-}
-
 // applyCleanupPlan records a resolved inventory.
 func (m Model) applyCleanupPlan(message cleanupPlanMsg) (tea.Model, tea.Cmd) {
-	m.cleanup.working = false
+	asking, before := m.cleanup.pending, m.cleanup.plan.Token
+	substance := cleanupSubstance(m.cleanup.plan)
+	m.cleanup.working, m.cleanup.pending = false, false
 	m.cleanup.err = message.err
 	if message.err != nil {
 		return m, nil
@@ -300,10 +342,92 @@ func (m Model) applyCleanupPlan(message cleanupPlanMsg) (tea.Model, tea.Cmd) {
 	m.cleanup.plan = message.plan
 	m.cleanup.loaded = true
 	m.cleanup.done = false
-	if m.cleanup.cursor >= len(message.plan.Classes) {
+	m.cleanup.forgetMissing()
+	// A re-resolved plan is a shorter one once something has been removed, and a
+	// cursor left past its end is a cursor on nothing.
+	if m.cleanup.cursor > m.cleanup.lastRow() {
 		m.cleanup.cursor, m.cleanup.scroll = 0, 0
 	}
+	if !asking {
+		return m, nil
+	}
+
+	// The question enter asked, put against what came back. The two axes a plan
+	// moves along are answered differently, because the token is deliberately
+	// blind to one of them: it covers the identity of every target and not the
+	// warnings, so that an agent writing a file is not reported as a stale plan
+	// (ADR-037).
+	key := m.cleanup.key
+	switch {
+	// Emptied before the token is consulted, because a class can only leave the
+	// plan by changing it: both are true at once, and "read it and press enter
+	// again" is poor advice for a screen with nothing left to press it for.
+	case !m.cleanup.removable():
+		m.status = "nothing you selected is still there; task " + key + " owns none of it now"
+	case message.plan.Token != before:
+		// A resource gained or lost is a different plan from the one that was
+		// read, and confirming here would be confirming a list nobody has seen.
+		// The inventory below is already the new one; the question waits for
+		// another enter.
+		m.status = "what task " + key + " owns has changed since you looked; " +
+			"the inventory is what it is now, so read it and press enter again"
+	default:
+		// The same resources, whatever they now cost. A cost that moved is said
+		// here and listed in the confirmation itself, which is where it is read.
+		if cleanupSubstance(message.plan) != substance {
+			m.status = "what removing this would cost has changed since you looked; the question below says how"
+		}
+		m.cleanup.executing = true
+	}
 	return m, nil
+}
+
+// forgetMissing drops choices for classes a re-resolved plan no longer names.
+//
+// A tick is a choice about a resource, and a resource that has gone takes its
+// choice with it. Left behind it would be a selection the screen cannot draw and
+// the daemon would refuse, reported as neither.
+func (c *cleanupModel) forgetMissing() {
+	named := make(map[string]bool, len(c.plan.Classes))
+	for _, class := range c.plan.Classes {
+		named[class.Class] = true
+	}
+	for class := range c.chosen {
+		if !named[class] {
+			delete(c.chosen, class)
+		}
+	}
+	if !c.archivable() {
+		c.archive = false
+	}
+}
+
+// cleanupSubstance is everything the inventory says about a plan, as a value one
+// plan can be compared with another by.
+//
+// The token will not serve for this. It covers what a plan would remove so that
+// executing a stale one is refused, and it excludes what removing it would cost
+// precisely so that a dirty worktree does not invalidate a plan. Both are right,
+// and neither answers "has anything on this screen changed" — which is the only
+// question a user pressing `r` is asking.
+func cleanupSubstance(plan api.CleanupPlan) string {
+	var out strings.Builder
+	for _, class := range plan.Classes {
+		out.WriteString(class.Class + "\x00")
+		for _, target := range class.Targets {
+			out.WriteString(target.Identity + "\x00")
+			if !target.Present {
+				out.WriteString("gone\x00")
+			}
+			for _, warning := range target.Warnings {
+				out.WriteString(warning + "\x00")
+			}
+		}
+	}
+	for _, problem := range plan.Problems {
+		out.WriteString(problem + "\x00")
+	}
+	return out.String()
 }
 
 // applyCleanupResult records what a cleanup removed.
@@ -316,7 +440,6 @@ func (m Model) applyCleanupResult(message cleanupDoneMsg) (tea.Model, tea.Cmd) {
 	m.cleanup.result = message.status
 	m.cleanup.done = true
 	m.cleanup.chosen = make(map[string]bool)
-	m.cleanup.accepted = make(map[string]bool)
 	m.cleanup.archive = false
 	// The inventory is read again, because what a task owns has just changed and
 	// the token that named the old set is no longer the token of anything. The
@@ -428,12 +551,17 @@ func (m Model) cleanupBody() string {
 	return out.String()
 }
 
-// cleanupSubject says what is being cleaned up.
+// cleanupSubject says what is being cleaned up, and when Feat last looked.
 //
 // The project and the workflow, because a task still working on something is a
 // different decision from an approved one — which is the reason the plan carries
 // its workflow at all, and which `feat task cleanup` has said in its first line
 // since the command existed. The border names the task; this names its situation.
+//
+// The moment the inventory was taken belongs here for the reason the recovery
+// overlay says when it last checked: everything below is an observation of that
+// moment and not a live view, and `r` is how a user takes another one. It is also
+// what makes that key visibly do something on a task nothing has touched.
 func (m Model) cleanupSubject(width int) string {
 	if !m.cleanup.loaded {
 		return ""
@@ -441,6 +569,12 @@ func (m Model) cleanupSubject(width int) string {
 	subject := "project " + m.cleanup.plan.ProjectID
 	if workflow := m.cleanup.plan.Workflow; workflow != "" {
 		subject += "  ·  " + workflow
+	}
+	switch at := m.cleanup.plan.ResolvedAt; {
+	case m.cleanup.working:
+		subject += "  ·  resolving…"
+	case !at.IsZero():
+		subject += "  ·  resolved " + at.Local().Format("15:04:05")
 	}
 	return mutedStyle.Render(truncate(subject, width)) + "\n\n"
 }
@@ -451,14 +585,7 @@ func (m Model) cleanupSubject(width int) string {
 func (m Model) cleanupTail(width int) string {
 	var out strings.Builder
 
-	if m.cleanup.archivable() {
-		marker := " "
-		if m.cleanup.archive {
-			marker = "x"
-		}
-		out.WriteString("\n" + truncate(
-			"  ["+marker+"] archive the task's metadata; its record and history are kept", width) + "\n")
-	}
+	out.WriteString(m.cleanupArchive(width))
 	for _, problem := range m.cleanup.plan.Problems {
 		out.WriteString("\n" + failureStyle.Render(truncate(plainLine("! "+problem), width)) + "\n")
 	}
@@ -466,8 +593,44 @@ func (m Model) cleanupTail(width int) string {
 		out.WriteString("\n" + m.cleanupResult())
 	}
 
-	out.WriteString(m.cleanupPrompt())
+	out.WriteString(m.cleanupPrompt(width))
 	return out.String()
+}
+
+// cleanupArchive renders the archive choice, a row of the screen like any other.
+//
+// Drawn wherever the plan could ever archive rather than only once it may. It is
+// a line under the inventory, and the inventory is sized by what the tail takes,
+// so a row that came and went as classes were ticked moved the list it was being
+// ticked in. It is also a cursor stop, and a cursor stop that disappears is one
+// the cursor falls off.
+//
+// Unavailable it says what it waits for rather than vanishing, so that pressing
+// space on it has an answer written where the press happened.
+func (m Model) cleanupArchive(width int) string {
+	if m.cleanup.archiveRow() < 0 {
+		return ""
+	}
+
+	pointer := "  "
+	if m.cleanup.cursor == m.cleanup.archiveRow() {
+		pointer = "> "
+	}
+
+	// Both forms are about fifty cells, so neither is truncated in a dialog on a
+	// terminal at the layout's minimum width, and neither moves the other's
+	// checkbox when the selection changes which one is drawn.
+	const label = "%s[%s] archive the task's metadata"
+	if !m.cleanup.archivable() {
+		return "\n" + mutedStyle.Render(truncate(
+			fmt.Sprintf(label, pointer, " ")+" — select every class", width)) + "\n"
+	}
+
+	marker := " "
+	if m.cleanup.archive {
+		marker = "x"
+	}
+	return "\n" + truncate(fmt.Sprintf(label, pointer, marker)+"; its record is kept", width) + "\n"
 }
 
 // cleanupInventory draws the class list into the lines the region left it,
@@ -493,7 +656,14 @@ func (m Model) cleanupInventory(width, height int) string {
 	if below := len(lines) - offset - visible; below > 0 {
 		parts = append(parts, count(below, "line below", "lines below"))
 	}
-	note := strings.Join(parts, ", ") + "  ·  pgup/pgdn to scroll"
+	// What is out of sight is said whatever is happening; how to reach it only
+	// while the keys that reach it mean anything. The confirmation takes the
+	// keyboard, and a note offering a key that is inert is the same defect as a
+	// key map offering one.
+	note := strings.Join(parts, ", ")
+	if !m.cleanup.executing {
+		note += "  ·  pgup/pgdn to scroll"
+	}
 
 	return strings.Join(window, "\n") + "\n" + mutedStyle.Render(truncate(note, width)) + "\n"
 }
@@ -509,6 +679,11 @@ func (m Model) cleanupLines(width int) []string {
 
 // cleanupClassSpan is where the class under the cursor begins in the inventory
 // and how many lines it takes.
+//
+// A cursor on the archive row matches no class and so spans nothing at the foot
+// of the list, which puts the window at the end of the inventory: the row itself
+// is pinned below and needs no scrolling to reach, and what belongs above it is
+// the last of what would be removed.
 func (m Model) cleanupClassSpan(width int) (at, span int) {
 	for i := range m.cleanup.plan.Classes {
 		block := m.cleanupClassLines(i, width)
@@ -541,14 +716,12 @@ func (m Model) cleanupClassLines(index, width int) []string {
 		pointer = "> "
 	}
 	head := pointer + "[" + marker + "] " + class.Title
-	// The consent belongs to the class, so its state is said on the class rather
-	// than beside whichever of the warnings happens to be drawn first.
+	// A class that would cost something says so on its title as well as beside the
+	// resources it would cost it on. The title is what stays visible when the
+	// window is scrolled to the foot of a long class, and a class marked only by
+	// lines the user has scrolled past is one that looks free.
 	if len(class.Warnings) > 0 {
-		if m.cleanup.accepted[class.Class] {
-			head += mutedStyle.Render("  (confirmed)")
-		} else {
-			head += failureStyle.Render("  (needs confirmation)")
-		}
+		head += failureStyle.Render("  (would lose work)")
 	}
 	lines := []string{truncate(head, width)}
 
@@ -656,32 +829,44 @@ func (m Model) cleanupResult() string {
 	return out.String()
 }
 
-// cleanupPrompt renders whichever question is outstanding.
-func (m Model) cleanupPrompt() string {
-	if m.cleanup.confirming != "" {
-		warnings := ""
-		for _, class := range m.cleanup.plan.Classes {
-			if class.Class == m.cleanup.confirming {
-				warnings = strings.Join(class.Warnings, "; ")
-			}
-		}
-		return "\n" + failureStyle.Render(warnings+". Remove the "+
-			m.cleanup.title(m.cleanup.confirming)+" anyway? [y/N]") + "\n"
+// cleanupPrompt renders the confirmation, which is the one question the screen
+// asks.
+//
+// It is where FR-CLEAN-003's explicit confirmation lives: the removal is named,
+// what it would cost is listed under it, and nothing has been sent yet. Asking
+// here rather than at each tick means a user reads the warnings of everything
+// they chose in one place, against the removal they are actually authorising
+// (ADR-061).
+//
+// The question is the first line and the warnings follow it, because a region
+// too small for both must keep the line that says what answering does. The
+// warnings are drawn twice over — beside their targets and here — and the
+// question is drawn nowhere else.
+func (m Model) cleanupPrompt(width int) string {
+	if !m.cleanup.executing {
+		return ""
 	}
-	if m.cleanup.executing {
-		var chosen []string
-		for _, class := range m.cleanup.plan.Classes {
-			if m.cleanup.chosen[class.Class] {
-				chosen = append(chosen, class.Title)
-			}
+
+	var chosen []string
+	for _, class := range m.cleanup.plan.Classes {
+		if m.cleanup.chosen[class.Class] {
+			chosen = append(chosen, class.Title)
 		}
-		line := "Remove the " + strings.Join(chosen, ", ") + " of task " + m.cleanup.key
-		if m.cleanup.archive {
-			line += ", and archive it"
-		}
-		return "\n" + failureStyle.Render(line+"? [y/N]") + "\n"
 	}
-	return ""
+	line := "Remove the " + strings.Join(chosen, ", ") + " of task " + m.cleanup.key
+	if m.cleanup.archive {
+		line += ", and archive it"
+	}
+
+	// Truncated before the question rather than through it: seven class titles is
+	// wider than the dialog, and a question cut off at "[y/" is one the keys under
+	// it no longer belong to.
+	const question = "? [y/N]"
+	out := "\n" + failureStyle.Render(truncate(line, width-len(question))+question) + "\n"
+	for _, warning := range m.cleanup.pendingWarnings() {
+		out += failureStyle.Render(truncate("  ! "+warning, width)) + "\n"
+	}
+	return out
 }
 
 // cleanupHints renders the key map.
@@ -691,12 +876,22 @@ func (m Model) cleanupPrompt() string {
 // last two hints were truncated away, which is two keys nobody could find. The
 // page keys are not here — they are named in the note that appears when there is
 // something to scroll to, which is the only time they mean anything.
+//
+// Enter says what it acts on. It takes the whole selection and not the row the
+// cursor is on, and "remove" beside a cursor resting on one class read as an
+// offer to remove that one. Sixty-three cells against the sixty-eight a dialog
+// has at the layout's minimum width, so saying it costs nothing.
 func (m Model) cleanupHints() string {
+	// While the confirmation is up it answers that, because every key below is
+	// inert until it has been: a key map advertising "enter remove" beside a
+	// question that enter does not answer is one that has to be tried to be
+	// disbelieved.
+	if m.cleanup.executing {
+		return keyHints(keyHint("y", "remove"), keyHint("n", "cancel"))
+	}
 	return keyHints(
 		keyHint("space", "select"),
-		keyHint("A", "archive"),
-		keyHint("enter", "remove"),
-		keyHint("r", "re-resolve"),
+		keyHint("enter", "cleanup selected"),
 		keyHint("esc", "back"),
 	)
 }

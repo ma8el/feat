@@ -327,6 +327,23 @@ removing a directory that is an active bind-mount source. See ADR-059.
 
 Dirty worktrees, unpushed commits, and unmerged branches MUST produce explicit warnings and confirmation.
 
+The warning and the confirmation are separate obligations, and a surface satisfies
+them where each belongs. The warning is shown against the resource it is true of,
+for as long as that resource is on the screen. The confirmation is of the removal:
+it names what would go, lists every warning of everything selected, and defaults
+to no. A surface that can display a selection before acting on it MUST NOT ask
+per selection — a question raised while the user is still choosing interrupts a
+decision that has not been made, and consent given that early is consent to
+something the eventual removal may not match. A surface with no selection to
+display, such as a sequence of prompts on a terminal, asks as it goes.
+
+The confirmation MUST be put against a freshly resolved plan. A task being
+cleaned up may still have an agent working in its resources, so the warnings a
+surface displayed when it opened are not necessarily the warnings that are true
+when the user answers — and removal is refused for a warning that was not
+confirmed. A surface that resolves only on opening therefore reports that refusal
+after the fact rather than the warning before it. See ADR-061.
+
 ### FR-CLEAN-004 — Volume retention
 
 Volumes MUST be retained by default in initial versions.
