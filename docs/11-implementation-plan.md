@@ -1800,7 +1800,16 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   be confirmed by a user who read two — the inventory is replaced and the question
   waits for another enter. The plan has carried the moment it was resolved since
   the endpoint existed and nothing displayed it; the screen says it now, because a
-  dialog left open for ten minutes is an observation and not a live view. See
+  dialog left open for ten minutes is an observation and not a live view.
+
+  And a finished cleanup closes the dialog. It is a transaction the user opened
+  and the transaction is over; what stayed open was a screen about a decision
+  already taken, over an inventory of what was left rather than what had been
+  asked about — and for an archived task, over one the daemon refuses to resolve
+  again. What it did becomes a line of the footer, naming the classes chosen and
+  counting what was already gone. A cleanup that failed halfway keeps the dialog
+  and re-reads the plan, because there the screen is the only account of what
+  happened and the inventory on it describes a machine that no longer exists. See
   ADR-061.
 - Remove hard-coded assumptions discovered during dogfood.
 
@@ -1844,6 +1853,9 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   confirmed against a plan resolved when it was asked for: a warning that appeared
   while the screen was open is in the question rather than in the daemon's
   refusal, and a resource that appeared is read before it can be confirmed.
+- A cleanup that finished leaves the dashboard showing what it did; one that
+  failed halfway leaves the screen that explains it, over an inventory read after
+  the attempt rather than before it.
 
 ## Slice 14 — Public v0.2
 

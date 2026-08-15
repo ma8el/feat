@@ -43,9 +43,6 @@ type cleanupModel struct {
 	// part of, and asks about a decision the user has not finished making
 	// (ADR-061).
 	executing bool
-	// result is what the last cleanup removed.
-	result api.CleanupStatus
-	done   bool
 	// working reports that a request is in flight.
 	working bool
 	// pending reports that a confirmation is waiting on the plan in flight.
@@ -341,7 +338,6 @@ func (m Model) applyCleanupPlan(message cleanupPlanMsg) (tea.Model, tea.Cmd) {
 	}
 	m.cleanup.plan = message.plan
 	m.cleanup.loaded = true
-	m.cleanup.done = false
 	m.cleanup.forgetMissing()
 	// A re-resolved plan is a shorter one once something has been removed, and a
 	// cursor left past its end is a cursor on nothing.
@@ -431,23 +427,87 @@ func cleanupSubstance(plan api.CleanupPlan) string {
 }
 
 // applyCleanupResult records what a cleanup removed.
+//
+// A cleanup that finished closes the dialog. It is a transaction the user opened,
+// and the transaction is over: what stayed open afterwards was a screen about a
+// decision already taken, listing an inventory of what was left rather than what
+// had been asked about — and for an archived task, a screen whose next resolve
+// the daemon refuses, because an archived task is one Feat has stopped tracking
+// (ADR-061).
+//
+// A cleanup that failed halfway keeps it. There the screen is the only account of
+// what happened, the classes are removed in a fixed order so some of them went,
+// and the plan is read again so the inventory names what is left rather than what
+// was there before (ADR-029).
 func (m Model) applyCleanupResult(message cleanupDoneMsg) (tea.Model, tea.Cmd) {
 	m.cleanup.working = false
 	m.cleanup.err = message.err
+	// The recovery band is refreshed either way: a cleanup is precisely the thing
+	// that resolves what the band was reporting, and a band still naming it
+	// afterwards would be describing the past.
 	if message.err != nil {
-		return m, nil
+		m.cleanup.chosen = make(map[string]bool)
+		m.cleanup.archive = false
+		m.cleanup.working = true
+		return m, tea.Batch(m.cleanupPlan(), m.load(), m.reconcile())
 	}
-	m.cleanup.result = message.status
-	m.cleanup.done = true
-	m.cleanup.chosen = make(map[string]bool)
-	m.cleanup.archive = false
-	// The inventory is read again, because what a task owns has just changed and
-	// the token that named the old set is no longer the token of anything. The
-	// recovery band is refreshed with it, for the same reason: a cleanup is
-	// precisely the thing that resolves what the band was reporting, and a band
-	// still naming it afterwards would be describing the past.
-	m.cleanup.working = true
-	return m, tea.Batch(m.cleanupPlan(), m.load(), m.reconcile())
+
+	m.status = m.cleanup.summary(message.status)
+	m.screen = screenFor(m.tab)
+	m.cleanup = cleanupModel{}
+	return m, tea.Batch(m.load(), m.reconcile())
+}
+
+// summary is what a finished cleanup leaves behind, once the dialog it was asked
+// for in has closed.
+//
+// The classes rather than the resources. They are what the user chose, the list
+// of individual resources is in the event log, and this is a line of the footer
+// rather than a screen. A resource that was already gone is counted and not
+// named: it is not a failure — the user asked for it to be absent and it is — but
+// a cleanup that removed nothing at all because everything had already gone is a
+// different morning from one that removed six things, and the count is what tells
+// them apart.
+func (c cleanupModel) summary(status api.CleanupStatus) string {
+	var classes []string
+	absent := 0
+	for _, removal := range status.Removed {
+		if !removal.Removed {
+			absent++
+			continue
+		}
+		if title := c.title(removal.Class); !slices.Contains(classes, title) {
+			classes = append(classes, title)
+		}
+	}
+
+	summary := "task " + c.key + ": "
+	switch {
+	case len(classes) > 0 && absent > 0:
+		summary += "removed the " + strings.Join(classes, ", ") + ", and " +
+			count(absent, "resource was already gone", "resources were already gone")
+	case len(classes) > 0:
+		summary += "removed the " + strings.Join(classes, ", ")
+	case absent > 0:
+		summary += count(absent, "resource was already gone", "resources were already gone") +
+			", so nothing was removed"
+	default:
+		summary += "nothing was removed"
+	}
+	if status.Archived {
+		summary += "; it is archived, and Feat has stopped tracking it"
+	}
+	return summary
+}
+
+// title renders a class the way the plan the user read named it.
+func (c cleanupModel) title(class string) string {
+	for _, entry := range c.plan.Classes {
+		if entry.Class == class {
+			return entry.Title
+		}
+	}
+	return class
 }
 
 // cleanupView renders cleanup as a whole terminal, which is what the narrow
@@ -588,9 +648,6 @@ func (m Model) cleanupTail(width int) string {
 	out.WriteString(m.cleanupArchive(width))
 	for _, problem := range m.cleanup.plan.Problems {
 		out.WriteString("\n" + failureStyle.Render(truncate(plainLine("! "+problem), width)) + "\n")
-	}
-	if m.cleanup.done {
-		out.WriteString("\n" + m.cleanupResult())
 	}
 
 	out.WriteString(m.cleanupPrompt(width))
@@ -811,22 +868,6 @@ func (m Model) cleanupFollow() int {
 func (m Model) cleanupPage(delta int) int {
 	width, height := m.cleanupInventorySize()
 	return clampScroll(m.cleanup.scroll+delta, len(m.cleanupLines(width)), height)
-}
-
-// cleanupResult renders what the last cleanup removed.
-func (m Model) cleanupResult() string {
-	var out strings.Builder
-	for _, removal := range m.cleanup.result.Removed {
-		if removal.Removed {
-			out.WriteString("removed " + removal.Identity + "\n")
-			continue
-		}
-		out.WriteString(mutedStyle.Render(removal.Identity+" was already gone") + "\n")
-	}
-	if m.cleanup.result.Archived {
-		out.WriteString("task " + m.cleanup.key + " is archived\n")
-	}
-	return out.String()
 }
 
 // cleanupPrompt renders the confirmation, which is the one question the screen

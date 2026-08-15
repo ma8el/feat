@@ -3902,6 +3902,24 @@ Decisions:
   names. A tick is a choice about a resource and a resource that has gone takes
   its choice with it; the rest stand, because discarding them would charge the
   user for a change they did not make.
+- A cleanup that finished closes the dialog, and what it did becomes a line of
+  the footer. The overlay is a transaction the user opened (ADR-041) and the
+  transaction is over: what stayed open afterwards was a screen about a decision
+  already taken, showing an inventory of what was left rather than what had been
+  asked about. For an archived task it was worse than redundant — the screen's
+  next resolve is one the daemon refuses, because an archived task is one Feat has
+  stopped tracking, so the dialog sat over an error it had caused by remaining.
+- The line names the classes and counts what was already gone. The classes because
+  they are what the user chose; the count because a resource that was already gone
+  is not a failure — the user asked for it to be absent and it is — but a cleanup
+  that removed nothing because everything had gone is a different morning from one
+  that removed six things. The itemised list is in the event log, which is where
+  "Feat can explain what happened later" already lives.
+- A cleanup that failed halfway keeps the dialog, and re-reads the plan. There the
+  screen is the only account of what happened, the classes are removed in a fixed
+  order so some of them went, and the inventory from before the attempt describes
+  a machine that no longer exists. Reading it again is what makes a partial
+  cleanup recoverable by looking at it, which is what ADR-029 said it would be.
 - The keyboard is held while the resolve is in flight. A tick landing in between
   would put a class into the question that the plan under it was never checked
   for, which is the defect this whole decision is about, arriving through the
@@ -3921,7 +3939,13 @@ validation, and ADR-037's stale-confirmation refusal are untouched — the reque
 is byte-for-byte what it was. A removal of two risky classes goes from seven key
 presses to four, and the screen's key map from six keys to three: `A` and `r` are
 both unbound here, space is the only way to tick anything, and enter is the only
-way to ask for anything.
+way to ask for anything. The screen's per-resource result rendering goes with the
+dialog that held it — and what does not come back is a partial result after a
+failure: the daemon returns one alongside its error, and the HTTP layer's
+`send[T]` discards the body of a non-2xx, so the UI has never had it. The error
+names the class that failed and the classes are removed in a fixed order, so what
+went is derivable; carrying the result itself would mean changing the shape of
+every error response, which is a wider change than this one.
 [04-functional-specification.md](04-functional-specification.md) states the
 surface rule under FR-CLEAN-003. What this does not settle is whether the CLI's
 per-warning question is worth its own press on top of its per-class one; it is

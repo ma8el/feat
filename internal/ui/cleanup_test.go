@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -733,6 +734,132 @@ func TestASelectionOutlivedByItsResourcesIsForgotten(t *testing.T) {
 	}
 	if !strings.Contains(model.status, "nothing you selected is still there") {
 		t.Errorf("status = %q, want it to say the selection outlived its resources", model.status)
+	}
+}
+
+// TestAFinishedCleanupClosesTheDialog is the transaction ending with the screen
+// that was opened for it.
+//
+// It stayed open over an inventory of what was left rather than what had been
+// asked about, and for an archived task over one the daemon will not resolve
+// again — an archived task is one Feat has stopped tracking. What the user needs
+// after it is whether it worked, which is a line and not a screen.
+func TestAFinishedCleanupClosesTheDialog(t *testing.T) {
+	backend := newFakeBackend()
+	model := openCleanupScreen(t, backend)
+
+	updated, _ := model.Update(key(" "))
+	model = updated.(Model)
+	model = requestCleanup(t, model, backend.cleanupPlan)
+	updated, cmd := model.Update(key("y"))
+	model = updated.(Model)
+	runCommands(t, cmd)
+
+	updated, cmd = model.Update(cleanupDoneMsg{status: api.CleanupStatus{
+		Removed: []api.CleanupRemoval{
+			{Class: "terminal", Identity: "@3", Removed: true},
+		},
+	}})
+	model = updated.(Model)
+	runCommands(t, cmd)
+
+	if model.screen == screenCleanup {
+		t.Fatalf("the dialog stayed open after the cleanup it was opened for:\n%s", model.View())
+	}
+	if strings.Contains(model.View(), "clean up task") {
+		t.Errorf("the cleanup dialog is still drawn:\n%s", model.View())
+	}
+	// What it did survives the closing, by the classes the user chose.
+	if !strings.Contains(model.status, "removed the terminal") {
+		t.Errorf("status = %q, want it to say what the cleanup removed", model.status)
+	}
+	if !strings.Contains(model.status, liveTask().Key) {
+		t.Errorf("status = %q, want it to name the task", model.status)
+	}
+}
+
+// TestASummaryCountsWhatWasAlreadyGoneAndSaysWhenATaskIsArchived covers the two
+// things a one-line report still has to carry.
+func TestASummaryCountsWhatWasAlreadyGoneAndSaysWhenATaskIsArchived(t *testing.T) {
+	backend := newFakeBackend()
+	model := openCleanupScreen(t, backend)
+
+	for _, want := range []struct {
+		status  api.CleanupStatus
+		wanted  []string
+		refused []string
+	}{{
+		// A resource that was already gone is not a failure — the user asked for
+		// it to be absent and it is — but a cleanup that removed nothing because
+		// everything had gone is a different morning from one that removed two.
+		status: api.CleanupStatus{Removed: []api.CleanupRemoval{
+			{Class: "terminal", Identity: "@3", Removed: true},
+			{Class: "worktrees", Identity: "/a", Removed: false},
+		}},
+		wanted: []string{"removed the terminal", "1 resource was already gone"},
+	}, {
+		status: api.CleanupStatus{Removed: []api.CleanupRemoval{
+			{Class: "terminal", Identity: "@3", Removed: false},
+		}},
+		wanted:  []string{"1 resource was already gone", "nothing was removed"},
+		refused: []string{"removed the"},
+	}, {
+		status: api.CleanupStatus{
+			Removed:  []api.CleanupRemoval{{Class: "terminal", Identity: "@3", Removed: true}},
+			Archived: true,
+		},
+		wanted: []string{"removed the terminal", "stopped tracking it"},
+	}} {
+		summary := model.cleanup.summary(want.status)
+		for _, fragment := range want.wanted {
+			if !strings.Contains(summary, fragment) {
+				t.Errorf("summary = %q, want it to carry %q", summary, fragment)
+			}
+		}
+		for _, fragment := range want.refused {
+			if strings.Contains(summary, fragment) {
+				t.Errorf("summary = %q, want it not to carry %q", summary, fragment)
+			}
+		}
+	}
+}
+
+// TestACleanupThatFailedHalfwayKeepsTheDialogAndReReadsThePlan is the other side
+// of closing on success.
+//
+// The classes are removed in a fixed order, so a failure partway means some of
+// them went. The screen is the account of that, and the inventory on it is the
+// one from before — so it is read again, and it names what is left rather than
+// what was there (ADR-029).
+func TestACleanupThatFailedHalfwayKeepsTheDialogAndReReadsThePlan(t *testing.T) {
+	backend := newFakeBackend()
+	model := openCleanupScreen(t, backend)
+
+	updated, _ := model.Update(key(" "))
+	model = updated.(Model)
+	model = requestCleanup(t, model, backend.cleanupPlan)
+
+	before := len(backend.cleanupCalls)
+	updated, cmd := model.Update(cleanupDoneMsg{
+		err: errors.New("removing the worktrees of task 7f3a1c2e: the worktree is locked"),
+	})
+	model = updated.(Model)
+	runCommands(t, cmd)
+
+	if model.screen != screenCleanup {
+		t.Fatal("a cleanup that failed halfway closed the screen that explains it")
+	}
+	if !strings.Contains(flowed(content(model)), "the worktree is locked") {
+		t.Errorf("the failure is not on the screen:\n%s", content(model))
+	}
+	if len(backend.cleanupCalls) != before+1 {
+		t.Errorf("the plan was read %d times, want %d: the inventory still names what went",
+			len(backend.cleanupCalls), before+1)
+	}
+	// The selection goes with it, because part of what it named is gone and the
+	// rest is about to be renamed by the plan coming back.
+	if model.cleanup.chosen["terminal"] {
+		t.Error("a selection survived the cleanup that acted on it")
 	}
 }
 
