@@ -449,6 +449,17 @@ each repository's Compose files are joined by a Feat-written `include` document
 with one project directory per repository, so nothing relative crosses a
 repository boundary. See ADR-065.
 
+A mount is not the whole answer there. A service whose image copies its source in
+has no mount to take over, so the generated override points its `build.context`
+at the task's worktree instead — at the same place inside it, and without
+touching a relative `dockerfile:` beside it, which follows the new context. The
+contexts are read from the project's own Compose files structurally, never
+through `docker compose config`, which would render the values of the
+environment files Feat must not read. The task records, per managed service,
+which repositories' worktrees it mounts and which it builds from, so a service
+that will run neither is reported when the runtime is created rather than found
+later by a user whose change had no effect.
+
 Each task repository's Git directory is mounted at the same absolute path it has
 on the host, with the access its worktree has. A task worktree is not a
 repository on its own: its `.git` is a file naming the main checkout's

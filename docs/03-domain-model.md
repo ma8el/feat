@@ -111,9 +111,21 @@ Properties:
 - override and environment-file inputs;
 - generated include and override paths;
 - service set;
+- per-service code provenance: for each managed service, the repositories that
+  asked Feat to manage it, those whose task worktree it mounts, and those whose
+  task worktree its image is built from. A service with neither is one running
+  the user's ordinary checkout, which is a state rather than a note because
+  nothing else about it is visible: the containers start, the application serves,
+  and every other record stays correct;
 - port assignments;
 - network and volume observations;
 - lifecycle and health state.
+
+Provenance is resolved from configuration and the project's own Compose files
+when the runtime is resolved, not inspected out of the containers afterwards, so
+it is answered before anything is created. It is not one of the frozen inputs: it
+follows the mounts and build contexts of the generated override, which are
+resolved from current configuration every time that document is written.
 
 The agent execution environment and application runtime are separate even when both use the same Compose project.
 

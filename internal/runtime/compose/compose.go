@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/ma8el/feat/internal/runtime"
@@ -136,8 +137,17 @@ func (r *Runtime) Version(ctx context.Context) (Version, error) {
 // build and which therefore does not exist. `up --no-start api` builds the whole
 // dependency closure and starts none of it, which is what this action means
 // (ADR-034 evidence 13).
+//
+// `--build` because this is the action that makes a service's image, and a
+// service that bakes its code runs whatever its image was built from. Without it
+// the second create of a task rebuilds nothing, so a service whose code arrives
+// through its build context goes on running the copy of the worktree it was
+// first built from and Feat has no way to refresh it — which is half of what
+// redirecting the context is for (ADR-065). Start deliberately does not: a start
+// is what a user asks for when they want their application up now, and Docker's
+// own cache makes the rebuild here cheap when nothing changed.
 func (r *Runtime) Create(ctx context.Context) (runtime.State, error) {
-	return r.bring(ctx, "creating", r.services("up", "--no-start")...)
+	return r.bring(ctx, "creating", r.services("up", "--no-start", "--build")...)
 }
 
 // Start brings the task's services up.
@@ -153,6 +163,9 @@ func (r *Runtime) Start(ctx context.Context) (runtime.State, error) {
 func (r *Runtime) bring(ctx context.Context, action string, arguments ...string) (runtime.State, error) {
 	defined, err := r.defined(ctx)
 	if err != nil {
+		return runtime.State{}, err
+	}
+	if err := r.manages(defined); err != nil {
 		return runtime.State{}, err
 	}
 	if err := writeOverride(r.spec, defined); err != nil {
@@ -172,6 +185,66 @@ func (r *Runtime) bring(ctx context.Context, action string, arguments ...string)
 			action, r.spec.Task, reported, r.explain(reported))
 	}
 	return r.Observe(ctx)
+}
+
+// manages refuses to act on a service the project's own files do not define.
+//
+// The generated override writes an entry for every managed service, so a service
+// nothing defines becomes an entry with no image and no build context, and
+// Compose rejects the whole project: "service X has neither an image nor a build
+// context specified: invalid compose project". That sentence is about a document
+// Feat generated, for a service the user named in their own configuration, and
+// it says nothing about either — so a user whose `runtime.services` and
+// `runtime.compose_files` have drifted apart is sent to look at their
+// application's Compose files, where nothing is wrong.
+//
+// Found by dogfooding: switching one repository's compose_files to a file that
+// defines its production service, while its `services` still named the
+// development one, produced exactly that (ADR-065 evidence 14). `feat doctor`
+// reports the same mismatch per repository; this is the same question asked at
+// the moment the services are addressed, when it is the reason nothing started.
+//
+// It refuses before the override is written, so a create that is rejected does
+// not leave behind a document naming a service nothing defines.
+func (r *Runtime) manages(defined []string) error {
+	if len(defined) == 0 {
+		return nil
+	}
+	known := make(map[string]bool, len(defined))
+	for _, service := range defined {
+		known[service] = true
+	}
+
+	var missing []string
+	for _, service := range r.spec.Services {
+		if !known[service] {
+			missing = append(missing, service)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("task %s is asked to manage %s, which none of the Compose files of its application "+
+		"define. They define %s. Either a repository's runtime.services names a service that is not there, "+
+		"or the files defining it are no longer among its compose_files; `feat doctor` reports the same "+
+		"mismatch per repository",
+		r.spec.Task, names(missing), names(defined))
+}
+
+// names joins service names the way a sentence would.
+func names(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, strconv.Quote(value))
+	}
+	switch len(quoted) {
+	case 0:
+		return "no service"
+	case 1:
+		return "the service " + quoted[0]
+	default:
+		return "the services " + strings.Join(quoted[:len(quoted)-1], ", ") + " and " + quoted[len(quoted)-1]
+	}
 }
 
 // Stop stops the services and keeps their containers.

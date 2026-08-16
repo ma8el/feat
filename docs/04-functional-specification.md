@@ -217,6 +217,8 @@ v0 MUST support configured base Compose files plus a generated task override. A 
 
 The generated override/runtime invocation MUST provide a unique Compose project name and task worktree mounts. Explicit `container_name` overrides SHOULD be avoided.
 
+**Amended: a mount is not the only way a service's code arrives.** For a managed service whose build context is a configured repository's checkout, or a directory inside it, the generated override MUST point that context at the same place inside the task's worktree; only the context is written, so a relative `dockerfile:` beside it follows. Feat MUST record, per managed service, whether the task's work reaches it by mount, by build context, or not at all, resolved from configuration and the project's own Compose files rather than inspected out of the containers, and MUST report a managed service that the task's work does not reach and one whose image must be built again before a change appears in it. Feat MUST NOT run `docker compose config` to answer any of this, because it renders the values of the project's environment files; reading the Compose documents structurally resolves nothing and is allowed. See ADR-065.
+
 ### FR-RUN-005 — Manual lifecycle
 
 v0 MUST provide create/start/stop/status/logs/destroy actions. Application services MUST start only by explicit user action in v0.

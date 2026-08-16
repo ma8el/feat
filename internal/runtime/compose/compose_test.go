@@ -54,14 +54,22 @@ func arrange(t *testing.T, docker *runtimetest.Docker) (*compose.Runtime, runtim
 		OverridePath:    filepath.Join(generated, "compose.override.yaml"),
 		EnvFiles:        []string{"/repos/app/api/.env"},
 		Services:        []string{"api"},
+		// The api service is built from its own repository as well as mounting
+		// it, which is the ordinary shape of a service with a Dockerfile: the
+		// image is made from the task's worktree, and the mount keeps it current
+		// afterwards.
+		Builds: []runtime.Build{
+			{Service: "api", Repository: "api", Context: "/worktrees/api",
+				Description: "the api task worktree, which this service's image is built from"},
+		},
 		Mounts: []runtime.Mount{
-			{Services: []string{"api"}, Source: "/worktrees/api", Target: "/srv/api",
+			{Services: []string{"api"}, Repository: "api", Source: "/worktrees/api", Target: "/srv/api",
 				Description: "the api task worktree, read-write"},
 			// A repository that brings no Compose file of its own and whose code
 			// the api service runs: a shared library, mounted read-only into the
 			// service that uses it.
-			{Services: []string{"api"}, Source: "/worktrees/store", Target: "/srv/store", ReadOnly: true,
-				Description: "the store task worktree, read-only"},
+			{Services: []string{"api"}, Repository: "store", Source: "/worktrees/store", Target: "/srv/store",
+				ReadOnly: true, Description: "the store task worktree, read-only"},
 		},
 		Variables: map[string]string{
 			"FEAT_TASK_KEY":        "11111111",
@@ -314,6 +322,11 @@ func TestTheComposeInvocationIsPinned(t *testing.T) {
 // user asks for fails with "No such image" while a start of the same services
 // succeeds — so the action is `up --no-start`, which builds the whole closure and
 // starts none of it (ADR-034 evidence 13).
+//
+// `--build` is the other half and was added with the redirected build contexts:
+// without it a second create reuses the image the first one made, so a service
+// that bakes its code goes on running the copy of the worktree it was built from
+// however often the user recreates it (ADR-065).
 func TestCreateBuildsWhatItIsAboutToCreate(t *testing.T) {
 	docker := runtimetest.New()
 	services, spec := arrange(t, docker)
@@ -322,7 +335,7 @@ func TestCreateBuildsWhatItIsAboutToCreate(t *testing.T) {
 		t.Fatalf("creating: %v", err)
 	}
 
-	vector, found := docker.Vector("up --no-start api")
+	vector, found := docker.Vector("up --no-start --build api")
 	if !found {
 		t.Fatalf("the create does not build what it creates; calls were %v", docker.Calls())
 	}
@@ -334,7 +347,7 @@ func TestCreateBuildsWhatItIsAboutToCreate(t *testing.T) {
 		"--file", "/repos/app/api/docker-compose.dev.yml",
 		"--file", spec.OverridePath,
 		"--env-file", "/repos/app/api/.env",
-		"up", "--no-start", "api",
+		"up", "--no-start", "--build", "api",
 	}
 	if !slices.Equal(vector, want) {
 		t.Errorf("the create invocation changed\n got: %v\nwant: %v", vector, want)
@@ -342,6 +355,44 @@ func TestCreateBuildsWhatItIsAboutToCreate(t *testing.T) {
 	for _, call := range docker.Calls() {
 		if strings.HasPrefix(call, "start") || call == "up --detach api" {
 			t.Errorf("the create ran %q, and a create starts nothing", call)
+		}
+	}
+}
+
+// TestAServiceNothingDefinesIsRefusedByName is the defect this slice's own
+// dogfood run produced.
+//
+// One repository's `compose_files` was switched to the file defining its
+// production service while its `services` still named the development one. The
+// generated override writes an entry for every managed service, so the project
+// gained a service with no image and no build context and Compose rejected all
+// of it: "service web has neither an image nor a build context specified:
+// invalid compose project" — a sentence about a document Feat generated, naming
+// a service the user configured, which sends them to look at their own Compose
+// files where nothing is wrong (ADR-065 evidence 14).
+func TestAServiceNothingDefinesIsRefusedByName(t *testing.T) {
+	docker := runtimetest.New().Answer("config --services", "postgres\nweb")
+	services, spec := arrange(t, docker)
+
+	_, err := services.Create(context.Background())
+
+	if err == nil {
+		t.Fatal("a task managing a service nothing defines was allowed to create it")
+	}
+	for _, expected := range []string{`"api"`, `"postgres"`, `"web"`, "compose_files"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("the refusal does not name %s: %v", expected, err)
+		}
+	}
+	// Nothing was written and nothing was run: the document that would name the
+	// service nothing defines is the document a later status would be read
+	// through, so a refused create must not leave one behind.
+	if _, err := os.Stat(spec.OverridePath); err == nil {
+		t.Error("a refused create wrote the generated override anyway")
+	}
+	for _, call := range docker.Calls() {
+		if strings.HasPrefix(call, "up") {
+			t.Errorf("a refused create ran %q", call)
 		}
 	}
 }

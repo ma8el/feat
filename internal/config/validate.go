@@ -567,6 +567,63 @@ func (c *Config) validateComposition(found *problems) {
 			files[file] = contribution.RepositoryID
 		}
 	}
+
+	c.checkMountable(found, composition)
+}
+
+// checkMountable refuses a runtime that could mount no task worktree at all.
+//
+// This is the half of "a service is not running the task's code" that needs no
+// Docker to diagnose, and it is the shape a real project arrived at twice: no
+// repository said where its source goes, so the generated override carried no
+// `volumes:` at all, every service ran the user's ordinary checkout, and every
+// record Feat kept about the task stayed correct (ADR-065 evidence 1).
+//
+// It is asked of the runtime rather than of each repository, because
+// configuration cannot see the other way a repository's code reaches a service.
+// A service whose image is built from the repository runs the task's worktree
+// once Feat redirects its build context, and it may have no mount anywhere and
+// want none — the reference project's frontend is a multi-stage build ending in
+// nginx, where mounting a worktree would be meaningless at best. Requiring a
+// container path of every contributing repository would refuse that project;
+// requiring one somewhere refuses only the runtime that can carry no task work
+// at all. Which particular service is not running the task's code is resolved
+// when the runtime is, where the project's own Compose files can be read.
+//
+// A repository no task ever selects is not counted: it has no worktree to mount,
+// whatever it says here.
+func (c *Config) checkMountable(found *problems, composition []RuntimeContribution) {
+	var eligible []RuntimeContribution
+	for _, contribution := range composition {
+		if contribution.ContainerPath != "" {
+			return
+		}
+		repository := c.Repositories[contribution.RepositoryID]
+		if len(contribution.Services) == 0 ||
+			domain.DefaultAccess(repository.DefaultAccess) == domain.DefaultAccessOmitted {
+			continue
+		}
+		eligible = append(eligible, contribution)
+	}
+
+	for _, contribution := range eligible {
+		found.add("repositories."+contribution.RepositoryID+".runtime.container_path", fmt.Sprintf(
+			"must say where %s. A task selects this repository, and no repository in this project answers "+
+				"that question, so the runtime would mount no task worktree anywhere and every service "+
+				"would run the ordinary checkout. Where these services bake their code instead, Feat builds "+
+				"them from the task's worktree and this can be a path they never read",
+			expectation(contribution.Services)))
+	}
+}
+
+// expectation names a repository's managed services and the source they expect,
+// with the verb that agrees.
+func expectation(names []string) string {
+	if len(names) == 1 {
+		return "the service " + names[0] + " of this repository expects its source"
+	}
+	return "the services " + strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1] +
+		" of this repository expect their source"
 }
 
 func (c *Config) validateReview(found *problems) {

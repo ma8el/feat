@@ -77,7 +77,46 @@
     "identity": "feat-example-7f3a1c2e",
     "services": [
       "web",
-      "worker"
+      "worker",
+      "assets"
+    ],
+    "provenance": [
+      {
+        "service": "web",
+        "repositories": [
+          "core"
+        ],
+        "mounted": [
+          "core"
+        ],
+        "built": [],
+        "runs_task_code": true,
+        "baked": []
+      },
+      {
+        "service": "worker",
+        "repositories": [
+          "core"
+        ],
+        "mounted": [],
+        "built": [
+          "core"
+        ],
+        "runs_task_code": true,
+        "baked": [
+          "core"
+        ]
+      },
+      {
+        "service": "assets",
+        "repositories": [
+          "core"
+        ],
+        "mounted": [],
+        "built": [],
+        "runs_task_code": false,
+        "baked": []
+      }
     ],
     "ports": [
       {

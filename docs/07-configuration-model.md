@@ -282,6 +282,36 @@ correct. Feat inspects the started containers and reports that in its own terms
 rather than refusing the start: the application runtime is inside the trusted
 host, so it is a correctness problem rather than a boundary breach (ADR-034).
 
+### Where a service's code comes from
+
+A mount is not the only way a repository's code reaches a service. A service
+whose image copies the repository in has no mount to replace, and a container
+path decides nothing about it: what it runs was decided when the image was built.
+For such a service Feat points the build context at the task's worktree — at the
+same place inside it, so a context of `./web` becomes the worktree's own `web` —
+and writes only the context, so a relative `dockerfile:` beside it follows.
+
+The build contexts are read out of the project's own Compose files, structurally
+and never interpolated, exactly as the proposals are. `docker compose config`
+would answer the same question by rendering the project including the values of
+its environment files, which Feat must never read.
+
+The task records, per managed service, which repositories' worktrees it mounts
+and which it builds from. A service with neither runs whatever the project's own
+files give it, and Feat says so when the runtime is created rather than after it
+is started; a service that only builds from a worktree runs the task's code and
+goes on running the copy it was built from, so Feat says that too. `feat runtime
+create` rebuilds, which is what makes such a change appear — the agent cannot,
+having no Docker.
+
+A `container_path` is therefore not required of a repository whose services bake
+their code, and giving one a path its services do not use would add a mount for
+nothing. What is refused, at configuration load, is a runtime that could mount no
+task worktree at all: a project that configures a runtime, whose repositories a
+task selects, and where no repository says where its source goes. That
+configuration can only produce services running the user's ordinary checkout, and
+it needs neither Docker nor a file to diagnose (ADR-065 evidence 1).
+
 ### Notifications and resource sampling
 
 Two grace periods exist and they are measured from different moments, which is
@@ -391,8 +421,9 @@ published port is how the user reaches the application they are testing, and v0
 allocates no ports of its own: two tasks that both want one host port is
 explained in Feat's terms rather than prevented by making the application
 unreachable. It also mounts each task worktree at the runtime container path
-its repository configures, in the services that repository named, and carries
-the generated non-secret variables — the
+its repository configures, in the services that repository named, points the
+build context of a managed service built from a repository at that repository's
+task worktree, and carries the generated non-secret variables — the
 project and task identifiers, the Compose project name, and each external
 resource's selector. Those last two apply to the managed services only: a service
 Feat was not asked to manage gets the reset and the ownership labels and nothing
@@ -410,6 +441,7 @@ At minimum:
 - Host paths resolve to expected Git repositories/Compose files.
 - Container paths are absolute. The agent's must not overlap one another, and the control path overlaps none of them; two repositories' runtime container paths may coincide, because a repository's worktree reaches its own services only.
 - A repository contributing to an application runtime the project does not configure is rejected, as is a runtime container path with no service to mount it in.
+- A configured runtime where no repository a task selects says where its source goes is rejected: it could mount no task worktree anywhere, so every service would run the user's ordinary checkout. It is asked of the runtime rather than of each repository, because a repository whose services build their code needs no container path and configuration cannot see a build context.
 - Configuration written in a shape a previous version read is rejected with an error naming what replaced it, rather than as an unknown field.
 - Branch and runtime templates produce safe names, use only known placeholders, and contain a per-task placeholder so that two tasks cannot share a branch or a Compose project.
 - Worktree roots cannot resolve to a broad unsafe path, cannot be rooted at one, and cannot overlap a repository checkout.

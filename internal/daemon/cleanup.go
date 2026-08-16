@@ -859,14 +859,7 @@ func (s *service) runtimeAdapterFor(task *domain.Task) (runtime.Runtime, error) 
 	if err != nil {
 		return nil, err
 	}
-	spec.Identity = task.Runtime.Identity
-	spec.Includes = runtimeIncludesOf(task.Runtime.Composition)
-	spec.IncludePath = task.Runtime.GeneratedIncludePath
-	spec.StaticOverrides = task.Runtime.StaticOverrides
-	spec.OverridePath = task.Runtime.GeneratedOverridePath
-	spec.EnvFiles = task.Runtime.EnvFiles
-	spec.Services = task.Runtime.Services
-	return s.runtimes(spec)
+	return s.runtimes(recordedInputs(spec, task.Runtime))
 }
 
 // forgetWorkspace drops the cached control workspace of a task whose workspace

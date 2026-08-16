@@ -9,9 +9,16 @@
 # container_name is reset because it is global to the Docker daemon: a base file
 # carrying one could be started for one task and no more. Published ports are
 # left as configured, because they are how you reach the application.
+#
+# A service that bakes its code into its image has no mount to replace, so its
+# build context is pointed at the task's worktree instead. Only the context is
+# written: a relative dockerfile beside it follows the new context.
 services:
   "api":
     container_name: !reset null
+    build:
+      # the api task worktree, which this service's image is built from
+      context: "/worktrees/api"
     volumes:
       # the api task worktree, read-write
       - type: "bind"

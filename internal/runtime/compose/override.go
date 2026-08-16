@@ -105,6 +105,10 @@ func replaceFile(path string, document []byte, what string) error {
 //     machine is not the product;
 //   - a managed service receives the worktrees of the repository whose services
 //     it is among, and no others;
+//   - a managed service whose image is built from a repository builds from the
+//     task's worktree instead. Only the context is written, so a relative
+//     `dockerfile:` beside it in the project's own file follows the new context
+//     rather than being replaced by a path that no longer resolves;
 //   - published ports are left exactly as the project configured them. They are
 //     how the user reaches the application they are testing, and v0 allocates
 //     none of its own; two tasks wanting the same host port is explained rather
@@ -139,11 +143,23 @@ func overrideDocument(spec runtime.Spec, defined []string) ([]byte, error) {
 	b.WriteString("# container_name is reset because it is global to the Docker daemon: a base file\n")
 	b.WriteString("# carrying one could be started for one task and no more. Published ports are\n")
 	b.WriteString("# left as configured, because they are how you reach the application.\n")
+	b.WriteString("#\n")
+	b.WriteString("# A service that bakes its code into its image has no mount to replace, so its\n")
+	b.WriteString("# build context is pointed at the task's worktree instead. Only the context is\n")
+	b.WriteString("# written: a relative dockerfile beside it follows the new context.\n")
 
 	b.WriteString("services:\n")
 	for _, service := range spec.Services {
 		fmt.Fprintf(&b, "  %s:\n", quote(service))
 		b.WriteString("    container_name: !reset null\n")
+
+		if build, redirected := spec.BuildFor(service); redirected {
+			b.WriteString("    build:\n")
+			if build.Description != "" {
+				fmt.Fprintf(&b, "      # %s\n", build.Description)
+			}
+			fmt.Fprintf(&b, "      context: %s\n", quote(build.Context))
+		}
 
 		// The worktrees of the repository whose services these are, and no
 		// others: a service that runs one repository's code has no reason to

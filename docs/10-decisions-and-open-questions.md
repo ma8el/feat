@@ -4466,6 +4466,92 @@ stop loading and it is how Feat's own tasks are run. It pushes the current slice
 The reference project's whole application then runs for one task, hot-reloading,
 several times over, and the failure this ADR exists for stops being silent.
 
+Amended during slice 15, which implemented the second of the three: the build
+contexts and the provenance state.
+
+Evidence 13, found while writing the reader against the service this slice
+exists for: **the structural reader could not read the reference project's
+frontend at all.** Its production service writes a plain `context: .` beside a
+`build.args` entry carrying a "${...}" — a value Feat never reads and has no
+business reading — and the reader judged the interpolation on the whole `build`
+mapping, so the plainest build context in the project came back undecided.
+Measured against the repository itself: the slice 14 reader answers
+`builds-from-source=false` for `jobharbor-frontend` and lists its build context
+as unread, while the fixed one resolves the context to the checkout. That service
+is the multi-stage build ending in nginx of evidence 4, where the build context
+is the only thing that decides what runs: a reader that could not see it could
+not have redirected it, and `feat project init` would have proposed nothing about
+it either. Interpolation is now judged on the context alone.
+
+Evidence 14, found dogfooding this slice against the reference project: **a
+managed service the project's files no longer define is reported as Feat's own
+generated document being invalid.** Switching one repository's `compose_files` to
+the file defining its production service while its `services` still named the
+development one produced `service "web" has neither an image nor a build context
+specified: invalid compose project` on every create, and the same message from
+every poll afterwards. Both halves of it point away from the mistake: the
+service is one the user named in their own configuration, and the document
+without an image is the override Feat writes an entry into for every managed
+service. Compose is right and unhelpful. The adapter now compares the managed
+services against what `config --services` says the project defines — a list it
+already had — and refuses before writing the override, naming both sides.
+`feat doctor` reports the same mismatch per repository; this is that question
+asked at the moment it is the reason nothing started.
+
+Evidence 15, from the same run: **a mount does not make a baked service
+current, and Feat said it did.** The frontend was configured with the production
+file and a runtime container path left in place, so the service both mounted the
+task's worktree at `/web` and built its image from it. The report that a change
+needs a rebuild was suppressed, on the reasoning that a mounted worktree is
+current the moment it is written — which is true of the API, whose server reloads
+from `/app`, and false of an nginx image serving what its build produced and
+never reading `/web` at all. Whether the mount is read is a fact about the image
+that Feat cannot see. The report is therefore made whenever a service builds the
+task's code, and says what the mount is still worth: current wherever the image
+reads it. Suppressing it whenever a mount existed was true of exactly one of the
+two services the reference project runs.
+
+Three decisions this slice needed:
+
+- **A build context inside a repository is that repository's.** The ADR said the
+  context *is* a configured repository's checkout; a monorepo writes
+  `build: ./web`, and the task's worktree holds the same subdirectory. The
+  redirect therefore points at the same place inside the worktree, and a context
+  above or beside the checkout is left alone. A bind source is still matched
+  against the repository root exactly: a mount of a subdirectory is a partial
+  mount that a whole worktree mounted at one container path would not replace,
+  so it is not a candidate for a container path. Two questions, two rules.
+- **The configuration-load refusal is asked of the runtime, not of each
+  repository.** The plan wrote it as a task-eligible repository with no runtime
+  container path. Implemented that way it refuses a project that is correct: the
+  frontend of evidence 4 mounts nothing anywhere and wants no mount — pointing
+  its build context at the worktree is what makes it run the task's code — and
+  requiring a container path of its repository would demand a path its services
+  do not use. Worse than pointless: a worktree mounted over an image's own
+  `/app` hides the `node_modules` and the built output that were baked there, so
+  the requirement would break the service it was meant to protect. What is
+  refused is therefore evidence 1 exactly — a configured runtime, repositories a
+  task selects, and no runtime container path anywhere, which can mount no task
+  worktree at all — and the message names the repository and its services. Which
+  particular service is not running the task's code is the provenance state's
+  answer, resolved where the project's own Compose files can be read.
+- **`create` builds again; `start` does not.** Redirecting a build context is
+  half an answer while `up` reuses the image it made the first time: the service
+  would run the copy of the worktree it was first built from, for the life of the
+  task, and the agent that changed the code has no Docker to rebuild with
+  (evidence 9). `create` therefore passes `--build`, which is the action that
+  makes a service's image and the one a user asks for when they want it made
+  again; `start` stays as it was, because a start is what a user asks for when
+  they want their application up now, and Docker's cache makes the rebuild cheap
+  when nothing changed. The report a baked service carries names that command.
+
+Consequence beyond the plan's list: `runtime.Spec` gains the redirected build
+contexts, `domain.RuntimeEnvironment` gains the per-service provenance, and the
+three places that re-applied a task's recorded inputs to a freshly resolved
+specification became one — which also drops a mount or a build naming a service
+the task does not manage, so a project file that gains a service can no longer
+refuse the stop or the destroy of a runtime created before it.
+
 ## Decision change process
 
 During implementation:

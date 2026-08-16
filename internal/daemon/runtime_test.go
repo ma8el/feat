@@ -409,7 +409,9 @@ func TestAServiceHoldsTheCodeItRuns(t *testing.T) {
 	arranged := arrangeConfigured(t, fixture)
 	task := arranged.launched(t)
 	arranged.answerFor(task, "running", "Up 2 seconds")
-	arranged.runtimes.Answer("up --detach api worker", "")
+	arranged.runtimes.
+		Answer("config --services", "api\nworker").
+		Answer("up --detach api worker", "")
 	arranged.act(t, task.ID, api.RuntimeStart)
 
 	document, err := os.ReadFile(arranged.reload(t, task.ID).Runtime.GeneratedOverridePath)
@@ -885,6 +887,225 @@ func TestACallerThatGoesAwayMidStartIsSaidToHave(t *testing.T) {
 	if strings.Contains(err.Error(), "did not finish within") {
 		t.Errorf("a cancelled start is reported as Feat running out of patience: %v", err)
 	}
+}
+
+// unreachedFixture gives the store repository a service of its own and no
+// runtime container path.
+//
+// It is a managed service nothing of the task reaches: no worktree is mounted
+// into it, and the fixture's Compose file builds nothing from that repository.
+// The project still loads, because the api repository says where its own source
+// goes — which is the case a configuration rule cannot catch and this state can.
+func unreachedFixture() string {
+	return strings.Replace(runtimeFixture,
+		"    runtime:\n      container_path: /srv/store\n      services:\n        - api\n",
+		"    runtime:\n      services:\n        - worker\n", 1)
+}
+
+// TestAServiceThatRunsNoTaskCodeSaysSoBeforeAnythingStarts is the third
+// acceptance criterion of the slice.
+//
+// A service that mounts no task worktree and builds from no task worktree runs
+// whatever the project's own files give it, which is the user's ordinary
+// checkout. Everything about that is otherwise silent: the containers start, the
+// application serves, and every record Feat keeps stays correct (ADR-065
+// evidence 7). It is resolved from configuration when the runtime is, so a
+// create says it before a single container exists.
+//
+// The record is read at the first Compose command of the action, which is the
+// slice's fourth acceptance criterion made observable: the answer is already on
+// the task before Compose has been asked anything, so no path to it can be
+// `docker compose config` — the command that would render the values of the
+// project's environment files (ADR-034 evidence 5).
+func TestAServiceThatRunsNoTaskCodeSaysSoBeforeAnythingStarts(t *testing.T) {
+	arranged := arrangeConfigured(t, unreachedFixture())
+	task := arranged.launched(t)
+	arranged.answerFor(task, "created", "Created")
+	arranged.runtimes.
+		Answer("config --services", "api\nworker").
+		Answer("up --no-start --build api worker", "")
+
+	var atCreate *domain.RuntimeEnvironment
+	arranged.runtimes.Before("config --services", func() {
+		atCreate = arranged.reload(t, task.ID).Runtime
+	})
+	result := arranged.act(t, task.ID, api.RuntimeCreate)
+
+	if atCreate == nil {
+		t.Fatal("the task recorded no runtime when Compose was asked to create one")
+	}
+	api, known := atCreate.ServiceProvenance("api")
+	if !known || !api.RunsTaskCode() {
+		t.Errorf("the api service is recorded as running no task code: %+v", api)
+	}
+	worker, known := atCreate.ServiceProvenance("worker")
+	if !known {
+		t.Fatalf("the worker service has no provenance at all: %+v", atCreate.Provenance)
+	}
+	if worker.RunsTaskCode() {
+		t.Errorf("a service with no mount and no build context is recorded as running the task's "+
+			"code: %+v", worker)
+	}
+	if !slices.Contains(worker.Repositories, "store") {
+		t.Errorf("the worker service does not name the repository whose code it is meant to run: %+v", worker)
+	}
+
+	// And it is said in words, on the action a user asked for, rather than left
+	// in a record they would have to go looking through.
+	if !notesMention(result.Notes, "worker") {
+		t.Errorf("the create said nothing about the service that will not run the task's work: %v",
+			result.Notes)
+	}
+}
+
+// TestABuiltServiceIsPointedAtTheTaskWorktree is the trap this slice exists for.
+//
+// A service whose image copies its source in has no mount to replace, so the
+// container path decides nothing about it and ADR-034's post-start inspection
+// cannot report it: the note looks at mounts and there is no mount. Only the
+// build context decides what such a service runs (ADR-065 evidence 4).
+func TestABuiltServiceIsPointedAtTheTaskWorktree(t *testing.T) {
+	arranged := arrangeConfigured(t, runtimeFixture)
+	// The project's own Compose file, in the shape the reference project writes
+	// it: a build context of "." beside an interpolated build argument Feat never
+	// reads, and no mount anywhere.
+	writeCompose(t, filepath.Join(arranged.env.Home, "repos", "app", "compose.yml"), `services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        API_BASE_URL: ${API_BASE_URL:-http://localhost:8000}
+`)
+
+	task := arranged.launched(t)
+	arranged.answerFor(task, "running", "Up 2 seconds")
+	arranged.act(t, task.ID, api.RuntimeStart)
+
+	record := arranged.reload(t, task.ID).Runtime
+	worktree := worktreeOf(t, arranged.reload(t, task.ID), "api")
+
+	document, err := os.ReadFile(record.GeneratedOverridePath)
+	if err != nil {
+		t.Fatalf("reading the generated override: %v", err)
+	}
+	if written := string(document); !strings.Contains(written, `context: "`+worktree+`"`) {
+		t.Errorf("the api service is still built from the ordinary checkout:\n%s", written)
+	}
+
+	provenance, known := record.ServiceProvenance("api")
+	if !known || !slices.Contains(provenance.Built, "api") {
+		t.Errorf("the task does not record that the api service builds its image from the api "+
+			"worktree: %+v", provenance)
+	}
+}
+
+// TestABakedServiceSaysItNeedsBuildingAgain is what a service that runs the
+// task's code and will not show a change looks like.
+//
+// The agent that changed the code is confined to a devcontainer with no Docker
+// and can rebuild nothing (ADR-065 evidence 9), so a change that appears only
+// after a rebuild is a change the user has to be told about — and told what
+// makes it appear.
+func TestABakedServiceSaysItNeedsBuildingAgain(t *testing.T) {
+	// The store repository brings a service of its own, built from its own
+	// checkout and mounting nothing: the shape of a frontend whose image is a
+	// multi-stage build ending in a web server. The api repository still says
+	// where its own source goes, so the project is one configuration cannot fault.
+	fixture := strings.Replace(runtimeFixture,
+		"    runtime:\n      container_path: /srv/store\n      services:\n        - api\n",
+		"    runtime:\n      compose_files:\n        - ~/repos/app/store/docker-compose.yml\n"+
+			"      services:\n        - web\n", 1)
+
+	arranged := arrangeConfigured(t, fixture)
+	writeCompose(t, filepath.Join(arranged.env.Home, "repos", "app", "store", "docker-compose.yml"),
+		`services:
+  web:
+    build: .
+`)
+
+	task := arranged.launched(t)
+	arranged.answerFor(task, "running", "Up 2 seconds")
+	arranged.runtimes.
+		Answer("config --services", "api\nweb").
+		Answer("up --detach api web", "")
+	result := arranged.act(t, task.ID, api.RuntimeStart)
+
+	provenance, known := arranged.reload(t, task.ID).Runtime.ServiceProvenance("web")
+	if !known || !slices.Equal(provenance.Baked(), []string{"store"}) {
+		t.Fatalf("a service that only bakes the repository's code is not recorded as baking it: %+v",
+			provenance)
+	}
+	if !notesMention(result.Notes, "built again") {
+		t.Errorf("the start did not say that the service shows a change only once its image is "+
+			"built again: %v", result.Notes)
+	}
+}
+
+// TestAServiceThatMountsAndBakesStillSaysItNeedsBuilding is the shape the
+// reference project turned out to have, and the rule it corrected.
+//
+// A service that mounts a repository and builds from it was reported as current,
+// on the reasoning that the mount is what it reads. That holds for an
+// application server reloading from its mounted source and not for a web server
+// serving what its build produced — the reference project runs one of each, and
+// the second one served the task's work only because it had been rebuilt, while
+// Feat said nothing about needing to (ADR-065 evidence 15).
+func TestAServiceThatMountsAndBakesStillSaysItNeedsBuilding(t *testing.T) {
+	arranged := arrangeConfigured(t, runtimeFixture)
+	writeCompose(t, filepath.Join(arranged.env.Home, "repos", "app", "compose.yml"), `services:
+  api:
+    build: .
+`)
+
+	task := arranged.launched(t)
+	arranged.answerFor(task, "running", "Up 2 seconds")
+	result := arranged.act(t, task.ID, api.RuntimeStart)
+
+	provenance, known := arranged.reload(t, task.ID).Runtime.ServiceProvenance("api")
+	if !known || len(provenance.Mounted) == 0 || len(provenance.Built) == 0 {
+		t.Fatalf("the fixture no longer mounts and builds one service: %+v", provenance)
+	}
+	if !notesMention(result.Notes, "built again") {
+		t.Errorf("a service that bakes the code it also mounts said nothing about needing a "+
+			"rebuild: %v", result.Notes)
+	}
+	if !notesMention(result.Notes, "wherever the image reads it") {
+		t.Errorf("the note does not say what the mount is still worth: %v", result.Notes)
+	}
+}
+
+// writeCompose writes one of a project's own Compose files.
+func writeCompose(t *testing.T, path, body string) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("creating %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+// worktreeOf returns the task worktree of one repository.
+func worktreeOf(t *testing.T, task *domain.Task, repository string) string {
+	t.Helper()
+
+	binding, ok := task.Repository(domain.RepositoryID(repository))
+	if !ok {
+		t.Fatalf("the task does not bind repository %s", repository)
+	}
+	return binding.WorktreePath
+}
+
+// notesMention reports whether any note carries the given words.
+func notesMention(notes []string, words string) bool {
+	for _, note := range notes {
+		if strings.Contains(note, words) {
+			return true
+		}
+	}
+	return false
 }
 
 // events counts the events recorded for a task.

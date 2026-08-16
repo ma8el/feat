@@ -949,19 +949,21 @@ func (w *Wizard) readComposition() {
 	}
 }
 
-// provenance says which of the named services run their image's own copy of the
-// code rather than anything mounted into them.
+// provenance says which of the named services build this repository into their
+// image rather than mounting it.
 //
-// It is said while the user is deciding, because it is the difference between a
-// service a task's worktree reaches and one whose contents were decided when
-// its image was built (ADR-065 evidence 4).
+// It is said while the user is deciding, because it changes what the next
+// question is worth to them. Feat points such a service's build context at the
+// task's worktree, so it runs the task's code with no mount at all — and a
+// container path it never reads is a container path this repository may not have
+// (ADR-065 evidence 4).
 func (w *Wizard) provenance(services []string) []string {
 	baked := intersect(w.composition.Baked, services)
 	if len(baked) == 0 {
 		return nil
 	}
-	return []string{"built from this repository, so they run the image's copy of the code rather than a " +
-		"mounted worktree: " + strings.Join(baked, ", ")}
+	return []string{"built from this repository rather than mounting it, so Feat builds them from the " +
+		"task's worktree and a change shows once the image is built again: " + strings.Join(baked, ", ")}
 }
 
 // afterRepositories is which question follows the last repository: the primary
