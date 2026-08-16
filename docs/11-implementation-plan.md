@@ -1321,6 +1321,8 @@ same change.
 
 ## Slice 13 — Dogfood hardening
 
+Status: **complete**, 2026-08-15
+
 ### Outcome
 
 v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
@@ -1909,6 +1911,8 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
 
 ## Slice 14 — Per-repository runtime composition
 
+Status: **complete**, 2026-08-16
+
 The design decisions these three slices start from are recorded in ADR-065 in
 [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md).
 
@@ -1973,6 +1977,8 @@ separately from where the agent's container mounts it.
 
 ## Slice 15 — Code provenance
 
+Status: **complete**, 2026-08-16
+
 ### Outcome
 
 A task's services run the task's code, or the task says which ones do not.
@@ -2006,6 +2012,44 @@ A task's services run the task's code, or the task says which ones do not.
 - A service running neither a task worktree nor a task build context is visible
   on the task at create, not only after a start.
 - No path to this diagnosis runs `docker compose config`.
+
+### Delivered
+
+All four criteria pass, three of them against the reference project rather than
+against fixtures alone.
+
+The first was measured twice. An opt-in test builds an image that copies its
+source in, mounts nothing, and is started against real Docker; the container
+holds the task worktree's file rather than the checkout's, and the Dockerfile
+named relatively in the project's own file follows the redirected context. Then
+the reference project's own frontend — a multi-stage build ending in nginx — was
+configured, created, and started: the marker written into the task worktree's
+`index.html` and the colour changed in its stylesheet are both served on the
+published port, from an image built from the worktree and from no mount at all.
+
+The second was checked against a real project file with its runtime container
+paths removed, in an isolated configuration directory: `feat doctor` refuses it
+and names each repository and the services that would receive nothing. The third
+is read from the task's own record at the first Compose command of a create,
+which is also the fourth: the answer is on the task before Compose has been asked
+anything, so no path to it can be `docker compose config`.
+
+Two things this slice decided differently from the work above, both recorded in
+ADR-065 with the evidence. The configuration-load refusal is asked of the runtime
+rather than of each repository, because a repository whose services bake their
+code needs no container path and forcing one would mount a worktree over what the
+image baked. And `feat runtime create` passes `--build`, because a redirected
+build context is half an answer while `up` reuses the image it made first.
+
+Three defects were found by running it, each fixed with a test: the structural
+reader judged interpolation over the whole `build` mapping, so a plain
+`context: .` beside an interpolated build argument — the reference frontend's own
+shape — was unreadable; a managed service the project's Compose files no longer
+define was reported as Feat's own generated document being invalid, rather than
+as the configuration mismatch it is; and a service that mounts a repository and
+builds from it was called current, which holds for an application server
+reloading from its mount and not for a web server serving what its build
+produced.
 
 ## Slice 16 — Port allocation and reachability
 
