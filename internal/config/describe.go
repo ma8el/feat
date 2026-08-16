@@ -58,34 +58,45 @@ func (c *Config) Describe() []Section {
 
 // Mounts returns the repository-to-container path mapping.
 //
-// It is a table of its own because it is the mapping a devcontainer task
-// depends on and the one a user most often needs to check: a repository at the
-// wrong path is a task that compiles nothing.
+// It is a table of its own because it is the mapping a task depends on and the
+// one a user most often needs to check: a repository at the wrong path is a
+// task that compiles nothing, or an application that serves the ordinary
+// checkout while every record Feat keeps stays correct (ADR-065 evidence 7).
 func (c *Config) Mounts() []Mount {
 	mounts := make([]Mount, 0, len(c.Repositories))
 	for _, id := range c.RepositoryIDs() {
 		repository := c.Repositories[id]
-		mounts = append(mounts, Mount{
+		mount := Mount{
 			RepositoryID:  id,
 			HostPath:      repository.HostPath,
-			ContainerPath: repository.ContainerPath,
+			AgentPath:     repository.Agent.ContainerPath,
 			DefaultAccess: repository.DefaultAccess,
 			Primary:       id == c.Project.PrimaryRepository,
-		})
+		}
+		if repository.Runtime != nil {
+			mount.RuntimePath = repository.Runtime.ContainerPath
+			mount.RuntimeServices = append([]string(nil), repository.Runtime.Services...)
+		}
+		mounts = append(mounts, mount)
 	}
 	return mounts
 }
 
-// Mount is one repository's place on the host and in the execution
-// environment.
+// Mount is one repository's place on the host, in the agent's container, and in
+// its own services' containers.
 type Mount struct {
 	// RepositoryID identifies the repository within the project.
 	RepositoryID string
 	// HostPath is the ordinary checkout, after expansion.
 	HostPath string
-	// ContainerPath is where task worktrees are mounted, empty for host-native
-	// execution.
-	ContainerPath string
+	// AgentPath is where task worktrees are mounted in the agent's own
+	// container, empty for host-native execution.
+	AgentPath string
+	// RuntimePath is where this repository's own services expect their source,
+	// empty for a repository whose code no service runs.
+	RuntimePath string
+	// RuntimeServices are the services this repository asks Feat to manage.
+	RuntimeServices []string
 	// DefaultAccess is the repository's default participation in a task.
 	DefaultAccess string
 	// Primary reports whether this is the project's primary repository.
@@ -111,11 +122,35 @@ func (c *Config) describeRepositories() Section {
 		}
 		section.Fields = append(section.Fields,
 			Field{Name: id + ".host_path", Value: repository.HostPath, Note: note},
-			Field{Name: id + ".container_path", Value: orNone(repository.ContainerPath)},
+			Field{Name: id + ".agent.container_path", Value: orNone(repository.Agent.ContainerPath),
+				Note: "where the agent's container mounts the worktree"},
 			Field{Name: id + ".default_branch", Value: repository.DefaultBranch},
 			Field{Name: id + ".remote", Value: repository.Remote},
 			Field{Name: id + ".default_access", Value: repository.DefaultAccess},
 		)
+		if repository.Runtime == nil {
+			continue
+		}
+		// Printed whatever the execution mode. It is the mapping that decides
+		// whether the user's own services run their task, and a project whose
+		// agent is host-native has services all the same (ADR-065 evidence 6).
+		section.Fields = append(section.Fields,
+			Field{Name: id + ".runtime.container_path", Value: orNone(repository.Runtime.ContainerPath),
+				Note: "where this repository's own services expect their source"},
+			Field{Name: id + ".runtime.services", Value: orNone(strings.Join(repository.Runtime.Services, ", "))},
+		)
+		if len(repository.Runtime.Reachable) > 0 {
+			section.Fields = append(section.Fields, Field{
+				Name:  id + ".runtime.reachable",
+				Value: strings.Join(repository.Runtime.Reachable, ", "),
+			})
+		}
+		for i, file := range repository.Runtime.ComposeFiles {
+			section.Fields = append(section.Fields, Field{
+				Name:  fmt.Sprintf("%s.runtime.compose_files[%d]", id, i),
+				Value: file,
+			})
+		}
 	}
 	return section
 }
@@ -182,10 +217,18 @@ func (c *Config) describeRuntime() Section {
 		{Name: "start_policy", Value: runtime.StartPolicy, Note: "services start only when you ask"},
 		{Name: "project_name_template", Value: runtime.ProjectNameTemplate,
 			Note: "one Compose project per task"},
-		{Name: "services", Value: strings.Join(runtime.Services, ", ")},
+		{Name: "services", Value: orNone(strings.Join(c.RuntimeServices(), ", ")),
+			Note: "composed of the repositories below"},
 	}
-	for i, file := range runtime.ComposeFiles {
-		fields = append(fields, Field{Name: fmt.Sprintf("compose_files[%d]", i), Value: file})
+	// The composition rather than a file list: each repository brings its own
+	// files, resolved against its own checkout, and Feat generates the include
+	// document that joins them.
+	for _, contribution := range c.RuntimeComposition() {
+		fields = append(fields, Field{
+			Name:  "composed_of." + contribution.RepositoryID,
+			Value: strings.Join(contribution.ComposeFiles, ", "),
+			Note:  "resolved against " + contribution.Directory,
+		})
 	}
 	for i, file := range runtime.StaticOverrides {
 		fields = append(fields, Field{Name: fmt.Sprintf("static_overrides[%d]", i), Value: file})

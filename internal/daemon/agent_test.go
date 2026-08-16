@@ -36,11 +36,9 @@ project:
 repositories:
   api:
     host_path: ~/repos/app/api
-    container_path: /srv/api
     default_access: read_write
   store:
     host_path: ~/repos/app/store
-    container_path: /srv/store
     default_access: read_only
 
 git:

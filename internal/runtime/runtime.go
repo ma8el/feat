@@ -78,14 +78,23 @@ type Spec struct {
 	// one task's services and no other's, and it comes from the project's
 	// configured template, which validation requires to be per-task.
 	Identity string
-	// Files are the configured base Compose files, in order.
-	Files []string
-	// StaticOverrides are user-authored overrides, applied after the base files
-	// and before the generated one.
+	// Includes are the repositories the application is composed of, in order.
+	// The adapter renders them as one Compose `include` document, each entry
+	// carrying its own project directory.
+	Includes []Include
+	// IncludePath is where that generated include document is written. It is
+	// host-only and is never mounted anywhere.
+	IncludePath string
+	// StaticOverrides are user-authored overrides, applied after the generated
+	// include and before the generated override.
 	StaticOverrides []string
-	// Directory is what relative paths inside Files resolve against: the first
-	// configured file's directory, so those files keep working while the
-	// generated override lives under the state directory.
+	// Directory is the Compose project directory. It is the directory holding
+	// the generated documents rather than any repository's, because every path
+	// those documents contain is absolute and each include entry carries the
+	// directory its own repository's relative paths resolve against. A project
+	// directory belonging to one of the repositories would be the directory a
+	// second repository's relative paths were wrongly resolved against, which is
+	// the failure the include document exists to remove (ADR-065 evidence 2).
 	Directory string
 	// OverridePath is where the generated override is written. It is host-only
 	// and is never mounted anywhere.
@@ -111,8 +120,34 @@ type Spec struct {
 	ForbiddenSources []string
 }
 
+// Include is one repository's contribution to a task's application.
+//
+// It becomes one entry of the generated Compose `include` document. Paths
+// inside the listed files resolve against Directory, so each repository's build
+// contexts and relative bind sources stay its own.
+type Include struct {
+	// Repository identifies the repository, for the generated document's own
+	// comments and for a message that has to name where a file came from.
+	Repository string
+	// Directory is the repository's ordinary checkout, which is the include
+	// entry's project directory.
+	Directory string
+	// Files are that repository's Compose files, absolute and in order.
+	Files []string
+}
+
 // Mount is one host directory a service exposes.
 type Mount struct {
+	// Services are the managed services the mount applies to. It is the
+	// services of the repository whose worktree this is: a repository's runtime
+	// container path is where its own services expect their source, and a
+	// service that runs another repository's code has no reason to hold this
+	// one (ADR-065).
+	//
+	// It is why two repositories may expect their source at the same path. They
+	// are different containers, and mounting every worktree into every service
+	// would make that ordinary arrangement a collision.
+	Services []string
 	// Source is the absolute host path.
 	Source string
 	// Target is the absolute path inside the container.
@@ -122,6 +157,20 @@ type Mount struct {
 	// Description says what the mount is, so a diagnostic can name it in the
 	// user's terms rather than by path alone.
 	Description string
+}
+
+// MountsFor returns the mounts one managed service receives.
+func (s Spec) MountsFor(service string) []Mount {
+	var mounts []Mount
+	for _, mount := range s.Mounts {
+		for _, named := range mount.Services {
+			if named == service {
+				mounts = append(mounts, mount)
+				break
+			}
+		}
+	}
+	return mounts
 }
 
 // State is what a runtime looks like now.
@@ -255,8 +304,9 @@ func (s Spec) Validate() error {
 		return fmt.Errorf("the runtime of task %s has no identity, and its identity is what makes an action "+
 			"affect one task's services and no other's", s.Task)
 	}
-	if len(s.Files) == 0 {
-		return fmt.Errorf("the runtime of task %s names no Compose files defining its services", s.Task)
+	if len(s.Includes) == 0 {
+		return fmt.Errorf("the runtime of task %s is composed of no repositories, so nothing defines "+
+			"its services", s.Task)
 	}
 	if len(s.Services) == 0 {
 		return fmt.Errorf("the runtime of task %s names no services to manage", s.Task)
@@ -264,16 +314,15 @@ func (s Spec) Validate() error {
 
 	for _, field := range []struct{ name, value string }{
 		{"project directory", s.Directory},
+		{"generated include path", s.IncludePath},
 		{"generated override path", s.OverridePath},
 	} {
 		if err := checkHostPath(field.name, field.value); err != nil {
 			return err
 		}
 	}
-	for i, file := range s.Files {
-		if err := checkHostPath(fmt.Sprintf("Compose file %d", i+1), file); err != nil {
-			return err
-		}
+	if err := s.validateIncludes(); err != nil {
+		return err
 	}
 	for i, file := range s.StaticOverrides {
 		if err := checkHostPath(fmt.Sprintf("static override %d", i+1), file); err != nil {
@@ -303,10 +352,56 @@ func (s Spec) Validate() error {
 	return sortedVariables(s.Variables).validate()
 }
 
-// validateMounts checks the bindings for the two ways a mount set goes wrong: a
-// path that is not what it claims to be, and two mounts at one target.
+// validateIncludes checks what the runtime is composed of.
+//
+// Every path here reaches a generated document Compose reads, and a project
+// directory decides what every relative path inside a repository's own files
+// means. A directory that is wrong in a way nobody checked is a service built
+// from another repository, which is the failure this composition exists to
+// prevent rather than to reproduce.
+func (s Spec) validateIncludes() error {
+	seen := make(map[string]string)
+	for _, include := range s.Includes {
+		if err := checkName("include repository", include.Repository); err != nil {
+			return err
+		}
+		if err := checkHostPath("project directory of "+include.Repository, include.Directory); err != nil {
+			return err
+		}
+		if len(include.Files) == 0 {
+			return fmt.Errorf("the runtime of task %s includes repository %s, which brings no Compose files",
+				s.Task, include.Repository)
+		}
+		for i, file := range include.Files {
+			if err := checkHostPath(
+				fmt.Sprintf("Compose file %d of %s", i+1, include.Repository), file); err != nil {
+				return err
+			}
+			if owner, taken := seen[file]; taken {
+				return fmt.Errorf("the runtime of task %s includes %s twice, from repositories %s and %s: "+
+					"one file included twice defines its services twice", s.Task, file, owner, include.Repository)
+			}
+			seen[file] = include.Repository
+		}
+	}
+	return nil
+}
+
+// validateMounts checks the bindings for the ways a mount set goes wrong: a
+// path that is not what it claims to be, a mount belonging to no service, and
+// two mounts at one target in one service.
+//
+// The last is checked per service rather than across the runtime, because that
+// is where a mount can hide another: two repositories expecting their source at
+// the same path in two different containers is an ordinary arrangement, and
+// only what lands in one container can collide.
 func (s Spec) validateMounts() error {
-	targets := make(map[string]string, len(s.Mounts))
+	managed := make(map[string]bool, len(s.Services))
+	for _, service := range s.Services {
+		managed[service] = true
+	}
+	targets := make(map[string]map[string]string, len(s.Services))
+
 	for _, mount := range s.Mounts {
 		if err := checkHostPath("mount source", mount.Source); err != nil {
 			return err
@@ -314,11 +409,25 @@ func (s Spec) validateMounts() error {
 		if err := checkContainerPath("mount target", mount.Target); err != nil {
 			return err
 		}
-		if previous, taken := targets[mount.Target]; taken {
-			return fmt.Errorf("two mounts of task %s target %s: %s and %s. One would hide the other, "+
-				"and which one is not something Feat should decide", s.Task, mount.Target, previous, mount.Source)
+		if len(mount.Services) == 0 {
+			return fmt.Errorf("the mount of %s at %s in task %s applies to no service, so nothing would "+
+				"receive it", mount.Source, mount.Target, s.Task)
 		}
-		targets[mount.Target] = mount.Source
+		for _, service := range mount.Services {
+			if !managed[service] {
+				return fmt.Errorf("the mount of %s at %s in task %s names the service %q, which the task "+
+					"does not manage", mount.Source, mount.Target, s.Task, service)
+			}
+			if targets[service] == nil {
+				targets[service] = make(map[string]string)
+			}
+			if previous, taken := targets[service][mount.Target]; taken {
+				return fmt.Errorf("two mounts of service %s of task %s target %s: %s and %s. One would "+
+					"hide the other, and which one is not something Feat should decide",
+					service, s.Task, mount.Target, previous, mount.Source)
+			}
+			targets[service][mount.Target] = mount.Source
+		}
 	}
 	return nil
 }

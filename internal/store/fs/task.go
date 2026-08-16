@@ -112,19 +112,27 @@ type tmuxDocument struct {
 }
 
 type runtimeDocument struct {
-	Provider              string         `json:"provider"`
-	Identity              string         `json:"identity"`
-	ComposeFiles          []string       `json:"compose_files,omitempty"`
-	StaticOverrides       []string       `json:"static_overrides,omitempty"`
-	GeneratedOverridePath string         `json:"generated_override_path,omitempty"`
-	EnvFiles              []string       `json:"env_files,omitempty"`
-	Services              []string       `json:"services,omitempty"`
-	Ports                 []portDocument `json:"ports,omitempty"`
-	Networks              []string       `json:"networks,omitempty"`
-	Volumes               []string       `json:"volumes,omitempty"`
-	State                 string         `json:"state"`
-	Health                string         `json:"health"`
-	ObservedAt            *time.Time     `json:"observed_at,omitempty"`
+	Provider              string                `json:"provider"`
+	Identity              string                `json:"identity"`
+	Composition           []compositionDocument `json:"composition,omitempty"`
+	GeneratedIncludePath  string                `json:"generated_include_path,omitempty"`
+	StaticOverrides       []string              `json:"static_overrides,omitempty"`
+	GeneratedOverridePath string                `json:"generated_override_path,omitempty"`
+	EnvFiles              []string              `json:"env_files,omitempty"`
+	Services              []string              `json:"services,omitempty"`
+	Ports                 []portDocument        `json:"ports,omitempty"`
+	Networks              []string              `json:"networks,omitempty"`
+	Volumes               []string              `json:"volumes,omitempty"`
+	State                 string                `json:"state"`
+	Health                string                `json:"health"`
+	ObservedAt            *time.Time            `json:"observed_at,omitempty"`
+}
+
+// compositionDocument is one repository's contribution to a task's application.
+type compositionDocument struct {
+	Repository string   `json:"repository"`
+	Directory  string   `json:"directory"`
+	Files      []string `json:"files,omitempty"`
 }
 
 type portDocument struct {
@@ -324,7 +332,8 @@ func encodeRuntime(runtime *domain.RuntimeEnvironment) *runtimeDocument {
 	document := &runtimeDocument{
 		Provider:              runtime.Provider,
 		Identity:              runtime.Identity,
-		ComposeFiles:          runtime.ComposeFiles,
+		Composition:           encodeComposition(runtime.Composition),
+		GeneratedIncludePath:  runtime.GeneratedIncludePath,
 		StaticOverrides:       runtime.StaticOverrides,
 		GeneratedOverridePath: runtime.GeneratedOverridePath,
 		EnvFiles:              runtime.EnvFiles,
@@ -398,6 +407,38 @@ func decodeTask(document taskDocument, brief string) *domain.Task {
 	return task
 }
 
+// encodeComposition records what a task's application is composed of.
+func encodeComposition(sources []domain.RuntimeSource) []compositionDocument {
+	if len(sources) == 0 {
+		return nil
+	}
+	documents := make([]compositionDocument, 0, len(sources))
+	for _, source := range sources {
+		documents = append(documents, compositionDocument{
+			Repository: source.Repository,
+			Directory:  source.Directory,
+			Files:      append([]string(nil), source.Files...),
+		})
+	}
+	return documents
+}
+
+// decodeComposition reads what a task's application is composed of.
+func decodeComposition(documents []compositionDocument) []domain.RuntimeSource {
+	if len(documents) == 0 {
+		return nil
+	}
+	sources := make([]domain.RuntimeSource, 0, len(documents))
+	for _, document := range documents {
+		sources = append(sources, domain.RuntimeSource{
+			Repository: document.Repository,
+			Directory:  document.Directory,
+			Files:      append([]string(nil), document.Files...),
+		})
+	}
+	return sources
+}
+
 // encodeExecution records the environment an agent session runs in.
 func encodeExecution(environment *domain.ExecutionEnvironment) *executionDocument {
 	if environment == nil {
@@ -455,7 +496,8 @@ func decodeRuntime(document *runtimeDocument) *domain.RuntimeEnvironment {
 	runtime := &domain.RuntimeEnvironment{
 		Provider:              document.Provider,
 		Identity:              document.Identity,
-		ComposeFiles:          document.ComposeFiles,
+		Composition:           decodeComposition(document.Composition),
+		GeneratedIncludePath:  document.GeneratedIncludePath,
 		StaticOverrides:       document.StaticOverrides,
 		GeneratedOverridePath: document.GeneratedOverridePath,
 		EnvFiles:              document.EnvFiles,

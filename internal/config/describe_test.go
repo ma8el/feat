@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -87,22 +88,27 @@ func TestRepositoryAndContainerPathsAreDescribedAccurately(t *testing.T) {
 	mounts := loaded.Mounts()
 	want := []config.Mount{
 		{
-			RepositoryID:  "api",
-			HostPath:      filepath.Join(home, "repos", "app", "api"),
-			ContainerPath: "/srv/api",
-			DefaultAccess: "read_write",
-			Primary:       true,
+			RepositoryID: "api",
+			HostPath:     filepath.Join(home, "repos", "app", "api"),
+			// The two paths differ, and each is used where it belongs: the agent
+			// works at one, and the application's own services expect their
+			// source at the other (ADR-065 evidence 5).
+			AgentPath:       "/srv/api",
+			RuntimePath:     "/app",
+			RuntimeServices: []string{"app", "worker"},
+			DefaultAccess:   "read_write",
+			Primary:         true,
 		},
 		{
 			RepositoryID:  "infra",
 			HostPath:      filepath.Join(home, "repos", "app", "infra"),
-			ContainerPath: "/srv/infra",
+			AgentPath:     "/srv/infra",
 			DefaultAccess: "stable_read_only",
 		},
 		{
 			RepositoryID:  "web",
 			HostPath:      filepath.Join(home, "repos", "app", "web"),
-			ContainerPath: "/srv/web",
+			AgentPath:     "/srv/web",
 			DefaultAccess: "selectable",
 		},
 	}
@@ -111,7 +117,7 @@ func TestRepositoryAndContainerPathsAreDescribedAccurately(t *testing.T) {
 		t.Fatalf("described %d mounts, want %d: %+v", len(mounts), len(want), mounts)
 	}
 	for i, mount := range mounts {
-		if mount != want[i] {
+		if !reflect.DeepEqual(mount, want[i]) {
 			t.Errorf("mount %d = %+v, want %+v", i, mount, want[i])
 		}
 	}

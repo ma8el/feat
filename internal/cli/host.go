@@ -44,6 +44,29 @@ func (h *machineHost) ComposeServices(files ...string) []string {
 	return project.ComposeServices(files...)
 }
 
+// Compose reads what one repository's Compose files propose.
+//
+// The reading is internal/project's, and the shape is the wizard's: a
+// proposal's whole job is to be put back to the user in the terms of the
+// question, and the flow names no adapter of its own.
+func (h *machineHost) Compose(root string, files ...string) wizard.Composition {
+	composition := project.ComposeComposition(root, files...)
+	services := composition.Names()
+
+	proposed := wizard.Composition{
+		Services:  services,
+		Reachable: composition.Published(services),
+		Undecided: composition.Undecided,
+	}
+	proposed.ContainerPath, _ = composition.SourceTarget(services)
+	for _, service := range composition.Services {
+		if service.BuildsFromSource {
+			proposed.Baked = append(proposed.Baked, service.Name)
+		}
+	}
+	return proposed
+}
+
 // Exists reports whether a path is there now.
 func (h *machineHost) Exists(path string) bool {
 	_, err := os.Stat(path)

@@ -144,8 +144,18 @@ type state struct {
 	pending config.DraftRepository
 	// checkout is what Git said about the repository being answered.
 	checkout Checkout
-	// mount is which repository is being asked for a container path.
-	mount int
+	// mount is which repository is being asked for a container path in the
+	// agent's own container, and contributor is which is being asked what it
+	// brings to the application. They are separate cursors because they walk the
+	// repositories for different reasons: the first is where the agent works,
+	// the second is what the user runs.
+	mount       int
+	contributor int
+	// contribution is the repository being answered's part of the application,
+	// complete only when its questions have been.
+	contribution config.DraftRepositoryRuntime
+	// composition is what the answered Compose files were read to propose.
+	composition Composition
 	// files, envFiles, and services accumulate the answers of the loops that
 	// take more than one: Compose files for the agent or the application, the
 	// environment files passed to Compose, and the services Feat manages.
@@ -181,8 +191,13 @@ const (
 	stageVolumeName
 	stageProviderCLI
 	stageRuntimeWanted
+	// The application stages, asked once per repository: a runtime is composed
+	// of its repositories, so what it is made of is answered where the code is.
+	stageRuntimeRepository
 	stageRuntimeCompose
 	stageRuntimeServices
+	stageRuntimeMount
+	stageRuntimeReachable
 	stageRuntimeEnvFile
 	stageCheckCommand
 	stageCheckName
@@ -424,15 +439,16 @@ func (w *Wizard) question() Question {
 		}
 		if len(w.files) == 0 {
 			question.Detail = []string{
-				"The Compose files that define the devcontainer, and the service the agent",
-				"runs in. Feat starts that service for a task and never gives it Docker.",
+				"The Compose files that define the container the agent works in, and the",
+				"service it runs in. Feat starts that service for a task and never gives it",
+				"Docker. They are not the application's own Compose files: those belong to",
+				"the repositories that bring them, and are asked for further down.",
 			}
-		} else {
-			// Finishing is only offered once there is one, because the section is
-			// meaningless without it.
-			question.Prompt, question.Optional = "Compose file (blank to finish)", true
+			return question
 		}
-		question.Proposed = w.proposedCompose()
+		// Finishing is only offered once there is one, because the section is
+		// meaningless without it.
+		question.Prompt, question.Optional = "Compose file (blank to finish)", true
 		return question
 
 	case stageService:
@@ -457,7 +473,9 @@ func (w *Wizard) question() Question {
 		}
 		if w.firstMount() {
 			question.Detail = []string{
-				"Where each repository's task worktrees are mounted in that container.",
+				"Where each repository's task worktrees are mounted in the agent's own",
+				"container. Where the application's services expect that repository's source",
+				"is a different question with a different answer, asked further down.",
 			}
 		}
 		return question
@@ -504,21 +522,72 @@ func (w *Wizard) question() Question {
 			Prompt: "Does a task run application services?", Proposed: "n",
 		}
 
+	case stageRuntimeRepository:
+		repository := w.draft.Repositories[w.contributor]
+		question := Question{
+			ID: "runtime.repository", Section: SectionServices, Kind: KindConfirm,
+			Prompt: "Does " + repository.ID + " bring Compose files to the application?",
+		}
+		question.Proposed = "n"
+		if len(w.host.ComposeFiles(repository.HostPath)) > 0 {
+			question.Proposed = "y"
+		}
+		if w.firstContributor() {
+			question.Detail = []string{
+				"Each repository brings its own Compose files, and Feat generates the",
+				"include document that joins them. Listing them all together instead would",
+				"resolve every relative path against one repository's directory, so a second",
+				"repository's services would be built from the first.",
+			}
+		}
+		return question
+
 	case stageRuntimeCompose:
 		question := Question{
 			ID: "runtime.compose", Section: SectionServices, Kind: KindText,
-			Prompt: "Compose file", Proposed: w.proposedCompose(),
+			Prompt: "Compose file for " + w.draft.Repositories[w.contributor].ID,
 		}
-		if len(w.files) > 0 {
-			question.Prompt, question.Optional = "Compose file (blank to finish)", true
+		if len(w.files) == 0 {
+			question.Proposed = w.proposedContribution()
+			if remaining := w.remainingContributions(); len(remaining) > 0 {
+				question.Notes = append(question.Notes,
+					"others found beside it: "+strings.Join(remaining, ", "))
+			}
+			return question
 		}
+		question.Prompt, question.Optional = question.Prompt+" (blank to finish)", true
 		return question
 
 	case stageRuntimeServices:
 		return Question{
 			ID: "runtime.services", Section: SectionServices, Kind: KindText,
-			Prompt:   "Services Feat manages for a task",
-			Proposed: strings.Join(w.host.ComposeServices(w.files...), " "),
+			Prompt:   "Services Feat manages from " + w.draft.Repositories[w.contributor].ID,
+			Proposed: strings.Join(w.composition.Services, " "),
+		}
+
+	case stageRuntimeMount:
+		repository := w.draft.Repositories[w.contributor]
+		question := Question{
+			ID: "runtime.mount", Section: SectionServices, Kind: KindText,
+			Prompt:   "Where those services expect " + repository.ID + "'s source",
+			Proposed: w.composition.ContainerPath,
+			Optional: true,
+		}
+		if w.composition.ContainerPath == "" {
+			// Asked in every execution mode, and asked even when nothing could be
+			// read: this is the value that decides whether the user's own services
+			// run their task, and a project whose agent is host-native has services
+			// all the same (ADR-065 evidence 1 and 6).
+			question.Prompt += ", or blank if they do not"
+		}
+		return question
+
+	case stageRuntimeReachable:
+		return Question{
+			ID: "runtime.reachable", Section: SectionServices, Kind: KindText,
+			Prompt:   "Which of them do you reach from this machine?",
+			Proposed: strings.Join(intersect(w.composition.Reachable, w.contribution.Services), " "),
+			Optional: true,
 		}
 
 	case stageRuntimeEnvFile:
@@ -671,7 +740,7 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 		if err := containerPath(answer); err != nil {
 			return err
 		}
-		w.draft.Repositories[w.mount].ContainerPath = answer
+		w.draft.Repositories[w.mount].AgentContainerPath = answer
 		w.nextMount()
 
 	case stageVolumeName:
@@ -689,7 +758,11 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 
 	case stageRuntimeCompose:
 		if answer == "" {
-			w.notes = w.declaredServices()
+			if len(w.files) == 0 {
+				return errors.New("name at least one Compose file, or say this repository brings none")
+			}
+			w.contribution.ComposeFiles = w.files
+			w.readComposition()
 			w.stage = stageRuntimeServices
 			break
 		}
@@ -702,17 +775,34 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 		if len(services) == 0 {
 			return errors.New("name at least one, separated by spaces")
 		}
-		w.services = services
-		w.envFiles = nil
-		w.stage = stageRuntimeEnvFile
+		w.contribution.Services = services
+		w.notes = w.provenance(services)
+		w.stage = stageRuntimeMount
+
+	case stageRuntimeMount:
+		if answer != "" {
+			if err := containerPath(answer); err != nil {
+				return err
+			}
+		}
+		w.contribution.ContainerPath = answer
+		w.stage = stageRuntimeReachable
+
+	case stageRuntimeReachable:
+		reachable := strings.Fields(answer)
+		for _, service := range reachable {
+			if !containsString(w.contribution.Services, service) {
+				return fmt.Errorf("%q is not one of the services you named: %s",
+					service, strings.Join(w.contribution.Services, ", "))
+			}
+		}
+		w.contribution.Reachable = reachable
+		w.keepContribution()
+		w.nextContributor()
 
 	case stageRuntimeEnvFile:
 		if answer == "" {
-			w.draft.Runtime = &config.DraftRuntime{
-				ComposeFiles: w.files,
-				EnvFiles:     w.envFiles,
-				Services:     w.services,
-			}
+			w.draft.Runtime = &config.DraftRuntime{EnvFiles: w.envFiles}
 			w.stage = stageCheckCommand
 			break
 		}
@@ -793,10 +883,85 @@ func (w *Wizard) confirmed(yes bool) error {
 			w.stage = stageCheckCommand
 			return nil
 		}
+		w.contributor = -1
+		w.nextContributor()
+
+	case stageRuntimeRepository:
+		if !yes {
+			w.nextContributor()
+			return nil
+		}
 		w.files = nil
+		w.contribution = config.DraftRepositoryRuntime{}
+		w.composition = Composition{}
 		w.stage = stageRuntimeCompose
 	}
 	return nil
+}
+
+// nextContributor moves to the next repository the application may be composed
+// of, or past them to the runtime's own questions.
+//
+// Every repository is asked, whatever its access and whatever the execution
+// mode. A repository omitted from tasks by default still has an ordinary
+// checkout with Compose files in it, and a host-native agent's project has
+// application containers exactly as a containerised one's does.
+func (w *Wizard) nextContributor() {
+	if w.contributor+1 < len(w.draft.Repositories) {
+		w.contributor, w.stage = w.contributor+1, stageRuntimeRepository
+		return
+	}
+	w.envFiles = nil
+	w.stage = stageRuntimeEnvFile
+}
+
+// firstContributor reports whether the repository under the cursor is the first
+// one asked about, which is the one the explanation belongs to.
+func (w *Wizard) firstContributor() bool { return w.contributor == 0 }
+
+// keepContribution records the answered contribution on its repository.
+//
+// The Compose files are written relative to the checkout where they are inside
+// it, which is how a repository names the files it brings: they resolve against
+// its own checkout, so a project moved to another machine needs one path
+// changed rather than one per file.
+func (w *Wizard) keepContribution() {
+	repository := &w.draft.Repositories[w.contributor]
+	contribution := w.contribution
+	contribution.ComposeFiles = relativeTo(repository.HostPath, contribution.ComposeFiles)
+	repository.Runtime = &contribution
+}
+
+// readComposition reads what the answered Compose files propose.
+func (w *Wizard) readComposition() {
+	repository := w.draft.Repositories[w.contributor]
+	w.composition = w.host.Compose(repository.HostPath, w.files...)
+
+	if len(w.composition.Services) > 0 {
+		w.notes = append(w.notes, "services defined there: "+strings.Join(w.composition.Services, ", "))
+	}
+	if len(w.composition.Undecided) > 0 {
+		// Named rather than resolved. Feat never interpolates a "${...}", so an
+		// entry containing one is a value it could not derive, and saying which
+		// one is what makes the missing proposal actionable.
+		w.notes = append(w.notes,
+			"not read, because they interpolate: "+strings.Join(w.composition.Undecided, "; "))
+	}
+}
+
+// provenance says which of the named services run their image's own copy of the
+// code rather than anything mounted into them.
+//
+// It is said while the user is deciding, because it is the difference between a
+// service a task's worktree reaches and one whose contents were decided when
+// its image was built (ADR-065 evidence 4).
+func (w *Wizard) provenance(services []string) []string {
+	baked := intersect(w.composition.Baked, services)
+	if len(baked) == 0 {
+		return nil
+	}
+	return []string{"built from this repository, so they run the image's copy of the code rather than a " +
+		"mounted worktree: " + strings.Join(baked, ", ")}
 }
 
 // afterRepositories is which question follows the last repository: the primary
@@ -876,21 +1041,35 @@ func (w *Wizard) declaredServices() []string {
 	return []string{"services defined there: " + strings.Join(services, ", ")}
 }
 
-// proposedCompose is the next Compose file found beside the project's
-// repositories that has not been answered yet.
-func (w *Wizard) proposedCompose() string {
-	seen := make(map[string]bool, len(w.files))
-	for _, file := range w.files {
-		seen[file] = true
-	}
-	for _, repository := range w.draft.Repositories {
-		for _, file := range w.host.ComposeFiles(repository.HostPath) {
-			if !seen[file] {
-				return file
-			}
-		}
+// proposedContribution is the first Compose file found beside the repository
+// being asked about.
+//
+// It never proposes another repository's file: what a repository brings is its
+// own. It proposes only the first, because a proposal is what an empty answer
+// takes and the same key has to mean "no more" once there is one — see
+// remainingContributions for what happens to the rest.
+func (w *Wizard) proposedContribution() string {
+	if found := w.host.ComposeFiles(w.draft.Repositories[w.contributor].HostPath); len(found) > 0 {
+		return found[0]
 	}
 	return ""
+}
+
+// remainingContributions are the other Compose files beside the repository,
+// named rather than proposed.
+//
+// A loop cannot both propose the next file and finish on an empty answer: they
+// are two meanings for one key, and the one that lost was finishing — a user
+// pressing Enter at "blank to finish" added the bracketed file instead, twice,
+// and ended up with an application's files defining their agent's container.
+// So the first is proposed, the rest are reported, and Enter means what the
+// prompt says it means.
+func (w *Wizard) remainingContributions() []string {
+	found := w.host.ComposeFiles(w.draft.Repositories[w.contributor].HostPath)
+	if len(found) < 2 {
+		return nil
+	}
+	return found[1:]
 }
 
 // unconfigured reports a project that already has a configuration.
@@ -1056,6 +1235,8 @@ func (s state) clone() state {
 	copied := s
 	copied.draft = cloneDraft(s.draft)
 	copied.notes = append([]string(nil), s.notes...)
+	copied.contribution = cloneContribution(s.contribution)
+	copied.composition = cloneComposition(s.composition)
 	copied.files = append([]string(nil), s.files...)
 	copied.envFiles = append([]string(nil), s.envFiles...)
 	copied.services = append([]string(nil), s.services...)
@@ -1080,12 +1261,77 @@ func cloneDraft(draft config.Draft) config.Draft {
 		copied.Checks = nil
 	}
 
+	for i, repository := range draft.Repositories {
+		if repository.Runtime == nil {
+			continue
+		}
+		contribution := cloneContribution(*repository.Runtime)
+		copied.Repositories[i].Runtime = &contribution
+	}
+
 	if draft.Runtime != nil {
 		runtime := *draft.Runtime
-		runtime.ComposeFiles = append([]string(nil), draft.Runtime.ComposeFiles...)
 		runtime.EnvFiles = append([]string(nil), draft.Runtime.EnvFiles...)
-		runtime.Services = append([]string(nil), draft.Runtime.Services...)
 		copied.Runtime = &runtime
 	}
 	return copied
+}
+
+// cloneContribution deep-copies one repository's part of the application.
+func cloneContribution(contribution config.DraftRepositoryRuntime) config.DraftRepositoryRuntime {
+	copied := contribution
+	copied.ComposeFiles = append([]string(nil), contribution.ComposeFiles...)
+	copied.Services = append([]string(nil), contribution.Services...)
+	copied.Reachable = append([]string(nil), contribution.Reachable...)
+	return copied
+}
+
+// cloneComposition deep-copies what a repository's Compose files proposed.
+func cloneComposition(composition Composition) Composition {
+	copied := composition
+	copied.Services = append([]string(nil), composition.Services...)
+	copied.Reachable = append([]string(nil), composition.Reachable...)
+	copied.Baked = append([]string(nil), composition.Baked...)
+	copied.Undecided = append([]string(nil), composition.Undecided...)
+	return copied
+}
+
+// relativeTo rewrites the paths that are inside a directory as relative to it,
+// and leaves the rest alone.
+func relativeTo(dir string, paths []string) []string {
+	if dir == "" || len(paths) == 0 {
+		return paths
+	}
+	rewritten := make([]string, len(paths))
+	for i, path := range paths {
+		rewritten[i] = path
+		relative, err := filepath.Rel(dir, path)
+		if err != nil || strings.HasPrefix(relative, "..") {
+			continue
+		}
+		rewritten[i] = relative
+	}
+	return rewritten
+}
+
+// intersect returns the values of the first list that are in the second,
+// keeping the first list's order.
+func intersect(values, allowed []string) []string {
+	var found []string
+	for _, value := range values {
+		if containsString(allowed, value) {
+			found = append(found, value)
+		}
+	}
+	return found
+}
+
+// containsString reports whether a list holds a value.
+func containsString(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
 }

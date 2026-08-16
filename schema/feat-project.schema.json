@@ -108,10 +108,8 @@
           "description": "The ordinary checkout on this machine.",
           "$ref": "#/$defs/path"
         },
-        "container_path": {
-          "description": "Where task worktrees are mounted in the devcontainer. Required for every repository a task can select when agent.execution.mode is \"devcontainer\", and container paths must not overlap.",
-          "$ref": "#/$defs/containerPath"
-        },
+        "agent": { "$ref": "#/$defs/repositoryAgent" },
+        "runtime": { "$ref": "#/$defs/repositoryRuntime" },
         "default_branch": {
           "description": "The branch a base policy resolves against. Defaults to \"main\".",
           "type": "string"
@@ -123,6 +121,45 @@
         "default_access": {
           "description": "How the repository takes part in a task by default. Required rather than defaulted: whether an agent may write to a repository is not a decision to make on the user's behalf.",
           "enum": ["read_write", "read_only", "selectable", "stable_read_only", "omitted"]
+        }
+      }
+    },
+
+    "repositoryAgent": {
+      "description": "Where the agent's own execution environment puts this repository. It is separate from the runtime object below because the two are different questions with different owners: where the agent's devcontainer mounts a worktree is your free choice, and where an application's own services expect their source is a fact about its Compose files.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "container_path": {
+          "description": "Where task worktrees are mounted in the devcontainer. Required for every repository a task can select when agent.execution.mode is \"devcontainer\", rejected under \"host\", and agent container paths must not overlap.",
+          "$ref": "#/$defs/containerPath"
+        }
+      }
+    },
+
+    "repositoryRuntime": {
+      "description": "What this repository contributes to the project's application runtime. Omit it for a repository whose code no service runs. A runtime is composed of its repositories: each brings its own Compose files, and Feat generates the include document that joins them, so nothing relative ever crosses a repository boundary.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "compose_files": {
+          "description": "The Compose files this repository brings. A relative path resolves against the repository's own checkout, which is also the project directory Feat gives its include entry.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/path" }
+        },
+        "container_path": {
+          "description": "Where this repository's own services expect their source. Feat mounts each task worktree there, replacing whatever the repository's Compose files mounted at that path. It requires services to mount it in.",
+          "$ref": "#/$defs/containerPath"
+        },
+        "services": {
+          "description": "The services that run this repository's code, which Feat manages for a task. Two repositories may name one service: a service running an application and a shared library runs the code of both, at their own container paths.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "reachable": {
+          "description": "The services of this repository you reach from this machine. Each must be one of the services above.",
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     },
@@ -259,10 +296,9 @@
     },
 
     "runtime": {
-      "description": "The application services a task may run. Omit this object for a project with no application runtime.",
+      "description": "The application services a task may run. Omit this object for a project with no application runtime. What the application is made of is on the repositories that bring it: see repositories.<id>.runtime.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["compose_files", "services"],
       "properties": {
         "provider": {
           "description": "The runtime adapter. Docker Compose is the only provider in v0.",
@@ -274,14 +310,8 @@
           "const": "manual",
           "default": "manual"
         },
-        "compose_files": {
-          "description": "The base Compose files defining the application services.",
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/path" }
-        },
         "static_overrides": {
-          "description": "User-authored override files, applied after the base files and before Feat's generated task override.",
+          "description": "User-authored override files, applied after Feat's generated include of the repositories' own Compose files and before its generated task override. A relative path inside one resolves against Feat's own generated directory, so write them absolute.",
           "type": "array",
           "items": { "$ref": "#/$defs/path" }
         },
@@ -294,12 +324,6 @@
           "description": "Generates the Compose project name, which is what makes a runtime action affect one task and no other. It must contain {task_id} or {task_key}, and must expand to a name Compose accepts. Placeholders: {project_id}, {task_id}, {task_key}.",
           "type": "string",
           "default": "feat-{project_id}-{task_id}"
-        },
-        "services": {
-          "description": "The services Feat manages for a task.",
-          "type": "array",
-          "minItems": 1,
-          "items": { "type": "string" }
         }
       }
     },

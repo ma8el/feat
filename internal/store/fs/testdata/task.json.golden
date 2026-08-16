@@ -80,9 +80,16 @@
   "runtime": {
     "provider": "compose",
     "identity": "feat-example-7f3a1c2e",
-    "compose_files": [
-      "/srv/repositories/core/compose.yaml"
+    "composition": [
+      {
+        "repository": "core",
+        "directory": "/srv/repositories/core",
+        "files": [
+          "/srv/repositories/core/compose.yaml"
+        ]
+      }
     ],
+    "generated_include_path": "/srv/state/runtime/example/7f3a1c2e/compose.include.yaml",
     "static_overrides": [
       "/srv/repositories/core/compose.override.yaml"
     ],

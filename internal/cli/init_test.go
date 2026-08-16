@@ -230,19 +230,23 @@ func TestProjectInitConfiguresADevcontainerFromWhatItFinds(t *testing.T) {
 		"n",                   // no third repository
 		"",                    // primary repository: api
 		"devcontainer",        // execution mode
-		"",                    // Compose file: the one found beside api
-		"",                    // no second Compose file
-		"",                    // service: dev, which the file defines
-		"developer",           // container user
-		"",                    // mount for api: /srv/api
-		"",                    // mount for store: /srv/store
-		"",                    // give Claude a volume
-		"",                    // volume name: feat-claude
-		"gh",                  // provider CLI
-		"n",                   // no application services
-		"",                    // no verification command
-		"",                    // write it
-		"n",                   // do not run diagnostics
+		// Named rather than accepted from a proposal: the agent's Compose
+		// question is asked before the application section exists, so it has
+		// nothing to tell a devcontainer's file from an application's and
+		// proposes neither.
+		filepath.Join(m.repository("api"), "compose.yaml"),
+		"",          // no second Compose file
+		"",          // service: dev, which the file defines
+		"developer", // container user
+		"",          // mount for api: /srv/api
+		"",          // mount for store: /srv/store
+		"",          // give Claude a volume
+		"",          // volume name: feat-claude
+		"gh",        // provider CLI
+		"n",         // no application services
+		"",          // no verification command
+		"",          // write it
+		"n",         // do not run diagnostics
 	), "project", "init")
 
 	if code != ExitOK {
@@ -272,8 +276,8 @@ func TestProjectInitConfiguresADevcontainerFromWhatItFinds(t *testing.T) {
 	}
 
 	store, _ := cfg.Repository("store")
-	if store.ContainerPath != "/srv/store" {
-		t.Errorf("the mount for store is %q", store.ContainerPath)
+	if store.Agent.ContainerPath != "/srv/store" {
+		t.Errorf("the agent mount for store is %q", store.Agent.ContainerPath)
 	}
 	// The second repository has no remote, so a base cannot be resolved from
 	// one. The wizard says so rather than writing a policy that would fail on

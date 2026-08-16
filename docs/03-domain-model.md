@@ -107,8 +107,9 @@ Properties:
 
 - runtime provider;
 - unique runtime identity/Compose project name;
-- base and override inputs;
-- generated override path;
+- the composition: one entry per repository that brings Compose files, each with the directory its own relative paths resolve against;
+- override and environment-file inputs;
+- generated include and override paths;
 - service set;
 - port assignments;
 - network and volume observations;

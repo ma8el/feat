@@ -47,8 +47,13 @@ func TestRealGitRepositoryIsDiagnosed(t *testing.T) {
 		{"    working_directory: /srv/api\n", ""},
 		{"    control_path: /feat\n", ""},
 		// A Claude configuration volume needs a container to mount it into, so
-		// a host-mode project that declared one is rejected (ADR-033).
+		// a host-mode project that declared one is rejected (ADR-033). The
+		// agent's own container paths go for the same reason: there is no agent
+		// container to mount a worktree in.
 		{"    config_volume: example-claude-config\n", ""},
+		{"    agent:\n      container_path: /srv/api\n", ""},
+		{"    agent:\n      container_path: /srv/web\n", ""},
+		{"    agent:\n      container_path: /srv/infra\n", ""},
 	})
 	dropRuntimeSection(t, w)
 
@@ -386,6 +391,11 @@ func rewriteAll(t *testing.T, w *world, replacements [][2]string) {
 }
 
 // dropRuntimeSection removes the runtime configuration, which needs Docker.
+//
+// Both halves go: the project's own runtime settings, and the repository
+// contribution that composes it. A contribution to a runtime the project no
+// longer configures is a configuration error rather than a leftover, which is
+// the point of putting the two together (ADR-065).
 func dropRuntimeSection(t *testing.T, w *world) {
 	t.Helper()
 	file := filepath.Join(w.configDir, "app.yaml")
@@ -399,7 +409,16 @@ func dropRuntimeSection(t *testing.T, w *world) {
 	if start < 0 || end < 0 || end < start {
 		t.Fatal("the fixture no longer has a runtime section followed by a review section")
 	}
-	if err := os.WriteFile(file, []byte(text[:start]+text[end:]), 0o600); err != nil {
+	text = text[:start] + text[end:]
+
+	contribution := strings.Index(text, "    runtime:\n")
+	repository := strings.Index(text, "    default_branch: main\n")
+	if contribution < 0 || repository < contribution {
+		t.Fatal("the fixture no longer has a repository contributing to the runtime")
+	}
+	text = text[:contribution] + text[repository:]
+
+	if err := os.WriteFile(file, []byte(text), 0o600); err != nil {
 		t.Fatalf("writing the configuration: %v", err)
 	}
 }

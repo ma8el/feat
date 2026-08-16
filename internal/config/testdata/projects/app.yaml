@@ -12,14 +12,29 @@ project:
 repositories:
   api:
     host_path: ~/repos/app/api
-    container_path: /srv/api
+    # Where the agent's own container mounts this repository's task worktrees.
+    agent:
+      container_path: /srv/api
+    # What this repository brings to the application, and where its own services
+    # expect its source. The two paths are different questions with different
+    # owners, so they are different fields.
+    runtime:
+      compose_files:
+        - docker-compose.yml
+      container_path: /app
+      services:
+        - app
+        - worker
+      reachable:
+        - app
     default_branch: main
     remote: origin
     default_access: read_write
 
   web:
     host_path: ~/repos/app/web
-    container_path: /srv/web
+    agent:
+      container_path: /srv/web
     default_branch: main
     remote: origin
     default_access: selectable
@@ -27,7 +42,8 @@ repositories:
   infra:
     name: Container definitions
     host_path: ~/repos/app/infra
-    container_path: /srv/infra
+    agent:
+      container_path: /srv/infra
     default_branch: main
     remote: origin
     default_access: stable_read_only
@@ -63,15 +79,10 @@ agent:
 runtime:
   provider: compose
   start_policy: manual
-  compose_files:
-    - ~/repos/app/api/docker-compose.yml
   static_overrides: []
   env_files:
     - ~/repos/app/api/.env
   project_name_template: "feat-{project_id}-{task_id}"
-  services:
-    - app
-    - worker
 
 review:
   diff:

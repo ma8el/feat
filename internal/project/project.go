@@ -29,7 +29,7 @@ func FromConfig(cfg *config.Config, now time.Time) (*domain.Project, error) {
 			ID:            domain.RepositoryID(id),
 			Name:          repository.Name,
 			HostPath:      repository.HostPath,
-			ContainerPath: repository.ContainerPath,
+			ContainerPath: repository.Agent.ContainerPath,
 			DefaultBranch: repository.DefaultBranch,
 			Remote:        repository.Remote,
 			DefaultAccess: domain.DefaultAccess(repository.DefaultAccess),

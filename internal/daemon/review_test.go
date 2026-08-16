@@ -33,11 +33,9 @@ project:
 repositories:
   api:
     host_path: ~/repos/app/api
-    container_path: /srv/api
     default_access: read_write
   store:
     host_path: ~/repos/app/store
-    container_path: /srv/store
     default_access: read_only
 
 git:
@@ -81,11 +79,9 @@ project:
 repositories:
   api:
     host_path: ~/repos/app/api
-    container_path: /srv/api
     default_access: read_write
   store:
     host_path: ~/repos/app/store
-    container_path: /srv/store
     default_access: read_only
 
 git:
@@ -110,14 +106,10 @@ checks:
 
 // reviewRuntimeFixture is the same project with application services, so that
 // "approval stops nothing" is a claim about a runtime that is actually running.
-const reviewRuntimeFixture = reviewFixture + `
+var reviewRuntimeFixture = contributing(reviewFixture) + `
 runtime:
   provider: compose
-  compose_files:
-    - ~/repos/app/compose.yml
   project_name_template: "feat-{project_id}-{task_key}"
-  services:
-    - api
 `
 
 // fakeChecks answers a gate's checks from a table and records what it ran.

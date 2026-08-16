@@ -40,14 +40,20 @@ func hostDraft() Draft {
 // with an application runtime and a check.
 func devcontainerDraft() Draft {
 	draft := hostDraft()
-	draft.Repositories[0].ContainerPath = "/srv/api"
+	draft.Repositories[0].AgentContainerPath = "/srv/api"
+	draft.Repositories[0].Runtime = &DraftRepositoryRuntime{
+		ComposeFiles:  []string{"docker-compose.yml"},
+		ContainerPath: "/app",
+		Services:      []string{"app", "worker"},
+		Reachable:     []string{"app"},
+	}
 	draft.Repositories = append(draft.Repositories, DraftRepository{
-		ID:            "store",
-		HostPath:      "/checkouts/store",
-		ContainerPath: "/srv/store",
-		DefaultBranch: "main",
-		Remote:        "origin",
-		DefaultAccess: "selectable",
+		ID:                 "store",
+		HostPath:           "/checkouts/store",
+		AgentContainerPath: "/srv/store",
+		DefaultBranch:      "main",
+		Remote:             "origin",
+		DefaultAccess:      "selectable",
 	})
 	draft.Execution = DraftExecution{
 		Mode:               ModeDevcontainer,
@@ -57,11 +63,7 @@ func devcontainerDraft() Draft {
 		ClaudeConfigVolume: "feat-claude",
 	}
 	draft.Capabilities = DraftCapabilities{GitHubCLI: CLIOptional}
-	draft.Runtime = &DraftRuntime{
-		ComposeFiles: []string{"/checkouts/api/docker-compose.yml"},
-		EnvFiles:     []string{"/checkouts/api/.env"},
-		Services:     []string{"app", "worker"},
-	}
+	draft.Runtime = &DraftRuntime{EnvFiles: []string{"/checkouts/api/.env"}}
 	draft.Checks = []DraftCheck{{
 		Repository: "api",
 		ID:         "test",
@@ -213,12 +215,12 @@ func TestADraftIsRefusedBeforeItIsAFile(t *testing.T) {
 				}
 				return d
 			},
-			problem: "repositories.api.container_path",
+			problem: "repositories.api.agent.container_path",
 		},
 		{
 			name: "an agent running as root",
 			draft: func(d Draft) Draft {
-				d.Repositories[0].ContainerPath = "/srv/api"
+				d.Repositories[0].AgentContainerPath = "/srv/api"
 				d.Execution = DraftExecution{
 					Mode:         ModeDevcontainer,
 					ComposeFiles: []string{"/checkouts/api/docker-compose.yml"},

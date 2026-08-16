@@ -225,12 +225,12 @@ func taskMounts(cfg *config.Config, task *domain.Task, workspace *control.Worksp
 		// stable() is also what decides which checkouts are forbidden, so a
 		// repository this task promoted — which has a worktree and is mounted
 		// above — cannot be mounted here and refused there.
-		if !stable(cfg, task, id) || repository.ContainerPath == "" {
+		if !stable(cfg, task, id) || repository.Agent.ContainerPath == "" {
 			continue
 		}
 		mounts = append(mounts, execution.Mount{
 			Source:      repository.HostPath,
-			Target:      repository.ContainerPath,
+			Target:      repository.Agent.ContainerPath,
 			ReadOnly:    true,
 			Description: "the stable " + id + " checkout, read-only",
 		})

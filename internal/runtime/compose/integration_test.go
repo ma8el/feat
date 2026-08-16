@@ -51,41 +51,47 @@ func realRuntime(t *testing.T, id domain.TaskID) (*compose.Runtime, runtime.Spec
 	t.Helper()
 
 	root := t.TempDir()
-	project := filepath.Join(root, "application")
+	// Two repositories, because an application is composed of the repositories
+	// that bring it. Everything relative in the second one resolves into the
+	// first if the include document is wrong.
+	api := filepath.Join(root, "api")
+	web := filepath.Join(root, "web")
 	worktree := filepath.Join(root, "worktrees", "api")
 
-	for _, dir := range []string{project, worktree, filepath.Join(project, "base-mount")} {
+	for _, dir := range []string{api, web, worktree,
+		filepath.Join(api, "base-mount"), filepath.Join(web, "content")} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatalf("creating %s: %v", dir, err)
 		}
 	}
 
-	fixture, err := os.ReadFile(filepath.Join("testdata", "application.yaml"))
-	if err != nil {
-		t.Fatalf("reading the fixture: %v", err)
-	}
-	composeFile := filepath.Join(project, "docker-compose.yml")
-	if err := os.WriteFile(composeFile, fixture, 0o600); err != nil {
-		t.Fatalf("writing the fixture: %v", err)
-	}
-	// The build context of the fixture's one-shot dependency is the project
-	// directory, so its Dockerfile goes there with the Compose file.
-	dockerfile, err := os.ReadFile(filepath.Join("testdata", "prepare.Dockerfile"))
-	if err != nil {
-		t.Fatalf("reading the fixture's Dockerfile: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(project, "prepare.Dockerfile"), dockerfile, 0o600); err != nil {
-		t.Fatalf("writing the fixture's Dockerfile: %v", err)
-	}
+	// The first repository: the Compose file, the Dockerfile its one-shot
+	// dependency is built from, and the directory its base file mounts.
+	apiCompose := filepath.Join(api, "docker-compose.yml")
+	copyFixture(t, "application.yaml", apiCompose)
+	copyFixture(t, "prepare.Dockerfile", filepath.Join(api, "prepare.Dockerfile"))
 
-	// A file in each place, so that what the container sees can be compared with
-	// what the host put there.
+	// The second repository: its own Compose file, its own Dockerfile, and its
+	// own content.
+	webCompose := filepath.Join(web, "docker-compose.yml")
+	copyFixture(t, "web.yaml", webCompose)
+	copyFixture(t, "web.Dockerfile", filepath.Join(web, "web.Dockerfile"))
+
+	// A file in each place, so that what a container sees can be compared with
+	// what the host put there. Each repository has its own origin.txt, so an
+	// image built from the wrong context is an image that says which one.
 	for name, dir := range map[string]string{
 		"task-worktree.txt": worktree,
-		"base-mount.txt":    filepath.Join(project, "base-mount"),
+		"base-mount.txt":    filepath.Join(api, "base-mount"),
+		"from-web.txt":      filepath.Join(web, "content"),
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(name), 0o600); err != nil {
 			t.Fatalf("writing %s: %v", name, err)
+		}
+	}
+	for dir, origin := range map[string]string{api: "api", web: "web"} {
+		if err := os.WriteFile(filepath.Join(dir, "origin.txt"), []byte(origin), 0o600); err != nil {
+			t.Fatalf("writing the origin marker of %s: %v", origin, err)
 		}
 	}
 
@@ -93,24 +99,30 @@ func realRuntime(t *testing.T, id domain.TaskID) (*compose.Runtime, runtime.Spec
 	// and because Feat passes them by path and never reads them.
 	var envFiles []string
 	for i, body := range []string{"FEAT_TEST_ONE=1\n", "FEAT_TEST_TWO=2\n"} {
-		path := filepath.Join(project, ".env."+string(rune('a'+i)))
+		path := filepath.Join(api, ".env."+string(rune('a'+i)))
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatalf("writing %s: %v", path, err)
 		}
 		envFiles = append(envFiles, path)
 	}
 
+	generated := filepath.Join(root, "runtime")
 	spec := runtime.Spec{
-		Project:      "app",
-		Task:         id,
-		Identity:     "feat-app-" + strings.ToLower(id.Key().String()),
-		Files:        []string{composeFile},
-		Directory:    project,
-		OverridePath: filepath.Join(root, "runtime", "compose.override.yaml"),
+		Project:  "app",
+		Task:     id,
+		Identity: "feat-app-" + strings.ToLower(id.Key().String()),
+		Includes: []runtime.Include{
+			{Repository: "api", Directory: api, Files: []string{apiCompose}},
+			{Repository: "web", Directory: web, Files: []string{webCompose}},
+		},
+		IncludePath:  filepath.Join(generated, "compose.include.yaml"),
+		Directory:    generated,
+		OverridePath: filepath.Join(generated, "compose.override.yaml"),
 		EnvFiles:     envFiles,
-		Services:     []string{"api"},
+		Services:     []string{"api", "web"},
 		Mounts: []runtime.Mount{
-			{Source: worktree, Target: "/srv/api", Description: "the api task worktree, read-write"},
+			{Services: []string{"api"}, Source: worktree, Target: "/srv/api",
+				Description: "the api task worktree, read-write"},
 		},
 		Variables:        map[string]string{"FEAT_TASK_KEY": id.Key().String()},
 		ForbiddenSources: []string{filepath.Join(root, "repos", "api")},
@@ -129,13 +141,26 @@ func realRuntime(t *testing.T, id domain.TaskID) (*compose.Runtime, runtime.Spec
 		// itself, such as alpine, carries a tag of its own and is left alone.
 		down := exec.Command(compose.Executable, "compose",
 			"--project-name", spec.Identity, "--project-directory", spec.Directory,
-			"--file", composeFile, "--file", spec.OverridePath,
+			"--file", spec.IncludePath, "--file", spec.OverridePath,
 			"down", "--volumes", "--rmi", "local", "--timeout", "1")
 		if output, err := down.CombinedOutput(); err != nil {
 			t.Logf("cleaning up %s: %v\n%s", spec.Identity, err, output)
 		}
 	})
 	return services, spec, worktree
+}
+
+// copyFixture writes one testdata file to where a repository keeps it.
+func copyFixture(t *testing.T, name, destination string) {
+	t.Helper()
+
+	body, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatalf("reading the fixture %s: %v", name, err)
+	}
+	if err := os.WriteFile(destination, body, 0o600); err != nil {
+		t.Fatalf("writing %s: %v", destination, err)
+	}
 }
 
 // insideService runs a command in a service's container.
@@ -204,6 +229,25 @@ func TestRealTheLifecycleIsManualAndComplete(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(worktree, "written-by-the-service")); err != nil {
 		t.Errorf("what the service wrote did not reach the host worktree: %v", err)
+	}
+
+	// The second repository runs from its own checkout. Both assertions fail if
+	// the two repositories' files are merged rather than included: the image
+	// would be built from the first repository's directory, and the bind source
+	// would point into it (ADR-065 evidence 2).
+	if out, ok := insideService(t, spec.Identity, spec.Directory, "web", "cat", "/origin.txt"); !ok ||
+		strings.TrimSpace(out) != "web" {
+		t.Errorf("the web service was built from the wrong context: %q", strings.TrimSpace(out))
+	}
+	if out, ok := insideService(t, spec.Identity, spec.Directory, "web",
+		"cat", "/srv/content/from-web.txt"); !ok {
+		t.Errorf("the web service's own relative mount did not resolve against its own checkout: %s", out)
+	}
+	// And it holds no worktree of the other repository. A service runs one
+	// repository's code, and mounting every worktree into every service is what
+	// makes two repositories expecting their source at one path a collision.
+	if out, ok := insideService(t, spec.Identity, spec.Directory, "web", "ls", "/srv/api"); ok {
+		t.Errorf("the web service holds the api worktree, which is not its code: %s", out)
 	}
 
 	// Logs: the ordinary command, which runs. The vector is the adapter's own,
@@ -373,9 +417,11 @@ func TestRealComposeReportsWhatTheAggregationTableReads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("observing: %v", err)
 	}
-	if len(state.Services) != 3 || state.Services[0].Container == "" {
-		t.Fatalf("the observed services are %+v, want the managed one and the two Compose started with it",
-			state.Services)
+	// Two managed services, one per repository, and the two Compose started
+	// because a managed one depends on them.
+	if len(state.Services) != 4 || state.Services[0].Container == "" {
+		t.Fatalf("the observed services are %+v, want the two managed ones and the two Compose started "+
+			"with them", state.Services)
 	}
 	// The one-shot dependency has exited by now, and the application is running
 	// all the same. A runtime that called itself degraded every time a migration
@@ -468,8 +514,8 @@ func TestRealTheGeneratedOverrideReachesADependency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listing the first task's containers: %v", err)
 	}
-	if len(strings.Fields(string(owned))) != 3 {
-		t.Errorf("%d containers carry the first task's label, want 3: a resource Feat started and did not "+
+	if len(strings.Fields(string(owned))) != 4 {
+		t.Errorf("%d containers carry the first task's label, want 4: a resource Feat started and did not "+
 			"label is one a cleanup cannot find", len(strings.Fields(string(owned))))
 	}
 }

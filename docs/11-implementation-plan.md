@@ -2092,7 +2092,16 @@ A new macOS/Linux user can use Feat outside the reference project.
   delivered `feat project init` (ADR-062) once dogfooding showed manual
   configuration to be the hardest step; what is left here is whatever a machine
   that has never run Feat turns out to need, which the first-task documentation
-  above is written against.
+  above is written against. Two findings from running it against the reference
+  project in slice 14 are held for this slice rather than fixed there:
+  - the managed-services proposal offers every service a repository's files
+    declare, including a database that runs none of its code, so a user
+    accepting the proposal manages more than the project meant;
+  - the agent's environment is answered before the application, so the agent's
+    Compose question cannot exclude the files the application will claim. It now
+    proposes nothing rather than guessing, and asking the application first
+    would let it propose what is left. That reorders the whole conversation,
+    which is more than a slice about composition should take on.
 - Add Shortcut only if all core reliability work is complete.
 
 ### Acceptance criteria

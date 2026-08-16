@@ -15,8 +15,13 @@ type RuntimeEnvironment struct {
 	// name for the Compose adapter. It is what makes an action affect one
 	// task's services and no other's.
 	Identity string
-	// ComposeFiles are the configured base files, in order.
-	ComposeFiles []string
+	// Composition is what the application is made of: one entry per repository
+	// that brings Compose files, each with the directory its own relative paths
+	// resolve against.
+	Composition []RuntimeSource
+	// GeneratedIncludePath is the Compose include document Feat generated to
+	// join the composition into one application.
+	GeneratedIncludePath string
 	// StaticOverrides are user-authored override files, in order.
 	StaticOverrides []string
 	// GeneratedOverridePath is the override Feat generated for the task. It
@@ -96,11 +101,27 @@ func (r *RuntimeEnvironment) Validate(task TaskID) error {
 type RuntimeInputs struct {
 	Provider              string
 	Identity              string
-	ComposeFiles          []string
+	Composition           []RuntimeSource
+	GeneratedIncludePath  string
 	StaticOverrides       []string
 	GeneratedOverridePath string
 	EnvFiles              []string
 	Services              []string
+}
+
+// RuntimeSource is one repository's contribution to a task's application.
+//
+// A runtime is composed of its repositories rather than of a flat list of
+// files, because which repository a file came from is what decides the
+// directory its relative paths resolve against (ADR-065).
+type RuntimeSource struct {
+	// Repository identifies the repository within the project.
+	Repository string
+	// Directory is the repository's ordinary checkout, which is the project
+	// directory of its include entry.
+	Directory string
+	// Files are that repository's own Compose files, in order.
+	Files []string
 }
 
 // NewRuntimeEnvironment records a task's application runtime before anything
@@ -140,7 +161,8 @@ func (r *RuntimeEnvironment) ReplaceInputs(inputs RuntimeInputs, now time.Time) 
 func (r *RuntimeEnvironment) apply(inputs RuntimeInputs) {
 	r.Provider = inputs.Provider
 	r.Identity = inputs.Identity
-	r.ComposeFiles = inputs.ComposeFiles
+	r.Composition = inputs.Composition
+	r.GeneratedIncludePath = inputs.GeneratedIncludePath
 	r.StaticOverrides = inputs.StaticOverrides
 	r.GeneratedOverridePath = inputs.GeneratedOverridePath
 	r.EnvFiles = inputs.EnvFiles

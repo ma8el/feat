@@ -60,12 +60,13 @@ func TestValidationRejectsUnsafeConfiguration(t *testing.T) {
 			path: "repositories.api.default_access", contains: "not an access mode",
 		},
 		"container path is relative": {
-			old: "    container_path: /srv/api", new: "    container_path: srv/api",
-			path: "repositories.api.container_path", contains: "absolute path inside the execution environment",
+			old: "      container_path: /srv/api", new: "      container_path: srv/api",
+			path:     "repositories.api.agent.container_path",
+			contains: "absolute path inside the execution environment",
 		},
 		"container paths overlap": {
-			old: "    container_path: /srv/web", new: "    container_path: /srv/api/inner",
-			path: "repositories.web.container_path", contains: "cannot be mounted inside one another",
+			old: "      container_path: /srv/web", new: "      container_path: /srv/api/inner",
+			path: "repositories.web.agent.container_path", contains: "cannot be mounted inside one another",
 		},
 		"base policy is unknown": {
 			old: "  base_policy: remote", new: "  base_policy: whatever",
@@ -240,10 +241,10 @@ func TestHostExecutionRejectsDevcontainerFields(t *testing.T) {
 // TestDevcontainerRequiresContainerPaths checks that a repository a task can
 // select has somewhere to be mounted.
 func TestDevcontainerRequiresContainerPaths(t *testing.T) {
-	_, err := loadReplacing(t, "    container_path: /srv/web\n", "")
+	_, err := loadReplacing(t, "    agent:\n      container_path: /srv/web\n", "")
 	invalid := configError(t, err)
 
-	problem := problemAt(t, invalid, "repositories.web.container_path")
+	problem := problemAt(t, invalid, "repositories.web.agent.container_path")
 	if !strings.Contains(problem.Reason, "devcontainer") {
 		t.Errorf("problem is %q, which does not say why a container path is needed", problem.Reason)
 	}

@@ -75,9 +75,17 @@ func renderRow(prefix string, row []string, widths []int) string {
 
 // mountTable builds the repository-to-container path mapping.
 //
-// It is a table of its own because it is the mapping a devcontainer task
-// depends on and the one most worth checking by eye: a repository mounted at
-// the wrong path is a task that compiles nothing.
+// It is a table of its own because it is the mapping tasks depend on and the
+// one most worth checking by eye: a repository mounted at the wrong path is a
+// task that compiles nothing, or an application serving the ordinary checkout
+// while every record Feat keeps stays correct.
+//
+// Each column appears where it means something, and the two mount columns mean
+// something under different conditions. The agent's path exists only where
+// there is a container around the agent. The runtime's exists wherever there
+// are application services, host-native agent or not — which is the column that
+// used to be dropped for exactly the projects whose services it decides
+// (ADR-065 evidence 6).
 func mountTable(cfg *config.Config) *table {
 	mounts := cfg.Mounts()
 	if len(mounts) == 0 {
@@ -85,21 +93,30 @@ func mountTable(cfg *config.Config) *table {
 	}
 
 	container := cfg.Agent.Execution.Devcontainer()
-	built := &table{header: []string{"REPOSITORY", "HOST PATH", "DEFAULT ACCESS"}}
+	runtime := cfg.HasRuntime()
+
+	built := &table{header: []string{"REPOSITORY", "HOST PATH"}}
 	if container {
-		built.header = []string{"REPOSITORY", "HOST PATH", "CONTAINER PATH", "DEFAULT ACCESS"}
+		built.header = append(built.header, "AGENT PATH")
 	}
+	if runtime {
+		built.header = append(built.header, "RUNTIME PATH", "SERVICES")
+	}
+	built.header = append(built.header, "DEFAULT ACCESS")
 
 	for _, mount := range mounts {
 		name := mount.RepositoryID
 		if mount.Primary {
 			name += " *"
 		}
+		row := []string{name, mount.HostPath}
 		if container {
-			built.add(name, mount.HostPath, orNone(mount.ContainerPath), mount.DefaultAccess)
-			continue
+			row = append(row, orNone(mount.AgentPath))
 		}
-		built.add(name, mount.HostPath, mount.DefaultAccess)
+		if runtime {
+			row = append(row, orNone(mount.RuntimePath), orNone(strings.Join(mount.RuntimeServices, " ")))
+		}
+		built.add(append(row, mount.DefaultAccess)...)
 	}
 	return built
 }

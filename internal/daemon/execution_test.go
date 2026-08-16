@@ -452,7 +452,7 @@ func TestAStableRepositoryIsMountedReadOnlyFromItsCheckout(t *testing.T) {
 	stable := filepath.Join(arranged.env.Home, "repos", "app", "tooling")
 	cfg.Repositories["tooling"] = config.Repository{
 		HostPath:      stable,
-		ContainerPath: "/srv/tooling",
+		Agent:         config.RepositoryAgent{ContainerPath: "/srv/tooling"},
 		DefaultAccess: string(domain.DefaultAccessStableReadOnly),
 	}
 
@@ -501,7 +501,7 @@ func TestAStableRepositoryIsNotAlsoForbidden(t *testing.T) {
 	stable := filepath.Join(arranged.env.Home, "repos", "app", "tooling")
 	cfg.Repositories["tooling"] = config.Repository{
 		HostPath:      stable,
-		ContainerPath: "/srv/tooling",
+		Agent:         config.RepositoryAgent{ContainerPath: "/srv/tooling"},
 		DefaultAccess: string(domain.DefaultAccessStableReadOnly),
 	}
 
@@ -608,7 +608,7 @@ func TestAStableCheckoutIsRefusedAnywhereButItsOwnMount(t *testing.T) {
 	stable := filepath.Join(arranged.env.Home, "repos", "app", "tooling")
 	cfg.Repositories["tooling"] = config.Repository{
 		HostPath:      stable,
-		ContainerPath: "/srv/tooling",
+		Agent:         config.RepositoryAgent{ContainerPath: "/srv/tooling"},
 		DefaultAccess: string(domain.DefaultAccessStableReadOnly),
 	}
 

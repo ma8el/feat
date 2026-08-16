@@ -42,21 +42,39 @@ project:
 repositories:
   dashboard:
     host_path: ~/projects/app/dashboard
-    container_path: /workspace/dashboard
+    agent:
+      container_path: /workspace/dashboard
+    runtime:
+      compose_files:
+        - docker-compose.yml
+        - docker-compose.dev.yml
+      container_path: /app
+      services:
+        - frontend
+      reachable:
+        - frontend
     default_branch: main
     remote: origin
     default_access: read_write
 
   database:
     host_path: ~/projects/app/database
-    container_path: /workspace/database
+    agent:
+      container_path: /workspace/database
+    runtime:
+      compose_files:
+        - docker-compose.yml
+      container_path: /srv/database
+      services:
+        - backend
     default_branch: main
     remote: origin
     default_access: selectable
 
   devcontainer:
     host_path: ~/projects/app/devcontainer
-    container_path: /workspace/devcontainer
+    agent:
+      container_path: /workspace/devcontainer
     default_branch: main
     remote: origin
     default_access: stable_read_only
@@ -94,15 +112,10 @@ agent:
 runtime:
   provider: compose
   start_policy: manual
-  compose_files:
-    - ~/projects/app/dashboard/docker-compose.yml
   static_overrides: []
   env_files:
     - ~/projects/app/dashboard/.env
   project_name_template: "feat-{project_id}-{task_id}"
-  services:
-    - frontend
-    - backend
 
 review:
   diff:
@@ -152,13 +165,19 @@ Feat records the resulting commit, not merely the ref name.
 
 `devcontainer` requires Compose inputs, service, non-root user expectation, container working directory, and container control path. The configured Compose service may reference application files, but application runtime lifecycle remains separate.
 
-Every repository's `container_path` must be the path its Compose files already
-mount the repository at. Compose merges a service's mounts by target, so Feat's
-generated override replaces that mount with the task's worktree; a path that
-disagrees adds a second mount instead and leaves the agent holding the user's
-ordinary checkout as well as its own worktree. Feat refuses a launch whose
-container turns out to mount a configured repository checkout, but the
-configuration is where the mistake is fixed.
+`repositories.<id>.agent.container_path` must be the path the devcontainer's own
+Compose files already mount the repository at. Compose merges a service's mounts
+by target, so Feat's generated override replaces that mount with the task's
+worktree; a path that disagrees adds a second mount instead and leaves the agent
+holding the user's ordinary checkout as well as its own worktree. Feat refuses a
+launch whose container turns out to mount a configured repository checkout, but
+the configuration is where the mistake is fixed.
+
+It applies to `devcontainer` execution only and is rejected under `host`, which
+has no container around the agent at all. Where the *application's* services
+expect a repository's source is a separate field on the same repository —
+`repositories.<id>.runtime.container_path` — and it applies in both modes,
+because an application has containers whatever the agent does. See ADR-065.
 
 ### Claude configuration
 
@@ -188,21 +207,60 @@ Validation occurs inside the same execution environment where Claude will run th
 
 `docker`, `network`, and `git` accept one value each — `denied`, `unrestricted`, and `full`. Feat has no mechanism that grants an agent Docker, restricts its network, or limits its Git access, so any other value would record a promise the binary does not keep. The declaration is still made, because the execution adapter checks the running container against it. See ADR-028.
 
+### A runtime is composed of its repositories
+
+An application's Compose files belong to the repositories that bring them, so
+that is where they are configured. `repositories.<id>.runtime.compose_files`
+lists what one repository brings, resolved against that repository's own
+checkout, and Feat generates the Compose `include` document that joins them —
+one entry per repository, each carrying its own `project_directory`.
+
+Listing two repositories' files in one place instead does not work, and this is
+measured rather than reasoned: Compose resolves the relative paths in every file
+against a single project directory, so a second repository's `build: .` builds
+from the first repository's checkout. Nothing relative may cross a repository
+boundary, and the generated include is what keeps it from having to (ADR-065
+evidence 2 and 3).
+
+Feat's own Compose project directory is the directory holding the documents it
+generates. Every path in them is absolute, and each include entry names the
+directory its own repository's relative paths resolve against, so a project
+directory belonging to one of the repositories could only be the directory a
+second repository's paths were wrongly resolved against. One consequence is
+worth stating: Compose's implicit `.env` lookup beside a repository does not
+apply, so an environment file a project needs is named in `runtime.env_files`.
+The same is true of a relative path inside a `runtime.static_overrides` file,
+which is why those are best written absolute.
+
+`repositories.<id>.runtime.services` names the services that run that
+repository's code, which are the services a create and a start target. Two
+repositories may name one service: a service running an application and a shared
+library it depends on runs the code of both, and each repository's worktree is
+mounted at its own container path. A service receives the worktrees of the
+repositories that named it and no others, because a service that runs one
+repository's code has no reason to hold another's — and mounting every worktree
+into every service would make two repositories expecting their source at the
+same path a collision rather than the ordinary arrangement it is.
+
+`repositories.<id>.runtime.reachable` names the services of that repository a
+user reaches from the host. It is collected and validated from this version and
+is not acted on until Feat allocates ports.
+
 ### Runtime ownership
 
 Every runtime resource Feat models is one it created, observes, and may remove.
 A `shared` lifecycle, product-managed with explicit isolation semantics, is
 roadmap work.
 
-`runtime.services` names the services a create and a start target. It is not the
-whole of what runs: Compose starts whatever those services depend on, and
-everything it starts belongs to the task's own Compose project. Feat therefore
-owns all of it — a stop, a status, a logs, and a destroy address the project
-rather than the list — and a status says which services the project named and
-which are there because another service needs them. A service Feat was not asked
-to manage is not given the task's worktrees or the generated variables; it is
-given its `container_name` reset and Feat's ownership labels, without which two
-tasks could not run the same application at once (ADR-034).
+The managed services are not the whole of what runs: Compose starts whatever
+those services depend on, and everything it starts belongs to the task's own
+Compose project. Feat therefore owns all of it — a stop, a status, a logs, and a
+destroy address the project rather than the list — and a status says which
+services the project named and which are there because another service needs
+them. A service Feat was not asked to manage is not given the task's worktrees or
+the generated variables; it is given its `container_name` reset and Feat's
+ownership labels, without which two tasks could not run the same application at
+once (ADR-034).
 
 Feat sets `FEAT_PROJECT_ID`, `FEAT_TASK_ID`, `FEAT_TASK_KEY`, and
 `FEAT_RUNTIME_PROJECT` on every managed service. They are generated task
@@ -216,13 +274,13 @@ reclaims anything behind that name, and it cannot, because the connection string
 lives in an `env_files` entry Feat passes to Compose by path and never opens.
 What a project makes of the name is the project's (ADR-048).
 
-Every repository's `container_path` is used by the application runtime as well
-as by the devcontainer, so a project whose application Compose files mount a
-repository somewhere else adds a second mount instead of replacing one, and its
-services run the user's ordinary checkout rather than the task's worktree. Feat
-inspects the started containers and reports that in its own terms rather than
-refusing the start: the application runtime is inside the trusted host, so it is
-a correctness problem rather than a boundary breach (ADR-034).
+`repositories.<id>.runtime.container_path` must be where that repository's own
+Compose files mount it, so that Feat's generated override replaces that mount
+rather than adding a second one beside it. A path that disagrees leaves the
+services running the user's ordinary checkout with every record Feat keeps still
+correct. Feat inspects the started containers and reports that in its own terms
+rather than refusing the start: the application runtime is inside the trusted
+host, so it is a correctness problem rather than a boundary breach (ADR-034).
 
 ### Notifications and resource sampling
 
@@ -253,6 +311,22 @@ measurement, so the shortest interval any registered project asks for is what th
 machine is asked for, floored at one second and at however long the previous
 sample took — asking the container runtime what it is using takes between one and
 two seconds whatever it is asked. Sampling never blocks a request or a task.
+
+### Configuration Feat derives
+
+`feat project init` reads a project's own Compose files structurally to propose
+configuration: service keys, the container targets of bind mounts whose source
+is the repository itself, `build.context`, and published `ports`. It never
+resolves interpolation — an entry containing a `${...}` is a value Feat could
+not derive, and the user is asked instead — and it never reads an `environment`
+value, a `build.args` entry, or an `env_file`.
+
+The rule is not who reads but where a value comes to rest: a derived value
+becomes configuration only when the user accepts it into their own YAML, and
+nothing Feat inferred is persisted in Feat's own state. Reading a document
+resolves nothing, which is what separates this from `docker compose config` —
+that command renders the values of a project's environment files into its
+output, and no path to a diagnosis runs it (ADR-034 evidence 5, ADR-065).
 
 ### Secrets
 
@@ -307,14 +381,18 @@ The agent's Compose project is the environment the agent works in and Feat
 surfaces no port from it; the application runtime is what the user is testing, and
 reaching it is the point of the port.
 
-The application runtime's generated override resets `container_name` on every
-service the project's Compose files define and leaves published `ports` exactly
-as the project configured them. A container name is Feat's problem and a
+The application runtime has two generated documents. The first is the `include`
+that joins the repositories the application is composed of, one entry per
+repository with its own project directory. The second is the override, merged
+last over the result: it resets `container_name` on every service the included
+files define and leaves published `ports` exactly as the project configured
+them. A container name is Feat's problem and a
 published port is how the user reaches the application they are testing, and v0
 allocates no ports of its own: two tasks that both want one host port is
 explained in Feat's terms rather than prevented by making the application
-unreachable. It also mounts each task worktree at the container path its
-repository configures, and carries the generated non-secret variables — the
+unreachable. It also mounts each task worktree at the runtime container path
+its repository configures, in the services that repository named, and carries
+the generated non-secret variables — the
 project and task identifiers, the Compose project name, and each external
 resource's selector. Those last two apply to the managed services only: a service
 Feat was not asked to manage gets the reset and the ownership labels and nothing
@@ -330,7 +408,9 @@ At minimum:
 - Project and repository IDs are unique, and the file name matches the project ID.
 - Primary repository exists and can be read-write.
 - Host paths resolve to expected Git repositories/Compose files.
-- Container paths are absolute and non-overlapping unless explicitly allowed, and the control path overlaps none of them.
+- Container paths are absolute. The agent's must not overlap one another, and the control path overlaps none of them; two repositories' runtime container paths may coincide, because a repository's worktree reaches its own services only.
+- A repository contributing to an application runtime the project does not configure is rejected, as is a runtime container path with no service to mount it in.
+- Configuration written in a shape a previous version read is rejected with an error naming what replaced it, rather than as an unknown field.
 - Branch and runtime templates produce safe names, use only known placeholders, and contain a per-task placeholder so that two tasks cannot share a branch or a Compose project.
 - Worktree roots cannot resolve to a broad unsafe path, cannot be rooted at one, and cannot overlap a repository checkout.
 - Devcontainer user is non-root when the policy requires it.

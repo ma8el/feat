@@ -8,9 +8,14 @@ import (
 // inputs is a plausible set of runtime inputs.
 func inputs(identity string) RuntimeInputs {
 	return RuntimeInputs{
-		Provider:              "compose",
-		Identity:              identity,
-		ComposeFiles:          []string{"/repos/example/core/compose.yaml"},
+		Provider: "compose",
+		Identity: identity,
+		Composition: []RuntimeSource{{
+			Repository: "core",
+			Directory:  "/repos/example/core",
+			Files:      []string{"/repos/example/core/compose.yaml"},
+		}},
+		GeneratedIncludePath:  "/state/runtime/example/7f3a1c2e/compose.include.yaml",
 		GeneratedOverridePath: "/state/runtime/example/7f3a1c2e/compose.override.yaml",
 		Services:              []string{"api"},
 	}

@@ -271,7 +271,7 @@ func gitRequest(cfg *config.Config, task *domain.Task, selection []Selection) (g
 		// true.
 		container := ""
 		if cfg.Agent.Execution.Devcontainer() {
-			container = repository.ContainerPath
+			container = repository.Agent.ContainerPath
 		}
 
 		request.Repositories = append(request.Repositories, git.RepositoryRequest{

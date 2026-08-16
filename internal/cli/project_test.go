@@ -52,11 +52,21 @@ project:
 repositories:
   api:
     host_path: ~/repos/app/api
-    container_path: /srv/api
+    agent:
+      container_path: /srv/api
+    runtime:
+      compose_files:
+        - ~/repos/app/compose.yml
+      container_path: /app
+      services:
+        - app
+      reachable:
+        - app
     default_access: read_write
   store:
     host_path: ~/repos/app/store
-    container_path: /srv/store
+    agent:
+      container_path: /srv/store
     default_access: selectable
 
 git:
@@ -75,12 +85,8 @@ agent:
     gitlab_cli: required
 
 runtime:
-  compose_files:
-    - ~/repos/app/compose.yml
   env_files:
     - ~/repos/app/.env
-  services:
-    - app
 `
 
 // machine is a temporary home with a configuration directory and the files a
@@ -307,9 +313,13 @@ func TestProjectShowPrintsResolvedConfiguration(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"CONTAINER PATH",
+		// Both mappings, because they are different questions: where the agent
+		// works, and where the user's own services expect their source.
+		"AGENT PATH",
+		"RUNTIME PATH",
 		filepath.Join(m.home, "repos", "app", "api") + " ",
 		"/srv/api",
+		"/app",
 		filepath.Join(m.home, "repos", "app", "store") + " ",
 		"/srv/store",
 		"read_write",
@@ -346,7 +356,7 @@ func TestDoctorReportsAHealthyMachine(t *testing.T) {
 		"project app", "is valid", "repositories", "/srv/api",
 		// The mapping table is the acceptance criterion, so its header is
 		// asserted rather than assumed from one path appearing.
-		"REPOSITORY", "HOST PATH", "CONTAINER PATH", "DEFAULT ACCESS",
+		"REPOSITORY", "HOST PATH", "AGENT PATH", "RUNTIME PATH", "DEFAULT ACCESS",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("the report does not contain %q:\n%s", want, stdout)
