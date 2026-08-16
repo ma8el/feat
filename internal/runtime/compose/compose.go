@@ -53,6 +53,12 @@ type Options struct {
 // It validates the specification and resolves the container tool before
 // anything can be created, so a specification that could never work is refused
 // where the message can still name the field that is wrong.
+//
+// It also writes the generated include document, which is the one file every
+// command needs: a status, a stop, and a destroy all name it, and the first
+// thing a user does with a runtime is ask what it is doing before anything has
+// created it. The generated override is different and is written where it is
+// used, because it exists only once there is something to override.
 func New(spec runtime.Spec, opts Options) (*Runtime, error) {
 	if err := spec.Validate(); err != nil {
 		return nil, err
@@ -67,8 +73,14 @@ func New(spec runtime.Spec, opts Options) (*Runtime, error) {
 		return nil, fmt.Errorf("task %s runs its application services through Docker Compose, and %w. "+
 			"Install Docker, or remove the runtime section from the project's configuration", spec.Task, err)
 	}
+	if err := writeInclude(spec); err != nil {
+		return nil, err
+	}
 	return &Runtime{spec: spec, runner: runner, docker: docker}, nil
 }
+
+// IncludePath returns the generated include document this runtime writes.
+func (r *Runtime) IncludePath() string { return r.spec.IncludePath }
 
 // Identity returns the Compose project name this runtime owns.
 func (r *Runtime) Identity() string { return r.spec.Identity }
@@ -288,13 +300,14 @@ func (r *Runtime) defined(ctx context.Context) ([]string, error) {
 //
 // Every invocation carries the project name, which is what makes an action
 // affect one task's services and no other's, and the project directory, which is
-// the first configured file's directory so that its relative build contexts and
-// bind sources keep resolving while the generated override lives under the state
-// directory.
+// where Feat's own generated documents live. Nothing relative resolves against
+// it: every path in those documents is absolute, and each repository's own
+// relative paths resolve against the project directory its include entry
+// carries.
 //
-// The file order is the merge order: the project's base files, then its own
-// static overrides, then Feat's generated one last. Environment files are passed
-// by path and never read (docs/05-security-model.md).
+// The file order is the merge order: the generated include, then the project's
+// own static overrides, then Feat's generated override last. Environment files
+// are passed by path and never read (docs/05-security-model.md).
 func (r *Runtime) invoke(arguments ...string) runtime.Invocation {
 	return r.compose(true, arguments...)
 }
@@ -307,9 +320,7 @@ func (r *Runtime) compose(generated bool, arguments ...string) runtime.Invocatio
 		"compose",
 		"--project-name", r.spec.Identity,
 		"--project-directory", r.spec.Directory,
-	}
-	for _, file := range r.spec.Files {
-		base = append(base, "--file", file)
+		"--file", r.spec.IncludePath,
 	}
 	for _, file := range r.spec.StaticOverrides {
 		base = append(base, "--file", file)

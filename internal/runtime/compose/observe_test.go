@@ -22,7 +22,10 @@ func observed(t *testing.T, services []string, answer string) runtime.State {
 		Answer("volume ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}", "")
 
 	_, spec := arrange(t, docker)
-	spec.Services = services
+	// The observed services replace the arranged ones, so the arranged mounts go
+	// with them: a mount belongs to the services of one repository, and what is
+	// under test here is what the containers say rather than what they hold.
+	spec.Services, spec.Mounts = services, nil
 	target, err := compose.New(spec, compose.Options{Runner: docker})
 	if err != nil {
 		t.Fatalf("building the runtime: %v", err)

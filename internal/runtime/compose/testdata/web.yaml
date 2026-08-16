@@ -1,0 +1,22 @@
+# The second repository of the opt-in fixture's application.
+#
+# It exists to prove that a repository's own relative paths resolve against its
+# own checkout. Both entries below are relative and both would resolve into the
+# first repository if the two repositories' files were merged with `--file`
+# instead of joined by a generated `include`:
+#
+#   - the build context is `.`, and its Dockerfile copies an origin.txt that
+#     each repository has its own copy of. A container built from the wrong
+#     context says so;
+#   - the bind source is `./content`, which only this repository has.
+#
+# It publishes no port, for the reason the other file gives.
+services:
+  web:
+    build:
+      context: .
+      dockerfile: web.Dockerfile
+    command: ["sleep", "infinity"]
+    container_name: feat-runtime-test-web
+    volumes:
+      - ./content:/srv/content

@@ -54,13 +54,22 @@ func writeOverride(spec runtime.Spec, defined []string) error {
 	if err != nil {
 		return err
 	}
+	return replaceFile(spec.OverridePath, document, "generated Compose override")
+}
 
-	dir := filepath.Dir(spec.OverridePath)
+// replaceFile writes one generated document and replaces the file atomically.
+//
+// A half-written Compose document is one Docker Compose would read and refuse,
+// and the moment it would read it is the moment a user asked for their
+// application: the rename is what keeps a crashed write from becoming a start
+// that fails for a reason nothing explains.
+func replaceFile(path string, document []byte, what string) error {
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, overrideDirPerm); err != nil {
-		return fmt.Errorf("creating %s for the generated Compose override: %w", dir, err)
+		return fmt.Errorf("creating %s for the %s: %w", dir, what, err)
 	}
 
-	temp, err := os.CreateTemp(dir, "."+filepath.Base(spec.OverridePath)+".tmp-*")
+	temp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return fmt.Errorf("creating a temporary file in %s: %w", dir, err)
 	}
@@ -75,8 +84,8 @@ func writeOverride(spec runtime.Spec, defined []string) error {
 	if err := temp.Close(); err != nil {
 		return fmt.Errorf("closing %s: %w", temp.Name(), err)
 	}
-	if err := os.Rename(temp.Name(), spec.OverridePath); err != nil {
-		return fmt.Errorf("replacing %s: %w", spec.OverridePath, err)
+	if err := os.Rename(temp.Name(), path); err != nil {
+		return fmt.Errorf("replacing %s: %w", path, err)
 	}
 	return nil
 }
@@ -94,6 +103,8 @@ func writeOverride(spec runtime.Spec, defined []string) error {
 //   - container_name is reset. It is global to the Docker daemon, so a base file
 //     carrying one could be brought up for exactly one task, and one task per
 //     machine is not the product;
+//   - a managed service receives the worktrees of the repository whose services
+//     it is among, and no others;
 //   - published ports are left exactly as the project configured them. They are
 //     how the user reaches the application they are testing, and v0 allocates
 //     none of its own; two tasks wanting the same host port is explained rather
@@ -120,10 +131,10 @@ func overrideDocument(spec runtime.Spec, defined []string) ([]byte, error) {
 		spec.Task, spec.Project)
 	b.WriteString("#\n")
 	b.WriteString("# Do not edit: it is rewritten every time the task's services are created or\n")
-	b.WriteString("# started, and it is merged last over the project's own Compose files. Compose\n")
-	b.WriteString("# merges a service's volumes by target, so each mount below replaces whatever\n")
-	b.WriteString("# the base files mounted at that path rather than adding a second mount beside\n")
-	b.WriteString("# it.\n")
+	b.WriteString("# started, and it is merged last over the generated include of the repositories\n")
+	b.WriteString("# this application is composed of. Compose merges a service's volumes by\n")
+	b.WriteString("# target, so each mount below replaces whatever those files mounted at that\n")
+	b.WriteString("# path rather than adding a second mount beside it.\n")
 	b.WriteString("#\n")
 	b.WriteString("# container_name is reset because it is global to the Docker daemon: a base file\n")
 	b.WriteString("# carrying one could be started for one task and no more. Published ports are\n")
@@ -134,9 +145,14 @@ func overrideDocument(spec runtime.Spec, defined []string) ([]byte, error) {
 		fmt.Fprintf(&b, "  %s:\n", quote(service))
 		b.WriteString("    container_name: !reset null\n")
 
-		if len(spec.Mounts) > 0 {
+		// The worktrees of the repository whose services these are, and no
+		// others: a service that runs one repository's code has no reason to
+		// hold another's, and mounting every worktree into every service would
+		// make two repositories expecting their source at the same path a
+		// collision rather than the ordinary arrangement it is.
+		if mounts := spec.MountsFor(service); len(mounts) > 0 {
 			b.WriteString("    volumes:\n")
-			for _, mount := range spec.Mounts {
+			for _, mount := range mounts {
 				if mount.Description != "" {
 					fmt.Fprintf(&b, "      # %s\n", mount.Description)
 				}

@@ -50,6 +50,21 @@ func (h *fakeHost) ComposeServices(files ...string) []string {
 	return []string{"dev", "worker"}
 }
 
+// Compose answers what the api checkout's own Compose file says about itself:
+// two services, one of which mounts the repository at /srv and publishes a
+// port, and one built from the repository itself.
+func (h *fakeHost) Compose(root string, files ...string) Composition {
+	if len(files) == 0 || root != filepath.Join(h.root, "api") {
+		return Composition{}
+	}
+	return Composition{
+		Services:      []string{"dev", "worker"},
+		ContainerPath: "/srv",
+		Reachable:     []string{"dev"},
+		Baked:         []string{"worker"},
+	}
+}
+
 func (h *fakeHost) Exists(string) bool { return true }
 
 func (h *fakeHost) Absolute(value string) (string, error) {
@@ -291,16 +306,25 @@ func TestANamedProjectStartsAtTheSecondQuestion(t *testing.T) {
 // TestTheDevcontainerQuestionsFollowTheMode checks that answering one question
 // decides which questions exist, which is why this is a flow and not a form.
 func TestTheDevcontainerQuestionsFollowTheMode(t *testing.T) {
-	flow, _ := start(t, "")
+	flow, host := start(t, "")
 	answers(t, flow, "app", "", "", "api", "", "n", "devcontainer")
 
-	// The Compose file found beside the repository is proposed rather than asked
-	// for, and the services it declares are reported once it is accepted.
+	// Nothing is proposed. The files beside a repository are overwhelmingly its
+	// application's rather than the agent's container's, and this section is
+	// asked before the one that would know which: proposing one of them offered
+	// an application file for the devcontainer, and the empty answer that was
+	// meant to finish the loop accepted it.
 	question, _ := flow.Step()
-	if question.ID != "agent.compose" || filepath.Base(question.Proposed) != "compose.yaml" {
-		t.Fatalf("the Compose question proposes %q", question.Proposed)
+	if question.ID != "agent.compose" {
+		t.Fatalf("the first devcontainer question is %s", question.ID)
 	}
-	answers(t, flow, "", "")
+	if question.Proposed != "" {
+		t.Errorf("the devcontainer's Compose question proposes %q, and it cannot know", question.Proposed)
+	}
+	if err := flow.Answer(context.Background(), ""); err == nil {
+		t.Error("an empty answer was accepted for a question with nothing to propose")
+	}
+	answers(t, flow, filepath.Join(host.root, "api", "compose.yaml"), "")
 
 	service, _ := flow.Step()
 	if service.ID != "agent.service" || service.Proposed != "dev" {
@@ -330,6 +354,158 @@ func TestTheDevcontainerQuestionsFollowTheMode(t *testing.T) {
 		if !strings.Contains(string(review.Text), want) {
 			t.Errorf("the configuration does not contain %q:\n%s", want, review.Text)
 		}
+	}
+}
+
+// TestTheApplicationIsAnsweredOneRepositoryAtATime is the shape ADR-065 gives
+// the runtime, as a conversation.
+//
+// A runtime is composed of its repositories, so it is answered where the code
+// is: each repository is asked what it brings, what its services are, and where
+// those services expect its source. The proposals come from that repository's
+// own Compose files, read structurally, and the question is asked with the
+// agent running on this host — which is the mode the runtime container path
+// used to be skipped for (ADR-065 evidence 6).
+func TestTheApplicationIsAnsweredOneRepositoryAtATime(t *testing.T) {
+	flow, _ := start(t, "app")
+	answers(t, flow,
+		"",    // display name
+		"",    // the checkout: the working directory, which is the api repository
+		"api", // repository identifier
+		"",    // default access: read_write
+		"n",   // no second repository
+		"",    // execution mode: host, which has no agent container at all
+		"",    // provider CLI: none
+		"y",   // the project runs application services
+	)
+
+	repository, _ := flow.Step()
+	if repository.ID != "runtime.repository" || repository.Proposed != "y" {
+		t.Fatalf("the first application question is %s proposing %q, want the repository beside a "+
+			"Compose file", repository.ID, repository.Proposed)
+	}
+	answer(t, flow, "y")
+
+	compose, _ := flow.Step()
+	if compose.ID != "runtime.compose" || filepath.Base(compose.Proposed) != "compose.yaml" {
+		t.Fatalf("the Compose question of %s proposes %q", "api", compose.Proposed)
+	}
+	answers(t, flow, "", "")
+
+	services, _ := flow.Step()
+	if services.ID != "runtime.services" || services.Proposed != "dev worker" {
+		t.Fatalf("the services question proposes %q, want what the files declare", services.Proposed)
+	}
+	answer(t, flow, "dev worker")
+
+	// The mount point is read from the files rather than asked blind, and the
+	// service whose image bakes its code is named while the user can still act
+	// on it.
+	mount, _ := flow.Step()
+	if mount.ID != "runtime.mount" || mount.Proposed != "/srv" {
+		t.Fatalf("the runtime mount question proposes %q, want what the files mount", mount.Proposed)
+	}
+	if !strings.Contains(strings.Join(mount.Notes, " "), "worker") {
+		t.Errorf("the service built from this repository is not reported: %v", mount.Notes)
+	}
+	answer(t, flow, "")
+
+	reachable, _ := flow.Step()
+	if reachable.ID != "runtime.reachable" || reachable.Proposed != "dev" {
+		t.Fatalf("the reachable question proposes %q, want the service that publishes a port",
+			reachable.Proposed)
+	}
+	if err := flow.Answer(context.Background(), "postgres"); err == nil {
+		t.Error("a service the repository does not manage was accepted as reachable")
+	}
+	answers(t, flow,
+		"", // reachable: the proposal
+		"", // no environment file
+		"", // no check
+	)
+
+	if !flow.Complete() {
+		question, _ := flow.Step()
+		t.Fatalf("the flow is still asking %s", question.ID)
+	}
+	review, err := flow.Review()
+	if err != nil {
+		t.Fatalf("the answers do not compose a configuration: %v", err)
+	}
+	text := string(review.Text)
+	for _, want := range []string{
+		// The contribution is on the repository, and its Compose file is named
+		// the way that repository would name it: relative to its own checkout.
+		"    runtime:\n", "      - compose.yaml", "      container_path: /srv",
+		"        - dev\n", "      reachable:", "runtime:\n  provider: compose",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the configuration does not contain %q:\n%s", want, text)
+		}
+	}
+	// Nothing about the agent's own container: there is none.
+	if strings.Contains(text, "agent:\n      container_path") {
+		t.Errorf("a host-execution project was given an agent container path:\n%s", text)
+	}
+}
+
+// TestBlankFinishesAFileLoop is the defect a real run found.
+//
+// A loop cannot both propose the next file and finish on an empty answer: they
+// are two meanings for one key, and finishing lost. A user pressing Enter at
+// "Compose file (blank to finish) [/some/path]" accepted the bracketed path
+// instead — twice — and ended up with an application's Compose files defining
+// the container their agent runs in, reported back as a service list they did
+// not recognise.
+//
+// So a loop proposes only its first, and Enter after that means what the prompt
+// says it means.
+func TestBlankFinishesAFileLoop(t *testing.T) {
+	flow, _ := start(t, "app")
+	answers(t, flow,
+		"",    // display name
+		"",    // the checkout: the working directory, which is the api repository
+		"api", // repository identifier
+		"",    // default access: read_write
+		"n",   // no second repository
+		"",    // execution mode: host
+		"",    // provider CLI: none
+		"y",   // the project runs application services
+		"y",   // api brings Compose files
+	)
+
+	proposed, _ := flow.Step()
+	if proposed.Proposed == "" {
+		t.Fatal("the first file of a loop is not proposed, and the repository has one beside it")
+	}
+	answer(t, flow, "")
+
+	next, _ := flow.Step()
+	if next.ID != "runtime.compose" {
+		t.Fatalf("the loop moved to %s after one file, and it takes more than one", next.ID)
+	}
+	if next.Proposed != "" {
+		t.Errorf("the loop still proposes %q, so an empty answer cannot mean 'no more'", next.Proposed)
+	}
+	if !next.Optional {
+		t.Error("the loop's continuation is not optional, so it cannot be finished")
+	}
+
+	answer(t, flow, "")
+	services, _ := flow.Step()
+	if services.ID != "runtime.services" {
+		t.Fatalf("an empty answer did not finish the loop; the flow is asking %s", services.ID)
+	}
+
+	// The one file answered is the one recorded — not it plus whatever was in
+	// the brackets when Enter was pressed.
+	answers(t, flow, "dev worker", "", "", "", "")
+	review, err := flow.Review()
+	if err != nil {
+		t.Fatalf("the answers do not compose a configuration: %v", err)
+	}
+	if got := strings.Count(string(review.Text), "compose.yaml"); got != 1 {
+		t.Errorf("%d Compose files were recorded, want the one that was answered:\n%s", got, review.Text)
 	}
 }
 

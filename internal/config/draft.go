@@ -53,15 +53,34 @@ type DraftRepository struct {
 	ID string
 	// HostPath is the ordinary checkout on this machine.
 	HostPath string
-	// ContainerPath is where task worktrees are mounted in a devcontainer. It
-	// is written only when there is one.
-	ContainerPath string
+	// AgentContainerPath is where task worktrees are mounted in the agent's
+	// devcontainer. It is written only when there is one.
+	AgentContainerPath string
+	// Runtime is what this repository contributes to the application runtime. A
+	// nil value writes no runtime section for it, which is a repository whose
+	// code no service runs.
+	Runtime *DraftRepositoryRuntime
 	// DefaultBranch is the branch a base policy resolves against.
 	DefaultBranch string
 	// Remote is the Git remote a base policy fetches.
 	Remote string
 	// DefaultAccess is the repository's default participation in a task.
 	DefaultAccess string
+}
+
+// DraftRepositoryRuntime is one repository's contribution to the application
+// runtime.
+type DraftRepositoryRuntime struct {
+	// ComposeFiles are the Compose files this repository brings, as they should
+	// be written: relative to its checkout where they are inside it.
+	ComposeFiles []string
+	// ContainerPath is where this repository's own services expect their source.
+	ContainerPath string
+	// Services are the services this repository asks Feat to manage.
+	Services []string
+	// Reachable are the services of this repository a user reaches from the
+	// host.
+	Reachable []string
 }
 
 // DraftExecution is the agent's execution environment.
@@ -94,14 +113,14 @@ type DraftCapabilities struct {
 }
 
 // DraftRuntime is the application runtime of a drafted project.
+//
+// What the application is made of is on the repositories that bring it. A
+// present DraftRuntime is the project saying it has one at all, which is what
+// decides whether the section is written.
 type DraftRuntime struct {
-	// ComposeFiles are the Compose files defining the application services.
-	ComposeFiles []string
 	// EnvFiles are environment files passed to Compose by path. Feat records
 	// the paths and never reads what is in them.
 	EnvFiles []string
-	// Services are the services Feat manages for a task.
-	Services []string
 }
 
 // DraftCheck is one verification command of a drafted project.
@@ -198,9 +217,27 @@ func (d Draft) renderRepositories(doc *document) {
 		}
 		doc.key(1, repository.ID)
 		doc.field(2, "host_path", repository.HostPath)
-		if repository.ContainerPath != "" {
-			doc.comment(2, "Where this repository's task worktrees are mounted in the devcontainer.")
-			doc.field(2, "container_path", repository.ContainerPath)
+		if repository.AgentContainerPath != "" {
+			doc.key(2, "agent")
+			doc.comment(3, "Where this repository's task worktrees are mounted in the devcontainer.")
+			doc.field(3, "container_path", repository.AgentContainerPath)
+		}
+		if runtime := repository.Runtime; runtime != nil {
+			doc.key(2, "runtime")
+			doc.comment(3,
+				"What this repository contributes to the application. Its Compose files are",
+				"resolved against the checkout above, and Feat generates the include document",
+				"that joins them to the other repositories'.")
+			doc.list(3, "compose_files", runtime.ComposeFiles)
+			if runtime.ContainerPath != "" {
+				doc.comment(3, "Where this repository's own services expect their source.")
+				doc.field(3, "container_path", runtime.ContainerPath)
+			}
+			doc.list(3, "services", runtime.Services)
+			if len(runtime.Reachable) > 0 {
+				doc.comment(3, "The services you reach from this machine.")
+				doc.list(3, "reachable", runtime.Reachable)
+			}
 		}
 		doc.field(2, "default_branch", repository.DefaultBranch)
 		doc.field(2, "remote", repository.Remote)
@@ -271,17 +308,20 @@ func (d Draft) renderRuntime(doc *document) {
 		return
 	}
 	doc.blank()
-	doc.comment(0, "The application services a task may run. They start only when you ask.")
+	doc.comment(0,
+		"The application services a task may run. They start only when you ask, and",
+		"what they are made of is on the repositories that bring them, above.")
 	doc.key(0, "runtime")
-	doc.list(1, "compose_files", d.Runtime.ComposeFiles)
+	// The one default this file writes down. It is what makes the section exist:
+	// a key with nothing under it is YAML's null, and a project with a null
+	// runtime is a project with no runtime at all.
+	doc.field(1, "provider", ProviderCompose)
 	if len(d.Runtime.EnvFiles) > 0 {
 		doc.comment(1,
 			"Passed to Docker Compose by path. Feat never reads what is in them, and",
 			"never copies a value out of them into anything it generates.")
 		doc.list(1, "env_files", d.Runtime.EnvFiles)
 	}
-	doc.comment(1, "The services Feat starts, stops, and destroys for one task.")
-	doc.list(1, "services", d.Runtime.Services)
 }
 
 func (d Draft) renderChecks(doc *document) {

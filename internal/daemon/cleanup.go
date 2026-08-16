@@ -860,7 +860,8 @@ func (s *service) runtimeAdapterFor(task *domain.Task) (runtime.Runtime, error) 
 		return nil, err
 	}
 	spec.Identity = task.Runtime.Identity
-	spec.Files = task.Runtime.ComposeFiles
+	spec.Includes = runtimeIncludesOf(task.Runtime.Composition)
+	spec.IncludePath = task.Runtime.GeneratedIncludePath
 	spec.StaticOverrides = task.Runtime.StaticOverrides
 	spec.OverridePath = task.Runtime.GeneratedOverridePath
 	spec.EnvFiles = task.Runtime.EnvFiles

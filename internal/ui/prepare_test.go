@@ -439,8 +439,11 @@ func (h fakeHost) Inspect(_ context.Context, path string) (wizard.Checkout, erro
 
 func (h fakeHost) ComposeFiles(string) []string       { return nil }
 func (h fakeHost) ComposeServices(...string) []string { return nil }
-func (h fakeHost) Exists(string) bool                 { return true }
-func (h fakeHost) WorkingDirectory() string           { return filepath.Join(h.root, "repo") }
+func (h fakeHost) Compose(string, ...string) wizard.Composition {
+	return wizard.Composition{}
+}
+func (h fakeHost) Exists(string) bool       { return true }
+func (h fakeHost) WorkingDirectory() string { return filepath.Join(h.root, "repo") }
 func (h fakeHost) Absolute(value string) (string, error) {
 	if filepath.IsAbs(value) {
 		return filepath.Clean(value), nil

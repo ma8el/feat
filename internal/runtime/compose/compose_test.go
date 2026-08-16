@@ -31,19 +31,36 @@ func arrange(t *testing.T, docker *runtimetest.Docker) (*compose.Runtime, runtim
 	t.Helper()
 
 	state := t.TempDir()
+	generated := filepath.Join(state, "runtime")
 	spec := runtime.Spec{
-		Project:         project,
-		Task:            task,
-		Identity:        identity,
-		Files:           []string{"/repos/app/api/docker-compose.yml"},
+		Project:  project,
+		Task:     task,
+		Identity: identity,
+		Includes: []runtime.Include{
+			{
+				Repository: "api",
+				Directory:  "/repos/app/api",
+				Files:      []string{"/repos/app/api/docker-compose.yml"},
+			},
+			{
+				Repository: "store",
+				Directory:  "/repos/app/store",
+				Files:      []string{"/repos/app/store/docker-compose.dev.yml"},
+			},
+		},
+		IncludePath:     filepath.Join(generated, "compose.include.yaml"),
 		StaticOverrides: []string{"/repos/app/api/docker-compose.dev.yml"},
-		Directory:       "/repos/app/api",
-		OverridePath:    filepath.Join(state, "runtime", "compose.override.yaml"),
+		Directory:       generated,
+		OverridePath:    filepath.Join(generated, "compose.override.yaml"),
 		EnvFiles:        []string{"/repos/app/api/.env"},
 		Services:        []string{"api"},
 		Mounts: []runtime.Mount{
-			{Source: "/worktrees/api", Target: "/srv/api", Description: "the api task worktree, read-write"},
-			{Source: "/worktrees/store", Target: "/srv/store", ReadOnly: true,
+			{Services: []string{"api"}, Source: "/worktrees/api", Target: "/srv/api",
+				Description: "the api task worktree, read-write"},
+			// A repository that brings no Compose file of its own and whose code
+			// the api service runs: a shared library, mounted read-only into the
+			// service that uses it.
+			{Services: []string{"api"}, Source: "/worktrees/store", Target: "/srv/store", ReadOnly: true,
 				Description: "the store task worktree, read-only"},
 		},
 		Variables: map[string]string{
@@ -275,8 +292,8 @@ func TestTheComposeInvocationIsPinned(t *testing.T) {
 	want := []string{
 		"compose",
 		"--project-name", spec.Identity,
-		"--project-directory", "/repos/app/api",
-		"--file", "/repos/app/api/docker-compose.yml",
+		"--project-directory", spec.Directory,
+		"--file", spec.IncludePath,
 		"--file", "/repos/app/api/docker-compose.dev.yml",
 		"--file", spec.OverridePath,
 		"--env-file", "/repos/app/api/.env",
@@ -312,8 +329,8 @@ func TestCreateBuildsWhatItIsAboutToCreate(t *testing.T) {
 	want := []string{
 		"compose",
 		"--project-name", spec.Identity,
-		"--project-directory", "/repos/app/api",
-		"--file", "/repos/app/api/docker-compose.yml",
+		"--project-directory", spec.Directory,
+		"--file", spec.IncludePath,
 		"--file", "/repos/app/api/docker-compose.dev.yml",
 		"--file", spec.OverridePath,
 		"--env-file", "/repos/app/api/.env",
@@ -530,7 +547,13 @@ func TestAnAbsentDockerIsReportedWhereItCanBeFixed(t *testing.T) {
 
 	_, err := compose.New(runtime.Spec{
 		Project: project, Task: task, Identity: identity,
-		Files: []string{"/repos/app/api/docker-compose.yml"}, Directory: "/repos/app/api",
+		Includes: []runtime.Include{{
+			Repository: "api",
+			Directory:  "/repos/app/api",
+			Files:      []string{"/repos/app/api/docker-compose.yml"},
+		}},
+		IncludePath:  "/state/runtime/compose.include.yaml",
+		Directory:    "/state/runtime",
 		OverridePath: "/state/runtime/compose.override.yaml", Services: []string{"api"},
 	}, compose.Options{Runner: docker})
 

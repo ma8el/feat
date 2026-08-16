@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -120,7 +121,11 @@ func arrange(t *testing.T) *world {
 	runner.output["docker compose --file "+
 		filepath.Join(home, "repos", "app", "infra", "docker-compose.yml")+
 		" config --services"] = "dev\n"
-	runner.output["docker compose --file "+
+	// A repository's contribution is read with its own checkout as the project
+	// directory, so that its relative paths resolve the way the generated
+	// include will resolve them rather than against another repository's.
+	runner.output["docker compose --project-directory "+
+		filepath.Join(home, "repos", "app", "api")+" --file "+
 		filepath.Join(home, "repos", "app", "api", "docker-compose.yml")+
 		" config --services"] = "app\nworker\n"
 
@@ -520,8 +525,13 @@ func hostMode(t *testing.T, w *world) {
     control_path: /feat`, "    mode: host")
 	// A Claude configuration volume needs a container to be mounted into, so a
 	// host-mode project that declared one is rejected rather than quietly given
-	// the user's own ~/.claude (ADR-033).
+	// the user's own ~/.claude (ADR-033). The agent's own container paths go for
+	// the same reason: a host-native agent has no container to mount a worktree
+	// in, and the application's own mounts are a separate field that stays.
 	rewrite(t, w, "    config_volume: example-claude-config\n", "")
+	for _, repository := range []string{"api", "web", "infra"} {
+		rewrite(t, w, "    agent:\n      container_path: /srv/"+repository+"\n", "")
+	}
 	w.runner.output["claude --version"] = claude.Verified() + " (Claude Code)"
 	w.runner.output["gh auth status"] = "Logged in"
 	w.runner.output["glab auth status"] = "Logged in"
@@ -787,17 +797,18 @@ func TestRepositoryAndContainerPathsAreReported(t *testing.T) {
 
 	want := []config.Mount{
 		{RepositoryID: "api", HostPath: filepath.Join(w.home, "repos", "app", "api"),
-			ContainerPath: "/srv/api", DefaultAccess: "read_write", Primary: true},
+			AgentPath: "/srv/api", RuntimePath: "/app", RuntimeServices: []string{"app", "worker"},
+			DefaultAccess: "read_write", Primary: true},
 		{RepositoryID: "infra", HostPath: filepath.Join(w.home, "repos", "app", "infra"),
-			ContainerPath: "/srv/infra", DefaultAccess: "stable_read_only"},
+			AgentPath: "/srv/infra", DefaultAccess: "stable_read_only"},
 		{RepositoryID: "web", HostPath: filepath.Join(w.home, "repos", "app", "web"),
-			ContainerPath: "/srv/web", DefaultAccess: "selectable"},
+			AgentPath: "/srv/web", DefaultAccess: "selectable"},
 	}
 	if len(mounts) != len(want) {
 		t.Fatalf("reported %d mounts, want %d: %+v", len(mounts), len(want), mounts)
 	}
 	for i, mount := range mounts {
-		if mount != want[i] {
+		if !reflect.DeepEqual(mount, want[i]) {
 			t.Errorf("mount %d = %+v, want %+v", i, mount, want[i])
 		}
 	}

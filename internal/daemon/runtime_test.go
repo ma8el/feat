@@ -24,20 +24,45 @@ import (
 // devcontainer uses, which is what a project whose Compose files define both is
 // like — and what ADR-034's post-start inspection exists to check rather than
 // assume.
-const runtimeFixture = prepareFixture + `
+var runtimeFixture = contributing(prepareFixture) + `
 runtime:
   provider: compose
   start_policy: manual
-  compose_files:
-    - ~/repos/app/compose.yml
   static_overrides:
     - ~/repos/app/compose.dev.yml
   env_files:
     - ~/repos/app/.env
   project_name_template: "feat-{project_id}-{task_key}"
-  services:
-    - api
 `
+
+// contributing adds the repositories' parts of the application to a fixture
+// that has none: the Compose files api brings, where each repository's code is
+// expected inside the services that run it, and the service Feat manages.
+//
+// Both repositories contribute, and only one brings a file. store's code runs
+// in api's service — a library the application depends on — which is what a
+// per-repository container path is for: two repositories' worktrees reach one
+// service at two paths of their own.
+//
+// It is spliced rather than appended because a repository's contribution lives
+// on the repository, which is the whole point of the shape: what an application
+// is made of is answered where its code is (ADR-065).
+func contributing(fixture string) string {
+	fixture = strings.Replace(fixture, "  store:\n",
+		"    runtime:\n"+
+			"      compose_files:\n"+
+			"        - ~/repos/app/compose.yml\n"+
+			"      container_path: /srv/api\n"+
+			"      services:\n"+
+			"        - api\n"+
+			"  store:\n", 1)
+	return strings.Replace(fixture, "    default_access: read_only\n",
+		"    runtime:\n"+
+			"      container_path: /srv/store\n"+
+			"      services:\n"+
+			"        - api\n"+
+			"    default_access: read_only\n", 1)
+}
 
 // runtimeDockerFunc lets a test swap the application runtime's fake Docker after
 // the daemon was built.
@@ -319,6 +344,89 @@ func TestTheGeneratedOverrideIsNotWhereAnAgentCanReachIt(t *testing.T) {
 	}
 }
 
+// TestTheApplicationIsComposedOfItsRepositories is the slice's first acceptance
+// criterion at the daemon: a project's application runs from a generated
+// include, with no hand-written combined Compose file anywhere.
+//
+// Each entry carries the repository's own checkout as its project directory, so
+// that repository's build contexts and relative mounts resolve against it. A
+// single file list would resolve every relative path against one directory, and
+// the second repository's services would be built from the first (ADR-065
+// evidence 2).
+func TestTheApplicationIsComposedOfItsRepositories(t *testing.T) {
+	arranged := arrangeConfigured(t, runtimeFixture)
+	task := arranged.launched(t)
+	arranged.answerFor(task, "running", "Up 2 seconds")
+	arranged.act(t, task.ID, api.RuntimeStart)
+
+	record := arranged.reload(t, task.ID).Runtime
+	if len(record.Composition) != 1 {
+		t.Fatalf("the runtime is composed of %d repositories, want the one that brings a file: %+v",
+			len(record.Composition), record.Composition)
+	}
+	source := record.Composition[0]
+	if source.Repository != "api" {
+		t.Errorf("the contribution is recorded against %q, want api", source.Repository)
+	}
+	if want := filepath.Join(arranged.env.Home, "repos", "app", "api"); source.Directory != want {
+		t.Errorf("the project directory of api's entry is %q, want its own checkout %q",
+			source.Directory, want)
+	}
+
+	document, err := os.ReadFile(record.GeneratedIncludePath)
+	if err != nil {
+		t.Fatalf("reading the generated include: %v", err)
+	}
+	written := string(document)
+	if !strings.Contains(written, "include:") {
+		t.Errorf("the generated document is not an include:\n%s", written)
+	}
+	if !strings.Contains(written, `project_directory: "`+source.Directory+`"`) {
+		t.Errorf("the include does not carry api's own directory:\n%s", written)
+	}
+	// And it is Feat's, under the runtime root rather than in a repository the
+	// user maintains by hand.
+	root := arranged.layout.RuntimeRoot()
+	if !strings.HasPrefix(record.GeneratedIncludePath, root+string(filepath.Separator)) {
+		t.Errorf("the generated include is at %s, outside the runtime root %s",
+			record.GeneratedIncludePath, root)
+	}
+}
+
+// TestAServiceHoldsTheCodeItRuns covers which worktrees reach which service.
+//
+// A repository's runtime container path is where its own services expect its
+// source, so its worktree goes to those services and no others. Mounting every
+// worktree into every service would make two repositories expecting their source
+// at the same path a collision rather than the ordinary arrangement it is.
+func TestAServiceHoldsTheCodeItRuns(t *testing.T) {
+	// A second managed service, brought by the api repository and running only
+	// its code: the store repository's worktree must not reach it.
+	fixture := strings.Replace(runtimeFixture,
+		"      container_path: /srv/api\n      services:\n        - api\n",
+		"      container_path: /srv/api\n      services:\n        - api\n        - worker\n", 1)
+
+	arranged := arrangeConfigured(t, fixture)
+	task := arranged.launched(t)
+	arranged.answerFor(task, "running", "Up 2 seconds")
+	arranged.runtimes.Answer("up --detach api worker", "")
+	arranged.act(t, task.ID, api.RuntimeStart)
+
+	document, err := os.ReadFile(arranged.reload(t, task.ID).Runtime.GeneratedOverridePath)
+	if err != nil {
+		t.Fatalf("reading the generated override: %v", err)
+	}
+	written := string(document)
+
+	worker := written[strings.Index(written, `"worker":`):]
+	if strings.Contains(worker, "/srv/store") {
+		t.Errorf("the worker service holds the store worktree, which is not code it runs:\n%s", worker)
+	}
+	if !strings.Contains(worker, "/srv/api") {
+		t.Errorf("the worker service does not hold the code it does run:\n%s", worker)
+	}
+}
+
 // TestTheTasksOwnCodeIsWhatTheServicesRun covers the mounts the generated
 // override carries.
 func TestTheTasksOwnCodeIsWhatTheServicesRun(t *testing.T) {
@@ -368,11 +476,16 @@ func TestTheTasksOwnCodeIsWhatTheServicesRun(t *testing.T) {
 // half of the same problem.
 func TestAHostExecutionProjectStillMountsItsWorktrees(t *testing.T) {
 	hostFixture := strings.Replace(runtimeFixture, "mode: devcontainer", "mode: host", 1)
-	// Host execution sets these itself, and configuration refuses them.
+	// Host execution sets these itself, and configuration refuses them. The
+	// agent's own container paths go with them: there is no agent container to
+	// mount anything in, which is exactly why reading the application's mounts
+	// from that field left this project mounting nothing.
 	for _, line := range []string{
 		"    compose_files:\n      - ~/repos/app/compose.yml\n",
 		"    service: dev\n", "    user: developer\n",
 		"    working_directory: /srv/api\n", "    control_path: /feat\n",
+		"    agent:\n      container_path: /srv/api\n",
+		"    agent:\n      container_path: /srv/store\n",
 	} {
 		hostFixture = strings.Replace(hostFixture, line, "", 1)
 	}

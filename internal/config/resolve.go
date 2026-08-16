@@ -95,6 +95,21 @@ func (c *Config) resolveRepositories(opts Options) error {
 		}
 		repository.HostPath = expanded
 
+		if repository.Runtime != nil {
+			// Against the repository's own checkout, which is also the project
+			// directory of its include entry. A repository names the files it
+			// brings the way it would name them to Compose standing in its own
+			// directory, and nothing relative crosses a repository boundary.
+			files, err := expandUnder(opts, "repositories."+id+".runtime.compose_files",
+				repository.HostPath, repository.Runtime.ComposeFiles)
+			if err != nil {
+				return c.problem(err)
+			}
+			runtime := *repository.Runtime
+			runtime.ComposeFiles = files
+			repository.Runtime = &runtime
+		}
+
 		c.Repositories[id] = repository
 	}
 	return nil
@@ -160,10 +175,11 @@ func (c *Config) resolveAgent(opts Options) error {
 			c.Agent.Claude.ConfigPath = defaultClaudeConfigPath
 		}
 		// The agent starts where the user works: the primary repository's mount
-		// point. A project that wants another directory says so.
+		// point in the agent's own container. A project that wants another
+		// directory says so.
 		if execution.WorkingDirectory == "" {
 			if primary, ok := c.Primary(); ok {
-				execution.WorkingDirectory = primary.ContainerPath
+				execution.WorkingDirectory = primary.Agent.ContainerPath
 			}
 		}
 	}
@@ -196,7 +212,6 @@ func (c *Config) resolveRuntime(opts Options) error {
 		path  string
 		value *[]string
 	}{
-		{"runtime.compose_files", &runtime.ComposeFiles},
 		{"runtime.static_overrides", &runtime.StaticOverrides},
 		{"runtime.env_files", &runtime.EnvFiles},
 	} {
@@ -283,6 +298,40 @@ func expand(opts Options, path, value string) (string, error) {
 			path:   path,
 			reason: fmt.Sprintf("must be an absolute path, but %q resolves to %q", value, expanded),
 		}
+	}
+	return expanded, nil
+}
+
+// expandUnder resolves every path in a list against a base directory.
+//
+// A path that expands to an absolute one is taken as it stands; anything else
+// is joined to the base. It is what lets a repository name the Compose files it
+// brings the way it would name them standing in its own checkout, and it is
+// refused outright when the base is unknown, because joining onto nothing would
+// silently produce a path relative to wherever the daemon was started.
+func expandUnder(opts Options, path, base string, values []string) ([]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	expanded := make([]string, len(values))
+	for i, value := range values {
+		field := fmt.Sprintf("%s[%d]", path, i)
+		if value == "" {
+			return nil, &fieldError{path: field, reason: "must name a file"}
+		}
+		one, err := opts.Env.Expand(value)
+		if err != nil {
+			return nil, &fieldError{path: field, reason: err.Error()}
+		}
+		if !filepath.IsAbs(one) {
+			if base == "" {
+				return nil, &fieldError{path: field, reason: fmt.Sprintf(
+					"is %q, which is relative to the repository's checkout, and the repository has no host_path to resolve it against",
+					value)}
+			}
+			one = filepath.Join(base, one)
+		}
+		expanded[i] = filepath.Clean(one)
 	}
 	return expanded, nil
 }

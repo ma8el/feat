@@ -17,17 +17,23 @@ const (
 // exactly one thing and the failure names that thing.
 func valid() runtime.Spec {
 	return runtime.Spec{
-		Project:         project,
-		Task:            task,
-		Identity:        "feat-app-11111111",
-		Files:           []string{"/repos/app/api/docker-compose.yml"},
+		Project:  project,
+		Task:     task,
+		Identity: "feat-app-11111111",
+		Includes: []runtime.Include{{
+			Repository: "api",
+			Directory:  "/repos/app/api",
+			Files:      []string{"/repos/app/api/docker-compose.yml"},
+		}},
+		IncludePath:     "/state/runtime/app/" + string(task) + "/compose.include.yaml",
 		StaticOverrides: []string{"/repos/app/api/docker-compose.dev.yml"},
-		Directory:       "/repos/app/api",
+		Directory:       "/state/runtime/app/" + string(task),
 		OverridePath:    "/state/runtime/app/" + string(task) + "/compose.override.yaml",
 		EnvFiles:        []string{"/repos/app/api/.env"},
 		Services:        []string{"api", "worker"},
 		Mounts: []runtime.Mount{
-			{Source: "/worktrees/api", Target: "/srv/api", Description: "the api task worktree"},
+			{Services: []string{"api"}, Source: "/worktrees/api", Target: "/srv/api",
+				Description: "the api task worktree"},
 		},
 		Variables:        map[string]string{"FEAT_TASK_KEY": "11111111"},
 		ForbiddenSources: []string{"/repos/app/api"},
@@ -49,16 +55,34 @@ func TestASpecificationIsCheckedBeforeItCanCreateAnything(t *testing.T) {
 			change:   func(s *runtime.Spec) { s.Identity = "" },
 			contains: "affect one task's services and no other's",
 		},
-		"no compose files": {
-			change:   func(s *runtime.Spec) { s.Files = nil },
-			contains: "names no Compose files",
+		"no repositories": {
+			change:   func(s *runtime.Spec) { s.Includes = nil },
+			contains: "composed of no repositories",
+		},
+		"a repository bringing no files": {
+			change:   func(s *runtime.Spec) { s.Includes[0].Files = nil },
+			contains: "brings no Compose files",
+		},
+		"a file brought by two repositories": {
+			change: func(s *runtime.Spec) {
+				s.Includes = append(s.Includes, runtime.Include{
+					Repository: "web",
+					Directory:  "/repos/app/web",
+					Files:      s.Includes[0].Files,
+				})
+			},
+			contains: "defines its services twice",
+		},
+		"a relative project directory": {
+			change:   func(s *runtime.Spec) { s.Includes[0].Directory = "app/api" },
+			contains: "must be absolute",
 		},
 		"no services": {
 			change:   func(s *runtime.Spec) { s.Services = nil },
 			contains: "names no services to manage",
 		},
 		"relative compose file": {
-			change:   func(s *runtime.Spec) { s.Files = []string{"docker-compose.yml"} },
+			change:   func(s *runtime.Spec) { s.Includes[0].Files = []string{"docker-compose.yml"} },
 			contains: "must be absolute",
 		},
 		"relative static override": {
@@ -85,11 +109,20 @@ func TestASpecificationIsCheckedBeforeItCanCreateAnything(t *testing.T) {
 			change:   func(s *runtime.Spec) { s.Mounts = []runtime.Mount{{Source: "api", Target: "/srv/api"}} },
 			contains: "must be absolute",
 		},
-		"two mounts at one target": {
+		"two mounts at one target in one service": {
 			change: func(s *runtime.Spec) {
-				s.Mounts = append(s.Mounts, runtime.Mount{Source: "/elsewhere", Target: "/srv/api"})
+				s.Mounts = append(s.Mounts, runtime.Mount{
+					Services: []string{"api"}, Source: "/elsewhere", Target: "/srv/api"})
 			},
 			contains: "would hide the other",
+		},
+		"a mount belonging to no service": {
+			change:   func(s *runtime.Spec) { s.Mounts[0].Services = nil },
+			contains: "applies to no service",
+		},
+		"a mount naming a service the task does not manage": {
+			change:   func(s *runtime.Spec) { s.Mounts[0].Services = []string{"unmanaged"} },
+			contains: "does not manage",
 		},
 		"a variable name carrying an equals sign": {
 			change:   func(s *runtime.Spec) { s.Variables = map[string]string{"A=B": "c"} },

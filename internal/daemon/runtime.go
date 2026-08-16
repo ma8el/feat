@@ -30,9 +30,15 @@ const defaultRuntimeInterval = 5 * time.Second
 // runtimeProvider is the adapter identifier recorded on a task's runtime.
 const runtimeProvider = "compose"
 
-// runtimeOverrideName is the generated Compose override of one task's
-// application.
-const runtimeOverrideName = "compose.override.yaml"
+// The generated Compose documents of one task's application.
+//
+// The include joins the repositories the application is composed of; the
+// override is merged last over the result. Both live under the task's own
+// runtime directory, are host-only, and are never mounted anywhere.
+const (
+	runtimeIncludeName  = "compose.include.yaml"
+	runtimeOverrideName = "compose.override.yaml"
+)
 
 // Generated non-secret variables every managed service receives.
 //
@@ -287,7 +293,8 @@ func (s *service) runtimeFor(
 	// edited project file must not point a stop or a destroy at a different
 	// Compose project than the one that was started.
 	spec.Identity = record.Identity
-	spec.Files = record.ComposeFiles
+	spec.Includes = runtimeIncludesOf(record.Composition)
+	spec.IncludePath = record.GeneratedIncludePath
 	spec.StaticOverrides = record.StaticOverrides
 	spec.OverridePath = record.GeneratedOverridePath
 	spec.EnvFiles = record.EnvFiles
@@ -312,7 +319,8 @@ func (s *service) recordRuntimeInputs(
 	inputs := domain.RuntimeInputs{
 		Provider:              runtimeProvider,
 		Identity:              spec.Identity,
-		ComposeFiles:          spec.Files,
+		Composition:           runtimeComposition(spec.Includes),
+		GeneratedIncludePath:  spec.IncludePath,
 		StaticOverrides:       spec.StaticOverrides,
 		GeneratedOverridePath: spec.OverridePath,
 		EnvFiles:              spec.EnvFiles,
@@ -449,8 +457,10 @@ func (s *service) runtimeSpec(cfg *config.Config, task *domain.Task) (runtime.Sp
 	if section == nil {
 		return runtime.Spec{}, fmt.Errorf("project %s configures no application runtime", task.ProjectID)
 	}
-	if len(section.ComposeFiles) == 0 {
-		return runtime.Spec{}, fmt.Errorf("project %s configures no Compose files for its application runtime",
+	includes := runtimeIncludes(cfg)
+	if len(includes) == 0 {
+		return runtime.Spec{}, fmt.Errorf(
+			"project %s configures an application runtime that no repository brings Compose files to",
 			task.ProjectID)
 	}
 
@@ -462,7 +472,7 @@ func (s *service) runtimeSpec(cfg *config.Config, task *domain.Task) (runtime.Sp
 	if err != nil {
 		return runtime.Spec{}, err
 	}
-	override, err := s.runtimeOverridePath(task)
+	directory, err := s.runtimeDirectory(task)
 	if err != nil {
 		return runtime.Spec{}, err
 	}
@@ -471,15 +481,17 @@ func (s *service) runtimeSpec(cfg *config.Config, task *domain.Task) (runtime.Sp
 		Project:         task.ProjectID,
 		Task:            task.ID,
 		Identity:        identity,
-		Files:           append([]string(nil), section.ComposeFiles...),
+		Includes:        includes,
+		IncludePath:     filepath.Join(directory, runtimeIncludeName),
 		StaticOverrides: append([]string(nil), section.StaticOverrides...),
-		// The first configured file's directory, so that file's own relative
-		// sources and build contexts resolve as they do when the user runs
-		// Compose by hand (ADR-033, ADR-034).
-		Directory:    filepath.Dir(section.ComposeFiles[0]),
-		OverridePath: override,
+		// Feat's own directory, holding the documents it generates. Every path
+		// in them is absolute and each include entry names the directory its own
+		// repository's relative paths resolve against, so no repository's file is
+		// ever read against another repository's directory (ADR-065 evidence 2).
+		Directory:    directory,
+		OverridePath: filepath.Join(directory, runtimeOverrideName),
 		EnvFiles:     append([]string(nil), section.EnvFiles...),
-		Services:     append([]string(nil), section.Services...),
+		Services:     cfg.RuntimeServices(),
 		Mounts:       runtimeMounts(cfg, task),
 		Variables: map[string]string{
 			varProject:  task.ProjectID.String(),
@@ -496,19 +508,66 @@ func (s *service) runtimeSpec(cfg *config.Config, task *domain.Task) (runtime.Sp
 	return spec, nil
 }
 
-// runtimeOverridePath is where a task's generated Compose override is written.
+// runtimeIncludes is what the project's application is composed of.
+//
+// One entry per repository that brings Compose files, each carrying that
+// repository's own checkout as its project directory. A repository that
+// contributes a container path and no files is not an include: it has nothing
+// to join, and its worktree still reaches the services through the mounts.
+func runtimeIncludes(cfg *config.Config) []runtime.Include {
+	var includes []runtime.Include
+	for _, contribution := range cfg.RuntimeComposition() {
+		if len(contribution.ComposeFiles) == 0 {
+			continue
+		}
+		includes = append(includes, runtime.Include{
+			Repository: contribution.RepositoryID,
+			Directory:  contribution.Directory,
+			Files:      contribution.ComposeFiles,
+		})
+	}
+	return includes
+}
+
+// runtimeDirectory is where a task's generated Compose documents are written,
+// and the Compose project directory of every command Feat runs for it.
 //
 // Both identifiers are validated before either reaches a path, so no stored
 // value can name a directory outside the runtime root.
-func (s *service) runtimeOverridePath(task *domain.Task) (string, error) {
+func (s *service) runtimeDirectory(task *domain.Task) (string, error) {
 	if err := task.ProjectID.Validate(); err != nil {
 		return "", err
 	}
 	if err := task.ID.Validate(); err != nil {
 		return "", err
 	}
-	return filepath.Join(
-		s.layout.RuntimeRoot(), task.ProjectID.String(), task.ID.String(), runtimeOverrideName), nil
+	return filepath.Join(s.layout.RuntimeRoot(), task.ProjectID.String(), task.ID.String()), nil
+}
+
+// runtimeComposition maps a specification's includes onto the record's.
+func runtimeComposition(includes []runtime.Include) []domain.RuntimeSource {
+	sources := make([]domain.RuntimeSource, 0, len(includes))
+	for _, include := range includes {
+		sources = append(sources, domain.RuntimeSource{
+			Repository: include.Repository,
+			Directory:  include.Directory,
+			Files:      append([]string(nil), include.Files...),
+		})
+	}
+	return sources
+}
+
+// runtimeIncludesOf maps a record's composition back onto a specification's.
+func runtimeIncludesOf(sources []domain.RuntimeSource) []runtime.Include {
+	includes := make([]runtime.Include, 0, len(sources))
+	for _, source := range sources {
+		includes = append(includes, runtime.Include{
+			Repository: source.Repository,
+			Directory:  source.Directory,
+			Files:      append([]string(nil), source.Files...),
+		})
+	}
+	return includes
 }
 
 // runtimeMounts is the code the task's services run.
@@ -519,25 +578,34 @@ func (s *service) runtimeOverridePath(task *domain.Task) (string, error) {
 // that disagrees with those files adds a mount instead, which the adapter
 // reports after the services are up (ADR-034).
 //
-// The container path comes from the project's configuration rather than from the
-// task's recorded binding, and the difference matters. A binding carries one only
-// for devcontainer execution, because that field records where the *agent's* own
-// container mounts the worktree and a host-native agent has no container. An
-// application runtime has containers whatever the agent does, so a host-execution
-// project would otherwise mount nothing and its services would quietly run the
-// user's ordinary checkout — with everything Feat recorded still correct.
+// The path is the repository's own runtime container path, which is a different
+// field from the one the agent's container uses and answers a different
+// question: where an application's services expect their source is a fact about
+// that application's Compose files, and where the agent's devcontainer mounts a
+// worktree is the user's free choice (ADR-065 evidence 5). Reading the agent's
+// answer here is what left a host-execution project mounting nothing at all,
+// because that field carries a value only when there is a devcontainer.
 //
-// A repository with no container path is skipped rather than guessed at: a
-// project whose services do not carry the code is a valid project.
+// A repository with no runtime container path is skipped rather than guessed at:
+// a project whose services do not carry that repository's code is a valid
+// project, and one whose services should be carrying it is refused by the slice
+// that can also name the services (ADR-065 evidence 1).
 func runtimeMounts(cfg *config.Config, task *domain.Task) []runtime.Mount {
 	var mounts []runtime.Mount
 
 	for _, binding := range task.Repositories {
 		repository, known := cfg.Repositories[binding.RepositoryID.String()]
-		if !known {
+		if !known || repository.Runtime == nil {
 			continue
 		}
-		if repository.ContainerPath == "" || binding.WorktreePath == "" {
+		if repository.Runtime.ContainerPath == "" || binding.WorktreePath == "" {
+			continue
+		}
+		if len(repository.Runtime.Services) == 0 {
+			// Configuration refuses this, so reaching it means the two rule sets
+			// disagree. Skipping is the safe half of the disagreement: a mount
+			// belonging to no service would fail the specification's own check
+			// with a message about a task rather than about a file.
 			continue
 		}
 		access := "read-write"
@@ -545,8 +613,9 @@ func runtimeMounts(cfg *config.Config, task *domain.Task) []runtime.Mount {
 			access = "read-only"
 		}
 		mounts = append(mounts, runtime.Mount{
+			Services:    append([]string(nil), repository.Runtime.Services...),
 			Source:      binding.WorktreePath,
-			Target:      repository.ContainerPath,
+			Target:      repository.Runtime.ContainerPath,
 			ReadOnly:    binding.Access == domain.TaskAccessReadOnly,
 			Description: "the " + binding.RepositoryID.String() + " task worktree, " + access,
 		})
@@ -644,7 +713,8 @@ func (s *service) observeRuntime(ctx context.Context, task *domain.Task) (domain
 		return "", err
 	}
 	spec.Identity = task.Runtime.Identity
-	spec.Files = task.Runtime.ComposeFiles
+	spec.Includes = runtimeIncludesOf(task.Runtime.Composition)
+	spec.IncludePath = task.Runtime.GeneratedIncludePath
 	spec.StaticOverrides = task.Runtime.StaticOverrides
 	spec.OverridePath = task.Runtime.GeneratedOverridePath
 	spec.EnvFiles = task.Runtime.EnvFiles

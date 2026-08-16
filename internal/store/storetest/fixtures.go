@@ -242,9 +242,14 @@ func Execution() *domain.ExecutionEnvironment {
 // resource Feat references but never owns.
 func Runtime() *domain.RuntimeEnvironment {
 	runtime := &domain.RuntimeEnvironment{
-		Provider:              "compose",
-		Identity:              "feat-example-7f3a1c2e",
-		ComposeFiles:          []string{"/srv/repositories/core/compose.yaml"},
+		Provider: "compose",
+		Identity: "feat-example-7f3a1c2e",
+		Composition: []domain.RuntimeSource{{
+			Repository: "core",
+			Directory:  "/srv/repositories/core",
+			Files:      []string{"/srv/repositories/core/compose.yaml"},
+		}},
+		GeneratedIncludePath:  "/srv/state/runtime/example/7f3a1c2e/compose.include.yaml",
 		StaticOverrides:       []string{"/srv/repositories/core/compose.override.yaml"},
 		GeneratedOverridePath: "/srv/state/runtime/example/7f3a1c2e/compose.generated.yaml",
 		EnvFiles:              []string{"/srv/repositories/core/.env"},

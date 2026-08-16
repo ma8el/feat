@@ -429,16 +429,32 @@ type Runtime struct {
 	// retained resource nobody can see is one nobody will remove.
 	Networks []string `json:"networks"`
 	Volumes  []string `json:"volumes"`
-	// ComposeFiles, StaticOverrides, EnvFiles, and GeneratedOverridePath are the
-	// exact inputs this runtime was created from, kept so that a later action
+	// Composition, StaticOverrides, EnvFiles, and the two generated paths are
+	// the exact inputs this runtime was created from, kept so that a later action
 	// reaches the same resources even if the project's configuration has since
 	// been edited. They are the user's own paths, which are not secrets; no value
 	// from an environment file is ever read, let alone published.
-	ComposeFiles          []string  `json:"compose_files"`
-	StaticOverrides       []string  `json:"static_overrides"`
-	EnvFiles              []string  `json:"env_files"`
-	GeneratedOverridePath string    `json:"generated_override_path"`
-	ObservedAt            time.Time `json:"observed_at"`
+	//
+	// Composition is what the application is made of, one entry per repository
+	// that brings Compose files. GeneratedIncludePath is the document Feat wrote
+	// to join them.
+	Composition           []RuntimeSource `json:"composition"`
+	GeneratedIncludePath  string          `json:"generated_include_path"`
+	StaticOverrides       []string        `json:"static_overrides"`
+	EnvFiles              []string        `json:"env_files"`
+	GeneratedOverridePath string          `json:"generated_override_path"`
+	ObservedAt            time.Time       `json:"observed_at"`
+}
+
+// RuntimeSource is one repository's contribution to a task's application.
+type RuntimeSource struct {
+	// Repository identifies the repository within the project.
+	Repository string `json:"repository"`
+	// Directory is the checkout its own Compose files' relative paths resolve
+	// against.
+	Directory string `json:"directory"`
+	// Files are that repository's Compose files, in order.
+	Files []string `json:"files"`
 }
 
 // Port is one published port of one service.
@@ -1162,12 +1178,26 @@ func newRuntime(runtime *domain.RuntimeEnvironment) *Runtime {
 		Health:                string(runtime.Health),
 		Networks:              list(runtime.Networks),
 		Volumes:               list(runtime.Volumes),
-		ComposeFiles:          list(runtime.ComposeFiles),
+		Composition:           newComposition(runtime.Composition),
+		GeneratedIncludePath:  runtime.GeneratedIncludePath,
 		StaticOverrides:       list(runtime.StaticOverrides),
 		EnvFiles:              list(runtime.EnvFiles),
 		GeneratedOverridePath: runtime.GeneratedOverridePath,
 		ObservedAt:            runtime.ObservedAt,
 	}
+}
+
+// newComposition renders what a runtime is composed of.
+func newComposition(sources []domain.RuntimeSource) []RuntimeSource {
+	rendered := make([]RuntimeSource, 0, len(sources))
+	for _, source := range sources {
+		rendered = append(rendered, RuntimeSource{
+			Repository: source.Repository,
+			Directory:  source.Directory,
+			Files:      list(source.Files),
+		})
+	}
+	return rendered
 }
 
 // list renders a string slice as a list rather than null, so a client can

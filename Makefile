@@ -70,6 +70,7 @@ golden: ## Rewrite golden test files
 	go test ./internal/cli -run TestCommandSurface -update
 	go test ./internal/store/fs -run TestStoredFormat -update
 	go test ./internal/execution/compose -run 'TestTheGeneratedOverride' -update
+	go test ./internal/runtime/compose -run 'TestTheGenerated' -update
 	go test ./internal/api -update
 
 .PHONY: tools

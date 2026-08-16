@@ -157,6 +157,9 @@ func LoadFile(file string, opts Options) (*Config, error) {
 func Parse(file string, data []byte) (*Config, error) {
 	config := &Config{path: file, source: data}
 
+	if err := replaced(file, data); err != nil {
+		return nil, err
+	}
 	if err := yaml.UnmarshalWithOptions(data, config, yaml.Strict()); err != nil {
 		return nil, decodingError(file, data, err)
 	}

@@ -84,13 +84,12 @@ func (c *Config) validateRepositories(found *problems) {
 		return
 	}
 
-	// Container paths are collected as they are checked, so that the overlap
-	// rule can report the pair rather than one half of it.
-	type mount struct {
-		id   string
-		path string
-	}
-	var mounts []mount
+	// Container paths in the agent's own container are collected as they are
+	// checked, so that the overlap rule can report the pair rather than one half
+	// of it. Runtime container paths are not: a repository's worktree is mounted
+	// into its own services alone, so two repositories expecting their source at
+	// the same path are two containers agreeing rather than a collision.
+	var agentMounts []mount
 
 	for _, id := range c.RepositoryIDs() {
 		repository := c.Repositories[id]
@@ -116,30 +115,123 @@ func (c *Config) validateRepositories(found *problems) {
 				"is %q, which is not an access mode: %s", repository.DefaultAccess, words(accessModes())))
 		}
 
-		if repository.ContainerPath != "" {
-			if checkContainerPath(found, field+".container_path", repository.ContainerPath) {
-				mounts = append(mounts, mount{id: id, path: repository.ContainerPath})
+		if path := repository.Agent.ContainerPath; path != "" {
+			if !c.Agent.Execution.Devcontainer() {
+				// A field the selected mode would ignore is rejected rather than
+				// ignored, as every other one is (ADR-028). A host-native agent has
+				// no container to mount anything in.
+				found.add(field+".agent.container_path", fmt.Sprintf(
+					"applies only to %q execution, and agent.execution.mode is %q",
+					ModeDevcontainer, c.Agent.Execution.Mode))
+			} else if checkContainerPath(found, field+".agent.container_path", path) {
+				agentMounts = append(agentMounts, mount{id: id, path: path})
 			}
 		} else if c.Agent.Execution.Devcontainer() &&
 			domain.DefaultAccess(repository.DefaultAccess) != domain.DefaultAccessOmitted {
-			found.add(field+".container_path", fmt.Sprintf(
-				"must say where the repository is mounted, because agent.execution.mode is %q",
+			found.add(field+".agent.container_path", fmt.Sprintf(
+				"must say where the repository is mounted in the agent's container, because agent.execution.mode is %q",
 				ModeDevcontainer))
 		}
+
+		c.validateRepositoryRuntime(found, id, repository)
 	}
 
+	checkOverlaps(found, "agent", agentMounts)
+}
+
+// mount is one repository's container path, kept with its repository so that an
+// overlap can be reported as the pair it is.
+type mount struct {
+	id   string
+	path string
+}
+
+// checkOverlaps rejects two repositories mounted inside one another.
+//
+// One mount inside another does not fail at Compose; it produces a container
+// where one repository shadows part of another, which is far harder to
+// recognise later than a rejected configuration now.
+func checkOverlaps(found *problems, kind string, mounts []mount) {
 	for i, outer := range mounts {
 		for _, inner := range mounts[i+1:] {
 			if !overlaps(outer.path, inner.path) {
 				continue
 			}
-			// One mount inside another does not fail; it produces a container
-			// where one repository shadows part of another, which is far harder
-			// to recognise later than a rejected configuration now.
-			found.add("repositories."+inner.id+".container_path", fmt.Sprintf(
+			found.add(fmt.Sprintf("repositories.%s.%s.container_path", inner.id, kind), fmt.Sprintf(
 				"is %q, which overlaps repository %s at %q: two repositories cannot be mounted inside one another",
 				inner.path, outer.id, outer.path))
 		}
+	}
+}
+
+// validateRepositoryRuntime checks one repository's contribution to the
+// application runtime.
+//
+// Whether a contribution without a container path can produce a runtime worth
+// having is a separate question with a separate answer: it produces services
+// running the user's ordinary checkout, which is ADR-065 evidence 1, and
+// refusing it belongs to the slice that can also say which services those are.
+func (c *Config) validateRepositoryRuntime(found *problems, id string, repository Repository) {
+	runtime := repository.Runtime
+	if runtime == nil {
+		return
+	}
+	field := "repositories." + id + ".runtime"
+
+	if c.Runtime == nil {
+		found.add(field, "contributes Compose files and services to an application runtime this project "+
+			"does not configure: add a runtime section, or remove this one")
+		return
+	}
+
+	if len(runtime.ComposeFiles) == 0 && runtime.ContainerPath == "" && len(runtime.Services) == 0 {
+		found.add(field, "is empty: a repository takes part in the application runtime by bringing "+
+			"Compose files, by naming services, or by saying where its services expect its source")
+	}
+	for i, file := range runtime.ComposeFiles {
+		element := fmt.Sprintf("%s.compose_files[%d]", field, i)
+		if !filepath.IsAbs(file) {
+			found.add(element, fmt.Sprintf(
+				"must resolve to an absolute path, but is %q", file))
+		}
+	}
+
+	seen := make(map[string]bool, len(runtime.Services))
+	for i, service := range runtime.Services {
+		element := fmt.Sprintf("%s.services[%d]", field, i)
+		switch {
+		case service == "":
+			found.add(element, "must not be empty")
+		case seen[service]:
+			found.add(element, fmt.Sprintf("names %q twice", service))
+		}
+		seen[service] = true
+	}
+	for i, service := range runtime.Reachable {
+		element := fmt.Sprintf("%s.reachable[%d]", field, i)
+		if !seen[service] {
+			// Feat publishes a port for a reachable service and writes the address
+			// into the override of every managed service. A name that is not one of
+			// this repository's own services is one nothing would ever publish.
+			found.add(element, fmt.Sprintf(
+				"names %q, which is not one of %s.services: a repository declares which of its own "+
+					"services are reachable", service, field))
+		}
+	}
+
+	if runtime.ContainerPath == "" {
+		return
+	}
+	checkContainerPath(found, field+".container_path", runtime.ContainerPath)
+	if len(runtime.Services) == 0 {
+		// The path is where this repository's worktree is mounted in this
+		// repository's own services, so a path with no services is a mount
+		// nothing would ever receive — the silent kind of wrong this whole
+		// section exists to remove (ADR-065 evidence 7).
+		found.add(field+".container_path", fmt.Sprintf(
+			"is %q, and %s.services names no service to mount it in: a repository's runtime container "+
+				"path is where its own services expect its source, so a repository that manages none has "+
+				"nowhere to put it", runtime.ContainerPath, field))
 	}
 }
 
@@ -271,7 +363,7 @@ func (c *Config) validateClaudeConfigPath(found *problems) {
 		return
 	}
 	for _, id := range c.RepositoryIDs() {
-		container := c.Repositories[id].ContainerPath
+		container := c.Repositories[id].Agent.ContainerPath
 		if container != "" && overlaps(container, claude.ConfigPath) {
 			found.add("agent.claude.config_path", fmt.Sprintf(
 				"is %q, which overlaps the mount of repository %s at %q: Claude's configuration must not be mounted inside a repository",
@@ -345,7 +437,7 @@ func (c *Config) validateExecution(found *problems) {
 	} else if checkContainerPath(found, "agent.execution.working_directory", execution.WorkingDirectory) {
 		if !c.mounted(execution.WorkingDirectory) {
 			found.add("agent.execution.working_directory", fmt.Sprintf(
-				"is %q, which is not inside any repository's container_path: the agent would start in a directory no repository is mounted at",
+				"is %q, which is not inside any repository's agent.container_path: the agent would start in a directory no repository is mounted at",
 				execution.WorkingDirectory))
 		}
 	}
@@ -359,7 +451,7 @@ func (c *Config) validateExecution(found *problems) {
 		return
 	}
 	for _, id := range c.RepositoryIDs() {
-		container := c.Repositories[id].ContainerPath
+		container := c.Repositories[id].Agent.ContainerPath
 		if container != "" && overlaps(container, execution.ControlPath) {
 			found.add("agent.execution.control_path", fmt.Sprintf(
 				"is %q, which overlaps the mount of repository %s at %q: the control workspace must be separate from every repository",
@@ -429,26 +521,51 @@ func (c *Config) validateRuntime(found *problems) {
 			"is %q, and %q is the only policy in v0: application services start by explicit user action",
 			runtime.StartPolicy, StartManual))
 	}
-	found.require(len(runtime.ComposeFiles) > 0, "runtime.compose_files",
-		"must list the Compose files defining the application services")
-	found.require(len(runtime.Services) > 0, "runtime.services",
-		"must name the services Feat manages for a task")
-
 	checkPlaceholders(found, "runtime.project_name_template", runtime.ProjectNameTemplate, runtimePlaceholders)
 	checkTaskScoped(found, "runtime.project_name_template", runtime.ProjectNameTemplate, "Compose project")
 	checkComposeName(found, "runtime.project_name_template", runtime.ProjectNameTemplate, c.probe())
 
-	seen := make(map[string]bool, len(runtime.Services))
-	for i, service := range runtime.Services {
-		field := fmt.Sprintf("runtime.services[%d]", i)
-		if service == "" {
-			found.add(field, "must not be empty")
-			continue
+	c.validateComposition(found)
+}
+
+// validateComposition checks the runtime the repositories compose between them.
+//
+// The per-repository rules are checked where the repositories are. What is left
+// is what only the whole can say: that there is something to run, and that no
+// file is brought twice.
+//
+// Two repositories naming one service is deliberately allowed. A repository's
+// services are the ones that run its code, and a service that runs an
+// application and a shared library it depends on runs the code of two
+// repositories — at two container paths, which is exactly what a per-repository
+// container path is for.
+func (c *Config) validateComposition(found *problems) {
+	composition := c.RuntimeComposition()
+
+	if len(composition) == 0 {
+		found.add("runtime", "is configured, and no repository contributes anything to it: "+
+			"give a repository a runtime section naming the Compose files it brings and the services "+
+			"Feat manages")
+		return
+	}
+	if len(c.RuntimeServices()) == 0 {
+		found.add("runtime", "is configured, and no repository names a service Feat manages: "+
+			"a runtime with nothing to start is a runtime nothing can act on")
+	}
+
+	files := make(map[string]string)
+	for _, contribution := range composition {
+		field := "repositories." + contribution.RepositoryID + ".runtime"
+
+		for i, file := range contribution.ComposeFiles {
+			if owner, taken := files[file]; taken {
+				found.add(fmt.Sprintf("%s.compose_files[%d]", field, i), fmt.Sprintf(
+					"is %q, which repository %s also brings: including one file twice defines its "+
+						"services twice", file, owner))
+				continue
+			}
+			files[file] = contribution.RepositoryID
 		}
-		if seen[service] {
-			found.add(field, fmt.Sprintf("names %q twice", service))
-		}
-		seen[service] = true
 	}
 }
 
@@ -550,10 +667,11 @@ func checkContainerPath(found *problems, field, value string) bool {
 	return true
 }
 
-// mounted reports whether a container path is at or inside a repository mount.
+// mounted reports whether a container path is at or inside a repository's mount
+// in the agent's own container.
 func (c *Config) mounted(target string) bool {
 	for _, id := range c.RepositoryIDs() {
-		container := c.Repositories[id].ContainerPath
+		container := c.Repositories[id].Agent.ContainerPath
 		if container == "" {
 			continue
 		}

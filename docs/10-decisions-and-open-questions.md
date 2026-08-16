@@ -4405,6 +4405,50 @@ Decisions:
   detour from it, since a proxy must route to something. Nothing here addresses
   what several parallel application stacks cost a laptop.
 
+Amended during slice 14, which implemented the first of the three.
+
+Evidence 12, found by running `feat project init` against the reference project
+after the rest of the slice was green: **the command meant to prevent evidence 1
+produced it.** Compose-file discovery looked only for the four names Compose
+itself defaults to, and both of the reference project's `docker-compose.dev.yml`
+overlays — which carry the bind mounts a worktree replaces, the reset of a
+published port, and, in the frontend, the only service anybody runs — were
+invisible to it. What the wizard proposed was the base files alone: no runtime
+container path for either repository, the frontend's static production build in
+place of its dev server, and a database offered as reachable. The result loads,
+starts, and runs the user's ordinary checkout in every service. Two further
+defects compounded it: a file loop proposed the next candidate *and* claimed an
+empty answer would finish, so pressing Enter added files rather than ending the
+list; and the agent's Compose question proposed files found beside any
+configured repository, which after this slice are overwhelmingly the
+application's. Discovery now finds overlays, a loop proposes only its first
+candidate, and the agent's question proposes nothing — it is asked before the
+application section exists, so it has nothing to exclude with.
+
+Two decisions the composition needed and this ADR had not made:
+
+- **The Compose project directory is Feat's own generated directory.** It used
+  to be the first configured file's, so that file's relative paths resolved as
+  they do by hand — and with an include document, every entry carries the
+  directory its own repository's paths resolve against, so a project directory
+  belonging to one of the repositories could only be the directory a second
+  repository's paths were wrongly resolved against. It is therefore the
+  directory holding the generated documents, whose own paths are all absolute.
+  One consequence is user-visible and is documented rather than left to be
+  discovered: Compose's implicit `.env` lookup beside a repository no longer
+  applies, so an environment file a project needs is named in
+  `runtime.env_files`, and a relative path inside a `static_overrides` file
+  resolves against Feat's directory rather than a repository's.
+- **A worktree is mounted into the services that named the repository, not into
+  every managed service.** The ADR says a repository's container path is where
+  *its own services* expect their source; mounting every worktree into every
+  service would additionally make two repositories that expect their source at
+  the same path a collision, which is an ordinary arrangement between two
+  applications rather than a mistake. A service may appear in more than one
+  repository's `services`, which is how a service that runs an application and a
+  shared library it depends on receives both, at their own container paths. The
+  managed list Compose is asked for is the union.
+
 Consequence: the configuration gains a per-repository runtime section and loses
 a global one, the agent's and the runtime's container paths become separate
 fields, and `domain.RuntimeEnvironment` gains the port allocations it must

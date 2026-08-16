@@ -31,30 +31,69 @@ project:
   primary_repository: api
 
 repositories:
-  # An ordinary editable repository.
+  # An ordinary editable repository, which also brings part of the application.
   api:
     host_path: ~/repos/app/api
-    # Where task worktrees are mounted in the devcontainer. Required for every
-    # selectable repository when agent.execution.mode is "devcontainer".
-    container_path: /srv/api
+
+    # Where the agent's own container mounts this repository's task worktrees.
+    # Required for every selectable repository when agent.execution.mode is
+    # "devcontainer", and rejected under "host", which has no container.
+    agent:
+      container_path: /srv/api
+
+    # What this repository contributes to the application. A runtime is composed
+    # of its repositories: each brings its own Compose files, and Feat generates
+    # the `include` document that joins them, with one project directory per
+    # repository. Listing them all in one place instead would resolve every
+    # relative path against one repository's directory, and this repository's
+    # services would be built from another's.
+    runtime:
+      # Relative to the checkout above, which is also what relative paths inside
+      # these files resolve against.
+      compose_files:
+        - docker-compose.yml
+        - docker-compose.dev.yml
+      # Where *these* services expect their source, which is a fact about these
+      # Compose files rather than a choice. It is a different question from the
+      # agent's mount above, and frequently a different answer: Feat mounts each
+      # task worktree here, replacing what these files mounted at that path.
+      container_path: /app
+      # The services that run this repository's code. Feat starts, stops, and
+      # destroys them for one task, and starts whatever they depend on.
+      services:
+        - app
+        - worker
+      # The ones you reach from this machine.
+      reachable:
+        - app
+
     default_branch: main
     remote: origin
     default_access: read_write
 
   # A repository the user chooses per task: omitted, read-only, or read-write.
+  # It brings the other half of the application, from its own checkout.
   store:
     host_path: ~/repos/app/store
-    container_path: /srv/store
+    agent:
+      container_path: /srv/store
+    runtime:
+      compose_files:
+        - docker-compose.dev.yml
+      container_path: /srv
+      services:
+        - store
     default_branch: main
     remote: origin
     default_access: selectable
 
   # A repository that is normally used read-only from its ordinary checkout,
-  # such as the one defining the devcontainer itself.
+  # such as the one defining the devcontainer itself. It runs no service.
   infra:
     name: Container definitions
     host_path: ~/repos/app/infra
-    container_path: /srv/infra
+    agent:
+      container_path: /srv/infra
     default_branch: main
     remote: origin
     default_access: stable_read_only
@@ -85,7 +124,7 @@ agent:
     service: dev
     # Must not be root.
     user: developer
-    # Defaults to the primary repository's container_path.
+    # Defaults to the primary repository's agent.container_path.
     working_directory: /srv/api
     # Where the task control workspace is mounted. It must not overlap a
     # repository mount.
@@ -114,24 +153,26 @@ agent:
     github_cli: optional
     gitlab_cli: disabled
 
-# Omit this section entirely for a project with no application services.
+# Omit this section entirely for a project with no application services. What
+# the application is made of is on the repositories that bring it, above; what
+# is here is the whole runtime's own settings.
 runtime:
   provider: compose
   # In v0 services start only when you ask them to.
   start_policy: manual
-  compose_files:
-    - ~/repos/app/api/docker-compose.yml
+  # Applied after Feat's generated include of the repositories' Compose files
+  # and before its generated task override. Feat's Compose project directory is
+  # its own generated directory, so write any path inside one of these absolute.
   static_overrides: []
   # Passed to Docker Compose by path. Feat never reads their contents, and
-  # never copies a value out of them into anything it generates.
+  # never copies a value out of them into anything it generates. Name every one
+  # you need: Feat's project directory is its own, so Compose's implicit `.env`
+  # lookup beside a repository does not apply.
   env_files:
     - ~/repos/app/api/.env
   # Must contain {task_id} or {task_key}: the Compose project name is what
   # makes a runtime action affect one task and no other.
   project_name_template: "feat-{project_id}-{task_id}"
-  services:
-    - app
-    - worker
   # Feat sets FEAT_PROJECT_ID, FEAT_TASK_ID, FEAT_TASK_KEY, and
   # FEAT_RUNTIME_PROJECT on every managed service. An application that shares an
   # external resource between tasks — a staging database on its own server, say —

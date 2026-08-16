@@ -22,6 +22,11 @@ type Host interface {
 	ComposeFiles(dir string) []string
 	// ComposeServices returns the services the given Compose files declare.
 	ComposeServices(files ...string) []string
+	// Compose reads what one repository's own Compose files propose, with the
+	// repository's checkout as the directory their relative paths resolve
+	// against. It reads structure and never a value: no environment entry, no
+	// build argument, and no environment file.
+	Compose(root string, files ...string) Composition
 	// Exists reports whether a path is there now. A file that is not is worth
 	// saying and is not worth refusing: a Compose file that is generated, or
 	// that lives on a branch not checked out right now, is still the right
@@ -34,6 +39,32 @@ type Host interface {
 	// WorkingDirectory is where the wizard was started, which is what the first
 	// repository and the project identifier are proposed from.
 	WorkingDirectory() string
+}
+
+// Composition is what one repository's own Compose files propose.
+//
+// Every field is derived rather than decided. A derived value becomes
+// configuration only when the user accepts it into their own file, and Feat
+// persists nothing it inferred: the questions carry these as proposals, and the
+// answers are what is written (ADR-065).
+type Composition struct {
+	// Services are the services the files declare, in name order.
+	Services []string
+	// ContainerPath is where those services agree they mount the repository
+	// itself. It is empty when they mount it nowhere, or at more than one path:
+	// a project Feat has nothing to propose for is one it asks about, rather
+	// than one it guesses at.
+	ContainerPath string
+	// Reachable are the services that publish a host port.
+	Reachable []string
+	// Baked are the services built from this repository. Such a service runs
+	// the code its image was built with rather than anything mounted into it,
+	// which is worth saying while the user is deciding what to manage.
+	Baked []string
+	// Undecided names the entries Feat left unread because they interpolate a
+	// "${...}" it must not resolve. It is what turns "nothing was proposed" into
+	// "here is where to look".
+	Undecided []string
 }
 
 // Checkout is what Git said about a directory.

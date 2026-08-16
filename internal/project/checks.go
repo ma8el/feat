@@ -200,7 +200,7 @@ func (c *checker) checkExecution(ctx context.Context) {
 
 	files := c.checkComposeFiles("agent.execution.compose_files", execution.ComposeFiles)
 	if files {
-		c.checkComposeService(ctx, "agent.execution.service", execution.ComposeFiles, execution.Service)
+		c.checkComposeService(ctx, "agent.execution.service", "", execution.ComposeFiles, execution.Service)
 	}
 	c.checkAgentEnvironment(ctx)
 }
@@ -427,23 +427,33 @@ func (c *checker) skipAgentEnvironmentChecks() {
 }
 
 // checkRuntime checks the application runtime inputs.
+//
+// Each repository's contribution is checked on its own, with its own checkout
+// as the project directory. Asking Compose about two repositories' files at
+// once would resolve every relative path against the first one's directory,
+// which is the failure the generated include document exists to prevent
+// (ADR-065 evidence 2), and a diagnostic that reproduced it would report a
+// project that works as broken.
 func (c *checker) checkRuntime(ctx context.Context) {
 	runtime := c.config.Runtime
 	if runtime == nil {
 		return
 	}
 
-	files := c.checkComposeFiles("runtime.compose_files", runtime.ComposeFiles)
 	c.checkComposeFiles("runtime.static_overrides", runtime.StaticOverrides)
 	c.checkEnvFiles(runtime.EnvFiles)
 
-	if files {
-		for i, service := range runtime.Services {
-			c.checkComposeService(ctx, fmt.Sprintf("runtime.services[%d]", i),
-				append(runtime.ComposeFiles, runtime.StaticOverrides...), service)
+	for _, contribution := range c.config.RuntimeComposition() {
+		field := "repositories." + contribution.RepositoryID + ".runtime"
+
+		if !c.checkComposeFiles(field+".compose_files", contribution.ComposeFiles) {
+			continue
+		}
+		for i, service := range contribution.Services {
+			c.checkComposeService(ctx, fmt.Sprintf("%s.services[%d]", field, i),
+				contribution.Directory, contribution.ComposeFiles, service)
 		}
 	}
-
 }
 
 // checkComposeFiles checks that configured Compose files exist, and reports
@@ -496,7 +506,9 @@ func (c *checker) checkEnvFiles(files []string) {
 // `docker compose config` renders the fully resolved project, including values
 // taken from environment files, and Feat must not read those (FR-PROJ-004 and
 // docs/05-security-model.md).
-func (c *checker) checkComposeService(ctx context.Context, check string, files []string, service string) {
+func (c *checker) checkComposeService(
+	ctx context.Context, check, directory string, files []string, service string,
+) {
 	if _, err := c.runner.Look(dockerExecutable); err != nil {
 		c.skip(check, fmt.Sprintf("service %q is not checked: %v", service, err),
 			"install Docker to check configured service names")
@@ -504,6 +516,12 @@ func (c *checker) checkComposeService(ctx context.Context, check string, files [
 	}
 
 	args := []string{"compose"}
+	if directory != "" {
+		// The directory relative paths inside these files resolve against, which
+		// for a repository's contribution is its own checkout: the same project
+		// directory Feat gives that repository's include entry.
+		args = append(args, "--project-directory", directory)
+	}
 	for _, file := range files {
 		args = append(args, "--file", file)
 	}

@@ -435,10 +435,19 @@ it answer for a project whose file has since changed. Reconciliation reports wha
 it finds as an orphan of the record, and cleanup removes it. See ADR-059.
 
 Compose merges a service's `volumes` by target path, so the generated override
-takes over whatever the base files mounted at a configured `container_path`
-rather than adding a second mount beside it. A `container_path` that disagrees
-with the base file is therefore a configuration error and not a preference: the
-agent would otherwise hold its task worktree *and* the user's ordinary checkout.
+takes over whatever the base files mounted at a configured `agent.container_path`
+rather than adding a second mount beside it. A path that disagrees with the base
+file is therefore a configuration error and not a preference: the agent would
+otherwise hold its task worktree *and* the user's ordinary checkout.
+
+The application runtime asks the same question of a different container, and
+answers it from a different field. `repositories.<id>.runtime.container_path` is
+where that repository's own services expect their source, which is a fact about
+that application's Compose files rather than a choice, and it applies whether or
+not the agent is containerised. The runtime's own composition is generated:
+each repository's Compose files are joined by a Feat-written `include` document
+with one project directory per repository, so nothing relative crosses a
+repository boundary. See ADR-065.
 
 Each task repository's Git directory is mounted at the same absolute path it has
 on the host, with the access its worktree has. A task worktree is not a

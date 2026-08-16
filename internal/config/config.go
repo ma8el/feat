@@ -78,8 +78,11 @@ type Repository struct {
 	Name string `yaml:"name"`
 	// HostPath is the ordinary checkout on the host. A leading "~" is expanded.
 	HostPath string `yaml:"host_path"`
-	// ContainerPath is where task worktrees are mounted in a devcontainer.
-	ContainerPath string `yaml:"container_path"`
+	// Agent is where the agent's execution environment puts this repository.
+	Agent RepositoryAgent `yaml:"agent"`
+	// Runtime is what this repository contributes to the application runtime.
+	// It is absent for a repository whose code no service runs.
+	Runtime *RepositoryRuntime `yaml:"runtime"`
 	// DefaultBranch is the branch a base policy resolves against.
 	DefaultBranch string `yaml:"default_branch"`
 	// Remote is the Git remote to fetch before resolving a base.
@@ -88,6 +91,45 @@ type Repository struct {
 	// required rather than defaulted: whether an agent may write to a
 	// repository is not a decision to make on the user's behalf.
 	DefaultAccess string `yaml:"default_access"`
+}
+
+// RepositoryAgent is where the agent's own execution environment puts one
+// repository.
+//
+// It is separate from RepositoryRuntime because the two answer different
+// questions with different owners: where the agent's devcontainer mounts a
+// worktree is the user's free choice, and where an application's own services
+// expect their source is a fact about that application's Compose files. One
+// field could not say both (ADR-065 evidence 5).
+type RepositoryAgent struct {
+	// ContainerPath is where task worktrees are mounted in the devcontainer.
+	ContainerPath string `yaml:"container_path"`
+}
+
+// RepositoryRuntime is what one repository contributes to the project's
+// application runtime.
+//
+// A runtime is composed of its repositories: each brings its own Compose files,
+// resolved against its own checkout, and Feat generates the `include` document
+// that joins them. Listing two repositories' files together instead would
+// resolve every relative path against the first one's directory, so the second
+// repository's build contexts and bind sources would point into the first
+// (ADR-065 evidence 2).
+type RepositoryRuntime struct {
+	// ComposeFiles are the Compose files this repository brings. A relative path
+	// resolves against the repository's own checkout, which is also the project
+	// directory of its include entry, so nothing relative ever crosses a
+	// repository boundary.
+	ComposeFiles []string `yaml:"compose_files"`
+	// ContainerPath is where this repository's own services expect their source.
+	// It is what a task worktree is mounted at, and it has nothing to do with
+	// where the agent's container mounts the same repository.
+	ContainerPath string `yaml:"container_path"`
+	// Services are the services this repository asks Feat to manage.
+	Services []string `yaml:"services"`
+	// Reachable are the services of this repository a user reaches from the
+	// host. Feat allocates a published port for each of them.
+	Reachable []string `yaml:"reachable"`
 }
 
 // GitSection configures base resolution and generated names.
@@ -192,16 +234,22 @@ type CapabilitiesSection struct {
 }
 
 // RuntimeSection configures the application services of a task.
+//
+// What the application is made of is not here: the Compose files and the
+// managed services belong to the repositories that bring them
+// (RepositoryRuntime). What is left is the whole runtime's own settings — how
+// it is driven, when it starts, what is layered over it, and what its Compose
+// project is called.
 type RuntimeSection struct {
 	// Provider is the runtime adapter. Compose is the only v0 provider.
 	Provider string `yaml:"provider"`
 	// StartPolicy is when services start. Only "manual" exists in v0:
 	// application services start by explicit user action (FR-RUN-005).
 	StartPolicy string `yaml:"start_policy"`
-	// ComposeFiles are the base Compose files.
-	ComposeFiles []string `yaml:"compose_files"`
-	// StaticOverrides are user-authored override files applied after the base
-	// files and before Feat's generated task override.
+	// StaticOverrides are user-authored override files applied after the
+	// generated include and before Feat's generated task override. A relative
+	// path inside one resolves against Feat's own generated directory, so they
+	// are best written absolute.
 	StaticOverrides []string `yaml:"static_overrides"`
 	// EnvFiles are host-side environment files passed to Compose by path. Feat
 	// records the paths and never reads their contents.
@@ -209,8 +257,6 @@ type RuntimeSection struct {
 	// ProjectNameTemplate generates the Compose project name, which is what
 	// makes a runtime action affect one task and no other.
 	ProjectNameTemplate string `yaml:"project_name_template"`
-	// Services are the services Feat manages for a task.
-	Services []string `yaml:"services"`
 }
 
 // ReviewSection configures the external commands review opens.
@@ -313,6 +359,86 @@ func (c *Config) Primary() (Repository, bool) { return c.Repository(c.Project.Pr
 
 // HasRuntime reports whether the project configures an application runtime.
 func (c *Config) HasRuntime() bool { return c.Runtime != nil }
+
+// RuntimeContribution is one repository's part of the application runtime,
+// already joined with the repository facts a caller would otherwise look up.
+//
+// It exists so that everything composing a runtime reads the same list in the
+// same order — the daemon generating the include document, `feat doctor`
+// checking the files, and `feat project show` printing them — rather than each
+// walking the repositories with its own idea of which ones count.
+type RuntimeContribution struct {
+	// RepositoryID identifies the repository within the project.
+	RepositoryID string
+	// Directory is the repository's ordinary checkout, which is the project
+	// directory of this contribution's include entry: paths inside its Compose
+	// files resolve against it exactly as they do when the user runs Compose
+	// there by hand.
+	Directory string
+	// ComposeFiles are the repository's own Compose files, absolute.
+	ComposeFiles []string
+	// ContainerPath is where this repository's services expect their source.
+	ContainerPath string
+	// Services are the services this repository asks Feat to manage.
+	Services []string
+	// Reachable are the services of this repository a user reaches from the
+	// host.
+	Reachable []string
+}
+
+// RuntimeComposition returns the repositories contributing to the application
+// runtime, in repository order.
+//
+// A project with no runtime section contributes nothing, whatever its
+// repositories say: a contribution to a runtime that does not exist is a
+// configuration error rather than something to act on, and validation reports
+// it as one.
+func (c *Config) RuntimeComposition() []RuntimeContribution {
+	if c.Runtime == nil {
+		return nil
+	}
+	var composition []RuntimeContribution
+	for _, id := range c.RepositoryIDs() {
+		repository := c.Repositories[id]
+		if repository.Runtime == nil {
+			continue
+		}
+		composition = append(composition, RuntimeContribution{
+			RepositoryID:  id,
+			Directory:     repository.HostPath,
+			ComposeFiles:  append([]string(nil), repository.Runtime.ComposeFiles...),
+			ContainerPath: repository.Runtime.ContainerPath,
+			Services:      append([]string(nil), repository.Runtime.Services...),
+			Reachable:     append([]string(nil), repository.Runtime.Reachable...),
+		})
+	}
+	return composition
+}
+
+// RuntimeServices returns every service the project asks Feat to manage, in
+// repository order and without repetition.
+//
+// It is the list a create and a start target, and it is not the whole of what
+// runs: Compose starts whatever those services depend on, and everything it
+// starts belongs to the task's own Compose project (ADR-034).
+//
+// A service two repositories both name appears once. Naming it twice is not a
+// mistake — a service that runs an application and a shared library it depends
+// on runs the code of two repositories — but Compose is asked for it once.
+func (c *Config) RuntimeServices() []string {
+	var services []string
+	seen := make(map[string]bool)
+	for _, contribution := range c.RuntimeComposition() {
+		for _, service := range contribution.Services {
+			if seen[service] {
+				continue
+			}
+			seen[service] = true
+			services = append(services, service)
+		}
+	}
+	return services
+}
 
 // Accepted values. They are the vocabularies docs/07-configuration-model.md
 // documents, and validation names the accepted values when it rejects one, so
