@@ -224,7 +224,7 @@ Evidence found while planning the daemon and the local API:
 6. A bounded per-subscriber event queue has three options when a subscriber falls behind: block the daemon, discard events silently, or end the subscription. The first makes a slow client a daemon outage; the second makes the event stream a claim rather than a record.
 7. Two of the slice 2 acceptance criteria have no production code path inside slice 2: nothing writes persistent state before slice 3, and nothing publishes domain events before slice 6.
 8. The exit-code contract in `internal/cli` distinguishes success, failure, usage, unimplemented, and interruption. `feat daemon status` has to report that no daemon is running, which is not a failure of the command and is none of the others.
-9. `feat daemon start` needs a foreground process to spawn, and the launchd/systemd units in slice 14 need a command to invoke.
+9. `feat daemon start` needs a foreground process to spawn, and the launchd/systemd units in slice 17 need a command to invoke.
 
 Decisions:
 
@@ -278,7 +278,7 @@ Decisions:
 - `feat doctor` runs `docker compose config --services` and never plain `docker compose config`. Environment files are examined by path and metadata only. Secret values never appear in diagnostics because they are never read, which is a property of the data rather than a filter over the output, and a test uses an unreadable environment file so that a future change cannot pass by accident.
 - A path template is checked against its fixed leading directory as well as against what it expands to, and every template that names a per-task resource must contain `{task_id}` or `{task_key}`. Placeholder vocabularies are closed: an unknown placeholder is rejected rather than left to survive into a branch name, a path, or a command argument.
 - Project configuration is resolved against the environment of the process that reads it: the daemon's own for registration, the client's for `feat doctor` and `feat project show`. `internal/daemon` gained a `paths.Environment` option so that this is explicit rather than ambient.
-- The JSON Schema in `schema/feat-project.schema.json` is hand-written and kept in step with the Go types by a test that compares field names in both directions. Slice 14 finalises it. `docs/examples/project.yaml` is validated by the test suite, so the file a new user copies cannot drift from what Feat accepts.
+- The JSON Schema in `schema/feat-project.schema.json` is hand-written and kept in step with the Go types by a test that compares field names in both directions. Slice 17 finalises it. `docs/examples/project.yaml` is validated by the test suite, so the file a new user copies cannot drift from what Feat accepts.
 - `POST /v1/projects/{project_id}/doctor` from [06-technical-architecture.md](06-technical-architecture.md) is deferred to the slice whose TUI reads it, for the reason ADR-027 deferred `daemon.json`: an endpoint with no reader is a compatibility surface with no user. `feat doctor` covers the command surface today.
 
 Consequence: registering a project is the first write the local API carries, so the slice 2 acceptance criterion that the daemon is the only state writer — which ADR-027 recorded as structurally verified — is now checked behaviourally as well, by a test that registers through the socket and finds the snapshot in the daemon's state directory.
@@ -1166,7 +1166,7 @@ Decisions:
   notification and never that one was seen: macOS decides per application whether
   to show one and drops an unauthorised one without saying so, and evidence 12
   shows the application it decides about may not be one the user can find. Linux
-  support stays slice 14's, and this build says so rather than failing silently
+  support stays slice 17's, and this build says so rather than failing silently
   there.
 - A delivered notification is recorded as a task event, `notification_sent`. A
   desktop notification is gone the moment it is dismissed, so without this there
@@ -1430,7 +1430,7 @@ from this repository's own fakes:
    *client's* locale and not the server's.
 
    An environment with no locale is not an exotic case: it is what a process
-   started by launchd or systemd gets, which is how slice 14 intends a daemon to
+   started by launchd or systemd gets, which is how slice 17 intends a daemon to
    run, and it is what any sanitised environment looks like. The suite never saw
    it because `go test` inherits the developer's own environment.
 
@@ -1939,7 +1939,7 @@ why it is recorded before the change rather than after a failure:
    first.
 5. The window is this slice. The surface is pinned by a golden file and described
    in three documents, slice 13 is already rewriting every `<task>` argument for
-   ADR-038, and slice 14 publishes v0.2. After that, moving a command breaks a
+   ADR-038, and slice 17 publishes v0.2. After that, moving a command breaks a
    shell history that is not Feat's to break.
 6. Found while implementing this: cobra's own "Did you mean this?" had never
    fired, for any command. It is built on the path cobra takes for a command
@@ -2002,7 +2002,7 @@ now name the command that exists.
 
 Two things this deliberately leaves alone. Machine-readable output is a separate
 gap — every command can be read by a person and parsed by nothing — and belongs
-with slice 14's JSON Schema. And an unknown subcommand of a group, `feat task lst`
+with slice 17's JSON Schema. And an unknown subcommand of a group, `feat task lst`
 or `feat daemon bogus`, still prints the group's help and exits zero, which
 predates this change and is the same on every group: a script cannot tell that
 one from a command that ran.
@@ -2185,7 +2185,7 @@ differently: no endpoint, no domain type, and no storage path changes. The
 dashboard's keys are not
 renumbered, because a user who learned them during dogfood is the only user there
 is. This is presentation work, which the maintainer batches for after every screen
-exists; it is taken now rather than in slice 14 because the three-task runs are
+exists; it is taken now rather than in slice 17 because the three-task runs are
 read through this screen, and a screen that shows one task at a time cannot
 produce evidence about three.
 
@@ -4249,6 +4249,178 @@ wizard's last step. The command is unchanged. What this does not do is diagnose
 from the daemon, which is the only way to answer about the daemon's own
 environment; that stays an open question for the machine where the two
 environments differ.
+
+### ADR-065 — A runtime is composed of its repositories, and a service that is not running the task's code says so
+
+Status: accepted
+Recorded: slice 13, before implementation
+
+Evidence found while making the reference project's whole application — an API
+and a frontend in separate repositories — run for one task. Most of it is
+measured against Docker 29.5.2 and Compose 5.1.4 rather than reasoned:
+
+1. **A project configured for host execution mounted nothing, again.**
+   `jobharbor.yaml` had no `container_path` on any repository, because nothing
+   asks for one outside devcontainer execution. `runtimeMounts` skips a
+   repository without one (`internal/daemon/runtime.go:540`), so the runtime
+   generated no `volumes:` at all and every service ran the user's ordinary
+   checkout. It is ADR-034 evidence 10 surviving its own fix: the daemon was
+   corrected to read the mount target from configuration, and nothing was done
+   about a configuration flow that never collects it.
+2. **Two repositories' Compose files cannot be merged with `-f`.** Compose
+   resolves relative paths in every file against the project directory, which
+   Feat sets to the first configured file's directory
+   (`internal/daemon/runtime.go:479`). Both of the reference project's files use
+   `build: .`, so listing them together builds the frontend from the API
+   repository. Measured, not inferred.
+3. **`include` is the mechanism that does work.** Paths inside an included file
+   resolve against that file's own directory, and the long form takes a
+   `project_directory` per entry. Feat's generated override merges over the
+   result unchanged: `!reset null` clears an included service's
+   `container_name`, ownership labels and worktree mounts land on it, and
+   `docker compose config --services` enumerates it, so ADR-034 evidence 12's
+   dependency walk still holds. It needs Compose 2.20; ADR-034 already requires
+   2.24.
+4. **The generated override never touches `build.context`.** A service that
+   bakes its code with `COPY` runs the ordinary checkout whatever
+   `container_path` says, and ADR-034's ordinary-checkout note cannot fire
+   because the note inspects mounts and there is no mount. The reference
+   project's frontend is a multi-stage build ending in nginx: mounting a
+   worktree into it is meaningless, and only the build context decides what
+   runs. A fix that addresses mounts alone leaves that service broken and
+   silent.
+5. **One field is doing two unrelated jobs.** The agent's execution adapter
+   (`internal/daemon/execution.go:207,233`) and the application runtime
+   (`internal/daemon/runtime.go:549`) both read
+   `repositories.<id>.container_path`. They are different questions with
+   different owners: where the agent's devcontainer mounts a repository is the
+   user's free choice, and where an application's own services expect their
+   source is a fact about that application's Compose files. `jobharbor-dev.yaml`
+   needs `/workspace/jobharbor-api` for the first and `/app` for the second, and
+   cannot say both.
+6. **The configuration flow neither collects the field nor shows it.**
+   `feat project init` jumps from the execution mode straight to the provider
+   CLI when the answer is not `devcontainer` (`internal/wizard/wizard.go:639`),
+   so a host-execution project is never asked. `feat doctor` drops the CONTAINER
+   PATH column for the same projects (`internal/cli/table.go:87`). Both
+   assertions covering that column use a devcontainer fixture
+   (`internal/cli/project_test.go:310,349`), so neither branch is pinned. The
+   value the daemon depends on is one the product neither asks for nor prints.
+7. **Every way of getting this wrong is silent.** A missing container path
+   produces no mount; a mismatched one produces two mounts, because Compose
+   merges a service's volumes by target and a target that does not collide is
+   simply added; a baked build context produces neither. In all three the
+   containers start, the application serves, and every record Feat keeps stays
+   correct. The user sees a healthy runtime that is not running their task.
+8. **Fixed published ports prevent the thing the runtime is for.** The reference
+   project publishes 8000, 5173 and 5432 at fixed numbers, so a second task's
+   runtime cannot start, and its frontend reaches the API through a URL baked to
+   one of those numbers. Testing one task's application while other agents work
+   is the reason a per-task runtime exists, and ADR-034's decision to leave
+   published ports exactly as configured is what stops it.
+9. **Hot reload across a bind mount is sound.** With the source mounted rather
+   than baked, and the virtualenv moved outside the mount, an edit on the host
+   reached both `uvicorn --reload` and the Vite dev server in two seconds, over
+   VirtioFS, with no polling. Reload is therefore a mechanism the product may
+   rely on rather than a hope — which matters because an agent confined to a
+   devcontainer has no Docker and cannot restart anything it changes.
+
+Decisions:
+
+- **A runtime is composed of its repositories.** The global
+  `runtime.compose_files` list is replaced by a per-repository runtime
+  contribution: the Compose files that repository brings, resolved relative to
+  it, the container path its own services expect, and the services it asks Feat
+  to manage. Feat generates the `include` document that joins them, with a
+  `project_directory` per entry. The user stops hand-writing the file that
+  composes their application, and evidence 2 stops being reachable — nothing
+  relative ever crosses a repository boundary.
+- **`container_path` splits in two.** `repositories.<id>.agent.container_path`
+  is where the agent's devcontainer mounts the worktree;
+  `repositories.<id>.runtime.container_path` is where that repository's own
+  services expect their source. They are separate because evidence 5 shows they
+  are separate questions, and under a compliance regime that requires
+  devcontainer execution both always exist.
+- **A build context is redirected like a mount.** For a managed service whose
+  build context is a configured repository, the generated override sets
+  `build.context` to that repository's task worktree. Measured: the override can
+  do it, and a relative `dockerfile:` follows the new context. Where the code
+  comes from is one question, and a mount and a build context are two answers to
+  it; fixing one and not the other is evidence 4 preserved.
+- **A managed service that is not running the task's code is a state, not a
+  note.** It is resolved at create, from configuration, and shown on the task.
+  The half that needs no Docker at all — a repository selected by a task, with a
+  runtime configured, and no runtime container path — is refused at
+  configuration load, because it cannot produce anything but evidence 1.
+  ADR-034's post-start inspection stays as the check that catches what
+  configuration cannot.
+- **Feat allocates published ports, and tells a service where its siblings
+  are.** [08-v0-scope.md](08-v0-scope.md) excludes port-range allocation
+  "unless required to make the reference project run", and evidence 8 is that
+  condition being met, so this is the exclusion's own escape rather than a scope
+  change. A repository declares which of its services are reachable; Feat
+  allocates a host port per reachable service per task, records it, writes it
+  into the generated override in place of the configured publication, and
+  releases it on destroy. The resulting address reaches every managed service of
+  the task as a generated non-secret variable — `FEAT_URL_<SERVICE>` and
+  `FEAT_PORT_<SERVICE>`, normalised to upper case with non-alphanumerics
+  replaced, and refused when two service names normalise alike. This
+  **supersedes** ADR-034's rule that published ports are left exactly as
+  configured. That rule's stated reason was that a port is how the user reaches
+  their application and that v0 allocates none of its own; the second half has
+  now changed, and the first is better served by an address Feat can tell the
+  user than by a number that only one task can hold.
+- **Configuration is derived and confirmed rather than transcribed.** Feat reads
+  a project's own Compose files structurally: service keys, `volumes` targets,
+  `build.context`, and published `ports`. It never resolves interpolation — an
+  entry containing `${...}` is a value Feat could not derive, and the user is
+  asked — and it never reads `environment:` values, `build.args`, or an
+  `env_file`. This does not touch ADR-034 evidence 5, whose subject was
+  `docker compose config` rendering environment-file values into its output;
+  reading the document resolves nothing. The rule is not who reads but where a
+  value comes to rest: a derived value becomes configuration only when the user
+  accepts it into their own YAML, and nothing Feat inferred is persisted in
+  Feat's own state. `internal/project/discover.go` already draws this line for
+  service names and is extended rather than replaced.
+- **The wizard asks in every execution mode, and `doctor` prints in every
+  execution mode.** Evidence 6 is one decision applied to two commands. A
+  project with a runtime is asked for its runtime container paths whether or not
+  its agent is containerised, and the mapping table shows them whatever the mode,
+  because it is the mapping that decides whether the user's services run their
+  task.
+- **The configuration interface breaks without a compatibility period.** Feat is
+  used by its author and nobody else, so a version bump would buy ceremony. The
+  old shape fails the strict unknown-field rejection that
+  [07-configuration-model.md](07-configuration-model.md) already requires, and
+  the message names the replacement rather than reporting an unknown key: a
+  break the user has agreed to is still a break they should not have to diagnose.
+- **What this does not decide.** It does not make an application
+  hot-reloadable — that stays in the user's own Compose files, and Feat's
+  contribution is saying which services will not reload. It does not deliver
+  stable per-task hostnames: OQ-008 stays open, and the evidence recorded against
+  it is that a proxy is a machine-wide resource with a lifetime no task owns,
+  which is the `shared` lifecycle ADR-034 called roadmap work, and that a
+  label-driven proxy wants the Docker socket that this product's headline denies
+  the agent. Allocated ports are the first half of that feature rather than a
+  detour from it, since a proxy must route to something. Nothing here addresses
+  what several parallel application stacks cost a laptop.
+
+Consequence: the configuration gains a per-repository runtime section and loses
+a global one, the agent's and the runtime's container paths become separate
+fields, and `domain.RuntimeEnvironment` gains the port allocations it must
+release. `feat doctor`, `feat project init`, the JSON schema and the documented
+example all move with it, because [07-configuration-model.md](07-configuration-model.md)
+holds the last two to the implementation by test. The work exceeds slice 13's
+outcome and is ordered as three slices, each of which ends with a product that
+runs: the configuration shape, its validation, and the composition that consumes
+it, because a slice that reshaped the configuration and left nothing reading it
+would not build, let alone start a runtime; then build contexts and the
+provenance state; then allocation and reachability. The first also rewrites the
+project configurations on this machine, since `feat.yaml` is among those that
+stop loading and it is how Feat's own tasks are run. It pushes the current slice
+14 out by three.
+The reference project's whole application then runs for one task, hot-reloading,
+several times over, and the failure this ADR exists for stops being silent.
 
 ## Decision change process
 

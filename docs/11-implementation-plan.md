@@ -994,7 +994,7 @@ format `internal/tmux` uses is tab-separated — so a daemon started without `LA
 or `LC_ALL` cannot parse the identifiers of the terminal it has just created, and
 discovers nothing at all. Every task launch fails with `tmux returned
 "$0_@0_%0"`. An environment with no locale is what a process started by launchd
-or systemd gets, which is how slice 14 intends a daemon to run; the suite never
+or systemd gets, which is how slice 17 intends a daemon to run; the suite never
 saw it because `go test` inherits the developer's own environment. Every control
 invocation now passes `tmux -u`, attachment deliberately does not, and an opt-in
 test creates and rediscovers a terminal with every locale variable removed —
@@ -1453,7 +1453,7 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   hidden top-level aliases and `cleanup` deliberately does not. See ADR-040.
 
   Done in this slice because slice 13 is already rewriting every `<task>`
-  argument for ADR-038, and because slice 14 publishes v0.2: after that, moving a
+  argument for ADR-038, and because slice 17 publishes v0.2: after that, moving a
   command breaks a shell history that is not Feat's to break. The golden file,
   [README.md](README.md), [06-technical-architecture.md](06-technical-architecture.md),
   and the README move in the same change, as they did in ADR-028 and ADR-031.
@@ -1510,11 +1510,11 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   Done in this slice because it is a dogfood finding about the surface slice 13
   is already rewriting, and because the stored fields go without a schema
   migration — an exemption that is only available while the state directory
-  belongs to the people writing it, which slice 14 ends.
+  belongs to the people writing it, which slice 17 ends.
 - Measure manual coordination removed and false idle notifications. The measure
   is also the evidence OQ-013 needs.
 
-  It stays in this slice while the two documentation items move to slice 14,
+  It stays in this slice while the two documentation items move to slice 17,
   because it is evidence rather than prose: it is a reading of the
   `notification_sent` events the state directory already holds, it cannot go
   stale as the code around it changes, and two things wait on it — v0.1
@@ -1828,7 +1828,7 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   stay the commands they already are — the wizard offers each at the end and
   calls exactly those. Writing the file by hand is unchanged.
 
-  Pulled forward from slice 14, which made it conditional on manual
+  Pulled forward from slice 17, which made it conditional on manual
   configuration being the dominant public blocker: dogfooding answered that, and
   the first-run path is not one the public milestone should meet for the first
   time. See ADR-062.
@@ -1907,7 +1907,151 @@ v0.1 meets every acceptance criterion in [08-v0-scope.md](08-v0-scope.md).
   failed halfway leaves the screen that explains it, over an inventory read after
   the attempt rather than before it.
 
-## Slice 14 — Public v0.2
+## Slice 14 — Per-repository runtime composition
+
+The design decisions these three slices start from are recorded in ADR-065 in
+[10-decisions-and-open-questions.md](10-decisions-and-open-questions.md).
+
+### Outcome
+
+A project's application is composed of its repositories' own Compose files, and
+the configuration says where each repository's services expect their source
+separately from where the agent's container mounts it.
+
+### Work
+
+- Replace the global `runtime.compose_files` with a per-repository runtime
+  contribution: the Compose files that repository brings, resolved relative to
+  its checkout; the container path its own services expect; the services it asks
+  Feat to manage; and which of those are reachable. The reachable declaration is
+  collected and validated here and unused until slice 16, because a
+  configuration break is cheaper made once than twice.
+- Split `repositories.<id>.container_path` into `agent.container_path` and
+  `runtime.container_path`. They are different questions with different owners
+  (ADR-065 evidence 5), and a project whose compliance requires devcontainer
+  execution has both.
+- Generate the Compose `include` document that joins the contributions, one
+  entry per repository with its own `project_directory`. Merging repositories
+  with `--file` resolves every relative path against the first file's directory,
+  so a second repository's build context points into the first (ADR-065
+  evidence 2).
+- Read each repository's Compose files structurally to propose configuration:
+  service keys, `volumes` targets, `build.context`, published `ports`. Never
+  resolve interpolation; never read `environment` values, `build.args`, or an
+  `env_file`. `internal/project/discover.go` already reads service names under
+  this discipline and is extended rather than replaced.
+- Ask for runtime container paths in every execution mode, and print them in
+  every execution mode. The wizard jumps past the question when the mode is not
+  `devcontainer` and `doctor` drops the column for the same projects, so the
+  value the daemon depends on is one the product neither collects nor shows
+  (ADR-065 evidence 6).
+- Reject the previous configuration shape with an error naming its replacement
+  rather than as an unknown field. There is no version bump and no compatibility
+  period: a break the user agreed to is still one they should not have to
+  diagnose.
+- Update [07-configuration-model.md](07-configuration-model.md),
+  `schema/feat-project.schema.json`, and [examples/project.yaml](examples/project.yaml)
+  in the same change; tests hold the last two to the implementation.
+- Rewrite the project configurations outside the repository that stop loading.
+  `feat.yaml` is among them and is how Feat's own tasks run, so a new binary and
+  the files it can read are installed together.
+
+### Acceptance criteria
+
+- A project whose application spans two repositories runs as one task's runtime,
+  from a generated include, with no hand-written combined Compose file.
+- Each repository's build contexts and relative mounts resolve against its own
+  checkout.
+- A repository's agent mount target and its runtime mount target can differ, and
+  each is used where it belongs.
+- `feat project init` proposes runtime container paths read from the project's
+  own Compose files, and `feat doctor` prints them, whatever the execution mode.
+- No value from an environment file, a `build.args` entry, or an `environment`
+  mapping reaches a suggestion, a generated document, or Feat's own state.
+- A configuration in the previous shape fails with an error naming what replaced
+  it.
+
+## Slice 15 — Code provenance
+
+### Outcome
+
+A task's services run the task's code, or the task says which ones do not.
+
+### Work
+
+- Redirect `build.context` for a managed service whose context is a configured
+  repository's checkout, to that repository's task worktree. A service that
+  bakes its code with `COPY` has no mount to replace, so mounts alone leave it
+  running the ordinary checkout with nothing to report it (ADR-065 evidence 4).
+- Make a managed service that is not running the task's code a state on the
+  task, resolved at create from configuration rather than discovered afterwards.
+- Refuse at configuration load the case that needs no Docker to diagnose: a
+  task-eligible repository, a configured runtime, and no runtime container path,
+  which can produce only a runtime with no mounts at all (ADR-065 evidence 1).
+- Keep ADR-034's post-start container inspection as the check for what
+  configuration cannot see. Whether a configured path matches what the project's
+  own Compose files mount at is not knowable without `docker compose config`,
+  which renders environment-file values Feat must never read.
+- Report which managed services will not pick up a change without a restart. An
+  agent confined to a devcontainer has no Docker and cannot restart what it
+  changed, so a service that neither reloads nor is restarted is a change the
+  user never sees (ADR-065 evidence 9).
+
+### Acceptance criteria
+
+- A service built from a repository's Dockerfile runs the task's worktree,
+  including one whose image copies its source and mounts nothing.
+- A missing runtime container path is refused before anything starts, naming the
+  repository and the service.
+- A service running neither a task worktree nor a task build context is visible
+  on the task at create, not only after a start.
+- No path to this diagnosis runs `docker compose config`.
+
+## Slice 16 — Port allocation and reachability
+
+### Outcome
+
+Several tasks run their whole application at once, and each application finds
+its own task's services.
+
+### Work
+
+- Allocate a host port per reachable service per task from a configured range,
+  record it on `domain.RuntimeEnvironment`, write it into the generated override
+  in place of the service's configured publication, and release it on destroy.
+- Reset the publications of every managed service the project did not declare
+  reachable. A published port is global to the host, so one undeclared service
+  carrying a fixed one blocks the second task as surely as the entry point did —
+  which is the whole failure this slice exists to remove.
+- Deliver the resulting address to every managed service of the task as
+  generated non-secret variables, `FEAT_URL_<SERVICE>` and `FEAT_PORT_<SERVICE>`,
+  upper-cased with non-alphanumerics replaced, refusing a configuration where two
+  service names normalise alike.
+- State the supersession where ADR-034 states the original: published ports are
+  no longer left exactly as configured. That rule rested on v0 allocating none of
+  its own, which this slice changes.
+- Record in [08-v0-scope.md](08-v0-scope.md) that the condition its port-range
+  exclusion carries — "unless required to make the reference project run" — is
+  met, and why.
+- Update [03-domain-model.md](03-domain-model.md) and
+  [04-functional-specification.md](04-functional-specification.md) for the
+  allocations and their lifecycle.
+- Leave stable per-task hostnames out. OQ-008 stays open, and ADR-065 records
+  what blocks it: a proxy is a machine-wide resource with a lifetime no task
+  owns, and a label-driven one wants the Docker socket this product denies the
+  agent. An allocated port is what such a proxy would route to, so this slice is
+  its first half rather than a detour from it.
+
+### Acceptance criteria
+
+- Three tasks of the reference project run their whole application concurrently.
+- Each task's frontend reaches its own task's API and not another task's.
+- A destroy releases the ports its task held, and no port is reallocated while
+  the runtime holding it exists.
+- An exhausted range is reported as what it is, naming what holds it.
+- No managed service publishes a port Feat did not allocate.
+
+## Slice 17 — Public v0.2
 
 ### Outcome
 
