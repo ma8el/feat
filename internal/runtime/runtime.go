@@ -111,6 +111,14 @@ type Spec struct {
 	// Mounts are the task worktrees, at the container paths their repositories
 	// configure.
 	Mounts []Mount
+	// Builds are the managed services whose images are built from a task
+	// worktree rather than from a repository's ordinary checkout.
+	//
+	// They are the other half of Mounts and exist because a mount is not the
+	// only way code reaches a service: one that bakes its code with COPY has no
+	// mount to replace, and only its build context decides what it runs (ADR-065
+	// evidence 4).
+	Builds []Build
 	// Variables are generated non-secret environment entries. A secret never
 	// reaches this field because nothing that reads one ever fills it.
 	Variables map[string]string
@@ -148,6 +156,10 @@ type Mount struct {
 	// are different containers, and mounting every worktree into every service
 	// would make that ordinary arrangement a collision.
 	Services []string
+	// Repository is the repository whose worktree this is, so that what a
+	// service turned out to receive can be said in the user's own names rather
+	// than in paths.
+	Repository string
 	// Source is the absolute host path.
 	Source string
 	// Target is the absolute path inside the container.
@@ -156,6 +168,29 @@ type Mount struct {
 	ReadOnly bool
 	// Description says what the mount is, so a diagnostic can name it in the
 	// user's terms rather than by path alone.
+	Description string
+}
+
+// Build is one managed service's build context, pointed at a task worktree.
+//
+// A service whose image copies the repository in is not reached by any mount:
+// what it runs was decided when the image was built. Redirecting the context is
+// the same act as replacing a mount — both answer "where does this service's
+// code come from" — and doing one without the other leaves such a service
+// running the user's ordinary checkout with nothing to report it.
+type Build struct {
+	// Service is the managed service whose build context this is.
+	Service string
+	// Repository is the repository the context belongs to, for a message that
+	// has to say whose code this is.
+	Repository string
+	// Context is the absolute host path the image is built from: the task
+	// worktree, or the directory inside it that the project's own files named. A
+	// relative `dockerfile:` beside it follows the new context, which is why the
+	// context alone is redirected.
+	Context string
+	// Description says what the context is, so the generated document can name
+	// it in the user's terms.
 	Description string
 }
 
@@ -171,6 +206,17 @@ func (s Spec) MountsFor(service string) []Mount {
 		}
 	}
 	return mounts
+}
+
+// BuildFor returns the redirected build context of one managed service, if it
+// has one.
+func (s Spec) BuildFor(service string) (Build, bool) {
+	for _, build := range s.Builds {
+		if build.Service == service {
+			return build, true
+		}
+	}
+	return Build{}, false
 }
 
 // State is what a runtime looks like now.
@@ -349,7 +395,49 @@ func (s Spec) Validate() error {
 	if err := s.validateMounts(); err != nil {
 		return err
 	}
+	if err := s.validateBuilds(managedServices(s.Services)); err != nil {
+		return err
+	}
 	return sortedVariables(s.Variables).validate()
+}
+
+// validateBuilds checks the redirected build contexts.
+//
+// A build context reaches a generated document Compose builds an image from, so
+// the same strictness applies as to a mount source. Two redirects of one service
+// are refused rather than resolved: a service builds from one context, and which
+// of two a document should carry is not a question Feat may answer by writing
+// whichever came last.
+func (s Spec) validateBuilds(managed map[string]bool) error {
+	seen := make(map[string]string, len(s.Builds))
+	for _, build := range s.Builds {
+		if err := checkName("build service", build.Service); err != nil {
+			return err
+		}
+		if !managed[build.Service] {
+			return fmt.Errorf("the build context %s of task %s names the service %q, which the task does "+
+				"not manage", build.Context, s.Task, build.Service)
+		}
+		if err := checkHostPath("build context of service "+build.Service, build.Context); err != nil {
+			return err
+		}
+		if previous, taken := seen[build.Service]; taken {
+			return fmt.Errorf("service %s of task %s is given two build contexts, %s and %s: a service "+
+				"builds from one, and which is not something Feat should decide",
+				build.Service, s.Task, previous, build.Context)
+		}
+		seen[build.Service] = build.Context
+	}
+	return nil
+}
+
+// managedServices indexes the services the project asked Feat to manage.
+func managedServices(services []string) map[string]bool {
+	managed := make(map[string]bool, len(services))
+	for _, service := range services {
+		managed[service] = true
+	}
+	return managed
 }
 
 // validateIncludes checks what the runtime is composed of.
@@ -396,10 +484,7 @@ func (s Spec) validateIncludes() error {
 // the same path in two different containers is an ordinary arrangement, and
 // only what lands in one container can collide.
 func (s Spec) validateMounts() error {
-	managed := make(map[string]bool, len(s.Services))
-	for _, service := range s.Services {
-		managed[service] = true
-	}
+	managed := managedServices(s.Services)
 	targets := make(map[string]map[string]string, len(s.Services))
 
 	for _, mount := range s.Mounts {

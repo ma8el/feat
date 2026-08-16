@@ -57,9 +57,10 @@ type Composition struct {
 	ContainerPath string
 	// Reachable are the services that publish a host port.
 	Reachable []string
-	// Baked are the services built from this repository. Such a service runs
-	// the code its image was built with rather than anything mounted into it,
-	// which is worth saying while the user is deciding what to manage.
+	// Baked are the services built from this repository. Such a service has no
+	// mount to replace, so Feat points its build context at the task's worktree
+	// instead — which is worth saying while the user is deciding what to manage
+	// and what container path to give.
 	Baked []string
 	// Undecided names the entries Feat left unread because they interpolate a
 	// "${...}" it must not resolve. It is what turns "nothing was proposed" into

@@ -419,8 +419,13 @@ type Runtime struct {
 	// affect one task's services and no other's.
 	Identity string   `json:"identity"`
 	Services []string `json:"services"`
-	Ports    []Port   `json:"ports"`
-	State    string   `json:"state"`
+	// Provenance says where each managed service's code comes from. It is
+	// resolved from configuration and the project's own Compose files when the
+	// runtime is, so a service that will not run the task's work says so before
+	// anything is started rather than after.
+	Provenance []ServiceProvenance `json:"provenance"`
+	Ports      []Port              `json:"ports"`
+	State      string              `json:"state"`
 	// Health is separate from State: without a configured health check the
 	// honest answer is unknown.
 	Health string `json:"health"`
@@ -455,6 +460,29 @@ type RuntimeSource struct {
 	Directory string `json:"directory"`
 	// Files are that repository's Compose files, in order.
 	Files []string `json:"files"`
+}
+
+// ServiceProvenance is where one managed service's code comes from.
+//
+// A service reaches a task's work by mounting its worktree or by building its
+// image from it, and a service that does neither runs whatever the project's own
+// Compose files point at — the user's ordinary checkout — while every record
+// Feat keeps stays correct. RunsTaskCode is that question answered, so a client
+// asks it rather than deriving it from two lists.
+type ServiceProvenance struct {
+	Service string `json:"service"`
+	// Repositories are the repositories that asked Feat to manage the service.
+	Repositories []string `json:"repositories"`
+	// Mounted and Built are the repositories whose task worktree the service
+	// mounts, and whose task worktree its image is built from.
+	Mounted []string `json:"mounted"`
+	Built   []string `json:"built"`
+	// RunsTaskCode reports whether any of the task's work reaches the service.
+	RunsTaskCode bool `json:"runs_task_code"`
+	// Baked are the repositories whose code reaches the service only through its
+	// image, so a change appears there once the image is built again and not
+	// before.
+	Baked []string `json:"baked"`
 }
 
 // Port is one published port of one service.
@@ -1173,6 +1201,7 @@ func newRuntime(runtime *domain.RuntimeEnvironment) *Runtime {
 		Provider:              runtime.Provider,
 		Identity:              runtime.Identity,
 		Services:              list(runtime.Services),
+		Provenance:            newProvenance(runtime.Provenance),
 		Ports:                 ports,
 		State:                 string(runtime.State),
 		Health:                string(runtime.Health),
@@ -1185,6 +1214,22 @@ func newRuntime(runtime *domain.RuntimeEnvironment) *Runtime {
 		GeneratedOverridePath: runtime.GeneratedOverridePath,
 		ObservedAt:            runtime.ObservedAt,
 	}
+}
+
+// newProvenance renders where each managed service's code comes from.
+func newProvenance(provenance []domain.ServiceProvenance) []ServiceProvenance {
+	rendered := make([]ServiceProvenance, 0, len(provenance))
+	for _, entry := range provenance {
+		rendered = append(rendered, ServiceProvenance{
+			Service:      entry.Service,
+			Repositories: list(entry.Repositories),
+			Mounted:      list(entry.Mounted),
+			Built:        list(entry.Built),
+			RunsTaskCode: entry.RunsTaskCode(),
+			Baked:        list(entry.Baked()),
+		})
+	}
+	return rendered
 }
 
 // newComposition renders what a runtime is composed of.

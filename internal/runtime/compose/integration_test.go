@@ -291,6 +291,83 @@ func TestRealTheLifecycleIsManualAndComplete(t *testing.T) {
 	}
 }
 
+// TestRealABakedServiceRunsTheTaskWorktree is this slice's first acceptance
+// criterion against real Docker, and the failure it exists for.
+//
+// The web service of the fixture is the shape that defeats every mount-based
+// check: its image copies the repository in and it mounts nothing of it, so
+// where its code comes from was decided when the image was built. Redirecting
+// the build context is the only thing that can point it at the task's own work,
+// and the container's own copy of origin.txt is what says which directory it was
+// really built from (ADR-065 evidence 4).
+//
+// The Dockerfile is named relatively in the project's own file and is not
+// redirected, so this also measures the claim that a relative `dockerfile:`
+// follows the new context.
+func TestRealABakedServiceRunsTheTaskWorktree(t *testing.T) {
+	realDocker(t)
+
+	// The arranged runtime is discarded and rebuilt below with the redirect: the
+	// two would share one Compose project, and what is under test is the one that
+	// carries the build context. Its cleanup is registered against the
+	// specification, so it still removes what this starts.
+	_, spec, _ := realRuntime(t, domain.NewTaskID())
+	root := filepath.Dir(spec.Directory)
+	worktree := filepath.Join(root, "worktrees", "web")
+
+	// The task's own copy of the second repository: the same Dockerfile, and an
+	// origin.txt saying it is the worktree rather than the checkout.
+	if err := os.MkdirAll(worktree, 0o700); err != nil {
+		t.Fatalf("creating the web worktree: %v", err)
+	}
+	copyFixture(t, "web.Dockerfile", filepath.Join(worktree, "web.Dockerfile"))
+	if err := os.WriteFile(filepath.Join(worktree, "origin.txt"), []byte("web-worktree"), 0o600); err != nil {
+		t.Fatalf("writing the worktree's origin marker: %v", err)
+	}
+
+	spec.Builds = []runtime.Build{{
+		Service: "web", Repository: "web", Context: worktree,
+		Description: "the web task worktree, which this service's image is built from",
+	}}
+	redirected, err := compose.New(spec, compose.Options{})
+	if err != nil {
+		t.Fatalf("building the runtime: %v", err)
+	}
+	if _, err := redirected.Start(context.Background()); err != nil {
+		t.Fatalf("starting: %v", err)
+	}
+
+	out, ok := insideService(t, spec.Identity, spec.Directory, "web", "cat", "/origin.txt")
+	if !ok || strings.TrimSpace(out) != "web-worktree" {
+		t.Errorf("a service that bakes its code was built from %q, want the task worktree: mounts alone "+
+			"cannot reach it, so its build context is the only thing that can", strings.TrimSpace(out))
+	}
+
+	// And nothing was mounted to achieve it: this is the service the mount-based
+	// check cannot see.
+	report, err := redirected.Inspect(context.Background(), mustObserve(t, redirected))
+	if err != nil {
+		t.Fatalf("inspecting: %v", err)
+	}
+	for _, mount := range report.Mounts {
+		if mount.Service == "web" && mount.Type == "bind" && strings.Contains(mount.Source, "worktrees") {
+			t.Errorf("the web service holds a bind mount of the worktree at %s, so this test is no "+
+				"longer about a service with none", mount.Destination)
+		}
+	}
+}
+
+// mustObserve reads a runtime's state or fails the test.
+func mustObserve(t *testing.T, services *compose.Runtime) runtime.State {
+	t.Helper()
+
+	state, err := services.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing: %v", err)
+	}
+	return state
+}
+
 // TestRealTwoTasksRunTheSameServicesAtOnce is the first acceptance criterion
 // against real Docker.
 //

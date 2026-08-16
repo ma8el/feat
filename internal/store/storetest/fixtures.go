@@ -253,10 +253,20 @@ func Runtime() *domain.RuntimeEnvironment {
 		StaticOverrides:       []string{"/srv/repositories/core/compose.override.yaml"},
 		GeneratedOverridePath: "/srv/state/runtime/example/7f3a1c2e/compose.generated.yaml",
 		EnvFiles:              []string{"/srv/repositories/core/.env"},
-		Services:              []string{"web", "worker"},
-		Ports:                 []domain.PortAssignment{{Service: "web", ContainerPort: 8080, HostPort: 18080}},
-		Networks:              []string{"feat-example-7f3a1c2e_default"},
-		Volumes:               []string{"feat-example-7f3a1c2e_cache"},
+		Services:              []string{"web", "worker", "assets"},
+		// One service of each kind there is: one the task's worktree is mounted
+		// into, one whose image was built from it and shows a change only when it
+		// is built again, and one the task reaches not at all — which is the
+		// failure that looks like success, so it is the one a fixture must carry
+		// through a round trip (ADR-065).
+		Provenance: []domain.ServiceProvenance{
+			{Service: "web", Repositories: []string{"core"}, Mounted: []string{"core"}},
+			{Service: "worker", Repositories: []string{"core"}, Built: []string{"core"}},
+			{Service: "assets", Repositories: []string{"core"}},
+		},
+		Ports:    []domain.PortAssignment{{Service: "web", ContainerPort: 8080, HostPort: 18080}},
+		Networks: []string{"feat-example-7f3a1c2e_default"},
+		Volumes:  []string{"feat-example-7f3a1c2e_cache"},
 	}
 	must(runtime.Observe(domain.RuntimeRunning, domain.HealthHealthy, after(26)))
 	return runtime

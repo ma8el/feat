@@ -295,10 +295,19 @@ type ComposeService struct {
 	// override has to replace by target, or the services keep running the
 	// user's ordinary checkout.
 	SourceTargets []string
-	// BuildsFromSource reports that the service's build context is the
-	// repository. Such a service bakes its code with COPY and has no mount to
-	// replace, so where its code comes from is decided by the build context
-	// alone (ADR-065 evidence 4).
+	// BuildContext is where the service's image is built from, as an absolute
+	// host path resolved the way Compose will resolve it: against the
+	// repository's own checkout, which is the project directory of its include
+	// entry. It is empty when the files name no build context or name one Feat
+	// could not read without interpolating.
+	//
+	// It is the whole of what decides what such a service runs, so it is what a
+	// task's own worktree has to replace.
+	BuildContext string
+	// BuildsFromSource reports that the build context is the repository, or a
+	// directory inside it. Such a service bakes its code with COPY and has no
+	// mount to replace, so where its code comes from is decided by the build
+	// context alone (ADR-065 evidence 4).
 	BuildsFromSource bool
 	// Publishes reports that the service publishes at least one host port,
 	// which is what makes it a candidate for the reachable declaration.
@@ -421,9 +430,11 @@ func (c *Composition) mergeService(position int, root, file string, raw yaml.Raw
 		}
 	}
 
-	if context, ok := buildContext(entry.Build); ok {
-		service.BuildsFromSource = isRepositoryRoot(root, context)
-	} else if interpolated(entry.Build) {
+	switch context, read, undecided := buildContext(entry.Build); {
+	case read:
+		service.BuildContext = absolutePath(root, context)
+		service.BuildsFromSource = within(root, service.BuildContext)
+	case undecided:
 		c.Undecided = append(c.Undecided, where+": its build context")
 	}
 
@@ -510,14 +521,30 @@ func bindMount(raw yaml.RawMessage) (source, target string, ok bool) {
 }
 
 // buildContext reads a service's build context, in either syntax.
-func buildContext(raw yaml.RawMessage) (string, bool) {
-	if len(raw) == 0 || interpolated(raw) {
-		return "", false
+//
+// It reports the context, whether it was read, and whether it was left unread
+// because reading it would mean resolving a "${...}".
+//
+// The interpolation is judged on the context alone rather than on the whole
+// `build` mapping, and that is the difference between reading the reference
+// project's frontend and not reading it. Its production service writes a plain
+// `context: .` beside a `build.args` entry carrying a "${...}" — a value Feat
+// never reads and has no business reading — and taking the mapping as one value
+// made the plainest build context in the project undecidable. That service is a
+// multi-stage build ending in nginx, so its build context is the only thing that
+// decides what it runs (ADR-065 evidence 4): a reader that cannot see it is a
+// reader that cannot see the failure this whole check exists for.
+func buildContext(raw yaml.RawMessage) (context string, read, undecided bool) {
+	if len(raw) == 0 {
+		return "", false, false
 	}
 
 	var short string
 	if err := yaml.Unmarshal(raw, &short); err == nil {
-		return short, short != ""
+		if strings.Contains(short, "${") {
+			return "", false, true
+		}
+		return short, short != "", false
 	}
 
 	// Only the context. build.args is where a project puts a value it did not
@@ -526,9 +553,12 @@ func buildContext(raw yaml.RawMessage) (string, bool) {
 		Context string `yaml:"context"`
 	}
 	if err := yaml.Unmarshal(raw, &long); err != nil {
-		return "", false
+		return "", false, false
 	}
-	return long.Context, long.Context != ""
+	if strings.Contains(long.Context, "${") {
+		return "", false, true
+	}
+	return long.Context, long.Context != "", false
 }
 
 // interpolated reports an entry Feat must not read, because reading it would
@@ -540,20 +570,44 @@ func interpolated(raw yaml.RawMessage) bool {
 // isRepositoryRoot reports whether a path written in a Compose file names the
 // repository itself.
 //
-// A relative path is resolved against the repository's checkout rather than
-// against the file's own directory, because that is the `project_directory`
-// Feat gives this repository's include entry. An absolute path is taken as it
-// stands, and a "~" is not expanded: Compose does not expand one either, so a
-// path starting with one names a directory called "~".
+// Exactly the repository, for a bind source: a mount of a subdirectory is a
+// partial mount that a whole worktree mounted at one container path would not
+// replace, so it is not a candidate for the repository's runtime container path.
+// A build context is the other question and is answered by within.
 func isRepositoryRoot(root, value string) bool {
 	if root == "" || value == "" {
 		return false
 	}
-	resolved := value
-	if !filepath.IsAbs(resolved) {
-		resolved = filepath.Join(root, resolved)
+	return absolutePath(root, value) == filepath.Clean(root)
+}
+
+// absolutePath resolves a path written in a Compose file the way Compose will
+// resolve it.
+//
+// A relative path resolves against the repository's checkout rather than against
+// the file's own directory, because that is the `project_directory` Feat gives
+// this repository's include entry. An absolute path is taken as it stands, and a
+// "~" is not expanded: Compose does not expand one either, so a path starting
+// with one names a directory called "~".
+func absolutePath(root, value string) string {
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
 	}
-	return filepath.Clean(resolved) == filepath.Clean(root)
+	return filepath.Clean(filepath.Join(root, value))
+}
+
+// within reports whether a resolved path is the repository or lies inside it.
+//
+// Inside counts, because a build context of ./frontend in a repository that
+// holds several is that repository's code as surely as its root is, and the
+// task's worktree holds the same subdirectory. A context above the checkout, or
+// beside it, is not.
+func within(root, resolved string) bool {
+	if root == "" || resolved == "" {
+		return false
+	}
+	root = filepath.Clean(root)
+	return resolved == root || strings.HasPrefix(resolved, root+string(filepath.Separator))
 }
 
 // sortedNames returns a service mapping's keys in order, so that a proposal is

@@ -250,6 +250,64 @@ func TestDevcontainerRequiresContainerPaths(t *testing.T) {
 	}
 }
 
+// TestARuntimeThatCouldMountNothingIsRefused is ADR-065 evidence 1, refused
+// before anything can run.
+//
+// A project reached this twice: no repository said where its services expect
+// their source, so the generated override carried no mounts at all, every
+// service ran the user's ordinary checkout, and every record Feat kept about the
+// task stayed correct. It needs no Docker to diagnose and no file to read, so it
+// is refused where the message can still name the repository and the services it
+// is about.
+func TestARuntimeThatCouldMountNothingIsRefused(t *testing.T) {
+	_, err := loadReplacing(t, "      container_path: /app\n", "")
+	invalid := configError(t, err)
+
+	problem := problemAt(t, invalid, "repositories.api.runtime.container_path")
+	for _, expected := range []string{"app", "worker", "ordinary checkout"} {
+		if !strings.Contains(problem.Reason, expected) {
+			t.Errorf("problem is %q, which does not name %q", problem.Reason, expected)
+		}
+	}
+}
+
+// TestARepositoryThatBakesItsCodeNeedsNoContainerPath is the other half of the
+// same rule, and the reason it is asked of the runtime rather than of each
+// repository.
+//
+// A service whose image is built from its repository runs the task's worktree
+// once Feat redirects its build context, and it may have no mount anywhere and
+// want none: mounting a worktree into a multi-stage build that ends in a web
+// server is meaningless at best. Configuration cannot see a build context, so a
+// rule that required a container path of every contributing repository would
+// refuse a project that is correct.
+func TestARepositoryThatBakesItsCodeNeedsNoContainerPath(t *testing.T) {
+	base := fixture(t, "app.yaml")
+	body := strings.Replace(base, `  web:
+    host_path: ~/repos/app/web
+    agent:
+      container_path: /srv/web
+`, `  web:
+    host_path: ~/repos/app/web
+    agent:
+      container_path: /srv/web
+    runtime:
+      compose_files:
+        - docker-compose.yml
+      services:
+        - frontend
+`, 1)
+	if body == base {
+		t.Fatal("the fixture no longer holds the repository this case adds a contribution to")
+	}
+	dir := write(t, "app.yaml", body)
+	opts, _ := testOptions(t, nil)
+
+	if _, err := config.Load(dir, "app", opts); err != nil {
+		t.Errorf("a repository whose services bake their code was refused: %v", err)
+	}
+}
+
 // TestEveryProblemIsReportedTogether checks that validation collects problems
 // rather than stopping at the first.
 //

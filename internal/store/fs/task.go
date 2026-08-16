@@ -120,6 +120,7 @@ type runtimeDocument struct {
 	GeneratedOverridePath string                `json:"generated_override_path,omitempty"`
 	EnvFiles              []string              `json:"env_files,omitempty"`
 	Services              []string              `json:"services,omitempty"`
+	Provenance            []provenanceDocument  `json:"provenance,omitempty"`
 	Ports                 []portDocument        `json:"ports,omitempty"`
 	Networks              []string              `json:"networks,omitempty"`
 	Volumes               []string              `json:"volumes,omitempty"`
@@ -133,6 +134,14 @@ type compositionDocument struct {
 	Repository string   `json:"repository"`
 	Directory  string   `json:"directory"`
 	Files      []string `json:"files,omitempty"`
+}
+
+// provenanceDocument is where one managed service's code comes from.
+type provenanceDocument struct {
+	Service      string   `json:"service"`
+	Repositories []string `json:"repositories,omitempty"`
+	Mounted      []string `json:"mounted,omitempty"`
+	Built        []string `json:"built,omitempty"`
 }
 
 type portDocument struct {
@@ -338,6 +347,7 @@ func encodeRuntime(runtime *domain.RuntimeEnvironment) *runtimeDocument {
 		GeneratedOverridePath: runtime.GeneratedOverridePath,
 		EnvFiles:              runtime.EnvFiles,
 		Services:              runtime.Services,
+		Provenance:            encodeProvenance(runtime.Provenance),
 		Networks:              runtime.Networks,
 		Volumes:               runtime.Volumes,
 		State:                 string(runtime.State),
@@ -439,6 +449,40 @@ func decodeComposition(documents []compositionDocument) []domain.RuntimeSource {
 	return sources
 }
 
+// encodeProvenance records where each managed service's code comes from.
+func encodeProvenance(provenance []domain.ServiceProvenance) []provenanceDocument {
+	if len(provenance) == 0 {
+		return nil
+	}
+	documents := make([]provenanceDocument, 0, len(provenance))
+	for _, entry := range provenance {
+		documents = append(documents, provenanceDocument{
+			Service:      entry.Service,
+			Repositories: append([]string(nil), entry.Repositories...),
+			Mounted:      append([]string(nil), entry.Mounted...),
+			Built:        append([]string(nil), entry.Built...),
+		})
+	}
+	return documents
+}
+
+// decodeProvenance reads where each managed service's code comes from.
+func decodeProvenance(documents []provenanceDocument) []domain.ServiceProvenance {
+	if len(documents) == 0 {
+		return nil
+	}
+	provenance := make([]domain.ServiceProvenance, 0, len(documents))
+	for _, document := range documents {
+		provenance = append(provenance, domain.ServiceProvenance{
+			Service:      document.Service,
+			Repositories: append([]string(nil), document.Repositories...),
+			Mounted:      append([]string(nil), document.Mounted...),
+			Built:        append([]string(nil), document.Built...),
+		})
+	}
+	return provenance
+}
+
 // encodeExecution records the environment an agent session runs in.
 func encodeExecution(environment *domain.ExecutionEnvironment) *executionDocument {
 	if environment == nil {
@@ -502,6 +546,7 @@ func decodeRuntime(document *runtimeDocument) *domain.RuntimeEnvironment {
 		GeneratedOverridePath: document.GeneratedOverridePath,
 		EnvFiles:              document.EnvFiles,
 		Services:              document.Services,
+		Provenance:            decodeProvenance(document.Provenance),
 		Networks:              document.Networks,
 		Volumes:               document.Volumes,
 		State:                 domain.RuntimeState(document.State),

@@ -33,6 +33,10 @@ type RuntimeEnvironment struct {
 	EnvFiles []string
 	// Services are the services the task runs.
 	Services []string
+	// Provenance says where each managed service's code comes from. It is
+	// resolved when the runtime is, from configuration and the project's own
+	// Compose files, rather than discovered from the containers afterwards.
+	Provenance []ServiceProvenance
 	// Ports are the observed port publications.
 	Ports []PortAssignment
 	// Networks are the observed networks the runtime owns.
@@ -48,6 +52,58 @@ type RuntimeEnvironment struct {
 	// ObservedAt is when the state, health, and resource lists were last
 	// observed.
 	ObservedAt time.Time
+}
+
+// ServiceProvenance is where one managed service's code comes from.
+//
+// It is a state rather than a note because every way of getting this wrong is
+// silent: the containers start, the application serves, and every record Feat
+// keeps stays correct while the user looks at a healthy runtime that is not
+// running their task (ADR-065 evidence 7). A service the task cannot reach is
+// something to know before a start rather than after one, so this is resolved
+// from configuration and from the project's own Compose files rather than
+// inspected out of the containers.
+//
+// The two routes are separate because they behave differently. A worktree the
+// service mounts shows a change as soon as it is written; code the service baked
+// into its image shows one when the image is built again, and an agent confined
+// to a devcontainer has no Docker and can build nothing (ADR-065 evidence 9).
+type ServiceProvenance struct {
+	// Service is the managed service.
+	Service string
+	// Repositories are the repositories that asked Feat to manage the service,
+	// which are the ones whose code it is meant to run.
+	Repositories []string
+	// Mounted are the repositories whose task worktree the service mounts.
+	Mounted []string
+	// Built are the repositories whose task worktree the service's image is
+	// built from.
+	Built []string
+}
+
+// RunsTaskCode reports whether any of the task's work reaches the service.
+func (p ServiceProvenance) RunsTaskCode() bool { return len(p.Mounted) > 0 || len(p.Built) > 0 }
+
+// Baked are the repositories whose code reaches the service through its image
+// alone, so that a change appears there only once the image is built again.
+//
+// A repository that is also mounted is not one of them: the mount is what the
+// service reads, and it is current the moment the file is written.
+func (p ServiceProvenance) Baked() []string {
+	if len(p.Built) == 0 {
+		return nil
+	}
+	mounted := make(map[string]bool, len(p.Mounted))
+	for _, repository := range p.Mounted {
+		mounted[repository] = true
+	}
+	var baked []string
+	for _, repository := range p.Built {
+		if !mounted[repository] {
+			baked = append(baked, repository)
+		}
+	}
+	return baked
 }
 
 // PortAssignment is one published port of one service.
@@ -167,6 +223,65 @@ func (r *RuntimeEnvironment) apply(inputs RuntimeInputs) {
 	r.GeneratedOverridePath = inputs.GeneratedOverridePath
 	r.EnvFiles = inputs.EnvFiles
 	r.Services = inputs.Services
+}
+
+// ResolveProvenance records where each managed service's code comes from.
+//
+// It is not part of RuntimeInputs, which are frozen while resources exist,
+// because the mounts and build contexts of the generated override are resolved
+// from current configuration every time that document is written. A frozen
+// provenance beside a recomputed document would be a record contradicting the
+// file Feat had just generated, which is the class of quiet disagreement this
+// state exists to remove.
+//
+// It reports whether anything changed, so that a caller saves and says so only
+// when there is something to say.
+func (r *RuntimeEnvironment) ResolveProvenance(provenance []ServiceProvenance, now time.Time) bool {
+	if sameProvenance(r.Provenance, provenance) {
+		return false
+	}
+	r.Provenance = provenance
+	r.ObservedAt = normalizeTime(now)
+	return true
+}
+
+// ServiceProvenance returns what is recorded about one managed service.
+func (r *RuntimeEnvironment) ServiceProvenance(service string) (ServiceProvenance, bool) {
+	for _, entry := range r.Provenance {
+		if entry.Service == service {
+			return entry, true
+		}
+	}
+	return ServiceProvenance{}, false
+}
+
+// sameProvenance reports whether two resolutions say the same thing.
+func sameProvenance(a, b []ServiceProvenance) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Service != b[i].Service ||
+			!sameStrings(a[i].Repositories, b[i].Repositories) ||
+			!sameStrings(a[i].Mounted, b[i].Mounted) ||
+			!sameStrings(a[i].Built, b[i].Built) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameStrings reports whether two lists hold the same values in the same order.
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // Observe records the runtime state and health a runtime adapter reported.

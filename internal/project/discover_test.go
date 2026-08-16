@@ -265,6 +265,88 @@ func TestARelativePathIsReadAgainstTheRepository(t *testing.T) {
 	}
 }
 
+// TestABuildContextIsReadBesideAnInterpolatedArgument is the service this whole
+// reading exists for, in the shape the reference project writes it.
+//
+// Its frontend is a multi-stage build ending in nginx: it mounts nothing
+// anywhere, so its build context is the only thing that decides what it runs
+// (ADR-065 evidence 4). The context is a plain ".", and beside it is a
+// build argument carrying a "${...}" — a value Feat never reads and has no
+// business reading. Judging the interpolation on the whole `build` mapping made
+// the plainest build context in the project unreadable, and a reader that cannot
+// see it cannot see the failure it exists to find.
+func TestABuildContextIsReadBesideAnInterpolatedArgument(t *testing.T) {
+	root := repositoryWith(t, map[string]string{"docker-compose.yml": `services:
+  site:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_API_BASE_URL: ${APP_API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "8080:8080"
+
+  generated:
+    build:
+      context: ${SOMEWHERE}
+`})
+	composition := project.ComposeComposition(root, filepath.Join(root, "docker-compose.yml"))
+
+	site, known := composition.Service("site")
+	if !known {
+		t.Fatal("the service was not read at all")
+	}
+	if !site.BuildsFromSource || site.BuildContext != root {
+		t.Errorf("the build context was read as %q, built from source %t: a context beside an "+
+			"interpolated argument is still a context Feat can read",
+			site.BuildContext, site.BuildsFromSource)
+	}
+	// And the argument itself stays in the file.
+	if rendered := strings.Join(composition.Undecided, "; "); strings.Contains(rendered, "APP_API_BASE_URL") {
+		t.Errorf("a build argument reached a proposal: %q", rendered)
+	}
+
+	// A context that does interpolate is still left unread and named, because
+	// resolving that one would mean interpolating it.
+	generated, known := composition.Service("generated")
+	if !known {
+		t.Fatal("the second service was not read at all")
+	}
+	if generated.BuildContext != "" || generated.BuildsFromSource {
+		t.Errorf("an interpolated build context was resolved to %q", generated.BuildContext)
+	}
+	if rendered := strings.Join(composition.Undecided, "; "); !strings.Contains(rendered, "build context") {
+		t.Errorf("an interpolated build context is not reported as unread: %v", composition.Undecided)
+	}
+}
+
+// TestABuildContextInsideTheRepositoryIsTheRepositorys covers the monorepo
+// shape, and the one path that is not.
+//
+// A context of ./frontend is that repository's code as surely as its root is,
+// and the task's worktree holds the same subdirectory. A context beside the
+// checkout is somebody else's.
+func TestABuildContextInsideTheRepositoryIsTheRepositorys(t *testing.T) {
+	root := repositoryWith(t, map[string]string{"compose.yaml": `services:
+  web:
+    build: ./site
+  vendored:
+    build: ../elsewhere
+`})
+	composition := project.ComposeComposition(root, filepath.Join(root, "compose.yaml"))
+
+	web, _ := composition.Service("web")
+	if !web.BuildsFromSource || web.BuildContext != filepath.Join(root, "site") {
+		t.Errorf("a build context inside the repository was read as %q, built from source %t",
+			web.BuildContext, web.BuildsFromSource)
+	}
+	vendored, _ := composition.Service("vendored")
+	if vendored.BuildsFromSource {
+		t.Errorf("a build context outside the repository at %q is reported as the repository's",
+			vendored.BuildContext)
+	}
+}
+
 // TestAFileThatCannotBeReadProposesNothing keeps discovery best effort.
 //
 // A file that does not parse, uses a feature this does not model, or is not
