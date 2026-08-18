@@ -1,0 +1,28 @@
+# The devcontainer Feat runs its own tasks in.
+
+services:
+  dev:
+    build:
+      context: .
+      # On a Linux host, set these to the uid and gid that own the task
+      # worktrees, because a bind mount there keeps the host's numeric owner:
+      # args:
+      #   UID: "1000"
+      #   GID: "1000"
+
+    command: ["sleep", "infinity"]
+
+    volumes:
+      # Go's module and build caches, shared by every task of this project.
+      # Without them each task re-downloads the module graph and rebuilds
+      # golangci-lint from source before the gate reaches its first test.
+      - go-modules:/go/pkg/mod
+      - go-build:/home/dev/.cache/go-build
+      - ~/.claude:/home/dev/.claude
+      - ~/.claude.json:/home/dev/.claude.json
+
+volumes:
+  go-modules:
+    name: feat-go-modules
+  go-build:
+    name: feat-go-build
