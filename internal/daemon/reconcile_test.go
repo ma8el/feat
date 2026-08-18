@@ -12,6 +12,7 @@ import (
 
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/reconcile"
 	"github.com/ma8el/feat/internal/tmux/tmuxtest"
 )
@@ -481,7 +482,7 @@ func TestAStateDirectoryFromANewerBuildIsRefused(t *testing.T) {
 	if err == nil {
 		t.Fatal("a state directory written by a newer Feat was claimed and would have been overwritten")
 	}
-	for _, want := range []string{"newer Feat", "Upgrade Feat"} {
+	for _, want := range []string{"newer Feat", "Upgrade Feat", paths.EnvDataHome} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %v, want it to mention %q", err, want)
 		}

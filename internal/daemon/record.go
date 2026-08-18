@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/store"
 )
 
@@ -41,9 +42,10 @@ func (s *service) claimStateDirectory(ctx context.Context) error {
 		// is silent.
 		return fmt.Errorf(
 			"the state directory %s was written by a newer Feat (state schema %d, this build reads %d). "+
-				"Upgrade Feat, or point FEAT_STATE_DIR at a different directory; "+
-				"this build will not write to it, because doing so would discard what the newer one recorded",
-			s.layout.State, previous.StateSchema, domain.StateSchemaVersion)
+				"Upgrade Feat, or set %s to a different directory, below which this build keeps state of "+
+				"its own; this build will not write to this one, because doing so would discard what the "+
+				"newer one recorded",
+			s.layout.State, previous.StateSchema, domain.StateSchemaVersion, paths.EnvDataHome)
 	}
 
 	// What the previous run left is kept in memory for this run's reconciliation
