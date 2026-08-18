@@ -1,10 +1,15 @@
 # An application definition for the opt-in tests, deliberately awkward.
 #
-# It carries a fixed container name, which is global to the Docker daemon and
-# which the generated override must reset, so that two tasks can run these
-# services at once. It publishes no port on purpose: v0 allocates none, a
-# published port is global to the host, and the tests below run two tasks side
-# by side.
+# It carries a fixed container name and a fixed published port, both of which are
+# global — a name to the Docker daemon, a port to the host — and both of which
+# the generated override must replace, so that two tasks can run these services
+# at once. The dependency below carries a fixed port of its own, because a
+# service nobody named holds one just as firmly as the entry point does.
+#
+# Neither fixed port is ever bound when Feat is working: a task publishes what
+# was allocated for it, and a service that was not declared reachable publishes
+# nothing. A test that finds one of them bound has found the failure this fixture
+# exists for.
 #
 # It also mounts a directory at the path a task worktree will be mounted at, so
 # that Compose's merge-by-target behaviour is proved against real Docker rather
@@ -27,6 +32,8 @@ services:
     # tests can observe rather than a race with the container's own exit.
     command: ["sleep", "infinity"]
     container_name: feat-runtime-test-fixed-name
+    ports:
+      - "24999:80"
     volumes:
       - ./base-mount:/srv/api
     depends_on:
@@ -39,6 +46,8 @@ services:
     image: alpine:3.20
     command: ["sleep", "infinity"]
     container_name: feat-runtime-test-dependency
+    ports:
+      - "24998:80"
 
   # A one-shot dependency: it does its job and exits, which is what a migration
   # looks like and what the aggregation table must not read as a broken

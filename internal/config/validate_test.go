@@ -308,6 +308,104 @@ func TestARepositoryThatBakesItsCodeNeedsNoContainerPath(t *testing.T) {
 	}
 }
 
+// TestThePortRangeIsCheckedBeforeAnythingAllocatesFromIt covers the range Feat
+// publishes a task's reachable services on.
+//
+// Each of these produces the same failure at a create — a service that cannot be
+// published — and each of them is visible in the file. A range the daemon cannot
+// allocate from is worth refusing where the message can name the field.
+func TestThePortRangeIsCheckedBeforeAnythingAllocatesFromIt(t *testing.T) {
+	for name, testCase := range map[string]struct{ value, contains string }{
+		"not a range":     {value: "21000", contains: "<first>-<last>"},
+		"ends first":      {value: "21100-21000", contains: "ends before it begins"},
+		"privileged":      {value: "80-1000", contains: "privilege"},
+		"beyond the last": {value: "65000-70000", contains: "privilege"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := loadReplacing(t,
+				`  project_name_template: "feat-{project_id}-{task_id}"`,
+				"  project_name_template: \"feat-{project_id}-{task_id}\"\n  port_range: \""+
+					testCase.value+"\"")
+			invalid := configError(t, err)
+
+			problem := problemAt(t, invalid, "runtime.port_range")
+			if !strings.Contains(problem.Reason, testCase.contains) {
+				t.Errorf("problem is %q, which does not say %q", problem.Reason, testCase.contains)
+			}
+		})
+	}
+}
+
+// TestARangeTooNarrowForOneTaskIsRefused is the case a user cannot recover from
+// by finishing with another task.
+//
+// A range holding fewer ports than the project has reachable services cannot
+// publish a single task, so every create would report an exhausted range with
+// nothing holding it. That is a fact about the file rather than about what is
+// running, and it is refused where it can say so.
+func TestARangeTooNarrowForOneTaskIsRefused(t *testing.T) {
+	base := fixture(t, "app.yaml")
+	body := strings.Replace(base, "      reachable:\n        - app\n",
+		"      reachable:\n        - app\n        - worker\n", 1)
+	body = strings.Replace(body, `  project_name_template: "feat-{project_id}-{task_id}"`,
+		"  project_name_template: \"feat-{project_id}-{task_id}\"\n  port_range: \"21000-21000\"", 1)
+
+	dir := write(t, "app.yaml", body)
+	opts, _ := testOptions(t, nil)
+
+	invalid := configError(t, mustFail(config.Load(dir, "app", opts)))
+	problem := problemAt(t, invalid, "runtime.port_range")
+	if !strings.Contains(problem.Reason, "one task alone would exhaust it") {
+		t.Errorf("problem is %q, which does not say that one task could not be published", problem.Reason)
+	}
+}
+
+// mustFail passes an error through, discarding the value that came with it.
+func mustFail[T any](_ T, err error) error { return err }
+
+// TestThePortRangeHasADefault keeps a project that never thought about ports
+// running.
+//
+// The reachable declaration was collected a slice before anything allocated from
+// it, so a project written then names no range — and a range is a decision about
+// this machine's own ports rather than about the project, which is exactly the
+// kind of value that should have a default the user can see.
+func TestThePortRangeHasADefault(t *testing.T) {
+	cfg, err := loadReplacing(t, "", "")
+	if err != nil {
+		t.Fatalf("loading the fixture: %v", err)
+	}
+	ports := cfg.Runtime.Ports()
+	if ports.Empty() || ports.Size() < 2 {
+		t.Fatalf("the default port range is %v, which cannot publish two tasks", ports)
+	}
+	if printed := cfg.Runtime.PortRange; printed != ports.String() {
+		t.Errorf("the resolved configuration prints %q and allocates from %v: a default a user "+
+			"cannot see is a default they cannot check", printed, ports)
+	}
+}
+
+// TestTwoReachableServicesCannotShareAGeneratedVariable refuses the collision
+// before it can deliver one service's address to another.
+//
+// Feat tells every managed service where its siblings are, as FEAT_URL_<service>
+// upper-cased with everything that is not a letter or a digit replaced. A
+// Compose service name may contain dots and hyphens and an environment variable
+// name may not, so the rendering is lossy — and two services that render alike
+// would be one address arriving under both names.
+func TestTwoReachableServicesCannotShareAGeneratedVariable(t *testing.T) {
+	_, err := loadReplacing(t, "      services:\n        - app\n        - worker\n      reachable:\n        - app\n",
+		"      services:\n        - app-1\n        - app.1\n      reachable:\n        - app-1\n        - app.1\n")
+	invalid := configError(t, err)
+
+	problem := problemAt(t, invalid, "repositories.api.runtime.reachable[1]")
+	for _, expected := range []string{"app-1", "app.1", "FEAT_PORT_APP_1"} {
+		if !strings.Contains(problem.Reason, expected) {
+			t.Errorf("problem is %q, which does not name %q", problem.Reason, expected)
+		}
+	}
+}
+
 // TestEveryProblemIsReportedTogether checks that validation collects problems
 // rather than stopping at the first.
 //

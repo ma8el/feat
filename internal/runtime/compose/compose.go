@@ -19,8 +19,10 @@ const Executable = "docker"
 // MinimumVersion is the oldest Docker Compose this adapter supports.
 //
 // The generated override uses the !reset tag to remove a base file's
-// container_name, which Compose gained in 2.24. An older build fails with a YAML
-// error that says nothing about why Feat wrote that document (ADR-033, ADR-034).
+// container_name and its published ports, and the !override tag to put the
+// task's own allocated ports in their place. Both arrived in the 2.24 series. An
+// older build fails with a YAML error that says nothing about why Feat wrote
+// that document (ADR-033, ADR-034, ADR-065).
 var MinimumVersion = Version{Major: 2, Minor: 24, Text: "2.24", Parsed: true}
 
 // Runtime runs one task's application services through the Docker Compose CLI
@@ -102,9 +104,9 @@ func (r *Runtime) Validate(ctx context.Context) error {
 	}
 	if version.Below(MinimumVersion) {
 		return fmt.Errorf("the installed Docker Compose %s is older than the %s Feat needs: "+
-			"the generated override uses the !reset tag to remove a base file's container_name, without "+
-			"which two tasks cannot run the same services at once. Upgrade Docker Compose",
-			version, MinimumVersion)
+			"the generated override uses the !reset and !override tags to replace a base file's "+
+			"container_name and published ports, without which two tasks cannot run the same services "+
+			"at once. Upgrade Docker Compose", version, MinimumVersion)
 	}
 	return nil
 }
@@ -417,7 +419,29 @@ func (r *Runtime) compose(generated bool, arguments ...string) runtime.Invocatio
 		Program:   r.docker,
 		Arguments: append(base, arguments...),
 		Directory: r.spec.Directory,
+		// The generated variables reach the Compose process as well as the
+		// services, because a project maps them under its own names: a "${...}"
+		// in the project's own file is interpolated from the environment of the
+		// process running Compose, and nothing else could put an allocated
+		// address into a variable whose name Feat does not choose.
+		Environment: r.environment(),
 	}
+}
+
+// environment renders the generated variables as KEY=VALUE entries.
+//
+// Every value here is generated task metadata. Nothing read from an environment
+// file reaches it, because nothing that reads one reaches this adapter at all.
+func (r *Runtime) environment() []string {
+	entries := r.spec.Entries()
+	if len(entries) == 0 {
+		return nil
+	}
+	rendered := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		rendered = append(rendered, entry[0]+"="+entry[1])
+	}
+	return rendered
 }
 
 // lastLine returns the last non-empty line of the given outputs.

@@ -107,7 +107,7 @@ func (s *service) Runtime(
 	var provenance []string
 	switch action {
 	case api.RuntimeCreate, api.RuntimeStart, api.RuntimeObserve:
-		provenance = provenanceNotes(task, record)
+		provenance = append(provenanceNotes(task, record), reachabilityNotes(cfg, record)...)
 	case api.RuntimeStop, api.RuntimeDestroy:
 	}
 
@@ -300,12 +300,21 @@ func (s *service) runtimeTask(ctx context.Context, id domain.TaskID) (*domain.Ta
 func (s *service) runtimeFor(
 	ctx context.Context, cfg *config.Config, task *domain.Task, action api.RuntimeAction,
 ) (runtime.Runtime, *domain.RuntimeEnvironment, error) {
-	spec, err := s.runtimeSpec(cfg, task)
+	documents := readComposition(cfg)
+	spec, err := s.runtimeSpec(cfg, task, documents)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: %w", api.ErrInvalid, err)
 	}
 
-	record, err := s.recordRuntimeInputs(ctx, task, spec, action)
+	// Before the record is written, because the record is what holds them: an
+	// allocation nothing recorded would be given to the next task as free while
+	// this one's containers were bound to it.
+	allocations, err := s.reservePorts(ctx, task, runtimeNeeds(cfg, documents), cfg.Runtime.Ports())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	record, err := s.recordRuntimeInputs(ctx, task, spec, allocations, action)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -358,6 +367,12 @@ func (s *service) recordProvenance(
 // dropped here, because refusing to stop or destroy an existing runtime over a
 // service it never had is a worse answer than leaving the new service alone
 // until the runtime is absent and its inputs are resolved again.
+//
+// The host ports are on the other side of that line, with the identity and the
+// file list. A published port is bound by a running container, so re-resolving
+// one from edited configuration would move a task's address out from under the
+// containers holding it — and it is what other tasks are kept away from, which
+// only works while it is the recorded value.
 func recordedInputs(spec runtime.Spec, record *domain.RuntimeEnvironment) runtime.Spec {
 	spec.Identity = record.Identity
 	spec.Includes = runtimeIncludesOf(record.Composition)
@@ -395,7 +410,11 @@ func recordedInputs(spec runtime.Spec, record *domain.RuntimeEnvironment) runtim
 		}
 	}
 	spec.Builds = builds
-	return spec
+
+	// Last, so that the publications and the addresses they generate are
+	// resolved against the services this runtime actually manages rather than
+	// against the ones configuration names today.
+	return withAllocations(spec, record.Allocations)
 }
 
 // recordRuntimeInputs attaches or refreshes the task's runtime record.
@@ -405,7 +424,8 @@ func recordedInputs(spec runtime.Spec, record *domain.RuntimeEnvironment) runtim
 // re-resolved from the project's current configuration. A task with resources
 // keeps the inputs those resources were created from.
 func (s *service) recordRuntimeInputs(
-	ctx context.Context, task *domain.Task, spec runtime.Spec, action api.RuntimeAction,
+	ctx context.Context, task *domain.Task, spec runtime.Spec,
+	allocations []domain.PortAllocation, action api.RuntimeAction,
 ) (*domain.RuntimeEnvironment, error) {
 	inputs := domain.RuntimeInputs{
 		Provider:              runtimeProvider,
@@ -416,6 +436,7 @@ func (s *service) recordRuntimeInputs(
 		GeneratedOverridePath: spec.OverridePath,
 		EnvFiles:              spec.EnvFiles,
 		Services:              spec.Services,
+		Allocations:           allocations,
 	}
 
 	switch {
@@ -486,6 +507,11 @@ func (s *service) recordRuntime(
 		return api.RuntimeResult{}, err
 	}
 	record.ObserveResources(ports(state), state.Networks, state.Volumes, s.now())
+	// A runtime with nothing in it holds no host port. It is the release half of
+	// the allocation: a destroy gives its ports back, and so does a runtime that
+	// was removed by other means, because what makes an allocation worth keeping
+	// is a container bound to it.
+	record.ReleasePorts(s.now())
 
 	if err := s.store.Tasks().Save(ctx, task); err != nil {
 		return api.RuntimeResult{}, err
@@ -622,7 +648,9 @@ func (s *service) inspectRuntime(
 //
 // It is the only place the two vocabularies meet: everything the adapter
 // receives is final here, and the adapter reads no configuration (ADR-034).
-func (s *service) runtimeSpec(cfg *config.Config, task *domain.Task) (runtime.Spec, error) {
+func (s *service) runtimeSpec(
+	cfg *config.Config, task *domain.Task, documents composeDocuments,
+) (runtime.Spec, error) {
 	section := cfg.Runtime
 	if section == nil {
 		return runtime.Spec{}, fmt.Errorf("project %s configures no application runtime", task.ProjectID)
@@ -663,7 +691,7 @@ func (s *service) runtimeSpec(cfg *config.Config, task *domain.Task) (runtime.Sp
 		EnvFiles:     append([]string(nil), section.EnvFiles...),
 		Services:     cfg.RuntimeServices(),
 		Mounts:       runtimeMounts(cfg, task),
-		Builds:       runtimeBuilds(cfg, task),
+		Builds:       runtimeBuilds(cfg, task, documents),
 		Variables: map[string]string{
 			varProject:  task.ProjectID.String(),
 			varTask:     task.ID.String(),
@@ -818,7 +846,7 @@ func runtimeMounts(cfg *config.Config, task *domain.Task) []runtime.Mount {
 // selected, at the same place inside that repository's worktree. A context
 // somewhere else is left alone: it is not this task's code, and pointing it at a
 // worktree would be Feat deciding what a project builds.
-func runtimeBuilds(cfg *config.Config, task *domain.Task) []runtime.Build {
+func runtimeBuilds(cfg *config.Config, task *domain.Task, documents composeDocuments) []runtime.Build {
 	worktrees := taskWorktrees(cfg, task)
 	if len(worktrees) == 0 {
 		return nil
@@ -834,11 +862,7 @@ func runtimeBuilds(cfg *config.Config, task *domain.Task) []runtime.Build {
 	contexts := make(map[string]runtime.Build)
 	var ordered []string
 	for _, contribution := range cfg.RuntimeComposition() {
-		if len(contribution.ComposeFiles) == 0 {
-			continue
-		}
-		composition := project.ComposeComposition(contribution.Directory, contribution.ComposeFiles...)
-		for _, service := range composition.Services {
+		for _, service := range documents[contribution.RepositoryID].Services {
 			if !managed[service.Name] || service.BuildContext == "" {
 				continue
 			}
@@ -858,6 +882,33 @@ func runtimeBuilds(cfg *config.Config, task *domain.Task) []runtime.Build {
 		builds = append(builds, contexts[service])
 	}
 	return builds
+}
+
+// composeDocuments is what each contributing repository's own Compose files
+// say about themselves, keyed by repository.
+//
+// It is read once per runtime action and passed to everything that needs it,
+// because two questions are answered from it — where a service's image is built
+// from, and which ports it publishes — and reading the same files twice for one
+// action would be two answers that could disagree with each other.
+type composeDocuments map[string]project.Composition
+
+// readComposition reads every contributing repository's Compose files.
+//
+// Structurally, against each repository's own checkout, which is the project
+// directory its include entry carries: a relative path in those files means
+// what it would mean to a user standing in that repository. It resolves no
+// interpolation and opens no environment file (ADR-065).
+func readComposition(cfg *config.Config) composeDocuments {
+	documents := make(composeDocuments)
+	for _, contribution := range cfg.RuntimeComposition() {
+		if len(contribution.ComposeFiles) == 0 {
+			continue
+		}
+		documents[contribution.RepositoryID] = project.ComposeComposition(
+			contribution.Directory, contribution.ComposeFiles...)
+	}
+	return documents
 }
 
 // worktree is one repository this task holds, with the checkout its Compose
@@ -1039,6 +1090,12 @@ var ErrRuntimeUnconfigured = errors.New("the project no longer configures an app
 // that started from a copy loaded outside it would overwrite whatever a request
 // wrote in between — the defect ADR-036 evidence 9 records, in the one place
 // that reaches a task's records on a timer.
+//
+// The lock is taken after Docker has answered rather than before it, because a
+// create or a start holds it for as long as its images take to build, and a
+// poller waiting behind one would leave every other task's runtime state
+// unobserved for minutes. What that costs is an answer that may have been
+// overtaken while it was being given, which stillCurrent is what refuses.
 func (s *service) observeRuntime(ctx context.Context, task *domain.Task) (domain.RuntimeState, error) {
 	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
 	if err != nil {
@@ -1048,7 +1105,7 @@ func (s *service) observeRuntime(ctx context.Context, task *domain.Task) (domain
 		return "", ErrRuntimeUnconfigured
 	}
 
-	spec, err := s.runtimeSpec(cfg, task)
+	spec, err := s.runtimeSpec(cfg, task, readComposition(cfg))
 	if err != nil {
 		return "", err
 	}
@@ -1069,6 +1126,12 @@ func (s *service) observeRuntime(ctx context.Context, task *domain.Task) (domain
 	if current.Runtime == nil {
 		return state.Lifecycle, nil
 	}
+	if !stillCurrent(task.Runtime, current.Runtime) {
+		// Somebody acted on this task while the question was being asked, so this
+		// answer is about a moment that has passed. The next poll asks again
+		// against what exists now.
+		return state.Lifecycle, nil
+	}
 	if state.Lifecycle == current.Runtime.State && state.Health == current.Runtime.Health {
 		// Nothing changed. Saving would rewrite the snapshot and publishing would
 		// make every dashboard re-read, several times a minute, for ever.
@@ -1076,6 +1139,27 @@ func (s *service) observeRuntime(ctx context.Context, task *domain.Task) (domain
 	}
 	_, err = s.recordRuntime(ctx, current, current.Runtime, state, nil, "an observation")
 	return state.Lifecycle, err
+}
+
+// stillCurrent reports whether a runtime record is still the one an observation
+// was taken against.
+//
+// The poller lists the tasks outside any lock and asks Docker about each of
+// them, which takes long enough for a create or a start to finish in between —
+// and what it then holds is an answer about the world as it was before that
+// action. Writing it down puts the task back to what it was, and the state
+// alone would survive that, because the next poll corrects it. The allocated
+// host ports would not: a runtime recorded as absent releases them, so a stale
+// observation applied after a create gave a task's ports away while its
+// containers were bound to them.
+//
+// Found by running three tasks of the reference project (ADR-065 evidence 16).
+func stillCurrent(before, current *domain.RuntimeEnvironment) bool {
+	return before != nil && current != nil &&
+		before.Identity == current.Identity &&
+		before.State == current.State &&
+		before.Health == current.Health &&
+		len(before.Allocations) == len(current.Allocations)
 }
 
 // runtimePoller owns the goroutine that observes application services.

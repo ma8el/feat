@@ -7,8 +7,10 @@
 # path rather than adding a second mount beside it.
 #
 # container_name is reset because it is global to the Docker daemon: a base file
-# carrying one could be started for one task and no more. Published ports are
-# left as configured, because they are how you reach the application.
+# carrying one could be started for one task and no more. A published port is
+# global to the machine in the same way, so every one of them is replaced: the
+# services this project declares reachable are published on the ports Feat
+# allocated for this task, and the rest publish nothing.
 #
 # A service that bakes its code into its image has no mount to replace, so its
 # build context is pointed at the task's worktree instead. Only the context is
@@ -16,6 +18,11 @@
 services:
   "api":
     container_name: !reset null
+    ports: !override
+      # allocated for this task; reached at localhost:21000
+      - target: 8080
+        published: "21000"
+        protocol: "tcp"
     build:
       # the api task worktree, which this service's image is built from
       context: "/worktrees/api"
@@ -31,8 +38,10 @@ services:
         target: "/srv/store"
         read_only: true
     environment:
+      "FEAT_PORT_API": "21000"
       "FEAT_RUNTIME_PROJECT": "feat-app-11111111"
       "FEAT_TASK_KEY": "11111111"
+      "FEAT_URL_API": "http://localhost:21000"
     labels:
       "dev.feat.owner": "feat"
       "dev.feat.project": "app"

@@ -315,11 +315,16 @@ func (m Model) runtimeSummary(task api.Task) string {
 		}
 	}
 
-	if len(runtime.Ports) > 0 {
-		out.WriteString("\n" + headingStyle.Render("ports") + "\n")
-		for _, port := range runtime.Ports {
-			out.WriteString("  " + port.Service + "  " +
-				strconv.Itoa(port.ContainerPort) + " → " + strconv.Itoa(port.HostPort) + "\n")
+	// The allocated addresses rather than the observed publications: they are
+	// the same ports once the services are up, and they exist before anything
+	// is started, which is when a user most wants to know where this task's
+	// application will be.
+	if len(runtime.Allocations) > 0 {
+		out.WriteString("\n" + headingStyle.Render("ports") +
+			mutedStyle.Render("  allocated for this task") + "\n")
+		for _, allocation := range runtime.Allocations {
+			out.WriteString("  " + allocation.Service + "  " +
+				strconv.Itoa(allocation.ContainerPort) + " → " + allocation.Address + "\n")
 		}
 	}
 	if len(runtime.Volumes) > 0 {

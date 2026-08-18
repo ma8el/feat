@@ -1,6 +1,11 @@
 package domain
 
-import "time"
+import (
+	"net"
+	"strconv"
+	"strings"
+	"time"
+)
 
 // RuntimeEnvironment is the application environment associated with one task.
 //
@@ -37,6 +42,10 @@ type RuntimeEnvironment struct {
 	// resolved when the runtime is, from configuration and the project's own
 	// Compose files, rather than discovered from the containers afterwards.
 	Provenance []ServiceProvenance
+	// Allocations are the host ports Feat reserved for this task's reachable
+	// services. They are held for as long as the runtime exists and released
+	// when it becomes absent.
+	Allocations []PortAllocation
 	// Ports are the observed port publications.
 	Ports []PortAssignment
 	// Networks are the observed networks the runtime owns.
@@ -116,6 +125,110 @@ type PortAssignment struct {
 	HostPort int
 }
 
+// PortAllocation is one host port Feat reserved for one service of one task.
+//
+// It is an intention rather than an observation, which is what separates it
+// from PortAssignment: this is the port the generated override tells Compose to
+// publish, and that is the port `docker compose ps` reported afterwards. Both
+// are kept because they can disagree — a container that never started publishes
+// nothing — and a record that conflated them could not say which.
+//
+// A host port is global to the machine, so an allocation is held against every
+// other task for as long as the runtime exists and released when it becomes
+// absent. That is the whole of what makes several tasks able to run the same
+// application at once (ADR-065 evidence 8).
+type PortAllocation struct {
+	// Service is the managed service the port belongs to.
+	Service string
+	// ContainerPort is the port inside the container, which the project's own
+	// Compose files declare.
+	ContainerPort int
+	// HostPort is the port Feat reserved on the host.
+	HostPort int
+	// Protocol is "tcp" or "udp". A host port is per protocol, so two
+	// allocations may share a number when their protocols differ.
+	Protocol string
+	// HostIP is the address the project publishes on, empty when it names none.
+	// It is carried so that a project which deliberately publishes on the
+	// loopback address keeps doing so.
+	HostIP string
+}
+
+// Address is where the service is reached from this machine.
+//
+// A service published on every address is reached at localhost, which is the
+// name a browser and a shell both take. A service the project published on one
+// address is reached there and nowhere else, so that address is what is said.
+func (p PortAllocation) Address() string {
+	return net.JoinHostPort(p.host(), strconv.Itoa(p.HostPort))
+}
+
+// URL is the address as a client would open it, and whether there is one.
+//
+// Only a stream port has one: a URL for a datagram port would be a sentence
+// nothing could use, and the port on its own is still worth telling a service.
+// The scheme is http because Feat cannot know what a service speaks and http is
+// what a development service speaks; a project that terminates TLS itself
+// composes its own address from the port.
+func (p PortAllocation) URL() (string, bool) {
+	if p.Protocol != "tcp" {
+		return "", false
+	}
+	return "http://" + p.Address(), true
+}
+
+// host names the machine address a publication is reached at.
+func (p PortAllocation) host() string {
+	trimmed := strings.TrimSuffix(strings.TrimPrefix(p.HostIP, "["), "]")
+	switch trimmed {
+	case "", "0.0.0.0", "::":
+		return "localhost"
+	default:
+		return trimmed
+	}
+}
+
+// PortVariable is the generated variable naming one service's allocated host
+// port, and URLVariable the address it makes.
+//
+// The naming rule lives in the domain because two packages depend on it being
+// one rule: the daemon generates these variables, and configuration refuses a
+// project where two service names would produce the same one before it can
+// generate anything. A collision would be one service silently receiving
+// another's address.
+func PortVariable(service string) string { return portVariablePrefix + variableToken(service) }
+
+// URLVariable names the address of one service's allocated host port.
+func URLVariable(service string) string { return urlVariablePrefix + variableToken(service) }
+
+// The prefixes of the generated addressing variables.
+const (
+	portVariablePrefix = "FEAT_PORT_"
+	urlVariablePrefix  = "FEAT_URL_"
+)
+
+// variableToken renders a service name as part of an environment variable name:
+// upper case, with everything that is not a letter or a digit replaced.
+//
+// Compose service names allow dots and hyphens, which an environment variable
+// name does not, so the rendering is lossy by construction — "web-app" and
+// "web.app" are one name here. Configuration refuses a project where two
+// services collide rather than letting one of them receive the other's port.
+func variableToken(service string) string {
+	rendered := make([]rune, 0, len(service))
+	for _, r := range service {
+		switch {
+		case r >= 'a' && r <= 'z':
+			rendered = append(rendered, r-'a'+'A')
+		case (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'):
+			rendered = append(rendered, r)
+		default:
+			rendered = append(rendered, '_')
+		}
+	}
+	return string(rendered)
+}
+
 // Validate reports whether the runtime environment is internally consistent.
 func (r *RuntimeEnvironment) Validate(task TaskID) error {
 	id := task.String()
@@ -163,6 +276,11 @@ type RuntimeInputs struct {
 	GeneratedOverridePath string
 	EnvFiles              []string
 	Services              []string
+	// Allocations are the host ports reserved for this runtime. They are an
+	// input rather than an observation because they are held: while resources
+	// exist the recorded ones are what the generated override publishes, so a
+	// second task cannot be given a port the first is still using.
+	Allocations []PortAllocation
 }
 
 // RuntimeSource is one repository's contribution to a task's application.
@@ -223,6 +341,39 @@ func (r *RuntimeEnvironment) apply(inputs RuntimeInputs) {
 	r.GeneratedOverridePath = inputs.GeneratedOverridePath
 	r.EnvFiles = inputs.EnvFiles
 	r.Services = inputs.Services
+	r.Allocations = inputs.Allocations
+}
+
+// ReleasePorts gives up the host ports this runtime held.
+//
+// It is refused while anything exists, for the reason ReplaceInputs is: a port
+// released while a container is still bound to it is a port a second task would
+// be given and could not bind. An absent runtime holds nothing, so its ports
+// belong to whichever task asks next.
+//
+// It reports whether anything was released, so a caller saves and says so only
+// when there is something to say.
+func (r *RuntimeEnvironment) ReleasePorts(now time.Time) bool {
+	if r.State != RuntimeAbsent || len(r.Allocations) == 0 {
+		return false
+	}
+	r.Allocations = nil
+	r.ObservedAt = normalizeTime(now)
+	return true
+}
+
+// Allocation returns the first host port reserved for one service, which is the
+// address that service is reached at.
+//
+// The first rather than the only: a service publishing several ports has one
+// allocation per port, and the first is the one its generated variables name.
+func (r *RuntimeEnvironment) Allocation(service string) (PortAllocation, bool) {
+	for _, allocation := range r.Allocations {
+		if allocation.Service == service {
+			return allocation, true
+		}
+	}
+	return PortAllocation{}, false
 }
 
 // ResolveProvenance records where each managed service's code comes from.

@@ -264,7 +264,13 @@ func Runtime() *domain.RuntimeEnvironment {
 			{Service: "worker", Repositories: []string{"core"}, Built: []string{"core"}},
 			{Service: "assets", Repositories: []string{"core"}},
 		},
-		Ports:    []domain.PortAssignment{{Service: "web", ContainerPort: 8080, HostPort: 18080}},
+		// The allocation is held while the runtime exists and released when it
+		// becomes absent, so a round trip that lost it would give a second task a
+		// port this one's containers are bound to.
+		Allocations: []domain.PortAllocation{
+			{Service: "web", ContainerPort: 8080, HostPort: 21000, Protocol: "tcp", HostIP: "127.0.0.1"},
+		},
+		Ports:    []domain.PortAssignment{{Service: "web", ContainerPort: 8080, HostPort: 21000}},
 		Networks: []string{"feat-example-7f3a1c2e_default"},
 		Volumes:  []string{"feat-example-7f3a1c2e_cache"},
 	}

@@ -10,7 +10,8 @@
 #     context says so;
 #   - the bind source is `./content`, which only this repository has.
 #
-# It publishes no port, for the reason the other file gives.
+# It publishes no port: what a service with none must get is the reset, which the
+# other file's services prove.
 services:
   web:
     build:

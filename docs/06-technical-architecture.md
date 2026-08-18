@@ -490,9 +490,10 @@ the container as the configured user for the same reason — a uid that cannot
 write across a bind mount produces a session that reports nothing at all.
 
 Minimum supported Docker Compose version is 2.24, for the `!reset` tag that
-removes a base file's `container_name` and published `ports`. Both are global to
-the daemon or the host and would otherwise make two concurrent task containers
-impossible.
+removes a base file's `container_name` and published `ports`, and the `!override`
+tag the application runtime publishes an allocated port with. Both values are
+global to the daemon or the host and would otherwise make two concurrent task
+containers impossible.
 
 The reset reaches every service the project's own Compose files define, not the
 agent's alone. Starting the agent's service starts its whole `depends_on`
@@ -536,7 +537,16 @@ reconciliation pass, and no agent reaches one: services start when a user asks,
 approval offers to stop them and never does, and a `runtime_requested` control
 message is inert until a person approves it.
 
-The generated override controls task mounts and non-secret generated variables. Automated port allocation and lifecycle phases are roadmap capabilities; the architecture must leave room for them.
+The generated override controls task mounts, published ports, and non-secret
+generated variables. A repository declares which of its managed services a user
+reaches from the host; the daemon allocates a host port per publication from the
+project's configured range, holds it on the task's record while its runtime
+exists, releases it when the runtime becomes absent, and writes it into the
+override in place of what the project published — every other service of the
+task's Compose project publishes nothing. The allocation is the daemon's, under
+one lock across every task, because a free port can only be chosen against what
+every other task holds. Automated lifecycle phases remain roadmap capabilities;
+the architecture must leave room for them.
 
 The runtime and the agent's execution environment never import each other. The
 Compose plumbing is deliberately duplicated between `internal/runtime/compose`
@@ -548,7 +558,11 @@ all keep. A `runtime-stays-an-adapter` `depguard` rule makes it mechanical
 
 Runtime state is observed rather than assumed, on a slow poll over the tasks
 that hold a runtime record, and a poll writes and publishes only when what it
-saw differs from what was recorded. The ports come from `docker compose ps`; the
+saw differs from what was recorded — and an observation is applied only when the
+record it was taken against has not changed since, because Docker answers slowly
+enough for a create to finish in between and a stale answer would release the
+host ports that create had just allocated (ADR-065 evidence 16). The ports come
+from `docker compose ps`; the
 networks and volumes come from `docker network ls` and `docker volume ls`
 filtered on Compose's own project label, because `docker compose config` would
 render the values of the project's environment files.

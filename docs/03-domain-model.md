@@ -117,7 +117,13 @@ Properties:
   the user's ordinary checkout, which is a state rather than a note because
   nothing else about it is visible: the containers start, the application serves,
   and every other record stays correct;
-- port assignments;
+- allocated host ports: for each service a repository declares reachable, the
+  port inside the container, the host port Feat reserved, the protocol, and the
+  host address the project publishes on. They are an input rather than an
+  observation, and they are held: while the runtime exists no other task may be
+  given one of them, and a runtime that becomes absent releases them all;
+- port assignments observed on the started containers, which is what the
+  allocations turned into and is empty until something is running;
 - network and volume observations;
 - lifecycle and health state.
 
@@ -126,6 +132,12 @@ when the runtime is resolved, not inspected out of the containers afterwards, so
 it is answered before anything is created. It is not one of the frozen inputs: it
 follows the mounts and build contexts of the generated override, which are
 resolved from current configuration every time that document is written.
+
+The allocations are on the other side of that line, with the identity and the
+file list: a published port is bound by a running container, so re-resolving one
+from edited configuration would move a task's address out from under the
+containers holding it — and it is what other tasks are kept away from, which
+only works while it is the recorded value.
 
 The agent execution environment and application runtime are separate even when both use the same Compose project.
 

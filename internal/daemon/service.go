@@ -128,6 +128,11 @@ type service struct {
 	// locks serialise the read-modify-write cycles of one task's records, which
 	// the background gate made concurrent with everything else (ADR-036).
 	locks *taskLocks
+	// portMu serialises host port allocation across every task. It is the
+	// daemon's rather than a task's on purpose: choosing a free port means
+	// reading what every other task holds, and two tasks created at the same
+	// moment would otherwise read the same port as free and both write it down.
+	portMu sync.Mutex
 	// handovers records the terminals a client has been sent to attach to, so
 	// that a rendering does not pin a window out from under a client that is
 	// still on its way to it. It is separate from locks because a frame must not

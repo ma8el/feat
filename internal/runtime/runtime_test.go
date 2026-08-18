@@ -35,6 +35,10 @@ func valid() runtime.Spec {
 			{Services: []string{"api"}, Source: "/worktrees/api", Target: "/srv/api",
 				Description: "the api task worktree"},
 		},
+		Publications: []runtime.Publication{
+			{Service: "api", ContainerPort: 8080, HostPort: 21000, Protocol: "tcp",
+				Description: "allocated for this task"},
+		},
 		Variables:        map[string]string{"FEAT_TASK_KEY": "11111111"},
 		ForbiddenSources: []string{"/repos/app/api"},
 	}
@@ -123,6 +127,30 @@ func TestASpecificationIsCheckedBeforeItCanCreateAnything(t *testing.T) {
 		"a mount naming a service the task does not manage": {
 			change:   func(s *runtime.Spec) { s.Mounts[0].Services = []string{"unmanaged"} },
 			contains: "does not manage",
+		},
+		"a host port for a service the task does not manage": {
+			change:   func(s *runtime.Spec) { s.Publications[0].Service = "unmanaged" },
+			contains: "does not manage",
+		},
+		"a host port that is not a port": {
+			change:   func(s *runtime.Spec) { s.Publications[0].HostPort = 70000 },
+			contains: "which is not a port",
+		},
+		"a container port that is not a port": {
+			change:   func(s *runtime.Spec) { s.Publications[0].ContainerPort = 0 },
+			contains: "which is not a port",
+		},
+		"a protocol a published port cannot have": {
+			change:   func(s *runtime.Spec) { s.Publications[0].Protocol = "sctp" },
+			contains: "tcp",
+		},
+		"two services on one host port": {
+			change: func(s *runtime.Spec) {
+				s.Publications = append(s.Publications, runtime.Publication{
+					Service: "worker", ContainerPort: 9090, HostPort: 21000, Protocol: "tcp",
+				})
+			},
+			contains: "a host port carries one service",
 		},
 		"a variable name carrying an equals sign": {
 			change:   func(s *runtime.Spec) { s.Variables = map[string]string{"A=B": "c"} },

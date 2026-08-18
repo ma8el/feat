@@ -43,8 +43,10 @@ type Docker struct {
 	// calls records every invocation in order, shortened the same way.
 	calls []string
 	// full records every invocation verbatim, which is what a test pinning an
-	// argument vector reads.
-	full [][]string
+	// argument vector reads. The environment goes with it: the generated
+	// variables reach the Compose process as well as the containers, so that a
+	// project can interpolate an allocated address in its own files.
+	full []runtime.Invocation
 }
 
 // New returns a fake Docker that answers plausibly for one service named api: a
@@ -174,7 +176,7 @@ func (d *Docker) Run(ctx context.Context, invocation runtime.Invocation) (runtim
 
 	d.mu.Lock()
 	d.calls = append(d.calls, key)
-	d.full = append(d.full, invocation.Arguments)
+	d.full = append(d.full, invocation)
 	hook := d.hooks[key]
 	d.mu.Unlock()
 
@@ -227,13 +229,24 @@ func (d *Docker) Ran(command string) bool {
 // Vectors returns every verbatim argument vector, which is what a test asserting
 // that one task never touched another's project reads.
 func (d *Docker) Vectors() [][]string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	vectors := make([][]string, 0, len(d.full))
-	for _, vector := range d.full {
-		vectors = append(vectors, append([]string(nil), vector...))
+	for _, invocation := range d.Invocations() {
+		vectors = append(vectors, invocation.Arguments)
 	}
 	return vectors
+}
+
+// Invocations returns every command run, verbatim and with its environment.
+func (d *Docker) Invocations() []runtime.Invocation {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	invocations := make([]runtime.Invocation, 0, len(d.full))
+	for _, invocation := range d.full {
+		invocation.Arguments = append([]string(nil), invocation.Arguments...)
+		invocation.Environment = append([]string(nil), invocation.Environment...)
+		invocations = append(invocations, invocation)
+	}
+	return invocations
 }
 
 // Vector returns the verbatim argument vector of the first call matching the
@@ -243,7 +256,7 @@ func (d *Docker) Vector(command string) ([]string, bool) {
 	defer d.mu.Unlock()
 	for i, call := range d.calls {
 		if call == command {
-			return append([]string(nil), d.full[i]...), true
+			return append([]string(nil), d.full[i].Arguments...), true
 		}
 	}
 	return nil, false

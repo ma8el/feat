@@ -119,6 +119,16 @@ type Spec struct {
 	// mount to replace, and only its build context decides what it runs (ADR-065
 	// evidence 4).
 	Builds []Build
+	// Publications are the host ports Feat allocated for this task's reachable
+	// services. They replace whatever the project's own files published, in
+	// every service of the task's Compose project: a host port is global to the
+	// machine, so one left as configured is one task at a time (ADR-065
+	// evidence 8).
+	//
+	// A managed service with none publishes nothing. That is the ordinary case
+	// for a service the project did not declare reachable, and it is what makes
+	// the declaration mean something.
+	Publications []Publication
 	// Variables are generated non-secret environment entries. A secret never
 	// reaches this field because nothing that reads one ever fills it.
 	Variables map[string]string
@@ -192,6 +202,42 @@ type Build struct {
 	// Description says what the context is, so the generated document can name
 	// it in the user's terms.
 	Description string
+}
+
+// Publication is one host port Feat publishes one service on.
+//
+// It is the allocation as the generated document needs it: which service, which
+// port inside the container, which port on the host, and on which address and
+// protocol. Feat decides the host port and preserves the rest, because the rest
+// is what the project already said about how its service is reached.
+type Publication struct {
+	// Service is the managed service the port belongs to.
+	Service string
+	// ContainerPort is the port inside the container, from the project's own
+	// Compose files.
+	ContainerPort int
+	// HostPort is the port Feat allocated on the host.
+	HostPort int
+	// Protocol is "tcp" or "udp".
+	Protocol string
+	// HostIP is the host address to publish on, empty for every address. A
+	// project that deliberately published on the loopback address keeps doing
+	// so: widening it would be Feat deciding who may reach a user's service.
+	HostIP string
+	// Description says what the publication is, so the generated document can
+	// name it in the user's terms.
+	Description string
+}
+
+// PublicationsFor returns the host ports one managed service is published on.
+func (s Spec) PublicationsFor(service string) []Publication {
+	var found []Publication
+	for _, publication := range s.Publications {
+		if publication.Service == service {
+			found = append(found, publication)
+		}
+	}
+	return found
 }
 
 // MountsFor returns the mounts one managed service receives.
@@ -307,6 +353,17 @@ type Invocation struct {
 	Arguments []string
 	// Directory is the host working directory it runs from.
 	Directory string
+	// Environment is added to the daemon's own environment for this command, as
+	// KEY=VALUE entries.
+	//
+	// It carries the generated non-secret variables, and it exists because a
+	// service reaches its siblings under the project's own names rather than
+	// Feat's: a frontend whose framework only exposes variables with a
+	// particular prefix cannot read FEAT_URL_x, and the project maps it in its
+	// own Compose file with "${FEAT_URL_x}". Compose interpolates from the
+	// environment of the process running it, so this is where that value has to
+	// be. Nothing read from an environment file is ever in it.
+	Environment []string
 }
 
 // Output is what a command produced.
@@ -398,8 +455,70 @@ func (s Spec) Validate() error {
 	if err := s.validateBuilds(managedServices(s.Services)); err != nil {
 		return err
 	}
+	if err := s.validatePublications(managedServices(s.Services)); err != nil {
+		return err
+	}
 	return sortedVariables(s.Variables).validate()
 }
+
+// validatePublications checks the host ports the generated override will ask
+// Compose to bind.
+//
+// Two of the checks are about the machine rather than about this task. A port
+// outside the usable range is one Compose cannot bind, and two publications of
+// one host port and protocol are two services of one task colliding with each
+// other — which the allocator does not produce and which a document nobody
+// checked would produce silently, as a start that fails on the second service
+// with an error about an address already in use.
+func (s Spec) validatePublications(managed map[string]bool) error {
+	taken := make(map[string]string, len(s.Publications))
+
+	for _, publication := range s.Publications {
+		if err := checkName("published service", publication.Service); err != nil {
+			return err
+		}
+		if !managed[publication.Service] {
+			return fmt.Errorf("the host port %d of task %s names the service %q, which the task does "+
+				"not manage", publication.HostPort, s.Task, publication.Service)
+		}
+		for _, port := range []struct {
+			name  string
+			value int
+		}{
+			{"host port", publication.HostPort},
+			{"container port", publication.ContainerPort},
+		} {
+			if port.value < 1 || port.value > maxPort {
+				return fmt.Errorf("service %s of task %s is given the %s %d, which is not a port",
+					publication.Service, s.Task, port.name, port.value)
+			}
+		}
+		if publication.Protocol != "tcp" && publication.Protocol != "udp" {
+			return fmt.Errorf("service %s of task %s publishes %d over %q, and a published port is tcp "+
+				"or udp", publication.Service, s.Task, publication.ContainerPort, publication.Protocol)
+		}
+		// The address is the project's own and reaches the document as a quoted
+		// scalar, so what is refused is what no address contains: whitespace, a
+		// path separator, and the characters an argument vector must never carry.
+		if strings.ContainsAny(publication.HostIP, "/ \t\x00\n\r") {
+			return fmt.Errorf("service %s of task %s publishes on the host address %q, which is not an "+
+				"address Feat will write into a Compose document",
+				publication.Service, s.Task, publication.HostIP)
+		}
+
+		key := fmt.Sprintf("%s/%d/%s", publication.HostIP, publication.HostPort, publication.Protocol)
+		if previous, held := taken[key]; held {
+			return fmt.Errorf("services %s and %s of task %s are both published on host port %d: a host "+
+				"port carries one service, and which is not something Feat should decide",
+				previous, publication.Service, s.Task, publication.HostPort)
+		}
+		taken[key] = publication.Service
+	}
+	return nil
+}
+
+// maxPort is the highest port number there is.
+const maxPort = 65535
 
 // validateBuilds checks the redirected build contexts.
 //

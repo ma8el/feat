@@ -121,6 +121,7 @@ type runtimeDocument struct {
 	EnvFiles              []string              `json:"env_files,omitempty"`
 	Services              []string              `json:"services,omitempty"`
 	Provenance            []provenanceDocument  `json:"provenance,omitempty"`
+	Allocations           []allocationDocument  `json:"allocations,omitempty"`
 	Ports                 []portDocument        `json:"ports,omitempty"`
 	Networks              []string              `json:"networks,omitempty"`
 	Volumes               []string              `json:"volumes,omitempty"`
@@ -148,6 +149,18 @@ type portDocument struct {
 	Service       string `json:"service"`
 	ContainerPort int    `json:"container_port"`
 	HostPort      int    `json:"host_port"`
+}
+
+// allocationDocument is one host port Feat reserved for one service.
+//
+// It is stored apart from the observed publications because it is held: it is
+// what keeps a second task off this port, and what a destroy gives back.
+type allocationDocument struct {
+	Service       string `json:"service"`
+	ContainerPort int    `json:"container_port"`
+	HostPort      int    `json:"host_port"`
+	Protocol      string `json:"protocol"`
+	HostIP        string `json:"host_ip,omitempty"`
 }
 
 type taskStore struct{ store *Store }
@@ -354,6 +367,15 @@ func encodeRuntime(runtime *domain.RuntimeEnvironment) *runtimeDocument {
 		Health:                string(runtime.Health),
 		ObservedAt:            optionalTime(runtime.ObservedAt),
 	}
+	for _, allocation := range runtime.Allocations {
+		document.Allocations = append(document.Allocations, allocationDocument{
+			Service:       allocation.Service,
+			ContainerPort: allocation.ContainerPort,
+			HostPort:      allocation.HostPort,
+			Protocol:      allocation.Protocol,
+			HostIP:        allocation.HostIP,
+		})
+	}
 	for _, port := range runtime.Ports {
 		document.Ports = append(document.Ports, portDocument{
 			Service:       port.Service,
@@ -552,6 +574,15 @@ func decodeRuntime(document *runtimeDocument) *domain.RuntimeEnvironment {
 		State:                 domain.RuntimeState(document.State),
 		Health:                domain.HealthState(document.Health),
 		ObservedAt:            timeValue(document.ObservedAt),
+	}
+	for _, allocation := range document.Allocations {
+		runtime.Allocations = append(runtime.Allocations, domain.PortAllocation{
+			Service:       allocation.Service,
+			ContainerPort: allocation.ContainerPort,
+			HostPort:      allocation.HostPort,
+			Protocol:      allocation.Protocol,
+			HostIP:        allocation.HostIP,
+		})
 	}
 	for _, port := range document.Ports {
 		runtime.Ports = append(runtime.Ports, domain.PortAssignment{

@@ -219,6 +219,22 @@ The generated override/runtime invocation MUST provide a unique Compose project 
 
 **Amended: a mount is not the only way a service's code arrives.** For a managed service whose build context is a configured repository's checkout, or a directory inside it, the generated override MUST point that context at the same place inside the task's worktree; only the context is written, so a relative `dockerfile:` beside it follows. Feat MUST record, per managed service, whether the task's work reaches it by mount, by build context, or not at all, resolved from configuration and the project's own Compose files rather than inspected out of the containers, and MUST report a managed service that the task's work does not reach and one whose image must be built again before a change appears in it. Feat MUST NOT run `docker compose config` to answer any of this, because it renders the values of the project's environment files; reading the Compose documents structurally resolves nothing and is allowed. See ADR-065.
 
+**Amended: Feat allocates the published ports.** A repository MUST be able to
+declare which of its managed services a user reaches from the host. For each of
+them Feat MUST allocate a host port per publication from a configured range,
+reading the container port structurally from the project's own Compose files,
+record it on the task before anything is created, write it into the generated
+override in place of the configured publication, and release it when the runtime
+becomes absent. No other service of the task's Compose project may publish a
+port, managed or not: a published port is global to the machine, so one left as
+configured is one task at a time. While a task's runtime exists, no other task
+may be allocated a port it holds, and an exhausted range MUST be reported as
+what it is, naming the tasks holding it. Feat MUST deliver each allocated
+address to every managed service of the task as generated non-secret variables —
+`FEAT_URL_<service>` and `FEAT_PORT_<service>`, upper-cased with every other
+character replaced — and MUST refuse a configuration in which two reachable
+service names produce the same variable. See ADR-065, superseding ADR-034.
+
 ### FR-RUN-005 — Manual lifecycle
 
 v0 MUST provide create/start/stop/status/logs/destroy actions. Application services MUST start only by explicit user action in v0.

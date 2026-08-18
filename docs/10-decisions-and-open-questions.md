@@ -836,6 +836,15 @@ Decisions:
   terms — that this is the other task's runtime and that v0 allocates no ports —
   rather than passed through as a bind error. [07-configuration-model.md](07-configuration-model.md)
   gains the runtime half of the rule it currently states for the agent alone.
+
+  **Superseded for ports by ADR-065.** The rule rested on the second half of its
+  own reason: that a published port is how the user reaches their application and
+  that v0 allocates none of its own. v0 now allocates them, so what a task
+  publishes is a port Feat can tell the user about rather than a number only one
+  task can hold, and every other publication in the project — a managed service
+  the project did not declare reachable, and a dependency it never named — is
+  reset like the container name it sits beside. The explanation this rule offered
+  instead was an explanation of a task that could not start.
 - Runtime state is observed by a slow poll over the tasks that hold a runtime
   record, and a poll writes and publishes only when the observed state or health
   changed. Ports come from `ps`; networks and volumes come from
@@ -939,6 +948,14 @@ service, and the generated override reaches every service the project defines.
 A service the project did not name gets exactly two things: its `container_name`
 reset, and Feat's ownership labels. It is not given the task's worktrees or the
 generated variables, because the project did not ask Feat to manage it.
+
+**Extended by ADR-065**: it also loses its published ports, which is the second
+global value this evidence is about — the database of this very defect kept
+5432 and no second task could ever have bound it. A dependency's port is not
+replaced by an allocated one, because a service the project never named is not a
+service it asked to reach; a project that does reach one manages it and declares
+it reachable. The rest of the rule stands: no worktree, no generated variable,
+nothing else.
 
 The aggregation table gains one row with it: a service Compose started alongside
 a managed one counts towards the runtime's state unless it exited cleanly. A
@@ -3451,6 +3468,15 @@ When should the shared dedicated Claude profile become per-task while preserving
 
 Which local proxy and name-resolution approach works consistently across macOS and Linux with minimal privilege?
 
+**Open, and half built.** Feat now allocates a host port per reachable service
+per task and tells every managed service the address (ADR-065), which is what
+such a proxy would have to route to. It is not a substitute for the feature: an
+allocated port changes with the task, and the point of a stable hostname is a URL
+that does not. What still blocks it is what was recorded against it before — a
+proxy is a machine-wide resource with a lifetime no task owns, which is the
+`shared` lifecycle ADR-034 called roadmap work, and a label-driven one wants the
+Docker socket this product's headline denies the agent.
+
 ### OQ-009 — Plugin protocol
 
 What external adapter protocol is justified after internal interfaces have stabilized? Do not define it speculatively.
@@ -4551,6 +4577,73 @@ three places that re-applied a task's recorded inputs to a freshly resolved
 specification became one — which also drops a mount or a build naming a service
 the task does not manage, so a project file that gains a service can no longer
 refuse the stop or the destroy of a runtime created before it.
+
+Amended during slice 16, which implemented the third of the three: the allocation
+and the reachability.
+
+Evidence 16, found by running three tasks of the reference project at once:
+**a poll that started before a create finished gave the task's ports away.** The
+runtime poller lists the tasks outside any lock and asks Docker about each in
+turn, so a create that finishes while it is asking leaves it holding an answer
+about the world as it was — nothing existed, therefore the runtime is absent.
+Applied, that released the host ports the create had just allocated, while the
+containers created with them were bound to those ports, and the next task was
+given them. Measured as the second start of a task publishing nothing at all: the
+generated override was rewritten with `ports: !reset []` on every service, and
+the task the ports belonged to said its own reachable services were unreadable.
+The state alone would have survived it, because the next poll corrects a state;
+a released port is corrected by nothing. An observation is now applied only if
+the record it was taken against has not changed since.
+
+Decisions this slice needed:
+
+- **Every published port is replaced, not only a managed service's.** The plan
+  said to reset the publications of managed services the project did not declare
+  reachable. Implemented that way it leaves a dependency's fixed port bound —
+  which is ADR-034 evidence 12 exactly, and it is enough on its own to stop the
+  second task. A published port is global to the machine as a container name is
+  global to the Docker daemon, so it is treated the same way: reset everywhere,
+  and replaced only where Feat allocated something. What that costs is a
+  dependency a user reached at a fixed port by hand; what it buys is that
+  concurrency is a property of Feat rather than of the user's diligence, and the
+  remedy is one line of configuration — manage the service and declare it
+  reachable.
+- **The addresses reach the Compose process as well as the containers.** A
+  service finds its siblings under the project's own names rather than Feat's.
+  The reference project's frontend is a Vite dev server, which exposes only
+  `VITE_`-prefixed variables to the browser, so `FEAT_URL_nginx` in the
+  container's environment is a value nothing can use; what the project needs is
+  to write `VITE_API_BASE_URL: ${FEAT_URL_NGINX}` in its own Compose file, and
+  Compose interpolates that from the environment of the process running it. The
+  generated variables are therefore passed to the Compose command as well as
+  written into the override. They are generated task metadata either way, and
+  nothing read from an environment file is in them.
+- **The container port is read, and the host port is not.** A publication's
+  target is a fact about the project's own Compose files, so Feat reads it
+  structurally, in every syntax Compose accepts; the host port beside it is the
+  thing an allocation replaces, so it is not read at all. What cannot be read —
+  an interpolated entry, which resolving would mean reading the values Feat is
+  forbidden to read, or a port range, which is several publications where an
+  allocation is one — publishes nothing, and the task says which services those
+  are. Refusing the action instead was considered and rejected: a project can
+  reach that state by editing one file, and a runtime nobody can stop or destroy
+  is a worse answer than a service that says it is unreachable.
+- **The range has a default.** `runtime.port_range` defaults to `21000-21999`:
+  above the privileged ports, below the ephemeral ones the kernel hands out, and
+  a thousand wide. A required field would have broken every configuration written
+  for slice 14, which collected the reachable declaration before anything
+  allocated from it, and where a machine's own ports lie is exactly the kind of
+  value a default should carry and `feat project show` should print.
+
+Consequence: `domain.RuntimeEnvironment` gains the allocations it holds and
+releases, beside the publications it observes — an intention and an observation
+that can disagree, which is why they are two fields. `runtime.Invocation` gains
+an environment, `feat runtime status` and the dashboard show the allocated
+address rather than the observed publication, and the reference project's own
+frontend names `${FEAT_URL_NGINX}` where it used to name a fixed port.
+
+Three tasks of the reference project then ran their whole applications at once,
+each frontend reaching its own task's API and no other's.
 
 ## Decision change process
 
