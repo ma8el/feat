@@ -19,6 +19,19 @@ LDFLAGS := -X '$(MODULE)/internal/version.version=$(VERSION)' \
            -X '$(MODULE)/internal/version.commit=$(COMMIT)' \
            -X '$(MODULE)/internal/version.date=$(DATE)'
 
+# Where `make sandbox` puts the state, configuration, and sockets of a second
+# Feat. Keep an override short: the daemon socket resolves below this path, and
+# macOS allows a socket path 103 bytes long.
+SANDBOX ?= /tmp/feat-sandbox-$(shell id -u)
+
+# XDG_CONFIG_HOME and XDG_DATA_HOME each get a `feat` component appended.
+# FEAT_RUNTIME_DIR is taken as given, and moves the daemon socket, the ownership
+# lock, the endpoint record, and the tmux socket together — an override of the
+# socket alone would separate it from the lock that proves who owns it (ADR-027).
+SANDBOX_ENV = XDG_CONFIG_HOME=$(SANDBOX)/config \
+              XDG_DATA_HOME=$(SANDBOX)/state \
+              FEAT_RUNTIME_DIR=$(SANDBOX)/run
+
 .DEFAULT_GOAL := help
 
 .PHONY: check
@@ -32,6 +45,48 @@ build: ## Build the feat binary into bin/
 .PHONY: run
 run: build ## Build and open the dashboard
 	@$(BIN_DIR)/$(BINARY)
+
+.PHONY: sandbox
+sandbox: build ## Run the built binary on throwaway state (ARGS="doctor")
+# A second Feat on this host, owning nothing the Feat you use every day owns.
+#
+# It runs on the host rather than in a container because that is what Feat is:
+# worktrees on the host filesystem, its own tmux server, and Compose against the
+# host Docker daemon. A control plane inside a container would write host paths
+# it cannot see into the generated override, and every task mount would resolve
+# somewhere else.
+#
+# Nothing here creates the three directories. Feat creates each on first use, so
+# a fresh sandbox exercises the same first-run path a new install takes, and
+# removing it returns to that state.
+#
+#   make sandbox                     # the dashboard, on sandbox state
+#   make sandbox ARGS="doctor"
+#   make sandbox ARGS="project init"
+#
+# The daemon the dashboard starts inherits this environment, so its projects,
+# its tasks, and its terminals are its own.
+	@$(SANDBOX_ENV) $(BIN_DIR)/$(BINARY) $(ARGS)
+
+.PHONY: sandbox-clean
+sandbox-clean: build ## Stop the sandbox daemon and remove its directory
+# The guard is here because SANDBOX is an override and the next line is an rm.
+	@case "$(SANDBOX)" in \
+		/*/*) ;; \
+		*) echo "SANDBOX must be absolute and below a top-level directory, but is '$(SANDBOX)'"; exit 1 ;; \
+	esac
+# The daemon stops first: removing the directory under a running one leaves it
+# writing to files that no longer have a name.
+	@$(SANDBOX_ENV) $(BIN_DIR)/$(BINARY) daemon stop >/dev/null 2>&1 || true
+	@rm -rf $(SANDBOX)
+	@echo "removed $(SANDBOX)"
+# What this does not remove is what a sandbox task created outside that
+# directory: its worktrees, its containers, its volumes, and its tmux sessions.
+# Those are `feat task cleanup`'s to resolve, and it resolves the resources a
+# task owns rather than matching on a name. Run it before this, not after — the
+# record of what a task owns lived in the directory now gone.
+	@echo "task worktrees, containers, volumes, and tmux sessions are not removed:"
+	@echo "  run 'make sandbox ARGS=\"task cleanup <task>\"' before this target"
 
 .PHONY: test
 test: ## Run unit tests with the race detector
@@ -90,4 +145,4 @@ clean: ## Remove build output and installed tools
 .PHONY: help
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
-		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
