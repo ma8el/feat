@@ -343,6 +343,54 @@ task selects, and where no repository says where its source goes. That
 configuration can only produce services running the user's ordinary checkout, and
 it needs neither Docker nor a file to diagnose (ADR-065 evidence 1).
 
+### What a project's own Compose files must provide
+
+The rules above are stated from Feat's side — what it mounts, redirects, resets,
+and publishes. This is the same set from the other side: what a project's own
+Compose files have to look like for a task to run its own code and be reachable.
+Five things are required of them, and each one is silent when it is missing,
+which is why they are collected here rather than left to be assembled from the
+sections above.
+
+- **Each repository's source arrives at one container path, and it is the one
+  `runtime.container_path` names.** Compose merges a service's volumes by target,
+  so Feat's generated override replaces a mount only where the targets agree; a
+  path that disagrees adds a second mount and leaves the services running the
+  ordinary checkout. A service that bakes its code with `COPY` needs no mount and
+  no container path: its build context is redirected instead.
+- **A reachable service's published port is written plainly.** Feat reads the
+  container side of the publication and replaces the host side with a port
+  allocated for the task. An entry containing a `${...}` is one Feat must not
+  resolve, and a port range is several publications where an allocation is one;
+  either way the service publishes nothing and the task says so.
+- **Nothing names a sibling by a fixed host port.** The port differs per task, so
+  a value baked into an image or written into a file can be right for one task
+  at most. Both directions need the generated address: a service calling another
+  reads `${FEAT_URL_<service>}`, and a service that must accept another's origin —
+  a CORS allow-list — reads the same variable for the service the browser loads.
+  Write them with a `:-` default so the files still work run by hand.
+- **Every environment file is named in `runtime.env_files`.** Feat's Compose
+  project directory is the directory holding its own generated documents, so
+  Compose's implicit `.env` lookup beside a repository does not apply.
+- **The files a repository brings are the ones that reload.** A production file
+  that bakes its source into an image serves what it was built from, whatever is
+  mounted over it, so a project that keeps a development overlay beside it brings
+  the overlay.
+
+What a project should *not* write is as load-bearing, because a workaround left
+in place reads as a requirement. Feat resets `container_name` on every service in
+the task's Compose project, replaces every published port, gives the project a
+per-task name so its named volumes are per task too, applies its own ownership
+labels, and redirects a build context into the task's worktree. A file that
+resets a port or renames a container for itself is doing something Feat has
+already done.
+
+One thing this list deliberately leaves to the project: whatever the image put
+inside the path the worktree is mounted at — an installed virtualenv, a
+`node_modules` — has to be moved out of it or shadowed by a named volume, or the
+mount hides it. That is what mounting source over a built image costs, and Feat
+neither checks it nor needs it.
+
 ### Notifications and resource sampling
 
 Two grace periods exist and they are measured from different moments, which is

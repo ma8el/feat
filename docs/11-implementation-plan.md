@@ -2146,7 +2146,13 @@ A new macOS/Linux user can use Feat outside the reference project.
 
 - Implement host-native execution.
 - Add Linux notification support.
-- Generalize examples and troubleshooting.
+- Generalize examples and troubleshooting, written against
+  [07-configuration-model.md](07-configuration-model.md)'s account of what a
+  project's own Compose files must provide. That section is the spec half,
+  established by making the reference project's two applications run per task;
+  what is missing for a public reader is a worked pair of Compose files and the
+  entries for the two failures that are silent — a service serving the ordinary
+  checkout, and a second task that will not start.
 - Finalize JSON Schema and shell completion.
 - Give the reading commands machine-readable output. Every command prints a
   table a person reads and nothing else can parse, so a user scripting around
