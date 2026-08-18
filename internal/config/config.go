@@ -1,7 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -257,6 +260,65 @@ type RuntimeSection struct {
 	// ProjectNameTemplate generates the Compose project name, which is what
 	// makes a runtime action affect one task and no other.
 	ProjectNameTemplate string `yaml:"project_name_template"`
+	// PortRange is the host ports Feat may publish a task's reachable services
+	// on, written "<first>-<last>". Feat allocates one port per reachable
+	// service per task from it and releases them when the runtime is destroyed.
+	PortRange string `yaml:"port_range"`
+
+	portRange PortRange
+}
+
+// Ports returns the parsed host port range.
+func (r RuntimeSection) Ports() PortRange { return r.portRange }
+
+// PortRange is the span of host ports a project's tasks may be published on.
+//
+// It is a range rather than a single port because a published port is global to
+// the machine: the whole point is that a second task gets a different one, and
+// what bounds the choice has to be the user's, since these are ports on their
+// own machine.
+type PortRange struct {
+	// First and Last are inclusive.
+	First int
+	Last  int
+}
+
+// Empty reports whether the range holds no port at all.
+func (p PortRange) Empty() bool { return p.First == 0 || p.Last < p.First }
+
+// Size is how many ports the range holds.
+func (p PortRange) Size() int {
+	if p.Empty() {
+		return 0
+	}
+	return p.Last - p.First + 1
+}
+
+// String renders the range the way it is written in configuration.
+func (p PortRange) String() string { return strconv.Itoa(p.First) + "-" + strconv.Itoa(p.Last) }
+
+// Contains reports whether a port lies in the range.
+func (p PortRange) Contains(port int) bool { return !p.Empty() && port >= p.First && port <= p.Last }
+
+// ParsePortRange reads the "<first>-<last>" form.
+//
+// Both ends are required. A single number would be a range of one, which is a
+// project that can run one task's application and is far more likely to be a
+// typing mistake than a decision.
+func ParsePortRange(value string) (PortRange, error) {
+	first, last, found := strings.Cut(strings.TrimSpace(value), "-")
+	if !found {
+		return PortRange{}, fmt.Errorf("must be written %q, but is %q", "<first>-<last>", value)
+	}
+	from, err := strconv.Atoi(strings.TrimSpace(first))
+	if err != nil {
+		return PortRange{}, fmt.Errorf("must begin with a port number, but begins with %q", first)
+	}
+	to, err := strconv.Atoi(strings.TrimSpace(last))
+	if err != nil {
+		return PortRange{}, fmt.Errorf("must end with a port number, but ends with %q", last)
+	}
+	return PortRange{First: from, Last: to}, nil
 }
 
 // ReviewSection configures the external commands review opens.
@@ -430,6 +492,26 @@ func (c *Config) RuntimeServices() []string {
 	seen := make(map[string]bool)
 	for _, contribution := range c.RuntimeComposition() {
 		for _, service := range contribution.Services {
+			if seen[service] {
+				continue
+			}
+			seen[service] = true
+			services = append(services, service)
+		}
+	}
+	return services
+}
+
+// RuntimeReachable returns every service a repository declares reachable, in
+// repository order and without repetition.
+//
+// It is the list Feat allocates a host port for. A service two repositories
+// both declare is reached at one address, because it is one service.
+func (c *Config) RuntimeReachable() []string {
+	var services []string
+	seen := make(map[string]bool)
+	for _, contribution := range c.RuntimeComposition() {
+		for _, service := range contribution.Reachable {
 			if seen[service] {
 				continue
 			}

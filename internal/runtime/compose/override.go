@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/ma8el/feat/internal/runtime"
@@ -109,18 +110,22 @@ func replaceFile(path string, document []byte, what string) error {
 //     task's worktree instead. Only the context is written, so a relative
 //     `dockerfile:` beside it in the project's own file follows the new context
 //     rather than being replaced by a path that no longer resolves;
-//   - published ports are left exactly as the project configured them. They are
-//     how the user reaches the application they are testing, and v0 allocates
-//     none of its own; two tasks wanting the same host port is explained rather
-//     than silently prevented (ADR-034).
+//   - every service's published ports are replaced. A service the project
+//     declared reachable is published on the host ports Feat allocated for this
+//     task, and every other service publishes nothing. A published port is
+//     global to the machine exactly as a container_name is global to the Docker
+//     daemon, so one left as configured is one task at a time — which is the
+//     failure allocation exists to remove (ADR-065 evidence 8, superseding
+//     ADR-034).
 //
 // Two kinds of service appear in it, and the difference is what Feat was asked
 // to do. A managed service — one the project names — is redirected at the task's
-// worktrees and told which task it is serving. A service that only appears
-// because a managed one depends on it is given the two things without which the
-// task's project is not really its own: its container_name reset, and Feat's
-// ownership labels. Nothing else, because the project did not ask Feat to manage
-// it (ADR-034).
+// worktrees, published on the ports Feat allocated for it, and told which task
+// it is serving. A service that only appears because a managed one depends on it
+// is given the things without which the task's project is not really its own:
+// both values that are global to the machine removed, and Feat's ownership
+// labels. Nothing else, because the project did not ask Feat to manage it
+// (ADR-034, ADR-065).
 //
 // It is generated text and never carries a value read from an environment file,
 // because nothing that reads one ever reaches this function.
@@ -141,8 +146,10 @@ func overrideDocument(spec runtime.Spec, defined []string) ([]byte, error) {
 	b.WriteString("# path rather than adding a second mount beside it.\n")
 	b.WriteString("#\n")
 	b.WriteString("# container_name is reset because it is global to the Docker daemon: a base file\n")
-	b.WriteString("# carrying one could be started for one task and no more. Published ports are\n")
-	b.WriteString("# left as configured, because they are how you reach the application.\n")
+	b.WriteString("# carrying one could be started for one task and no more. A published port is\n")
+	b.WriteString("# global to the machine in the same way, so every one of them is replaced: the\n")
+	b.WriteString("# services this project declares reachable are published on the ports Feat\n")
+	b.WriteString("# allocated for this task, and the rest publish nothing.\n")
 	b.WriteString("#\n")
 	b.WriteString("# A service that bakes its code into its image has no mount to replace, so its\n")
 	b.WriteString("# build context is pointed at the task's worktree instead. Only the context is\n")
@@ -152,6 +159,7 @@ func overrideDocument(spec runtime.Spec, defined []string) ([]byte, error) {
 	for _, service := range spec.Services {
 		fmt.Fprintf(&b, "  %s:\n", quote(service))
 		b.WriteString("    container_name: !reset null\n")
+		writePorts(&b, spec.PublicationsFor(service))
 
 		if build, redirected := spec.BuildFor(service); redirected {
 			b.WriteString("    build:\n")
@@ -193,15 +201,51 @@ func overrideDocument(spec runtime.Spec, defined []string) ([]byte, error) {
 		if i == 0 {
 			b.WriteString("\n")
 			b.WriteString("  # Compose starts these because a managed service depends on them. They are\n")
-			b.WriteString("  # in this task's project because Feat acted, so they carry its labels and\n")
-			b.WriteString("  # lose a fixed container_name like the rest; nothing else about them is\n")
-			b.WriteString("  # Feat's to change.\n")
+			b.WriteString("  # in this task's project because Feat acted, so they lose both of the values\n")
+			b.WriteString("  # that are global to the machine and carry its labels; nothing else about\n")
+			b.WriteString("  # them is Feat's to change. A dependency you reach from the host is a\n")
+			b.WriteString("  # service to manage and declare reachable, which is how it is given a port\n")
+			b.WriteString("  # of its own.\n")
 		}
 		fmt.Fprintf(&b, "  %s:\n", quote(service))
 		b.WriteString("    container_name: !reset null\n")
+		writePorts(&b, nil)
 		writeLabels(&b, spec)
 	}
 	return []byte(b.String()), nil
+}
+
+// writePorts renders one service's publications.
+//
+// A service with none is written as an empty reset rather than left out, which
+// is the whole of what keeps a base file's fixed port from reaching the host: a
+// key absent from an override is a key the merged project keeps.
+//
+// A service with publications takes the override tag rather than the reset one.
+// Compose merges a service's ports by appending, so an entry added beside the
+// project's own would publish both — the allocated port and the fixed one this
+// exists to replace — and only replacing the whole list removes it.
+//
+// The long form, for the reason the mounts use it: every part is a value in its
+// own field, so nothing here depends on how a colon in a value would be read.
+func writePorts(b *strings.Builder, publications []runtime.Publication) {
+	if len(publications) == 0 {
+		b.WriteString("    ports: !reset []\n")
+		return
+	}
+
+	b.WriteString("    ports: !override\n")
+	for _, publication := range publications {
+		if publication.Description != "" {
+			fmt.Fprintf(b, "      # %s\n", publication.Description)
+		}
+		fmt.Fprintf(b, "      - target: %d\n", publication.ContainerPort)
+		fmt.Fprintf(b, "        published: %s\n", quote(strconv.Itoa(publication.HostPort)))
+		fmt.Fprintf(b, "        protocol: %s\n", quote(publication.Protocol))
+		if publication.HostIP != "" {
+			fmt.Fprintf(b, "        host_ip: %s\n", quote(publication.HostIP))
+		}
+	}
 }
 
 // writeLabels renders the ownership labels of one service.

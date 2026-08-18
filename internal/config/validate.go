@@ -525,7 +525,72 @@ func (c *Config) validateRuntime(found *problems) {
 	checkTaskScoped(found, "runtime.project_name_template", runtime.ProjectNameTemplate, "Compose project")
 	checkComposeName(found, "runtime.project_name_template", runtime.ProjectNameTemplate, c.probe())
 
+	c.validatePortRange(found)
 	c.validateComposition(found)
+	c.validateReachable(found)
+}
+
+// The bounds of a host port range Feat will allocate from.
+//
+// The privileged ports are excluded because binding one needs privilege the
+// daemon does not have and should not be given, and a range that reached into
+// them would produce an allocation that fails at Compose with an error about
+// permission rather than about configuration.
+const (
+	firstUnprivilegedPort = 1024
+	lastPort              = 65535
+)
+
+// validatePortRange checks the ports Feat may publish a task's services on.
+func (c *Config) validatePortRange(found *problems) {
+	const field = "runtime.port_range"
+	ports := c.Runtime.Ports()
+
+	switch {
+	case ports.First < firstUnprivilegedPort || ports.Last > lastPort:
+		found.add(field, fmt.Sprintf(
+			"is %q, and Feat allocates host ports between %d and %d: binding a privileged port needs "+
+				"privilege the daemon does not have",
+			c.Runtime.PortRange, firstUnprivilegedPort, lastPort))
+	case ports.Last < ports.First:
+		found.add(field, fmt.Sprintf("is %q, which ends before it begins", c.Runtime.PortRange))
+	case ports.Size() < len(c.RuntimeReachable()):
+		// One port per reachable service is one task's worth. A range smaller
+		// than that cannot publish a single task, which is worth saying now
+		// rather than as an exhausted range on the first create.
+		found.add(field, fmt.Sprintf(
+			"is %q, which holds %d ports, and this project reaches %d services: one task alone would "+
+				"exhaust it",
+			c.Runtime.PortRange, ports.Size(), len(c.RuntimeReachable())))
+	}
+}
+
+// validateReachable refuses two reachable services whose generated variables
+// would collide.
+//
+// Feat tells every managed service where its siblings are, as FEAT_URL_<service>
+// and FEAT_PORT_<service> with the service name upper-cased and everything else
+// replaced. A variable name has no room for the dots and hyphens a Compose
+// service name allows, so "web-app" and "web.app" render alike — and one service
+// would then receive the other's address, which is the silent kind of wrong the
+// whole runtime section is written against.
+func (c *Config) validateReachable(found *problems) {
+	owners := make(map[string]string)
+	for _, contribution := range c.RuntimeComposition() {
+		field := "repositories." + contribution.RepositoryID + ".runtime"
+		for i, service := range contribution.Reachable {
+			variable := domain.PortVariable(service)
+			owner, taken := owners[variable]
+			if taken && owner != service {
+				found.add(fmt.Sprintf("%s.reachable[%d]", field, i), fmt.Sprintf(
+					"is %q, and service %q of this project is also reachable: both would be told to "+
+						"the task's services as %s, so one would receive the other's address. Rename "+
+						"one of them", service, owner, variable))
+				continue
+			}
+			owners[variable] = service
+		}
+	}
 }
 
 // validateComposition checks the runtime the repositories compose between them.

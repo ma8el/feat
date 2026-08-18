@@ -304,11 +304,24 @@ func printRuntime(out io.Writer, status api.RuntimeStatus) {
 		}
 	}
 
-	if len(runtime.Ports) > 0 {
-		printf(out, "\nports\n")
-		for _, port := range runtime.Ports {
+	// The allocations rather than the observed publications: they are the same
+	// ports once the services are up, and they exist before anything is started,
+	// which is when a user most wants to know where their application will be.
+	// What was observed is the answer to a different question and is printed
+	// only when it disagrees.
+	if len(runtime.Allocations) > 0 {
+		printf(out, "\nports, allocated for this task\n")
+		for _, allocation := range runtime.Allocations {
+			printf(out, "  %s  %d -> %s\n", allocation.Service, allocation.ContainerPort, allocation.Address)
+		}
+	}
+	if unexpected := unallocated(runtime); len(unexpected) > 0 {
+		printf(out, "\nports published without an allocation\n")
+		for _, port := range unexpected {
 			printf(out, "  %s  %d -> %d\n", port.Service, port.ContainerPort, port.HostPort)
 		}
+		printf(out, "\nthese are bound by containers Feat did not publish, so a second task cannot have\n")
+		printf(out, "them. Recreating the runtime writes the generated override again.\n")
 	}
 	if len(runtime.Volumes) > 0 {
 		// Named because they are retained: a resource nobody can see is a
@@ -321,6 +334,28 @@ func printRuntime(out io.Writer, status api.RuntimeStatus) {
 	for _, note := range status.Notes {
 		printf(out, "\nnote: %s\n", note)
 	}
+}
+
+// unallocated are the observed publications Feat did not allocate.
+//
+// A container from before this build, or one started from a generated override
+// that has since been rewritten, can still hold a port of the project's own —
+// and a host port is global to the machine, so that is exactly what stops the
+// next task. Saying it is the difference between a user who recreates the
+// runtime and one who wonders why their second task will not start.
+func unallocated(runtime *api.Runtime) []api.Port {
+	allocated := make(map[string]bool, len(runtime.Allocations))
+	for _, allocation := range runtime.Allocations {
+		allocated[fmt.Sprintf("%s/%d", allocation.Service, allocation.HostPort)] = true
+	}
+
+	var unexpected []api.Port
+	for _, port := range runtime.Ports {
+		if !allocated[fmt.Sprintf("%s/%d", port.Service, port.HostPort)] {
+			unexpected = append(unexpected, port)
+		}
+	}
+	return unexpected
 }
 
 // dependencies reports whether anything in the task's Compose project is there

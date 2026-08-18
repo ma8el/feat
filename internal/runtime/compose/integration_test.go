@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -47,7 +48,11 @@ func realDocker(t *testing.T) {
 // Whatever the test does, the Compose project is removed when it ends: a test
 // that leaves containers behind on the machine running it has broken the rule it
 // exists to check.
-func realRuntime(t *testing.T, id domain.TaskID) (*compose.Runtime, runtime.Spec, string) {
+// A host port may be given, which is what Feat allocates for a task's one
+// reachable service. Without one the fixture's own fixed publications are simply
+// removed, which is what every service the project did not declare reachable
+// gets.
+func realRuntime(t *testing.T, id domain.TaskID, publish ...int) (*compose.Runtime, runtime.Spec, string) {
 	t.Helper()
 
 	root := t.TempDir()
@@ -126,6 +131,14 @@ func realRuntime(t *testing.T, id domain.TaskID) (*compose.Runtime, runtime.Spec
 		},
 		Variables:        map[string]string{"FEAT_TASK_KEY": id.Key().String()},
 		ForbiddenSources: []string{filepath.Join(root, "repos", "api")},
+	}
+	for _, port := range publish {
+		spec.Publications = append(spec.Publications, runtime.Publication{
+			Service: "api", ContainerPort: 80, HostPort: port, Protocol: "tcp",
+			Description: "allocated for this task",
+		})
+		spec.Variables["FEAT_URL_API"] = "http://localhost:" + strconv.Itoa(port)
+		spec.Variables["FEAT_PORT_API"] = strconv.Itoa(port)
 	}
 
 	services, err := compose.New(spec, compose.Options{})
@@ -411,6 +424,87 @@ func TestRealTwoTasksRunTheSameServicesAtOnce(t *testing.T) {
 	if state.Lifecycle != domain.RuntimeRunning {
 		t.Errorf("stopping one task left the other %q, want running", state.Lifecycle)
 	}
+}
+
+// TestRealAllocatedPortsAreWhatIsPublished is the mechanism this slice rests on,
+// against real Docker.
+//
+// Three things are checked at once because they are one arrangement: two tasks
+// whose application publishes a fixed host port both start, each is bound to the
+// port allocated for it, and the fixed ports the project wrote are bound by
+// neither — not the managed service's, and not the one on the dependency nobody
+// named. A host port is global to the machine, so if any of that were wrong the
+// second `up` would fail with an address already in use, which is the failure
+// this slice removes.
+//
+// The Compose tags doing the work are !override on the service that has an
+// allocation and !reset on every service that has none. Both are read by the
+// installed Compose rather than by a fixture, which is the only place their
+// behaviour can be established (ADR-033 evidence 10 to 14).
+func TestRealAllocatedPortsAreWhatIsPublished(t *testing.T) {
+	realDocker(t)
+
+	// Two ports well outside the fixture's own, so that a container bound to a
+	// fixed one is unambiguous.
+	const firstPort, secondPort = 24990, 24991
+	first, firstSpec, _ := realRuntime(t, domain.NewTaskID(), firstPort)
+	second, secondSpec, _ := realRuntime(t, domain.NewTaskID(), secondPort)
+	ctx := context.Background()
+
+	firstState, err := first.Start(ctx)
+	if err != nil {
+		t.Fatalf("starting the first task: %v", err)
+	}
+	secondState, err := second.Start(ctx)
+	if err != nil {
+		t.Fatalf("starting the second task while the first publishes the same application: %v", err)
+	}
+
+	for _, arranged := range []struct {
+		name  string
+		state runtime.State
+		port  int
+	}{{"first", firstState, firstPort}, {"second", secondState, secondPort}} {
+		var published []domain.PortAssignment
+		published = append(published, arranged.state.Ports...)
+
+		if len(published) != 1 {
+			t.Fatalf("the %s task publishes %+v, want exactly the port allocated for it",
+				arranged.name, published)
+		}
+		if got := published[0]; got.Service != "api" || got.HostPort != arranged.port ||
+			got.ContainerPort != 80 {
+			t.Errorf("the %s task published %+v, want api's 80 on host port %d",
+				arranged.name, got, arranged.port)
+		}
+	}
+
+	// And the fixture's own fixed ports are bound by nothing: the first is the
+	// managed service's, the second is on a dependency the project never named.
+	for _, spec := range []runtime.Spec{firstSpec, secondSpec} {
+		state, err := composeRuntime(t, spec).Observe(ctx)
+		if err != nil {
+			t.Fatalf("observing %s: %v", spec.Identity, err)
+		}
+		for _, port := range state.Ports {
+			if port.HostPort == 24999 || port.HostPort == 24998 {
+				t.Errorf("%s bound the fixed host port %d the project wrote, which one task at a "+
+					"time can hold: %+v", spec.Identity, port.HostPort, state.Ports)
+			}
+		}
+	}
+}
+
+// composeRuntime rebuilds an adapter over an existing specification, so that a
+// test can observe a project it started through another one.
+func composeRuntime(t *testing.T, spec runtime.Spec) *compose.Runtime {
+	t.Helper()
+
+	services, err := compose.New(spec, compose.Options{})
+	if err != nil {
+		t.Fatalf("rebuilding the runtime of %s: %v", spec.Identity, err)
+	}
+	return services
 }
 
 // TestRealDestroyRetainsVolumes is the volume-retention rule against Docker.

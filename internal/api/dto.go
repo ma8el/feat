@@ -424,8 +424,13 @@ type Runtime struct {
 	// runtime is, so a service that will not run the task's work says so before
 	// anything is started rather than after.
 	Provenance []ServiceProvenance `json:"provenance"`
-	Ports      []Port              `json:"ports"`
-	State      string              `json:"state"`
+	// Allocations are the host ports Feat reserved for this task's reachable
+	// services, held until the runtime is destroyed. They are what the task will
+	// be published on; Ports is what the started containers turned out to
+	// publish, which is empty until something starts.
+	Allocations []PortAllocation `json:"allocations"`
+	Ports       []Port           `json:"ports"`
+	State       string           `json:"state"`
 	// Health is separate from State: without a configured health check the
 	// honest answer is unknown.
 	Health string `json:"health"`
@@ -490,6 +495,24 @@ type Port struct {
 	Service       string `json:"service"`
 	ContainerPort int    `json:"container_port"`
 	HostPort      int    `json:"host_port"`
+}
+
+// PortAllocation is one host port Feat reserved for one service of one task.
+//
+// It is separate from Port because it is an intention rather than an
+// observation: this is the port the generated override asks Compose to publish,
+// and Port is what `docker compose ps` reported afterwards. A task that has
+// allocated and started nothing has the first and not the second.
+type PortAllocation struct {
+	Service       string `json:"service"`
+	ContainerPort int    `json:"container_port"`
+	HostPort      int    `json:"host_port"`
+	Protocol      string `json:"protocol"`
+	// HostIP is the address the project publishes on, empty for every address.
+	HostIP string `json:"host_ip,omitempty"`
+	// Address is where the service is reached from this machine, which is the
+	// value of its generated FEAT_URL variable without the scheme.
+	Address string `json:"address"`
 }
 
 // RuntimeService is one observed service of a task's runtime.
@@ -1197,11 +1220,23 @@ func newRuntime(runtime *domain.RuntimeEnvironment) *Runtime {
 			HostPort:      port.HostPort,
 		})
 	}
+	allocations := make([]PortAllocation, 0, len(runtime.Allocations))
+	for _, allocation := range runtime.Allocations {
+		allocations = append(allocations, PortAllocation{
+			Service:       allocation.Service,
+			ContainerPort: allocation.ContainerPort,
+			HostPort:      allocation.HostPort,
+			Protocol:      allocation.Protocol,
+			HostIP:        allocation.HostIP,
+			Address:       allocation.Address(),
+		})
+	}
 	return &Runtime{
 		Provider:              runtime.Provider,
 		Identity:              runtime.Identity,
 		Services:              list(runtime.Services),
 		Provenance:            newProvenance(runtime.Provenance),
+		Allocations:           allocations,
 		Ports:                 ports,
 		State:                 string(runtime.State),
 		Health:                string(runtime.Health),

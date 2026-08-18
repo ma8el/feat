@@ -22,6 +22,16 @@ const (
 	defaultProjectNameTemplate = "feat-{project_id}-{task_id}"
 	defaultIdleGracePeriod     = "5s"
 	defaultSampleInterval      = "2s"
+
+	// defaultPortRange is where Feat publishes a task's reachable services when
+	// a project names no range of its own.
+	//
+	// It is a thousand ports well above the privileged range and well below the
+	// ephemeral ports the kernel hands out for outgoing connections, so an
+	// allocation neither needs privilege nor collides with a socket the machine
+	// opened on its own behalf. It is a default rather than a requirement
+	// because a project that already uses these ports needs only to say so.
+	defaultPortRange = "21000-21999"
 )
 
 // defaultDiffCommand compares a repository against the base commit recorded for
@@ -207,6 +217,17 @@ func (c *Config) resolveRuntime(opts Options) error {
 	if runtime.ProjectNameTemplate == "" {
 		runtime.ProjectNameTemplate = defaultProjectNameTemplate
 	}
+	if runtime.PortRange == "" {
+		runtime.PortRange = defaultPortRange
+	}
+	// Parsed here and validated in Validate, so that a range which is not a
+	// range at all is reported against its own field rather than as a runtime
+	// action failing later with nothing to allocate from.
+	parsed, err := ParsePortRange(runtime.PortRange)
+	if err != nil {
+		return c.problem(&fieldError{path: "runtime.port_range", reason: err.Error()})
+	}
+	runtime.portRange = parsed
 
 	for _, field := range []struct {
 		path  string

@@ -66,6 +66,110 @@ func TestRecordedInputsChangeOnlyWhileNothingExists(t *testing.T) {
 	}
 }
 
+// TestPortsAreHeldUntilNothingIsLeft is what makes several tasks able to run one
+// application.
+//
+// A host port is global to the machine, so an allocation is only worth anything
+// while it is held against every other task — and holding one after the
+// containers are gone would leak a port nothing is bound to. Both halves are
+// checked here because they are one rule: the runtime's own state decides.
+func TestPortsAreHeldUntilNothingIsLeft(t *testing.T) {
+	held := inputs("feat-example-7f3a1c2e")
+	held.Allocations = []PortAllocation{
+		{Service: "api", ContainerPort: 8000, HostPort: 21000, Protocol: "tcp"},
+	}
+	runtime := NewRuntimeEnvironment(held)
+
+	// A runtime nothing has created holds nothing: the ports are chosen again,
+	// against what the other tasks hold, when there is something to publish.
+	if !runtime.ReleasePorts(origin) {
+		t.Error("a runtime that has created nothing kept a host port no container is bound to")
+	}
+	runtime.Allocations = held.Allocations
+
+	if err := runtime.Observe(RuntimeRunning, HealthUnknown, origin); err != nil {
+		t.Fatalf("observing: %v", err)
+	}
+	if runtime.ReleasePorts(origin) {
+		t.Fatal("a running runtime released the port its containers are bound to")
+	}
+	if _, allocated := runtime.Allocation("api"); !allocated {
+		t.Fatalf("the runtime lost its allocation: %+v", runtime.Allocations)
+	}
+
+	if err := runtime.Observe(RuntimeAbsent, HealthUnknown, origin); err != nil {
+		t.Fatalf("observing: %v", err)
+	}
+	if !runtime.ReleasePorts(origin) {
+		t.Fatal("a runtime with nothing in it kept its host port, which no other task can then have")
+	}
+	if runtime.ReleasePorts(origin) {
+		t.Error("releasing nothing reported a change, which would rewrite the record on every poll")
+	}
+}
+
+// TestAGeneratedVariableNamesItsServiceSafely pins the rendering configuration
+// refuses collisions against.
+//
+// The rule is lossy on purpose — an environment variable name has no room for
+// the dots and hyphens a Compose service name allows — and both halves of it
+// have to be one rule: the daemon generates these names and configuration
+// refuses two services that would produce the same one.
+func TestAGeneratedVariableNamesItsServiceSafely(t *testing.T) {
+	for service, want := range map[string]string{
+		"api":     "FEAT_PORT_API",
+		"web-app": "FEAT_PORT_WEB_APP",
+		"web.app": "FEAT_PORT_WEB_APP",
+		"Api2":    "FEAT_PORT_API2",
+	} {
+		if got := PortVariable(service); got != want {
+			t.Errorf("the port variable of %q is %q, want %q", service, got, want)
+		}
+	}
+	if got := URLVariable("web-app"); got != "FEAT_URL_WEB_APP" {
+		t.Errorf("the URL variable of web-app is %q", got)
+	}
+}
+
+// TestAnAllocationSaysWhereItIsReached keeps the address a user is given, and
+// the one a service is told, the same value.
+func TestAnAllocationSaysWhereItIsReached(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		allocation  PortAllocation
+		address     string
+		url         string
+		addressable bool
+	}{
+		"every address": {
+			allocation:  PortAllocation{HostPort: 21000, Protocol: "tcp"},
+			address:     "localhost:21000",
+			url:         "http://localhost:21000",
+			addressable: true,
+		},
+		"one the project chose": {
+			allocation:  PortAllocation{HostPort: 21001, Protocol: "tcp", HostIP: "127.0.0.1"},
+			address:     "127.0.0.1:21001",
+			url:         "http://127.0.0.1:21001",
+			addressable: true,
+		},
+		"a datagram port": {
+			allocation: PortAllocation{HostPort: 21002, Protocol: "udp"},
+			address:    "localhost:21002",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := testCase.allocation.Address(); got != testCase.address {
+				t.Errorf("the address is %q, want %q", got, testCase.address)
+			}
+			url, addressable := testCase.allocation.URL()
+			if addressable != testCase.addressable || url != testCase.url {
+				t.Errorf("the URL is %q (%t), want %q (%t)",
+					url, addressable, testCase.url, testCase.addressable)
+			}
+		})
+	}
+}
+
 // TestObservedResourcesAreSeparateFromState keeps the two questions apart.
 //
 // The state says whether the application is up; the resources say what exists

@@ -50,6 +50,12 @@ func (r HostRunner) Run(ctx context.Context, invocation Invocation) (Output, err
 	// An argument vector, never an interpolated shell string (CLAUDE.md).
 	process := exec.CommandContext(ctx, invocation.Program, invocation.Arguments...)
 	process.Dir = invocation.Directory
+	if len(invocation.Environment) > 0 {
+		// Added to the daemon's own environment rather than replacing it: Docker
+		// finds its socket, its context, and its credential helpers there, and a
+		// command given only Feat's generated variables would find none of them.
+		process.Env = append(process.Environ(), invocation.Environment...)
+	}
 
 	var stdout, stderr bytes.Buffer
 	process.Stdout = &stdout

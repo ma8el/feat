@@ -172,6 +172,69 @@ func TestAComposeFileIsReadForWhatItProposesAndNothingElse(t *testing.T) {
 	}
 }
 
+// TestEveryFormOfPublishedPortIsRead covers what Feat allocates a host port
+// against.
+//
+// The container port is what an allocated host port is joined to, so it has to
+// be read out of every syntax a project may have written it in — and the ones
+// that cannot be read have to be reported as unread rather than guessed at. A
+// port range is several publications where an allocation is one, and an
+// interpolated entry is a value Feat must never resolve.
+//
+// The host port the project wrote is deliberately not among what is read. It is
+// the thing an allocated port replaces, and reading it would only invite writing
+// it back.
+func TestEveryFormOfPublishedPortIsRead(t *testing.T) {
+	root := repositoryWith(t, map[string]string{"compose.yaml": `services:
+  short:
+    image: alpine
+    ports:
+      - "9000:80"
+  addressed:
+    image: alpine
+    ports:
+      - "127.0.0.1:9001:81/udp"
+  long:
+    image: alpine
+    ports:
+      - target: 82
+        published: "9002"
+        protocol: tcp
+        host_ip: 127.0.0.1
+  container-only:
+    image: alpine
+    ports:
+      - "83"
+  ranged:
+    image: alpine
+    ports:
+      - "9010-9012:84-86"
+`})
+	composition := project.ComposeComposition(root, filepath.Join(root, "compose.yaml"))
+
+	for name, want := range map[string]project.Publication{
+		"short":          {ContainerPort: 80, Protocol: "tcp"},
+		"addressed":      {ContainerPort: 81, Protocol: "udp", HostIP: "127.0.0.1"},
+		"long":           {ContainerPort: 82, Protocol: "tcp", HostIP: "127.0.0.1"},
+		"container-only": {ContainerPort: 83, Protocol: "tcp"},
+	} {
+		service, known := composition.Service(name)
+		if !known {
+			t.Fatalf("the service %s was not read at all", name)
+		}
+		if !slices.Equal(service.Ports, []project.Publication{want}) {
+			t.Errorf("the publications of %s are %+v, want %+v", name, service.Ports, want)
+		}
+	}
+
+	if ranged, _ := composition.Service("ranged"); len(ranged.Ports) != 0 {
+		t.Errorf("a port range was read as one publication: %+v", ranged.Ports)
+	}
+	if undecided := strings.Join(composition.Undecided, "; "); !strings.Contains(undecided, "ranged") {
+		t.Errorf("the port range is not reported as unread: %v", composition.Undecided)
+	}
+}
+
 // TestNoValueFromAComposeFileReachesAProposal is an acceptance criterion of the
 // slice, checked against the whole derived result rather than against the
 // fields it happens to expose.

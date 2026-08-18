@@ -111,7 +111,14 @@ Excluded:
 - automatic application start;
 - agent-controlled Docker;
 - automatic runtime phases;
-- port-range allocation unless required to make the reference project run;
+- port-range allocation unless required to make the reference project run. **The
+  condition was met and this exclusion is spent.** The reference project's own
+  application publishes its entry point at a fixed host port, and a host port is
+  global to the machine: the second task's runtime could not start at all, and
+  its frontend reached the first task's API through an address baked to that
+  number. Testing one task's application while other agents work is the reason a
+  per-task runtime exists, so allocation is what makes the milestone's own
+  runtime work rather than a widening of it (ADR-065 evidence 8);
 - stable local hostnames;
 - database provisioning/reset/destruction;
 - additional runtime backends.

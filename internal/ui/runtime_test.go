@@ -19,8 +19,12 @@ func runningRuntime() *api.Runtime {
 		Services: []string{"api", "worker"},
 		State:    "running",
 		Health:   "unknown",
-		Ports:    []api.Port{{Service: "api", ContainerPort: 8000, HostPort: 8080}},
-		Volumes:  []string{"feat-example-7f3a1c2e_pgdata"},
+		Allocations: []api.PortAllocation{{
+			Service: "api", ContainerPort: 8000, HostPort: 21000,
+			Protocol: "tcp", Address: "localhost:21000",
+		}},
+		Ports:   []api.Port{{Service: "api", ContainerPort: 8000, HostPort: 21000}},
+		Volumes: []string{"feat-example-7f3a1c2e_pgdata"},
 	}
 }
 
@@ -73,7 +77,7 @@ func TestTheRuntimeScreenShowsWhatTheTaskOwns(t *testing.T) {
 		"api",                   // the services, one per line
 		"worker",
 		"Exited (0) 1 minute ago",      // including the one that is not running
-		"8000 → 8080",                  // how to reach the application
+		"8000 → localhost:21000",       // how to reach the application
 		"feat-example-7f3a1c2e_pgdata", // retained by every destroy
 	} {
 		if !strings.Contains(view, required) {

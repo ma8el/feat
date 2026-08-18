@@ -40,7 +40,10 @@ Goal: given a task and repository selection, create an independently addressable
 Capabilities:
 
 - generated task override;
-- automatic port allocation from configured ranges;
+- automatic port allocation from configured ranges (**delivered in v0.1**: a host
+  port per reachable service per task, held while the runtime exists and released
+  when it is destroyed, because the reference project could not run two tasks
+  without it — see ADR-065);
 - task labels and deterministic Compose identity;
 - Compose health-based readiness;
 - configurable lifecycle phases;
@@ -78,6 +81,10 @@ Host-side provider execution may be added as another configured mode, but contai
 ## Phase 4 — stable local hostnames
 
 Goal: replace mentally expensive port maps with stable per-task URLs.
+
+v0.1 built the half this phase routes to: every task's reachable service has an
+allocated host port and an address Feat tells its own services (ADR-065). What is
+left is the half that makes a URL stable across tasks, which is the proxy below.
 
 Capabilities:
 

@@ -217,6 +217,11 @@ func (c *Config) describeRuntime() Section {
 		{Name: "start_policy", Value: runtime.StartPolicy, Note: "services start only when you ask"},
 		{Name: "project_name_template", Value: runtime.ProjectNameTemplate,
 			Note: "one Compose project per task"},
+		// Printed because it is usually a default, and a default a user cannot
+		// see is a default they cannot check (ADR-062). It is also the answer to
+		// the question an exhausted range asks.
+		{Name: "port_range", Value: runtime.PortRange,
+			Note: "one host port per reachable service per task"},
 		{Name: "services", Value: orNone(strings.Join(c.RuntimeServices(), ", ")),
 			Note: "composed of the repositories below"},
 	}

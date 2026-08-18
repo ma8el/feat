@@ -2053,6 +2053,8 @@ produced.
 
 ## Slice 16 — Port allocation and reachability
 
+Status: **complete**, 2026-08-16
+
 ### Outcome
 
 Several tasks run their whole application at once, and each application finds
@@ -2095,6 +2097,45 @@ its own task's services.
 - An exhausted range is reported as what it is, naming what holds it.
 - No managed service publishes a port Feat did not allocate.
 
+### Delivered
+
+All five criteria pass, every one of them against the reference project rather
+than against fixtures alone.
+
+Three tasks ran the reference project's whole application at once — twelve
+containers, three stacks, each on host ports Feat allocated for it: 21000 and
+21001, 21002 and 21003, 21004 and 21005. Each task's frontend was serving its own
+task's API address to the browser, checked twice over: the dev server of each
+task served `http://localhost:<its own nginx port>` in the module that reads it,
+and a marker written into each task's own API worktree came back from that port
+and from no other. Nothing published a port Feat had not allocated: the
+database's fixed 5432 and the entry point's fixed 8000 are bound by nothing while
+three tasks run.
+
+Destroying one task's runtime released its two ports, its record kept none, and
+the next task to ask was given exactly those two back while the other tasks kept
+theirs. With the range narrowed to six ports and three tasks holding them, a
+fourth was refused with the range, the three tasks holding it, and both ways out
+— destroy a runtime, or widen the range.
+
+Two things this slice decided differently from the work above, both recorded in
+ADR-065 with the reasoning. Every published port in the task's Compose project is
+replaced rather than only a managed service's: a dependency's fixed port stops
+the second task exactly as the entry point's does, which is ADR-034 evidence 12
+arriving one service over. And the generated addresses are passed to the Compose
+command as well as written into the override, because a service reaches its
+siblings under the project's own names — the reference frontend exposes only
+`VITE_`-prefixed variables to the browser, so the address has to arrive through
+a `${FEAT_URL_NGINX}` in the project's own file, which Compose interpolates from
+the environment of the process running it.
+
+One defect was found by running it, fixed with a test that fails against the
+behaviour it replaced: a poll that started before a create finished recorded the
+runtime as absent and released the ports the create had just allocated, while the
+containers created with them were bound to those ports (ADR-065 evidence 16). An
+observation is now applied only if the record it was taken against has not
+changed since.
+
 ## Slice 17 — Public v0.2
 
 ### Outcome
@@ -2105,7 +2146,13 @@ A new macOS/Linux user can use Feat outside the reference project.
 
 - Implement host-native execution.
 - Add Linux notification support.
-- Generalize examples and troubleshooting.
+- Generalize examples and troubleshooting, written against
+  [07-configuration-model.md](07-configuration-model.md)'s account of what a
+  project's own Compose files must provide. That section is the spec half,
+  established by making the reference project's two applications run per task;
+  what is missing for a public reader is a worked pair of Compose files and the
+  entries for the two failures that are silent — a service serving the ordinary
+  checkout, and a second task that will not start.
 - Finalize JSON Schema and shell completion.
 - Give the reading commands machine-readable output. Every command prints a
   table a person reads and nothing else can parse, so a user scripting around

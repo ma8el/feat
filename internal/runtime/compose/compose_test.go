@@ -71,9 +71,18 @@ func arrange(t *testing.T, docker *runtimetest.Docker) (*compose.Runtime, runtim
 			{Services: []string{"api"}, Repository: "store", Source: "/worktrees/store", Target: "/srv/store",
 				ReadOnly: true, Description: "the store task worktree, read-only"},
 		},
+		// The one service the project declares reachable, published on the host
+		// port allocated for this task rather than on whatever its own Compose
+		// files wrote down.
+		Publications: []runtime.Publication{
+			{Service: "api", ContainerPort: 8080, HostPort: 21000, Protocol: "tcp",
+				Description: "allocated for this task; reached at localhost:21000"},
+		},
 		Variables: map[string]string{
 			"FEAT_TASK_KEY":        "11111111",
 			"FEAT_RUNTIME_PROJECT": identity,
+			"FEAT_URL_API":         "http://localhost:21000",
+			"FEAT_PORT_API":        "21000",
 		},
 		ForbiddenSources: []string{"/repos/app/api", "/repos/app/store"},
 	}
@@ -185,16 +194,20 @@ func TestTheGeneratedOverrideCoversEveryServiceInTheProject(t *testing.T) {
 	}
 }
 
-// TestTheOverrideResetsTheNameAndKeepsThePorts is the decision ADR-034 records,
-// as a test.
+// TestTheOverrideReplacesEveryGlobalValue is the decision ADR-065 records, as a
+// test, and it supersedes what ADR-034 decided about ports.
 //
-// A container name is global to the Docker daemon, so a base file carrying one
-// could be started for a single task. A published port is how the user reaches
-// the application they are testing, and v0 allocates none of its own, so it is
-// left exactly as configured and a collision is explained instead.
-func TestTheOverrideResetsTheNameAndKeepsThePorts(t *testing.T) {
-	docker := runtimetest.New()
-	services, spec := arrange(t, docker)
+// Both values are global to the machine: a container name to the Docker daemon,
+// a published port to the host. A base file carrying either could be started for
+// one task and no more, so both are replaced everywhere — a service the project
+// declared reachable takes the host port allocated for this task, and every
+// other service in the project publishes nothing at all.
+//
+// The reset has to be written for a service with no publication rather than left
+// out. A key absent from an override is a key the merged project keeps, so
+// saying nothing about a service's ports is saying that its fixed port stands.
+func TestTheOverrideReplacesEveryGlobalValue(t *testing.T) {
+	services, spec, _ := dependent(t)
 
 	if _, err := services.Start(context.Background()); err != nil {
 		t.Fatalf("starting: %v", err)
@@ -203,13 +216,62 @@ func TestTheOverrideResetsTheNameAndKeepsThePorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the generated override: %v", err)
 	}
+	document := string(written)
 
-	if !strings.Contains(string(written), "container_name: !reset null") {
-		t.Errorf("the generated override does not reset container_name, so two tasks could not "+
-			"run these services at once:\n%s", written)
+	if count := strings.Count(document, "container_name: !reset null"); count != 3 {
+		t.Errorf("%d of the project's 3 services have their container_name reset:\n%s", count, document)
 	}
-	if strings.Contains(string(written), "ports:") {
-		t.Errorf("the generated override touches published ports, and they are the user's:\n%s", written)
+	// One per service: the reachable one overrides, and the two dependencies
+	// reset. Any service missing a ports key is one that kept a fixed port.
+	if count := strings.Count(document, "\n    ports:"); count != 3 {
+		t.Errorf("%d of the project's 3 services have their ports replaced, and a service whose ports "+
+			"are not written keeps whatever the project published:\n%s", count, document)
+	}
+	if count := strings.Count(document, "ports: !reset []"); count != 2 {
+		t.Errorf("%d services publish nothing, want the 2 the project did not declare reachable:\n%s",
+			count, document)
+	}
+	for _, line := range []string{
+		"ports: !override",
+		"- target: 8080",
+		`published: "21000"`,
+		`protocol: "tcp"`,
+	} {
+		if !strings.Contains(document, line) {
+			t.Errorf("the generated override does not publish the allocated port (%q missing):\n%s",
+				line, document)
+		}
+	}
+}
+
+// TestTheGeneratedVariablesReachTheComposeCommand checks that a generated
+// address can be interpolated in the project's own Compose files.
+//
+// A service reaches its siblings under the project's own names: a frontend whose
+// framework only exposes variables with a particular prefix cannot read
+// FEAT_URL_api, and the project maps it in its own file with "${FEAT_URL_api}".
+// Compose interpolates from the environment of the process running it, so an
+// address that reached only the container would be one such a project could not
+// use (ADR-065).
+func TestTheGeneratedVariablesReachTheComposeCommand(t *testing.T) {
+	docker := runtimetest.New()
+	services, _ := arrange(t, docker)
+
+	if _, err := services.Start(context.Background()); err != nil {
+		t.Fatalf("starting: %v", err)
+	}
+
+	for _, invocation := range docker.Invocations() {
+		if len(invocation.Arguments) == 0 || invocation.Arguments[0] != "compose" {
+			// Listing this project's networks and volumes is a Docker command
+			// rather than a Compose one: it renders no document and interpolates
+			// nothing, so there is nothing for a variable to reach.
+			continue
+		}
+		if !slices.Contains(invocation.Environment, "FEAT_URL_API=http://localhost:21000") {
+			t.Errorf("the Compose command %v carries no generated address, so a project cannot "+
+				"interpolate one: %v", invocation.Arguments, invocation.Environment)
+		}
 	}
 }
 

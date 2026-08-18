@@ -116,6 +116,7 @@ runtime:
   env_files:
     - ~/projects/app/dashboard/.env
   project_name_template: "feat-{project_id}-{task_id}"
+  port_range: "21000-21999"
 
 review:
   diff:
@@ -243,8 +244,25 @@ into every service would make two repositories expecting their source at the
 same path a collision rather than the ordinary arrangement it is.
 
 `repositories.<id>.runtime.reachable` names the services of that repository a
-user reaches from the host. It is collected and validated from this version and
-is not acted on until Feat allocates ports.
+user reaches from the host. Feat allocates a host port for each publication such
+a service declares, per task, from `runtime.port_range`; it reads the container
+port out of the project's own Compose files structurally, publishes the service
+there in the generated override, and releases the port when that task's runtime
+is destroyed. A service it cannot read a publication for — an interpolated entry,
+a port range, or no published port at all — publishes nothing, and the task says
+which services those are rather than leaving an address that answers nothing.
+
+Every other service publishes nothing, whether the project manages it or not. A
+published port is global to the machine exactly as a container name is global to
+the Docker daemon, so one left as configured is one task at a time — which is
+the whole failure allocation removes. A service you reach from the host is
+therefore one to manage and declare reachable, which is how it is given a port of
+its own.
+
+`runtime.port_range` is written `<first>-<last>` and defaults to `21000-21999`:
+a thousand ports above the privileged range and below the ephemeral ports the
+kernel hands out, so an allocation needs no privilege and collides with nothing
+the machine opened for itself. A project that already uses them says so.
 
 ### Runtime ownership
 
@@ -263,8 +281,21 @@ ownership labels, without which two tasks could not run the same application at
 once (ADR-034).
 
 Feat sets `FEAT_PROJECT_ID`, `FEAT_TASK_ID`, `FEAT_TASK_KEY`, and
-`FEAT_RUNTIME_PROJECT` on every managed service. They are generated task
-metadata and never a value read from an environment file.
+`FEAT_RUNTIME_PROJECT` on every managed service, and `FEAT_URL_<service>` and
+`FEAT_PORT_<service>` for each reachable one — upper-cased, with everything that
+is not a letter or a digit replaced. A configuration in which two reachable
+service names produce the same variable is rejected, because one service would
+receive the other's address. A service publishing more than one port also gets a
+pair per port, named by the container port, since the unsuffixed pair can only
+name one of them. They are generated task metadata and never a value read from
+an environment file.
+
+The addresses reach the Compose process as well as the containers. A service
+finds its siblings under the project's own names — a frontend whose framework
+exposes only variables with a particular prefix cannot read `FEAT_URL_api` — so
+the project maps one in its own Compose file with `${FEAT_URL_api}`, and Compose
+interpolates that from the environment of the process running it. Nothing read
+from an environment file is ever in that environment.
 
 `FEAT_TASK_KEY` is the one a project shares an external resource by — a staging
 PostgreSQL database on a server of its own, say. It is short, unique, safe in a
@@ -311,6 +342,54 @@ task worktree at all: a project that configures a runtime, whose repositories a
 task selects, and where no repository says where its source goes. That
 configuration can only produce services running the user's ordinary checkout, and
 it needs neither Docker nor a file to diagnose (ADR-065 evidence 1).
+
+### What a project's own Compose files must provide
+
+The rules above are stated from Feat's side — what it mounts, redirects, resets,
+and publishes. This is the same set from the other side: what a project's own
+Compose files have to look like for a task to run its own code and be reachable.
+Five things are required of them, and each one is silent when it is missing,
+which is why they are collected here rather than left to be assembled from the
+sections above.
+
+- **Each repository's source arrives at one container path, and it is the one
+  `runtime.container_path` names.** Compose merges a service's volumes by target,
+  so Feat's generated override replaces a mount only where the targets agree; a
+  path that disagrees adds a second mount and leaves the services running the
+  ordinary checkout. A service that bakes its code with `COPY` needs no mount and
+  no container path: its build context is redirected instead.
+- **A reachable service's published port is written plainly.** Feat reads the
+  container side of the publication and replaces the host side with a port
+  allocated for the task. An entry containing a `${...}` is one Feat must not
+  resolve, and a port range is several publications where an allocation is one;
+  either way the service publishes nothing and the task says so.
+- **Nothing names a sibling by a fixed host port.** The port differs per task, so
+  a value baked into an image or written into a file can be right for one task
+  at most. Both directions need the generated address: a service calling another
+  reads `${FEAT_URL_<service>}`, and a service that must accept another's origin —
+  a CORS allow-list — reads the same variable for the service the browser loads.
+  Write them with a `:-` default so the files still work run by hand.
+- **Every environment file is named in `runtime.env_files`.** Feat's Compose
+  project directory is the directory holding its own generated documents, so
+  Compose's implicit `.env` lookup beside a repository does not apply.
+- **The files a repository brings are the ones that reload.** A production file
+  that bakes its source into an image serves what it was built from, whatever is
+  mounted over it, so a project that keeps a development overlay beside it brings
+  the overlay.
+
+What a project should *not* write is as load-bearing, because a workaround left
+in place reads as a requirement. Feat resets `container_name` on every service in
+the task's Compose project, replaces every published port, gives the project a
+per-task name so its named volumes are per task too, applies its own ownership
+labels, and redirects a build context into the task's worktree. A file that
+resets a port or renames a container for itself is doing something Feat has
+already done.
+
+One thing this list deliberately leaves to the project: whatever the image put
+inside the path the worktree is mounted at — an installed virtualenv, a
+`node_modules` — has to be moved out of it or shadowed by a named volume, or the
+mount hides it. That is what mounting source over a built image costs, and Feat
+neither checks it nor needs it.
 
 ### Notifications and resource sampling
 
@@ -405,31 +484,34 @@ the agent does not run in gets those two lines and nothing else — no task
 worktree, no generated variable, and no ownership label, because Feat's labels
 are how the container the agent does run in is found.
 
-Published ports are reset here and kept by the application runtime below, which
-is a difference in what the two documents are about rather than an inconsistency.
-The agent's Compose project is the environment the agent works in and Feat
-surfaces no port from it; the application runtime is what the user is testing, and
-reaching it is the point of the port.
+Published ports are reset in both documents, for the same reason: a host port is
+global to the machine. What differs is what replaces them. The agent's Compose
+project is the environment the agent works in and Feat surfaces no port from it,
+so nothing does; the application runtime is what the user is testing, so the
+services it declares reachable are published on ports Feat allocated for that
+task alone.
 
 The application runtime has two generated documents. The first is the `include`
 that joins the repositories the application is composed of, one entry per
 repository with its own project directory. The second is the override, merged
 last over the result: it resets `container_name` on every service the included
-files define and leaves published `ports` exactly as the project configured
-them. A container name is Feat's problem and a
-published port is how the user reaches the application they are testing, and v0
-allocates no ports of its own: two tasks that both want one host port is
-explained in Feat's terms rather than prevented by making the application
-unreachable. It also mounts each task worktree at the runtime container path
+files define, and replaces every published port. A service the project declared
+reachable is published on the host ports Feat allocated for this task, and every
+other service publishes nothing. Both values are global to the machine, so a base
+file carrying either could be started for one task and no more — which is exactly
+what happened to the reference project's second task (ADR-065 evidence 8,
+superseding ADR-034). It also mounts each task worktree at the runtime container path
 its repository configures, in the services that repository named, points the
 build context of a managed service built from a repository at that repository's
 task worktree, and carries the generated non-secret variables — the
-project and task identifiers, the Compose project name, and each external
-resource's selector. Those last two apply to the managed services only: a service
-Feat was not asked to manage gets the reset and the ownership labels and nothing
-else. See ADR-034.
+project and task identifiers, the Compose project name, each external resource's
+selector, and the address of every reachable service. The worktrees and the
+variables apply to the managed services only: a service Feat was not asked to
+manage gets both resets and the ownership labels and nothing else. See ADR-034
+and ADR-065.
 
-Resetting requires Docker Compose 2.24 or later, which `feat doctor` checks.
+Resetting and overriding require Docker Compose 2.24 or later, which
+`feat doctor` checks.
 
 ## Validation rules
 
@@ -442,6 +524,8 @@ At minimum:
 - Container paths are absolute. The agent's must not overlap one another, and the control path overlaps none of them; two repositories' runtime container paths may coincide, because a repository's worktree reaches its own services only.
 - A repository contributing to an application runtime the project does not configure is rejected, as is a runtime container path with no service to mount it in.
 - A configured runtime where no repository a task selects says where its source goes is rejected: it could mount no task worktree anywhere, so every service would run the user's ordinary checkout. It is asked of the runtime rather than of each repository, because a repository whose services build their code needs no container path and configuration cannot see a build context.
+- A reachable service names one of its own repository's managed services, and two reachable services must not produce one generated variable name: `FEAT_URL_<service>` is upper-cased with every other character replaced, so `web-app` and `web.app` would be one address arriving under both names.
+- The host port range holds at least one port per reachable service, lies above the privileged ports, and ends where it begins or later. A range Feat could not allocate one task's ports from is refused where it can name the field rather than at the first create.
 - Configuration written in a shape a previous version read is rejected with an error naming what replaced it, rather than as an unknown field.
 - Branch and runtime templates produce safe names, use only known placeholders, and contain a per-task placeholder so that two tasks cannot share a branch or a Compose project.
 - Worktree roots cannot resolve to a broad unsafe path, cannot be rooted at one, and cannot overlap a repository checkout.

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -272,10 +273,10 @@ func serviceNames(file string) []string {
 //
 // Four things are read and nothing else: service keys, the container targets of
 // bind mounts whose source is the repository itself, whether a service is built
-// from the repository, and whether it publishes a host port. No `environment`
-// value, no `build.args` entry, and no `env_file` is opened, and an entry
-// containing a "${...}" is left unread rather than resolved — Feat could not
-// derive it without interpolating, so the user is asked instead.
+// from the repository, and the container ports it publishes to the host. No
+// `environment` value, no `build.args` entry, and no `env_file` is opened, and
+// an entry containing a "${...}" is left unread rather than resolved — Feat
+// could not derive it without interpolating, so the user is asked instead.
 type Composition struct {
 	// Services are what the files declare, in name order.
 	Services []ComposeService
@@ -309,10 +310,36 @@ type ComposeService struct {
 	// mount to replace, so where its code comes from is decided by the build
 	// context alone (ADR-065 evidence 4).
 	BuildsFromSource bool
-	// Publishes reports that the service publishes at least one host port,
-	// which is what makes it a candidate for the reachable declaration.
-	Publishes bool
+	// Ports are the publications this service declares, in the order they were
+	// read. A service with any of them is a candidate for the reachable
+	// declaration, and the container port of each is what Feat publishes a host
+	// port of its own onto.
+	//
+	// The host port the project wrote is deliberately not among them. It is
+	// global to the machine, so it is the thing an allocated port replaces:
+	// reading it would only invite writing it back.
+	Ports []Publication
 }
+
+// Publication is one port a service exposes to the host, as much of it as Feat
+// reads.
+//
+// Only what an allocation has to preserve is kept. The container port decides
+// what the host port is joined to; the protocol decides whether the publication
+// is the same one at all, because a host port is per protocol; and the host
+// address decides which interface it appears on, which is a project's own
+// decision about who can reach the service and not Feat's to widen.
+type Publication struct {
+	// ContainerPort is the port inside the container.
+	ContainerPort int
+	// Protocol is "tcp" or "udp". Compose defaults to tcp, and so does this.
+	Protocol string
+	// HostIP is the address the project publishes on, empty when it names none.
+	HostIP string
+}
+
+// Publishes reports whether the service exposes anything to the host.
+func (s ComposeService) Publishes() bool { return len(s.Ports) > 0 }
 
 // Service returns one service of a composition.
 func (c Composition) Service(name string) (ComposeService, bool) {
@@ -353,7 +380,7 @@ func (c Composition) SourceTarget(services []string) (string, bool) {
 func (c Composition) Published(services []string) []string {
 	var found []string
 	for _, name := range services {
-		if service, known := c.Service(name); known && service.Publishes {
+		if service, known := c.Service(name); known && service.Publishes() {
 			found = append(found, name)
 		}
 	}
@@ -439,12 +466,122 @@ func (c *Composition) mergeService(position int, root, file string, raw yaml.Raw
 	}
 
 	for _, port := range entry.Ports {
-		if interpolated(port) {
+		publication, ok := publishedPort(port)
+		if !ok {
+			// A publication Feat could not read is named rather than guessed at.
+			// It is the entry an allocation would have replaced, so a caller that
+			// allocates has to say that this one was left alone, and a caller that
+			// proposes has to ask.
 			c.Undecided = append(c.Undecided, where+": a published port")
 			continue
 		}
-		service.Publishes = true
+		if !containsPublication(service.Ports, publication) {
+			service.Ports = append(service.Ports, publication)
+		}
 	}
+}
+
+// containsPublication reports whether a service already declares a publication.
+//
+// Compose files that layer over one another repeat a service's ports, and the
+// same container port declared twice is one publication rather than two: a
+// second allocation for it would bind a host port nothing routes through.
+func containsPublication(ports []Publication, one Publication) bool {
+	for _, port := range ports {
+		if port == one {
+			return true
+		}
+	}
+	return false
+}
+
+// defaultProtocol is what Compose assumes when a publication names none.
+const defaultProtocol = "tcp"
+
+// publishedPort reads one `ports` entry, in either syntax.
+//
+// It reports the container port, the protocol, and the host address, and
+// nothing else: the host port a project wrote is what an allocated one
+// replaces, so reading it would only invite writing it back.
+//
+// It reports a failure for an entry it cannot read, which includes an
+// interpolated one and a port range. A range publishes several ports at once
+// and Feat allocates one at a time; expanding one here would silently reserve
+// as many host ports as the range is wide, and the honest answer is that this
+// entry was not read.
+func publishedPort(raw yaml.RawMessage) (Publication, bool) {
+	if interpolated(raw) {
+		return Publication{}, false
+	}
+
+	var short string
+	if err := yaml.Unmarshal(raw, &short); err == nil {
+		return shortPublication(short)
+	}
+
+	var long struct {
+		Target   any    `yaml:"target"`
+		Protocol string `yaml:"protocol"`
+		HostIP   string `yaml:"host_ip"`
+	}
+	if err := yaml.Unmarshal(raw, &long); err != nil {
+		return Publication{}, false
+	}
+	port, ok := portNumber(fmt.Sprintf("%v", long.Target))
+	if !ok {
+		return Publication{}, false
+	}
+	return Publication{
+		ContainerPort: port,
+		Protocol:      protocolOr(long.Protocol),
+		HostIP:        long.HostIP,
+	}, true
+}
+
+// shortPublication reads the "[[ip:]host:]container[/protocol]" syntax.
+//
+// The container port is the last colon-separated element, whatever precedes it,
+// because that is the one part every form of the short syntax has. An IPv6
+// address contains colons of its own and is written in brackets, which is why
+// the address is taken as everything before the last two separators rather than
+// as the first element.
+func shortPublication(value string) (Publication, bool) {
+	protocol := defaultProtocol
+	if slash := strings.LastIndex(value, "/"); slash >= 0 {
+		protocol = protocolOr(value[slash+1:])
+		value = value[:slash]
+	}
+
+	parts := strings.Split(value, ":")
+	port, ok := portNumber(parts[len(parts)-1])
+	if !ok {
+		return Publication{}, false
+	}
+	address := ""
+	if len(parts) > 2 {
+		address = strings.Join(parts[:len(parts)-2], ":")
+	}
+	return Publication{ContainerPort: port, Protocol: protocol, HostIP: address}, true
+}
+
+// portNumber reads a port, refusing anything that is not one whole port.
+func portNumber(value string) (int, bool) {
+	port, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || port < 1 || port > maxPort {
+		return 0, false
+	}
+	return port, true
+}
+
+// maxPort is the highest port number there is.
+const maxPort = 65535
+
+// protocolOr defaults an unnamed protocol to Compose's own.
+func protocolOr(value string) string {
+	if trimmed := strings.ToLower(strings.TrimSpace(value)); trimmed != "" {
+		return trimmed
+	}
+	return defaultProtocol
 }
 
 // composeDocument is the part of a Compose file Feat reads.
