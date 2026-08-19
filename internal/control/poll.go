@@ -68,9 +68,10 @@ func refuse(file, id string, err error) Rejection {
 // error.
 //
 // An entry that has already been settled — applied or refused — is skipped
-// before it is opened. Messages stay in the outbox until cleanup as the account
-// of what the agent sent, so a poll that re-read them would grow without bound
-// in the number of messages a task has ever written.
+// before it is screened or opened. Messages stay in the outbox until cleanup as
+// the account of what the agent sent, so a poll that re-read them would grow
+// without bound in the number of messages a task has ever written, and one that
+// re-screened them would keep refusing the same entry four times a second.
 //
 // Ordering is by modification time with the file name as a tiebreak. The
 // envelope's own timestamp is not used for it: a hook writes that timestamp with
@@ -110,18 +111,26 @@ func (w *Workspace) Pending() ([]Message, []Rejection, error) {
 
 	for _, entry := range entries {
 		name := entry.Name()
+		if w.settled[name] {
+			// Dealt with, once. The entry stays where it is as the account of
+			// what the agent sent — removing it belongs to cleanup — and nothing
+			// screens, opens, or judges it again.
+			//
+			// This comes before checkEntry rather than after it because the
+			// conditions checkEntry refuses are the ones an entry keeps: a
+			// directory named like a message, a link, a name too long, a
+			// document over the limit. Screened first, each of those would be
+			// refused and reported again on every poll for the life of the
+			// task, with the record of the refusal sitting unread one line
+			// below.
+			continue
+		}
 		skip, err := checkEntry(entry)
 		if err != nil {
 			rejected = append(rejected, refuse(name, "", err))
 			continue
 		}
 		if skip {
-			continue
-		}
-		if w.settled[name] {
-			// Dealt with, once. The entry stays where it is as the account of
-			// what the agent sent — removing it belongs to cleanup — and nothing
-			// opens it again.
 			continue
 		}
 		stillHere[name] = true

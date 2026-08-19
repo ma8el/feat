@@ -299,6 +299,19 @@ func (s *session) deliver(t *testing.T) {
 	}
 }
 
+// deliverFailing is deliver for a test about a poll that cannot finish its
+// work, which is the case the caller is asserting about rather than a reason to
+// fail the test.
+func (s *session) deliverFailing(t *testing.T) error {
+	t.Helper()
+
+	task, err := s.service.store.Tasks().Load(context.Background(), s.ref)
+	if err != nil {
+		t.Fatalf("loading the task: %v", err)
+	}
+	return s.service.deliverControl(context.Background(), task)
+}
+
 // task returns the task as recorded on disk.
 func (s *session) task(t *testing.T) *domain.Task {
 	t.Helper()
@@ -660,6 +673,146 @@ func TestARefusedMessageIsSettledAndToldToTheUser(t *testing.T) {
 	if len(entries) != 3 {
 		t.Errorf("the outbox holds %d entries, want 3: the session start, the runtime request, and the "+
 			"foreign document", len(entries))
+	}
+}
+
+// TestAnEntryRefusedByItsListingIsToldToTheUserOnce is the same rule as the
+// test above for the refusals that never open a file.
+//
+// A refusal reaches the user by an append to the task's event log and a publish
+// to everything attached to it, so "told once" is a count rather than a
+// property of the first poll. These five conditions are decided from the
+// directory listing — a directory named like a message, a link, a name too
+// long, a name that is not a plain one, a document over the limit — and none of
+// them changes by being looked at again. Told on every poll, one `mkdir
+// outbox/x.json` is about 345,000 task events a day, published to every open
+// dashboard, for as long as the task exists.
+func TestAnEntryRefusedByItsListingIsToldToTheUserOnce(t *testing.T) {
+	live := launch(t, hostFixture, installed(), false)
+	live.start(t)
+
+	outbox := live.workspace(t).OutboxDir()
+	longName := strings.Repeat("l", 130) + ".json"
+	entries := []struct {
+		file  string
+		plant func(path string) error
+		want  string
+	}{
+		{
+			file:  longName,
+			plant: func(path string) error { return os.WriteFile(path, []byte(`{"schema_version":1}`), 0o600) },
+			want:  "has a name of 135 bytes",
+		},
+		{
+			file:  `back\slash.json`,
+			plant: func(path string) error { return os.WriteFile(path, []byte(`{"schema_version":1}`), 0o600) },
+			want:  "does not have a plain file name",
+		},
+		{
+			file:  "nested.json",
+			plant: func(path string) error { return os.Mkdir(path, 0o700) },
+			want:  "is a directory",
+		},
+		{
+			file:  "link.json",
+			plant: func(path string) error { return os.Symlink(filepath.Join(t.TempDir(), "away.json"), path) },
+			want:  "is not a regular file",
+		},
+		{
+			file: "oversize.json",
+			plant: func(path string) error {
+				return os.WriteFile(path, []byte(strings.Repeat("x", control.MaxMessageBytes+1)), 0o600)
+			},
+			want: "and the limit is 262144",
+		},
+	}
+	for _, entry := range entries {
+		if err := entry.plant(filepath.Join(outbox, entry.file)); err != nil {
+			t.Fatalf("planting %s: %v", entry.file, err)
+		}
+	}
+
+	// Eight polls, of which only the first can have anything to say.
+	for range 8 {
+		live.deliver(t)
+	}
+
+	refusals := live.refusals(t)
+	if len(refusals) != len(entries) {
+		t.Fatalf("refusals recorded across eight polls = %d, want %d — one per entry: %v",
+			len(refusals), len(entries), refusals)
+	}
+	for _, entry := range entries {
+		var seen int
+		for _, detail := range refusals {
+			if strings.Contains(detail, entry.want) {
+				seen++
+			}
+		}
+		if seen != 1 {
+			t.Errorf("refusals of %s = %d, want 1: %v", entry.file, seen, refusals)
+		}
+	}
+}
+
+// TestARefusalThatCouldNotBeSettledIsNotToldToTheUser covers the order of the
+// two halves of announcing a refusal.
+//
+// Settling is a file append and can fail. Announced first and settled never,
+// the refusal has been published as though it were dealt with, and the next
+// poll reaches the same conclusion and publishes it again — which is the very
+// loop settling exists to close. So the settle happens first, and the user
+// hears about the refusal only once there is a record saying it will not be
+// reached again.
+func TestARefusalThatCouldNotBeSettledIsNotToldToTheUser(t *testing.T) {
+	live := launch(t, hostFixture, installed(), false)
+	live.start(t)
+	workspace := live.workspace(t)
+
+	// A directory where the record of settled entries belongs: an append to it
+	// fails for whoever runs it, root included. The workspace has already read
+	// the record, so a poll still gets as far as producing the refusal — which
+	// is the situation this is about.
+	record := filepath.Join(workspace.AgentDir(), "processed.jsonl")
+	if err := os.Remove(record); err != nil {
+		t.Fatalf("removing the record of settled entries: %v", err)
+	}
+	if err := os.Mkdir(record, 0o700); err != nil {
+		t.Fatalf("replacing the record of settled entries with a directory: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(workspace.OutboxDir(), "nested.json"), 0o700); err != nil {
+		t.Fatalf("planting the directory: %v", err)
+	}
+
+	before := len(live.refusals(t))
+	for poll := range 3 {
+		err := live.deliverFailing(t)
+		if err == nil {
+			t.Fatalf("poll %d reported no failure, although the refusal could not be recorded", poll)
+		}
+		if !strings.Contains(err.Error(), "nested.json") {
+			t.Errorf("failure = %v, want it to name the entry it could not settle", err)
+		}
+		if now := live.refusals(t); len(now) != before {
+			t.Fatalf("poll %d announced a refusal it could not settle: %v", poll, now[before:])
+		}
+	}
+
+	// Nothing was recorded, so nothing was decided: once the record can be
+	// written again the refusal is settled and told, once.
+	if err := os.Remove(record); err != nil {
+		t.Fatalf("restoring the record of settled entries: %v", err)
+	}
+	for range 4 {
+		live.deliver(t)
+	}
+	refusals := live.refusals(t)
+	if len(refusals) != before+1 {
+		t.Fatalf("refusals after the record was repaired = %d, want %d: %v",
+			len(refusals), before+1, refusals)
+	}
+	if !strings.Contains(refusals[before], "is a directory") {
+		t.Errorf("refusal = %q, want it to say what was wrong with the entry", refusals[before])
 	}
 }
 
