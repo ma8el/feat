@@ -3,6 +3,7 @@ package control_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,10 +48,16 @@ func newWorkspace(t *testing.T) (*control.Workspace, *clock) {
 // write puts a document in the outbox under the given name.
 func write(t *testing.T, workspace *control.Workspace, name, body string) {
 	t.Helper()
+	plant(t, filepath.Join(workspace.OutboxDir(), name), body)
+}
 
-	path := filepath.Join(workspace.OutboxDir(), name)
+// plant writes a file at an exact path, for a test that needs a file outside
+// the outbox or a name it builds itself.
+func plant(t *testing.T, path, body string) {
+	t.Helper()
+
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatalf("writing %s: %v", name, err)
+		t.Fatalf("writing %s: %v", path, err)
 	}
 }
 
@@ -674,6 +681,262 @@ func TestASettledEntryIsNeverOpenedAgain(t *testing.T) {
 			t.Error("a read failure was settled as though the document had been judged")
 		}
 	})
+}
+
+// TestAnEntryTheListingRefusesIsRefusedOnce covers the five conditions
+// checkEntry reaches before any document is opened.
+//
+// Every one of them is a property of the entry rather than of a document, and
+// every one of them survives a poll: a directory named like a message stays a
+// directory, a link stays a link, a name too long stays too long, and nothing
+// removes any of them before cleanup. Settling such an entry records a
+// judgement, and recording a judgement is only worth anything if the next poll
+// reads it before reaching the same conclusion again.
+//
+// So what is asserted here is the count over many polls rather than the first
+// refusal. A test that stopped at the first one passed while a screened entry
+// was refused four times a second for the life of the task — a quarter of a
+// million task events a day from one mkdir — with the record of its refusal
+// sitting unread one line below the check that produced it.
+func TestAnEntryTheListingRefusesIsRefusedOnce(t *testing.T) {
+	longName := strings.Repeat("l", 130) + ".json"
+
+	for _, test := range []struct {
+		name  string
+		file  string
+		plant func(t *testing.T, path string)
+		want  string
+	}{
+		{
+			name:  "a name longer than the limit",
+			file:  longName,
+			plant: func(t *testing.T, path string) { plant(t, path, `{"schema_version":1}`) },
+			want:  "has a name of 135 bytes, and the limit is 128",
+		},
+		{
+			name:  "a name that is not a plain one",
+			file:  `back\slash.json`,
+			plant: func(t *testing.T, path string) { plant(t, path, `{"schema_version":1}`) },
+			want:  "does not have a plain file name",
+		},
+		{
+			name: "a directory named like a message",
+			file: "nested.json",
+			plant: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatalf("creating the directory: %v", err)
+				}
+			},
+			want: "is a directory",
+		},
+		{
+			name: "a link to a file elsewhere on the machine",
+			file: "link.json",
+			plant: func(t *testing.T, path string) {
+				t.Helper()
+				target := filepath.Join(t.TempDir(), "elsewhere.json")
+				plant(t, target, envelope("g", testTask, control.TypeProviderEvent))
+				if err := os.Symlink(target, path); err != nil {
+					t.Fatalf("planting the link: %v", err)
+				}
+			},
+			want: "is not a regular file",
+		},
+		{
+			name:  "a document larger than the limit",
+			file:  "oversize.json",
+			plant: func(t *testing.T, path string) { plant(t, path, strings.Repeat("x", control.MaxMessageBytes+1)) },
+			// The listing's own wording rather than the read's ("is larger than
+			// the limit of"), so that a refusal reached by opening the file
+			// would not satisfy this.
+			want: fmt.Sprintf("is %d bytes, and the limit is %d", control.MaxMessageBytes+1, control.MaxMessageBytes),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			moment := &clock{at: time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)}
+			open := func() *control.Workspace {
+				t.Helper()
+				workspace, err := control.Open(root, testProject, testTask,
+					control.Options{Now: moment.now, ParseGrace: 3 * time.Second})
+				if err != nil {
+					t.Fatalf("opening a workspace: %v", err)
+				}
+				return workspace
+			}
+
+			workspace := open()
+			if err := workspace.Create(); err != nil {
+				t.Fatalf("creating the workspace: %v", err)
+			}
+			test.plant(t, filepath.Join(workspace.OutboxDir(), test.file))
+
+			// Eight polls of the daemon's own kind: read, settle whatever was
+			// refused, wait, read again.
+			var refusals []control.Rejection
+			for range 8 {
+				messages, rejected, err := workspace.Pending()
+				if err != nil {
+					t.Fatalf("reading pending messages: %v", err)
+				}
+				if len(messages) != 0 {
+					t.Fatalf("%d messages were returned; a refused entry must never be applied", len(messages))
+				}
+				for _, rejection := range rejected {
+					refusals = append(refusals, rejection)
+					if !rejection.Final {
+						t.Fatalf("the refusal of %s is not final, so nothing would ever settle it: %v",
+							rejection.File, rejection)
+					}
+					if err := workspace.MarkRefused(rejection); err != nil {
+						t.Fatalf("settling the refusal: %v", err)
+					}
+				}
+				moment.advance(250 * time.Millisecond)
+			}
+
+			if len(refusals) != 1 {
+				t.Fatalf("refusals across eight polls = %d, want 1: a settled entry was screened and "+
+					"judged again, which is one task event and one published update per poll for the "+
+					"life of the task: %v", len(refusals), refusals)
+			}
+			if refusals[0].File != test.file {
+				t.Errorf("rejection file = %q, want %q: a refusal is settled by the entry it was about",
+					refusals[0].File, test.file)
+			}
+			if !strings.Contains(refusals[0].Error(), test.want) {
+				t.Errorf("rejection = %q, want it to mention %q", refusals[0], test.want)
+			}
+
+			// A restarted daemon builds a fresh workspace and must reach the
+			// same conclusion from processed.jsonl alone.
+			_, rejected, err := open().Pending()
+			if err != nil {
+				t.Fatalf("reading pending messages after a restart: %v", err)
+			}
+			if len(rejected) != 0 {
+				t.Errorf("a restart re-refused a settled entry: %v", rejected)
+			}
+
+			// And the entry is still there: it is the account of what the agent
+			// wrote, and removing it belongs to cleanup.
+			if _, err := os.Lstat(filepath.Join(workspace.OutboxDir(), test.file)); err != nil {
+				t.Errorf("the refused entry was removed from the outbox: %v", err)
+			}
+		})
+	}
+}
+
+// TestASettledNameIsSpentWhateverIsWrittenUnderItNext pins the contract the
+// skip above rests on: a document Feat understood and refused is settled for
+// good, and it is settled by name.
+//
+// The rule cuts both ways and is deliberate in both. An agent that writes a bad
+// x.json, is refused, and then writes the message it meant to write under the
+// same name is ignored — it has to use a name it has not spent — and an agent
+// that keeps rewriting a bad x.json cannot make Feat judge it a second time.
+// Skipping a settled entry before it is screened rather than after must not
+// move that line in either direction.
+func TestASettledNameIsSpentWhateverIsWrittenUnderItNext(t *testing.T) {
+	workspace, moment := newWorkspace(t)
+
+	// The finding's own example: one mkdir in the directory the agent owns.
+	path := filepath.Join(workspace.OutboxDir(), "x.json")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatalf("creating the directory: %v", err)
+	}
+	_, rejected, err := workspace.Pending()
+	if err != nil || len(rejected) != 1 {
+		t.Fatalf("first read returned %d rejections: %v", len(rejected), err)
+	}
+	if err := workspace.MarkRefused(rejected[0]); err != nil {
+		t.Fatalf("settling the refusal: %v", err)
+	}
+
+	// The agent tidies up and writes a well-formed message under the name it
+	// has already spent.
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("removing the directory: %v", err)
+	}
+	write(t, workspace, "x.json", envelope("spent", testTask, control.TypeProviderEvent))
+	moment.advance(time.Minute)
+
+	messages, rejected, err := workspace.Pending()
+	if err != nil {
+		t.Fatalf("reading pending messages: %v", err)
+	}
+	if len(messages) != 0 || len(rejected) != 0 {
+		t.Errorf("a settled name was judged again: %d messages, %v", len(messages), rejected)
+	}
+
+	// A name that has not been spent is what gets the same message delivered,
+	// so the rule bounds what an agent must do rather than stopping it.
+	write(t, workspace, "y.json", envelope("fresh", testTask, control.TypeProviderEvent))
+	moment.advance(time.Minute)
+
+	messages, rejected, err = workspace.Pending()
+	if err != nil {
+		t.Fatalf("reading pending messages: %v", err)
+	}
+	if len(messages) != 1 || len(rejected) != 0 {
+		t.Fatalf("a message under an unspent name returned %d messages and %d rejections, want 1 and 0",
+			len(messages), len(rejected))
+	}
+}
+
+// TestAReadThatFailedForFeatsOwnReasonIsTriedAgain is the other side of the
+// rule the test above pins.
+//
+// A refusal is settled and never revisited; a read that failed for a reason of
+// the host's is neither. The distinction is what stops a permission or an I/O
+// error being recorded as the agent's mistake, and it is the thing most easily
+// lost by making a poll skip more, so it is checked at the poll rather than
+// only at MarkRefused.
+func TestAReadThatFailedForFeatsOwnReasonIsTriedAgain(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root, which reads a file whatever its mode says")
+	}
+	workspace, moment := newWorkspace(t)
+
+	path := filepath.Join(workspace.OutboxDir(), "unreadable.json")
+	plant(t, path, envelope("h", testTask, control.TypeProviderEvent))
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatalf("making the message unreadable: %v", err)
+	}
+
+	for poll := range 3 {
+		_, rejected, err := workspace.Pending()
+		if err != nil {
+			t.Fatalf("reading pending messages: %v", err)
+		}
+		if len(rejected) != 1 {
+			t.Fatalf("poll %d returned %d rejections, want 1: a read that failed for Feat's own reason "+
+				"must be tried again rather than settled", poll, len(rejected))
+		}
+		if rejected[0].Final {
+			t.Fatalf("the read failure was final, so it would be recorded as a judgement nobody made: %v",
+				rejected[0])
+		}
+		if err := workspace.MarkRefused(rejected[0]); err == nil {
+			t.Fatal("a read failure was settled as though the document had been judged")
+		}
+		moment.advance(250 * time.Millisecond)
+	}
+
+	// Nothing about it was recorded, so the message is still deliverable once
+	// the host's own problem is gone.
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatalf("restoring the message: %v", err)
+	}
+	messages, rejected, err := workspace.Pending()
+	if err != nil {
+		t.Fatalf("reading pending messages: %v", err)
+	}
+	if len(messages) != 1 || len(rejected) != 0 {
+		t.Fatalf("a message that became readable again returned %d messages and %d rejections, want 1 and 0",
+			len(messages), len(rejected))
+	}
 }
 
 func TestRejectionErrorIsRecognisable(t *testing.T) {

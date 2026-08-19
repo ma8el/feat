@@ -380,14 +380,21 @@ func (s *service) deliverControl(ctx context.Context, task *domain.Task) error {
 			// judgement nobody made.
 			continue
 		}
+		// Settled before it is announced, because the settle is what makes the
+		// announcement happen once. A refusal recorded first and settled never
+		// — the record is a file append, and it can fail — is a refusal the
+		// next poll reaches again, and it would reach the user again with it:
+		// the task's own event log and every attached dashboard, four times a
+		// second, for as long as the entry sits in the outbox.
+		if err := workspace.MarkRefused(rejection); err != nil {
+			failures = append(failures,
+				fmt.Errorf("recording the refusal of %s for task %s: %w", rejection.File, task.ID, err))
+			continue
+		}
 		// The refusal reaches the user here rather than only the log. An agent
 		// that asked for a capability Feat grants to nobody is a thing its
 		// author should be able to see on the task it happened to.
 		s.record(ctx, task, domain.Event{Type: domain.EventControlRefused, Detail: rejection.Error()})
-		if err := workspace.MarkRefused(rejection); err != nil {
-			failures = append(failures,
-				fmt.Errorf("recording the refusal of %s for task %s: %w", rejection.File, task.ID, err))
-		}
 	}
 
 	for _, message := range messages {
