@@ -14,6 +14,7 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution"
 	"github.com/ma8el/feat/internal/execution/compose"
+	"github.com/ma8el/feat/internal/integrationtest"
 )
 
 // The opt-in tests below drive real Docker. They are the ones that can answer
@@ -22,21 +23,24 @@ import (
 // port, and whether two containers built from one file can run at once.
 //
 // They run under FEAT_INTEGRATION, as every TestReal suite in this repository
-// does, and they skip when this machine has no Docker daemon — which macOS CI
-// runners do not. A skipped test says so rather than passing quietly.
+// does. A machine with no Docker daemon — which macOS CI runners do not have —
+// skips them unless the run demanded Docker, in which case it fails: a
+// skipped package still prints "ok", so the demand is the only thing that
+// stops a stopped Docker Desktop from taking every proof below out of the
+// gate quietly (G6-05).
 
-// realDocker reports whether this machine can run the tests below.
+// realDocker ends the test unless this machine can run the tests below.
 func realDocker(t *testing.T) {
 	t.Helper()
 
-	if os.Getenv("FEAT_INTEGRATION") == "" {
-		t.Skip("set FEAT_INTEGRATION=1 to run the tests that drive real Docker")
+	if !integrationtest.Enabled() {
+		t.Skipf("set %s=1 to run the tests that drive real Docker", integrationtest.Env)
 	}
 	if _, err := exec.LookPath(compose.Executable); err != nil {
-		t.Skip("Docker is not installed on this machine")
+		integrationtest.Unavailable(t, integrationtest.Docker, "Docker is not installed on this machine")
 	}
 	if err := exec.Command(compose.Executable, "info").Run(); err != nil {
-		t.Skip("no Docker daemon is reachable from this machine")
+		integrationtest.Unavailable(t, integrationtest.Docker, "no Docker daemon is reachable from this machine: %v", err)
 	}
 }
 

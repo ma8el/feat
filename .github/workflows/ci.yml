@@ -60,12 +60,25 @@ jobs:
             brew install tmux
           fi
 
+      # -count=1 for the reason the Makefile gives (ADR-035 evidence 13): -run is
+      # a cacheable flag, and the test cache tracks nothing these tests observe
+      # through a subprocess — docker info, tmux server state, git output, the
+      # built binary's conduct. Without it a re-run requested precisely to
+      # re-exercise the tools can replay a cached PASS and exercise none.
+      #
+      # FEAT_INTEGRATION_REQUIRE names the tools this leg demands: a demanded
+      # tool that is missing or unanswering fails the step rather than skipping
+      # it, because a package whose selected tests all skipped still prints
+      # "ok". The macOS runner image ships no Docker daemon, so that leg proves
+      # less — and now says which proofs it is not making, in this file, rather
+      # than by going green.
       - name: Test with the real tools
         run: |
           tmux -V
-          go test -race -run 'TestBinary|TestReal' ./...
+          go test -race -count=1 -run 'TestBinary|TestReal' ./...
         env:
           FEAT_INTEGRATION: "1"
+          FEAT_INTEGRATION_REQUIRE: ${{ runner.os == 'Linux' && 'git,docker,tmux' || 'git,tmux' }}
 
       # Slice 0 acceptance: one binary, and `feat --help` shows the intended
       # command model. The command surface itself is pinned by a golden test.

@@ -8,10 +8,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
-)
 
-// envIntegration opts a run in to the tests that build the binary and run it.
-const envIntegration = "FEAT_INTEGRATION"
+	"github.com/ma8el/feat/internal/integrationtest"
+)
 
 // TestBinaryLifecycle exercises `feat daemon start`, `status`, and `stop` as
 // separate operating-system processes, and is the literal form of the slice 2
@@ -21,8 +20,8 @@ const envIntegration = "FEAT_INTEGRATION"
 // It is opt-in because it builds the binary. Set FEAT_INTEGRATION=1 to run it;
 // CI does.
 func TestBinaryLifecycle(t *testing.T) {
-	if os.Getenv(envIntegration) == "" {
-		t.Skipf("set %s=1 to run the tests that build and run the binary", envIntegration)
+	if !integrationtest.Enabled() {
+		t.Skipf("set %s=1 to run the tests that build and run the binary", integrationtest.Env)
 	}
 
 	binary := buildBinary(t)

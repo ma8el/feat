@@ -11,11 +11,17 @@ import (
 	"time"
 
 	"github.com/ma8el/feat/internal/execution/compose"
+	"github.com/ma8el/feat/internal/integrationtest"
 	"github.com/ma8el/feat/internal/project"
 )
 
-// envIntegration opts a run in to the tests that use the real tools.
-const envIntegration = "FEAT_INTEGRATION"
+// requireRealTools ends the test unless the run is opted in.
+func requireRealTools(t *testing.T) {
+	t.Helper()
+	if !integrationtest.Enabled() {
+		t.Skipf("set %s=1 to run the tests that use the real tools", integrationtest.Env)
+	}
+}
 
 // TestRealGitRepositoryIsDiagnosed runs the repository checks against a real
 // Git repository created for the test.
@@ -27,11 +33,9 @@ const envIntegration = "FEAT_INTEGRATION"
 // It is opt-in because it needs Git installed. Set FEAT_INTEGRATION=1 to run
 // it; CI does.
 func TestRealGitRepositoryIsDiagnosed(t *testing.T) {
-	if os.Getenv(envIntegration) == "" {
-		t.Skipf("set %s=1 to run the tests that use the real tools", envIntegration)
-	}
+	requireRealTools(t)
 	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed")
+		integrationtest.Unavailable(t, integrationtest.Git, "git is not installed")
 	}
 
 	w := arrange(t)
@@ -99,11 +103,9 @@ func TestRealGitRepositoryIsDiagnosed(t *testing.T) {
 // a clone reports its default branch, and that a repository without one still
 // answers something usable.
 func TestRealCheckoutIsInspected(t *testing.T) {
-	if os.Getenv(envIntegration) == "" {
-		t.Skipf("set %s=1 to run the tests that use the real tools", envIntegration)
-	}
+	requireRealTools(t)
 	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed")
+		integrationtest.Unavailable(t, integrationtest.Git, "git is not installed")
 	}
 
 	// Symbolic links are resolved rather than assumed away: Git answers with the
@@ -181,14 +183,12 @@ func TestRealCheckoutIsInspected(t *testing.T) {
 // TestRealComposeFileIsDiagnosed runs the Compose checks against the real
 // Docker Compose CLI.
 func TestRealComposeFileIsDiagnosed(t *testing.T) {
-	if os.Getenv(envIntegration) == "" {
-		t.Skipf("set %s=1 to run the tests that use the real tools", envIntegration)
-	}
+	requireRealTools(t)
 	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker is not installed")
+		integrationtest.Unavailable(t, integrationtest.Docker, "docker is not installed")
 	}
 	if err := exec.Command("docker", "compose", "version").Run(); err != nil {
-		t.Skip("the Docker Compose CLI is not available")
+		integrationtest.Unavailable(t, integrationtest.Docker, "the Docker Compose CLI is not available: %v", err)
 	}
 
 	w := arrange(t)
@@ -253,11 +253,9 @@ func TestRealComposeFileIsDiagnosed(t *testing.T) {
 // and it is here so that a runtime changing its mind about which stream carries
 // the reason fails rather than quietly turning the check back into a warning.
 func TestRealTheDockerCapabilityIsProbedInALiveContainer(t *testing.T) {
-	if os.Getenv(envIntegration) == "" {
-		t.Skipf("set %s=1 to run the tests that use the real tools", envIntegration)
-	}
+	requireRealTools(t)
 	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker is not installed")
+		integrationtest.Unavailable(t, integrationtest.Docker, "docker is not installed")
 	}
 
 	w := arrange(t)
@@ -331,7 +329,10 @@ func runContainer(t *testing.T, options ...string) string {
 	args = append(args, "alpine:3", "sleep", "300")
 	output, err := exec.Command("docker", args...).Output()
 	if err != nil {
-		t.Skipf("starting a container: %v", err)
+		// Docker answered the probe and then failed to start a container: the
+		// proof is gone while the machine still looks equipped, which is the
+		// case the gate used to report as "ok".
+		integrationtest.Unavailable(t, integrationtest.Docker, "starting a container: %v", err)
 	}
 	id := strings.TrimSpace(string(output))
 	t.Cleanup(func() {

@@ -2,13 +2,13 @@ package daemon
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"testing"
 	"time"
 
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/integrationtest"
 	"github.com/ma8el/feat/internal/tmux"
 )
 
@@ -21,11 +21,11 @@ import (
 // tmux is that a killed window is reported as missing rather than as some other
 // absence, and that asking for the terminal again builds a new tagged one.
 func TestRealKilledWindowIsReportedAndRebuilt(t *testing.T) {
-	if os.Getenv(envIntegration) == "" {
-		t.Skipf("set %s=1 to run tests against real tmux", envIntegration)
+	if !integrationtest.Enabled() {
+		t.Skipf("set %s=1 to run tests against real tmux", integrationtest.Env)
 	}
 	if _, err := exec.LookPath(tmux.Executable); err != nil {
-		t.Skip("tmux is not installed")
+		integrationtest.Unavailable(t, integrationtest.Tmux, "tmux is not installed")
 	}
 
 	arranged := arrangeTask(t, newFakeGit())
@@ -83,11 +83,11 @@ func TestRealKilledWindowIsReportedAndRebuilt(t *testing.T) {
 // deliberately stale stored target and recovers the live IDs from tmux
 // metadata.
 func TestRealDaemonRestartRediscoversTaggedTerminal(t *testing.T) {
-	if os.Getenv(envIntegration) == "" {
-		t.Skipf("set %s=1 to run tests against real tmux", envIntegration)
+	if !integrationtest.Enabled() {
+		t.Skipf("set %s=1 to run tests against real tmux", integrationtest.Env)
 	}
 	if _, err := exec.LookPath(tmux.Executable); err != nil {
-		t.Skip("tmux is not installed")
+		integrationtest.Unavailable(t, integrationtest.Tmux, "tmux is not installed")
 	}
 
 	fake := newFakeGit()

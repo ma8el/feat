@@ -9,12 +9,10 @@ import (
 	"testing"
 
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/integrationtest"
 )
 
-// envIntegration opts a run in to the tests that use real Git.
-const envIntegration = "FEAT_INTEGRATION"
-
-// requireGit skips unless the run is opted in and Git is installed.
+// requireGit ends the test unless the run is opted in and Git is installed.
 //
 // A fake runner decides what Git would say, which is enough to pin an argument
 // vector and not enough to know that a flag exists, that the output has the
@@ -24,11 +22,11 @@ const envIntegration = "FEAT_INTEGRATION"
 func requireGit(t *testing.T) {
 	t.Helper()
 
-	if os.Getenv(envIntegration) == "" {
-		t.Skipf("set %s=1 to run the tests that use real Git", envIntegration)
+	if !integrationtest.Enabled() {
+		t.Skipf("set %s=1 to run the tests that use real Git", integrationtest.Env)
 	}
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed")
+	if _, err := exec.LookPath(Executable); err != nil {
+		integrationtest.Unavailable(t, integrationtest.Git, "git is not installed")
 	}
 
 	// Both this test and the adapter it drives inherit these, so neither reads

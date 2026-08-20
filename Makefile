@@ -92,13 +92,29 @@ sandbox-clean: build ## Stop the sandbox daemon and remove its directory
 test: ## Run unit tests with the race detector
 	go test -race ./...
 
+# The tools `make check` demands of the machine it runs on. A demanded tool that
+# is missing or unanswering fails the run instead of skipping it, because a
+# skipped package still prints "ok" and the gate then reports green having
+# proved nothing (G6-05).
+#
+# claude is demandable and is deliberately not demanded: those tests need an
+# authenticated installation and spend a model call, so a run that wants them
+# asks for them.
+#
+# It is an override so that a machine short of a tool can say so out loud —
+# `make check INTEGRATION_TOOLS=git,tmux` on a laptop with Docker stopped — and
+# so that what a run proved is a value somebody typed rather than a property of
+# whatever happened to be installed.
+INTEGRATION_TOOLS ?= git,docker,tmux
+
 .PHONY: test-real
 test-real: ## Run opt-in integration tests against installed real tools
 # -count=1 because these tests assert about tools outside the process. Go can
 # only invalidate its cache on inputs it can see, so an uninstalled tmux, a
 # stopped Docker, or a notification the platform swallowed would all replay a
 # previous PASS unchanged (ADR-035 evidence 13).
-	FEAT_INTEGRATION=1 go test -race -count=1 -run 'TestBinary|TestReal' ./...
+	FEAT_INTEGRATION=1 FEAT_INTEGRATION_REQUIRE=$(INTEGRATION_TOOLS) \
+		go test -race -count=1 -run 'TestBinary|TestReal' ./...
 
 .PHONY: lint
 lint: $(GOLANGCI) ## Run golangci-lint, including the architectural depguard rules
