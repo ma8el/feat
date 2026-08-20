@@ -355,15 +355,27 @@ that use a devcontainer or application runtime also need the Docker Compose CLI.
 `feat doctor` checks the tools required by a project's configuration.
 
 ```sh
-make check    # everything CI runs: tidy, format, lint, test, build
-make build    # build ./bin/feat
-make test     # unit tests with the race detector
-make lint     # golangci-lint, including the architectural boundary rules
-make help     # list all commands
+make check      # everything CI runs: tidy, format, lint, test, test-real, build
+make build      # build ./bin/feat
+make test       # unit tests with the race detector
+make test-real  # the opt-in tests, against real Git, tmux, and Docker
+make lint       # golangci-lint, including the architectural boundary rules
+make help       # list all commands
 ```
 
 `make lint` and `make fmt` install the golangci-lint version pinned in
 [`.golangci-version`](.golangci-version) into `bin/` on first use.
+
+`make check` includes `make test-real`, which drives the real tools, and it
+**demands** the ones named in `INTEGRATION_TOOLS` — Git, Docker and tmux by
+default. A demanded tool that is missing or unanswering, a stopped Docker
+daemon included, fails the run rather than skipping it: a Go package whose
+selected tests all skipped still prints `ok`, so a gate that skipped would
+report green having proved nothing. On a machine short of one, say so:
+
+```sh
+make check INTEGRATION_TOOLS=git,tmux   # no Docker here, and this run knows it
+```
 
 ### How the design rules are enforced
 
@@ -393,6 +405,16 @@ mechanically rather than by review attention alone:
   directions, so a field that exists in one and not the other fails in
   `go test` rather than in a user's editor. The documented example is validated
   by the same suite.
+- **The completion gate proves something**, checked by tests over the
+  `Makefile` and the CI workflow: `make check` must run the integration tier,
+  and both must pass `-count=1` and name the tools they demand. Neither
+  property is visible to a Go test suite, and both were once wrong — a green
+  `make check` on a laptop with Docker stopped, and a CI re-run that replayed a
+  cached pass without touching a tool.
+- **Every gated test is one the runner selects**, checked by an AST test: a
+  test that refuses to run without `FEAT_INTEGRATION` but is not named
+  `TestReal…` or `TestBinary…` runs in neither tier, and nothing else would say
+  so.
 
 ## License
 

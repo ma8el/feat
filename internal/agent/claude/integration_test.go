@@ -14,11 +14,11 @@ import (
 	"github.com/ma8el/feat/internal/agent/claude"
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/integrationtest"
 )
 
-const envIntegration = "FEAT_INTEGRATION"
-
-// requireClaude skips unless a real, authenticated Claude Code is available.
+// requireClaude ends the test unless a real, authenticated Claude Code is
+// available.
 //
 // These tests cannot run in CI: they need an authenticated installation and
 // they spend a model call. They are the only place the hook schema is checked
@@ -28,11 +28,11 @@ const envIntegration = "FEAT_INTEGRATION"
 func requireClaude(t *testing.T) {
 	t.Helper()
 
-	if os.Getenv(envIntegration) == "" {
-		t.Skipf("set %s=1 to run tests against a real, authenticated Claude Code", envIntegration)
+	if !integrationtest.Enabled() {
+		t.Skipf("set %s=1 to run tests against a real, authenticated Claude Code", integrationtest.Env)
 	}
 	if _, err := exec.LookPath(claude.Executable); err != nil {
-		t.Skip("claude is not installed")
+		integrationtest.Unavailable(t, integrationtest.Claude, "claude is not installed")
 	}
 }
 
@@ -173,7 +173,7 @@ func TestRealClaudeReadsTheGeneratedSettings(t *testing.T) {
 	check.Dir = t.TempDir()
 	output, err := check.CombinedOutput()
 	if err != nil {
-		t.Skipf("claude doctor did not run: %v\n%s", err, output)
+		integrationtest.Unavailable(t, integrationtest.Claude, "claude doctor did not run: %v\n%s", err, output)
 	}
 	if strings.Contains(strings.ToLower(string(output)), "invalid settings") {
 		t.Errorf("claude doctor reports invalid settings:\n%s", output)

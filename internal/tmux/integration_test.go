@@ -13,17 +13,16 @@ import (
 	"time"
 
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/integrationtest"
 )
-
-const envIntegration = "FEAT_INTEGRATION"
 
 func requireTmux(t *testing.T) {
 	t.Helper()
-	if os.Getenv(envIntegration) == "" {
-		t.Skipf("set %s=1 to run tests against real tmux", envIntegration)
+	if !integrationtest.Enabled() {
+		t.Skipf("set %s=1 to run tests against real tmux", integrationtest.Env)
 	}
 	if _, err := exec.LookPath(Executable); err != nil {
-		t.Skip("tmux is not installed")
+		integrationtest.Unavailable(t, integrationtest.Tmux, "tmux is not installed")
 	}
 }
 

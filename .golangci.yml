@@ -512,6 +512,17 @@ linters:
             - pkg: github.com/moby
               desc: use the Docker Compose CLI through argument vectors (ADR-013)
 
+        # internal/integrationtest states which real tools an opt-in run
+        # demands. It is a plain package because eight test packages share it,
+        # and it is test support: nothing that ships may import it.
+        integration-support-stays-in-tests:
+          files:
+            - $all
+            - "!$test"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/integrationtest
+              desc: the integration tier's requirements are test support and never reach the binary
+
         # Spawning processes belongs in adapters, where the argument-vector and
         # capability rules are stated and tested.
         process-execution-stays-in-adapters:

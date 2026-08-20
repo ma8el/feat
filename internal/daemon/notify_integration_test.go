@@ -3,12 +3,12 @@ package daemon
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/integrationtest"
 	"github.com/ma8el/feat/internal/notify"
 	"github.com/ma8el/feat/internal/review"
 	"github.com/ma8el/feat/internal/store"
@@ -47,8 +47,8 @@ const deliveredHint = "Compare these against the desktop. For any that did not a
 // cached result replays --- PASS without producing one, which looks exactly like
 // a notification the platform swallowed (ADR-035 evidence 13).
 func TestRealNotificationReachesTheDesktop(t *testing.T) {
-	if os.Getenv(envIntegration) == "" {
-		t.Skipf("set %s=1 to deliver real desktop notifications", envIntegration)
+	if !integrationtest.Enabled() {
+		t.Skipf("set %s=1 to deliver real desktop notifications", integrationtest.Env)
 	}
 	if available, reason := notify.Host().Available(); !available {
 		t.Skipf("this platform delivers no desktop notifications: %s", reason)

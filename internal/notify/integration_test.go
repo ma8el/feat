@@ -2,13 +2,12 @@ package notify
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
-)
 
-const envIntegration = "FEAT_INTEGRATION"
+	"github.com/ma8el/feat/internal/integrationtest"
+)
 
 // TestRealNotificationIsDelivered hands a notification to this platform's own
 // notifier.
@@ -22,8 +21,8 @@ const envIntegration = "FEAT_INTEGRATION"
 // and a cached result replays --- PASS without producing one, which looks
 // exactly like a notification the platform swallowed (ADR-035 evidence 13).
 func TestRealNotificationIsDelivered(t *testing.T) {
-	if os.Getenv(envIntegration) == "" {
-		t.Skipf("set %s=1 to deliver a real desktop notification", envIntegration)
+	if !integrationtest.Enabled() {
+		t.Skipf("set %s=1 to deliver a real desktop notification", integrationtest.Env)
 	}
 
 	notifier := Host()
@@ -55,8 +54,8 @@ func TestRealNotificationIsDelivered(t *testing.T) {
 // what is not harmless is a value the runner would read as one of its own
 // options, which is the class of defect ADR-029 refused for Git remotes.
 func TestRealNotifierRefusesTextItWouldMisread(t *testing.T) {
-	if os.Getenv(envIntegration) == "" {
-		t.Skipf("set %s=1 to run this against the real notifier", envIntegration)
+	if !integrationtest.Enabled() {
+		t.Skipf("set %s=1 to run this against the real notifier", integrationtest.Env)
 	}
 	notifier := Host()
 	if available, _ := notifier.Available(); !available {

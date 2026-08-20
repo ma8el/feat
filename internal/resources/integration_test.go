@@ -7,14 +7,14 @@ import (
 	"runtime"
 	"testing"
 	"time"
-)
 
-const envIntegration = "FEAT_INTEGRATION"
+	"github.com/ma8el/feat/internal/integrationtest"
+)
 
 func requireIntegration(t *testing.T) {
 	t.Helper()
-	if os.Getenv(envIntegration) == "" {
-		t.Skipf("set %s=1 to observe this machine for real", envIntegration)
+	if !integrationtest.Enabled() {
+		t.Skipf("set %s=1 to observe this machine for real", integrationtest.Env)
 	}
 }
 
@@ -141,7 +141,7 @@ func TestRealProcessUsageIsMeasured(t *testing.T) {
 func TestRealContainerUsageIsMeasured(t *testing.T) {
 	requireIntegration(t)
 	if _, err := exec.LookPath(dockerProgram); err != nil {
-		t.Skip("docker is not installed")
+		integrationtest.Unavailable(t, integrationtest.Docker, "docker is not installed")
 	}
 
 	const (
@@ -160,7 +160,11 @@ func TestRealContainerUsageIsMeasured(t *testing.T) {
 		"--label", "dev.feat.kind=runtime",
 		"alpine", "sh", "-c", "while true; do sleep 1; done")
 	if output, err := create.CombinedOutput(); err != nil {
-		t.Skipf("this machine cannot run a container to measure: %v\n%s", err, output)
+		// A `docker run` that fails is the sharpest form of the gate's old
+		// silence: Docker is installed, the probe above passed, and the proof
+		// still vanished. It is a failure when the run demanded Docker.
+		integrationtest.Unavailable(t, integrationtest.Docker,
+			"this machine cannot run a container to measure: %v\n%s", err, output)
 	}
 	t.Cleanup(func() {
 		_ = exec.Command(dockerProgram, "rm", "--force", name).Run()
