@@ -79,7 +79,8 @@ func (m Model) railView(height int) string {
 				continue
 			}
 			for _, index := range group.indexes {
-				out.WriteString(m.railEntry(m.tasks[index], index == m.cursor))
+				task := m.tasks[index]
+				out.WriteString(m.railEntry(task, task.ID == m.selected))
 			}
 		}
 	}
@@ -129,7 +130,7 @@ func (m Model) projectHeader(group projectGroup) string {
 		// The task is named rather than left to the header's colour, because a
 		// terminal without colour would lose the distinction without showing that
 		// it had.
-		if task, ok := m.current(); ok && m.holdsCursor(group) {
+		if task, ok := m.subject(); ok && m.holdsCursor(group) {
 			aside = selectedStyle.Render(task.Key) + " " + aside
 		}
 	}
@@ -141,13 +142,13 @@ func (m Model) projectHeader(group projectGroup) string {
 // holdsCursor reports whether the selected task is one of this project's, which
 // a folded header is the only remaining sign of in the rail. The main region's
 // own header names the task in words whatever the rail is doing.
+//
+// It asks the selected task which project it is in rather than comparing rows,
+// because a group's rows are true of the list it was built from and the
+// selection is true of the task.
 func (m Model) holdsCursor(group projectGroup) bool {
-	for _, index := range group.indexes {
-		if index == m.cursor {
-			return true
-		}
-	}
-	return false
+	task, ok := m.subject()
+	return ok && task.ProjectID == group.project
 }
 
 // groupAttention is the strongest attention glyph among a project's tasks, for

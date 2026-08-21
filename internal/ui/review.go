@@ -38,7 +38,19 @@ type reviewModel struct {
 }
 
 // reviewMsg carries the result of one review action.
+//
+// task is what the request named, which is what the response is matched
+// against. A comparison walks every one of a task's worktrees and can take
+// seconds, so one issued before the user moved on arrives after: without this
+// the panel drew one task's agent report, check results and expanded diff and
+// editor commands under another task's name, and `d` and `e` opened the wrong
+// worktree.
+//
+// It is what the request named rather than what the daemon resolved it to,
+// because `feat review <task>` may name a task by its short key and a response
+// has to be matchable against the request that produced it.
 type reviewMsg struct {
+	task   string
 	action api.ReviewAction
 	status api.ReviewStatus
 	err    error
@@ -77,7 +89,7 @@ func (m Model) reviewAction(action api.ReviewAction) tea.Cmd {
 	backend, id := m.backend, m.review.task
 	return func() tea.Msg {
 		status, err := backend.Review(context.Background(), id, action)
-		return reviewMsg{action: action, status: status, err: err}
+		return reviewMsg{task: id, action: action, status: status, err: err}
 	}
 }
 
@@ -91,8 +103,12 @@ func (m Model) reviewAction(action api.ReviewAction) tea.Cmd {
 func (m Model) taskPanelKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "esc":
-		m.screen = m.home()
-		return m, nil
+		// Through selectTab rather than by setting the screen, for the reason
+		// runtime's own esc goes through openTask: the tab this lands on holds
+		// what it was last told about one task, and the selection may have moved
+		// while the panel had the keyboard. Opening it is what discards the pane
+		// it was holding and asks tmux for the selected task's.
+		return m.selectTab(tabTerminal)
 
 	case "ctrl+c", "q":
 		m.quitting = true
@@ -221,7 +237,16 @@ func findCommand(commands []api.ReviewCommand, kind, repository string) (api.Rev
 }
 
 // applyReview records what an action reported.
+//
+// A response for a task the panel is no longer about is dropped rather than
+// drawn, as applyFrame drops a frame whose pane belongs to another task. Nothing
+// is cleared for it either: the pending marker belongs to whatever this panel is
+// waiting for now.
 func (m Model) applyReview(message reviewMsg) (tea.Model, tea.Cmd) {
+	if message.task != m.review.task {
+		return m, nil
+	}
+
 	m.review.pending = ""
 	if message.err != nil {
 		m.review.err = message.err
@@ -231,6 +256,19 @@ func (m Model) applyReview(message reviewMsg) (tea.Model, tea.Cmd) {
 	m.review.err = nil
 	m.review.status = message.status
 	m.review.loaded = true
+	// The response names the task the daemon resolved the request to, which is
+	// how the short key `feat review <task>` accepts becomes the identifier the
+	// rest of the dashboard matches against. Without it the panel drew "this task
+	// is no longer listed" — nothing in m.tasks equals an eight-character key —
+	// while `A`, `C` and `V` went on working, because they act on the review's own
+	// task: the one screen saying the task did not exist was the screen from
+	// which approving it succeeded.
+	if id := message.status.Task.ID; id != "" && id != m.review.task {
+		if m.selected == m.review.task {
+			m.selected = id
+		}
+		m.review.task = id
+	}
 	if m.review.cursor >= len(message.status.Repositories) {
 		m.review.cursor = 0
 	}

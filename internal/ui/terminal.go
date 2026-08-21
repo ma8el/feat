@@ -133,10 +133,18 @@ func (m Model) applyFrame(message terminalFrameMsg) (tea.Model, tea.Cmd) {
 func (m Model) terminalBody(width, height int) string {
 	task, ok := m.subject()
 	switch {
+	case !ok && m.selected != "":
+		return mutedStyle.Render("the selected task is no longer listed")
 	case !ok:
 		return mutedStyle.Render("no task selected")
 	case task.Session == nil:
 		return mutedStyle.Render("task " + task.Key + " has no terminal yet")
+	// A frame, or a failure, belonging to another task is not drawn under this
+	// one's name. applyFrame drops what arrives after the selection moved; this
+	// is the other half — what was already held when it moved, which `esc` from
+	// the task panel put back on the screen without asking for a new one.
+	case m.terminal.task != task.ID:
+		return mutedStyle.Render("asking tmux what this pane shows…")
 	}
 
 	var out strings.Builder

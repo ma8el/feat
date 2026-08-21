@@ -410,8 +410,9 @@ func TestTheKeyMapAnswersOnlyItsOwnKeys(t *testing.T) {
 	opened := press(t, model, "?")
 
 	moved := press(t, opened, "down")
-	if moved.cursor != opened.cursor {
-		t.Errorf("the cursor moved behind the key map: %d became %d", opened.cursor, moved.cursor)
+	if moved.selected != opened.selected {
+		t.Errorf("the selection moved behind the key map: %s became %s",
+			opened.selected, moved.selected)
 	}
 }
 
@@ -583,10 +584,7 @@ func TestTheRailIsReachableFromEveryView(t *testing.T) {
 			}
 
 			moved := press(t, model, key)
-			if moved.cursor != 1 {
-				t.Errorf("%q from %q left the cursor at %d, want 1", key, open, moved.cursor)
-			}
-			if got, _ := moved.current(); got.ID != second.ID {
+			if got, _ := moved.subject(); got.ID != second.ID {
 				t.Errorf("%q from %q selected %s, want %s", key, open, got.Key, second.Key)
 			}
 		}
@@ -598,12 +596,12 @@ func TestTheRailIsReachableFromEveryView(t *testing.T) {
 func TestSelectingATaskWrapsAtBothEnds(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
 
-	if up := press(t, model, "K"); up.cursor != 1 {
-		t.Errorf("K from the first task went to %d, want the last", up.cursor)
+	if up := press(t, model, "K"); up.selected != otherTask().ID {
+		t.Errorf("K from the first task selected %s, want the last", up.selected)
 	}
 	down := press(t, press(t, model, "shift+down"), "shift+down")
-	if down.cursor != 0 {
-		t.Errorf("shift+down past the last task went to %d, want the first", down.cursor)
+	if down.selected != liveTask().ID {
+		t.Errorf("shift+down past the last task selected %s, want the first", down.selected)
 	}
 }
 
@@ -654,9 +652,9 @@ func TestThePlainKeysNeverMoveTheFrame(t *testing.T) {
 			}
 
 			moved := press(t, model, plain)
-			if moved.cursor != model.cursor {
-				t.Errorf("%q from %q moved the rail: %d became %d",
-					plain, open, model.cursor, moved.cursor)
+			if moved.selected != model.selected {
+				t.Errorf("%q from %q moved the rail: %s became %s",
+					plain, open, model.selected, moved.selected)
 			}
 			if moved.activeTab() != model.activeTab() {
 				t.Errorf("%q from %q moved the tab: %v became %v",
@@ -699,10 +697,7 @@ func TestTheNarrowFallbackKeepsThePlainArrows(t *testing.T) {
 	}
 	for _, plain := range []string{"down", "j"} {
 		moved := press(t, model, plain)
-		if moved.cursor != 1 {
-			t.Errorf("%q left the narrow fallback's cursor at %d, want 1", plain, moved.cursor)
-		}
-		if got, _ := moved.current(); got.ID != second.ID {
+		if got, _ := moved.subject(); got.ID != second.ID {
 			t.Errorf("%q selected %s, want %s", plain, got.Key, second.Key)
 		}
 	}
@@ -763,8 +758,9 @@ func TestADialogHoldsTheFrameKeys(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
 	opened := press(t, model, "?")
 
-	if moved := press(t, opened, "shift+down"); moved.cursor != opened.cursor {
-		t.Errorf("the task changed behind a dialog: %d became %d", opened.cursor, moved.cursor)
+	if moved := press(t, opened, "shift+down"); moved.selected != opened.selected {
+		t.Errorf("the task changed behind a dialog: %s became %s",
+			opened.selected, moved.selected)
 	}
 	if moved := press(t, opened, "tab"); moved.activeTab() != opened.activeTab() {
 		t.Errorf("the view changed behind a dialog: %v became %v", opened.activeTab(), moved.activeTab())
@@ -947,7 +943,7 @@ func TestFoldingKeepsTheSelectionOnTheProjectItFolded(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), first, otherTask()), 120, 32)
 
 	folded := press(t, model, " ")
-	current, ok := folded.current()
+	current, ok := folded.subject()
 	if !ok {
 		t.Fatal("folding left no task selected at all")
 	}
@@ -983,14 +979,14 @@ func TestAFoldedProjectIsOneCursorStop(t *testing.T) {
 	// Moving off the fold leaves the project rather than landing on the task
 	// hidden beside the selected one.
 	down := press(t, folded, "J")
-	if got, _ := down.current(); got.ID != other.ID {
+	if got, _ := down.subject(); got.ID != other.ID {
 		t.Fatalf("J from a folded project selected %s, want the next project's task %s",
 			got.Key, other.Key)
 	}
 
 	// And moving back returns to the fold, which is the position that was missing.
 	back := press(t, down, "K")
-	got, ok := back.current()
+	got, ok := back.subject()
 	if !ok || got.ProjectID != first.ProjectID {
 		t.Fatalf("K did not return to the folded project: %+v", got)
 	}
@@ -1028,7 +1024,7 @@ func TestFoldingEveryProjectKeepsTheSelection(t *testing.T) {
 	// One project at a time, moving between them: space folds where the cursor
 	// is, and the cursor no longer leaves the project it folded.
 	folded := press(t, press(t, press(t, model, " "), "J"), " ")
-	if _, ok := folded.current(); !ok {
+	if _, ok := folded.subject(); !ok {
 		t.Fatal("folding every project left no task selected")
 	}
 	view := strings.Join(railLines(ansi.Strip(folded.View())), "\n")
@@ -1044,7 +1040,7 @@ func TestFoldingEveryProjectKeepsTheSelection(t *testing.T) {
 	}
 	// And the fold holding the selection names it, rather than leaving the
 	// difference to the header's colour.
-	selected, _ := folded.current()
+	selected, _ := folded.subject()
 	if !strings.Contains(headerLine(strings.Split(view, "\n"), selected.ProjectID), selected.Key) {
 		t.Errorf("the fold holding the selected task does not name it:\n%s", view)
 	}
