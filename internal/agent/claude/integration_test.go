@@ -126,6 +126,17 @@ func TestRealClaudeEmitsTheHooksThisAdapterInstalls(t *testing.T) {
 			continue
 		}
 		seen[event.Kind]++
+
+		// Only a hook payload carries one, and a renamed field in one is what
+		// this is watching for. A report is written by Feat's own helper —
+		// review_requested, completion_report, open_question — and parseReport
+		// builds the event from a summary and its checks, so there is no session
+		// id in the message to carry. Requiring one of every event tested the
+		// helper's format against a rule that was only ever about Claude's, and
+		// failed whenever the session happened to call the review helper.
+		if message.Type != control.TypeProviderEvent {
+			continue
+		}
 		if event.ProviderSessionID == "" {
 			t.Errorf("event %s carries no provider session id; the payload field may have been renamed",
 				event.Kind)

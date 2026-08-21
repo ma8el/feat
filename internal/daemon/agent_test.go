@@ -1355,6 +1355,14 @@ func TestPendingMessagesSurviveARestartAndApplyExactlyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restarting the daemon: %v", err)
 	}
+	// The second daemon's gates need stopping as much as the first one's, and
+	// launchWith registers that only for the daemon it builds. This test's whole
+	// subject is a pending review request, and applying one starts a gate: the
+	// goroutine goes on writing the task's control workspace after the test body
+	// has returned, which fails the run either in TempDir's cleanup or, worse, in
+	// the second-poll assertion below — a moved UpdatedAt reads there as the
+	// message having been applied twice.
+	t.Cleanup(restarted.service.gate.stopAll)
 	restarted.service.pollControl(context.Background())
 
 	task, err := restarted.service.store.Tasks().Load(context.Background(), live.ref)
