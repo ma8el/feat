@@ -12,6 +12,7 @@ package composetest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -61,10 +62,47 @@ func New() *Docker {
 		Answer("stop", "").
 		Answer("ps --all --format json dev",
 			`{"ID":"c0ffee","Name":"feat-dev-1","Service":"dev","State":"running","Status":"Up 2 seconds"}`).
-		Answer("inspect --type container --format {{json .Mounts}} c0ffee", `[]`).
+		Inspect("c0ffee", "Mounts", `[]`).
 		// An environment with nothing pointing at a container daemon, which is
 		// the other observation a launch refuses over.
-		Answer("inspect --type container --format {{json .Config.Env}} c0ffee", `["PATH=/usr/bin"]`)
+		Inspect("c0ffee", "Config.Env", `["PATH=/usr/bin"]`).
+		// A container granted nothing beyond its mounts: not privileged, no
+		// added capability, its own namespaces, no host device.
+		Inspect("c0ffee", "HostConfig", `{"Privileged":false,"CapAdd":null,"CapDrop":null,`+
+			`"PidMode":"","IpcMode":"private","NetworkMode":"feat-agent-app-default","Devices":[]}`)
+}
+
+// Inspect arranges what `docker inspect` reports for one field of one container.
+//
+// It is a field rather than a format string so that a fixture can state what a
+// container *is* rather than only what the product currently asks about it: a
+// fake keyed to the queries the code already makes can confirm the checks that
+// exist and can never express the hazard living in a field nobody reads, which
+// is how a privileged container stayed invisible to a suite full of mount
+// refusals (G6-17).
+func (d *Docker) Inspect(container, field, answer string) *Docker {
+	return d.Answer("inspect --type container --format {{json ."+field+"}} "+container, answer)
+}
+
+// Volume arranges what `docker volume inspect` reports about a volume's driver
+// options.
+//
+// The options are what say whether a named volume is storage the runtime owns
+// or a bind wearing a volume's name, and the fixture writes them the way a
+// project's Compose file does: driver_opts, verbatim.
+func (d *Docker) Volume(name string, options map[string]string) *Docker {
+	// A volume with no options is reported as null rather than as {}, which is
+	// what an ordinary named volume looks like and what the adapter has to read
+	// as "backed by nothing on this host".
+	rendered := []byte("null")
+	if options != nil {
+		encoded, err := json.Marshal(options)
+		if err != nil {
+			panic(err)
+		}
+		rendered = encoded
+	}
+	return d.Answer("volume inspect --format {{json .Options}} "+name, string(rendered))
 }
 
 // Answer arranges the standard output of one command.

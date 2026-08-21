@@ -57,9 +57,14 @@ var HookTools = []struct {
 
 // Inspect asks a running container what it is.
 //
-// Every question is asked as the user the agent will run as, because the answer
-// for another user is not the answer to the question. The paths are the agent's
-// own view of them.
+// Every question run inside the container is asked as the user the agent will
+// run as, because the answer for another user is not the answer to the
+// question. The paths are the agent's own view of them.
+//
+// What is asked of the container runtime about the container is what the rules
+// read: its mounts, its environment, and what it was granted beyond them. A
+// question nobody asks is a rule nobody can enforce, which is how a privileged
+// container passed a check that refuses a home-directory mount.
 func (e *Environment) Inspect(ctx context.Context, writable []string) (execution.Report, error) {
 	// The container is resolved here rather than passed in: the environment
 	// knows which one is its own, and a caller that had to find out first could
@@ -128,6 +133,15 @@ func (e *Environment) Inspect(ctx context.Context, writable []string) (execution
 		return report, err
 	}
 	report.DockerVariables = endpoints
+
+	// What the container was granted beyond its mounts. It is the third
+	// question and the one that decides whether the other two mean anything:
+	// a privileged container remounts what the mount rules hold read-only.
+	privileges, err := e.Privileges(ctx, state.Container)
+	if err != nil {
+		return report, err
+	}
+	report.Privileges = privileges
 	return report, nil
 }
 
@@ -219,6 +233,10 @@ func (e *Environment) Check(report execution.Report) error {
 				"that user must be able to write what the host owns; on Linux this usually means the container "+
 				"user's uid does not match yours",
 			directory, e.spec.Service, report.Unwritable[directory], report.User, report.UID))
+	}
+
+	if err := e.CheckPrivileges(report.Privileges); err != nil {
+		problems = append(problems, err)
 	}
 
 	if err := e.CheckMounts(report.Mounts); err != nil {

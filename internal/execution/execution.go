@@ -101,6 +101,17 @@ type Report struct {
 	DockerVariables []string
 	// Mounts are the environment's observed bindings.
 	Mounts []ObservedMount
+	// Privileges are what the environment turned out to be granted beyond its
+	// mounts: whether it is privileged, which capabilities were added to the
+	// runtime's defaults, which namespaces it shares with the host, and which
+	// host devices it holds.
+	//
+	// A mount check reads what the container can reach through the filesystem.
+	// This is what it can reach around it: a container with CAP_SYS_ADMIN
+	// remounts a read-only mount read-write, and one on the host's network
+	// namespace reaches a daemon listening on the host's own loopback with
+	// nothing mounted and no variable set.
+	Privileges ObservedPrivileges
 	// MissingTools are the executables the generated hooks need and the
 	// environment does not have.
 	MissingTools []string
@@ -120,11 +131,90 @@ type ObservedMount struct {
 	// Name is the volume name, for a named volume.
 	Name string
 	// Source is where it comes from on the host.
+	//
+	// For a named volume this is the volume's own storage rather than a path
+	// the project wrote: a local volume lives under the container runtime's
+	// directory whatever it is a window onto. Device is the field that says
+	// what it is a window onto.
 	Source string
+	// Device is the host path a named volume is backed by, when its driver
+	// options name one, and empty for every other mount.
+	//
+	// A local volume declared with driver_opts {type: none, device: /var/run,
+	// o: bind} is an ordinary bind wearing a volume's name: the container
+	// reaches the host path, and the runtime reports the volume's own
+	// mountpoint as its source. Reading it is the difference between checking
+	// what a mount is called and checking what it reaches.
+	Device string
 	// Destination is where it appears inside the environment.
 	Destination string
 	// Writable reports whether the agent may write through it.
 	Writable bool
+}
+
+// HostPath is where a mount comes from on the host, as a rule about host paths
+// must read it.
+//
+// A bind is its source. A named volume is the device its driver options name,
+// which is empty for the ordinary case and a host path for a bind-backed one.
+// Everything else — tmpfs, a volume with no device — reaches no host path at
+// all and is empty.
+func (m ObservedMount) HostPath() string {
+	if m.Device != "" {
+		return m.Device
+	}
+	if m.Type == "volume" {
+		return ""
+	}
+	return m.Source
+}
+
+// Describe names a mount the way a refusal has to, so that a reader can find it
+// in their own Compose files.
+//
+// A bind is named by the path they wrote. A volume is named by the name they
+// wrote, and by the host path it is backed by when it has one: neither on its
+// own is enough, because the name is what appears in their file and the device
+// is what makes it a problem.
+func (m ObservedMount) Describe() string {
+	if m.Type != "volume" || m.Name == "" {
+		return m.Source
+	}
+	if m.Device == "" {
+		return "the volume " + m.Name
+	}
+	return "the volume " + m.Name + " (" + m.Device + ")"
+}
+
+// ObservedPrivileges is what an environment turned out to be granted beyond its
+// mounts.
+//
+// It is evidence rather than judgement, as the rest of Report is: the adapter
+// reads what the container runtime says it granted, and Check decides which of
+// those grants means an agent must not be started here.
+type ObservedPrivileges struct {
+	// Known reports whether the grants could be read at all.
+	//
+	// An unread configuration is never treated as an empty one, for the reason
+	// an unread identity is never treated as a non-root answer: the assumption
+	// would let exactly the container this check exists for through.
+	Known bool
+	// Privileged reports whether the container runs privileged, which grants
+	// every capability and every host device at once.
+	Privileged bool
+	// Capabilities are the capabilities added beyond the runtime's defaults,
+	// normalised to the way Linux names them and without the CAP_ prefix: a
+	// project may write SYS_ADMIN, CAP_SYS_ADMIN, or cap_sys_admin, and those
+	// are one capability rather than three.
+	Capabilities []string
+	// PidMode, IpcMode and NetworkMode are the namespaces the container was
+	// given, verbatim: "host" is the answer that matters and the rest are the
+	// container's own or another container's.
+	PidMode     string
+	IpcMode     string
+	NetworkMode string
+	// Devices are the host devices exposed to the container, as host paths.
+	Devices []string
 }
 
 // Mode reports which kind of environment a specification describes.

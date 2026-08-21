@@ -1,0 +1,37 @@
+# The same fixture, reaching a host path through a named volume.
+#
+# It is the shape G7-01 records: a `local` volume whose driver options hand
+# mount(2) a host path, which is an ordinary bind wearing a volume's name. A
+# reader of this file sees `- hostbind:/mnt/probe`, the mount category
+# docs/05-security-model.md blesses, and the five lines under `volumes:` are
+# what make it a window onto the host.
+#
+# The device is the home directory for the reason devcontainer-home-mount.yaml
+# interpolates it: a refusal about a path that exists only in a fixture proves
+# nothing about how a container runtime reports a real one, and this is a path
+# the daemon can resolve on every machine the suite runs on — a bind device is
+# resolved by the daemon rather than through a file-sharing layer, so on Docker
+# Desktop it must be a path that exists inside the VM as well.
+#
+# Read-only, for the reason that fixture gives: what the rule matches is the
+# host path, the container is `sleep infinity` with nothing in it that reads
+# anything, and the access mode is not what either rule turns on.
+services:
+  dev:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    user: "1000:1000"
+    container_name: feat-test-fixed-name
+    ports:
+      - "59317:80"
+    volumes:
+      - ./base-mount:/srv/api
+      - hostbind:/mnt/probe:ro
+
+volumes:
+  hostbind:
+    driver: local
+    driver_opts:
+      type: none
+      device: ${HOME}
+      o: bind

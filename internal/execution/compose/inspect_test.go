@@ -334,3 +334,303 @@ func TestMountsAreReadFromTheContainerRatherThanTheConfiguration(t *testing.T) {
 		}
 	}
 }
+
+// TestABindBackedVolumeIsRefusedWhereItsBindWouldBe is G7-01: the rules are
+// about what a mount reaches rather than about what the runtime calls it.
+//
+// `driver_opts: {type: none, device: /var/run, o: bind}` on a local volume
+// makes an ordinary bind wearing a volume's name. Measured on 2026-08-19,
+// Docker reports it as {Type: "volume", Source:
+// "/var/lib/docker/volumes/<name>/_data"} — the volume's own mountpoint, and
+// never the device — so a rule that compared the reported source compared a
+// path under the runtime's own directory against the forbidden list and found
+// nothing. Every rule below refuses the plain spelling of the same mount, which
+// made this one YAML indirection around all of them, and the Docker socket the
+// one at the end of it.
+func TestABindBackedVolumeIsRefusedWhereItsBindWouldBe(t *testing.T) {
+	environment, spec := arrange(t, composetest.New())
+
+	for name, testCase := range map[string]struct {
+		device   string
+		contains string
+	}{
+		"the directory holding the Docker socket": {"/var/run", "never grants an agent Docker access"},
+		"the Docker socket itself":                {"/var/run/docker.sock", "never grants an agent Docker access"},
+		"Feat's runtime directory":                {forbiddenPath(t, spec, execution.ForbiddenRuntime), "tmux socket"},
+		"Feat's state directory":                  {forbiddenPath(t, spec, execution.ForbiddenState), "every other task's"},
+		"the home directory":                      {forbiddenPath(t, spec, execution.ForbiddenHome), "does not allow home directory mounts"},
+		"an ordinary checkout":                    {"/repos/app/api", "leave alone"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// The shape the finding measured, verbatim: the source is the
+			// volume's mountpoint and the device is what it is a window onto.
+			err := environment.CheckMounts([]execution.ObservedMount{{
+				Type: "volume", Name: "hostrun", Source: "/var/lib/docker/volumes/hostrun/_data",
+				Device: testCase.device, Destination: "/mnt/probe", Writable: true,
+			}})
+			if err == nil {
+				t.Fatalf("a volume backed by %s was accepted, and the same path as a bind is refused",
+					testCase.device)
+			}
+			if !strings.Contains(err.Error(), testCase.contains) {
+				t.Errorf("the message does not explain the refusal\n got: %v\nwant: %q", err, testCase.contains)
+			}
+			// Both halves, because neither on its own is actionable: the name
+			// is the line in their Compose file and the device is why it is a
+			// problem.
+			for _, expected := range []string{"hostrun", testCase.device} {
+				if !strings.Contains(err.Error(), expected) {
+					t.Errorf("the message does not name %q, so the reader cannot find it: %v", expected, err)
+				}
+			}
+		})
+	}
+}
+
+// TestAnOrdinaryNamedVolumeIsStillAccepted keeps the rule above from being
+// satisfied by refusing every volume.
+//
+// A named volume the runtime backs itself is a category docs/05 blesses, and
+// Feat mounts one of its own. A device that is not a path on this host — an NFS
+// export, a CIFS share — reaches no host path either, and refusing it would
+// name a host path that does not exist.
+func TestAnOrdinaryNamedVolumeIsStillAccepted(t *testing.T) {
+	environment, _ := arrange(t, composetest.New())
+
+	for name, mount := range map[string]execution.ObservedMount{
+		"a volume the runtime backs itself": {
+			Type: "volume", Name: "node-modules", Source: "/var/lib/docker/volumes/node-modules/_data",
+			Destination: "/srv/api/node_modules", Writable: true,
+		},
+		"Feat's own provider configuration volume": {
+			Type: "volume", Name: "feat-claude", Source: "/var/lib/docker/volumes/feat-claude/_data",
+			Destination: "/feat-claude", Writable: true,
+		},
+		"an anonymous volume": {
+			Type: "volume", Name: "0f2c8b1e", Source: "/var/lib/docker/volumes/0f2c8b1e/_data",
+			Destination: "/srv/cache", Writable: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := environment.CheckMounts([]execution.ObservedMount{mount}); err != nil {
+				t.Errorf("an ordinary named volume was refused: %v", err)
+			}
+		})
+	}
+}
+
+// TestTheDeviceOfAMountedVolumeIsRead pins the question that makes the rule
+// above answerable.
+//
+// The device is not in `docker inspect`'s mount record at any format string:
+// the volume has to be asked about itself. A check that read only the container
+// would have nothing to compare, which is the whole of G7-01.
+func TestTheDeviceOfAMountedVolumeIsRead(t *testing.T) {
+	docker := composetest.New().
+		Inspect("c0ffee", "Mounts", `[{"Type":"volume","Name":"hostrun",`+
+			`"Source":"/var/lib/docker/volumes/hostrun/_data","Destination":"/var/run","RW":true}]`).
+		Volume("hostrun", map[string]string{"type": "none", "device": "/var/run", "o": "bind"})
+	environment, _ := arrange(t, docker)
+
+	mounts, err := environment.Mounts(context.Background(), "c0ffee")
+	if err != nil {
+		t.Fatalf("inspecting the container: %v", err)
+	}
+	if len(mounts) != 1 {
+		t.Fatalf("the mounts were not read: %v", mounts)
+	}
+	if mounts[0].Device != "/var/run" {
+		t.Errorf("the volume's device was read as %q, want /var/run: nothing else in the record says "+
+			"what the volume is a window onto", mounts[0].Device)
+	}
+	if !docker.Ran("volume inspect --format {{json .Options}} hostrun") {
+		t.Errorf("nothing asked the volume what it is backed by: %v", docker.Calls())
+	}
+}
+
+// TestAVolumeThatCannotBeReadStopsTheLaunch keeps an unanswerable question from
+// being read as a reassuring answer.
+//
+// The conservative direction is the same one an unreadable identity takes: a
+// volume Feat could not resolve is a volume that might be a bind onto anything.
+func TestAVolumeThatCannotBeReadStopsTheLaunch(t *testing.T) {
+	docker := composetest.New().
+		Inspect("c0ffee", "Mounts", `[{"Type":"volume","Name":"hostrun",`+
+			`"Source":"/var/lib/docker/volumes/hostrun/_data","Destination":"/var/run","RW":true}]`).
+		Fail("volume inspect --format {{json .Options}} hostrun",
+			"Error response from daemon: get hostrun: no such volume", 1)
+	environment, _ := arrange(t, docker)
+
+	_, err := environment.Mounts(context.Background(), "c0ffee")
+	if err == nil {
+		t.Fatal("a volume whose definition could not be read was passed on as an ordinary one")
+	}
+	if !strings.Contains(err.Error(), "hostrun") {
+		t.Errorf("the message does not name the volume: %v", err)
+	}
+}
+
+// TestANetworkVolumeIsNotTreatedAsAHostPath keeps the device rule from reading
+// a remote address as a path on this machine.
+//
+// `device` belongs to the driver: for nfs it is ":/export" and for cifs it is
+// "//server/share". Neither reaches this host, and a refusal naming "/server"
+// would be one nobody could act on.
+func TestANetworkVolumeIsNotTreatedAsAHostPath(t *testing.T) {
+	for name, options := range map[string]map[string]string{
+		"an NFS export": {"type": "nfs", "o": "addr=198.51.100.9,rw", "device": ":/export/data"},
+		"a CIFS share":  {"type": "cifs", "o": "username=dev", "device": "//198.51.100.9/share"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			docker := composetest.New().
+				Inspect("c0ffee", "Mounts", `[{"Type":"volume","Name":"remote",`+
+					`"Source":"/var/lib/docker/volumes/remote/_data","Destination":"/srv/data","RW":true}]`).
+				Volume("remote", options)
+			environment, _ := arrange(t, docker)
+
+			mounts, err := environment.Mounts(context.Background(), "c0ffee")
+			if err != nil {
+				t.Fatalf("inspecting the container: %v", err)
+			}
+			if mounts[0].Device != "" {
+				t.Errorf("a remote device was read as the host path %q", mounts[0].Device)
+			}
+			if err := environment.CheckMounts(mounts); err != nil {
+				t.Errorf("a volume on a remote filesystem was refused: %v", err)
+			}
+		})
+	}
+}
+
+// TestARootlessRuntimeDirectoryIsRefused is G4-05: the case
+// runtimeSocketNames' own comment says the known paths cannot enumerate.
+//
+// A rootless daemon puts its socket under /run/user/<uid>, where the uid is the
+// user's own, so no fixed path names it. `- /run/user/1000/docker.sock:/x` is
+// caught by the name rule and `- /run/user/1000:/run/user/1000` was caught by
+// nothing: the containment test compares against the seven known paths, and
+// this is not one of them.
+func TestARootlessRuntimeDirectoryIsRefused(t *testing.T) {
+	environment, _ := arrange(t, composetest.New())
+
+	for name, mount := range map[string]execution.ObservedMount{
+		"the runtime directory itself": {
+			Type: "bind", Source: "/run/user/1000", Destination: "/run/user/1000", Writable: true,
+		},
+		"the directory holding every user's": {
+			Type: "bind", Source: "/run/user", Destination: "/run/user", Writable: true,
+		},
+		"a runtime's own directory inside it": {
+			Type: "bind", Source: "/run/user/1000/podman", Destination: "/run/podman-host", Writable: true,
+		},
+		// The destination end: what the container's own client finds is the
+		// same capability as where it came from.
+		"an unremarkable directory landing there": {
+			Type: "bind", Source: "/opt/sockets", Destination: "/run/user/1000", Writable: true,
+		},
+		"a volume backed by it": {
+			Type: "volume", Name: "hostrun", Source: "/var/lib/docker/volumes/hostrun/_data",
+			Device: "/run/user/1000", Destination: "/mnt/probe", Writable: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := environment.CheckMounts([]execution.ObservedMount{mount})
+			if err == nil {
+				t.Fatal("a mount of the directory a rootless daemon puts its socket in was accepted")
+			}
+			if !strings.Contains(err.Error(), "never grants an agent Docker access") &&
+				!strings.Contains(err.Error(), "controls this host's containers") {
+				t.Errorf("the message does not say what the rule is: %v", err)
+			}
+		})
+	}
+}
+
+// TestAMountLandingOnAKnownSocketPathIsRefused is the destination half of
+// G4-05.
+//
+// Containment was tested on the source alone. Feat cannot see what a host
+// directory holds, so a directory mounted *at* /var/run puts whatever socket is
+// inside it exactly where the container's own client looks — and the source
+// path gives nothing to compare, because a socket at an unenumerable host path
+// is what the seven known paths cannot cover.
+func TestAMountLandingOnAKnownSocketPathIsRefused(t *testing.T) {
+	environment, _ := arrange(t, composetest.New())
+
+	err := environment.CheckMounts([]execution.ObservedMount{
+		{Type: "bind", Source: "/opt/colima/default", Destination: "/var/run", Writable: true},
+	})
+	if err == nil {
+		t.Fatal("a host directory mounted at /var/run was accepted")
+	}
+	if !strings.Contains(err.Error(), "/var/run/docker.sock") {
+		t.Errorf("the message does not name the socket path the mount lands on: %v", err)
+	}
+}
+
+// TestARunOfTheMillDirectoryUnderTheRuntimeDirectoryIsAccepted keeps the
+// rootless rule from refusing what it has no reason to.
+//
+// The per-user runtime directory holds a session bus and a keyring as well as a
+// daemon socket. A rule that refused every path under it would refuse them with
+// no way out, which is the false positive a user learns to ignore checks over.
+func TestARunOfTheMillDirectoryUnderTheRuntimeDirectoryIsAccepted(t *testing.T) {
+	environment, _ := arrange(t, composetest.New())
+
+	if err := environment.CheckMounts([]execution.ObservedMount{
+		{Type: "bind", Source: "/run/user/1000/bus", Destination: "/run/user/1000/bus"},
+		{Type: "bind", Source: "/run/user/1000/keyring", Destination: "/run/keyring"},
+	}); err != nil {
+		t.Errorf("an ordinary path under the per-user runtime directory was refused: %v", err)
+	}
+}
+
+// TestAMountWithNothingOfThisHostBehindItIsAccepted keeps the two rules that
+// read a destination from firing on a mount that reaches no host path.
+//
+// A tmpfs at /run is how a devcontainer that runs systemd is written, and a
+// volume the runtime backs itself holds nothing of this machine's. Neither can
+// put the host's daemon socket where a client would find it, whatever it is
+// mounted over, and refusing them would refuse an ordinary image for a rule
+// about paths it does not have.
+func TestAMountWithNothingOfThisHostBehindItIsAccepted(t *testing.T) {
+	environment, _ := arrange(t, composetest.New())
+
+	if err := environment.CheckMounts([]execution.ObservedMount{
+		{Type: "tmpfs", Destination: "/run", Writable: true},
+		{Type: "volume", Name: "state", Source: "/var/lib/docker/volumes/state/_data",
+			Destination: "/run/user/1000", Writable: true},
+	}); err != nil {
+		t.Errorf("a mount with no host path behind it was refused: %v", err)
+	}
+}
+
+// TestSourcesNamesWhatAVolumeIsBackedBy is G7-11: the one diagnostic that could
+// have surfaced G7-01 printed the reassuring half of it.
+//
+// Rendering a volume by name is right for a volume the runtime backs itself —
+// /var/lib/docker/volumes/feat-claude/_data is a useless thing to show somebody
+// about a volume they named. For a bind-backed one it discards the only field
+// that distinguishes it, and `hostrun -> /var/run (volume, rw)` reads as a
+// category the security model blesses.
+func TestSourcesNamesWhatAVolumeIsBackedBy(t *testing.T) {
+	rendered := compose.Sources([]execution.ObservedMount{
+		{Type: "volume", Name: "hostrun", Source: "/var/lib/docker/volumes/hostrun/_data",
+			Device: "/var/run", Destination: "/var/run", Writable: true},
+		{Type: "volume", Name: "feat-claude", Source: "/var/lib/docker/volumes/feat-claude/_data",
+			Destination: "/feat-claude", Writable: true},
+	})
+
+	want := []string{
+		"feat-claude -> /feat-claude (volume, rw)",
+		"hostrun (/var/run) -> /var/run (volume, rw)",
+	}
+	if len(rendered) != len(want) {
+		t.Fatalf("the mounts rendered as %v, want %v", rendered, want)
+	}
+	for i, expected := range want {
+		if rendered[i] != expected {
+			t.Errorf("the mount rendered as %q, want %q", rendered[i], expected)
+		}
+	}
+}
