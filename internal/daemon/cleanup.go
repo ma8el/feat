@@ -232,7 +232,16 @@ func (s *service) resolveEnvironmentCleanup(ctx context.Context, task *domain.Ta
 func (s *service) resolveUnrecordedEnvironmentCleanup(
 	ctx context.Context, task *domain.Task, plan *reconcile.Plan,
 ) {
-	project := s.agentProject(task)
+	project, err := s.agentProject(task)
+	if err != nil {
+		// Not silence, and not an empty plan. A plan that cannot see a task's
+		// containers is the plan the dogfood run archived a task over, so the
+		// question that could not be asked is carried as a problem: a plan with
+		// one is rendered un-archivable, and the user reads what Feat could not
+		// see rather than an empty plan reporting success (ADR-059).
+		plan.Problems = append(plan.Problems, err.Error())
+		return
+	}
 	if project == nil {
 		return
 	}
@@ -483,7 +492,10 @@ func (s *service) removeAgentContainers(
 func (s *service) removeUnrecordedAgentContainers(
 	ctx context.Context, task *domain.Task, targets []reconcile.Target,
 ) ([]api.CleanupRemoval, error) {
-	project := s.agentProject(task)
+	project, err := s.agentProject(task)
+	if err != nil {
+		return nil, fmt.Errorf("%s was not removed: %w", targets[0].Identity, err)
+	}
 	if project == nil {
 		// The plan is re-resolved immediately before this runs and its token
 		// compared, so a target exists only because this same call answered a
@@ -558,7 +570,16 @@ func (s *service) removeVolumes(
 		// A volume of a launch that left no record. It is asked by name for the
 		// same reason its containers are: a volume the launch created carries the
 		// project's label whether or not anything wrote the project down.
-		if project := s.agentProject(task); project != nil {
+		//
+		// A question that could not be asked fails the removal rather than
+		// skipping it. Reporting a user's confirmed selection as not removed,
+		// with no error and no problem, tells them their choice was declined and
+		// not why — and the volumes are still on the machine either way.
+		project, err := s.agentProject(task)
+		if err != nil {
+			return volumeRemovals(names, removed), err
+		}
+		if project != nil {
 			gone, err := project.RemoveVolumes(ctx, names)
 			removed = append(removed, gone...)
 			if err != nil {
@@ -758,12 +779,27 @@ func (s *service) removeControl(
 // only one the workspace is mounted into — the application runtime's generated
 // override mounts worktrees and never the control tree (ADR-034).
 //
+// A container that has stopped holds nothing. ADR-059's evidence is an ordering
+// — the removal failed while the container was up and succeeded once it had died
+// — so the containers this refuses over are the ones that have not stopped.
+// `feat task stop` overnight leaves exited containers on purpose (ADR-057), and
+// refusing a control-workspace cleanup over those would refuse in exactly the
+// state the removal works in. A container whose state Docker did not report is
+// counted as holding it, for the same reason the rest of this function refuses
+// on what it cannot establish.
+//
 // An unanswerable question refuses. Feat cannot say the tree is unheld while
-// Docker will not say what it holds, and a refusal that names why leaves the
-// user a workspace they can still remove after fixing it — where proceeding
+// Docker will not say what it holds — nor while it cannot be asked at all, which
+// is what a project switched to host mode after the launch and a Docker that has
+// left the daemon's PATH both produce — and a refusal that names why leaves the
+// user a workspace they can still remove after fixing it, where proceeding
 // leaves a half-removed tree and no account of it.
 func (s *service) controlWorkspaceReleased(ctx context.Context, task *domain.Task) error {
-	project := s.agentProject(task)
+	project, err := s.agentProject(task)
+	if err != nil {
+		return fmt.Errorf("whether a container still mounts the control workspace of task %s "+
+			"could not be established: %w", task.ID, err)
+	}
 	if project == nil {
 		return nil
 	}
@@ -773,7 +809,7 @@ func (s *service) controlWorkspaceReleased(ctx context.Context, task *domain.Tas
 		return fmt.Errorf("the Compose project %s could not be observed, so Feat cannot establish that no "+
 			"container still mounts the control workspace of task %s: %w", project.Identity(), task.ID, err)
 	}
-	held := remains.Containers()
+	held := remains.Live()
 	if held.Empty() {
 		return nil
 	}

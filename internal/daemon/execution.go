@@ -127,40 +127,67 @@ func agentComposeProject(task *domain.Task) string {
 // questions that can be asked without a specification: what is still there, and
 // remove it.
 //
-// It returns nil where there is nothing to ask about, and each case is an
-// absence rather than a failure: a draft has had nothing created for it
-// (domain.WorkflowDraft), a project that runs its agent on this host has no
-// Compose project of its own, and a machine with no Docker holds no container.
-// None of them belongs in a report or a plan, because a question that does not
-// apply has no answer to be missing.
+// Three answers rather than two, and the third is the point. A nil project and
+// no error is a question that does not apply, and only the task's own record
+// says so: a draft has had nothing created for it (domain.WorkflowDraft), and a
+// session recording domain.ExecutionHost is a task whose agent ran on this host
+// — an invariant the domain enforces, since a host session may carry no
+// execution environment at all. Neither belongs in a report or a plan, because a
+// question that does not apply has no answer to be missing. An error is the
+// third: the question applies and could not be asked, which every caller is
+// obliged to say out loud rather than read as "nothing to worry about"
+// (ADR-059).
 //
-// The configuration is read as a way of not asking rather than as a way of
-// answering, which is why an unreadable one does not stop the question. The name
-// depends on nothing but the two identifiers, so Docker can be asked whatever
-// the project file says or fails to say — and for the case this exists for, the
-// project file is often exactly what changed. What the configuration saves is
-// the pointless query about a host-mode task, and a project that cannot be read
-// gives that up rather than giving up the answer.
-func (s *service) agentProject(task *domain.Task) *compose.Project {
+// What is deliberately not consulted is today's configuration. A task's
+// environment is the one it was launched with, and `agent.execution.mode` is a
+// line a user edits: reading it here made an edit after the fact decide whether
+// Feat asked about a container the launch had already created, which is the
+// answer that removed a control workspace a live container still mounted. So a
+// task whose record does not say where its agent ran is asked about — the name
+// depends on nothing but the two identifiers, so Docker can answer whatever the
+// project file says or fails to say. That is the ADR-059 case and only that
+// case: a launch that failed before it recorded a session. Every task with a
+// session carries the mode it was launched in, so a host-mode project pays no
+// query for the tasks that worked.
+//
+// A machine with no Docker therefore refuses rather than answering. It is the
+// case the derived name exists for and the one where "no answer" is least
+// affordable: a task that may hold a container, on a host that cannot be asked
+// whether it does.
+func (s *service) agentProject(task *domain.Task) (*compose.Project, error) {
 	if task.Workflow == domain.WorkflowDraft {
-		return nil
+		return nil, nil
 	}
-	if task.Session == nil || task.Session.Execution == nil {
-		cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
-		if err == nil && !cfg.Agent.Execution.Devcontainer() {
-			return nil
-		}
+	if task.Session != nil && task.Session.ExecutionMode == domain.ExecutionHost {
+		return nil, nil
 	}
 
-	project, err := compose.ByName(agentComposeProject(task), compose.Options{Runner: s.docker})
+	directory, err := s.composeDirectory()
 	if err != nil {
-		// The only thing ByName asks of this machine is Docker itself, and a
-		// machine without it has no container of any task to find. Reporting the
-		// absence of a tool as the absence of an answer would put a problem in
-		// every report on every machine that runs its agents on the host.
-		return nil
+		return nil, fmt.Errorf("the agent Compose project of task %s could not be addressed: %w", task.ID, err)
 	}
-	return project
+	project, err := compose.ByName(agentComposeProject(task), directory, compose.Options{Runner: s.docker})
+	if err != nil {
+		return nil, fmt.Errorf("the agent Compose project of task %s could not be addressed: %w", task.ID, err)
+	}
+	return project, nil
+}
+
+// composeDirectory is the directory the by-name Compose invocations run from.
+//
+// Any directory Feat owns would do, and this one is the execution adapter's own:
+// what matters is that it is neither the daemon's inherited working directory
+// nor anything a project controls, so no compose.yaml on the machine can become
+// the model for a project addressed by name (ADR-059's queries read no file).
+// It is created rather than assumed, because the first task of a fresh
+// installation asks these questions before any launch has written anything under
+// it.
+func (s *service) composeDirectory() (string, error) {
+	root := s.layout.ExecutionRoot()
+	if err := os.MkdirAll(root, stateDirPerm); err != nil {
+		return "", fmt.Errorf("creating the execution directory %s: %w", root, err)
+	}
+	return root, nil
 }
 
 // overridePath is where a task's generated Compose override is written.

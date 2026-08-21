@@ -40,6 +40,11 @@ type Docker struct {
 	// full records every invocation verbatim, which is what a test pinning an
 	// argument vector reads.
 	full [][]string
+	// directories records the host working directory of every invocation, in
+	// the same order. It is what a test pinning where a command ran reads: a
+	// Compose invocation with no directory of its own runs in whatever the
+	// daemon inherited, and the flags alone do not show that.
+	directories []string
 }
 
 // New returns a fake Docker that answers plausibly: a recent Compose, a project
@@ -181,6 +186,7 @@ func (d *Docker) Run(_ context.Context, invocation execution.Invocation) (execut
 	d.mu.Lock()
 	d.calls = append(d.calls, key)
 	d.full = append(d.full, invocation.Arguments)
+	d.directories = append(d.directories, invocation.Directory)
 	hook := d.hooks[key]
 	d.mu.Unlock()
 
@@ -233,6 +239,23 @@ func (d *Docker) Vector(command string) ([]string, bool) {
 		}
 	}
 	return nil, false
+}
+
+// Directory returns the host working directory of the first call matching the
+// shortened command.
+//
+// An empty string is an answer rather than an absence: it is the value that
+// makes a command run wherever the daemon was started, which is what a test
+// about Compose's own file discovery is asking about.
+func (d *Docker) Directory(command string) (string, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for i, call := range d.calls {
+		if call == command {
+			return d.directories[i], true
+		}
+	}
+	return "", false
 }
 
 // Shorten removes the Compose project flags every invocation carries, so a test

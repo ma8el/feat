@@ -55,6 +55,18 @@ func (d *drafting) leftBehind(task *domain.Task) {
 		Answer("down", "")
 }
 
+// stillRunning arranges the same Docker while the container is up.
+//
+// It is the state ADR-059's evidence 4 measured the control-workspace removal
+// failing in: the first cleanup, with the container live, failed with `unlinkat
+// …/outbox: permission denied`. leftBehind is the other one — the same container
+// hours later, exited — where the second cleanup succeeded.
+func (d *drafting) stillRunning(task *domain.Task) {
+	identity := agentIdentity(task)
+	d.docker.Answer("ps --all --format json", `{"ID":"c0ffee","Name":"`+identity+`-dev-1","Service":"dev",`+
+		`"State":"running","Status":"Up 2 hours"}`)
+}
+
 // tookThemAway arranges the same Docker once the containers and networks are
 // gone.
 func (d *drafting) tookThemAway(task *domain.Task) {
@@ -62,6 +74,17 @@ func (d *drafting) tookThemAway(task *domain.Task) {
 	d.docker.
 		Answer("ps --all --format json", "").
 		Answer("network ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}", "")
+}
+
+// switchTo replaces the fixture project's configuration, the way a user editing
+// the file does.
+func (d *drafting) switchTo(t *testing.T, fixture string) {
+	t.Helper()
+
+	if err := os.WriteFile(filepath.Join(d.layout.ProjectConfigDir(), "app.yaml"),
+		[]byte(fixture), 0o600); err != nil {
+		t.Fatalf("replacing the project configuration: %v", err)
+	}
 }
 
 // planOf resolves what a task of the drafting harness owns.
@@ -151,8 +174,15 @@ func TestArchivingIsRefusedOverALaunchsLeftovers(t *testing.T) {
 // only when a user chose both — so the rule is established rather than assumed,
 // and a cleanup that would fail part way through refuses before it removes
 // anything.
+//
+// The arrangement was rewritten rather than kept (G4-11): it refused over the
+// exited container of abandonedLaunch, which is the state the second cleanup
+// *succeeded* in, so the test that named the ordering rule pinned a refusal the
+// ordering does not call for. What holds the workspace is a container that is
+// running, and the second half below is now the one the finding is about.
 func TestTheControlWorkspaceIsNotRemovedWhileAContainerHoldsIt(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
+	arranged.stillRunning(task)
 
 	workspace, err := arranged.service.controlWorkspace(task)
 	if err != nil {
@@ -186,6 +216,145 @@ func TestTheControlWorkspaceIsNotRemovedWhileAContainerHoldsIt(t *testing.T) {
 	}
 	if workspace.Exists() {
 		t.Error("the control workspace is still there")
+	}
+}
+
+// TestAStoppedContainerDoesNotHoldTheControlWorkspace is G4-11 at the caller.
+//
+// ADR-057 added `feat task stop`, which keeps a task's containers, and the
+// classes of a cleanup are independent choices (FR-CLEAN-002). So stopping a
+// task overnight and cleaning up its control workspace alone the next morning is
+// an ordinary thing to ask for, and it was refused: "mounted into container
+// feat-agent-…-dev-1 (Exited (137) 3 hours ago)". The measurement ADR-059's rule
+// comes from is that the removal succeeded once the container had died.
+//
+// The containers stay on the machine throughout — that is the point. What is
+// established is that they have stopped, not that they are gone.
+func TestAStoppedContainerDoesNotHoldTheControlWorkspace(t *testing.T) {
+	arranged, task := abandonedLaunch(t)
+
+	workspace, err := arranged.service.controlWorkspace(task)
+	if err != nil {
+		t.Fatalf("resolving the control workspace: %v", err)
+	}
+	if !workspace.Exists() {
+		t.Fatal("the failed launch left no control workspace, so there is nothing to remove")
+	}
+
+	plan := arranged.planOf(t, task)
+	if _, err := arranged.service.Cleanup(context.Background(), task.ID,
+		selectAll(plan, reconcile.ClassControl)); err != nil {
+		t.Fatalf("the control workspace of a task whose container has exited was not removed: %v", err)
+	}
+	if workspace.Exists() {
+		t.Error("the control workspace is still there")
+	}
+	if arranged.docker.Ran("down") {
+		t.Error("the cleanup removed containers the user did not select")
+	}
+}
+
+// TestADockerThatCannotBeAskedReleasesNothing is the first of the two branches
+// G6-13 found uncovered: the question could not be asked at all.
+//
+// The sibling below it — a Docker daemon that answers with a failure — has been
+// tested since the fix branch. This one returns before that: no Docker binary,
+// no project, and the release rule read the nil as "there is nothing to ask
+// about" and removed the tree. The difference between the two nils is the whole
+// of ADR-059's refusal rule, and only one of them was pinned.
+func TestADockerThatCannotBeAskedReleasesNothing(t *testing.T) {
+	arranged, task := abandonedLaunch(t)
+	arranged.docker.Missing("docker")
+
+	err := arranged.service.controlWorkspaceReleased(context.Background(), task)
+	if err == nil {
+		t.Fatal("a machine with no Docker was read as nothing holding the workspace")
+	}
+	for _, expected := range []string{task.ID.String(), "not installed"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("the refusal does not mention %q: %v", expected, err)
+		}
+	}
+}
+
+// TestAPlanThatCannotSeeAContainerSaysSoAndIsNotArchivable is the consequence
+// pass 0 recorded for the same silent nil.
+//
+// "the plan names nothing, Archivable stays true, and the user can archive the
+// task over a live container exactly as before" — which is ADR-059 evidence 2
+// reproduced by a different route: the archive refusal reads the plan, so a plan
+// that could see nothing refuses nothing.
+func TestAPlanThatCannotSeeAContainerSaysSoAndIsNotArchivable(t *testing.T) {
+	arranged, task := abandonedLaunch(t)
+	arranged.docker.Missing("docker")
+
+	plan := arranged.planOf(t, task)
+	if len(plan.Problems) == 0 {
+		t.Fatalf("the plan reports no problem though it could not ask about the containers: %+v", plan)
+	}
+	if plan.Archivable {
+		t.Error("the task is offered for archiving over containers nothing could look for")
+	}
+	if _, named := classOf(plan, reconcile.ClassAgentContainers); named {
+		t.Error("the plan names containers it never managed to ask about")
+	}
+}
+
+// TestAProjectSwitchedToHostModeStillAsksAboutTheLaunchsContainers is the second
+// branch, and the one G6-13's failure scenario is written from.
+//
+// A task's environment is the one it was launched with. `agent.execution.mode`
+// is a line in a file a user edits, and reading it here let an edit made after
+// the launch decide whether Feat asked about a container the launch had already
+// created — so a project switched to host mode released a workspace a live
+// container still mounted, silently, on the one path ADR-059 exists for.
+//
+// The record is what may answer this, and for a session-less task the record
+// does not: the session that would carry the mode was never created. So the
+// question is asked.
+func TestAProjectSwitchedToHostModeStillAsksAboutTheLaunchsContainers(t *testing.T) {
+	arranged, task := abandonedLaunch(t)
+	arranged.stillRunning(task)
+	arranged.switchTo(t, hostFixture)
+
+	err := arranged.service.controlWorkspaceReleased(context.Background(), task)
+	if err == nil {
+		t.Fatal("a configuration edit released a workspace a running container still mounts")
+	}
+	if !strings.Contains(err.Error(), agentIdentity(task)+"-dev-1") {
+		t.Errorf("the refusal does not name the container: %v", err)
+	}
+}
+
+// TestVolumesAreNotReportedUnremovedWithoutSayingWhy is the other consequence of
+// the same silent nil (G3-07).
+//
+// removeVolumes reached the same nil and skipped the removal, so the user's
+// confirmed selection came back as Removed: false with no error and no problem —
+// a choice declined without a reason, over volumes that are still on the
+// machine.
+//
+// It is checked on the rule rather than through a whole cleanup, for the reason
+// the Docker-failure test next to it is: a cleanup re-resolves its plan first
+// and would refuse earlier, on the token, for a different reason.
+func TestVolumesAreNotReportedUnremovedWithoutSayingWhy(t *testing.T) {
+	arranged, task := abandonedLaunch(t)
+	arranged.docker.Missing("docker")
+
+	plan := &reconcile.Plan{Targets: []reconcile.Target{{
+		Class: reconcile.ClassVolumes, Identity: agentIdentity(task) + "_state", Present: true,
+	}}}
+	removed, err := arranged.service.removeVolumes(context.Background(), task, plan)
+	if err == nil {
+		t.Fatalf("the volumes were reported as %+v with no error", removed)
+	}
+	if !strings.Contains(err.Error(), task.ID.String()) {
+		t.Errorf("the failure does not name the task: %v", err)
+	}
+	for _, entry := range removed {
+		if entry.Removed {
+			t.Errorf("volume %s was reported removed by a Docker that was never run", entry.Identity)
+		}
 	}
 }
 
@@ -257,6 +426,61 @@ func TestALaunchsLeftoversAreReportedByReconciliation(t *testing.T) {
 			t.Errorf("reconciliation removed or started something: %q", call)
 		}
 	}
+}
+
+// TestAConfirmedTaskIsNotToldNothingIsLostWhileItsContainerIsNamed is the last
+// residual of F2-02.
+//
+// One report said both things. The terminal finding of a task with no session
+// offered "clean it up and prepare the task again; its agent never ran, so
+// nothing it did is lost", and the finding under it named the container that
+// launch had left on the machine. The reassurance is true of a task interrupted
+// before its container existed and false of the one this whole path exists for,
+// and the two are the same shape in the record — so the answer the pass already
+// has is what decides which sentence a user reads.
+func TestAConfirmedTaskIsNotToldNothingIsLostWhileItsContainerIsNamed(t *testing.T) {
+	arranged, task := abandonedLaunch(t)
+
+	report, err := arranged.service.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	terminal, found := terminalFinding(report, task)
+	if !found {
+		t.Fatalf("no terminal finding names task %s: %+v", task.ID, report.Findings)
+	}
+	if strings.Contains(terminal.Action, "nothing it did is lost") {
+		t.Errorf("the report says nothing was lost and names the container in the same pass: %q",
+			terminal.Action)
+	}
+	if !strings.Contains(terminal.Action, agentIdentity(task)+"-dev-1") {
+		t.Errorf("the finding does not say what the launch left: %q", terminal.Action)
+	}
+
+	// And the reassurance survives for the task it was written for: the same
+	// task once nothing of it is on the machine.
+	arranged.tookThemAway(task)
+	report, err = arranged.service.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	terminal, found = terminalFinding(report, task)
+	if !found {
+		t.Fatalf("no terminal finding names task %s: %+v", task.ID, report.Findings)
+	}
+	if !strings.Contains(terminal.Action, "nothing it did is lost") {
+		t.Errorf("a task that left nothing is not told so: %q", terminal.Action)
+	}
+}
+
+// terminalFinding returns the terminal finding about one task.
+func terminalFinding(report api.Reconciliation, task *domain.Task) (api.ReconciliationFinding, bool) {
+	for _, finding := range report.Findings {
+		if finding.Class == string(reconcile.ClassTerminal) && finding.TaskID == task.ID.String() {
+			return finding, true
+		}
+	}
+	return api.ReconciliationFinding{}, false
 }
 
 // TestAnUnreadableProjectStillFindsWhatTheLaunchLeft is why the configuration is
