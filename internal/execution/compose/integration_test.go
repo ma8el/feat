@@ -714,7 +714,10 @@ func TestRealAProjectIsFoundAndRemovedByNameAlone(t *testing.T) {
 		t.Fatalf("stopping the environment: %v", err)
 	}
 
-	project, err := compose.ByName(spec.Identity, compose.Options{})
+	// From a directory of its own, as the daemon asks from one under Feat's
+	// state root: what `ps` and `down` act on must not depend on where the
+	// process that runs them happens to stand.
+	project, err := compose.ByName(spec.Identity, t.TempDir(), compose.Options{})
 	if err != nil {
 		t.Fatalf("addressing Compose project %s by name: %v", spec.Identity, err)
 	}

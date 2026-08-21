@@ -11,6 +11,7 @@ import (
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/reconcile"
 	"github.com/ma8el/feat/internal/store"
@@ -56,9 +57,16 @@ func (s *service) Reconcile(ctx context.Context) (api.Reconciliation, error) {
 		return api.Reconciliation{}, err
 	}
 
-	s.reconcileTerminals(ctx, tasks, report)
+	// Asked before either pass that says anything about it, and asked once. Two
+	// passes report on a task whose record names no environment — the terminal
+	// pass, which has to say whether anything of it is lost, and the environment
+	// pass, which names what a launch left — and a report whose two halves
+	// disagree about the same container is worse than either half alone.
+	left := s.unrecordedEnvironments(ctx, tasks)
+
+	s.reconcileTerminals(ctx, tasks, report, left)
 	s.reconcileWorktrees(ctx, tasks, report)
-	s.reconcileEnvironments(ctx, tasks, report)
+	s.reconcileEnvironments(ctx, tasks, report, left)
 	s.reconcileRuntimes(ctx, tasks, report)
 	s.reconcileControl(ctx, tasks, report)
 	s.reconcileReviews(ctx, tasks, report)
@@ -127,7 +135,9 @@ func (s *service) reconcilableTasks(ctx context.Context, report *reconcile.Repor
 // marked stopped without anything being restarted, and a terminal whose
 // metadata claims another project is reported rather than adopted. What it adds
 // is that a damaged terminal is now a finding rather than the end of discovery.
-func (s *service) reconcileTerminals(ctx context.Context, tasks []*domain.Task, report *reconcile.Report) {
+func (s *service) reconcileTerminals(
+	ctx context.Context, tasks []*domain.Task, report *reconcile.Report, left leftovers,
+) {
 	found, err := s.terminals.Discover(ctx)
 	if err != nil {
 		report.Fail(reconcile.Problem{Class: reconcile.ClassTerminal, Reason: fmt.Sprintf(
@@ -171,7 +181,7 @@ func (s *service) reconcileTerminals(ctx context.Context, tasks []*domain.Task, 
 		if task.Session == nil && task.Workflow != domain.WorkflowPreparing && task.Workflow != domain.WorkflowFailed {
 			continue
 		}
-		if err := s.reconcileTerminal(ctx, task, targets, report); err != nil {
+		if err := s.reconcileTerminal(ctx, task, targets, report, left); err != nil {
 			report.Fail(reconcile.Problem{Class: reconcile.ClassTerminal, Project: task.ProjectID, Task: task.ID,
 				Reason: "the task's terminal could not be reconciled: " + err.Error()})
 		}
@@ -195,6 +205,7 @@ func (s *service) reconcileTerminals(ctx context.Context, tasks []*domain.Task, 
 // reconcileTerminal reconciles one task's terminal under its own lock.
 func (s *service) reconcileTerminal(
 	ctx context.Context, task *domain.Task, targets map[domain.TaskID]tmux.Terminal, report *reconcile.Report,
+	left leftovers,
 ) error {
 	defer s.locks.lock(task.ID)()
 
@@ -225,8 +236,7 @@ func (s *service) reconcileTerminal(
 				Class: reconcile.ClassTerminal, Status: reconcile.StatusMissing,
 				Project: current.ProjectID, Task: current.ID,
 				Detail: "the task was confirmed but has no terminal",
-				Action: "clean it up and prepare the task again; its agent never ran, so nothing " +
-					"it did is lost. Feat has no way to launch a confirmed task a second time",
+				Action: confirmedWithoutTerminal(left[current.ID]),
 			})
 			return nil
 		}
@@ -494,10 +504,12 @@ func holdsAClaimedWorktree(path string, claimed map[string]bool) bool {
 // Observing is all it does. A stopped devcontainer stays stopped: bringing one
 // up is what a resume or a launch does, and both are things a user asked for
 // (FR-STATE-004).
-func (s *service) reconcileEnvironments(ctx context.Context, tasks []*domain.Task, report *reconcile.Report) {
+func (s *service) reconcileEnvironments(
+	ctx context.Context, tasks []*domain.Task, report *reconcile.Report, left leftovers,
+) {
 	for _, task := range tasks {
 		if task.Session == nil || task.Session.Execution == nil {
-			s.reportUnrecordedEnvironment(ctx, task, report)
+			reportUnrecordedEnvironment(task, report, left[task.ID])
 			continue
 		}
 		recorded := task.Session.Execution
@@ -546,7 +558,7 @@ func (s *service) reconcileEnvironments(ctx context.Context, tasks []*domain.Tas
 	}
 }
 
-// reportUnrecordedEnvironment looks for the containers of a task whose record
+// reportUnrecordedEnvironment reports the containers of a task whose record
 // names none.
 //
 // It is the half of this pass F2-15 found missing. A launch that fails after its
@@ -564,29 +576,106 @@ func (s *service) reconcileEnvironments(ctx context.Context, tasks []*domain.Tas
 // flight has its container before it has its session, so a pass requested during
 // those seconds reports what is true then; the next one, once the session
 // exists, reports the same container as present.
-func (s *service) reportUnrecordedEnvironment(ctx context.Context, task *domain.Task, report *reconcile.Report) {
-	project := s.agentProject(task)
-	if project == nil {
+//
+// The moment is the one unrecordedEnvironments read, rather than a second look
+// of this function's own: the terminal pass has already told the user what this
+// task left, and two Docker queries a few milliseconds apart are two moments a
+// report could describe differently.
+func reportUnrecordedEnvironment(task *domain.Task, report *reconcile.Report, found leftover) {
+	switch {
+	case !found.applies:
 		return
-	}
-
-	remains, err := project.Remains(ctx)
-	if err != nil {
+	case found.failure != nil:
 		report.Fail(reconcile.Problem{Class: reconcile.ClassAgentContainers, Project: task.ProjectID, Task: task.ID,
-			Reason: fmt.Sprintf("Compose project %s could not be observed: %s", project.Identity(), err)})
+			Reason: found.failure.Error()})
+	case found.remains.Empty():
 		return
+	default:
+		report.Add(reconcile.Finding{
+			Class: reconcile.ClassAgentContainers, Status: reconcile.StatusOrphaned,
+			Project: task.ProjectID, Task: task.ID, Identity: found.identity,
+			Detail: "a launch of this task left " + found.remains.Describe() +
+				", and the task records no agent session to own them",
+			Action: "clean the task up with `feat task cleanup " + task.Key().String() +
+				"`, which resolves them by the Compose project name this task derives",
+		})
 	}
-	if remains.Empty() {
-		return
+}
+
+// leftovers is what a pass found of the tasks whose record names no
+// environment, keyed by task.
+//
+// A task is absent from it when the question does not apply to that task at all.
+type leftovers map[domain.TaskID]leftover
+
+// leftover is what one such task still has, or why nobody can say.
+type leftover struct {
+	// applies reports whether the question was one this task could be asked.
+	applies bool
+	// identity is the Compose project name that was asked about.
+	identity string
+	// remains is what it still has, empty when it has nothing.
+	remains compose.Remains
+	// failure is why the question could not be answered, nil when it was.
+	failure error
+}
+
+// unrecordedEnvironments asks what the tasks with no recorded environment still
+// have on the machine.
+//
+// Once per task per pass, and the answer is shared: see Reconcile. It is a
+// derivation and not a scan — the Compose project name comes from the task's own
+// two identifiers — so what it finds belongs to that task by construction
+// (ADR-059). Nothing is adopted, started, or removed here or in either pass that
+// reads it.
+func (s *service) unrecordedEnvironments(ctx context.Context, tasks []*domain.Task) leftovers {
+	found := make(leftovers)
+	for _, task := range tasks {
+		if task.Session != nil && task.Session.Execution != nil {
+			continue
+		}
+		project, err := s.agentProject(task)
+		switch {
+		case err != nil:
+			found[task.ID] = leftover{applies: true, failure: err}
+		case project == nil:
+			continue
+		default:
+			remains, err := project.Remains(ctx)
+			if err != nil {
+				err = fmt.Errorf("the Compose project %s could not be observed: %w", project.Identity(), err)
+			}
+			found[task.ID] = leftover{
+				applies: true, identity: project.Identity(), remains: remains, failure: err,
+			}
+		}
 	}
-	report.Add(reconcile.Finding{
-		Class: reconcile.ClassAgentContainers, Status: reconcile.StatusOrphaned,
-		Project: task.ProjectID, Task: task.ID, Identity: project.Identity(),
-		Detail: "a launch of this task left " + remains.Describe() +
-			", and the task records no agent session to own them",
-		Action: "clean the task up with `feat task cleanup " + task.Key().String() +
-			"`, which resolves them by the Compose project name this task derives",
-	})
+	return found
+}
+
+// confirmedWithoutTerminal says what to do about a confirmed task with no
+// terminal, and says only what this pass established.
+//
+// "its agent never ran, so nothing it did is lost" is true of the ordinary case
+// and is the reassurance the finding exists to give: a task confirmed and
+// interrupted before its terminal existed can be cleaned up without a thought.
+// It is not true of a launch that failed after its container existed — also a
+// task with no session — and that report named the container in the very next
+// finding. One document said both. What a user does about the task depends on
+// which of the two it is, so the answer this pass already has is what decides
+// the sentence.
+func confirmedWithoutTerminal(found leftover) string {
+	const action = "clean it up and prepare the task again. Feat has no way to launch a confirmed task a second time"
+	switch {
+	case found.failure != nil:
+		return action + "; whether a launch of it left containers behind could not be established, " +
+			"and the problem recorded against its agent containers says why"
+	case !found.remains.Empty():
+		return action + "; a launch of it left " + found.remains.Describe() +
+			" on the machine, which the cleanup removes"
+	default:
+		return action + "; its agent never ran, so nothing it did is lost"
+	}
 }
 
 // recordObservedEnvironment writes down what an agent environment turned out to

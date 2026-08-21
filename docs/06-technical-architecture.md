@@ -788,8 +788,9 @@ Stopped application containers are reported, not restarted.
 Cleanup removes classes in a fixed order, so that what holds a file is gone
 before the file is. The control workspace is last, and its removal establishes
 rather than assumes the order: a task's agent containers are asked about by name
-first, and a workspace still mounted into one is refused rather than removed
-half way. See ADR-059.
+first, and a workspace still mounted into a running one is refused rather than
+removed half way. Stopped containers do not refuse it, and a question that could
+not be asked does. See ADR-059.
 
 ## Future remote architecture
 

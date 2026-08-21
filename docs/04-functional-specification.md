@@ -367,8 +367,12 @@ whatever holds a file is stopped before the file is removed. See ADR-037.
 
 Because the classes are independent choices, the order alone does not establish
 that. Removing the control workspace therefore asks first whether any container
-of the task's agent Compose project is still there, and refuses rather than
-removing a directory that is an active bind-mount source. See ADR-059.
+of the task's agent Compose project is still running, and refuses rather than
+removing a directory that is an active bind-mount source. A container that has
+stopped has released what it mounted, and `feat task stop` keeps a task's
+containers on purpose, so a stopped one does not refuse the removal. A question
+that cannot be asked — no Docker, or a Docker that will not answer — refuses in
+the same way an answer of "still there" does. See ADR-059.
 
 ### FR-CLEAN-003 — Dirty/unmerged protection
 

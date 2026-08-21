@@ -72,7 +72,7 @@ func (e *Environment) Destroy(ctx context.Context) (execution.State, error) {
 // That makes "cleanup never touches an external resource" a property of the
 // enumeration rather than a filter somebody has to remember to apply.
 func (e *Environment) Volumes(ctx context.Context) ([]string, error) {
-	return listVolumes(ctx, e.runner, e.docker, e.spec.Identity)
+	return listVolumes(ctx, e.runner, e.docker, e.spec.Directory, e.spec.Identity)
 }
 
 // RemoveVolumes removes the named volumes, one at a time, and reports which
@@ -84,13 +84,18 @@ func (e *Environment) Volumes(ctx context.Context) ([]string, error) {
 // resources. A volume that is already gone is not an error, and a volume still
 // in use is reported with the reason rather than forced (ADR-037).
 func (e *Environment) RemoveVolumes(ctx context.Context, names []string) ([]string, error) {
-	return removeVolumes(ctx, e.runner, e.docker, names)
+	return removeVolumes(ctx, e.runner, e.docker, e.spec.Directory, names)
 }
 
 // listVolumes is shared by the two methods above and by nothing else. The
 // application-runtime adapter has its own copy, because the two adapters are
 // separate concepts and ADR-034 pays a hundred lines to keep them so.
-func listVolumes(ctx context.Context, runner Runner, docker, identity string) ([]string, error) {
+//
+// The directory is where the command runs. These two read no file and would
+// answer the same from anywhere, so it buys nothing here beyond the rule it
+// keeps whole: no invocation this adapter makes runs from a directory Feat did
+// not choose.
+func listVolumes(ctx context.Context, runner Runner, docker, directory, identity string) ([]string, error) {
 	output, err := runner.Run(ctx, execution.Invocation{
 		Program: docker,
 		Arguments: []string{
@@ -98,6 +103,7 @@ func listVolumes(ctx context.Context, runner Runner, docker, identity string) ([
 			"--filter", "label=" + composeProjectLabel + "=" + identity,
 			"--format", "{{.Name}}",
 		},
+		Directory: directory,
 	})
 	if err != nil {
 		return nil, err
@@ -116,7 +122,7 @@ func listVolumes(ctx context.Context, runner Runner, docker, identity string) ([
 	return names, nil
 }
 
-func removeVolumes(ctx context.Context, runner Runner, docker string, names []string) ([]string, error) {
+func removeVolumes(ctx context.Context, runner Runner, docker, directory string, names []string) ([]string, error) {
 	var removed []string
 	for _, name := range names {
 		if strings.TrimSpace(name) == "" || strings.HasPrefix(name, "-") {
@@ -125,6 +131,7 @@ func removeVolumes(ctx context.Context, runner Runner, docker string, names []st
 		output, err := runner.Run(ctx, execution.Invocation{
 			Program:   docker,
 			Arguments: []string{"volume", "rm", name},
+			Directory: directory,
 		})
 		if err != nil {
 			return removed, err
