@@ -2,6 +2,8 @@ package compose_test
 
 import (
 	"context"
+	"encoding/json"
+	"maps"
 	"strings"
 	"testing"
 
@@ -280,6 +282,184 @@ func TestEveryProbeRunsAsTheAgentsOwnUser(t *testing.T) {
 		}
 		if !strings.Contains(call, "--user dev") {
 			t.Errorf("a probe did not run as the agent's user: %q", call)
+		}
+	}
+}
+
+// granted renders one `docker inspect` answer for .HostConfig from the fields a
+// test cares about, over the defaults an ordinary container has.
+//
+// It is written as fields rather than as a JSON string so that a fixture states
+// what the container was granted and nothing else, and so that two tests
+// arranging different grants cannot disagree about the rest of the record.
+func granted(fields map[string]any) string {
+	config := map[string]any{
+		"Privileged": false, "CapAdd": nil, "CapDrop": nil, "PidMode": "",
+		"IpcMode": "private", "NetworkMode": "feat-agent-app-default", "Devices": []any{},
+	}
+	maps.Copy(config, fields)
+	encoded, err := json.Marshal(config)
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded)
+}
+
+// TestAContainerGrantedMoreThanItsMountsIsRefused is G4-04.
+//
+// The launch inspection asked the container two questions — its mounts and its
+// environment — and nothing about what it was granted. So a check that refuses
+// a home-directory mount accepted a privileged container, which is strictly
+// more than that mount would have given away: CAP_SYS_ADMIN remounts the
+// read-only control workspace read-write and mounts the host's filesystem from
+// a block device, and the read-only half of what Feat grants held only because
+// nobody had added the line.
+func TestAContainerGrantedMoreThanItsMountsIsRefused(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		granted  map[string]any
+		contains string
+	}{
+		"privileged": {
+			granted:  map[string]any{"Privileged": true},
+			contains: "runs privileged",
+		},
+		"an added capability": {
+			granted:  map[string]any{"CapAdd": []string{"SYS_ADMIN"}},
+			contains: "SYS_ADMIN",
+		},
+		// The same capability written the way Linux names it. A deny-list with
+		// a spelling as its bypass is not a deny-list.
+		"the same capability spelled in full": {
+			granted:  map[string]any{"CapAdd": []string{"CAP_SYS_ADMIN"}},
+			contains: "SYS_ADMIN",
+		},
+		"every capability at once": {
+			granted:  map[string]any{"CapAdd": []string{"ALL"}},
+			contains: "ALL",
+		},
+		"reading any file on the host": {
+			granted:  map[string]any{"CapAdd": []string{"DAC_READ_SEARCH"}},
+			contains: "open_by_handle_at",
+		},
+		"the host's PID namespace": {
+			granted:  map[string]any{"PidMode": "host"},
+			contains: "pid: host",
+		},
+		"the host's IPC namespace": {
+			granted:  map[string]any{"IpcMode": "host"},
+			contains: "ipc: host",
+		},
+		// The one that reaches a Docker daemon with nothing mounted and no
+		// DOCKER_HOST for the environment check to find.
+		"the host's network namespace": {
+			granted:  map[string]any{"NetworkMode": "host"},
+			contains: "127.0.0.1:2375",
+		},
+		"a host device": {
+			granted: map[string]any{"Devices": []map[string]string{
+				{"PathOnHost": "/dev/sda1", "PathInContainer": "/dev/sda1"},
+			}},
+			contains: "/dev/sda1",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := check(t, healthy().Inspect("c0ffee", "HostConfig", granted(testCase.granted)))
+
+			if !strings.Contains(err.Error(), testCase.contains) {
+				t.Errorf("the message does not explain the refusal\n got: %v\nwant: %q", err, testCase.contains)
+			}
+			// Every refusal names the service, because the line that produced
+			// it is in the Compose files that define one.
+			if !strings.Contains(err.Error(), "service dev") {
+				t.Errorf("the message does not name the service to edit: %v", err)
+			}
+		})
+	}
+}
+
+// TestTheLaunchAsksWhatTheContainerWasGranted pins the question rather than the
+// outcome.
+//
+// A rule can only be enforced about a field somebody asked for, and the
+// blindness G4-04 records was exactly a missing question: `{{json .Mounts}}`
+// and `{{json .Config.Env}}` and nothing else. A test that only checked the
+// refusals would pass again the day the third question was dropped and the
+// evidence went back to being unread.
+func TestTheLaunchAsksWhatTheContainerWasGranted(t *testing.T) {
+	docker := healthy()
+	report := inspect(t, docker)
+
+	if !docker.Ran("inspect --type container --format {{json .HostConfig}} c0ffee") {
+		t.Errorf("nothing asked the container what it was granted: %v", docker.Calls())
+	}
+	if !report.Privileges.Known {
+		t.Error("the report does not say the container's grants were read")
+	}
+	for _, call := range docker.Calls() {
+		if strings.HasPrefix(call, "config") {
+			t.Errorf("the grants were read with %q, which renders the project's environment file values", call)
+		}
+	}
+}
+
+// TestAnUnreadableGrantIsRefusedRatherThanAssumed keeps an answer nobody could
+// read from being treated as an empty one.
+//
+// It is the direction TestAnUnreadableIdentityIsRefusedRatherThanAssumed takes,
+// for the same reason: assuming the reassuring answer lets exactly the
+// container this check exists for through.
+func TestAnUnreadableGrantIsRefusedRatherThanAssumed(t *testing.T) {
+	err := check(t, healthy().Inspect("c0ffee", "HostConfig", "null"))
+
+	if !strings.Contains(err.Error(), "could not be read") {
+		t.Errorf("an unreadable host configuration was not reported as such: %v", err)
+	}
+}
+
+// TestADebuggersCapabilityIsAccepted holds the one deliberate hole in the
+// capability rule to a test, so that closing it is a decision rather than an
+// accident.
+//
+// SYS_PTRACE is what a debugger needs and what devcontainer templates add for
+// exactly that. Inside the container's own PID namespace it traces the agent's
+// own processes, and it reaches the host's only through a shared PID namespace,
+// which is refused on its own.
+func TestADebuggersCapabilityIsAccepted(t *testing.T) {
+	environment, _ := arrange(t, healthy().
+		Inspect("c0ffee", "HostConfig", granted(map[string]any{"CapAdd": []string{"SYS_PTRACE"}})))
+
+	report, err := environment.Inspect(context.Background(), []string{"/feat"})
+	if err != nil {
+		t.Fatalf("inspecting the container: %v", err)
+	}
+	if err := environment.Check(report); err != nil {
+		t.Errorf("a container with a debugger's capability was refused: %v", err)
+	}
+}
+
+// TestABindBackedVolumeIsRefusedAtLaunch is G7-01 through the path a launch
+// actually takes.
+//
+// Every other test of this states the mount; this one starts from what `docker
+// inspect` reports about a container and lets the adapter ask the second
+// question for itself. The Compose file behind it is six lines a reviewer reads
+// as a named volume:
+//
+//	volumes: {hostrun: {driver: local, driver_opts: {type: none, device: /var/run, o: bind}}}
+//	services: {dev: {volumes: [hostrun:/mnt/probe]}}
+//
+// The container path is deliberately not /var/run. Landing on a known socket
+// path is refused by a rule of its own, and a fixture that leant on it would
+// pass with the device unread — which is the defect.
+func TestABindBackedVolumeIsRefusedAtLaunch(t *testing.T) {
+	err := check(t, healthy().
+		Inspect("c0ffee", "Mounts", `[{"Type":"volume","Name":"hostrun",`+
+			`"Source":"/var/lib/docker/volumes/hostrun/_data","Destination":"/mnt/probe","RW":true}]`).
+		Volume("hostrun", map[string]string{"type": "none", "device": "/var/run", "o": "bind"}))
+
+	for _, expected := range []string{"hostrun", "/var/run/docker.sock", "never grants an agent Docker access"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("the message does not mention %q: %v", expected, err)
 		}
 	}
 }

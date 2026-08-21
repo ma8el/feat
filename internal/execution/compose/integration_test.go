@@ -754,3 +754,161 @@ func TestRealAProjectIsFoundAndRemovedByNameAlone(t *testing.T) {
 		t.Errorf("removing an empty project reported a failure: %v", err)
 	}
 }
+
+// TestRealABindBackedVolumeIsSeenForWhatItIs is G7-01 against the runtime that
+// decides it.
+//
+// The finding turns on a fact about Docker rather than about Feat: a `local`
+// volume whose driver options bind a host path is reported with the volume's
+// own mountpoint as its source, and never with the device. That is what makes
+// the plain `- ${HOME}:/host-home` refused and the same thing through a volume
+// accepted, and it is why removing the type filter would not have fixed it —
+// there is nothing in the mount record to compare. It was measured by hand on
+// 2026-08-19; this is where it stops being a measurement somebody remembers.
+//
+// The home directory is the device for the reason
+// TestRealAMountOfTheHomeDirectoryIsRefused mounts it: it is the one forbidden
+// path this machine really has. Both halves are checked — what Docker says,
+// and what Feat does about it.
+func TestRealABindBackedVolumeIsSeenForWhatItIs(t *testing.T) {
+	realDocker(t)
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("this machine has no resolvable home directory: %v", err)
+	}
+
+	_, spec, _ := realTaskFrom(t, domain.NewTaskID(), "devcontainer-bind-backed-volume.yaml")
+	// What the daemon supplies from the resolved layout, and what the fixture
+	// interpolated into the volume's device: this machine's home directory.
+	spec.ForbiddenSources = append(spec.ForbiddenSources,
+		execution.ForbiddenSource{Path: home, Kind: execution.ForbiddenHome})
+
+	environment, err := compose.New(spec, compose.Options{ReadyTimeout: 90 * time.Second})
+	if err != nil {
+		t.Fatalf("building the environment: %v", err)
+	}
+
+	// A named volume outlives `down`, which is what the product wants and what
+	// makes this test's own leftovers its problem. The containers go first,
+	// because a volume in use cannot be removed.
+	t.Cleanup(func() {
+		down := exec.Command(compose.Executable, "compose",
+			"--project-name", spec.Identity, "--project-directory", spec.Directory,
+			"--file", filepath.Join(spec.Directory, "docker-compose.yml"), "--file", spec.OverridePath,
+			"down", "--timeout", "1")
+		if output, err := down.CombinedOutput(); err != nil {
+			t.Logf("stopping %s before removing its volumes: %v\n%s", spec.Identity, err, output)
+		}
+		volumes, err := environment.Volumes(context.Background())
+		if err != nil {
+			t.Logf("listing the volumes of %s: %v", spec.Identity, err)
+			return
+		}
+		if _, err := environment.RemoveVolumes(context.Background(), volumes); err != nil {
+			t.Logf("removing the volumes of %s: %v", spec.Identity, err)
+		}
+	})
+
+	if err := environment.Prepare(context.Background()); err != nil {
+		t.Fatalf("preparing the environment: %v", err)
+	}
+	state, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the environment: %v", err)
+	}
+	mounts, err := environment.Mounts(context.Background(), state.Container)
+	if err != nil {
+		t.Fatalf("inspecting the mounts: %v", err)
+	}
+	t.Logf("the container mounts %v", compose.Sources(mounts))
+
+	var probe execution.ObservedMount
+	for _, mount := range mounts {
+		if mount.Destination == "/mnt/probe" {
+			probe = mount
+		}
+	}
+	if probe.Destination == "" {
+		t.Fatalf("the container has no mount at /mnt/probe: %v", compose.Sources(mounts))
+	}
+
+	// What Docker says. If any of this stops being true the fix is aimed at the
+	// wrong field, and the refusal below would be passing for another reason.
+	if probe.Type != "volume" {
+		t.Errorf("Docker reports the bind-backed volume as %q, want \"volume\"", probe.Type)
+	}
+	if filepath.Clean(probe.Source) == filepath.Clean(home) {
+		t.Errorf("Docker now reports the device %s as the mount's source, which the finding measured it "+
+			"does not; the type filter alone would be enough and this fix is aimed at the wrong field", home)
+	}
+	if filepath.Clean(probe.Device) != filepath.Clean(home) {
+		t.Errorf("the volume's device was read as %q, want %s: `docker volume inspect` is the only place "+
+			"that path appears", probe.Device, home)
+	}
+
+	// And what Feat does about it: the same refusal the same path as a bind
+	// earns one test up.
+	err = environment.CheckMounts(mounts)
+	if err == nil {
+		t.Fatalf("a volume bound to the home directory was accepted, and the plain bind of it is refused: %v",
+			compose.Sources(mounts))
+	}
+	for _, expected := range []string{home, "does not allow home directory mounts", "hostbind"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("the refusal does not mention %q: %v", expected, err)
+		}
+	}
+}
+
+// TestRealAContainerGrantedMoreThanItsMountsIsRefused is G4-04 against a real
+// container.
+//
+// What `docker inspect` reports under .HostConfig, and whether it carries what
+// the project wrote under `privileged:` and `cap_add:`, is a fact about Docker
+// rather than about Feat — and it is the fact the residual guarantee of the
+// read-only control workspace rests on, since that mount holds only while
+// CAP_SYS_ADMIN is absent (G7-05).
+func TestRealAContainerGrantedMoreThanItsMountsIsRefused(t *testing.T) {
+	realDocker(t)
+
+	environment, spec, _ := realTaskFrom(t, domain.NewTaskID(), "devcontainer-privileged.yaml")
+	if err := environment.Prepare(context.Background()); err != nil {
+		// A daemon that will not run a privileged container at all is not a
+		// failure of this check: there is nothing to inspect, and the refusal
+		// already happened one layer down.
+		t.Skipf("this machine's Docker would not start a privileged container: %v", err)
+	}
+	state, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the environment: %v", err)
+	}
+
+	privileges, err := environment.Privileges(context.Background(), state.Container)
+	if err != nil {
+		t.Fatalf("reading what the container was granted: %v", err)
+	}
+	if !privileges.Known {
+		t.Fatal("the container's grants were reported unread")
+	}
+	if !privileges.Privileged {
+		t.Errorf("the container was started privileged and Docker reports %+v", privileges)
+	}
+	if !slices.Contains(privileges.Capabilities, "SYS_ADMIN") {
+		t.Errorf("the container was granted SYS_ADMIN and the check reads %v", privileges.Capabilities)
+	}
+
+	report, err := environment.Inspect(context.Background(), []string{"/srv/api"})
+	if err != nil {
+		t.Fatalf("inspecting the container: %v", err)
+	}
+	err = environment.Check(report)
+	if err == nil {
+		t.Fatal("a privileged container was accepted")
+	}
+	for _, expected := range []string{"runs privileged", "SYS_ADMIN", spec.Service} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("the refusal does not mention %q: %v", expected, err)
+		}
+	}
+}

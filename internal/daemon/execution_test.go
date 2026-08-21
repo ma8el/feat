@@ -579,6 +579,9 @@ func TestAPromotedStableRepositoryIsAnOrdinaryCheckout(t *testing.T) {
 	}
 	err = environment.Check(execution.Report{
 		UID: 1000, UIDKnown: true, User: "developer",
+		// Read and empty, which is not the same report as unread: a launch
+		// refuses a container whose grants nobody could see.
+		Privileges: execution.ObservedPrivileges{Known: true},
 		Mounts: []execution.ObservedMount{
 			{Type: "bind", Source: repository.HostPath, Destination: "/opt/api", Writable: true},
 		},
@@ -628,6 +631,7 @@ func TestAStableCheckoutIsRefusedAnywhereButItsOwnMount(t *testing.T) {
 	// Feat's own mount, read-only at the configured container path.
 	if err := environment.Check(execution.Report{
 		UID: 1000, UIDKnown: true, User: "developer",
+		Privileges: execution.ObservedPrivileges{Known: true},
 		Mounts: []execution.ObservedMount{
 			{Type: "bind", Source: stable, Destination: "/srv/tooling"},
 		},
@@ -638,6 +642,7 @@ func TestAStableCheckoutIsRefusedAnywhereButItsOwnMount(t *testing.T) {
 	// The same checkout anywhere else is the user's working copy.
 	err = environment.Check(execution.Report{
 		UID: 1000, UIDKnown: true, User: "developer",
+		Privileges: execution.ObservedPrivileges{Known: true},
 		Mounts: []execution.ObservedMount{
 			{Type: "bind", Source: stable, Destination: "/opt/tooling", Writable: true},
 		},
@@ -747,7 +752,8 @@ func TestTheWorkingCopyIsStillOutOfReach(t *testing.T) {
 			Destination: filepath.Join(repository.HostPath, ".git"), Writable: true},
 	}
 	if err := environment.Check(execution.Report{
-		UID: 1000, UIDKnown: true, User: "developer", Mounts: permitted,
+		UID: 1000, UIDKnown: true, User: "developer",
+		Privileges: execution.ObservedPrivileges{Known: true}, Mounts: permitted,
 	}); err != nil {
 		t.Errorf("the Git directory mount was refused: %v", err)
 	}
@@ -761,6 +767,7 @@ func TestTheWorkingCopyIsStillOutOfReach(t *testing.T) {
 	} {
 		err := environment.Check(execution.Report{
 			UID: 1000, UIDKnown: true, User: "developer",
+			Privileges: execution.ObservedPrivileges{Known: true},
 			Mounts: []execution.ObservedMount{
 				{Type: "bind", Source: source, Destination: "/mounted", Writable: true},
 			},
@@ -827,6 +834,7 @@ func TestFeatsOwnDirectoriesAreOutOfReachToo(t *testing.T) {
 	} {
 		err := environment.Check(execution.Report{
 			UID: 1000, UIDKnown: true, User: "developer",
+			Privileges: execution.ObservedPrivileges{Known: true},
 			Mounts: []execution.ObservedMount{
 				{Type: "bind", Source: source, Destination: "/mounted", Writable: true},
 			},
@@ -846,7 +854,8 @@ func TestFeatsOwnDirectoriesAreOutOfReachToo(t *testing.T) {
 		})
 	}
 	if err := environment.Check(execution.Report{
-		UID: 1000, UIDKnown: true, User: "developer", Mounts: own,
+		UID: 1000, UIDKnown: true, User: "developer",
+		Privileges: execution.ObservedPrivileges{Known: true}, Mounts: own,
 	}); err != nil {
 		t.Errorf("the task's own mounts were refused: %v", err)
 	}
