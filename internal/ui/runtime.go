@@ -31,7 +31,15 @@ type runtimeModel struct {
 }
 
 // runtimeMsg carries the result of one runtime action.
+//
+// task is the task the request was made about. A response says nothing about
+// which task it is for on its own, and an observe walks a project's Compose
+// state, so one issued before the user moved on can arrive after: without this
+// the screen drew one task's service table, allocated ports and retained volume
+// names under another task's heading, which is the case ADR-041 wrote the
+// re-open-on-selection rule for.
 type runtimeMsg struct {
+	task   string
 	action api.RuntimeAction
 	status api.RuntimeStatus
 	err    error
@@ -66,7 +74,7 @@ func (m Model) runtimeAction(action api.RuntimeAction) tea.Cmd {
 	backend, id := m.backend, m.runtime.task
 	return func() tea.Msg {
 		status, err := backend.Runtime(context.Background(), id, action)
-		return runtimeMsg{action: action, status: status, err: err}
+		return runtimeMsg{task: id, action: action, status: status, err: err}
 	}
 }
 
@@ -88,8 +96,12 @@ func (m Model) runtimeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key.String() {
 	case "esc":
-		m.screen = screenTask
-		return m, nil
+		// Through openTask rather than by setting the screen, because the panel
+		// this lands on acts on the task the review model holds and that model is
+		// not re-opened by assigning a screen. Setting it directly drew the panel
+		// under the selected task's name over whichever task the review was last
+		// opened on — and `A` there approved that other task (ADR-041).
+		return m.openTask()
 
 	case "ctrl+c", "q":
 		m.quitting = true
@@ -168,7 +180,17 @@ func (m Model) runtimeLogs() (tea.Model, tea.Cmd) {
 }
 
 // applyRuntime records what an action reported.
+//
+// A response for a task the screen is no longer about is dropped rather than
+// drawn, as applyFrame drops a frame whose pane belongs to another task. Nothing
+// is cleared for it either: the pending marker belongs to whatever this screen
+// is waiting for now, and clearing it for a response the screen has moved past
+// would report an action that has not finished as finished.
 func (m Model) applyRuntime(message runtimeMsg) (tea.Model, tea.Cmd) {
+	if message.task != m.runtime.task {
+		return m, nil
+	}
+
 	m.runtime.pending = ""
 	if message.err != nil {
 		m.runtime.err = message.err

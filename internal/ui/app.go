@@ -145,9 +145,22 @@ type Model struct {
 	screen screen
 	tab    tab
 	tasks  []api.Task
-	cursor int
-	// selected is the task the task panel shows, held by identifier so that a
-	// refresh cannot make the panel show a different task.
+	// selected is the task the rail's cursor is on and the task panel shows,
+	// held by identifier rather than by row.
+	//
+	// It used to be both at once — a cursor index into tasks, and this — and the
+	// two disagreed the moment the list changed under them. tasks is re-sorted
+	// newest-first on every read, so a task appearing moved every index after it
+	// while the index itself stayed where it was: the rail drew its marker on one
+	// task and the main region drew another, and every destructive key followed
+	// the marker. The dashboard's own launch path was enough to do it. Naming the
+	// task is what makes a refresh unable to re-point the selection, which is the
+	// one thing FR-UI-001 requires the list to be right about.
+	//
+	// It may name a task the list does not hold: one a cleanup archived, or the
+	// reference `feat review <task>` opened on before the first response resolved
+	// it to an identifier. That is a state the dashboard reports rather than one
+	// it repairs by selecting a different task.
 	selected string
 	archived int
 	// folded is the projects whose tasks the rail is not listing, by project
@@ -269,6 +282,13 @@ func New(opts Options) Model {
 		// `feat review <task>` opens straight onto the task it names. The
 		// comparison itself is asked for once the model starts, so that opening
 		// the screen and reading a worktree stay separate steps.
+		//
+		// What is held here is what the user typed, which may be a task's
+		// eight-character short key or any prefix of its identifier: the daemon
+		// resolves those and the dashboard does not, so that there is one
+		// resolver rather than a second one here that could disagree with it.
+		// applyReview adopts the identifier the first response carries, and until
+		// it arrives the panel is a reference waiting to become a task.
 		model.screen = screenTask
 		model.selected = opts.Review
 		model.review = reviewModel{task: opts.Review}
@@ -494,8 +514,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.err = nil
+		listed := m.tasks
 		m.tasks, m.archived = activeTasks(sortTasks(message.tasks))
-		m.clampCursor()
+		m.anchorSelection(listed)
 		// The first task list is what makes a pane drawable: before it there is
 		// no selected task, so the poll starts here rather than at startup.
 		if m.activeTab() == tabTerminal && !m.terminal.polling && len(m.tasks) > 0 {
@@ -673,43 +694,52 @@ func (m Model) frameKey(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 // holds what it was told about one task, and leaving it behind after the
 // selection moved would show one task's services under another task's name.
 func (m Model) selectTask(delta int) (tea.Model, tea.Cmd) {
-	next, ok := m.nextStop(m.cursor, delta)
+	next, ok := m.nextStop(delta)
 	if !ok {
 		return m, nil
 	}
 
-	m.cursor = next
-	task := m.tasks[m.cursor]
-	m.selected = task.ID
+	m.selected = next.ID
 	m.status = ""
 	return m.selectTab(m.activeTab())
 }
 
 // nextStop is the task delta steps away in the rail, wrapping at both ends.
 //
+// It resolves the selection to a row and returns a task rather than the row,
+// because the row is only true of the list this key press landed on: the next
+// refresh may put the same task somewhere else.
+//
 // A folded project is one stop rather than a run of hidden tasks: the fold is
 // the thing the cursor moves to, because the fold is what space opens. Folded
 // projects used to be stepped over entirely, which made folding a one-way door —
 // nothing could put the cursor back on a folded project, so nothing could open
 // one again (ADR-052).
-func (m Model) nextStop(from, delta int) (int, bool) {
+func (m Model) nextStop(delta int) (api.Task, bool) {
 	if len(m.tasks) == 0 || delta == 0 {
-		return from, false
+		return api.Task{}, false
 	}
 
 	stops, at := m.railStops()
+	from := m.selectedIndex()
 	here, ok := at[from]
 	if !ok {
-		return from, false
+		// The selection names a task the list no longer holds, so there is no
+		// row to move from. Moving enters the rail from the end the movement
+		// comes towards, which is how the user gets a marker back.
+		if delta > 0 {
+			return m.tasks[stops[0]], true
+		}
+		return m.tasks[stops[len(stops)-1]], true
 	}
 	next := stops[((here+delta)%len(stops)+len(stops))%len(stops)]
 	if next == from {
 		// One stop, which is a rail whose every project is folded into the one
 		// holding the cursor. The selection stays where it is, and the folded
 		// header it belongs to keeps saying where that is.
-		return from, false
+		return api.Task{}, false
 	}
-	return next, true
+	return m.tasks[next], true
 }
 
 // railStops is the cursor positions the rail offers, in the order it draws them,
@@ -727,7 +757,7 @@ func (m Model) railStops() ([]int, map[int]int) {
 		if m.folded[group.project] {
 			stop := group.indexes[0]
 			if m.holdsCursor(group) {
-				stop = m.cursor
+				stop = m.selectedIndex()
 			}
 			for _, index := range group.indexes {
 				at[index] = len(stops)
@@ -750,7 +780,7 @@ func (m Model) railStops() ([]int, map[int]int) {
 // task it holds goes on being the selected one and the folded header names it,
 // which is what makes the fold something a user can move back to (ADR-052).
 func (m Model) foldProject() (tea.Model, tea.Cmd) {
-	task, ok := m.current()
+	task, ok := m.subject()
 	if !ok {
 		return m, nil
 	}
@@ -793,9 +823,6 @@ func (m Model) selectTab(active tab) (tea.Model, tea.Cmd) {
 		return m.openRuntime()
 	}
 
-	if task, ok := m.current(); ok && active == tabTerminal {
-		m.selected = task.ID
-	}
 	m.screen = screenFor(active)
 
 	if active == tabTerminal {
@@ -1053,7 +1080,7 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 // is checked, which is what `feat doctor` does.
 func (m Model) openDiagnosis() (tea.Model, tea.Cmd) {
 	project := ""
-	if task, ok := m.current(); ok {
+	if task, ok := m.subject(); ok {
 		project = task.ProjectID
 	}
 
@@ -1273,6 +1300,12 @@ func (m Model) cancel() (tea.Model, tea.Cmd) {
 }
 
 // finishPreparation returns to the dashboard once preparation ends.
+//
+// The launched task becomes the selection, and because the selection names a
+// task the rail's marker follows it. It did not: the selection was an identifier
+// and the marker was a row, so the refresh that listed the new task first — the
+// list is newest-first — moved the marker onto whatever had been first before,
+// and the footer said "launched task X" over a rail pointing somewhere else.
 func (m Model) finishPreparation(message preparedMsg) (tea.Model, tea.Cmd) {
 	m.screen = m.home()
 	switch {
@@ -1287,26 +1320,24 @@ func (m Model) finishPreparation(message preparedMsg) (tea.Model, tea.Cmd) {
 	return m, m.load()
 }
 
-// subject is the task an action applies to: the one open in the task panel, or
-// the one under the cursor.
-func (m Model) subject() (api.Task, bool) {
-	if m.screen == screenTask {
-		return m.task(m.selected)
-	}
-	return m.current()
-}
-
-// current is the task under the cursor.
-func (m Model) current() (api.Task, bool) {
-	if m.cursor < 0 || m.cursor >= len(m.tasks) {
-		return api.Task{}, false
-	}
-	return m.tasks[m.cursor], true
-}
+// subject is the task an action applies to: the selected one, which is what the
+// rail's marker is on and what the main region is drawing.
+//
+// It used to be two answers to one question — the task the panel was opened on
+// while the panel had the keyboard, and the task under the cursor otherwise —
+// and they were held in two fields that a refresh could move independently.
+// There is one selection now, so there is one answer, whatever has the keyboard.
+func (m Model) subject() (api.Task, bool) { return m.task(m.selected) }
 
 // task finds a task by identifier.
-func (m Model) task(id string) (api.Task, bool) {
-	for _, task := range m.tasks {
+func (m Model) task(id string) (api.Task, bool) { return findTask(m.tasks, id) }
+
+// findTask finds a task by identifier in a list.
+func findTask(tasks []api.Task, id string) (api.Task, bool) {
+	if id == "" {
+		return api.Task{}, false
+	}
+	for _, task := range tasks {
 		if task.ID == id {
 			return task, true
 		}
@@ -1314,18 +1345,53 @@ func (m Model) task(id string) (api.Task, bool) {
 	return api.Task{}, false
 }
 
-func (m *Model) clampCursor() {
-	if m.cursor >= len(m.tasks) {
-		m.cursor = len(m.tasks) - 1
+// selectedIndex is where the selected task sits in the list this refresh
+// delivered, or -1 when the list does not hold it.
+//
+// A row is derived here and nowhere else. It is true of one list, and the list
+// is replaced whenever the daemon says anything, so the only safe place to hold
+// one is inside the operation that uses it.
+func (m Model) selectedIndex() int {
+	for i, task := range m.tasks {
+		if task.ID == m.selected {
+			return i
+		}
 	}
-	if m.cursor < 0 {
-		m.cursor = 0
+	return -1
+}
+
+// anchorSelection keeps the selection naming a task rather than a position.
+//
+// A refresh may do exactly two things to it. A dashboard that has never had a
+// task list selects the first one, because a rail with no marker and a main
+// region with nothing in it is not a dashboard anybody can start from. And a
+// selection whose task has left the list — archived by a cleanup here or
+// cancelled from another terminal — is reported, in the words of the task that
+// went rather than the identifier, because the user is looking at a rail that no
+// longer has a marker on it.
+//
+// It never moves the selection to a different task. That is what this replaced:
+// clamping an index against a list re-sorted newest-first silently re-pointed
+// the selection at whichever task now occupied the row, while the user's next
+// key press — `x`, `t`, `C`, or a keystroke into a focused pane — was already on
+// its way to it.
+//
+// previous is the list this refresh replaced, so that a task that was never in
+// it is not reported as having gone away: the reference `feat review <task>`
+// opens on is not a listed task until the first response resolves it.
+func (m *Model) anchorSelection(previous []api.Task) {
+	if _, listed := m.task(m.selected); listed {
+		return
 	}
-	// A cursor inside a folded project is left there. A task list that arrives
-	// while one is folded can put it there without the user moving — a new task is
-	// listed first, so every index after it moves — and the fold is a place the
-	// cursor may rest in its own right since ADR-052: the header holding it names
-	// the task, and space opens the project it is in.
+	if m.selected == "" {
+		if len(m.tasks) > 0 {
+			m.selected = m.tasks[0].ID
+		}
+		return
+	}
+	if gone, was := findTask(previous, m.selected); was {
+		m.status = "task " + gone.Key + " is no longer listed; J and K select another"
+	}
 }
 
 // sortTasks orders tasks so that the list does not reorder itself under the

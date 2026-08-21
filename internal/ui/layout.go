@@ -307,7 +307,7 @@ func (m Model) railHints() string {
 	hints := []string{keyHint("J K", "task"), keyHint("H L", "view")}
 	if len(groupByProject(m.tasks)) > 1 {
 		fold := "fold"
-		if task, ok := m.current(); ok && m.folded[task.ProjectID] {
+		if task, ok := m.subject(); ok && m.folded[task.ProjectID] {
 			fold = "open"
 		}
 		hints = append(hints, keyHint("space", fold))
