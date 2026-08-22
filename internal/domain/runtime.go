@@ -220,17 +220,45 @@ func (p PortAllocation) URL() (string, bool) {
 // The loopback addresses are named rather than printed, because localhost is
 // what reaches them and is what a user types. A wildcard binding is reached at
 // localhost from here too, which is true of it and is the useful half: what such
-// a binding also allows is a property of the project's configuration rather than
-// of one publication, and it is said where that configuration is printed rather
-// than folded into an address.
+// a binding also allows is the other half, and it is said beside the address by
+// a surface that asks BoundEverywhere rather than folded into the address
+// itself, which has to stay the one a client dials.
 func (p PortAllocation) host() string {
-	trimmed := strings.TrimSuffix(strings.TrimPrefix(p.HostIP, "["), "]")
-	switch trimmed {
-	case "", "0.0.0.0", "::", "127.0.0.1", "::1":
+	trimmed := unbracket(p.HostIP)
+	switch {
+	case BoundEverywhere(trimmed), trimmed == "127.0.0.1", trimmed == "::1":
 		return "localhost"
 	default:
 		return trimmed
 	}
+}
+
+// BoundEverywhere reports whether a host address publishes on every interface
+// the machine has.
+//
+// The unspecified addresses say so — "0.0.0.0" and "::" — and so does an empty
+// one: a publication with no address of its own is bound on all of them, which
+// is what an allocation written before Feat had a bind address describes.
+//
+// It is exported because the answer cannot be recovered from Address, and is
+// acted on where that is printed. A port on the loopback address and a port on
+// every interface are both dialled at localhost from this machine and read
+// identically there, while one of them is open to every network this machine is
+// joined to and to every container on it. A surface that says only where to dial
+// says nothing about which of the two a user has (docs/05 § Published ports and
+// who can reach them).
+func BoundEverywhere(hostIP string) bool {
+	switch unbracket(hostIP) {
+	case "", "0.0.0.0", "::":
+		return true
+	default:
+		return false
+	}
+}
+
+// unbracket strips the brackets an IPv6 literal may be carried in.
+func unbracket(hostIP string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(hostIP, "["), "]")
 }
 
 // PortVariable is the generated variable naming one service's allocated host

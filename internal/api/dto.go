@@ -456,6 +456,21 @@ type Runtime struct {
 	ObservedAt            time.Time       `json:"observed_at"`
 }
 
+// BoundEverywhere reports whether any of this runtime's allocated publications
+// answers on every interface the machine has.
+//
+// It is asked of the runtime rather than of each allocation because what such a
+// binding means is one sentence for the whole list, and a sentence repeated per
+// port is one a reader stops reading.
+func (r *Runtime) BoundEverywhere() bool {
+	for _, allocation := range r.Allocations {
+		if allocation.BoundEverywhere() {
+			return true
+		}
+	}
+	return false
+}
+
 // RuntimeSource is one repository's contribution to a task's application.
 type RuntimeSource struct {
 	// Repository identifies the repository within the project.
@@ -524,6 +539,29 @@ type PortAllocation struct {
 	// Compose service name and the container port.
 	Address string `json:"address"`
 }
+
+// Binding is the host address this publication is bound on, as a surface says
+// it.
+//
+// It is the second answer about a published port and not one Address can be read
+// for: a port on the loopback address and a port on every interface are both
+// dialled at localhost from this machine, so they print alike there while
+// differing by whether the network this machine is on can open the service.
+//
+// An allocation carrying no address is a record written before Feat had a bind
+// address of its own, whose containers were given every address.
+func (p PortAllocation) Binding() string {
+	if p.HostIP == "" {
+		return "every address"
+	}
+	return p.HostIP
+}
+
+// BoundEverywhere reports whether this publication answers on every interface
+// the machine has, which is the binding a user may not have asked for: it is
+// what a repository's own Compose file says when it publishes on "0.0.0.0",
+// whatever the project's runtime.bind_address is.
+func (p PortAllocation) BoundEverywhere() bool { return domain.BoundEverywhere(p.HostIP) }
 
 // RuntimeService is one observed service of a task's runtime.
 type RuntimeService struct {

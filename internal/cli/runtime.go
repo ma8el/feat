@@ -312,7 +312,17 @@ func printRuntime(out io.Writer, status api.RuntimeStatus) {
 	if len(runtime.Allocations) > 0 {
 		printf(out, "\nports, allocated for this task\n")
 		for _, allocation := range runtime.Allocations {
-			printf(out, "  %s  %d -> %s\n", allocation.Service, allocation.ContainerPort, allocation.Address)
+			// Two answers, because they are two questions and one value cannot
+			// carry both. The address is where to dial from this machine, which
+			// for a binding on every interface is still localhost; the binding is
+			// what the port is open to, which localhost says nothing about.
+			printf(out, "  %s  %d -> %s  bound on %s\n",
+				allocation.Service, allocation.ContainerPort, allocation.Address, allocation.Binding())
+		}
+		if runtime.BoundEverywhere() {
+			printf(out, "\na port bound on every address answers on every network this machine is joined to,\n")
+			printf(out, "and on the bridge every container is on. An address a repository's own Compose file\n")
+			printf(out, "names is kept; runtime.bind_address is the default for a publication naming none.\n")
 		}
 	}
 	if unexpected := unallocated(runtime); len(unexpected) > 0 {

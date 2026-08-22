@@ -102,6 +102,72 @@ func TestAnUnknownRuntimeActionIsNotAnInstruction(t *testing.T) {
 	}
 }
 
+// TestAPublicationSaysWhatItIsBoundOnAndNotOnlyWhereToDialIt makes the recorded
+// address readable by the surfaces that print the publication.
+//
+// The field was carried into this payload and then read by nothing: every
+// surface rendered Address, which is localhost for a loopback binding and
+// localhost for a binding on every interface. These are the two questions kept
+// apart — where to dial the service, and what the port is open to.
+func TestAPublicationSaysWhatItIsBoundOnAndNotOnlyWhereToDialIt(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		allocation PortAllocation
+		binding    string
+		everywhere bool
+	}{
+		"the loopback address": {
+			allocation: PortAllocation{HostIP: "127.0.0.1", Address: "localhost:21000"},
+			binding:    "127.0.0.1",
+		},
+		// The same address as the loopback case prints, and not the same binding.
+		"every interface": {
+			allocation: PortAllocation{HostIP: "0.0.0.0", Address: "localhost:21000"},
+			binding:    "0.0.0.0",
+			everywhere: true,
+		},
+		"its IPv6 counterpart": {
+			allocation: PortAllocation{HostIP: "::", Address: "localhost:21000"},
+			binding:    "::",
+			everywhere: true,
+		},
+		"one address of this machine": {
+			allocation: PortAllocation{HostIP: "192.168.64.7", Address: "192.168.64.7:21000"},
+			binding:    "192.168.64.7",
+		},
+		// A record written before Feat had a bind address of its own, whose
+		// containers were given every address. Said in words, because there is no
+		// address to print and printing nothing would read as a narrow binding.
+		"a record from before there was one": {
+			allocation: PortAllocation{Address: "localhost:21000"},
+			binding:    "every address",
+			everywhere: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := testCase.allocation.Binding(); got != testCase.binding {
+				t.Errorf("the publication is bound on %q, want %q", got, testCase.binding)
+			}
+			if got := testCase.allocation.BoundEverywhere(); got != testCase.everywhere {
+				t.Errorf("bound on every interface = %t, want %t", got, testCase.everywhere)
+			}
+
+			// And the runtime answers for the whole list, which is what decides
+			// whether the sentence explaining such a binding is printed at all.
+			runtime := &Runtime{Allocations: []PortAllocation{
+				{HostIP: "127.0.0.1", Address: "localhost:21001"},
+				testCase.allocation,
+			}}
+			if got := runtime.BoundEverywhere(); got != testCase.everywhere {
+				t.Errorf("a runtime holding this publication reports %t, want %t", got, testCase.everywhere)
+			}
+		})
+	}
+
+	if (&Runtime{}).BoundEverywhere() {
+		t.Error("a runtime that has allocated nothing was reported as publishing on every interface")
+	}
+}
+
 // TestARuntimeActionCarriesNothingToExecute is the rule the shell endpoint
 // follows, applied here.
 //

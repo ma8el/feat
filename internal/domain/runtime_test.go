@@ -185,11 +185,21 @@ func TestAnAllocationSaysWhereItIsReached(t *testing.T) {
 		},
 		// A binding on every interface is reached at localhost from here, which
 		// is the half of it this address answers. What else such a binding
-		// allows is said where the project's configuration is printed.
+		// allows is the other half, and BoundEverywhere is the question a
+		// surface asks for it.
 		"every address": {
 			allocation:  PortAllocation{HostPort: 21003, Protocol: "tcp", HostIP: "0.0.0.0"},
 			address:     "localhost:21003",
 			url:         "http://localhost:21003",
+			addressable: true,
+		},
+		// Its IPv6 counterpart, which is reached the same way and would
+		// otherwise print as "[::]:21006" — an address a browser takes and a
+		// user would not type.
+		"every address, in IPv6": {
+			allocation:  PortAllocation{HostPort: 21006, Protocol: "tcp", HostIP: "::"},
+			address:     "localhost:21006",
+			url:         "http://localhost:21006",
 			addressable: true,
 		},
 		// One address of the machine, which is not this machine's loopback: the
@@ -223,6 +233,58 @@ func TestAnAllocationSaysWhereItIsReached(t *testing.T) {
 					url, addressable, testCase.url, testCase.addressable)
 			}
 		})
+	}
+}
+
+// TestTheAddressAPortIsDialledAtDoesNotSayWhatItIsOpenTo is why the binding is
+// a second question rather than something a surface can read off the address.
+//
+// Two publications, one on the loopback address and one on every interface,
+// produce the same "localhost:21000" — which is correct for both, because that
+// is what dials them from here. One of them is also open to every network this
+// machine is joined to and to every container on it. A surface holding only the
+// address cannot tell the two apart, so nothing derived from it may be presented
+// as an answer about exposure.
+func TestTheAddressAPortIsDialledAtDoesNotSayWhatItIsOpenTo(t *testing.T) {
+	loopback := PortAllocation{Service: "api", HostPort: 21000, Protocol: "tcp", HostIP: "127.0.0.1"}
+	everywhere := PortAllocation{Service: "api", HostPort: 21000, Protocol: "tcp", HostIP: "0.0.0.0"}
+
+	if loopback.Address() != everywhere.Address() {
+		t.Fatalf("the two bindings already print differently (%q and %q), so this test checks nothing",
+			loopback.Address(), everywhere.Address())
+	}
+	if BoundEverywhere(loopback.HostIP) {
+		t.Errorf("a port bound on %q was reported as bound on every interface", loopback.HostIP)
+	}
+	if !BoundEverywhere(everywhere.HostIP) {
+		t.Errorf("a port bound on %q was not reported as bound on every interface, and it is",
+			everywhere.HostIP)
+	}
+}
+
+// TestWhatBindsEveryInterfaceIsNamedExactly pins the set, in both directions.
+//
+// The false answers matter as much as the true ones: an address of this machine
+// reported as a wildcard would have a user widen a range they never opened, and
+// a wildcard reported as an address of this machine is the defect itself.
+func TestWhatBindsEveryInterfaceIsNamedExactly(t *testing.T) {
+	for address, want := range map[string]bool{
+		"0.0.0.0": true,
+		"::":      true,
+		// As a Compose file may write an IPv6 literal, and as Docker reports one.
+		"[::]": true,
+		// A record written before Feat had a bind address of its own: its
+		// containers were given every address, so that is what it says.
+		"":             true,
+		"127.0.0.1":    false,
+		"::1":          false,
+		"[::1]":        false,
+		"192.168.64.7": false,
+		"10.0.0.1":     false,
+	} {
+		if got := BoundEverywhere(address); got != want {
+			t.Errorf("BoundEverywhere(%q) = %t, want %t", address, got, want)
+		}
 	}
 }
 
