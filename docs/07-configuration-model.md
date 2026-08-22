@@ -117,6 +117,7 @@ runtime:
     - ~/projects/app/dashboard/.env
   project_name_template: "feat-{project_id}-{task_id}"
   port_range: "21000-21999"
+  bind_address: "127.0.0.1"
 
 review:
   diff:
@@ -264,6 +265,23 @@ a thousand ports above the privileged range and below the ephemeral ports the
 kernel hands out, so an allocation needs no privilege and collides with nothing
 the machine opened for itself. A project that already uses them says so.
 
+`runtime.bind_address` is the host address an allocated port is published on and
+defaults to `127.0.0.1`, so a task's services answer on the machine running them
+and nowhere else. It must be a literal IP address: it reaches the generated
+override as a `host_ip` and Compose binds it, and a name would be resolved at a
+moment Feat cannot see, to an address Feat could not then say the service was at.
+
+Widening it is a decision, and `0.0.0.0` is the way to say it — for reaching a
+dev server from a phone on the same network, say. What it means is in
+`docs/05-security-model.md` § Published ports and who can reach them: every
+interface the machine has, which includes every network it is joined to and the
+Docker bridge every other task's containers are on.
+
+An address a repository's own Compose file named is kept as it is. `bind_address`
+is the default for a publication that named none, not an address applied over
+one, so a project that deliberately published on the loopback address keeps doing
+so whatever this key says.
+
 ### Runtime ownership
 
 Every runtime resource Feat models is one it created, observes, and may remove.
@@ -289,6 +307,20 @@ receive the other's address. A service publishing more than one port also gets a
 pair per port, named by the container port, since the unsuffixed pair can only
 name one of them. They are generated task metadata and never a value read from
 an environment file.
+
+`FEAT_URL_<service>` is the address a consumer **on the host** reaches the
+service at — a browser opening a frontend, a shell running `curl`, or a build
+baking an API address into a bundle a browser will then load. It is not how one
+service calls another. A published port belongs to the host's network namespace:
+inside a container that address is the container's own loopback, and with the
+default `bind_address` the host's port is not reachable from a container at all.
+A service calling a sibling uses the Compose service name and the container
+port, both of which the project's own files already state and neither of which
+needs an allocated port, because nothing about a container-to-container call is
+global to the machine.
+
+The variables still reach every managed service, because the container that
+bakes a host address into something a browser will load is itself a service.
 
 The addresses reach the Compose process as well as the containers. A service
 finds its siblings under the project's own names — a frontend whose framework

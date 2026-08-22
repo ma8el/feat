@@ -150,6 +150,9 @@ type portDocument struct {
 	Service       string `json:"service"`
 	ContainerPort int    `json:"container_port"`
 	HostPort      int    `json:"host_port"`
+	// HostIP is the address the container runtime reported the port bound on,
+	// omitted when it reported none.
+	HostIP string `json:"host_ip,omitempty"`
 }
 
 // allocationDocument is one host port Feat reserved for one service.
@@ -383,6 +386,7 @@ func encodeRuntime(runtime *domain.RuntimeEnvironment) *runtimeDocument {
 			Service:       port.Service,
 			ContainerPort: port.ContainerPort,
 			HostPort:      port.HostPort,
+			HostIP:        port.HostIP,
 		})
 	}
 	return document
@@ -592,6 +596,7 @@ func decodeRuntime(document *runtimeDocument) *domain.RuntimeEnvironment {
 			Service:       port.Service,
 			ContainerPort: port.ContainerPort,
 			HostPort:      port.HostPort,
+			HostIP:        port.HostIP,
 		})
 	}
 	return runtime

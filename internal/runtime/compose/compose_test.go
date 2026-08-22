@@ -29,6 +29,15 @@ const (
 // temporary directory.
 func arrange(t *testing.T, docker *runtimetest.Docker) (*compose.Runtime, runtime.Spec) {
 	t.Helper()
+	return arrangeWith(t, docker, nil)
+}
+
+// arrangeWith is arrange with the specification adjusted before the runtime is
+// built, for a test about one field of it.
+func arrangeWith(
+	t *testing.T, docker *runtimetest.Docker, adjust func(*runtime.Spec),
+) (*compose.Runtime, runtime.Spec) {
+	t.Helper()
 
 	state := t.TempDir()
 	generated := filepath.Join(state, "runtime")
@@ -73,9 +82,10 @@ func arrange(t *testing.T, docker *runtimetest.Docker) (*compose.Runtime, runtim
 		},
 		// The one service the project declares reachable, published on the host
 		// port allocated for this task rather than on whatever its own Compose
-		// files wrote down.
+		// files wrote down, and on the address the project configured Feat to
+		// bind rather than on every interface the machine has.
 		Publications: []runtime.Publication{
-			{Service: "api", ContainerPort: 8080, HostPort: 21000, Protocol: "tcp",
+			{Service: "api", ContainerPort: 8080, HostPort: 21000, Protocol: "tcp", HostIP: "127.0.0.1",
 				Description: "allocated for this task; reached at localhost:21000"},
 		},
 		Variables: map[string]string{
@@ -85,6 +95,9 @@ func arrange(t *testing.T, docker *runtimetest.Docker) (*compose.Runtime, runtim
 			"FEAT_PORT_API":        "21000",
 		},
 		ForbiddenSources: []string{"/repos/app/api", "/repos/app/store"},
+	}
+	if adjust != nil {
+		adjust(&spec)
 	}
 
 	services, err := compose.New(spec, compose.Options{Runner: docker})
@@ -125,6 +138,102 @@ func TestTheGeneratedOverrideIsPinned(t *testing.T) {
 	}
 	if string(written) != string(want) {
 		t.Errorf("the generated override changed\n got:\n%s\nwant:\n%s", written, want)
+	}
+}
+
+// TestTheGeneratedOverrideKeepsAnAddressTheProjectNamed pins the branch that
+// decides whether Feat writes a bind address of its own.
+//
+// A repository that published its service on one address of the machine said
+// something about who reaches it, and replacing that with Feat's default would
+// be Feat overruling the user in the direction of a wider binding. The property
+// is stated in three doc comments and, before this golden, was asserted nowhere:
+// both other goldens carry the default, so the line that reads the project's own
+// address could have been deleted with the suite still green (G4-23).
+//
+// The address is a LAN address rather than another loopback one, so that the
+// golden distinguishes "kept" from "defaulted": with 127.0.0.1 on both sides the
+// two cases render identically and this would pin nothing.
+func TestTheGeneratedOverrideKeepsAnAddressTheProjectNamed(t *testing.T) {
+	const address = "192.168.64.7"
+
+	docker := runtimetest.New()
+	services, spec := arrangeWith(t, docker, func(spec *runtime.Spec) {
+		spec.Publications = []runtime.Publication{
+			{Service: "api", ContainerPort: 8080, HostPort: 21000, Protocol: "tcp", HostIP: address,
+				Description: "allocated for this task; reached at " + address + ":21000"},
+		}
+		// The generated address follows the binding, because a user told where
+		// their service is has to be told where it actually is.
+		spec.Variables["FEAT_URL_API"] = "http://" + address + ":21000"
+	})
+
+	if _, err := services.Start(context.Background()); err != nil {
+		t.Fatalf("starting: %v", err)
+	}
+	written, err := os.ReadFile(spec.OverridePath)
+	if err != nil {
+		t.Fatalf("reading the generated override: %v", err)
+	}
+
+	golden := filepath.Join("testdata", "override-address.golden")
+	if *update {
+		if err := os.WriteFile(golden, written, 0o600); err != nil {
+			t.Fatalf("updating the golden file: %v", err)
+		}
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("reading the golden file: %v", err)
+	}
+	if string(written) != string(want) {
+		t.Errorf("the generated override changed\n got:\n%s\nwant:\n%s", written, want)
+	}
+
+	// Said as itself as well as pinned, so that a regenerated golden cannot
+	// quietly record Feat having overruled the project's address.
+	document := string(written)
+	if !strings.Contains(document, `host_ip: "`+address+`"`) {
+		t.Errorf("the override does not publish on the address the project named:\n%s", document)
+	}
+	if strings.Contains(document, `host_ip: "127.0.0.1"`) {
+		t.Errorf("the override replaced the project's own address with Feat's default:\n%s", document)
+	}
+}
+
+// TestEveryPublicationNamesTheAddressItBindsOn is G4-01 as a property rather
+// than as a golden line.
+//
+// Compose's default for a publication with no host_ip is every interface, so a
+// generated document that omits the key has chosen the widest binding there is
+// by saying nothing — which is what Feat did while the comment beside it said
+// localhost. A golden alone would not catch its return: a later regeneration
+// re-pins whichever behaviour exists (G6-14). Counting the two keys against each
+// other fails in both directions instead.
+func TestEveryPublicationNamesTheAddressItBindsOn(t *testing.T) {
+	services, spec, _ := dependent(t)
+
+	if _, err := services.Start(context.Background()); err != nil {
+		t.Fatalf("starting: %v", err)
+	}
+	written, err := os.ReadFile(spec.OverridePath)
+	if err != nil {
+		t.Fatalf("reading the generated override: %v", err)
+	}
+	document := string(written)
+
+	published := strings.Count(document, "\n        published: ")
+	bound := strings.Count(document, "\n        host_ip: ")
+	if published == 0 {
+		t.Fatalf("the generated override publishes nothing, so this proves nothing:\n%s", document)
+	}
+	if published != bound {
+		t.Errorf("%d ports are published and %d name an address: a publication with no host_ip is "+
+			"bound on every interface the machine has\n%s", published, bound, document)
+	}
+	if strings.Contains(document, `host_ip: "0.0.0.0"`) {
+		t.Errorf("the generated override binds every interface, which no default of Feat's chooses:\n%s",
+			document)
 	}
 }
 

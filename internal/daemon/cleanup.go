@@ -895,7 +895,7 @@ func (s *service) runtimeAdapterFor(task *domain.Task) (runtime.Runtime, error) 
 	if err != nil {
 		return nil, err
 	}
-	return s.runtimes(recordedInputs(spec, task.Runtime))
+	return s.runtimes(recordedInputs(spec, task.Runtime, cfg.Runtime.BindAddress))
 }
 
 // forgetWorkspace drops the cached control workspace of a task whose workspace

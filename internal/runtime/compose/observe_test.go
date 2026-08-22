@@ -273,8 +273,8 @@ func TestComposeIsReadInBothOfItsShapes(t *testing.T) {
 func TestPublishedPortsAreReportedFromTheRunningContainers(t *testing.T) {
 	state := observed(t, []string{"api"},
 		`{"ID":"c1","Service":"api","State":"running","Status":"Up","Publishers":[`+
-			`{"TargetPort":8000,"PublishedPort":8080,"Protocol":"tcp"},`+
-			`{"TargetPort":9000,"PublishedPort":0,"Protocol":"tcp"}]}`)
+			`{"URL":"127.0.0.1","TargetPort":8000,"PublishedPort":8080,"Protocol":"tcp"},`+
+			`{"URL":"127.0.0.1","TargetPort":9000,"PublishedPort":0,"Protocol":"tcp"}]}`)
 
 	if len(state.Ports) != 1 {
 		t.Fatalf("%d ports were reported, want 1: a port nothing published is not an assignment", len(state.Ports))
@@ -282,6 +282,28 @@ func TestPublishedPortsAreReportedFromTheRunningContainers(t *testing.T) {
 	port := state.Ports[0]
 	if port.Service != "api" || port.ContainerPort != 8000 || port.HostPort != 8080 {
 		t.Errorf("the reported port is %+v, want api 8000 published on 8080", port)
+	}
+}
+
+// TestTheObservedBindingCanContradictTheAllocation is G4-18.
+//
+// `docker compose ps` reports the address each port is bound on and the decoder
+// dropped it, so the one place in the product that genuinely reads back what
+// Docker did threw away the field that could have told a user their service was
+// answering on every interface while the record beside it said localhost. A
+// container observed on a wider binding than the task recorded is exactly the
+// disagreement that had no way of being seen.
+func TestTheObservedBindingCanContradictTheAllocation(t *testing.T) {
+	state := observed(t, []string{"api"},
+		`{"ID":"c1","Service":"api","State":"running","Status":"Up","Publishers":[`+
+			`{"URL":"0.0.0.0","TargetPort":8000,"PublishedPort":21000,"Protocol":"tcp"}]}`)
+
+	if len(state.Ports) != 1 {
+		t.Fatalf("%d ports were reported, want 1: %+v", len(state.Ports), state.Ports)
+	}
+	if bound := state.Ports[0].HostIP; bound != "0.0.0.0" {
+		t.Errorf("the observed binding is %q, want the address Docker reported: an observation that "+
+			"drops it cannot contradict the record it exists to check", bound)
 	}
 }
 

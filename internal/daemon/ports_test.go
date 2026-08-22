@@ -30,6 +30,14 @@ func ranged(fixture, ports string) string {
 		"  project_name_template: \"feat-{project_id}-{task_key}\"\n  port_range: \""+ports+"\"", 1)
 }
 
+// binding sets the host address Feat publishes an allocated port on, for a
+// project that wants something other than this machine alone.
+func binding(fixture, address string) string {
+	return strings.Replace(fixture,
+		`  project_name_template: "feat-{project_id}-{task_key}"`,
+		"  project_name_template: \"feat-{project_id}-{task_key}\"\n  bind_address: \""+address+"\"", 1)
+}
+
 // publishing writes the project's own Compose file, publishing the managed
 // service on a fixed host port.
 //
@@ -558,6 +566,153 @@ func TestAnExhaustedRangeNamesWhatHoldsIt(t *testing.T) {
 	} {
 		if !strings.Contains(message, required) {
 			t.Errorf("the exhausted range does not say %q: %s", required, message)
+		}
+	}
+}
+
+// TestAnAllocatedPortIsBoundWhereTheTaskSaysItIs is G4-01, end to end.
+//
+// The defect was not that the wrong address was chosen; it was that no address
+// was written at all. Compose reads a publication with no host_ip as every
+// interface, so omitting the key published every reachable service of every
+// running task on every network the machine was joined to — and on the Docker
+// bridge, which is one task's agent able to dial another task's database — while
+// the override comment, FEAT_URL_ and the address the task reported all said
+// localhost. Nothing in the product printed 0.0.0.0, so nothing contradicted it.
+//
+// Each case checks the two halves against each other: the address the generated
+// document binds, and the address the record says the service is reached at. A
+// test that only read one of them is the test that was there.
+func TestAnAllocatedPortIsBoundWhereTheTaskSaysItIs(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		configure func(string) string
+		compose   string
+		bound     string
+		reached   string
+	}{
+		// The ordinary publication, and the one both in-repo fixtures and the
+		// product's own goldens contain: the project's file names no address, so
+		// Feat's default decides, and the default is this machine alone.
+		"a publication naming no address": {
+			configure: func(fixture string) string { return fixture },
+			compose:   oneReachableService,
+			bound:     "127.0.0.1",
+			reached:   "localhost",
+		},
+		// The project said who reaches its service. Feat replaces the host port,
+		// because a fixed one is one task at a time, and leaves the address
+		// alone, because who may reach a service is not Feat's to widen.
+		"a publication naming one": {
+			configure: func(fixture string) string { return fixture },
+			compose: `services:
+  api:
+    image: example/api
+    ports:
+      - "192.168.64.7:4000:4000"
+`,
+			bound:   "192.168.64.7",
+			reached: "192.168.64.7",
+		},
+		// The user with a phone on the same network who wants it to reach a dev
+		// server, having said so. The binding widens; the address a user is given
+		// stays the name that reaches it from here.
+		"a project that asked for every interface": {
+			configure: func(fixture string) string { return binding(fixture, "0.0.0.0") },
+			compose:   oneReachableService,
+			bound:     "0.0.0.0",
+			reached:   "localhost",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			arranged := arrangeConfigured(t, testCase.configure(reaching(runtimeFixture)))
+			publishing(t, arranged, testCase.compose)
+
+			task := arranged.launched(t)
+			arranged.answerFor(task, "running", "Up 2 seconds")
+			arranged.act(t, task.ID, api.RuntimeStart)
+
+			allocations := allocationsOf(t, arranged, task.ID)
+			if len(allocations) != 1 {
+				t.Fatalf("the task holds %d host ports, want one: %+v", len(allocations), allocations)
+			}
+			allocation := allocations[0]
+
+			if allocation.HostIP != testCase.bound {
+				t.Errorf("the task records its service bound on %q, want %q: the record is what every "+
+					"surface reads, so an address missing from it is missing from all of them",
+					allocation.HostIP, testCase.bound)
+			}
+			address := testCase.reached + ":" + strconv.Itoa(allocation.HostPort)
+			if allocation.Address() != address {
+				t.Errorf("the task says its service is reached at %q, want %q",
+					allocation.Address(), address)
+			}
+
+			document := overrideOf(t, arranged, task.ID)
+			if bound := `host_ip: "` + testCase.bound + `"`; !strings.Contains(document, bound) {
+				t.Errorf("the generated override does not carry %s, so Compose binds every interface "+
+					"the machine has:\n%s", bound, document)
+			}
+			// The comment and the variable are the two places the address was
+			// claimed while nothing bound it. They have to agree with the binding
+			// above, or one of them is the sentence this test exists to remove.
+			if comment := "reached at " + address; !strings.Contains(document, comment) {
+				t.Errorf("the generated override does not say %q beside the port it publishes:\n%s",
+					comment, document)
+			}
+			if url := `"FEAT_URL_API": "http://` + address + `"`; !strings.Contains(document, url) {
+				t.Errorf("the generated override does not carry %s:\n%s", url, document)
+			}
+		})
+	}
+}
+
+// TestNoTaskIsPublishedOnEveryInterfaceByOmission is the same defect stated as
+// the property that failed, rather than as three arrangements.
+//
+// A publication with no host_ip is the widest binding there is, chosen by saying
+// nothing — which is how this shipped. Counting the addresses against the ports
+// fails whether the key is dropped for one service or for all of them, and it
+// fails for a service nobody wrote a case for.
+func TestNoTaskIsPublishedOnEveryInterfaceByOmission(t *testing.T) {
+	managing := strings.Replace(reaching(runtimeFixture),
+		"      services:\n        - api\n      reachable:\n        - api\n",
+		"      services:\n        - api\n        - admin\n      reachable:\n        - api\n        - admin\n", 1)
+
+	arranged := arrangeConfigured(t, managing)
+	publishing(t, arranged, `services:
+  api:
+    image: example/api
+    ports:
+      - "4000:4000"
+  admin:
+    image: example/admin
+    ports:
+      - "4100:4100"
+`)
+
+	task := arranged.launched(t)
+	arranged.answerFor(task, "running", "Up 2 seconds")
+	arranged.runtimes.
+		Answer("config --services", "api\nadmin").
+		Answer("up --detach api admin", "")
+	arranged.act(t, task.ID, api.RuntimeStart)
+
+	document := overrideOf(t, arranged, task.ID)
+	published := strings.Count(document, "\n        published: ")
+	bound := strings.Count(document, "\n        host_ip: ")
+	if published != 2 {
+		t.Fatalf("%d ports are published, want the 2 reachable services:\n%s", published, document)
+	}
+	if published != bound {
+		t.Errorf("%d ports are published and %d name an address: a publication with no host_ip is "+
+			"bound on every interface the machine has\n%s", published, bound, document)
+	}
+
+	for _, allocation := range allocationsOf(t, arranged, task.ID) {
+		if allocation.HostIP == "" {
+			t.Errorf("the allocation for %s records no address, so nothing Feat says about it can be "+
+				"checked against what Compose bound: %+v", allocation.Service, allocation)
 		}
 	}
 }

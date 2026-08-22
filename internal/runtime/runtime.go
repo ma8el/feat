@@ -220,9 +220,14 @@ type Publication struct {
 	HostPort int
 	// Protocol is "tcp" or "udp".
 	Protocol string
-	// HostIP is the host address to publish on, empty for every address. A
-	// project that deliberately published on the loopback address keeps doing
-	// so: widening it would be Feat deciding who may reach a user's service.
+	// HostIP is the host address to publish on. It is required: a publication
+	// with none is one Compose binds on every interface, which is a decision
+	// about who may reach a user's service and not a field left blank.
+	//
+	// A project that deliberately published on the loopback address keeps doing
+	// so, and one that named no address takes the project's configured bind
+	// address. Widening either would be Feat deciding who may reach a user's
+	// service.
 	HostIP string
 	// Description says what the publication is, so the generated document can
 	// name it in the user's terms.
@@ -496,6 +501,16 @@ func (s Spec) validatePublications(managed map[string]bool) error {
 		if publication.Protocol != "tcp" && publication.Protocol != "udp" {
 			return fmt.Errorf("service %s of task %s publishes %d over %q, and a published port is tcp "+
 				"or udp", publication.Service, s.Task, publication.ContainerPort, publication.Protocol)
+		}
+		// An address is required rather than defaulted here, because the default
+		// is a project's configuration and this package reads none. What an
+		// empty one would mean to Compose is every interface, so accepting it
+		// would let a generator that stopped resolving the address publish the
+		// widest binding there is and say nothing (G4-01).
+		if publication.HostIP == "" {
+			return fmt.Errorf("service %s of task %s is published on host port %d with no host address, "+
+				"and a publication with none is bound on every interface: Feat resolves the project's "+
+				"bind address before it writes one", publication.Service, s.Task, publication.HostPort)
 		}
 		// The address is the project's own and reaches the document as a quoted
 		// scalar, so what is refused is what no address contains: whitespace, a

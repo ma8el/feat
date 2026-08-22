@@ -330,6 +330,11 @@
           "type": "string",
           "pattern": "^[0-9]+-[0-9]+$",
           "default": "21000-21999"
+        },
+        "bind_address": {
+          "description": "The host address an allocated port is published on when the project's own Compose files named none. It must be a literal IP address. The default binds this machine alone; \"0.0.0.0\" binds every interface the machine has, which makes the service reachable from the whole network it is on and from every container on it, including other tasks' agents. An address a project's own file named is kept as it is.",
+          "type": "string",
+          "default": "127.0.0.1"
         }
       }
     },

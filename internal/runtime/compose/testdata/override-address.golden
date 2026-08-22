@@ -19,11 +19,11 @@ services:
   "api":
     container_name: !reset null
     ports: !override
-      # allocated for this task; reached at localhost:21000
+      # allocated for this task; reached at 192.168.64.7:21000
       - target: 8080
         published: "21000"
         protocol: "tcp"
-        host_ip: "127.0.0.1"
+        host_ip: "192.168.64.7"
     build:
       # the api task worktree, which this service's image is built from
       context: "/worktrees/api"
@@ -42,32 +42,7 @@ services:
       "FEAT_PORT_API": "21000"
       "FEAT_RUNTIME_PROJECT": "feat-app-11111111"
       "FEAT_TASK_KEY": "11111111"
-      "FEAT_URL_API": "http://localhost:21000"
-    labels:
-      "dev.feat.owner": "feat"
-      "dev.feat.project": "app"
-      "dev.feat.task": "11111111-1111-4111-8111-111111111111"
-      "dev.feat.kind": "runtime"
-      "dev.feat.schema": "1"
-
-  # Compose starts these because a managed service depends on them. They are
-  # in this task's project because Feat acted, so they lose both of the values
-  # that are global to the machine and carry its labels; nothing else about
-  # them is Feat's to change. A dependency you reach from the host is a
-  # service to manage and declare reachable, which is how it is given a port
-  # of its own.
-  "migrate":
-    container_name: !reset null
-    ports: !reset []
-    labels:
-      "dev.feat.owner": "feat"
-      "dev.feat.project": "app"
-      "dev.feat.task": "11111111-1111-4111-8111-111111111111"
-      "dev.feat.kind": "runtime"
-      "dev.feat.schema": "1"
-  "postgres":
-    container_name: !reset null
-    ports: !reset []
+      "FEAT_URL_API": "http://192.168.64.7:21000"
     labels:
       "dev.feat.owner": "feat"
       "dev.feat.project": "app"

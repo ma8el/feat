@@ -36,7 +36,7 @@ func valid() runtime.Spec {
 				Description: "the api task worktree"},
 		},
 		Publications: []runtime.Publication{
-			{Service: "api", ContainerPort: 8080, HostPort: 21000, Protocol: "tcp",
+			{Service: "api", ContainerPort: 8080, HostPort: 21000, Protocol: "tcp", HostIP: "127.0.0.1",
 				Description: "allocated for this task"},
 		},
 		Variables:        map[string]string{"FEAT_TASK_KEY": "11111111"},
@@ -148,9 +148,19 @@ func TestASpecificationIsCheckedBeforeItCanCreateAnything(t *testing.T) {
 			change: func(s *runtime.Spec) {
 				s.Publications = append(s.Publications, runtime.Publication{
 					Service: "worker", ContainerPort: 9090, HostPort: 21000, Protocol: "tcp",
+					HostIP: "127.0.0.1",
 				})
 			},
 			contains: "a host port carries one service",
+		},
+		// Compose reads a publication with no host_ip as every interface, so a
+		// generator that stopped resolving the address would write the widest
+		// binding there is and say nothing about it (G4-01). The specification
+		// is where that is caught, because this package has no configuration to
+		// take a default from.
+		"a publication with no host address": {
+			change:   func(s *runtime.Spec) { s.Publications[0].HostIP = "" },
+			contains: "bound on every interface",
 		},
 		"a variable name carrying an equals sign": {
 			change:   func(s *runtime.Spec) { s.Variables = map[string]string{"A=B": "c"} },

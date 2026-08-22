@@ -136,8 +136,12 @@ func realRuntime(t *testing.T, id domain.TaskID, publish ...int) (*compose.Runti
 		ForbiddenSources: []string{filepath.Join(root, "repos", "api")},
 	}
 	for _, port := range publish {
+		// On the loopback address, which is what the daemon resolves for a
+		// project that named none: this fixture is the real-Docker counterpart
+		// of what the allocator produces, so a binding it did not carry would be
+		// a binding no integration test ever made Docker perform.
 		spec.Publications = append(spec.Publications, runtime.Publication{
-			Service: "api", ContainerPort: 80, HostPort: port, Protocol: "tcp",
+			Service: "api", ContainerPort: 80, HostPort: port, Protocol: "tcp", HostIP: "127.0.0.1",
 			Description: "allocated for this task",
 		})
 		spec.Variables["FEAT_URL_API"] = "http://localhost:" + strconv.Itoa(port)

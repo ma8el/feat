@@ -385,6 +385,87 @@ func TestThePortRangeHasADefault(t *testing.T) {
 	}
 }
 
+// TestTheBindAddressDefaultsToThisMachineAlone is the default half of G4-01.
+//
+// Publishing is Feat's act here rather than the user's: the project wrote a
+// container port, Feat chose the host port that replaces it, and nobody asked
+// for the service to answer on whatever network the machine is joined to. A
+// project that never thought about this gets the narrowest binding, and can read
+// which one it got.
+func TestTheBindAddressDefaultsToThisMachineAlone(t *testing.T) {
+	cfg, err := loadReplacing(t, "", "")
+	if err != nil {
+		t.Fatalf("loading the fixture: %v", err)
+	}
+	if address := cfg.Runtime.BindAddress; address != "127.0.0.1" {
+		t.Errorf("the default bind address is %q, and a project that named none should be published "+
+			"on this machine alone", address)
+	}
+
+	var printed bool
+	for _, section := range cfg.Describe() {
+		if section.Title != "runtime" {
+			continue
+		}
+		for _, field := range section.Fields {
+			if field.Name == "bind_address" {
+				printed = true
+			}
+		}
+	}
+	if !printed {
+		t.Error("`feat project show` does not print the bind address: it decides who can reach this " +
+			"project's services, and a default a user cannot see is a default they cannot check")
+	}
+}
+
+// TestABindAddressThatIsNotAnAddressIsRefused keeps a value Compose would take
+// out of the generated override.
+//
+// It reaches the document as a host_ip and Compose binds it. A name would be
+// resolved by Docker at a moment Feat cannot see, to an address Feat could not
+// then tell the user their service was at — and one resolving to several would
+// not be one binding at all.
+func TestABindAddressThatIsNotAnAddressIsRefused(t *testing.T) {
+	for name, value := range map[string]string{
+		"a host name":           "localhost",
+		"an address and a port": "127.0.0.1:8080",
+		"a range":               "127.0.0.0/8",
+		"nonsense":              "everywhere",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := loadReplacing(t,
+				`  project_name_template: "feat-{project_id}-{task_id}"`,
+				"  project_name_template: \"feat-{project_id}-{task_id}\"\n  bind_address: \""+value+"\"")
+			invalid := configError(t, err)
+
+			problem := problemAt(t, invalid, "runtime.bind_address")
+			if !strings.Contains(problem.Reason, "literal IP address") {
+				t.Errorf("problem is %q, which does not say what a bind address has to be", problem.Reason)
+			}
+		})
+	}
+}
+
+// TestAProjectMayAskForEveryInterface keeps the widening available to the user
+// who wants it.
+//
+// The default is narrow because nobody chose it, not because the wide answer is
+// wrong: a dev server a phone on the same network should reach is a real case,
+// and the point of the key is that a user can say so. What they may not do is
+// get it without saying so.
+func TestAProjectMayAskForEveryInterface(t *testing.T) {
+	cfg, err := loadReplacing(t,
+		`  project_name_template: "feat-{project_id}-{task_id}"`,
+		"  project_name_template: \"feat-{project_id}-{task_id}\"\n  bind_address: \"0.0.0.0\"")
+	if err != nil {
+		t.Fatalf("a project that asked for every interface was refused: %v", err)
+	}
+	if address := cfg.Runtime.BindAddress; address != "0.0.0.0" {
+		t.Errorf("the configured bind address is %q, and the project asked for 0.0.0.0", address)
+	}
+}
+
 // TestTwoReachableServicesCannotShareAGeneratedVariable refuses the collision
 // before it can deliver one service's address to another.
 //
