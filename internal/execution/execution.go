@@ -235,6 +235,55 @@ type ObservedPrivileges struct {
 	NetworkMode string
 	// Devices are the host devices exposed to the container, as host paths.
 	Devices []string
+	// SecurityOptions are the confinement entries the container was given, split
+	// into the option and what it was set to.
+	//
+	// A capability is a name to compare and this is not: an entry either switches
+	// off a restriction the runtime applies to every container, or replaces it
+	// with a policy. Which of those it is decides whether a launch refuses it or
+	// says it found it, so both halves are carried and neither is judged here.
+	SecurityOptions []SecurityOption
+	// MaskedPaths and ReadOnlyPaths are the kernel interfaces the runtime hides
+	// from the container and the ones it mounts read-only.
+	//
+	// They are evidence about a grant that reports itself nowhere else:
+	// `security_opt: systempaths=unconfined` does not appear among the options
+	// above, because the daemon consumes it into these two lists being empty
+	// (measured, ADR-067). /proc/kcore is the host's physical memory and
+	// /proc/sysrq-trigger reboots the machine, so what is in these lists is the
+	// difference between a root process in the container and this host.
+	MaskedPaths   []string
+	ReadOnlyPaths []string
+}
+
+// SecurityOption is one entry of a container's security_opt.
+type SecurityOption struct {
+	// Name is the option, lowercased: seccomp, apparmor, label,
+	// no-new-privileges, or whatever a later runtime adds.
+	Name string
+	// Value is what it was set to, verbatim and unread.
+	//
+	// It is not always a word. A container started from a profile file reports
+	// the whole profile here — `seccomp={"defaultAction":"SCMP_ACT_ALLOW"}` —
+	// because the client sends the contents rather than the path (measured,
+	// ADR-067). Describe is what a message prints; nothing prints this.
+	Value string
+}
+
+// Describe names an option the way a message has to, and never prints a policy.
+//
+// What a reader has to find is the entry in their own Compose file, which is the
+// option and, when it is a word, what it was set to. A profile is neither: it
+// arrives whole, it is the thing Feat did not evaluate, and printing it would
+// bury the sentence that says so under somebody's syscall list.
+func (o SecurityOption) Describe() string {
+	if o.Value == "" {
+		return o.Name
+	}
+	if strings.ContainsAny(o.Value, " \t\r\n{") {
+		return o.Name + "=<a policy Feat did not evaluate>"
+	}
+	return o.Name + "=" + o.Value
 }
 
 // Mode reports which kind of environment a specification describes.

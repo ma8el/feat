@@ -1,0 +1,26 @@
+# The same fixture with a seccomp profile of the project's own.
+#
+# It is the other half of the security_opt rule: a profile replaces the
+# runtime's default rather than removing it, and Feat cannot tell a stricter one
+# from a permissive one without reading a policy. This one allows every syscall,
+# which is `seccomp=unconfined` under another name — the honest limit of a rule
+# that compares names, and the reason the launch reports what it found here
+# rather than refusing.
+#
+# The profile is written next to this file by the test rather than living in
+# testdata, because the fixture is copied into a temporary project directory and
+# Compose resolves the path relative to the file it read.
+#
+# What Docker reports for it is the measurement: the client sends the file's
+# contents, so the value arrives as the whole profile rather than as a path
+# (ADR-067). That is why no message prints a security_opt value it did not
+# evaluate.
+services:
+  dev:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    user: "1000:1000"
+    security_opt:
+      - seccomp=./permissive-seccomp.json
+    volumes:
+      - ./base-mount:/srv/api

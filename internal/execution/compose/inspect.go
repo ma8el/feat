@@ -73,9 +73,17 @@ type hostConfiguration struct {
 	PidMode     string   `json:"PidMode"`
 	IpcMode     string   `json:"IpcMode"`
 	NetworkMode string   `json:"NetworkMode"`
+	SecurityOpt []string `json:"SecurityOpt"`
 	Devices     []struct {
 		PathOnHost string `json:"PathOnHost"`
 	} `json:"Devices"`
+	// The two lists that say what a container may reach of the kernel's own
+	// interfaces. They are read because one grant is visible nowhere else:
+	// systempaths=unconfined never appears in SecurityOpt, and empties these
+	// (ADR-067). Docker spells the second one Readonly and Go spells it
+	// ReadOnly; the tag is Docker's.
+	MaskedPaths   []string `json:"MaskedPaths"`
+	ReadonlyPaths []string `json:"ReadonlyPaths"`
 }
 
 // Mounts returns what the running container actually mounts.
@@ -230,14 +238,19 @@ func (e *Environment) Privileges(ctx context.Context, container string) (executi
 	}
 
 	privileges := execution.ObservedPrivileges{
-		Known:       true,
-		Privileged:  decoded.Privileged,
-		PidMode:     decoded.PidMode,
-		IpcMode:     decoded.IpcMode,
-		NetworkMode: decoded.NetworkMode,
+		Known:         true,
+		Privileged:    decoded.Privileged,
+		PidMode:       decoded.PidMode,
+		IpcMode:       decoded.IpcMode,
+		NetworkMode:   decoded.NetworkMode,
+		MaskedPaths:   decoded.MaskedPaths,
+		ReadOnlyPaths: decoded.ReadonlyPaths,
 	}
 	for _, added := range decoded.CapAdd {
 		privileges.Capabilities = append(privileges.Capabilities, capabilityName(added))
+	}
+	for _, option := range decoded.SecurityOpt {
+		privileges.SecurityOptions = append(privileges.SecurityOptions, securityOption(option))
 	}
 	for _, device := range decoded.Devices {
 		if device.PathOnHost != "" {
@@ -245,6 +258,29 @@ func (e *Environment) Privileges(ctx context.Context, container string) (executi
 		}
 	}
 	return privileges, nil
+}
+
+// securityOption splits one security_opt entry into the option and its value.
+//
+// Both separators, because both reach a running container: Compose passes
+// `seccomp:unconfined` through to the daemon exactly as it passes
+// `seccomp=unconfined`, measured rather than assumed (ADR-067). A rule written
+// for one spelling would be a rule with the other spelling as its bypass, which
+// is what capabilityName exists to prevent one field up.
+//
+// Only the first separator splits. A value carries both characters — a label is
+// written `label=user:someone` and a seccomp profile arrives as JSON — and an
+// entry cut at the wrong one is an option nobody named.
+func securityOption(entry string) execution.SecurityOption {
+	trimmed := strings.TrimSpace(entry)
+	at := strings.IndexAny(trimmed, "=:")
+	if at < 0 {
+		return execution.SecurityOption{Name: strings.ToLower(trimmed)}
+	}
+	return execution.SecurityOption{
+		Name:  strings.ToLower(trimmed[:at]),
+		Value: trimmed[at+1:],
+	}
 }
 
 // capabilityName is a capability as this package compares them.
@@ -413,6 +449,58 @@ var ForbiddenCapabilities = []ForbiddenCapability{
 	{"SYSLOG", "reading the host's kernel log, which leaks kernel addresses"},
 }
 
+// ConfinementLayer is one restriction a container runtime applies to every
+// container, named by the security_opt entry that switches it off.
+//
+// The reason travels with the name for the reason ForbiddenCapability's does. A
+// reader who added the line to make one tool work is owed the sentence that ends
+// the argument rather than the one that starts it: "seccomp=unconfined is not
+// allowed" invites a reply, and "seccomp=unconfined is what makes the capability
+// rule above a rule" does not.
+type ConfinementLayer struct {
+	// Option is the security_opt entry, as Docker names it.
+	Option string
+	// Because is what the layer denies, and therefore what removing it reaches.
+	Because string
+}
+
+// UnconfinedValue is what a security_opt entry is set to in order to switch its
+// layer off, as Docker spells it.
+const UnconfinedValue = "unconfined"
+
+// ConfinementLayers are the restrictions that must not be switched off for the
+// agent's container.
+//
+// docs/05-security-model.md lists "custom seccomp/AppArmor policy" among the
+// things the dogfood profile does not require, which is not the same statement
+// as permitting the default one to be removed. Every rule in this file compares
+// a name — a path, a capability, a namespace — and each layer here is what makes
+// one of those rules enforceable rather than advisory: the capability deny-list
+// is a rule about what Docker was asked to add, and the syscall filter is what
+// stops a process manufacturing the same capability for itself.
+//
+// systempaths is the third of these and is checked separately below. It is the
+// one that reports itself nowhere: the daemon consumes it rather than recording
+// it, so the rule that finds it reads its effect (ADR-067).
+var ConfinementLayers = []ConfinementLayer{
+	{"seccomp", "the syscall filter every container is given by default. It is what keeps a process " +
+		"in the container from calling unshare(2) into a user namespace of its own, where it holds the " +
+		"CAP_SYS_ADMIN this check refuses in cap_add"},
+	{"apparmor", "the profile Docker loads for every container on a host that carries AppArmor. It " +
+		"denies mount(2) from inside the container, and denies writing /proc/sys and /proc/sysrq-trigger"},
+}
+
+// SystemPathsOption is the security_opt entry that unmasks the kernel
+// interfaces a runtime hides from every container.
+//
+// It is a constant rather than a ConfinementLayer because no container reports
+// it: `docker inspect` does not carry it under .HostConfig.SecurityOpt at all,
+// since the daemon turns it into empty MaskedPaths and ReadonlyPaths when the
+// container is created (measured, ADR-067). The rule below reads that effect and
+// the message names this cause, so a reader is told what was observed before
+// they are sent to a line in their own file.
+const SystemPathsOption = "systempaths=unconfined"
+
 // CheckPrivileges refuses a container granted more than its mounts.
 //
 // It is the other half of CheckMounts and asks the same kind of question: what
@@ -421,6 +509,12 @@ var ForbiddenCapabilities = []ForbiddenCapability{
 // generates none of it, and each grant below defeats a rule Feat does enforce —
 // the read-only mounts, the forbidden host paths, and the Docker boundary that
 // a daemon on the host's loopback sits outside of.
+//
+// The last two read what the container is confined by rather than what it holds.
+// They are the same question asked of the enforcement: a rule about a capability
+// nobody added is worth what the syscall filter and the mandatory access control
+// profile are worth, and a mask nobody removed is what stands between a root
+// process in the container and this host's memory.
 func (e *Environment) CheckPrivileges(privileges execution.ObservedPrivileges) error {
 	if !privileges.Known {
 		return fmt.Errorf(
@@ -477,8 +571,116 @@ func (e *Environment) CheckPrivileges(privileges execution.ObservedPrivileges) e
 				"define service %s",
 			e.spec.Service, strings.Join(privileges.Devices, ", "), e.spec.Service))
 	}
+
+	for _, switched := range switchedOff(privileges.SecurityOptions) {
+		problems = append(problems, fmt.Errorf(
+			"service %s runs with %s=%s, which removes %s. The rules above are rules about names a "+
+				"project wrote, and this is the enforcement they stand on: with it gone, what the agent's "+
+				"process may do is bounded by the kernel rather than by anything Feat or the runtime can "+
+				"be asked to show. Remove %s=%s from the security_opt of the Compose files that define "+
+				"service %s",
+			e.spec.Service, switched.Option, UnconfinedValue, switched.Because,
+			switched.Option, UnconfinedValue, e.spec.Service))
+	}
+
+	if unmasked(privileges) {
+		problems = append(problems, fmt.Errorf(
+			"service %s has none of the kernel interfaces a container runtime hides from every "+
+				"container: nothing masks /proc/kcore, which is this host's physical memory, and "+
+				"/proc/sys and /proc/sysrq-trigger are writable rather than read-only. A root process "+
+				"in that container reboots this machine with one write to /proc/sysrq-trigger, and "+
+				"names in /proc/sys/kernel/core_pattern a program the host's kernel then runs as root "+
+				"outside the container — and root in the container is one sudo away in any image "+
+				"carrying the NOPASSWD rule devcontainer templates ship, which is what the launch "+
+				"reports separately. None of it needs a capability the rules above read or a mount the "+
+				"rules below do. The line that produces this is security_opt: %s; remove it from the "+
+				"Compose files that define service %s",
+			e.spec.Service, SystemPathsOption, e.spec.Service))
+	}
 	return errors.Join(problems...)
 }
+
+// switchedOff reports which confinement layers the container's own security_opt
+// turns off, in the order this package lists them.
+func switchedOff(options []execution.SecurityOption) []ConfinementLayer {
+	var found []ConfinementLayer
+	for _, layer := range ConfinementLayers {
+		for _, option := range options {
+			if option.Name == layer.Option && switchesOff(option) {
+				found = append(found, layer)
+				break
+			}
+		}
+	}
+	return found
+}
+
+// switchesOff reports whether one entry sets a layer this package refuses to
+// lose to no policy at all.
+//
+// The value is compared without case for the reason hostNamespace ignores it,
+// and the name arrives lowercased from securityOption: a deny-list answered by a
+// spelling is not one.
+func switchesOff(option execution.SecurityOption) bool {
+	if !strings.EqualFold(strings.TrimSpace(option.Value), UnconfinedValue) {
+		return false
+	}
+	return slices.ContainsFunc(ConfinementLayers, func(layer ConfinementLayer) bool {
+		return layer.Option == option.Name
+	})
+}
+
+// unmasked reports whether the container reaches the kernel interfaces a runtime
+// hides from every container.
+//
+// Both lists have to be empty, and the container must not be privileged. Docker
+// reports the two as null for a privileged container and as [] for one given
+// systempaths=unconfined (measured, ADR-067); privileged is refused above by the
+// line that produced it, and adding a second refusal naming a security_opt entry
+// nobody wrote would send that reader looking for a line that is not there.
+//
+// A runtime that reported neither list would be read as unmasked here. That is
+// the direction this whole file errs in — an unread answer is never the
+// reassuring one — and the refusal says what was observed before it names the
+// line, so a reader on such a runtime is told something true.
+func unmasked(privileges execution.ObservedPrivileges) bool {
+	return !privileges.Privileged &&
+		len(privileges.MaskedPaths) == 0 && len(privileges.ReadOnlyPaths) == 0
+}
+
+// unevaluatedOptions are the security_opt entries a launch reports rather than
+// refuses: the ones that replace a layer of confinement instead of removing it.
+//
+// A custom seccomp or AppArmor profile can be stricter than the runtime's
+// default or can allow every syscall — `{"defaultAction":"SCMP_ACT_ALLOW"}` is
+// unconfined under another name — and an SELinux label option decides which
+// policy the host applies. Telling any of those apart means reading a policy,
+// and every other rule here compares a name.
+//
+// So they are said out loud rather than refused, which is ADR-066's decision
+// applied to the same kind of fact: the project is entitled to configure this
+// and the next person is not entitled to be surprised by it. Refusing instead
+// would refuse the user who hardened their container, and the edit that answered
+// the refusal would be deleting the profile.
+//
+// no-new-privileges is left silent. It only ever tightens — it is the flag that
+// stops a setuid binary handing back privilege — and a warning about a container
+// doing better than the default is a warning people learn to skip, which is the
+// reasoning EscalationTools' own presence check follows.
+func unevaluatedOptions(privileges execution.ObservedPrivileges) []execution.SecurityOption {
+	var found []execution.SecurityOption
+	for _, option := range privileges.SecurityOptions {
+		if option.Name == noNewPrivilegesOption || switchesOff(option) {
+			continue
+		}
+		found = append(found, option)
+	}
+	return found
+}
+
+// noNewPrivilegesOption is the one security_opt entry that only ever confines
+// further.
+const noNewPrivilegesOption = "no-new-privileges"
 
 // forbiddenCapabilities reports which of the added capabilities must not have
 // been added, in the order this package lists them.

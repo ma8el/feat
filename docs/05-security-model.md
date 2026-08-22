@@ -47,6 +47,7 @@ Required:
 
 - Claude runs inside the configured devcontainer.
 - The container user is non-root, and Feat probes for a way back to root rather than assuming there is none.
+- The container runtime's own confinement is left on: its syscall filter, its mandatory access control profile, and the kernel interfaces it masks.
 - No Docker socket is mounted.
 - Docker CLI is absent or denied.
 - No daemon/tmux control socket is mounted.
@@ -71,6 +72,10 @@ The uid an agent runs as is read from the running container, as the configured u
 Feat therefore asks the second question too — at every launch, and in `feat doctor` wherever a container of the project is running: whether a tool in the image returns root without a password. What it finds is reported and not refused. Whether an agent may become root inside its own container is a project's decision, and a refusal would be answered by whichever edit made the check stop looking; what Feat can do honestly is say what it found, every time, so the choice is made deliberately rather than inherited from a template.
 
 What passwordless root inside the container reaches is the container runtime's default capability set, which is wider than the agent's user and narrower than a privileged container. `CAP_DAC_OVERRIDE` is in Docker's default set, so file permissions stop constraining anything the container can already reach — including host-owned files under every writable bind mount. `CAP_SYS_ADMIN` is not, so a read-only mount stays read-only: the read-only control workspace holds by the kernel's rule, and Feat refuses a container granted `CAP_SYS_ADMIN` separately.
+
+That capability rule is worth what its enforcement is worth, so Feat checks the enforcement too. Docker's default syscall filter is what stops a process calling `unshare(2)` into a user namespace where it holds `CAP_SYS_ADMIN` whatever `cap_add` says; the AppArmor profile Docker loads denies `mount(2)` on the hosts that carry it; and the kernel interfaces Docker masks are what stand between a root process in the container and `/proc/kcore`, `/proc/sysrq-trigger`, and a writable `/proc/sys`. A container that switches one of those off — `security_opt: seccomp=unconfined`, `apparmor=unconfined`, `systempaths=unconfined` — is refused, the third by its effect, because Docker records it nowhere. Not requiring a custom seccomp or AppArmor policy above is not permission to remove the default one.
+
+A policy of the project's own is reported rather than refused. Feat compares names and does not evaluate policies, so a custom seccomp profile, a named AppArmor profile, and an SELinux label option are reported at launch with what they leave unestablished — including that a profile allowing every syscall is `unconfined` under another name. See ADR-067.
 
 Feat's own `.devcontainer/` image grants passwordless `sudo` deliberately, and its Dockerfile says so.
 

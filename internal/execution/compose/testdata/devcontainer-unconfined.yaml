@@ -1,0 +1,28 @@
+# The same fixture with the runtime's own confinement switched off.
+#
+# Three lines a project adds to make one tool work — a debugger that the default
+# syscall filter blocks, a package manager that trips the AppArmor profile, a
+# benchmark that wants /proc — and none of which appears in the mounts, the
+# environment, the capabilities, or the namespaces the launch check reads. Each
+# removes the enforcement one of those other rules stands on.
+#
+# Which of the three `docker inspect` reports, and where, is a fact about Docker
+# rather than about Feat, and it is the fact this fix turns on: two of them
+# arrive under .HostConfig.SecurityOpt and the third arrives nowhere, because the
+# daemon spends it on MaskedPaths and ReadonlyPaths instead (ADR-067). A fake can
+# only restate whichever answer its author assumed.
+#
+# The container is `sleep infinity` with nothing in it: what is being proved is
+# what Docker reports and that the check reads it, not that any of the three
+# reaches what it reaches — they do.
+services:
+  dev:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    user: "1000:1000"
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+      - systempaths=unconfined
+    volumes:
+      - ./base-mount:/srv/api
