@@ -2,8 +2,6 @@ package compose_test
 
 import (
 	"context"
-	"encoding/json"
-	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -316,20 +314,11 @@ func TestEveryProbeRunsAsTheAgentsOwnUser(t *testing.T) {
 // granted renders one `docker inspect` answer for .HostConfig from the fields a
 // test cares about, over the defaults an ordinary container has.
 //
-// It is written as fields rather than as a JSON string so that a fixture states
-// what the container was granted and nothing else, and so that two tests
-// arranging different grants cannot disagree about the rest of the record.
+// The defaults live in composetest beside the ones New arranges, so that the
+// healthy container and a container granted one thing cannot disagree about
+// every field neither of them names.
 func granted(fields map[string]any) string {
-	config := map[string]any{
-		"Privileged": false, "CapAdd": nil, "CapDrop": nil, "PidMode": "",
-		"IpcMode": "private", "NetworkMode": "feat-agent-app-default", "Devices": []any{},
-	}
-	maps.Copy(config, fields)
-	encoded, err := json.Marshal(config)
-	if err != nil {
-		panic(err)
-	}
-	return string(encoded)
+	return composetest.HostConfiguration(fields)
 }
 
 // TestAContainerGrantedMoreThanItsMountsIsRefused is G4-04.
@@ -387,6 +376,31 @@ func TestAContainerGrantedMoreThanItsMountsIsRefused(t *testing.T) {
 				{"PathOnHost": "/dev/sda1", "PathInContainer": "/dev/sda1"},
 			}},
 			contains: "/dev/sda1",
+		},
+		// The three below are the same finding one field over: security_opt was
+		// decoded nowhere, so the entries that switch off the enforcement every
+		// rule in this table stands on passed a check that refuses a
+		// home-directory mount.
+		"the syscall filter switched off": {
+			granted:  map[string]any{"SecurityOpt": []string{"seccomp=unconfined"}},
+			contains: "seccomp=unconfined",
+		},
+		// Compose passes the older colon spelling through to the daemon
+		// unchanged, so a rule written for one separator is a rule with the
+		// other as its bypass.
+		"the same, spelled with a colon": {
+			granted:  map[string]any{"SecurityOpt": []string{"seccomp:unconfined"}},
+			contains: "seccomp=unconfined",
+		},
+		"the mandatory access control profile switched off": {
+			granted:  map[string]any{"SecurityOpt": []string{"apparmor=unconfined"}},
+			contains: "apparmor=unconfined",
+		},
+		// systempaths=unconfined, which reaches the container reporting nothing
+		// of itself: the daemon spends it on these two lists.
+		"the kernel's own interfaces unmasked": {
+			granted:  map[string]any{"MaskedPaths": []string{}, "ReadonlyPaths": []string{}},
+			contains: "/proc/sysrq-trigger",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -461,6 +475,113 @@ func TestADebuggersCapabilityIsAccepted(t *testing.T) {
 	}
 	if err := environment.Check(report); err != nil {
 		t.Errorf("a container with a debugger's capability was refused: %v", err)
+	}
+}
+
+// TestAPrivilegedContainerIsNotSentToALineNobodyWrote keeps the unmasked-paths
+// refusal from firing twice about one Compose file.
+//
+// Docker reports MaskedPaths and ReadonlyPaths as null for a privileged
+// container and as [] for one given systempaths=unconfined, so the two arrive
+// here looking alike. The privileged refusal already names the line that
+// produced them; a second one telling the reader to remove a security_opt entry
+// their file does not contain is the message socketProblem's own comment refuses
+// to write.
+func TestAPrivilegedContainerIsNotSentToALineNobodyWrote(t *testing.T) {
+	err := check(t, healthy().Inspect("c0ffee", "HostConfig", granted(map[string]any{
+		"Privileged": true, "MaskedPaths": nil, "ReadonlyPaths": nil,
+	})))
+
+	if !strings.Contains(err.Error(), "runs privileged") {
+		t.Errorf("a privileged container was not refused for being privileged: %v", err)
+	}
+	if strings.Contains(err.Error(), compose.SystemPathsOption) {
+		t.Errorf("the refusal sends the reader to a security_opt line the fixture does not have: %v", err)
+	}
+}
+
+// permissiveProfile is a seccomp profile that allows every syscall, which is
+// what `seccomp=unconfined` is under another name.
+//
+// It is the shape a container reports a custom profile in — Docker sends the
+// file's contents rather than its path, so this is the whole value — and it is
+// deliberately the permissive one: a rule that refused only the word
+// "unconfined" is bypassed by four lines of JSON, and saying so out loud is the
+// alternative this fix chose over pretending otherwise.
+const permissiveProfile = `{"defaultAction":"SCMP_ACT_ALLOW"}`
+
+// TestACustomSecurityPolicyIsReportedAndNotRefused is the other half of the
+// security_opt rule, and the decision behind it.
+//
+// A profile replaces the runtime's default rather than removing it, and it can
+// be stricter or can allow everything. Feat compares names and does not read
+// policies, so refusing here would refuse the project that hardened its own
+// container and would be answered by deleting the profile. What is left is
+// ADR-066's answer: say what was found, and say what it does not establish.
+func TestACustomSecurityPolicyIsReportedAndNotRefused(t *testing.T) {
+	said := warnings(t, healthy().Inspect("c0ffee", "HostConfig", granted(map[string]any{
+		"SecurityOpt": []string{"seccomp=" + permissiveProfile},
+	})))
+
+	if len(said) != 1 {
+		t.Fatalf("the launch said %d things about a container with a custom profile, want 1: %v",
+			len(said), said)
+	}
+	for _, expected := range []string{
+		// The entry, and where the line that carries it lives.
+		"seccomp", "service dev",
+		// That the profile itself was not read, which is the whole point of
+		// reporting rather than refusing.
+		"did not evaluate",
+	} {
+		if !strings.Contains(said[0], expected) {
+			t.Errorf("the warning does not mention %q: %v", expected, said[0])
+		}
+	}
+	// And never the policy. A warning whose subject is "Feat did not read this"
+	// cannot be one that prints it, and Docker's own default profile is several
+	// hundred lines of the same JSON.
+	if strings.Contains(said[0], "SCMP_ACT_ALLOW") {
+		t.Errorf("the warning prints the profile it says it did not read: %v", said[0])
+	}
+}
+
+// TestAnSELinuxLabelOptionIsReportedRatherThanRefused holds the deliberate
+// asymmetry to a test.
+//
+// apparmor=unconfined is refused and label=disable is not, which is a decision
+// rather than an oversight: docker-default is loaded for every container and
+// costs a project nothing to keep, while on an SELinux host Feat generates its
+// bind mounts with no :z and offers no configuration key for one — so
+// label=disable may be what makes Feat's own mounts work there, and a refusal
+// whose remedy the product does not offer is one nobody can act on. Docker also
+// adds label=disable itself to every privileged container, so it is not reliably
+// a line the project wrote.
+func TestAnSELinuxLabelOptionIsReportedRatherThanRefused(t *testing.T) {
+	said := warnings(t, healthy().Inspect("c0ffee", "HostConfig", granted(map[string]any{
+		"SecurityOpt": []string{"label=disable"},
+	})))
+
+	if len(said) != 1 || !strings.Contains(said[0], "label=disable") {
+		t.Errorf("a container whose SELinux labelling is switched off was described as %v", said)
+	}
+}
+
+// TestAnOptionThatOnlyConfinesFurtherIsNotWarnedAbout keeps the report above
+// from being a report on every container that configures anything.
+//
+// no-new-privileges is the flag that stops a setuid binary handing privilege
+// back — a container carrying it is doing better than the default, and warning
+// about that teaches a reader to skip the warning that means something. It is
+// the reasoning TestAToolThatWouldAskForAPasswordIsNotAGrant follows about an
+// image that merely has sudo.
+func TestAnOptionThatOnlyConfinesFurtherIsNotWarnedAbout(t *testing.T) {
+	said := warnings(t, healthy().Inspect("c0ffee", "HostConfig", granted(map[string]any{
+		"SecurityOpt": []string{"no-new-privileges=true"},
+	})))
+
+	if len(said) != 0 {
+		t.Errorf("a container that confines itself further than the default was warned about: %v", said)
 	}
 }
 

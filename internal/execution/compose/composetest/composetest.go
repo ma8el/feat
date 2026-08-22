@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 
@@ -72,9 +73,50 @@ func New() *Docker {
 		// the other observation a launch refuses over.
 		Inspect("c0ffee", "Config.Env", `["PATH=/usr/bin"]`).
 		// A container granted nothing beyond its mounts: not privileged, no
-		// added capability, its own namespaces, no host device.
-		Inspect("c0ffee", "HostConfig", `{"Privileged":false,"CapAdd":null,"CapDrop":null,`+
-			`"PidMode":"","IpcMode":"private","NetworkMode":"feat-agent-app-default","Devices":[]}`)
+		// added capability, its own namespaces, no host device, and the
+		// runtime's own confinement left on.
+		Inspect("c0ffee", "HostConfig", HostConfiguration(nil))
+}
+
+// MaskedPaths and ReadonlyPaths are what a container runtime hides from an
+// ordinary container and what it mounts read-only there.
+//
+// Verbatim from Docker 29.5.2 on 2026-08-22, because their being non-empty is
+// the ordinary answer a rule reads: `security_opt: systempaths=unconfined`
+// appears nowhere else, and the container that has it is the one reporting both
+// of these empty. A fixture that abbreviated them would be a fixture asserting
+// something about a container Docker does not produce.
+var (
+	MaskedPaths = []string{
+		"/proc/acpi", "/proc/asound", "/proc/interrupts", "/proc/kcore", "/proc/keys",
+		"/proc/latency_stats", "/proc/sched_debug", "/proc/scsi", "/proc/timer_list",
+		"/proc/timer_stats", "/sys/devices/virtual/powercap", "/sys/firmware",
+	}
+	ReadonlyPaths = []string{
+		"/proc/bus", "/proc/fs", "/proc/irq", "/proc/sys", "/proc/sysrq-trigger",
+	}
+)
+
+// HostConfiguration renders one `docker inspect` answer for .HostConfig from the
+// fields a test cares about, over the defaults an ordinary container has.
+//
+// It is written as fields rather than as a JSON string so that a fixture states
+// what the container was granted and nothing else, and it lives here rather than
+// beside one test so that two fixtures arranging different grants cannot
+// disagree about the rest of the record — which is what would decide, silently,
+// whether a rule about the fields nobody set was being exercised at all.
+func HostConfiguration(fields map[string]any) string {
+	config := map[string]any{
+		"Privileged": false, "CapAdd": nil, "CapDrop": nil, "PidMode": "",
+		"IpcMode": "private", "NetworkMode": "feat-agent-app-default", "Devices": []any{},
+		"SecurityOpt": nil, "MaskedPaths": MaskedPaths, "ReadonlyPaths": ReadonlyPaths,
+	}
+	maps.Copy(config, fields)
+	encoded, err := json.Marshal(config)
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded)
 }
 
 // Inspect arranges what `docker inspect` reports for one field of one container.

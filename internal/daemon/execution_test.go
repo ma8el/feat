@@ -44,6 +44,24 @@ const (
 	fixtureControl = "/feat"
 )
 
+// ordinaryPrivileges is what a container granted nothing beyond its mounts
+// reports about itself.
+//
+// It is neither of the two answers a fixture reaches for by reflex. An unread
+// host configuration is refused, so Known is true; and a read one whose masked
+// and read-only path lists are empty is a grant rather than an absence —
+// `security_opt: systempaths=unconfined` reaches a launch as those two lists
+// being empty and as nothing else (ADR-067). The lists come from composetest so
+// that a report written here and one the fake answers with cannot describe
+// different containers.
+func ordinaryPrivileges() execution.ObservedPrivileges {
+	return execution.ObservedPrivileges{
+		Known:         true,
+		MaskedPaths:   composetest.MaskedPaths,
+		ReadOnlyPaths: composetest.ReadonlyPaths,
+	}
+}
+
 // containerProbe renders the shortened command a probe runs inside the fixture's
 // container, which is how composetest keys an arranged answer.
 func containerProbe(program string, arguments ...string) string {
@@ -647,9 +665,7 @@ func TestAPromotedStableRepositoryIsAnOrdinaryCheckout(t *testing.T) {
 	}
 	err = environment.Check(execution.Report{
 		UID: 1000, UIDKnown: true, User: "developer",
-		// Read and empty, which is not the same report as unread: a launch
-		// refuses a container whose grants nobody could see.
-		Privileges: execution.ObservedPrivileges{Known: true},
+		Privileges: ordinaryPrivileges(),
 		Mounts: []execution.ObservedMount{
 			{Type: "bind", Source: repository.HostPath, Destination: "/opt/api", Writable: true},
 		},
@@ -699,7 +715,7 @@ func TestAStableCheckoutIsRefusedAnywhereButItsOwnMount(t *testing.T) {
 	// Feat's own mount, read-only at the configured container path.
 	if err := environment.Check(execution.Report{
 		UID: 1000, UIDKnown: true, User: "developer",
-		Privileges: execution.ObservedPrivileges{Known: true},
+		Privileges: ordinaryPrivileges(),
 		Mounts: []execution.ObservedMount{
 			{Type: "bind", Source: stable, Destination: "/srv/tooling"},
 		},
@@ -710,7 +726,7 @@ func TestAStableCheckoutIsRefusedAnywhereButItsOwnMount(t *testing.T) {
 	// The same checkout anywhere else is the user's working copy.
 	err = environment.Check(execution.Report{
 		UID: 1000, UIDKnown: true, User: "developer",
-		Privileges: execution.ObservedPrivileges{Known: true},
+		Privileges: ordinaryPrivileges(),
 		Mounts: []execution.ObservedMount{
 			{Type: "bind", Source: stable, Destination: "/opt/tooling", Writable: true},
 		},
@@ -821,7 +837,7 @@ func TestTheWorkingCopyIsStillOutOfReach(t *testing.T) {
 	}
 	if err := environment.Check(execution.Report{
 		UID: 1000, UIDKnown: true, User: "developer",
-		Privileges: execution.ObservedPrivileges{Known: true}, Mounts: permitted,
+		Privileges: ordinaryPrivileges(), Mounts: permitted,
 	}); err != nil {
 		t.Errorf("the Git directory mount was refused: %v", err)
 	}
@@ -835,7 +851,7 @@ func TestTheWorkingCopyIsStillOutOfReach(t *testing.T) {
 	} {
 		err := environment.Check(execution.Report{
 			UID: 1000, UIDKnown: true, User: "developer",
-			Privileges: execution.ObservedPrivileges{Known: true},
+			Privileges: ordinaryPrivileges(),
 			Mounts: []execution.ObservedMount{
 				{Type: "bind", Source: source, Destination: "/mounted", Writable: true},
 			},
@@ -902,7 +918,7 @@ func TestFeatsOwnDirectoriesAreOutOfReachToo(t *testing.T) {
 	} {
 		err := environment.Check(execution.Report{
 			UID: 1000, UIDKnown: true, User: "developer",
-			Privileges: execution.ObservedPrivileges{Known: true},
+			Privileges: ordinaryPrivileges(),
 			Mounts: []execution.ObservedMount{
 				{Type: "bind", Source: source, Destination: "/mounted", Writable: true},
 			},
@@ -923,7 +939,7 @@ func TestFeatsOwnDirectoriesAreOutOfReachToo(t *testing.T) {
 	}
 	if err := environment.Check(execution.Report{
 		UID: 1000, UIDKnown: true, User: "developer",
-		Privileges: execution.ObservedPrivileges{Known: true}, Mounts: own,
+		Privileges: ordinaryPrivileges(), Mounts: own,
 	}); err != nil {
 		t.Errorf("the task's own mounts were refused: %v", err)
 	}

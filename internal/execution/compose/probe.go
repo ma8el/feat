@@ -335,7 +335,34 @@ func (e *Environment) Warnings(report execution.Report) []string {
 			report.User, report.UID, e.spec.Service, strings.Join(report.Escalation, ", "),
 			strings.Join(report.Escalation, "/"), e.spec.Service))
 	}
+
+	if unevaluated := unevaluatedOptions(report.Privileges); len(unevaluated) > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"service %s is given the security_opt %s, and Feat read the entries rather than what they "+
+				"describe. A seccomp or AppArmor profile can be stricter than the runtime's default or can "+
+				"allow every syscall, and an SELinux label option decides which policy this host applies; "+
+				"telling any of those apart means reading a policy, and the launch refuses on names. So the "+
+				"confinement the read-only mounts and the capability rule stand on in service %s is whatever "+
+				"that policy says, and the launch established the rest and not this. If the container does "+
+				"not need it, remove it from the Compose files that define service %s",
+			e.spec.Service, strings.Join(describeOptions(unevaluated), ", "),
+			e.spec.Service, e.spec.Service))
+	}
 	return warnings
+}
+
+// describeOptions renders security_opt entries for a message, in the order the
+// container reports them.
+//
+// Each is named and none is quoted: a profile arrives whole under Docker's own
+// reporting, and a warning whose subject is "Feat did not read this policy"
+// cannot be a warning that prints it (ADR-067).
+func describeOptions(options []execution.SecurityOption) []string {
+	described := make([]string, 0, len(options))
+	for _, option := range options {
+		described = append(described, option.Describe())
+	}
+	return described
 }
 
 // sorted returns a map's keys in a fixed order, so a message with several

@@ -942,6 +942,164 @@ func TestRealAContainerGrantedMoreThanItsMountsIsRefused(t *testing.T) {
 	}
 }
 
+// TestRealAContainerWithItsConfinementSwitchedOffIsRefused is the security_opt
+// half of the same finding, against a real container.
+//
+// Three questions here have answers only Docker has, and each decides the shape
+// of the rule rather than only its wording:
+//
+//   - whether `security_opt: seccomp=unconfined` reaches .HostConfig.SecurityOpt
+//     verbatim, which is what the refusal compares;
+//   - whether `systempaths=unconfined` reaches it at all. It does not — the
+//     daemon consumes it into empty MaskedPaths and ReadonlyPaths — so a check
+//     that decoded SecurityOpt alone would refuse two of the three and report
+//     nothing about the one that unmasks /proc/kcore;
+//   - whether those two lists are non-empty for every other container, without
+//     which the rule reading them would refuse every launch on this machine.
+//
+// The third is asked one test down, of a container that is otherwise ordinary.
+func TestRealAContainerWithItsConfinementSwitchedOffIsRefused(t *testing.T) {
+	realDocker(t)
+
+	environment, spec, _ := realTaskFrom(t, domain.NewTaskID(), "devcontainer-unconfined.yaml")
+	if err := environment.Prepare(context.Background()); err != nil {
+		// Through the demand rather than as a bare skip, for the reason the
+		// privileged fixture above gives: a run that asked for Docker and got one
+		// which cannot arrange the subject must say so instead of printing "ok".
+		integrationtest.Unavailable(t, integrationtest.Docker,
+			"this machine's Docker would not start the unconfined container this check inspects: %v", err)
+	}
+	state, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the environment: %v", err)
+	}
+
+	privileges, err := environment.Privileges(context.Background(), state.Container)
+	if err != nil {
+		t.Fatalf("reading what the container was granted: %v", err)
+	}
+	if !privileges.Known {
+		t.Fatal("the container's grants were reported unread")
+	}
+
+	var options []string
+	for _, option := range privileges.SecurityOptions {
+		options = append(options, option.Name+"="+option.Value)
+	}
+	for _, expected := range []string{"seccomp=unconfined", "apparmor=unconfined"} {
+		if !slices.Contains(options, expected) {
+			t.Errorf("the Compose file asked for %s and Docker reports %v", expected, options)
+		}
+	}
+	// The one that reports itself nowhere. If a later Docker starts carrying it
+	// here, the rule below can read the request instead of its effect — and this
+	// is where that would be noticed rather than in a container nobody inspected.
+	for _, option := range privileges.SecurityOptions {
+		if strings.Contains(option.Name, "systempaths") {
+			t.Errorf("Docker now reports %s under .HostConfig.SecurityOpt (%v), which the fix measured it "+
+				"does not; the rule that reads MaskedPaths for it can read the request instead",
+				compose.SystemPathsOption, options)
+		}
+	}
+	if len(privileges.MaskedPaths) != 0 || len(privileges.ReadOnlyPaths) != 0 {
+		t.Errorf("the container was given %s and Docker still masks %v and holds %v read-only; "+
+			"the rule that reads those two lists is then aimed at the wrong field",
+			compose.SystemPathsOption, privileges.MaskedPaths, privileges.ReadOnlyPaths)
+	}
+
+	report, err := environment.Inspect(context.Background(), []string{"/srv/api"})
+	if err != nil {
+		t.Fatalf("inspecting the container: %v", err)
+	}
+	err = environment.Check(report)
+	if err == nil {
+		t.Fatal("a container with the runtime's own confinement switched off was accepted")
+	}
+	for _, expected := range []string{
+		"seccomp=unconfined", "apparmor=unconfined", "/proc/kcore", compose.SystemPathsOption, spec.Service,
+	} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("the refusal does not mention %q: %v", expected, err)
+		}
+	}
+}
+
+// TestRealACustomSeccompProfileIsReportedAndNotRefused is the decision behind
+// the rule above, against the thing it declines to evaluate.
+//
+// A profile replaces the runtime's default rather than removing it, and this one
+// allows every syscall — so the container is no more confined than
+// `seccomp=unconfined` would leave it, and Feat cannot tell without reading a
+// policy. Two facts belong to Docker rather than to Feat and a fake can only
+// restate them: the profile arrives as its own contents rather than as the path
+// the Compose file names, which is why no message prints the value; and this
+// otherwise ordinary container still has the masked and read-only kernel paths,
+// without which the unmasked-paths rule would refuse every launch.
+func TestRealACustomSeccompProfileIsReportedAndNotRefused(t *testing.T) {
+	realDocker(t)
+
+	environment, spec, _ := realTaskFrom(t, domain.NewTaskID(), "devcontainer-seccomp-profile.yaml")
+	// Beside the Compose file the fixture was copied to, because that is where
+	// Compose resolves the profile path from.
+	profile := filepath.Join(spec.Directory, "permissive-seccomp.json")
+	if err := os.WriteFile(profile, []byte(`{"defaultAction":"SCMP_ACT_ALLOW"}`), 0o600); err != nil {
+		t.Fatalf("writing the profile the fixture names: %v", err)
+	}
+	if err := environment.Prepare(context.Background()); err != nil {
+		integrationtest.Unavailable(t, integrationtest.Docker,
+			"this machine's Docker would not start the container this check inspects: %v", err)
+	}
+	state, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the environment: %v", err)
+	}
+
+	privileges, err := environment.Privileges(context.Background(), state.Container)
+	if err != nil {
+		t.Fatalf("reading what the container was granted: %v", err)
+	}
+	if len(privileges.SecurityOptions) != 1 || privileges.SecurityOptions[0].Name != "seccomp" {
+		t.Fatalf("the Compose file named one seccomp profile and Docker reports %+v", privileges.SecurityOptions)
+	}
+	option := privileges.SecurityOptions[0]
+	if !strings.Contains(option.Value, "SCMP_ACT_ALLOW") {
+		t.Errorf("Docker now reports the profile as %q rather than as its contents, which the fix measured "+
+			"it does not; a message may print a value again", option.Value)
+	}
+	if described := option.Describe(); strings.Contains(described, "SCMP_ACT_ALLOW") {
+		t.Errorf("the option describes itself as %q, which puts somebody's syscall list in a message", described)
+	}
+	// The other half, on the same container: everything Docker masks from an
+	// ordinary container is still masked here.
+	if len(privileges.MaskedPaths) == 0 || len(privileges.ReadOnlyPaths) == 0 {
+		t.Fatalf("an ordinary container reports %v masked and %v read-only, so the rule that reads them "+
+			"refuses every launch on this machine", privileges.MaskedPaths, privileges.ReadOnlyPaths)
+	}
+
+	report, err := environment.Inspect(context.Background(), []string{"/srv/api"})
+	if err != nil {
+		t.Fatalf("inspecting the container: %v", err)
+	}
+	// A warning and not a refusal: whether a project runs its own policy is the
+	// project's decision, and refusing here would refuse the container that
+	// hardened itself.
+	if err := environment.Check(report); err != nil {
+		t.Fatalf("a container with a policy of its own was refused rather than reported: %v", err)
+	}
+	said := environment.Warnings(report)
+	if len(said) != 1 {
+		t.Fatalf("the launch said %d things about it, want 1: %v", len(said), said)
+	}
+	for _, expected := range []string{"seccomp", "did not evaluate", spec.Service} {
+		if !strings.Contains(said[0], expected) {
+			t.Errorf("the warning does not mention %q: %v", expected, said[0])
+		}
+	}
+	if strings.Contains(said[0], "SCMP_ACT_ALLOW") {
+		t.Errorf("the warning prints the profile it says it did not read: %v", said[0])
+	}
+}
+
 // awaitFixtureSetup waits for the escalation fixture's own start-up to finish.
 //
 // The container is up before `apk add` has finished, and probing it in between

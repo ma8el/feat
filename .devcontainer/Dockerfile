@@ -25,6 +25,20 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
 
 ARG UID=1000
 ARG GID=1000
+# The agent's user, and a way back to root that this image grants on purpose.
+#
+# `NOPASSWD` is what lets a session `apt-get install` something the image does
+# not carry, which is why it is here. It is also the reason "the container user
+# is non-root" is true of the moment the launch measures it and not of the
+# session: with the runtime's default capabilities, root in here writes through
+# every writable bind mount whatever owns the files on the host — and does not
+# reach a read-only one, which needs CAP_SYS_ADMIN that the default set excludes.
+#
+# Feat probes for this at every launch and reports it against the task, so it is
+# a grant that says its own name rather than one nobody sees again. An image
+# that does not need it should drop `sudo` from the packages above and these two
+# lines; docs/05-security-model.md § What "non-root" is a statement about has
+# the reasoning.
 RUN groupadd --gid "${GID}" dev || true \
     && useradd --create-home --shell /bin/bash --uid "${UID}" --gid "${GID}" dev \
     && echo "dev ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/dev \
