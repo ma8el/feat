@@ -150,6 +150,19 @@ func (s *service) planContainerAgent(
 		return launchPlan{}, fmt.Errorf("%w: task %s cannot run its agent in service %s of %s: %w",
 			api.ErrInvalid, task.ID, spec.Service, spec.Identity, err)
 	}
+	// What the container grants that no rule refuses. It is recorded against the
+	// task as well as logged, because the log belongs to whoever started the
+	// daemon and the question — did I mean to give the agent that? — belongs to
+	// whoever is running the task.
+	for _, warning := range environment.Warnings(report) {
+		s.logger.WarnContext(ctx, "the agent's container grants more than its user",
+			slog.String("task", task.ID.String()),
+			slog.String("service", spec.Service),
+			slog.String("warning", warning))
+		if err := s.recordEnvironment(ctx, task, record, warning); err != nil {
+			return launchPlan{}, err
+		}
+	}
 
 	env := agent.Environment{
 		Mode:      domain.ExecutionDevcontainer,

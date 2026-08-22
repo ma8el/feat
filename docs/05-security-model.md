@@ -46,7 +46,7 @@ Future hosted relay and push infrastructure. It is not part of v0 and must follo
 Required:
 
 - Claude runs inside the configured devcontainer.
-- The container user is non-root.
+- The container user is non-root, and Feat probes for a way back to root rather than assuming there is none.
 - No Docker socket is mounted.
 - Docker CLI is absent or denied.
 - No daemon/tmux control socket is mounted.
@@ -63,6 +63,16 @@ Not required by current company policy:
 - custom seccomp/AppArmor policy;
 - network allowlisting;
 - microVM isolation.
+
+### What "non-root" is a statement about
+
+The uid an agent runs as is read from the running container, as the configured user, before a session starts, and uid 0 is refused. That answers what the agent *starts* as. An image that installs `sudo` beside a `NOPASSWD` rule — which devcontainer templates commonly do, so that a developer can install a package mid-session — leaves the requirement true at the instant it is measured and not afterwards.
+
+Feat therefore asks the second question too — at every launch, and in `feat doctor` wherever a container of the project is running: whether a tool in the image returns root without a password. What it finds is reported and not refused. Whether an agent may become root inside its own container is a project's decision, and a refusal would be answered by whichever edit made the check stop looking; what Feat can do honestly is say what it found, every time, so the choice is made deliberately rather than inherited from a template.
+
+What passwordless root inside the container reaches is the container runtime's default capability set, which is wider than the agent's user and narrower than a privileged container. `CAP_DAC_OVERRIDE` is in Docker's default set, so file permissions stop constraining anything the container can already reach — including host-owned files under every writable bind mount. `CAP_SYS_ADMIN` is not, so a read-only mount stays read-only: the read-only control workspace holds by the kernel's rule, and Feat refuses a container granted `CAP_SYS_ADMIN` separately.
+
+Feat's own `.devcontainer/` image grants passwordless `sudo` deliberately, and its Dockerfile says so.
 
 ## Docker boundary
 
@@ -162,9 +172,14 @@ The security impact is explicit: an agent with provider credentials can mutate r
 
 ## Claude authentication and state
 
-The recommended devcontainer setup is a dedicated persistent Claude configuration volume using `CLAUDE_CONFIG_DIR`, authenticated interactively once.
+The recommended devcontainer setup is a dedicated persistent Claude configuration volume using `CLAUDE_CONFIG_DIR`, authenticated interactively once. `agent.claude.config_volume` configures it, and Feat mounts it for every task.
 
-Mounting the user's ordinary host `~/.claude` directory is supported only as an explicit project choice because it may expose global settings, approvals, and plaintext session data to every task container.
+Mounting the user's ordinary host `~/.claude` directory instead is supported only as an explicit project choice. The two ways of doing it are not two degrees of the same risk, and the difference is which direction the mount runs:
+
+- **Read-only** (`~/.claude:/home/<user>/.claude:ro`) exposes what is in the directory: global settings, the record of what the user has approved, and plaintext session data — to every task container, and so to anything that reaches an agent through a repository file, a dependency, or an issue body `gh` fetched.
+- **Read-write** is not an exposure with a larger radius. It is a path from the container to code execution on the host, outside every container, as the user. The directory is not only data: `settings.json` holds `hooks`, and `.claude.json` holds `mcpServers`, and both are commands — run by the user's own Claude Code, on the host, the next time they open it. An agent that can write there can arrange that, and the same directory holds the approvals record that would otherwise be asked first.
+
+Read-write is therefore a choice to give the agent host execution deferred by one session, and it should be made in those terms or not made. A project that needs the host directory should mount it read-only; a project that needs Claude's state to persist across tasks should use the configuration volume, which is what it is for.
 
 The dedicated shared volume still permits parallel orchestrated sessions to see one another's Claude-local state. Per-task configuration profiles with safe authentication transfer are a later hardening option.
 

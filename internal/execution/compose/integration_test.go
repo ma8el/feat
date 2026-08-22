@@ -111,6 +111,11 @@ func realTaskFrom(t *testing.T, id domain.TaskID, fixtureName string) (*compose.
 	if err != nil {
 		t.Fatalf("reading the fixture: %v", err)
 	}
+	// The agent's uid is the one thing a fixture cannot state for itself: it is
+	// whoever runs the test. A fixture that needs the container to know it —
+	// because sudo refuses a uid its password database cannot resolve — says
+	// __AGENT_UID__ and gets the same answer the specification below carries.
+	fixture = []byte(strings.ReplaceAll(string(fixture), "__AGENT_UID__", agentUser(t)))
 	composeFile := filepath.Join(project, "docker-compose.yml")
 	if err := os.WriteFile(composeFile, fixture, 0o600); err != nil {
 		t.Fatalf("writing the fixture: %v", err)
@@ -934,5 +939,131 @@ func TestRealAContainerGrantedMoreThanItsMountsIsRefused(t *testing.T) {
 		if !strings.Contains(err.Error(), expected) {
 			t.Errorf("the refusal does not mention %q: %v", expected, err)
 		}
+	}
+}
+
+// awaitFixtureSetup waits for the escalation fixture's own start-up to finish.
+//
+// The container is up before `apk add` has finished, and probing it in between
+// would report an image without sudo — a green test about nothing. It is the
+// fixture that is being waited for rather than the product: Prepare's own wait
+// is about the service running, which it is.
+func awaitFixtureSetup(t *testing.T, environment *compose.Environment) {
+	t.Helper()
+
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		ready, err := environment.Run(context.Background(),
+			execution.Command{Program: "cat", Arguments: []string{"/tmp/feat-fixture-ready"}})
+		if err == nil && ready.Succeeded() {
+			return
+		}
+		if time.Now().After(deadline) {
+			log, _ := environment.Run(context.Background(),
+				execution.Command{Program: "cat", Arguments: []string{"/tmp/feat-fixture-setup.log"}})
+			// Through the demand: a machine that cannot install a package into an
+			// Alpine container has not run this proof, and a run that asked for
+			// Docker should hear that rather than read "ok".
+			integrationtest.Unavailable(t, integrationtest.Docker,
+				"the fixture could not install sudo in the container this check is about: %s",
+				firstNonEmpty(log.Stdout, log.Stderr, "nothing was reported"))
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+// firstNonEmpty returns the first value with something in it.
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+// TestRealAPasswordlessRootIsReportedAndNotRefused is G7-05 against real sudo.
+//
+// The launch reads `id -u` as the configured user, and an image that also grants
+// that user passwordless root makes the answer true of the probe rather than of
+// the session. Both halves of the distinction Feat draws are properties of sudo
+// and of nothing Feat wrote — `sudo -n true` exits zero under a NOPASSWD rule
+// and non-zero under one that asks — so a fake can only restate whichever answer
+// its author assumed. Under the second, silence is the correct behaviour: an
+// image that merely carries sudo is an image where the requirement holds, and
+// warning about it would teach a user to skip the warning that means something.
+//
+// It is one container and two sudoers files rather than two containers, because
+// what separates the arms is the rule and nothing else.
+func TestRealAPasswordlessRootIsReportedAndNotRefused(t *testing.T) {
+	realDocker(t)
+
+	environment, spec, _ := realTaskFrom(t, domain.NewTaskID(), "devcontainer-escalation.yaml")
+	if err := environment.Prepare(context.Background()); err != nil {
+		integrationtest.Unavailable(t, integrationtest.Docker,
+			"this machine's Docker would not start the container this check inspects: %v", err)
+	}
+	awaitFixtureSetup(t, environment)
+
+	report, err := environment.Inspect(context.Background(), []string{"/srv/api"})
+	if err != nil {
+		t.Fatalf("inspecting the container: %v", err)
+	}
+	if !slices.Contains(report.Escalation, "sudo") {
+		t.Fatalf("a container whose sudo returns root without a password reported %v; "+
+			"the non-root requirement is then true only of the probe", report.Escalation)
+	}
+	if report.UID == 0 {
+		t.Fatalf("the agent's own uid was read as 0, so this proves nothing about a non-root agent")
+	}
+
+	// A warning and not a refusal: the launch goes ahead, because whether an
+	// agent may install packages mid-session is the project's decision to make.
+	if err := environment.Check(report); err != nil {
+		t.Fatalf("a container that grants passwordless root was refused rather than reported: %v", err)
+	}
+	said := environment.Warnings(report)
+	if len(said) != 1 {
+		t.Fatalf("the launch said %d things about it, want 1: %v", len(said), said)
+	}
+	for _, expected := range []string{"sudo", "without a password", spec.Service} {
+		if !strings.Contains(said[0], expected) {
+			t.Errorf("the warning does not mention %q: %v", expected, said[0])
+		}
+	}
+
+	// The other arm, on the same container: sudo is still installed, and the
+	// rule now asks for a password.
+	state, err := environment.Observe(context.Background())
+	if err != nil {
+		t.Fatalf("observing the environment: %v", err)
+	}
+	rule := exec.Command(compose.Executable, "exec", "--user", "0", state.Container,
+		"sh", "-c", "printf 'agent ALL=(ALL) ALL\\n' > /etc/sudoers.d/agent")
+	if output, err := rule.CombinedOutput(); err != nil {
+		t.Fatalf("rewriting the container's sudoers rule: %v\n%s", err, output)
+	}
+
+	// sudo is still in the image, and it is the rule that now refuses. Without
+	// this the arm below would pass just as well on a container that had lost
+	// the binary, which is the absent case and not the one being proved.
+	refused, err := environment.Run(context.Background(),
+		execution.Command{Program: "sudo", Arguments: []string{"-n", "true"}})
+	if err != nil {
+		t.Fatalf("sudo is no longer in the container, so the arm below would prove the wrong thing: %v", err)
+	}
+	if refused.Succeeded() {
+		t.Fatalf("sudo still returns root under a rule that asks for a password: %+v", refused)
+	}
+
+	report, err = environment.Inspect(context.Background(), []string{"/srv/api"})
+	if err != nil {
+		t.Fatalf("inspecting the container again: %v", err)
+	}
+	if len(report.Escalation) != 0 {
+		t.Errorf("a sudo that would ask for a password was reported as a grant: %v", report.Escalation)
+	}
+	if said := environment.Warnings(report); len(said) != 0 {
+		t.Errorf("a container that grants nothing was warned about: %v", said)
 	}
 }

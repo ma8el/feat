@@ -1,0 +1,37 @@
+# The same fixture, with the line the dogfood image has (G7-05).
+#
+# `sudo` is installed and configured to return root without a password, which is
+# what a devcontainer template writes so that a developer can install a package
+# mid-session. Whether `sudo -n true` then exits zero, and whether it exits
+# non-zero once the rule asks for a password, are facts about sudo rather than
+# about Feat — and they are the two facts the warning is derived from, so no
+# fake can be asked them.
+#
+# The setup runs at start as the container's own root rather than in a built
+# image, because these tests build nothing. What the agent sees is the same
+# either way: the probes exec as the uid the specification names, which is the
+# host's own, and __AGENT_UID__ is substituted with it so that sudo can resolve
+# the user asking. An unknown uid is refused by sudo before sudoers is read,
+# which would make this fixture prove the wrong thing.
+#
+# Nothing here is fatal on its own: a machine with no network cannot install
+# sudo, and a container that exited would be reported as a container that did
+# not stay running rather than as the missing package it is. So the setup runs
+# to whatever end it reaches, records why, and the service stays up either way.
+services:
+  dev:
+    image: alpine:3.20
+    user: "0:0"
+    command:
+      - sh
+      - -c
+      - |
+        apk add --no-cache sudo > /tmp/feat-fixture-setup.log 2>&1 \
+          && adduser -D -u __AGENT_UID__ agent >> /tmp/feat-fixture-setup.log 2>&1 \
+          && printf 'agent ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/agent \
+          && chmod 0440 /etc/sudoers.d/agent \
+          && touch /tmp/feat-fixture-ready
+        chmod 0666 /tmp/feat-fixture-setup.log
+        exec sleep infinity
+    volumes:
+      - ./base-mount:/srv/api

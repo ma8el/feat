@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -41,7 +42,33 @@ func healthy() *composetest.Docker {
 		docker = docker.Fail(probeKey(client, "--version"),
 			`exec: "`+client+`": executable file not found in $PATH`, 126)
 	}
+	// And nothing in the image that gives the agent back the privilege its user
+	// does not have, stated the same way.
+	for _, tool := range compose.EscalationTools {
+		docker = docker.Fail(probeKey(tool.Name, tool.Arguments...),
+			`exec: "`+tool.Name+`": executable file not found in $PATH`, 126)
+	}
 	return docker
+}
+
+// warnings runs the probes and returns what the container was warned about,
+// having first established that it was not refused.
+//
+// The order is the point: a warning is what a launch says about a container it
+// is going ahead with, so a test that only read the warnings would pass if the
+// same observation had quietly become a refusal.
+func warnings(t *testing.T, docker *composetest.Docker) []string {
+	t.Helper()
+
+	environment, _ := arrange(t, docker)
+	report, err := environment.Inspect(context.Background(), []string{"/feat"})
+	if err != nil {
+		t.Fatalf("inspecting the container: %v", err)
+	}
+	if err := environment.Check(report); err != nil {
+		t.Fatalf("the container was refused rather than warned about: %v", err)
+	}
+	return environment.Warnings(report)
 }
 
 // inspect runs the probes against an arranged container.
@@ -434,6 +461,116 @@ func TestADebuggersCapabilityIsAccepted(t *testing.T) {
 	}
 	if err := environment.Check(report); err != nil {
 		t.Errorf("a container with a debugger's capability was refused: %v", err)
+	}
+}
+
+// TestAContainerThatReturnsRootWithoutAPasswordIsReported is G7-05.
+//
+// The root refusal reads `id -u` as the configured user, which answers what the
+// agent starts as. An image that also installs `sudo` and writes NOPASSWD makes
+// that answer true of the probe and not of the session: the check passes, and
+// the agent is uid 0 one command later with the runtime's default capabilities,
+// which include CAP_DAC_OVERRIDE. Nothing asked, so nothing said.
+func TestAContainerThatReturnsRootWithoutAPasswordIsReported(t *testing.T) {
+	said := warnings(t, healthy().Answer(probeKey("sudo", "-n", "true"), ""))
+
+	if len(said) != 1 {
+		t.Fatalf("the launch said %d things about a container that hands the agent root, want 1: %v",
+			len(said), said)
+	}
+	for _, expected := range []string{
+		// What was found, and where the line that produced it lives.
+		"sudo", "service dev",
+		// Who it is true of, so it cannot be read as being about some other user.
+		"dev", "uid 1000",
+		// Why it matters and what it does not reach, because a warning that
+		// overstates its case is one people learn to skip.
+		"without a password", "write through every writable mount", "not enough to remount",
+	} {
+		if !strings.Contains(said[0], expected) {
+			t.Errorf("the warning does not mention %q: %v", expected, said[0])
+		}
+	}
+}
+
+// TestAnEscalationToolUnderAnotherNameIsReportedToo widens the same finding to
+// what the question actually is.
+//
+// `sudo` is one binary that hands privilege back and the dogfood image is one
+// image. A check written for the name rather than for the capability is
+// answered by installing the other one, which is the shape ContainerClients was
+// widened for after the same reasoning about `podman`.
+func TestAnEscalationToolUnderAnotherNameIsReportedToo(t *testing.T) {
+	for _, tool := range compose.EscalationTools {
+		t.Run(tool.Name, func(t *testing.T) {
+			said := warnings(t, healthy().Answer(probeKey(tool.Name, tool.Arguments...), ""))
+
+			if len(said) != 1 || !strings.Contains(said[0], tool.Name) {
+				t.Errorf("a container whose %s returns root without a password was described as %v",
+					tool.Name, said)
+			}
+		})
+	}
+}
+
+// TestAToolThatWouldAskForAPasswordIsNotAGrant keeps the probe from confusing an
+// image that has `sudo` with an image that gives the agent anything.
+//
+// A sudoers file that grants the agent nothing is the non-root requirement
+// holding, demonstrated rather than assumed. Warning about it would be a warning
+// on every image built from a distribution base, which teaches a user to skip
+// the one that means something.
+func TestAToolThatWouldAskForAPasswordIsNotAGrant(t *testing.T) {
+	docker := healthy().Fail(probeKey("sudo", "-n", "true"),
+		"sudo: a password is required", 1)
+
+	report := inspect(t, docker)
+	if len(report.Escalation) != 0 {
+		t.Errorf("a tool that refused without a password was reported as a grant: %v", report.Escalation)
+	}
+	if said := warnings(t, docker); len(said) != 0 {
+		t.Errorf("a container that grants nothing was warned about: %v", said)
+	}
+}
+
+// TestTheLaunchAsksWhetherTheAgentCanBecomeRoot pins the question rather than
+// the outcome, for the reason TestTheLaunchAsksWhatTheContainerWasGranted pins
+// its own: a rule can only be enforced about something somebody asked for, and
+// G7-05 is a missing question rather than a wrong answer. A test that checked
+// only the warning would pass again on the day the probe was dropped and every
+// container went back to answering `dev`.
+func TestTheLaunchAsksWhetherTheAgentCanBecomeRoot(t *testing.T) {
+	docker := healthy()
+	inspect(t, docker)
+
+	for _, tool := range compose.EscalationTools {
+		if !docker.Ran(probeKey(tool.Name, tool.Arguments...)) {
+			t.Errorf("nothing asked the container whether %s returns root there: %v", tool.Name, docker.Calls())
+		}
+	}
+}
+
+// TestEveryEscalationProbeRefusesToPrompt keeps a probe from being the thing
+// that hangs a launch.
+//
+// Each of these tools asks for a password on a terminal when it needs one, and
+// the probe runs without a terminal to ask on. The non-interactive flag is what
+// turns "wait for somebody" into "answer no", so it is checked over the list
+// rather than in the one test that happens to arrange a tool.
+func TestEveryEscalationProbeRefusesToPrompt(t *testing.T) {
+	for _, tool := range compose.EscalationTools {
+		if !slices.Contains(tool.Arguments, "-n") {
+			t.Errorf("the %s probe runs %v, which may wait for a password nobody can type",
+				tool.Name, tool.Arguments)
+		}
+	}
+}
+
+// TestAHealthyContainerIsWarnedAboutNothing keeps the warnings above from being
+// satisfied by a launch that warns about everything.
+func TestAHealthyContainerIsWarnedAboutNothing(t *testing.T) {
+	if said := warnings(t, healthy()); len(said) != 0 {
+		t.Errorf("a container that meets every requirement was warned about: %v", said)
 	}
 }
 
