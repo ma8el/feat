@@ -231,9 +231,13 @@ configured is one task at a time. While a task's runtime exists, no other task
 may be allocated a port it holds, and an exhausted range MUST be reported as
 what it is, naming the tasks holding it. Feat MUST deliver each allocated
 address to every managed service of the task as generated non-secret variables —
-`FEAT_URL_<service>` and `FEAT_PORT_<service>`, upper-cased with every other
-character replaced — and MUST refuse a configuration in which two reachable
-service names produce the same variable. See ADR-065, superseding ADR-034.
+`FEAT_HOST_URL_<service>` and `FEAT_HOST_PORT_<service>`, upper-cased with every
+other character replaced — and MUST refuse a configuration in which two
+reachable service names produce the same variable. That address is the one a
+consumer **on the host** reaches the service at and MUST NOT be described as how
+one service calls another: a published port belongs to the host's network
+namespace, so read inside a container it is that container's own loopback. See
+ADR-065, superseding ADR-034.
 
 ### FR-RUN-005 — Manual lifecycle
 

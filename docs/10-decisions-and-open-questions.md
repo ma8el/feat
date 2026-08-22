@@ -4465,7 +4465,13 @@ Decisions:
   ADR-034's post-start inspection stays as the check that catches what
   configuration cannot.
 - **Feat allocates published ports, and tells a service where its siblings
-  are.** [08-v0-scope.md](08-v0-scope.md) excludes port-range allocation
+  are.** **Corrected by this ADR's amendment of 2026-08-22, below: the address
+  is host-scoped and is not how one service calls another, and the variables are
+  now named `FEAT_HOST_URL_<SERVICE>` and `FEAT_HOST_PORT_<SERVICE>`.** Read the
+  heading of this bullet as "and tells a service the host address of each
+  reachable one"; every statement of the sibling reading elsewhere in the product
+  was derived from the sentence as it was first written here.
+  [08-v0-scope.md](08-v0-scope.md) excludes port-range allocation
   "unless required to make the reference project run", and evidence 8 is that
   condition being met, so this is the exclusion's own escape rather than a scope
   change. A repository declares which of its services are reachable; Feat
@@ -4728,6 +4734,57 @@ frontend names `${FEAT_URL_NGINX}` where it used to name a fixed port.
 
 Three tasks of the reference project then ran their whole applications at once,
 each frontend reaching its own task's API and no other's.
+
+Amended after the round-2 review, settled 2026-08-22, correcting what the
+generated address means and renaming the variables that carry it.
+
+Evidence 17, `G4-08`: **the address this ADR said tells a service where its
+siblings are does not reach a sibling.** The value written into every managed
+service's `environment:` is `http://localhost:<allocated port>`, and a published
+port belongs to the *host's* network namespace. Read inside a container that
+address is the container's own loopback, so a service following the documented
+pattern and calling `$FEAT_URL_api` connects to itself and gets a connection
+refused; with the loopback `bind_address` Feat now publishes on by default, the
+host's port is not reachable from a container at all. The value is right for the
+one consumer that runs on the host — a browser opening a frontend, a shell
+running `curl`, or a build baking an API address into a bundle a browser then
+loads — which is the reference project's own case, and is why three tasks ran
+their whole applications at once without this being caught. For a genuine
+service-to-service call there is nothing to allocate: the Compose service name
+and the container port are already in the project's own files and do not differ
+per task.
+
+Two decisions:
+
+- **The generated address is host-scoped, and the documentation that said
+  otherwise was derived from this ADR.** The corrected statement lives in
+  [07-configuration-model.md](07-configuration-model.md) § Runtime ownership,
+  which is where a user reads it. The bullet above is marked rather than
+  rewritten, because it is the sentence four other statements were copied from
+  and a reader who lands on it has to be turned around there.
+- **The variables are renamed `FEAT_URL_` → `FEAT_HOST_URL_` and `FEAT_PORT_` →
+  `FEAT_HOST_PORT_`.** The mistake is made while typing a variable into a
+  service's `environment:`, and the name is the only thing present at that
+  moment — the paragraph explaining it is not. A prefix that says `HOST` refuses
+  the sibling reading where the reading happens; a document only corrects a
+  reader who is already looking somewhere else. It breaks the configuration
+  surface with no compatibility period, on the same calculus as `G5-01`'s format
+  break and this ADR's own: one user, pre-alpha, and a migration for a
+  population of one is waste. A project's own Compose file that interpolates
+  `${FEAT_URL_NGINX}` — including the reference project's frontend, named in the
+  slice 16 amendment above — names the new variable instead, and Compose
+  interpolates an unset one to empty, so the break is visible on the next start
+  rather than silent.
+
+Consequence: `internal/domain/runtime.go` constructs both prefixes and is the
+only place that does, so the rename is one edit and a set of assertions that
+follow it; the three override goldens carry the new names and their environment
+blocks re-sort. Nothing persisted and nothing on the wire carries a variable
+name — `api.PortAllocation` carries the address itself — so an existing task's
+generated override is simply rewritten with the new names the next time its
+services are created or started. A container already running keeps the old names
+in its environment until it is recreated, which is the ordinary consequence of
+editing an environment and is what `feat runtime create` does.
 
 ## Decision change process
 

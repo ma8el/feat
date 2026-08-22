@@ -598,12 +598,12 @@ const wildcardAddress = "0.0.0.0"
 // validateReachable refuses two reachable services whose generated variables
 // would collide.
 //
-// Feat tells every managed service where its siblings are, as FEAT_URL_<service>
-// and FEAT_PORT_<service> with the service name upper-cased and everything else
-// replaced. A variable name has no room for the dots and hyphens a Compose
-// service name allows, so "web-app" and "web.app" render alike — and one service
-// would then receive the other's address, which is the silent kind of wrong the
-// whole runtime section is written against.
+// Feat tells every managed service the host address of each reachable one, as
+// FEAT_HOST_URL_<service> and FEAT_HOST_PORT_<service> with the service name
+// upper-cased and everything else replaced. A variable name has no room for the
+// dots and hyphens a Compose service name allows, so "web-app" and "web.app"
+// render alike — and one service would then receive the other's address, which
+// is the silent kind of wrong the whole runtime section is written against.
 func (c *Config) validateReachable(found *problems) {
 	owners := make(map[string]string)
 	for _, contribution := range c.RuntimeComposition() {

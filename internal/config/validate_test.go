@@ -469,18 +469,18 @@ func TestAProjectMayAskForEveryInterface(t *testing.T) {
 // TestTwoReachableServicesCannotShareAGeneratedVariable refuses the collision
 // before it can deliver one service's address to another.
 //
-// Feat tells every managed service where its siblings are, as FEAT_URL_<service>
-// upper-cased with everything that is not a letter or a digit replaced. A
-// Compose service name may contain dots and hyphens and an environment variable
-// name may not, so the rendering is lossy — and two services that render alike
-// would be one address arriving under both names.
+// Feat tells every managed service the host address of each reachable one, as
+// FEAT_HOST_URL_<service> upper-cased with everything that is not a letter or a
+// digit replaced. A Compose service name may contain dots and hyphens and an
+// environment variable name may not, so the rendering is lossy — and two
+// services that render alike would be one address arriving under both names.
 func TestTwoReachableServicesCannotShareAGeneratedVariable(t *testing.T) {
 	_, err := loadReplacing(t, "      services:\n        - app\n        - worker\n      reachable:\n        - app\n",
 		"      services:\n        - app-1\n        - app.1\n      reachable:\n        - app-1\n        - app.1\n")
 	invalid := configError(t, err)
 
 	problem := problemAt(t, invalid, "repositories.api.runtime.reachable[1]")
-	for _, expected := range []string{"app-1", "app.1", "FEAT_PORT_APP_1"} {
+	for _, expected := range []string{"app-1", "app.1", "FEAT_HOST_PORT_APP_1"} {
 		if !strings.Contains(problem.Reason, expected) {
 			t.Errorf("problem is %q, which does not name %q", problem.Reason, expected)
 		}

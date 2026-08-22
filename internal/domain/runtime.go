@@ -247,9 +247,19 @@ func PortVariable(service string) string { return portVariablePrefix + variableT
 func URLVariable(service string) string { return urlVariablePrefix + variableToken(service) }
 
 // The prefixes of the generated addressing variables.
+//
+// HOST is in the name because the name is the only thing present where this
+// value is used: someone writing ${FEAT_HOST_URL_api} into a service's
+// environment is reading the prefix and nothing else. These carry a host
+// address — a published port belongs to the host's network namespace, so inside
+// a container it is that container's own loopback — and a service calling a
+// sibling wants the Compose service name and the container port instead. Under
+// the older FEAT_URL_ the mistake was available and its failure was a silent
+// connection refused against the caller's own loopback (G4-08, ADR-065's
+// amendment of 2026-08-22).
 const (
-	portVariablePrefix = "FEAT_PORT_"
-	urlVariablePrefix  = "FEAT_URL_"
+	portVariablePrefix = "FEAT_HOST_PORT_"
+	urlVariablePrefix  = "FEAT_HOST_URL_"
 )
 
 // variableToken renders a service name as part of an environment variable name:

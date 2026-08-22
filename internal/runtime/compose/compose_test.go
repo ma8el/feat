@@ -91,8 +91,8 @@ func arrangeWith(
 		Variables: map[string]string{
 			"FEAT_TASK_KEY":        "11111111",
 			"FEAT_RUNTIME_PROJECT": identity,
-			"FEAT_URL_API":         "http://localhost:21000",
-			"FEAT_PORT_API":        "21000",
+			"FEAT_HOST_URL_API":    "http://localhost:21000",
+			"FEAT_HOST_PORT_API":   "21000",
 		},
 		ForbiddenSources: []string{"/repos/app/api", "/repos/app/store"},
 	}
@@ -165,7 +165,7 @@ func TestTheGeneratedOverrideKeepsAnAddressTheProjectNamed(t *testing.T) {
 		}
 		// The generated address follows the binding, because a user told where
 		// their service is has to be told where it actually is.
-		spec.Variables["FEAT_URL_API"] = "http://" + address + ":21000"
+		spec.Variables["FEAT_HOST_URL_API"] = "http://" + address + ":21000"
 	})
 
 	if _, err := services.Start(context.Background()); err != nil {
@@ -356,12 +356,12 @@ func TestTheOverrideReplacesEveryGlobalValue(t *testing.T) {
 // TestTheGeneratedVariablesReachTheComposeCommand checks that a generated
 // address can be interpolated in the project's own Compose files.
 //
-// A service reaches its siblings under the project's own names: a frontend whose
+// A service finds a host address under the project's own name: a frontend whose
 // framework only exposes variables with a particular prefix cannot read
-// FEAT_URL_api, and the project maps it in its own file with "${FEAT_URL_api}".
-// Compose interpolates from the environment of the process running it, so an
-// address that reached only the container would be one such a project could not
-// use (ADR-065).
+// FEAT_HOST_URL_api, and the project maps it in its own file with
+// "${FEAT_HOST_URL_api}". Compose interpolates from the environment of the
+// process running it, so an address that reached only the container would be one
+// such a project could not use (ADR-065).
 func TestTheGeneratedVariablesReachTheComposeCommand(t *testing.T) {
 	docker := runtimetest.New()
 	services, _ := arrange(t, docker)
@@ -377,7 +377,7 @@ func TestTheGeneratedVariablesReachTheComposeCommand(t *testing.T) {
 			// nothing, so there is nothing for a variable to reach.
 			continue
 		}
-		if !slices.Contains(invocation.Environment, "FEAT_URL_API=http://localhost:21000") {
+		if !slices.Contains(invocation.Environment, "FEAT_HOST_URL_API=http://localhost:21000") {
 			t.Errorf("the Compose command %v carries no generated address, so a project cannot "+
 				"interpolate one: %v", invocation.Arguments, invocation.Environment)
 		}

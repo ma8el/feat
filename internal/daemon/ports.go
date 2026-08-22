@@ -357,9 +357,14 @@ func reachabilityNotes(cfg *config.Config, record *domain.RuntimeEnvironment) []
 // generated documents are written from.
 //
 // Both halves of the same fact: the publications Compose is asked for, and the
-// address each managed service is told its siblings are at. They are derived
-// from the record rather than from the allocation that produced it, so what the
-// document publishes and what the task says it published cannot disagree.
+// host address each managed service is told the reachable ones are at. They are
+// derived from the record rather than from the allocation that produced it, so
+// what the document publishes and what the task says it published cannot
+// disagree.
+//
+// Told, not reachable at: that address is the host's, and what a managed
+// service does with it is bake it into something a browser will load rather
+// than dial a sibling with it. allocationVariables below says why.
 //
 // The bind address is passed in for the one record that carries none: one
 // written before Feat had a bind address of its own, whose containers were
@@ -419,10 +424,13 @@ func withAllocations(spec runtime.Spec, allocations []domain.PortAllocation, bin
 // still reach every managed service, because the service that bakes the address
 // into something a browser loads is itself a container (docs/07, ADR-065).
 //
-// FEAT_URL_<service> is the address and FEAT_PORT_<service> the port alone, for
-// a project that assembles its own. A service publishing more than one port also
-// gets one pair per port, named by the container port, because the unsuffixed
-// pair can only name one of them.
+// FEAT_HOST_URL_<service> is the address and FEAT_HOST_PORT_<service> the port
+// alone, for a project that assembles its own. HOST is in the prefix because
+// the prefix is what a user reads at the moment the paragraph above is
+// contradicted, and a sibling call written against the older FEAT_URL_ failed
+// as a connection refused against the caller's own loopback (G4-08). A service
+// publishing more than one port also gets one pair per port, named by the
+// container port, because the unsuffixed pair can only name one of them.
 func allocationVariables(allocations []domain.PortAllocation) map[string]string {
 	variables := make(map[string]string)
 	counts := make(map[string]int)

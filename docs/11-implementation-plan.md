@@ -2072,7 +2072,9 @@ its own task's services.
 - Deliver the resulting address to every managed service of the task as
   generated non-secret variables, `FEAT_URL_<SERVICE>` and `FEAT_PORT_<SERVICE>`,
   upper-cased with non-alphanumerics replaced, refusing a configuration where two
-  service names normalise alike.
+  service names normalise alike. (Renamed `FEAT_HOST_URL_<SERVICE>` and
+  `FEAT_HOST_PORT_<SERVICE>` by ADR-065's amendment of 2026-08-22: the address is
+  host-scoped, and the prefix is where a user finds that out.)
 - State the supersession where ADR-034 states the original: published ports are
   no longer left exactly as configured. That rule rested on v0 allocating none of
   its own, which this slice changes.
@@ -2123,11 +2125,15 @@ ADR-065 with the reasoning. Every published port in the task's Compose project i
 replaced rather than only a managed service's: a dependency's fixed port stops
 the second task exactly as the entry point's does, which is ADR-034 evidence 12
 arriving one service over. And the generated addresses are passed to the Compose
-command as well as written into the override, because a service reaches its
-siblings under the project's own names — the reference frontend exposes only
-`VITE_`-prefixed variables to the browser, so the address has to arrive through
-a `${FEAT_URL_NGINX}` in the project's own file, which Compose interpolates from
-the environment of the process running it.
+command as well as written into the override, because a service finds one under
+the project's own name — the reference frontend exposes only `VITE_`-prefixed
+variables to the browser, so the address has to arrive through a
+`${FEAT_URL_NGINX}` in the project's own file, which Compose interpolates from
+the environment of the process running it. (That variable is
+`${FEAT_HOST_URL_NGINX}` after ADR-065's amendment of 2026-08-22, which also
+records that what the frontend does with it — serve it to a browser — is the
+host-scoped use it is for, rather than the sibling call this sentence once
+read as.)
 
 One defect was found by running it, fixed with a test that fails against the
 behaviour it replaced: a poll that started before a create finished recorded the

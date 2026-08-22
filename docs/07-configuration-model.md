@@ -299,16 +299,16 @@ ownership labels, without which two tasks could not run the same application at
 once (ADR-034).
 
 Feat sets `FEAT_PROJECT_ID`, `FEAT_TASK_ID`, `FEAT_TASK_KEY`, and
-`FEAT_RUNTIME_PROJECT` on every managed service, and `FEAT_URL_<service>` and
-`FEAT_PORT_<service>` for each reachable one — upper-cased, with everything that
-is not a letter or a digit replaced. A configuration in which two reachable
+`FEAT_RUNTIME_PROJECT` on every managed service, and `FEAT_HOST_URL_<service>`
+and `FEAT_HOST_PORT_<service>` for each reachable one — upper-cased, with
+everything that is not a letter or a digit replaced. A configuration in which two reachable
 service names produce the same variable is rejected, because one service would
 receive the other's address. A service publishing more than one port also gets a
 pair per port, named by the container port, since the unsuffixed pair can only
 name one of them. They are generated task metadata and never a value read from
 an environment file.
 
-`FEAT_URL_<service>` is the address a consumer **on the host** reaches the
+`FEAT_HOST_URL_<service>` is the address a consumer **on the host** reaches the
 service at — a browser opening a frontend, a shell running `curl`, or a build
 baking an API address into a bundle a browser will then load. It is not how one
 service calls another. A published port belongs to the host's network namespace:
@@ -319,13 +319,19 @@ port, both of which the project's own files already state and neither of which
 needs an allocated port, because nothing about a container-to-container call is
 global to the machine.
 
+`HOST` is in the prefix because the prefix is the only thing present where this
+value is used, and documentation is not: someone writing `${FEAT_HOST_URL_api}`
+into a service's `environment:` is reading the name and nothing else. The
+earlier `FEAT_URL_<service>` said nothing, and the failure it allowed is a
+silent connection refused against the caller's own loopback.
+
 The variables still reach every managed service, because the container that
 bakes a host address into something a browser will load is itself a service.
 
 The addresses reach the Compose process as well as the containers. A service
-finds its siblings under the project's own names — a frontend whose framework
-exposes only variables with a particular prefix cannot read `FEAT_URL_api` — so
-the project maps one in its own Compose file with `${FEAT_URL_api}`, and Compose
+finds one under the project's own name — a frontend whose framework exposes only
+variables with a particular prefix cannot read `FEAT_HOST_URL_api` — so the
+project maps it in its own Compose file with `${FEAT_HOST_URL_api}`, and Compose
 interpolates that from the environment of the process running it. Nothing read
 from an environment file is ever in that environment.
 
@@ -395,12 +401,16 @@ sections above.
   allocated for the task. An entry containing a `${...}` is one Feat must not
   resolve, and a port range is several publications where an allocation is one;
   either way the service publishes nothing and the task says so.
-- **Nothing names a sibling by a fixed host port.** The port differs per task, so
-  a value baked into an image or written into a file can be right for one task
-  at most. Both directions need the generated address: a service calling another
-  reads `${FEAT_URL_<service>}`, and a service that must accept another's origin —
-  a CORS allow-list — reads the same variable for the service the browser loads.
-  Write them with a `:-` default so the files still work run by hand.
+- **Nothing names a host address by a fixed port.** The allocated port differs
+  per task, so a value baked into an image or written into a file can be right
+  for one task at most. What needs the generated address is what a consumer on
+  the host will use: a build baking an API address into a bundle a browser then
+  loads, and a service that must accept that browser's origin — a CORS
+  allow-list — reading the same variable for the service the browser reached.
+  Both read `${FEAT_HOST_URL_<service>}`. Write them with a `:-` default so the
+  files still work run by hand. A call from one service to another needs none of
+  this and must not use it: it names the Compose service and the container port,
+  which do not differ per task.
 - **Every environment file is named in `runtime.env_files`.** Feat's Compose
   project directory is the directory holding its own generated documents, so
   Compose's implicit `.env` lookup beside a repository does not apply.
@@ -556,7 +566,7 @@ At minimum:
 - Container paths are absolute. The agent's must not overlap one another, and the control path overlaps none of them; two repositories' runtime container paths may coincide, because a repository's worktree reaches its own services only.
 - A repository contributing to an application runtime the project does not configure is rejected, as is a runtime container path with no service to mount it in.
 - A configured runtime where no repository a task selects says where its source goes is rejected: it could mount no task worktree anywhere, so every service would run the user's ordinary checkout. It is asked of the runtime rather than of each repository, because a repository whose services build their code needs no container path and configuration cannot see a build context.
-- A reachable service names one of its own repository's managed services, and two reachable services must not produce one generated variable name: `FEAT_URL_<service>` is upper-cased with every other character replaced, so `web-app` and `web.app` would be one address arriving under both names.
+- A reachable service names one of its own repository's managed services, and two reachable services must not produce one generated variable name: `FEAT_HOST_URL_<service>` is upper-cased with every other character replaced, so `web-app` and `web.app` would be one address arriving under both names.
 - The host port range holds at least one port per reachable service, lies above the privileged ports, and ends where it begins or later. A range Feat could not allocate one task's ports from is refused where it can name the field rather than at the first create.
 - Configuration written in a shape a previous version read is rejected with an error naming what replaced it, rather than as an unknown field.
 - Branch and runtime templates produce safe names, use only known placeholders, and contain a per-task placeholder so that two tasks cannot share a branch or a Compose project.

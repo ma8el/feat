@@ -144,8 +144,8 @@ func realRuntime(t *testing.T, id domain.TaskID, publish ...int) (*compose.Runti
 			Service: "api", ContainerPort: 80, HostPort: port, Protocol: "tcp", HostIP: "127.0.0.1",
 			Description: "allocated for this task",
 		})
-		spec.Variables["FEAT_URL_API"] = "http://localhost:" + strconv.Itoa(port)
-		spec.Variables["FEAT_PORT_API"] = strconv.Itoa(port)
+		spec.Variables["FEAT_HOST_URL_API"] = "http://localhost:" + strconv.Itoa(port)
+		spec.Variables["FEAT_HOST_PORT_API"] = strconv.Itoa(port)
 	}
 
 	services, err := compose.New(spec, compose.Options{})
