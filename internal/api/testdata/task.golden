@@ -125,14 +125,15 @@
         "host_port": 21000,
         "protocol": "tcp",
         "host_ip": "127.0.0.1",
-        "address": "127.0.0.1:21000"
+        "address": "localhost:21000"
       }
     ],
     "ports": [
       {
         "service": "web",
         "container_port": 8080,
-        "host_port": 21000
+        "host_port": 21000,
+        "host_ip": "127.0.0.1"
       }
     ],
     "state": "running",

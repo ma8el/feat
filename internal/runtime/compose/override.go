@@ -228,6 +228,13 @@ func overrideDocument(spec runtime.Spec, defined []string) ([]byte, error) {
 //
 // The long form, for the reason the mounts use it: every part is a value in its
 // own field, so nothing here depends on how a colon in a value would be read.
+//
+// host_ip is written for every publication rather than only for one whose
+// project named an address. Compose's default is every interface, so a
+// publication with the key left out is the widest binding there is, chosen by
+// omission — which is what this generator used to do while the comment beside it
+// said localhost (G4-01). The address is required by Spec.Validate, so there is
+// no case here in which there is none to write.
 func writePorts(b *strings.Builder, publications []runtime.Publication) {
 	if len(publications) == 0 {
 		b.WriteString("    ports: !reset []\n")
@@ -242,9 +249,7 @@ func writePorts(b *strings.Builder, publications []runtime.Publication) {
 		fmt.Fprintf(b, "      - target: %d\n", publication.ContainerPort)
 		fmt.Fprintf(b, "        published: %s\n", quote(strconv.Itoa(publication.HostPort)))
 		fmt.Fprintf(b, "        protocol: %s\n", quote(publication.Protocol))
-		if publication.HostIP != "" {
-			fmt.Fprintf(b, "        host_ip: %s\n", quote(publication.HostIP))
-		}
+		fmt.Fprintf(b, "        host_ip: %s\n", quote(publication.HostIP))
 	}
 }
 

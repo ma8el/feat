@@ -133,6 +133,10 @@ func TestAGeneratedVariableNamesItsServiceSafely(t *testing.T) {
 
 // TestAnAllocationSaysWhereItIsReached keeps the address a user is given, and
 // the one a service is told, the same value.
+//
+// The loopback addresses are said as localhost, which is the name that reaches
+// them and the one a user types; an address of this machine that is not loopback
+// is said as itself, because it is where the service is and nowhere else is.
 func TestAnAllocationSaysWhereItIsReached(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		allocation  PortAllocation
@@ -140,21 +144,46 @@ func TestAnAllocationSaysWhereItIsReached(t *testing.T) {
 		url         string
 		addressable bool
 	}{
+		"the loopback address": {
+			allocation:  PortAllocation{HostPort: 21001, Protocol: "tcp", HostIP: "127.0.0.1"},
+			address:     "localhost:21001",
+			url:         "http://localhost:21001",
+			addressable: true,
+		},
+		"its IPv6 counterpart": {
+			allocation:  PortAllocation{HostPort: 21002, Protocol: "tcp", HostIP: "::1"},
+			address:     "localhost:21002",
+			url:         "http://localhost:21002",
+			addressable: true,
+		},
+		// A binding on every interface is reached at localhost from here, which
+		// is the half of it this address answers. What else such a binding
+		// allows is said where the project's configuration is printed.
 		"every address": {
+			allocation:  PortAllocation{HostPort: 21003, Protocol: "tcp", HostIP: "0.0.0.0"},
+			address:     "localhost:21003",
+			url:         "http://localhost:21003",
+			addressable: true,
+		},
+		// One address of the machine, which is not this machine's loopback: the
+		// service is there and a user told localhost could not reach it.
+		"one the project chose": {
+			allocation:  PortAllocation{HostPort: 21004, Protocol: "tcp", HostIP: "192.168.64.7"},
+			address:     "192.168.64.7:21004",
+			url:         "http://192.168.64.7:21004",
+			addressable: true,
+		},
+		// A record written before Feat had a bind address of its own. Its
+		// containers were given every interface, which is reached at localhost.
+		"a record from before there was one": {
 			allocation:  PortAllocation{HostPort: 21000, Protocol: "tcp"},
 			address:     "localhost:21000",
 			url:         "http://localhost:21000",
 			addressable: true,
 		},
-		"one the project chose": {
-			allocation:  PortAllocation{HostPort: 21001, Protocol: "tcp", HostIP: "127.0.0.1"},
-			address:     "127.0.0.1:21001",
-			url:         "http://127.0.0.1:21001",
-			addressable: true,
-		},
 		"a datagram port": {
-			allocation: PortAllocation{HostPort: 21002, Protocol: "udp"},
-			address:    "localhost:21002",
+			allocation: PortAllocation{HostPort: 21005, Protocol: "udp", HostIP: "127.0.0.1"},
+			address:    "localhost:21005",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

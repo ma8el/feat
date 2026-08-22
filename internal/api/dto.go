@@ -495,6 +495,10 @@ type Port struct {
 	Service       string `json:"service"`
 	ContainerPort int    `json:"container_port"`
 	HostPort      int    `json:"host_port"`
+	// HostIP is the address the container runtime reported the port bound on,
+	// empty when it reported none. It is read back rather than assumed, so a
+	// binding that disagrees with the allocation beside it can be seen.
+	HostIP string `json:"host_ip,omitempty"`
 }
 
 // PortAllocation is one host port Feat reserved for one service of one task.
@@ -508,10 +512,16 @@ type PortAllocation struct {
 	ContainerPort int    `json:"container_port"`
 	HostPort      int    `json:"host_port"`
 	Protocol      string `json:"protocol"`
-	// HostIP is the address the project publishes on, empty for every address.
+	// HostIP is the host address this port is published on: the one the
+	// project's own Compose file named, or the project's configured
+	// runtime.bind_address when it named none. It is empty only in a record
+	// written before Feat had a bind address of its own.
 	HostIP string `json:"host_ip,omitempty"`
 	// Address is where the service is reached from this machine, which is the
-	// value of its generated FEAT_URL variable without the scheme.
+	// value of its generated FEAT_URL variable without the scheme. It is not
+	// the address another container reaches it at: a published port belongs to
+	// the host's network namespace, and a service calling a sibling uses the
+	// Compose service name and the container port.
 	Address string `json:"address"`
 }
 
@@ -1218,6 +1228,7 @@ func newRuntime(runtime *domain.RuntimeEnvironment) *Runtime {
 			Service:       port.Service,
 			ContainerPort: port.ContainerPort,
 			HostPort:      port.HostPort,
+			HostIP:        port.HostIP,
 		})
 	}
 	allocations := make([]PortAllocation, 0, len(runtime.Allocations))

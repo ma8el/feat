@@ -141,7 +141,8 @@
       {
         "service": "web",
         "container_port": 8080,
-        "host_port": 21000
+        "host_port": 21000,
+        "host_ip": "127.0.0.1"
       }
     ],
     "networks": [

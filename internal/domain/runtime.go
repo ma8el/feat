@@ -141,6 +141,14 @@ type PortAssignment struct {
 	ContainerPort int
 	// HostPort is the port published on the host.
 	HostPort int
+	// HostIP is the address the container runtime reported the port bound on.
+	//
+	// It is read back rather than assumed, and it is the one field of an
+	// observation that can contradict the allocation beside it: a record saying
+	// a service is reached on this machine alone, next to a binding on every
+	// interface, is a disagreement a user can only see if the address is
+	// observed. It is empty when the runtime reported none.
+	HostIP string
 }
 
 // PortAllocation is one host port Feat reserved for one service of one task.
@@ -166,17 +174,29 @@ type PortAllocation struct {
 	// Protocol is "tcp" or "udp". A host port is per protocol, so two
 	// allocations may share a number when their protocols differ.
 	Protocol string
-	// HostIP is the address the project publishes on, empty when it names none.
-	// It is carried so that a project which deliberately publishes on the
-	// loopback address keeps doing so.
+	// HostIP is the host address this port is published on: the one the
+	// project's own Compose file named, or the project's configured
+	// runtime.bind_address when it named none. It is carried so that a project
+	// which deliberately publishes on the loopback address keeps doing so, and
+	// so that what Feat tells a user their service is at is read from the same
+	// field the generated document binds.
+	//
+	// It is empty only in a record written before Feat had a bind address of its
+	// own, which is read as every address because that is what such a record's
+	// containers were given.
 	HostIP string
 }
 
 // Address is where the service is reached from this machine.
 //
-// A service published on every address is reached at localhost, which is the
-// name a browser and a shell both take. A service the project published on one
-// address is reached there and nowhere else, so that address is what is said.
+// A service on a loopback or wildcard binding is reached at localhost, which is
+// the name a browser and a shell both take and the one a user would type. A
+// service published on some particular address of this machine is reached there
+// and nowhere else, so that address is what is said.
+//
+// The literal address is not lost by saying the name: HostIP carries it, so a
+// client that needs to know which interface was bound reads that rather than
+// parsing this.
 func (p PortAllocation) Address() string {
 	return net.JoinHostPort(p.host(), strconv.Itoa(p.HostPort))
 }
@@ -196,10 +216,17 @@ func (p PortAllocation) URL() (string, bool) {
 }
 
 // host names the machine address a publication is reached at.
+//
+// The loopback addresses are named rather than printed, because localhost is
+// what reaches them and is what a user types. A wildcard binding is reached at
+// localhost from here too, which is true of it and is the useful half: what such
+// a binding also allows is a property of the project's configuration rather than
+// of one publication, and it is said where that configuration is printed rather
+// than folded into an address.
 func (p PortAllocation) host() string {
 	trimmed := strings.TrimSuffix(strings.TrimPrefix(p.HostIP, "["), "]")
 	switch trimmed {
-	case "", "0.0.0.0", "::":
+	case "", "0.0.0.0", "::", "127.0.0.1", "::1":
 		return "localhost"
 	default:
 		return trimmed

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -526,6 +527,7 @@ func (c *Config) validateRuntime(found *problems) {
 	checkComposeName(found, "runtime.project_name_template", runtime.ProjectNameTemplate, c.probe())
 
 	c.validatePortRange(found)
+	c.validateBindAddress(found)
 	c.validateComposition(found)
 	c.validateReachable(found)
 }
@@ -564,6 +566,34 @@ func (c *Config) validatePortRange(found *problems) {
 			c.Runtime.PortRange, ports.Size(), len(c.RuntimeReachable())))
 	}
 }
+
+// validateBindAddress checks the host address an allocated port is published on.
+//
+// It has to be a literal address rather than a name, because it reaches a
+// generated Compose document as a `host_ip` and Compose binds it: a name would
+// be resolved by Docker at a moment Feat cannot see, to an address Feat could
+// not then tell the user their service was at. A name that resolved to several
+// addresses would not even be one binding.
+//
+// The wildcard addresses are accepted, because publishing on every interface is
+// a thing some users want and the point of the key is that they may say so. What
+// they may not do is get it without saying so, which is the default's job.
+func (c *Config) validateBindAddress(found *problems) {
+	const field = "runtime.bind_address"
+	address := c.Runtime.BindAddress
+
+	if net.ParseIP(address) == nil {
+		found.add(field, fmt.Sprintf(
+			"is %q, and Feat publishes an allocated port on a literal IP address: %q binds this machine "+
+				"alone, and %q binds every interface it has",
+			address, defaultBindAddress, wildcardAddress))
+	}
+}
+
+// wildcardAddress is the IPv4 address meaning every interface. It is named
+// because it appears in what Feat says about the key rather than in what Feat
+// does: nothing here ever chooses it.
+const wildcardAddress = "0.0.0.0"
 
 // validateReachable refuses two reachable services whose generated variables
 // would collide.

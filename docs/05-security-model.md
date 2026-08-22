@@ -126,6 +126,27 @@ The accurate claim is:
 
 Organizations requiring source-code egress control need allowlisted networking and approved inference/registry destinations, which are outside v0.
 
+## Published ports and who can reach them
+
+The section above is about traffic leaving the machine. This one is about traffic arriving: Feat opens listening sockets on the host, and how many is a function of how the product is used.
+
+A task's application runtime publishes one host port per reachable service, allocated from `runtime.port_range`. Three concurrent tasks over two reachable services is six listeners. This is not incidental — running several tasks' applications at once is the feature, and a published port is what makes one reachable.
+
+Feat binds them to `127.0.0.1` by default, so they answer on the machine running them and nowhere else. `runtime.bind_address` changes that, and the two answers differ by more than one line of configuration:
+
+- `127.0.0.1` — reachable by processes on this machine. Not reachable from another machine on the network, and **not reachable from a container** on a bridge network: the loopback interface is not the bridge, so dialling the bridge gateway does not find a socket bound here. The exception is a container sharing the host's network namespace, and that is why the launch check refuses `network_mode: host` for an agent service, in those terms.
+- `0.0.0.0` — reachable on every interface the machine has. That means every network it is joined to, including an untrusted one such as a café's Wi-Fi, and it means the Docker bridge: a port on every interface is reachable from *every container on the machine*, so one task's agent container can dial another task's database at the bridge gateway. A loopback binding refuses the same dial.
+
+The accurate claim is:
+
+> Feat's published ports are bound to the loopback address unless the project configures otherwise. Feat does not firewall, authenticate, or otherwise restrict what may connect to them; the binding address is the whole of the control.
+
+A port a repository's own Compose file already gave an address to keeps that address. Feat replaces the host port — which it must, because a fixed one is one task at a time — and never widens an address the user chose.
+
+Feat does not decide what a service does with a connection. An application service reached on a published port answers as its own image is written to, with whatever authentication the project gave it, which for a development stack is often none.
+
+The agent's own execution environment publishes nothing: the generated execution override resets every port of the agent's service, in every configuration. No host port is opened for an agent.
+
 ## GitHub and GitLab capabilities
 
 Git-provider access is independent from Docker access.

@@ -222,6 +222,11 @@ func (c *Config) describeRuntime() Section {
 		// the question an exhausted range asks.
 		{Name: "port_range", Value: runtime.PortRange,
 			Note: "one host port per reachable service per task"},
+		// Printed for the same reason and one more: it decides who can reach
+		// this project's services, and a user who has not set it should be able
+		// to read what Feat chose for them rather than assume.
+		{Name: "bind_address", Value: runtime.BindAddress,
+			Note: bindAddressNote(runtime.BindAddress)},
 		{Name: "services", Value: orNone(strings.Join(c.RuntimeServices(), ", ")),
 			Note: "composed of the repositories below"},
 	}
@@ -340,6 +345,23 @@ func dockerNote(mode string) string {
 		return "Feat mounts no socket and adds no client; a launch refuses a container that has either"
 	}
 	return "host execution: the agent runs as the daemon's own user, with that user's Docker"
+}
+
+// bindAddressNote says who can reach this project's published services.
+//
+// It distinguishes the two answers rather than restating the value, because the
+// value is what a user cannot judge on sight: "0.0.0.0" and "127.0.0.1" look
+// alike in a printed field and differ by whether the whole network the machine
+// is on can open the service.
+func bindAddressNote(address string) string {
+	switch address {
+	case "127.0.0.1", "::1":
+		return "reachable from this machine only"
+	case wildcardAddress, "::":
+		return "reachable from every network this machine is on, and from every container on it"
+	default:
+		return "reachable wherever this address is"
+	}
 }
 
 func orNone(value string) string {

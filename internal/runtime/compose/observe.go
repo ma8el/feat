@@ -150,7 +150,14 @@ type container struct {
 }
 
 // publisher is one published port of one container.
+//
+// URL is Compose's name for the host address the port is bound on, and it is
+// read because it is the one observation that can contradict the allocation Feat
+// recorded: a task whose record says it is reached on this machine alone, whose
+// containers answer on every interface, is a disagreement nothing could see
+// while this field was dropped (G4-18).
 type publisher struct {
+	URL           string `json:"URL"`
 	TargetPort    int    `json:"TargetPort"`
 	PublishedPort int    `json:"PublishedPort"`
 	Protocol      string `json:"Protocol"`
@@ -294,21 +301,32 @@ func unmanaged(managed []string, containers []container) []string {
 //
 // Docker publishes a port on IPv4 and on IPv6 and reports each binding
 // separately, so the same port arrives twice and was printed twice.
+//
+// The repeat is decided by the port rather than by the whole binding, because
+// the two entries of that pair differ only in their address — "0.0.0.0" and
+// "::" — and they are one port a user reaches. Every publication Feat writes
+// carries one host address, so the first binding's is that address; the second
+// is its counterpart in the other family rather than a second place the service
+// answers.
 func published(service string, one container) []domain.PortAssignment {
 	var ports []domain.PortAssignment
+	seen := make(map[[2]int]bool, len(one.Publisher))
 
 	for _, publication := range one.Publisher {
 		if publication.PublishedPort == 0 {
 			continue
 		}
-		assignment := domain.PortAssignment{
+		key := [2]int{publication.TargetPort, publication.PublishedPort}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		ports = append(ports, domain.PortAssignment{
 			Service:       service,
 			ContainerPort: publication.TargetPort,
 			HostPort:      publication.PublishedPort,
-		}
-		if !slices.Contains(ports, assignment) {
-			ports = append(ports, assignment)
-		}
+			HostIP:        publication.URL,
+		})
 	}
 	return ports
 }

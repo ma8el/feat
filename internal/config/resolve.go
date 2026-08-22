@@ -32,6 +32,17 @@ const (
 	// opened on its own behalf. It is a default rather than a requirement
 	// because a project that already uses these ports needs only to say so.
 	defaultPortRange = "21000-21999"
+
+	// defaultBindAddress is the host address an allocated port is published on
+	// when the project's own Compose files named none.
+	//
+	// The loopback address rather than every interface, because publishing is
+	// Feat's act rather than the user's here: the project wrote a port, Feat
+	// chose which host port replaces it, and nobody asked for the service to be
+	// answerable from the network the machine happens to be on. It is also the
+	// only default that keeps one task's containers out of another's, since a
+	// port on every interface is reachable from every container on the machine.
+	defaultBindAddress = "127.0.0.1"
 )
 
 // defaultDiffCommand compares a repository against the base commit recorded for
@@ -219,6 +230,9 @@ func (c *Config) resolveRuntime(opts Options) error {
 	}
 	if runtime.PortRange == "" {
 		runtime.PortRange = defaultPortRange
+	}
+	if runtime.BindAddress == "" {
+		runtime.BindAddress = defaultBindAddress
 	}
 	// Parsed here and validated in Validate, so that a range which is not a
 	// range at all is reported against its own field rather than as a runtime

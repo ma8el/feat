@@ -264,6 +264,20 @@ type RuntimeSection struct {
 	// on, written "<first>-<last>". Feat allocates one port per reachable
 	// service per task from it and releases them when the runtime is destroyed.
 	PortRange string `yaml:"port_range"`
+	// BindAddress is the host address Feat publishes an allocated port on when
+	// the project's own Compose files named none.
+	//
+	// It defaults to the loopback address, so a task's services answer on the
+	// machine running them and nowhere else. The alternative is not a smaller
+	// exposure written differently: a port bound to every interface is reachable
+	// from every other machine on whatever network this one is on, and from every
+	// container on this one — which is one task's agent able to dial another
+	// task's database. Widening it is a decision a user makes, for the case that
+	// wants it, such as reaching a dev server from a phone on the same network.
+	//
+	// An address the project's own file named is kept as it is: this is the
+	// default for a publication that named none, not an address applied over one.
+	BindAddress string `yaml:"bind_address"`
 
 	portRange PortRange
 }

@@ -319,11 +319,12 @@ func (s *service) runtimeFor(
 	// allocation nothing has recorded yet would be given to the next task as free
 	// while this one was about to bind it.
 	record, err := s.reserveAndRecord(
-		ctx, task, spec, runtimeNeeds(cfg, documents), cfg.Runtime.Ports(), action)
+		ctx, task, spec, runtimeNeeds(cfg, documents), cfg.Runtime.Ports(),
+		cfg.Runtime.BindAddress, action)
 	if err != nil {
 		return nil, nil, err
 	}
-	spec = recordedInputs(spec, record)
+	spec = recordedInputs(spec, record, cfg.Runtime.BindAddress)
 
 	// After the record's own inputs are back in place, so that what is recorded
 	// about each service is read from the specification the documents are
@@ -378,7 +379,7 @@ func (s *service) recordProvenance(
 // one from edited configuration would move a task's address out from under the
 // containers holding it — and it is what other tasks are kept away from, which
 // only works while it is the recorded value.
-func recordedInputs(spec runtime.Spec, record *domain.RuntimeEnvironment) runtime.Spec {
+func recordedInputs(spec runtime.Spec, record *domain.RuntimeEnvironment, bind string) runtime.Spec {
 	spec.Identity = record.Identity
 	spec.Includes = runtimeIncludesOf(record.Composition)
 	spec.IncludePath = record.GeneratedIncludePath
@@ -419,7 +420,7 @@ func recordedInputs(spec runtime.Spec, record *domain.RuntimeEnvironment) runtim
 	// Last, so that the publications and the addresses they generate are
 	// resolved against the services this runtime actually manages rather than
 	// against the ones configuration names today.
-	return withAllocations(spec, record.Allocations)
+	return withAllocations(spec, record.Allocations, bind)
 }
 
 // recordRuntimeInputs attaches or refreshes the task's runtime record.
@@ -1114,7 +1115,7 @@ func (s *service) observeRuntime(ctx context.Context, task *domain.Task) (domain
 	if err != nil {
 		return "", err
 	}
-	services, err := s.runtimes(recordedInputs(spec, task.Runtime))
+	services, err := s.runtimes(recordedInputs(spec, task.Runtime, cfg.Runtime.BindAddress))
 	if err != nil {
 		return "", err
 	}

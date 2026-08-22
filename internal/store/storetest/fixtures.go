@@ -270,7 +270,11 @@ func Runtime() *domain.RuntimeEnvironment {
 		Allocations: []domain.PortAllocation{
 			{Service: "web", ContainerPort: 8080, HostPort: 21000, Protocol: "tcp", HostIP: "127.0.0.1"},
 		},
-		Ports:    []domain.PortAssignment{{Service: "web", ContainerPort: 8080, HostPort: 21000}},
+		// The observed binding carries the address the container runtime
+		// reported, which is what lets it contradict the allocation above it.
+		Ports: []domain.PortAssignment{
+			{Service: "web", ContainerPort: 8080, HostPort: 21000, HostIP: "127.0.0.1"},
+		},
 		Networks: []string{"feat-example-7f3a1c2e_default"},
 		Volumes:  []string{"feat-example-7f3a1c2e_cache"},
 	}

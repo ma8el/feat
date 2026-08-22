@@ -102,12 +102,12 @@ func runtimeNeeds(cfg *config.Config, documents composeDocuments) []portNeed {
 // locks do not serialise two different tasks, which is the whole of the problem.
 func (s *service) reserveAndRecord(
 	ctx context.Context, task *domain.Task, spec runtime.Spec, needs []portNeed,
-	ports config.PortRange, action api.RuntimeAction,
+	ports config.PortRange, bind string, action api.RuntimeAction,
 ) (*domain.RuntimeEnvironment, error) {
 	s.portMu.Lock()
 	defer s.portMu.Unlock()
 
-	allocations, err := s.reservePorts(ctx, task, needs, ports)
+	allocations, err := s.reservePorts(ctx, task, needs, ports, bind)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +130,7 @@ func (s *service) reserveAndRecord(
 // were bound to the old one, which is the same rule the recorded inputs already
 // follow for everything else a runtime was created from (ADR-034).
 func (s *service) reservePorts(
-	ctx context.Context, task *domain.Task, needs []portNeed, ports config.PortRange,
+	ctx context.Context, task *domain.Task, needs []portNeed, ports config.PortRange, bind string,
 ) ([]domain.PortAllocation, error) {
 	if task.Runtime != nil && task.Runtime.State != domain.RuntimeAbsent {
 		return task.Runtime.Allocations, nil
@@ -147,7 +147,7 @@ func (s *service) reservePorts(
 	if task.Runtime != nil {
 		keep = task.Runtime.Allocations
 	}
-	return allocate(task, needs, keep, held, ports)
+	return allocate(task, needs, keep, held, ports, bind)
 }
 
 // holder is the task holding one host port, for a message that has to name it.
@@ -198,7 +198,7 @@ type portKey struct {
 // ports, and a test can say which.
 func allocate(
 	task *domain.Task, needs []portNeed, keep []domain.PortAllocation,
-	held map[portKey]holder, ports config.PortRange,
+	held map[portKey]holder, ports config.PortRange, bind string,
 ) ([]domain.PortAllocation, error) {
 	if ports.Empty() {
 		return nil, fmt.Errorf("%w: task %s reaches %d of its services, and its project allocates no host "+
@@ -220,10 +220,27 @@ func allocate(
 			ContainerPort: need.containerPort,
 			HostPort:      port,
 			Protocol:      need.protocol,
-			HostIP:        need.hostIP,
+			HostIP:        publishedOn(need.hostIP, bind),
 		})
 	}
 	return allocations, nil
+}
+
+// publishedOn is the host address one publication is bound to.
+//
+// The project's own when its Compose file named one, because an address a user
+// wrote is a decision about who reaches their service and not a thing to widen
+// on their behalf. Otherwise the project's configured bind address, which is the
+// loopback address unless the project said otherwise.
+//
+// It is resolved once, here, and recorded: every surface that tells a user where
+// their service is reads the allocation, so an address computed again anywhere
+// else is an address that can come out different from the one Compose was given.
+func publishedOn(named, bind string) string {
+	if named != "" {
+		return named
+	}
+	return bind
 }
 
 // errRangeExhausted reports that every port in the range is spoken for.
@@ -343,7 +360,13 @@ func reachabilityNotes(cfg *config.Config, record *domain.RuntimeEnvironment) []
 // address each managed service is told its siblings are at. They are derived
 // from the record rather than from the allocation that produced it, so what the
 // document publishes and what the task says it published cannot disagree.
-func withAllocations(spec runtime.Spec, allocations []domain.PortAllocation) runtime.Spec {
+//
+// The bind address is passed in for the one record that carries none: one
+// written before Feat had a bind address of its own, whose containers were
+// therefore given every interface. Such a task is republished on the project's
+// address the next time its document is written, rather than being left on the
+// binding it was created with, because nothing about that binding was chosen.
+func withAllocations(spec runtime.Spec, allocations []domain.PortAllocation, bind string) runtime.Spec {
 	managed := make(map[string]bool, len(spec.Services))
 	for _, service := range spec.Services {
 		managed[service] = true
@@ -359,6 +382,7 @@ func withAllocations(spec runtime.Spec, allocations []domain.PortAllocation) run
 			// the same rule the mounts and the build contexts follow.
 			continue
 		}
+		allocation.HostIP = publishedOn(allocation.HostIP, bind)
 		published = append(published, allocation)
 		publications = append(publications, runtime.Publication{
 			Service:       allocation.Service,
@@ -377,16 +401,28 @@ func withAllocations(spec runtime.Spec, allocations []domain.PortAllocation) run
 	return spec
 }
 
-// allocationVariables tell every managed service where its siblings are.
+// allocationVariables carry this task's host addresses into its services.
 //
-// A service reaches another through the host, at the port Feat allocated, which
-// is a different number for every task — so a value baked into an image or
-// written into a project's own file cannot be right for more than one task at a
-// time. FEAT_URL_<service> is the address, and FEAT_PORT_<service> the port
-// alone, for a project that assembles its own.
+// They are the address a consumer on the host reaches the service at, and that
+// is the whole of what they are for: a browser opening a frontend, a shell
+// running curl, or a build baking an API address into a bundle the browser will
+// then load. The number is different for every task, so a value baked into an
+// image or written into a project's own file cannot be right for more than one
+// task at a time, which is why Feat generates them at all.
 //
-// A service publishing more than one port also gets one pair per port, named by
-// the container port, because the unsuffixed pair can only name one of them.
+// They are not how one service calls another. A published port belongs to the
+// host's network namespace: inside a container this address is that container's
+// own loopback, and with the loopback bind Feat publishes on by default it is
+// not reachable from a container at all. A service calling a sibling uses the
+// Compose service name and the container port, both of which the project's own
+// files already state and neither of which needs an allocation. The variables
+// still reach every managed service, because the service that bakes the address
+// into something a browser loads is itself a container (docs/07, ADR-065).
+//
+// FEAT_URL_<service> is the address and FEAT_PORT_<service> the port alone, for
+// a project that assembles its own. A service publishing more than one port also
+// gets one pair per port, named by the container port, because the unsuffixed
+// pair can only name one of them.
 func allocationVariables(allocations []domain.PortAllocation) map[string]string {
 	variables := make(map[string]string)
 	counts := make(map[string]int)
