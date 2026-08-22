@@ -11,6 +11,7 @@ import (
 	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/integrationtest"
+	"github.com/ma8el/feat/internal/notify"
 	"github.com/ma8el/feat/internal/tmux"
 )
 
@@ -83,6 +84,15 @@ func probe(tool integrationtest.Tool) error {
 		return answers(ctx, tmux.Executable, "-V")
 	case integrationtest.Claude:
 		return answers(ctx, "claude", "--version")
+	case integrationtest.Notify:
+		// The notifier is asked rather than looked up on PATH: what it needs is
+		// per-platform, and the build that has no notifier at all answers this
+		// too. Feat can only ever say it handed a notification over, so this is
+		// the same question the tests behind the demand ask.
+		if available, reason := notify.Host().Available(); !available {
+			return fmt.Errorf("%s", reason)
+		}
+		return nil
 	default:
 		return fmt.Errorf("no preflight question is defined for %q", tool)
 	}

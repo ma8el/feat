@@ -81,6 +81,10 @@ type function struct {
 	decl *ast.FuncDecl
 	file string
 	line int
+	// fset is the file set the declaration was parsed with, so that a node
+	// inside the body can be reported at its own line rather than at the
+	// function's. TestEverySkipTheGatedTierCanReachIsDemandable names a call.
+	fset *token.FileSet
 }
 
 // testPackage is the test files of one package, which is the scope a
@@ -125,6 +129,7 @@ func testPackages(t *testing.T, root string) []testPackage {
 					decl: typed,
 					file: rel,
 					line: fset.Position(typed.Pos()).Line,
+					fset: fset,
 				}
 			case *ast.GenDecl:
 				collectIntegrationConsts(typed, unit.integrationConsts)

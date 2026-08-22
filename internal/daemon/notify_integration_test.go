@@ -51,7 +51,8 @@ func TestRealNotificationReachesTheDesktop(t *testing.T) {
 		t.Skipf("set %s=1 to deliver real desktop notifications", integrationtest.Env)
 	}
 	if available, reason := notify.Host().Available(); !available {
-		t.Skipf("this platform delivers no desktop notifications: %s", reason)
+		integrationtest.Unavailable(t, integrationtest.Notify,
+			"this platform delivers no desktop notifications: %s", reason)
 	}
 
 	tests := []struct {

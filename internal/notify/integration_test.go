@@ -28,7 +28,12 @@ func TestRealNotificationIsDelivered(t *testing.T) {
 	notifier := Host()
 	available, reason := notifier.Available()
 	if !available {
-		t.Skipf("this platform delivers no desktop notifications: %s", reason)
+		// Through the demand, which is why notify is a tool name at all. No CI
+		// runner has a desktop, so this is a skip on almost every machine and
+		// must stay one; what the demand adds is that a maintainer running the
+		// tier on the one machine where it could deliver can say so and find out.
+		integrationtest.Unavailable(t, integrationtest.Notify,
+			"this platform delivers no desktop notifications: %s", reason)
 	}
 
 	notification, ok := Compose(ConditionIdle, Subject{
@@ -58,8 +63,9 @@ func TestRealNotifierRefusesTextItWouldMisread(t *testing.T) {
 		t.Skipf("set %s=1 to run this against the real notifier", integrationtest.Env)
 	}
 	notifier := Host()
-	if available, _ := notifier.Available(); !available {
-		t.Skip("this platform delivers no desktop notifications")
+	if available, reason := notifier.Available(); !available {
+		integrationtest.Unavailable(t, integrationtest.Notify,
+			"this platform delivers no desktop notifications: %s", reason)
 	}
 
 	for _, notification := range []Notification{

@@ -71,11 +71,16 @@ type fakeBackend struct {
 	// frames records every request for a rendered pane and inputs everything
 	// sent to one, so a test can assert what reached the daemon rather than what
 	// a key handler meant to send.
-	frames   []api.TerminalView
-	inputs   []api.TerminalInput
-	frame    api.TerminalFrame
-	frameErr error
-	inputErr error
+	frames []api.TerminalView
+	// frameTasks records whose pane each of those requests asked for, in the
+	// same order. The view alone cannot answer the question a frame arriving
+	// under the wrong name raises, which is which task the dashboard asked
+	// about.
+	frameTasks []string
+	inputs     []api.TerminalInput
+	frame      api.TerminalFrame
+	frameErr   error
+	inputErr   error
 
 	runtimeStatus api.RuntimeStatus
 	runtimeErr    error
@@ -889,6 +894,7 @@ func (f *fakeBackend) TerminalFrame(_ context.Context, id string, view api.Termi
 	defer f.mu.Unlock()
 
 	f.frames = append(f.frames, view)
+	f.frameTasks = append(f.frameTasks, id)
 	if f.frameErr != nil {
 		return api.TerminalFrame{}, f.frameErr
 	}

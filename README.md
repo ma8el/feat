@@ -377,6 +377,15 @@ report green having proved nothing. On a machine short of one, say so:
 make check INTEGRATION_TOOLS=git,tmux   # no Docker here, and this run knows it
 ```
 
+Two further tools are demandable and demanded by nothing: `claude`, whose tests
+spend a real account's tokens, and `notify`, which needs a desktop no CI runner
+has. Name them on a machine that has them and the proofs behind them stop
+skipping quietly:
+
+```sh
+make check INTEGRATION_TOOLS=git,docker,tmux,notify
+```
+
 ### How the design rules are enforced
 
 The architectural and security rules in [`CLAUDE.md`](CLAUDE.md) are checked
@@ -415,6 +424,12 @@ mechanically rather than by review attention alone:
   test that refuses to run without `FEAT_INTEGRATION` but is not named
   `TestReal…` or `TestBinary…` runs in neither tier, and nothing else would say
   so.
+- **Every skip the gated tier can reach is demandable**, checked by its sibling
+  AST test: a gated test — or any helper one reaches — that gives up on this
+  machine must do so through `integrationtest.Unavailable`, so the run's demand
+  list can turn it into a failure. A bare `t.Skip` there prints `ok` for the
+  package, which is how a run that demanded Docker and got one that could not
+  start a container reported green.
 
 ## License
 

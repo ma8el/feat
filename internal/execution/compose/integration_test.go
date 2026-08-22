@@ -61,7 +61,14 @@ func agentUser(t *testing.T) string {
 	if uid == 0 {
 		// The agent may not be root, so a root-owned checkout cannot be the
 		// subject of these tests: there is no non-root uid that could write it.
-		t.Skip("these tests need a non-root user, because the agent's container user must not be root")
+		//
+		// Through the demand rather than as a bare skip, because realTask reaches
+		// this and almost every TestReal below reaches realTask: a run as root
+		// dropped the whole container-boundary suite while Docker was demanded and
+		// answering, and printed "ok".
+		integrationtest.Unavailable(t, integrationtest.Docker,
+			"this run is root, and these tests need a non-root user "+
+				"because the agent's container user must not be root")
 	}
 	return strconv.Itoa(uid)
 }
@@ -423,7 +430,11 @@ func TestRealAMountOfTheHomeDirectoryIsRefused(t *testing.T) {
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		t.Skipf("this machine has no resolvable home directory: %v", err)
+		// Through the demand: this test's whole subject is the one forbidden host
+		// path this machine really has, so a machine that cannot name it has not
+		// run the proof.
+		integrationtest.Unavailable(t, integrationtest.Docker,
+			"this machine has no resolvable home directory to refuse a mount of: %v", err)
 	}
 
 	_, spec, _ := realTaskFrom(t, domain.NewTaskID(), "devcontainer-home-mount.yaml")
@@ -778,7 +789,11 @@ func TestRealABindBackedVolumeIsSeenForWhatItIs(t *testing.T) {
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		t.Skipf("this machine has no resolvable home directory: %v", err)
+		// Through the demand: this test's whole subject is the one forbidden host
+		// path this machine really has, so a machine that cannot name it has not
+		// run the proof.
+		integrationtest.Unavailable(t, integrationtest.Docker,
+			"this machine has no resolvable home directory to refuse a mount of: %v", err)
 	}
 
 	_, spec, _ := realTaskFrom(t, domain.NewTaskID(), "devcontainer-bind-backed-volume.yaml")
@@ -877,10 +892,16 @@ func TestRealAContainerGrantedMoreThanItsMountsIsRefused(t *testing.T) {
 
 	environment, spec, _ := realTaskFrom(t, domain.NewTaskID(), "devcontainer-privileged.yaml")
 	if err := environment.Prepare(context.Background()); err != nil {
-		// A daemon that will not run a privileged container at all is not a
-		// failure of this check: there is nothing to inspect, and the refusal
-		// already happened one layer down.
-		t.Skipf("this machine's Docker would not start a privileged container: %v", err)
+		// A daemon that will not run a privileged container at all leaves nothing
+		// to inspect, and the refusal did happen one layer down — but it happened
+		// somewhere Feat does not control and cannot report on, and this is the
+		// only real-Docker proof that Feat's own check reads .HostConfig and
+		// refuses what it finds. Through the demand, so a run that asked for
+		// Docker and got one which cannot arrange the subject says so instead of
+		// printing "ok" (this skip was added one batch after the demand landed and
+		// walked straight around it).
+		integrationtest.Unavailable(t, integrationtest.Docker,
+			"this machine's Docker would not start the privileged container this check inspects: %v", err)
 	}
 	state, err := environment.Observe(context.Background())
 	if err != nil {

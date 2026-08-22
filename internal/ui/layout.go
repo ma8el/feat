@@ -222,6 +222,13 @@ func (m Model) frameFooter(width int) string {
 	case m.stopping != "":
 		out.WriteString(truncate(attentionStyle.Render(
 			"Stop the agent of this task? It is working, and stopping it ends the turn.  y to confirm"), width))
+	// Named, unlike the one above it, because the task this is about may not be
+	// the one the rail marks by the time it is answered — a refresh between the
+	// key press and the answer is exactly the event G2-04 was about — and because
+	// what it destroys is the only copy of something somebody wrote.
+	case m.cancelling != "":
+		out.WriteString(truncate(attentionStyle.Render(
+			"Cancel draft "+m.taskKey(m.cancelling)+"? Its brief is not kept anywhere else.  y to confirm"), width))
 	case m.err != nil:
 		out.WriteString(truncate(failureStyle.Render(plainLine(m.err.Error())), width))
 	case m.status != "":
