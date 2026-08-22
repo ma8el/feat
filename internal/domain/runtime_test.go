@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -117,17 +118,43 @@ func TestPortsAreHeldUntilNothingIsLeft(t *testing.T) {
 // refuses two services that would produce the same one.
 func TestAGeneratedVariableNamesItsServiceSafely(t *testing.T) {
 	for service, want := range map[string]string{
-		"api":     "FEAT_PORT_API",
-		"web-app": "FEAT_PORT_WEB_APP",
-		"web.app": "FEAT_PORT_WEB_APP",
-		"Api2":    "FEAT_PORT_API2",
+		"api":     "FEAT_HOST_PORT_API",
+		"web-app": "FEAT_HOST_PORT_WEB_APP",
+		"web.app": "FEAT_HOST_PORT_WEB_APP",
+		"Api2":    "FEAT_HOST_PORT_API2",
 	} {
 		if got := PortVariable(service); got != want {
 			t.Errorf("the port variable of %q is %q, want %q", service, got, want)
 		}
 	}
-	if got := URLVariable("web-app"); got != "FEAT_URL_WEB_APP" {
+	if got := URLVariable("web-app"); got != "FEAT_HOST_URL_WEB_APP" {
 		t.Errorf("the URL variable of web-app is %q", got)
+	}
+}
+
+// TestAGeneratedVariableSaysTheAddressIsTheHostsPins the prefix rather than the
+// rendering, because the prefix is the whole of what a user sees at the moment
+// this value is misused.
+//
+// The variable carries a published port, which belongs to the host's network
+// namespace: read inside a container that address is the container's own
+// loopback, and with Feat's default binding the host's port is not reachable
+// from a container at all. Under FEAT_URL_ nothing about the name said so, and
+// a service that called a sibling at ${FEAT_URL_api} got a connection refused
+// against itself — a failure with no message naming the cause. Documentation is
+// not present where the string is typed; the name is (G4-08).
+func TestAGeneratedVariableSaysTheAddressIsTheHosts(t *testing.T) {
+	for _, generated := range []string{PortVariable("api"), URLVariable("api")} {
+		if !strings.HasPrefix(generated, "FEAT_HOST_") {
+			t.Errorf("the generated variable %q does not say the address is the host's, so a service "+
+				"reading it into a sibling call has nothing telling it not to", generated)
+		}
+	}
+	if got, want := PortVariable("api"), "FEAT_HOST_PORT_API"; got != want {
+		t.Errorf("the port variable of api is %q, want %q", got, want)
+	}
+	if got, want := URLVariable("api"), "FEAT_HOST_URL_API"; got != want {
+		t.Errorf("the URL variable of api is %q, want %q", got, want)
 	}
 }
 

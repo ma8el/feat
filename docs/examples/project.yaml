@@ -66,7 +66,7 @@ repositories:
       # The ones you reach from this machine. Feat publishes each of them on a
       # host port it allocates for the task, reads the container port out of
       # these Compose files, and tells every managed service the address as
-      # FEAT_URL_app and FEAT_PORT_app.
+      # FEAT_HOST_URL_app and FEAT_HOST_PORT_app.
       reachable:
         - app
 
@@ -184,12 +184,19 @@ runtime:
   # every other service are removed for the same reason.
   port_range: "21000-21999"
   # Feat sets FEAT_PROJECT_ID, FEAT_TASK_ID, FEAT_TASK_KEY, and
-  # FEAT_RUNTIME_PROJECT on every managed service, and FEAT_URL_<service> and
-  # FEAT_PORT_<service> for each reachable one — upper-cased, with everything
-  # that is not a letter or a digit replaced. They are how a service finds its
-  # own task's siblings rather than another task's: nothing baked into an image
-  # can name a port that differs per task. Read one in the service itself, or
-  # map it to your own name in your Compose file with "${FEAT_URL_app}".
+  # FEAT_RUNTIME_PROJECT on every managed service, and FEAT_HOST_URL_<service>
+  # and FEAT_HOST_PORT_<service> for each reachable one — upper-cased, with
+  # everything that is not a letter or a digit replaced. They carry the address
+  # a consumer on this machine reaches the service at — a browser, a curl, or a
+  # build baking an API address into a bundle a browser then loads — and the
+  # port differs per task, so nothing baked into an image can name it. Read one
+  # in the service itself, or map it to your own name in your Compose file with
+  # "${FEAT_HOST_URL_app}".
+  #
+  # HOST is in the name because a published port belongs to this machine's
+  # network namespace. Read inside a container that address is the container's
+  # own loopback, so it is not how one service calls another: for that, name the
+  # Compose service and the container port, which do not differ per task.
   #
   # An application that shares an external resource between tasks — a staging
   # database on its own server, say — names its share with FEAT_TASK_KEY. Feat

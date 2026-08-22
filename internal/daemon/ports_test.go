@@ -255,17 +255,21 @@ func TestThreeTasksStartedAtOnceEachHoldTheirOwnPorts(t *testing.T) {
 	}
 }
 
-// TestEveryManagedServiceIsToldWhereItsSiblingsAre is the second acceptance
+// TestEveryManagedServiceIsToldTheHostAddressOfItsTask is the second acceptance
 // criterion at the daemon: an application finds its own task's services.
 //
 // The address differs per task, so nothing baked into an image and nothing
 // written in the project's own file can be right for more than one of them. It
 // reaches the services twice over, and both are needed: in the container's
-// environment, for a service that reads FEAT_URL_ itself, and in the environment
-// of the Compose process, for a project that maps it to its own name with a
-// "${...}" — which is the only way for a service whose framework exposes
-// variables under a prefix of its own.
-func TestEveryManagedServiceIsToldWhereItsSiblingsAre(t *testing.T) {
+// environment, for a service that reads FEAT_HOST_URL_ itself, and in the
+// environment of the Compose process, for a project that maps it to its own
+// name with a "${...}" — which is the only way for a service whose framework
+// exposes variables under a prefix of its own.
+//
+// What a managed service does with a host address is bake it into something a
+// browser will load. It is not how it calls a sibling, and the prefix says so
+// (G4-08).
+func TestEveryManagedServiceIsToldTheHostAddressOfItsTask(t *testing.T) {
 	arranged := arrangeConfigured(t, reaching(runtimeFixture))
 	publishing(t, arranged, oneReachableService)
 
@@ -278,8 +282,8 @@ func TestEveryManagedServiceIsToldWhereItsSiblingsAre(t *testing.T) {
 
 	document := overrideOf(t, arranged, task.ID)
 	for _, required := range []string{
-		`"FEAT_URL_API": "` + address + `"`,
-		`"FEAT_PORT_API": "` + strconv.Itoa(port) + `"`,
+		`"FEAT_HOST_URL_API": "` + address + `"`,
+		`"FEAT_HOST_PORT_API": "` + strconv.Itoa(port) + `"`,
 	} {
 		if !strings.Contains(document, required) {
 			t.Errorf("the generated override does not carry %s:\n%s", required, document)
@@ -289,7 +293,7 @@ func TestEveryManagedServiceIsToldWhereItsSiblingsAre(t *testing.T) {
 	var interpolable bool
 	for _, invocation := range arranged.runtimes.Invocations() {
 		for _, entry := range invocation.Environment {
-			if entry == "FEAT_URL_API="+address {
+			if entry == "FEAT_HOST_URL_API="+address {
 				interpolable = true
 			}
 		}
@@ -577,8 +581,9 @@ func TestAnExhaustedRangeNamesWhatHoldsIt(t *testing.T) {
 // interface, so omitting the key published every reachable service of every
 // running task on every network the machine was joined to — and on the Docker
 // bridge, which is one task's agent able to dial another task's database — while
-// the override comment, FEAT_URL_ and the address the task reported all said
-// localhost. Nothing in the product printed 0.0.0.0, so nothing contradicted it.
+// the override comment, FEAT_HOST_URL_ and the address the task reported all
+// said localhost. Nothing in the product printed 0.0.0.0, so nothing
+// contradicted it.
 //
 // Each case checks the two halves against each other: the address the generated
 // document binds, and the address the record says the service is reached at. A
@@ -660,7 +665,7 @@ func TestAnAllocatedPortIsBoundWhereTheTaskSaysItIs(t *testing.T) {
 				t.Errorf("the generated override does not say %q beside the port it publishes:\n%s",
 					comment, document)
 			}
-			if url := `"FEAT_URL_API": "http://` + address + `"`; !strings.Contains(document, url) {
+			if url := `"FEAT_HOST_URL_API": "http://` + address + `"`; !strings.Contains(document, url) {
 				t.Errorf("the generated override does not carry %s:\n%s", url, document)
 			}
 		})

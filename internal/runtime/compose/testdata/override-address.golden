@@ -39,10 +39,10 @@ services:
         target: "/srv/store"
         read_only: true
     environment:
-      "FEAT_PORT_API": "21000"
+      "FEAT_HOST_PORT_API": "21000"
+      "FEAT_HOST_URL_API": "http://192.168.64.7:21000"
       "FEAT_RUNTIME_PROJECT": "feat-app-11111111"
       "FEAT_TASK_KEY": "11111111"
-      "FEAT_URL_API": "http://192.168.64.7:21000"
     labels:
       "dev.feat.owner": "feat"
       "dev.feat.project": "app"

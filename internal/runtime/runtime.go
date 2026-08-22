@@ -362,12 +362,12 @@ type Invocation struct {
 	// KEY=VALUE entries.
 	//
 	// It carries the generated non-secret variables, and it exists because a
-	// service reaches its siblings under the project's own names rather than
+	// service finds a host address under the project's own name rather than
 	// Feat's: a frontend whose framework only exposes variables with a
-	// particular prefix cannot read FEAT_URL_x, and the project maps it in its
-	// own Compose file with "${FEAT_URL_x}". Compose interpolates from the
-	// environment of the process running it, so this is where that value has to
-	// be. Nothing read from an environment file is ever in it.
+	// particular prefix cannot read FEAT_HOST_URL_x, and the project maps it in
+	// its own Compose file with "${FEAT_HOST_URL_x}". Compose interpolates from
+	// the environment of the process running it, so this is where that value has
+	// to be. Nothing read from an environment file is ever in it.
 	Environment []string
 }
 

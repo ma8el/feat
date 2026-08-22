@@ -518,9 +518,9 @@ type PortAllocation struct {
 	// written before Feat had a bind address of its own.
 	HostIP string `json:"host_ip,omitempty"`
 	// Address is where the service is reached from this machine, which is the
-	// value of its generated FEAT_URL variable without the scheme. It is not
-	// the address another container reaches it at: a published port belongs to
-	// the host's network namespace, and a service calling a sibling uses the
+	// value of its generated FEAT_HOST_URL variable without the scheme. It is
+	// not the address another container reaches it at: a published port belongs
+	// to the host's network namespace, and a service calling a sibling uses the
 	// Compose service name and the container port.
 	Address string `json:"address"`
 }
