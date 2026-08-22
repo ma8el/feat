@@ -341,8 +341,14 @@ func TestRealAnAttachedClientGetsItsOwnSizeBack(t *testing.T) {
 		t.Fatalf("CapturePane while pinned: %v", err)
 	}
 	if held.Width >= clientWidth {
-		t.Skipf("this tmux gave a pinned window to its client anyway (%d cells), "+
-			"so there is nothing here to prevent", held.Width)
+		// The precondition this test needs is a behaviour of the installed tmux,
+		// and a tmux that does not produce it leaves the repair below unproven.
+		// Through the demand rather than as a bare skip: a run that asked for tmux
+		// and got one this test cannot use has not made the proof, and a skipped
+		// package still prints "ok".
+		integrationtest.Unavailable(t, integrationtest.Tmux,
+			"this tmux gave a pinned window to its client anyway (%d cells), so the blank space "+
+				"this checks the repair of cannot be arranged on it", held.Width)
 	}
 
 	// The frame the dashboard draws next is what repairs it.
@@ -815,7 +821,12 @@ func TestRealAStoppedPaneKeepsTheScreenItStoppedOn(t *testing.T) {
 		t.Fatalf("CapturePane after shrinking: %v", err)
 	}
 	if slices.Contains(reflowed.Content, prompt) {
-		t.Skip("this tmux does not reflow a dead pane, so there is nothing here to prevent")
+		// Same shape as the pinned-window measurement above: the loss this test
+		// checks Feat prevents is one the installed tmux has to be able to inflict
+		// before there is anything to prevent.
+		integrationtest.Unavailable(t, integrationtest.Tmux,
+			"this tmux does not reflow a dead pane, so the loss this checks the prevention of "+
+				"cannot be arranged on it")
 	}
 	if err := backend.ResizeWindow(ctx, window, painted.Width, region); err != nil {
 		t.Fatalf("ResizeWindow back: %v", err)

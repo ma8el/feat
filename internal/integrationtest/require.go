@@ -38,6 +38,15 @@ const (
 	// maintainer's tokens and interrupt a real account, so a run that wants
 	// them says so.
 	Claude Tool = "claude"
+
+	// Notify is this platform's own desktop notifier. It is demandable and,
+	// like Claude, demanded by nothing by default: no CI runner has a desktop,
+	// and on a platform Feat has no notifier for the tests behind it can never
+	// pass. What it buys is that a maintainer running the tier on their own
+	// machine can say so and find out, rather than having the proofs that a
+	// notification reached a desktop skip quietly on the one machine where they
+	// could have run.
+	Notify Tool = "notify"
 )
 
 // Tools are the names EnvRequire accepts.
@@ -45,7 +54,7 @@ const (
 // A value outside this list is a failure rather than an unknown-and-ignored
 // name: "FEAT_INTEGRATION_REQUIRE=dockr" that quietly demanded nothing would be
 // the same silent green this package exists to remove.
-var Tools = []Tool{Git, Docker, Tmux, Claude}
+var Tools = []Tool{Git, Docker, Tmux, Claude, Notify}
 
 // Enabled reports whether this run is opted in to the integration tier.
 func Enabled() bool {
