@@ -222,11 +222,21 @@ func (c *Config) describeRuntime() Section {
 		// the question an exhausted range asks.
 		{Name: "port_range", Value: runtime.PortRange,
 			Note: "one host port per reachable service per task"},
-		// Printed for the same reason and one more: it decides who can reach
-		// this project's services, and a user who has not set it should be able
-		// to read what Feat chose for them rather than assume.
+		// Printed for the same reason and one more: it decides who can reach a
+		// service published without an address of its own, and a user who has not
+		// set it should be able to read what Feat chose for them rather than
+		// assume.
+		//
+		// Scoped to that case rather than left as a claim about the project,
+		// because it is not one. A repository's own Compose file may name an
+		// address per publication and Feat keeps it (docs/07 §
+		// runtime.bind_address), so a project configured 127.0.0.1 whose
+		// repository publishes "0.0.0.0:3000:3000" would otherwise be told here
+		// that its services are reachable from this machine alone. What each
+		// publication is actually bound on is per publication and is printed
+		// beside its address by `feat runtime status`.
 		{Name: "bind_address", Value: runtime.BindAddress,
-			Note: bindAddressNote(runtime.BindAddress)},
+			Note: "where a publication names no address: " + bindAddressNote(runtime.BindAddress)},
 		{Name: "services", Value: orNone(strings.Join(c.RuntimeServices(), ", ")),
 			Note: "composed of the repositories below"},
 	}

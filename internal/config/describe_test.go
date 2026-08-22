@@ -229,6 +229,66 @@ func TestTheDockerCapabilityIsGlossedForTheModeItAppliesIn(t *testing.T) {
 	}
 }
 
+// TestTheBindAddressIsGlossedForWhatItGovernsAndNotForEveryPublication scopes a
+// claim this command cannot make.
+//
+// `bind_address` is the default for a publication whose own Compose file names
+// no address, and not an address applied over one (docs/07). The note read as an
+// answer about the project's services, so a project configured 127.0.0.1 whose
+// repository publishes "0.0.0.0:3000:3000" was told its services are reachable
+// from this machine alone, over a binding every network this machine is joined
+// to can open. This command loads configuration and reads no Compose file, so it
+// cannot say what each publication is bound on — it says what this value decides
+// and stops there.
+func TestTheBindAddressIsGlossedForWhatItGovernsAndNotForEveryPublication(t *testing.T) {
+	opts, _ := testOptions(t, nil)
+
+	dir := write(t, "app.yaml", fixture(t, "app.yaml"))
+	loaded, err := config.Load(dir, "app", opts)
+	if err != nil {
+		t.Fatalf("loading the configuration: %v", err)
+	}
+	described := render(loaded.Describe())
+
+	if !strings.Contains(described, "bind_address = 127.0.0.1") {
+		t.Fatalf("the fixture does not resolve to the loopback address, so this test checks nothing:\n%s",
+			described)
+	}
+	// The distinction stays: "0.0.0.0" and "127.0.0.1" look alike in a printed
+	// field and differ by who can open the service.
+	if !strings.Contains(described, "reachable from this machine only") {
+		t.Errorf("the resolved bind address does not say who can reach what it governs:\n%s", described)
+	}
+	// And it is said of what the value governs rather than of the project.
+	if !strings.Contains(described, "where a publication names no address") {
+		t.Errorf("the bind address is glossed as though every publication used it:\n%s", described)
+	}
+
+	// The wide answer is scoped the same way, and is still the wide answer.
+	wide := write(t, "app.yaml", strings.Replace(
+		fixture(t, "app.yaml"),
+		"project_name_template: \"feat-{project_id}-{task_id}\"",
+		"project_name_template: \"feat-{project_id}-{task_id}\"\n  bind_address: \"0.0.0.0\"",
+		1))
+	loaded, err = config.Load(wide, "app", opts)
+	if err != nil {
+		t.Fatalf("loading the configuration with a wildcard bind address: %v", err)
+	}
+	described = render(loaded.Describe())
+
+	if !strings.Contains(described, "bind_address = 0.0.0.0") {
+		t.Fatalf("the wildcard bind address was not resolved, so this test checks nothing:\n%s", described)
+	}
+	for _, required := range []string{
+		"where a publication names no address",
+		"reachable from every network this machine is on, and from every container on it",
+	} {
+		if !strings.Contains(described, required) {
+			t.Errorf("a wildcard bind address does not say %q:\n%s", required, described)
+		}
+	}
+}
+
 // TestTheHostAgentOverrideIsNamedRatherThanGuessed is the other half of F6-06.
 //
 // FEAT_HOST_AGENT lives in the daemon's environment (ADR-032) and this command

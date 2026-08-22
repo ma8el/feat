@@ -86,6 +86,76 @@ func TestTheRuntimeSummaryNamesWhatIsRetained(t *testing.T) {
 	}
 }
 
+// TestThePortsSaySomethingTheAddressCannot keeps a wide binding from reading as
+// a narrow one.
+//
+// `feat runtime status` printed the address alone, and the address of a port on
+// every interface is localhost, exactly as it is for a port on the loopback
+// address. A user reading "localhost:21000" over a publication a repository's own
+// Compose file opened on 0.0.0.0 was told their service answers here, about a
+// port every network this machine is joined to can open. The binding is
+// therefore a second column rather than a value folded into the first.
+func TestThePortsSaySomethingTheAddressCannot(t *testing.T) {
+	status := runtimeStatus()
+	status.Task.Runtime.Allocations = []api.PortAllocation{
+		// The project's configured default: it named no address, so the bind
+		// address was filled in.
+		{Service: "api", ContainerPort: 8000, HostPort: 21000, Protocol: "tcp",
+			HostIP: "127.0.0.1", Address: "localhost:21000"},
+		// And the repository's own Compose file, which named one and keeps it.
+		{Service: "web", ContainerPort: 3000, HostPort: 21001, Protocol: "tcp",
+			HostIP: "0.0.0.0", Address: "localhost:21001"},
+	}
+
+	var out bytes.Buffer
+	printRuntime(&out, status)
+	printed := out.String()
+
+	for _, required := range []string{
+		"8000 -> localhost:21000  bound on 127.0.0.1",
+		"3000 -> localhost:21001  bound on 0.0.0.0",
+		// And what a binding on every interface means, which is the part a user
+		// acts on, said once for the list rather than per port.
+		"every network this machine is joined to",
+		"on the bridge every container is on",
+		// Naming both sources, because the surface cannot tell which of them
+		// produced this address and a user changing the wrong one changes nothing.
+		"runtime.bind_address",
+	} {
+		if !strings.Contains(printed, required) {
+			t.Errorf("the ports do not say %q:\n%s", required, printed)
+		}
+	}
+}
+
+// TestAConfinedPortIsNotGivenAWarningItHasNotEarned keeps the sentence about a
+// wide binding attached to one.
+//
+// The binding is printed for every publication, because a fact stated only when
+// it is alarming is a silence a user has to interpret. What is not printed is the
+// explanation: a project whose ports all answer on this machine alone has nothing
+// to act on, and a paragraph it never applies to is one that stops being read
+// before the day it does.
+func TestAConfinedPortIsNotGivenAWarningItHasNotEarned(t *testing.T) {
+	status := runtimeStatus()
+	status.Task.Runtime.Allocations = []api.PortAllocation{
+		{Service: "api", ContainerPort: 8000, HostPort: 21000, Protocol: "tcp",
+			HostIP: "127.0.0.1", Address: "localhost:21000"},
+	}
+
+	var out bytes.Buffer
+	printRuntime(&out, status)
+	printed := out.String()
+
+	if !strings.Contains(printed, "bound on 127.0.0.1") {
+		t.Errorf("a confined publication does not say what it is bound on:\n%s", printed)
+	}
+	if strings.Contains(printed, "every network this machine is joined to") {
+		t.Errorf("a runtime whose ports answer on this machine alone was told about a wide binding:\n%s",
+			printed)
+	}
+}
+
 // TestANoteIsPrintedWhereTheUserWillSeeIt keeps the silent mount failure visible.
 func TestANoteIsPrintedWhereTheUserWillSeeIt(t *testing.T) {
 	status := runtimeStatus()

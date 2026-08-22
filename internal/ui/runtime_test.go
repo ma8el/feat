@@ -21,9 +21,11 @@ func runningRuntime() *api.Runtime {
 		Health:   "unknown",
 		Allocations: []api.PortAllocation{{
 			Service: "api", ContainerPort: 8000, HostPort: 21000,
-			Protocol: "tcp", Address: "localhost:21000",
+			// The project's configured bind address, filled in because the
+			// repository's own Compose file named none.
+			Protocol: "tcp", HostIP: "127.0.0.1", Address: "localhost:21000",
 		}},
-		Ports:   []api.Port{{Service: "api", ContainerPort: 8000, HostPort: 21000}},
+		Ports:   []api.Port{{Service: "api", ContainerPort: 8000, HostPort: 21000, HostIP: "127.0.0.1"}},
 		Volumes: []string{"feat-example-7f3a1c2e_pgdata"},
 	}
 }
@@ -112,6 +114,55 @@ func TestTheScreenShowsWhatComposeStartedAlongTheWay(t *testing.T) {
 		if !strings.Contains(view, required) {
 			t.Errorf("the runtime screen does not show %q:\n%s", required, view)
 		}
+	}
+}
+
+// TestTheScreenSaysWhatAPortIsBoundOnAndNotOnlyWhereToDialIt is the dashboard's
+// half of the same rule the CLI follows.
+//
+// The address of a port on every interface is localhost, exactly as it is for a
+// port on the loopback address, so a screen printing the address alone shows a
+// service open to every network this machine is joined to as one that answers
+// here. Both answers are shown: the address to dial, and the binding.
+func TestTheScreenSaysWhatAPortIsBoundOnAndNotOnlyWhereToDialIt(t *testing.T) {
+	task := liveTask()
+	task.Runtime = runningRuntime()
+	// The repository's own Compose file named this address, so Feat kept it,
+	// whatever the project's runtime.bind_address says.
+	task.Runtime.Allocations = append(task.Runtime.Allocations, api.PortAllocation{
+		Service: "web", ContainerPort: 3000, HostPort: 21001,
+		Protocol: "tcp", HostIP: "0.0.0.0", Address: "localhost:21001",
+	})
+
+	backend := newFakeBackend()
+	backend.runtimeStatus = api.RuntimeStatus{Task: task}
+
+	view := content(runtimeScreen(t, backend, task))
+	for _, required := range []string{
+		"8000 → localhost:21000",
+		"bound on 127.0.0.1",
+		"3000 → localhost:21001",
+		"bound on 0.0.0.0",
+		"every network this machine is joined to",
+	} {
+		if !strings.Contains(view, required) {
+			t.Errorf("the runtime screen does not show %q:\n%s", required, view)
+		}
+	}
+
+	// And a task whose ports all answer on this machine alone is not given the
+	// sentence about a binding it does not have.
+	confined := liveTask()
+	confined.Runtime = runningRuntime()
+	backend = newFakeBackend()
+	backend.runtimeStatus = api.RuntimeStatus{Task: confined}
+
+	view = content(runtimeScreen(t, backend, confined))
+	if !strings.Contains(view, "bound on 127.0.0.1") {
+		t.Errorf("a confined publication does not say what it is bound on:\n%s", view)
+	}
+	if strings.Contains(view, "every network this machine is joined to") {
+		t.Errorf("a runtime whose ports answer on this machine alone was told about a wide binding:\n%s", view)
 	}
 }
 

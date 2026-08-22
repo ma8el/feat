@@ -345,8 +345,24 @@ func (m Model) runtimeSummary(task api.Task) string {
 		out.WriteString("\n" + headingStyle.Render("ports") +
 			mutedStyle.Render("  allocated for this task") + "\n")
 		for _, allocation := range runtime.Allocations {
+			// The address and the binding are two answers, because they are two
+			// questions: the first is where to dial from this machine, which for a
+			// binding on every interface is still localhost, and the second is what
+			// the port is open to, which localhost says nothing about.
 			out.WriteString("  " + allocation.Service + "  " +
-				strconv.Itoa(allocation.ContainerPort) + " → " + allocation.Address + "\n")
+				strconv.Itoa(allocation.ContainerPort) + " → " + allocation.Address +
+				mutedStyle.Render("  bound on "+allocation.Binding()) + "\n")
+		}
+		if runtime.BoundEverywhere() {
+			// Three lines rather than one, because the panel is narrow and a
+			// sentence that runs off the right of it is one nobody finishes.
+			for _, line := range []string{
+				"a port bound on every address answers on every network this machine is joined to,",
+				"and on the bridge every container is on. runtime.bind_address sets the default;",
+				"an address a repository's own Compose file names is kept.",
+			} {
+				out.WriteString(mutedStyle.Render(line) + "\n")
+			}
 		}
 	}
 	if len(runtime.Volumes) > 0 {
