@@ -48,6 +48,15 @@ type Environment interface {
 	// here. It is separate from Inspect so that diagnostics can show the same
 	// facts a launch refuses over.
 	Check(report Report) error
+	// Warnings reports what an environment grants that a launch will not refuse
+	// over, in the words a person needs to decide whether they meant it.
+	//
+	// It is separate from Check because the two answers are different: a refusal
+	// says a rule was broken, and a warning says a rule holds only because
+	// nobody has asked otherwise. Refusing these would fail launches a project
+	// deliberately configured; leaving them unsaid is how a requirement becomes
+	// a formality nobody notices has lapsed.
+	Warnings(report Report) []string
 	// Stop stops the containers of this environment and keeps them, so that a
 	// resume can start the same containers again. It removes nothing.
 	Stop(ctx context.Context) (State, error)
@@ -112,6 +121,17 @@ type Report struct {
 	// namespace reaches a daemon listening on the host's own loopback with
 	// nothing mounted and no variable set.
 	Privileges ObservedPrivileges
+	// Escalation names the executables inside the environment that hand the
+	// agent back the privilege it was started without, empty when there are
+	// none.
+	//
+	// UID answers what the agent starts as, which is a fact about an instant. A
+	// session can be longer than an instant: an image that installs a tool
+	// granting passwordless root passes the non-root requirement and the agent
+	// is root a command later. It is a list for the reason DockerClients is one
+	// — an image can carry more than one, and naming the first would be answered
+	// by removing the first.
+	Escalation []string
 	// MissingTools are the executables the generated hooks need and the
 	// environment does not have.
 	MissingTools []string

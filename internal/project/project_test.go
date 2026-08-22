@@ -169,6 +169,14 @@ func (w *world) liveContainer(id string) {
 	for _, client := range compose.ContainerClients {
 		w.runner.absent["docker exec --user developer "+id+" "+client+" --version"] = true
 	}
+	// And no way back to root, stated for the reason the clients above are: an
+	// unscripted command answers successfully here, so a fixture that left this
+	// out would arrange a container granting passwordless sudo in every test
+	// that only meant to arrange a live one.
+	for _, tool := range compose.EscalationTools {
+		w.runner.absent["docker exec --user developer "+id+" "+tool.Name+" "+
+			strings.Join(tool.Arguments, " ")] = true
+	}
 }
 
 // diagnose runs diagnostics against the arranged machine.
@@ -992,6 +1000,60 @@ func TestARootAgentInALiveContainerFailsDoctor(t *testing.T) {
 	}
 	if !strings.Contains(found.Summary, "uid 0") {
 		t.Errorf("the finding does not say what was observed: %q", found.Summary)
+	}
+}
+
+// TestAWayBackToRootInTheContainerIsReportedByDoctor is G7-05 on the surface a
+// user asks the question from.
+//
+// The uid is read as the configured user and reported green, which is true of
+// the instant it was read. An image that also grants that user passwordless
+// `sudo` — which is what the template line does, and what Feat's own dogfood
+// image has — leaves the same green line meaning nothing about the session. It
+// is a warning and not an error, because a launch does not refuse it either.
+func TestAWayBackToRootInTheContainerIsReportedByDoctor(t *testing.T) {
+	w := arrange(t)
+	w.liveContainer("c0ffee")
+	w.runner.output["docker exec --user developer c0ffee id -u"] = "1000\n"
+	delete(w.runner.absent, "docker exec --user developer c0ffee sudo -n true")
+
+	found := finding(t, w.only(t, w.diagnose(t)).Findings, "agent.execution.user")
+	if found.Severity != project.SeverityWarning {
+		t.Errorf("a container whose sudo returns root is %q, want a warning: %s", found.Severity, found.Summary)
+	}
+	for _, expected := range []string{"uid 1000", "sudo", "without a password"} {
+		if !strings.Contains(found.Summary, expected) {
+			t.Errorf("the finding does not mention %q: %q", expected, found.Summary)
+		}
+	}
+}
+
+// TestTheAgentsIdentityIsMoreThanItsUid pins the question rather than the
+// outcome, as its sibling one check down does.
+//
+// The green answer is the one that had to change: "uid 1000" was reported as the
+// non-root requirement met, and a test that only checked the warning above would
+// pass again on the day the second probe was dropped.
+func TestTheAgentsIdentityIsMoreThanItsUid(t *testing.T) {
+	w := arrange(t)
+	w.liveContainer("c0ffee")
+	w.runner.output["docker exec --user developer c0ffee id -u"] = "1000\n"
+
+	found := finding(t, w.only(t, w.diagnose(t)).Findings, "agent.execution.user")
+	if found.Severity != project.SeverityOK {
+		t.Errorf("a container with no way back to root is %q, want ok: %s", found.Severity, found.Summary)
+	}
+	for _, tool := range compose.EscalationTools {
+		probe := "docker exec --user developer c0ffee " + tool.Name + " " + strings.Join(tool.Arguments, " ")
+		if !slices.Contains(w.runner.calls, probe) {
+			t.Errorf("the container was never asked whether %s returns root there; calls:\n  %s",
+				tool.Name, strings.Join(w.runner.calls, "\n  "))
+		}
+	}
+	// And the green line says what it established, rather than restating the uid
+	// as though the uid were the whole of the requirement.
+	if !strings.Contains(found.Summary, "no way back to root") {
+		t.Errorf("the finding does not say what was checked beyond the uid: %q", found.Summary)
 	}
 }
 

@@ -92,6 +92,12 @@ func workingDocker() *composetest.Docker {
 		docker = docker.Fail(containerProbe(client, "--version"),
 			`exec: "`+client+`": executable file not found in $PATH`, 126)
 	}
+	// And nothing that hands the agent back the privilege its user does not
+	// have, which is the other thing the launch asks the container about itself.
+	for _, tool := range compose.EscalationTools {
+		docker = docker.Fail(containerProbe(tool.Name, tool.Arguments...),
+			`exec: "`+tool.Name+`": executable file not found in $PATH`, 126)
+	}
 	return docker
 }
 
@@ -380,6 +386,68 @@ func TestALaunchRefusedByTheContainerIsExplainable(t *testing.T) {
 					stored.Workflow)
 			}
 		})
+	}
+}
+
+// TestAContainerThatHandsTheAgentRootIsLaunchedAndSaidSo is G7-05 at the layer
+// that decides what happens about it.
+//
+// The launch goes ahead, because a project may have installed `sudo` on purpose
+// and a refusal would be Feat overruling a choice that is the project's to make.
+// What it must not do is go ahead silently: the requirement "the container user
+// is non-root" is satisfied at the instant it is measured and not afterwards, so
+// the launch says which container that is true of, against the task, where the
+// person running it will find it.
+func TestAContainerThatHandsTheAgentRootIsLaunchedAndSaidSo(t *testing.T) {
+	arranged := arrangeDrafting(t)
+	arranged.docker.Answer(containerProbe("sudo", "-n", "true"), "")
+
+	task := arranged.launched(t)
+
+	if task.Session == nil {
+		t.Fatal("a container that grants passwordless root was refused rather than reported")
+	}
+	log, err := arranged.service.store.Events().Replay(context.Background(),
+		store.TaskRef{Project: "app", Task: task.ID})
+	if err != nil {
+		t.Fatalf("replaying the task's events: %v", err)
+	}
+
+	var said string
+	for _, event := range log.Events {
+		if strings.Contains(event.Detail, "sudo") {
+			said = event.Detail
+		}
+	}
+	if said == "" {
+		t.Fatalf("nothing in the task's %d events says the agent can become root there", len(log.Events))
+	}
+	for _, expected := range []string{"sudo", "service " + fixtureService, "without a password"} {
+		if !strings.Contains(said, expected) {
+			t.Errorf("the recorded warning does not mention %q: %v", expected, said)
+		}
+	}
+}
+
+// TestAContainerThatGrantsNothingSaysNothing keeps the report above from being
+// noise on every launch.
+//
+// A warning that appears whatever the container is says nothing about any
+// container, and the fixture's image is the ordinary case.
+func TestAContainerThatGrantsNothingSaysNothing(t *testing.T) {
+	arranged := arrangeDrafting(t)
+
+	task := arranged.launched(t)
+
+	log, err := arranged.service.store.Events().Replay(context.Background(),
+		store.TaskRef{Project: "app", Task: task.ID})
+	if err != nil {
+		t.Fatalf("replaying the task's events: %v", err)
+	}
+	for _, event := range log.Events {
+		if strings.Contains(event.Detail, "without a password") {
+			t.Errorf("a container that grants nothing was reported as granting root: %v", event.Detail)
+		}
 	}
 }
 

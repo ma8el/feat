@@ -280,7 +280,9 @@ func (c *checker) agentContainer(ctx context.Context) (string, bool) {
 //
 // Configuration already refuses a root user, so this is the question
 // configuration cannot answer: what the process turns out to be in the image the
-// project builds.
+// project builds. And then the question the uid cannot answer, because an
+// identity is a fact about an instant: whether the image also hands that user a
+// way back to root (ADR-066).
 func (c *checker) checkContainerUser(ctx context.Context, container string) {
 	const check = "agent.execution.user"
 	configured := c.config.Agent.Execution.User
@@ -299,7 +301,40 @@ func (c *checker) checkContainerUser(ctx context.Context, container string) {
 			"give the image a non-root user and name it in "+check)
 		return
 	}
-	c.ok(check, fmt.Sprintf("%s is uid %s in the running container", configured, uid))
+	if tool, granted := c.containerEscalation(ctx, container, configured); granted {
+		c.warn(check, fmt.Sprintf(
+			"%s is uid %s in the running container, and %s there returns root without a password, "+
+				"so it is non-root only until the agent asks", configured, uid, tool),
+			"drop "+tool+" from the image if a session does not need it. A launch reports this rather than "+
+				"refusing it, because a project may want it")
+		return
+	}
+	c.ok(check, fmt.Sprintf("%s is uid %s in the running container, with no way back to root that Feat found",
+		configured, uid))
+}
+
+// containerEscalation names the first tool in the container that returns root
+// to the agent's user without a password.
+//
+// Reporting the uid alone and calling the requirement met is the shape F6-08
+// records one function down: a security property stated as verified, where the
+// claim replaces the reader's own review. The uid is true of the instant it was
+// read, and an image that installs `sudo` beside a NOPASSWD rule — which is what
+// a devcontainer template writes so a session can install a package — makes it
+// true of nothing else.
+//
+// A tool that could not be asked is not reported as granting anything. What the
+// finding above says is what was established, which is the same direction the
+// launch takes and the opposite of the overclaim: Feat never reads a sudoers
+// file, so a rule narrow enough to exclude `true` is not found this way.
+func (c *checker) containerEscalation(ctx context.Context, container, user string) (string, bool) {
+	for _, tool := range compose.EscalationTools {
+		vector := append([]string{"exec", "--user", user, container, tool.Name}, tool.Arguments...)
+		if _, err := c.runner.Run(ctx, "", dockerExecutable, vector...); err == nil {
+			return tool.Name, true
+		}
+	}
+	return "", false
 }
 
 // checkAgentExecutable reports whether the configured agent can be started.

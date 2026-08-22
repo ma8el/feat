@@ -25,6 +25,40 @@ import (
 // nothing, and only the environment reporting no such executable means absent.
 var ContainerClients = []string{Executable, "podman", "nerdctl"}
 
+// EscalationTools are the executables that hand the agent back the privilege
+// its user does not have, each with a way of asking whether they would do it
+// without anybody being there to type a password.
+//
+// `id -u` answers who the agent starts as, and a session is longer than its
+// first instant. An image that installs `sudo` and writes a NOPASSWD rule
+// answers the root refusal with `dev` and gives the agent uid 0 for the asking,
+// so the requirement is satisfied at the moment it is measured and not
+// afterwards. What that reaches is the runtime's default capability set, which
+// is smaller than a privileged container's and is not small: CAP_DAC_OVERRIDE
+// is in Docker's default set, so every writable bind mount becomes writable
+// regardless of what owns the files on the host — which is most of what the
+// non-root requirement was written for. What it does not reach is
+// CAP_SYS_ADMIN, which the default set excludes, so the read-only control
+// workspace stays read-only by the kernel's rule.
+//
+// Each is probed by running it, as the hook tools are. `-n` is the whole of the
+// question: it makes the tool fail rather than prompt when a password would be
+// needed, so exiting zero means the privilege is there for the asking and
+// anything else means it is not. `true` creates nothing.
+//
+// This is a list rather than a check for `sudo` because sudo is not the only
+// binary that hands back privilege and the dogfood image is not the only image.
+// What it cannot see is a rule narrow enough to exclude `true` — a sudoers file
+// permitting one command — and Feat does not claim to have read a sudoers file
+// it never opens. What is reported is what was established.
+var EscalationTools = []struct {
+	Name      string
+	Arguments []string
+}{
+	{"sudo", []string{"-n", "true"}},
+	{"doas", []string{"-n", "true"}},
+}
+
 // HookTools are the executables the generated provider hooks need, each with a
 // harmless way of running it.
 //
@@ -106,6 +140,20 @@ func (e *Environment) Inspect(ctx context.Context, writable []string) (execution
 		}
 	}
 
+	// What the agent can become, beside what it starts as. It is asked here and
+	// answered by a warning rather than a refusal: a project may want its agent
+	// to install a package mid-session, and Feat cannot tell that choice apart
+	// from an image that inherited the line from a template. Both are told.
+	for _, tool := range EscalationTools {
+		granted, err := e.escalates(ctx, tool.Name, tool.Arguments)
+		if err != nil {
+			return report, err
+		}
+		if granted {
+			report.Escalation = append(report.Escalation, tool.Name)
+		}
+	}
+
 	for _, tool := range HookTools {
 		present, err := e.present(ctx, tool.Name, tool.Arguments)
 		if err != nil {
@@ -160,6 +208,25 @@ func (e *Environment) present(ctx context.Context, program string, arguments []s
 		return false, err
 	}
 	return true, nil
+}
+
+// escalates reports whether an executable hands the agent privilege without
+// asking anybody for it.
+//
+// Presence is not the question, which is what separates this from present(): an
+// image carrying `sudo` whose sudoers file grants the agent nothing is an image
+// where the non-root requirement holds, and warning about it would teach a user
+// to ignore the warning. Only a tool that ran and exited zero counts — a tool
+// that ran and refused has just demonstrated the requirement holding.
+func (e *Environment) escalates(ctx context.Context, program string, arguments []string) (bool, error) {
+	output, err := e.Run(ctx, execution.Command{Program: program, Arguments: arguments})
+	if errors.Is(err, ErrNotInEnvironment) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return output.Succeeded(), nil
 }
 
 // probeWrite reports why a directory cannot be written to, or "" when it can.
@@ -243,6 +310,32 @@ func (e *Environment) Check(report execution.Report) error {
 		problems = append(problems, err)
 	}
 	return errors.Join(problems...)
+}
+
+// Warnings reports what the container grants that the launch will not refuse
+// over.
+//
+// A refusal answers a rule; this answers a requirement that holds only until
+// somebody asks otherwise, which is a different thing and reads wrongly as
+// either of the two answers Check has. Dropping the grant instead was
+// considered and rejected: a project that wants its agent to install packages
+// mid-session is entitled to say so, and a launch that refused it would be
+// answered by whichever edit made the check stop looking. What Feat can do
+// honestly is say what it found, every time, so the choice is made out loud.
+func (e *Environment) Warnings(report execution.Report) []string {
+	var warnings []string
+
+	if len(report.Escalation) > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"the agent runs as %s (uid %d) in service %s, and %s there returns root without a password, so the "+
+				"non-root requirement holds only until the agent asks. With the runtime's default capabilities "+
+				"that is enough to write through every writable mount whatever owns the files on the host, and "+
+				"not enough to remount a read-only one. If the image does not need it, remove %s and its sudoers "+
+				"entry from the Compose files that build service %s",
+			report.User, report.UID, e.spec.Service, strings.Join(report.Escalation, ", "),
+			strings.Join(report.Escalation, "/"), e.spec.Service))
+	}
+	return warnings
 }
 
 // sorted returns a map's keys in a fixed order, so a message with several
