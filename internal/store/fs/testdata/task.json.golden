@@ -152,6 +152,7 @@
     ],
     "state": "running",
     "health": "healthy",
-    "observed_at": "2026-08-04T09:56:00Z"
+    "observed_at": "2026-08-04T09:56:00Z",
+    "generation": 1
   }
 }

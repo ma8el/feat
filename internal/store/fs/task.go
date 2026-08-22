@@ -128,6 +128,7 @@ type runtimeDocument struct {
 	State                 string                `json:"state"`
 	Health                string                `json:"health"`
 	ObservedAt            *time.Time            `json:"observed_at,omitempty"`
+	Generation            uint64                `json:"generation,omitempty"`
 }
 
 // compositionDocument is one repository's contribution to a task's application.
@@ -366,6 +367,7 @@ func encodeRuntime(runtime *domain.RuntimeEnvironment) *runtimeDocument {
 		State:                 string(runtime.State),
 		Health:                string(runtime.Health),
 		ObservedAt:            optionalTime(runtime.ObservedAt),
+		Generation:            runtime.Generation,
 	}
 	for _, allocation := range runtime.Allocations {
 		document.Allocations = append(document.Allocations, allocationDocument{
@@ -574,6 +576,7 @@ func decodeRuntime(document *runtimeDocument) *domain.RuntimeEnvironment {
 		State:                 domain.RuntimeState(document.State),
 		Health:                domain.HealthState(document.Health),
 		ObservedAt:            timeValue(document.ObservedAt),
+		Generation:            document.Generation,
 	}
 	for _, allocation := range document.Allocations {
 		runtime.Allocations = append(runtime.Allocations, domain.PortAllocation{

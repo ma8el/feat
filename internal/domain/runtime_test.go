@@ -195,3 +195,77 @@ func TestObservedResourcesAreSeparateFromState(t *testing.T) {
 		t.Error("an observation without a time cannot be aged out")
 	}
 }
+
+// TestEveryChangeToARuntimeAdvancesItsGeneration is what lets a reader of this
+// record tell it apart from one that has been changed back into its own shape.
+//
+// A destroy and the create after it leave the identity, the state, the health
+// and the port numbers exactly as they were, so nothing about the record's
+// contents says it is a different one — and an answer about the record before
+// the pair, applied after it, releases ports that are bound (ADR-065 evidence
+// 16). The generation is the only thing that can say so, and it can only say it
+// if every change moves it.
+//
+// The clock is deliberately held still throughout, because that is the case a
+// timestamp cannot answer and this exists to answer: the daemon reads its clock
+// once per operation, and two operations can share a reading.
+func TestEveryChangeToARuntimeAdvancesItsGeneration(t *testing.T) {
+	held := inputs("feat-example-7f3a1c2e")
+	held.Allocations = []PortAllocation{
+		{Service: "api", ContainerPort: 8000, HostPort: 21000, Protocol: "tcp"},
+	}
+	runtime := NewRuntimeEnvironment(held)
+
+	seen := map[uint64]string{}
+	moved := func(what string) {
+		t.Helper()
+		if before, repeated := seen[runtime.Generation]; repeated {
+			t.Errorf("%s left the generation at %d, which %s already had, so the two are "+
+				"indistinguishable to anything holding an answer about the earlier one",
+				what, runtime.Generation, before)
+		}
+		seen[runtime.Generation] = what
+	}
+	moved("a new runtime")
+
+	if err := runtime.ReplaceInputs(inputs("feat-example-renamed"), origin); err != nil {
+		t.Fatalf("re-resolving the inputs: %v", err)
+	}
+	moved("re-resolved inputs")
+
+	if changed := runtime.ResolveProvenance(
+		[]ServiceProvenance{{Service: "api", Repositories: []string{"core"}}}, origin); !changed {
+		t.Fatal("resolving a provenance the record did not have reported no change")
+	}
+	moved("a resolved provenance")
+
+	if err := runtime.Observe(RuntimeRunning, HealthHealthy, origin); err != nil {
+		t.Fatalf("observing: %v", err)
+	}
+	moved("an observation")
+
+	runtime.ObserveResources(nil, []string{"feat-example-renamed_default"}, nil, origin)
+	moved("observed resources")
+
+	runtime.Allocations = held.Allocations
+	if err := runtime.Observe(RuntimeAbsent, HealthUnknown, origin); err != nil {
+		t.Fatalf("observing: %v", err)
+	}
+	moved("an observation of nothing")
+
+	if !runtime.ReleasePorts(origin) {
+		t.Fatal("an absent runtime kept its host ports")
+	}
+	moved("released ports")
+
+	// And a call that changes nothing does not move it, or every poll of an
+	// unchanged runtime would look like somebody acting on it.
+	unchanged := runtime.Generation
+	if runtime.ReleasePorts(origin) || runtime.ResolveProvenance(runtime.Provenance, origin) {
+		t.Fatal("a call that reported no change changed something")
+	}
+	if runtime.Generation != unchanged {
+		t.Errorf("the generation moved to %d without a change, and a poll that saw it move would "+
+			"discard an answer that is still good", runtime.Generation)
+	}
+}

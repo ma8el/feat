@@ -87,12 +87,43 @@ func runtimeNeeds(cfg *config.Config, documents composeDocuments) []portNeed {
 	return needs
 }
 
-// reservePorts gives a task the host ports its reachable services need.
+// reserveAndRecord gives a task the host ports its reachable services need and
+// writes them down without letting go in between.
 //
-// It holds one lock for the whole read-choose-record cycle, and that lock is the
-// daemon's rather than the task's: two tasks created at the same moment read
-// each other's records, and per-task locks would let both read the same free
-// port and both write it down.
+// The two halves are one critical section because they are one act. A port is
+// chosen by reading what every other task has recorded, so a port that has been
+// chosen and not yet saved is held by nobody as far as the next task can see:
+// two tasks created at the same moment would both read the same free port and
+// both write it down, and the second one's containers could not bind it (G3-01).
+// Closing that window means holding the lock across the save, because the save
+// is what makes the choice true for anybody else.
+//
+// The lock is the daemon's rather than the task's for the same reason: per-task
+// locks do not serialise two different tasks, which is the whole of the problem.
+func (s *service) reserveAndRecord(
+	ctx context.Context, task *domain.Task, spec runtime.Spec, needs []portNeed,
+	ports config.PortRange, action api.RuntimeAction,
+) (*domain.RuntimeEnvironment, error) {
+	s.portMu.Lock()
+	defer s.portMu.Unlock()
+
+	allocations, err := s.reservePorts(ctx, task, needs, ports)
+	if err != nil {
+		return nil, err
+	}
+	if s.reserving != nil {
+		// The seam. A test cannot otherwise stand between the two halves: every
+		// Docker command the fakes can interrupt runs after both of them, so the
+		// window this method exists to close is invisible from outside it.
+		s.reserving(task.ID)
+	}
+	return s.recordRuntimeInputs(ctx, task, spec, allocations, action)
+}
+
+// reservePorts chooses the host ports a task's reachable services need.
+//
+// The caller holds s.portMu across this and the record that follows it, because
+// a choice nobody has saved yet is a choice no other task can see.
 //
 // A runtime with resources keeps what it was created with, whatever the project
 // says now. Re-resolving it would move a task's address while its containers
@@ -107,9 +138,6 @@ func (s *service) reservePorts(
 	if len(needs) == 0 {
 		return nil, nil
 	}
-
-	s.portMu.Lock()
-	defer s.portMu.Unlock()
 
 	held, err := s.heldPorts(ctx, task.ID)
 	if err != nil {

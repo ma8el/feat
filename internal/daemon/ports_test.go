@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/domain"
@@ -71,6 +72,17 @@ func overrideOf(t *testing.T, arranged *drafting, id domain.TaskID) string {
 	return string(document)
 }
 
+// reservationPause is how long the task holding the window open waits for
+// another task's reservation to arrive in it.
+//
+// It is only ever waited out when the allocation is correct. A task that can
+// reach the range while another task's choice is unrecorded gets there in the
+// time it takes to read a project's configuration; one that cannot is waiting
+// for the allocator, which is the property under test. Generous for that reason:
+// the cost of being too long is this one test taking two seconds longer, and the
+// cost of being too short is reporting a window shut while it is open.
+const reservationPause = 2 * time.Second
+
 // TestEachTaskIsPublishedOnItsOwnHostPort is the first acceptance criterion of
 // this slice, at the daemon.
 //
@@ -78,6 +90,18 @@ func overrideOf(t *testing.T, arranged *drafting, id domain.TaskID) string {
 // the machine, so the fixed one their Compose file writes down could serve one
 // of them; each is therefore given a port of its own, and neither publishes the
 // one the project wrote.
+//
+// They start concurrently, because sequentially is how this passed while the
+// invariant it names was broken (G6-04). A port is chosen by reading what every
+// other task has recorded, so two tasks can only be given the same one when the
+// second reads between the first's choice and the first's record — and two
+// starts one after the other never do.
+//
+// The daemon's own seam is what puts them there: `reserving` runs in that gap,
+// and the first task waits in it while the second runs its whole reservation.
+// With the allocator held across the choice and the record, the second cannot
+// reach the range at all until the first has let go, and the wait is what that
+// looks like from here.
 func TestEachTaskIsPublishedOnItsOwnHostPort(t *testing.T) {
 	arranged := arrangeConfigured(t, reaching(runtimeFixture))
 	publishing(t, arranged, oneReachableService)
@@ -87,8 +111,45 @@ func TestEachTaskIsPublishedOnItsOwnHostPort(t *testing.T) {
 	arranged.answerFor(first, "running", "Up 2 seconds")
 	arranged.answerFor(second, "running", "Up 2 seconds")
 
-	arranged.act(t, first.ID, api.RuntimeStart)
-	arranged.act(t, second.ID, api.RuntimeStart)
+	// Each task performs one action, so each announces its choice exactly once.
+	chosen := map[domain.TaskID]chan struct{}{
+		first.ID:  make(chan struct{}),
+		second.ID: make(chan struct{}),
+	}
+	arranged.service.reserving = func(id domain.TaskID) {
+		close(chosen[id])
+		if id != first.ID {
+			return
+		}
+		select {
+		case <-chosen[second.ID]:
+			// The window is open: the second task read the range while this
+			// task's choice existed nowhere but in memory.
+		case <-time.After(reservationPause):
+			// The window is shut: the second task cannot read the range until
+			// this one has written its choice down and released the allocator.
+		}
+	}
+
+	starting := make(chan error, 2)
+	start := func(id domain.TaskID) {
+		_, err := arranged.service.Runtime(context.Background(), id, api.RuntimeStart)
+		starting <- err
+	}
+
+	go start(first.ID)
+	select {
+	case <-chosen[first.ID]:
+	case err := <-starting:
+		t.Fatalf("the first task finished without reserving a host port: %v", err)
+	}
+	go start(second.ID)
+
+	for range 2 {
+		if err := <-starting; err != nil {
+			t.Fatalf("starting two tasks at once: %v", err)
+		}
+	}
 
 	held := map[domain.TaskID]int{}
 	for _, task := range []*domain.Task{first, second} {
@@ -111,6 +172,15 @@ func TestEachTaskIsPublishedOnItsOwnHostPort(t *testing.T) {
 	if held[first.ID] == held[second.ID] {
 		t.Fatalf("both tasks were given host port %d, so the second could not start", held[first.ID])
 	}
+	// Both reservations went through the seam, or this proved nothing about the
+	// window they were meant to meet in.
+	for _, task := range []*domain.Task{first, second} {
+		select {
+		case <-chosen[task.ID]:
+		default:
+			t.Fatalf("task %s never reached the allocator", task.Key())
+		}
+	}
 
 	// And each task's own document publishes its own port and no other.
 	for _, task := range []*domain.Task{first, second} {
@@ -123,6 +193,57 @@ func TestEachTaskIsPublishedOnItsOwnHostPort(t *testing.T) {
 			t.Errorf("the override of task %s republishes the project's fixed port:\n%s",
 				task.Key(), document)
 		}
+	}
+}
+
+// TestThreeTasksStartedAtOnceEachHoldTheirOwnPorts is the acceptance criterion in
+// its own words, without a seam to arrange the moment.
+//
+// Three tasks running at once is what the criterion says and what the reference
+// project met the defect with (ADR-065), so the ordinary path is driven
+// concurrently here, with nothing holding anything open: whatever interleaving
+// the scheduler produces has to leave three tasks able to bind what they were
+// given. It is the weaker of the two — a race it does not happen to hit still
+// passes — and it is the one that needs no test hook to stay true.
+func TestThreeTasksStartedAtOnceEachHoldTheirOwnPorts(t *testing.T) {
+	arranged := arrangeConfigured(t, reaching(runtimeFixture))
+	publishing(t, arranged, oneReachableService)
+
+	tasks := []*domain.Task{
+		arranged.launched(t, "Add a rate limit"),
+		arranged.launched(t, "Add an export job"),
+		arranged.launched(t, "Add a webhook"),
+	}
+	for _, task := range tasks {
+		arranged.answerFor(task, "running", "Up 2 seconds")
+	}
+
+	starting := make(chan error, len(tasks))
+	for _, task := range tasks {
+		go func() {
+			_, err := arranged.service.Runtime(context.Background(), task.ID, api.RuntimeStart)
+			starting <- err
+		}()
+	}
+	for range tasks {
+		if err := <-starting; err != nil {
+			t.Fatalf("starting three tasks at once: %v", err)
+		}
+	}
+
+	holder := map[int]domain.TaskKey{}
+	for _, task := range tasks {
+		allocations := allocationsOf(t, arranged, task.ID)
+		if len(allocations) != 1 {
+			t.Fatalf("task %s holds %d host ports, want one: %+v",
+				task.Key(), len(allocations), allocations)
+		}
+		port := allocations[0].HostPort
+		if other, taken := holder[port]; taken {
+			t.Fatalf("tasks %s and %s were both given host port %d, so only one of them can start",
+				other, task.Key(), port)
+		}
+		holder[port] = task.Key()
 	}
 }
 
@@ -336,6 +457,74 @@ func TestAStaleObservationDoesNotGiveAwayATasksPorts(t *testing.T) {
 	if state := arranged.reload(t, task.ID).Runtime.State; state == domain.RuntimeAbsent {
 		t.Errorf("the runtime is recorded absent, and its containers were created after the " +
 			"observation that said so")
+	}
+}
+
+// TestAStaleObservationDoesNotSurviveADestroyAndRecreate is the same defect
+// arriving through the guard against it.
+//
+// A destroy and the create after it leave a record that looks exactly like the
+// one the poll started from: the same Compose project, running again, one
+// allocation — and the same port number, because the destroy releases 21000 and
+// the create takes the lowest free port, which is 21000. Every field the guard
+// used to compare therefore matched, and the answer from before the pair was
+// applied to the record after it, recording absent and releasing a port the new
+// containers are bound to (G3-05, ADR-065 evidence 16).
+//
+// The identical shape is asserted rather than assumed. It is the whole of what
+// this test is about: a guard that compared the record's contents — the ports,
+// their count, the state, the moment on a clock that has not moved — would pass
+// every one of those comparisons here.
+func TestAStaleObservationDoesNotSurviveADestroyAndRecreate(t *testing.T) {
+	arranged := arrangeConfigured(t, reaching(runtimeFixture))
+	publishing(t, arranged, oneReachableService)
+
+	task := arranged.launched(t)
+	arranged.answerFor(task, "running", "Up 2 seconds")
+	arranged.act(t, task.ID, api.RuntimeCreate)
+
+	// What a poll holds while Docker is answering: this task, running, holding
+	// the port its containers were created with.
+	stale := arranged.reload(t, task.ID)
+
+	// And what the user does while it waits. The destroy is observed through a
+	// `ps` that answers nothing, which is what makes the runtime absent and its
+	// port free.
+	arranged.runtimes.Answer("ps --all --format json", "")
+	arranged.act(t, task.ID, api.RuntimeDestroy)
+	arranged.answerFor(task, "running", "Up 2 seconds")
+	arranged.act(t, task.ID, api.RuntimeCreate)
+
+	recreated := arranged.reload(t, task.ID).Runtime
+	if recreated.Identity != stale.Runtime.Identity || recreated.State != stale.Runtime.State ||
+		recreated.Health != stale.Runtime.Health ||
+		len(recreated.Allocations) != len(stale.Runtime.Allocations) {
+		t.Fatalf("the re-created runtime is %s/%s/%s with %d allocations and the destroyed one was "+
+			"%s/%s/%s with %d, so this is not the collision the guard is blind to",
+			recreated.Identity, recreated.State, recreated.Health, len(recreated.Allocations),
+			stale.Runtime.Identity, stale.Runtime.State, stale.Runtime.Health,
+			len(stale.Runtime.Allocations))
+	}
+	if recreated.Allocations[0] != stale.Runtime.Allocations[0] {
+		t.Fatalf("the re-created runtime holds %+v and the destroyed one held %+v: this test needs the "+
+			"port the destroy released to be the one the create took back",
+			recreated.Allocations[0], stale.Runtime.Allocations[0])
+	}
+
+	// The poll's own answer, from before the destroy: this Compose project holds
+	// nothing at all.
+	arranged.runtimes.Answer("ps --all --format json", "")
+	if _, err := arranged.service.observeRuntime(context.Background(), stale); err != nil {
+		t.Fatalf("observing: %v", err)
+	}
+
+	if held := allocationsOf(t, arranged, task.ID); len(held) != 1 {
+		t.Errorf("an observation taken before the destroy released the host ports the re-created "+
+			"containers are bound to: %+v", held)
+	}
+	if state := arranged.reload(t, task.ID).Runtime.State; state == domain.RuntimeAbsent {
+		t.Errorf("the runtime is recorded absent, and it was created again after the observation " +
+			"that said so")
 	}
 }
 

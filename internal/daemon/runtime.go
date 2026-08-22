@@ -247,7 +247,16 @@ func (s *service) explainRuntime(
 // The daemon builds it and the client runs it, which is the same division
 // `feat attach` uses: the daemon resolves what a task owns, and the caller's own
 // terminal is what the output belongs in (FR-RUN-006).
+//
+// It takes the task's lock even though it creates nothing, because resolving
+// what a task owns goes through runtimeFor, which attaches or refreshes the
+// runtime record and saves it. That is a read-modify-write of one task's
+// records, and every one of those runs under the task's own lock (ADR-036) —
+// asking where the logs are must not overwrite what a start wrote while it was
+// being asked.
 func (s *service) RuntimeLogs(ctx context.Context, id domain.TaskID) (api.RuntimeCommand, error) {
+	defer s.locks.lock(id)()
+
 	task, cfg, err := s.runtimeTask(ctx, id)
 	if err != nil {
 		return api.RuntimeCommand{}, err
@@ -306,15 +315,11 @@ func (s *service) runtimeFor(
 		return nil, nil, fmt.Errorf("%w: %w", api.ErrInvalid, err)
 	}
 
-	// Before the record is written, because the record is what holds them: an
-	// allocation nothing recorded would be given to the next task as free while
-	// this one's containers were bound to it.
-	allocations, err := s.reservePorts(ctx, task, runtimeNeeds(cfg, documents), cfg.Runtime.Ports())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	record, err := s.recordRuntimeInputs(ctx, task, spec, allocations, action)
+	// One act, under one lock: the record is what holds the allocation, so an
+	// allocation nothing has recorded yet would be given to the next task as free
+	// while this one was about to bind it.
+	record, err := s.reserveAndRecord(
+		ctx, task, spec, runtimeNeeds(cfg, documents), cfg.Runtime.Ports(), action)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1154,12 +1159,17 @@ func (s *service) observeRuntime(ctx context.Context, task *domain.Task) (domain
 // containers were bound to them.
 //
 // Found by running three tasks of the reference project (ADR-065 evidence 16).
+//
+// It asks how many times the record has been written rather than whether it
+// still looks the same, because a record can be changed back into its own
+// shape. A destroy and the create after it leave the identity, the state, the
+// health and even the port numbers as they were — the allocator releases 21000
+// and then hands back the lowest free port, which is 21000 — while the
+// containers holding them are new ones. Comparing the shape passes that pair
+// and releases live ports; comparing how often the record has been written
+// cannot (G3-05).
 func stillCurrent(before, current *domain.RuntimeEnvironment) bool {
-	return before != nil && current != nil &&
-		before.Identity == current.Identity &&
-		before.State == current.State &&
-		before.Health == current.Health &&
-		len(before.Allocations) == len(current.Allocations)
+	return before != nil && current != nil && before.Generation == current.Generation
 }
 
 // runtimePoller owns the goroutine that observes application services.

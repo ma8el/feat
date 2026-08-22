@@ -132,7 +132,16 @@ type service struct {
 	// daemon's rather than a task's on purpose: choosing a free port means
 	// reading what every other task holds, and two tasks created at the same
 	// moment would otherwise read the same port as free and both write it down.
+	// It is held across the record as well as the choice, because a choice
+	// nothing has saved is one the next task's read cannot see.
 	portMu sync.Mutex
+	// reserving runs between a task's ports being chosen and being recorded,
+	// which is the window portMu exists to close and the only moment the two
+	// halves of an allocation can be observed apart. Only a test sets it: every
+	// Docker command a fake can hold up runs after both halves, so a test
+	// without this seam cannot enter the window at all — which is how the
+	// acceptance criterion came to be checked by two sequential launches.
+	reserving func(domain.TaskID)
 	// handovers records the terminals a client has been sent to attach to, so
 	// that a rendering does not pin a window out from under a client that is
 	// still on its way to it. It is separate from locks because a frame must not

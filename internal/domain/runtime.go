@@ -61,6 +61,24 @@ type RuntimeEnvironment struct {
 	// ObservedAt is when the state, health, and resource lists were last
 	// observed.
 	ObservedAt time.Time
+	// Generation counts how many times this record has been changed.
+	//
+	// It is what tells this record apart from one that was destroyed and
+	// re-created while a question about it was in flight. Everything else about
+	// the two can match: the identity is derived from the task, a re-created
+	// runtime is running again, and the allocator hands back the lowest free
+	// port — which is the number the destroy released. An answer taken before
+	// that pair and written down after it records absent and gives the new
+	// containers' ports away, which is the defect ADR-065 evidence 16 records,
+	// and no comparison of the record's shape can see it.
+	//
+	// It counts rather than timestamps because a timestamp is not fine enough to
+	// be a guard: the daemon reads its clock once per operation, so two
+	// operations can share a reading, and a test that holds the clock still
+	// would make every record look unchanged.
+	//
+	// It starts at one, because a record that exists has been written once.
+	Generation uint64
 }
 
 // ServiceProvenance is where one managed service's code comes from.
@@ -305,7 +323,7 @@ type RuntimeSource struct {
 // created is: state and health are observations, and nothing has observed
 // anything yet.
 func NewRuntimeEnvironment(inputs RuntimeInputs) *RuntimeEnvironment {
-	runtime := &RuntimeEnvironment{State: RuntimeAbsent, Health: HealthUnknown}
+	runtime := &RuntimeEnvironment{State: RuntimeAbsent, Health: HealthUnknown, Generation: 1}
 	runtime.apply(inputs)
 	return runtime
 }
@@ -327,8 +345,19 @@ func (r *RuntimeEnvironment) ReplaceInputs(inputs RuntimeInputs, now time.Time) 
 		}
 	}
 	r.apply(inputs)
-	r.ObservedAt = normalizeTime(now)
+	r.changed(now)
 	return nil
+}
+
+// changed records that the runtime was written to.
+//
+// Every method that alters the record ends with it, so that a change nothing
+// else can see still moves the counter which says the record has moved: the two
+// halves are one act, and a mutator that touched only the moment would leave a
+// stale answer looking current.
+func (r *RuntimeEnvironment) changed(now time.Time) {
+	r.Generation++
+	r.ObservedAt = normalizeTime(now)
 }
 
 // apply copies the inputs onto the runtime, leaving every observation alone.
@@ -358,7 +387,7 @@ func (r *RuntimeEnvironment) ReleasePorts(now time.Time) bool {
 		return false
 	}
 	r.Allocations = nil
-	r.ObservedAt = normalizeTime(now)
+	r.changed(now)
 	return true
 }
 
@@ -392,7 +421,7 @@ func (r *RuntimeEnvironment) ResolveProvenance(provenance []ServiceProvenance, n
 		return false
 	}
 	r.Provenance = provenance
-	r.ObservedAt = normalizeTime(now)
+	r.changed(now)
 	return true
 }
 
@@ -458,7 +487,7 @@ func (r *RuntimeEnvironment) Observe(state RuntimeState, health HealthState, now
 	}
 	r.State = state
 	r.Health = health
-	r.ObservedAt = normalizeTime(now)
+	r.changed(now)
 	return nil
 }
 
@@ -472,5 +501,5 @@ func (r *RuntimeEnvironment) ObserveResources(ports []PortAssignment, networks, 
 	r.Ports = ports
 	r.Networks = networks
 	r.Volumes = volumes
-	r.ObservedAt = normalizeTime(now)
+	r.changed(now)
 }
