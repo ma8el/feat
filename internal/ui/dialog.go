@@ -166,7 +166,7 @@ func keyMap(width int) string {
 			{"s", "open the task's shell"},
 			{"R", "application runtime"},
 			{"z / t", "resume and stop it"},
-			{"x", "cancel a draft"},
+			{"x", "cancel a draft, on y"},
 		}},
 		{"the task panel", [][2]string{
 			{"j / k", "select a repository"},

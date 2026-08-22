@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ma8el/feat/internal/api"
@@ -97,11 +98,14 @@ func TestARefreshCannotRePointTheSelection(t *testing.T) {
 
 // TestADestructiveKeyActsOnTheTaskTheRailNames is G2-04's consequence.
 //
-// `x` cancels without asking, and the refresh that moves the selection needs no
-// key press to arrive: a stream event between the keystroke and the action was
-// enough for the user to destroy something they had not selected. Two drafts, so
-// that the wrong one is cancelled rather than saved by cancel's refusal to touch
-// a launched task.
+// The refresh that moves the selection needs no key press to arrive: a stream
+// event between the keystroke and the action was enough for the user to destroy
+// something they had not selected. Two drafts, so that the wrong one is
+// cancelled rather than saved by cancel's refusal to touch a launched task.
+//
+// `x` asks now, so the destruction is on the `y` — but the question is the same
+// key press and the same subject, and the task it names is what the rest of this
+// test is about.
 func TestADestructiveKeyActsOnTheTaskTheRailNames(t *testing.T) {
 	draft, newest := pendingDraft(), newerDraft()
 	backend := newFakeBackend()
@@ -114,13 +118,60 @@ func TestADestructiveKeyActsOnTheTaskTheRailNames(t *testing.T) {
 	// The refresh lands between the user deciding to cancel and their finger
 	// reaching the key.
 	refreshed, _ := model.Update(tasksMsg{tasks: []api.Task{draft, newest}})
-	cancelled := press(t, refreshed.(Model), "x")
+	asking := press(t, refreshed.(Model), "x")
+	if asking.cancelling != draft.ID {
+		t.Fatalf("x asked about %s, want the selected draft %s", asking.cancelling, draft.Key)
+	}
 
+	cancelled := press(t, asking, "y")
 	if got := backend.cancelled; len(got) != 1 || got[0] != draft.ID {
 		t.Errorf("x cancelled %v, want only the selected draft %s", got, draft.Key)
 	}
 	if !strings.Contains(cancelled.status, draft.Key) {
 		t.Errorf("the status line says %q, want it to name %s", cancelled.status, draft.Key)
+	}
+}
+
+// TestADraftIsNotDestroyedWithoutAYes is the other half of the same gate entry.
+//
+// Naming the selection by identifier stopped `x` acting on a task the rail was
+// not marking; it put nothing on the screen naming what the key was about to
+// destroy. A draft's brief is text somebody typed and Feat holds the only copy,
+// while `C` — cleanup, the neighbouring key on the same footer — confirms per
+// resource class for containers and volumes that a repository can produce
+// again.
+//
+// The question has to be answerable both ways, and it has to name its subject:
+// the event this whole area is about is a refresh arriving in the middle, and a
+// footer reading "cancel this draft?" over a rail whose marker has since moved
+// is the defect with a confirmation drawn on it.
+func TestADraftIsNotDestroyedWithoutAYes(t *testing.T) {
+	draft := pendingDraft()
+	backend := newFakeBackend()
+	model := sized(dashboard(backend, draft), 120, 32)
+
+	asking := press(t, model, "x")
+	if len(backend.cancelled) != 0 {
+		t.Fatalf("x cancelled %v before anything was answered", backend.cancelled)
+	}
+	if drawn := flowed(asking.frameFooter(120)); !strings.Contains(drawn, draft.Key) ||
+		!strings.Contains(drawn, "y to confirm") {
+		t.Errorf("the footer asks %q, want a question naming %s and the key that answers it",
+			drawn, draft.Key)
+	}
+
+	// Any other key is a no, as it is for the stop confirmation and the runtime
+	// destroy: a question about something irreversible is not answered by
+	// whatever the user pressed next.
+	kept := press(t, asking, "n")
+	if len(backend.cancelled) != 0 {
+		t.Errorf("a draft was cancelled by an answer that was not a yes: %v", backend.cancelled)
+	}
+	if kept.cancelling != "" {
+		t.Error("the question is still pending after it was answered")
+	}
+	if !strings.Contains(kept.status, draft.Key) {
+		t.Errorf("the status line says %q, want it to name the draft that was kept", kept.status)
 	}
 }
 
@@ -362,6 +413,101 @@ func TestLeavingRuntimeOpensThePanelOnTheSelectedTask(t *testing.T) {
 	if got := backend.reviewCalls; len(got) == 0 ||
 		got[len(got)-1] != string(api.ReviewApprove)+" "+second.ID {
 		t.Errorf("A approved %v, want %s — the task the panel names", got, second.Key)
+	}
+}
+
+// TestLeavingTheTaskPanelAsksTmuxForTheSelectedTasksPane is the same rule as
+// TestLeavingRuntimeOpensThePanelOnTheSelectedTask, on the other `esc`.
+//
+// Both views close onto something that holds one task's answer, and neither is
+// re-opened by assigning a screen. Runtime's `esc` goes through openTask; the
+// panel's goes through selectTab, which discards the frame the terminal was
+// holding and asks tmux for the selected task's. Setting the screen directly
+// left the previous task's pane on the screen under the new task's name, with
+// nothing outstanding to replace it.
+//
+// The half that is asserted here is the request. terminalBody's own guard makes
+// the stale pane unreadable — "asking tmux what this pane shows…" — which is the
+// safe half and is not the fix: a dashboard that says that forever is a
+// dashboard with no terminal in it.
+func TestLeavingTheTaskPanelAsksTmuxForTheSelectedTasksPane(t *testing.T) {
+	first, second := liveTask(), otherTask()
+
+	backend := newFakeBackend()
+	backend.reviewStatus = api.ReviewStatus{Task: first}
+	model := terminalDashboard(t, backend, first, second)
+
+	loaded, _ := model.Update(terminalFrameMsg{task: first.ID, frame: twoPaneFrame()})
+	shown := loaded.(Model)
+	if !shown.terminal.loaded || shown.terminal.task != first.ID {
+		t.Fatalf("the terminal holds %s loaded=%v, want %s's pane",
+			shown.terminal.task, shown.terminal.loaded, first.Key)
+	}
+
+	backend.reviewStatus = api.ReviewStatus{Task: second}
+	moved := press(t, press(t, shown, "v"), "J")
+	if moved.selected != second.ID {
+		t.Fatalf("J selected %s, want %s", moved.selected, second.Key)
+	}
+
+	asked := len(backend.frameTasks)
+	back := press(t, moved, "esc")
+
+	if back.screen != screenTerminal {
+		t.Fatalf("esc from the task panel reached %v, want the terminal", back.screen)
+	}
+	if got := backend.frameTasks[asked:]; len(got) != 1 || got[0] != second.ID {
+		t.Errorf("esc from the task panel asked tmux for %v, want one frame for the selected task %s",
+			got, second.Key)
+	}
+	if back.terminal.task != second.ID {
+		t.Errorf("the terminal still holds %s's pane after leaving the panel on %s",
+			back.terminal.task, second.Key)
+	}
+}
+
+// TestLeavingTheTaskPanelRestartsThePollItLeftBehind is the other half of the
+// same `esc`.
+//
+// The poll stops when the tab does: a tick that arrives while another view has
+// the main region clears terminal.polling, so a dashboard costs the daemon
+// nothing while nobody is watching a pane. Nothing else starts it again.
+// Returning by assigning a screen therefore left the terminal tab open with no
+// poll behind it — one frame old at best, and never updated again, which reads
+// as an agent that has stopped working.
+func TestLeavingTheTaskPanelRestartsThePollItLeftBehind(t *testing.T) {
+	first, second := liveTask(), otherTask()
+
+	backend := newFakeBackend()
+	backend.reviewStatus = api.ReviewStatus{Task: first}
+	model := terminalDashboard(t, backend, first, second)
+	if !model.terminal.polling {
+		t.Fatalf("the first task list did not start the poll")
+	}
+
+	backend.reviewStatus = api.ReviewStatus{Task: second}
+	moved := press(t, press(t, model, "v"), "J")
+
+	// The tick already scheduled arrives while the panel has the region, which is
+	// what stops the poll.
+	stopped, _ := moved.Update(terminalTickMsg{})
+	waiting := stopped.(Model)
+	if waiting.terminal.polling {
+		t.Fatalf("a tick on the task panel left the poll running")
+	}
+
+	updated, cmd := waiting.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("esc")})
+	back := updated.(Model)
+
+	if back.screen != screenTerminal {
+		t.Fatalf("esc from the task panel reached %v, want the terminal", back.screen)
+	}
+	if !back.terminal.polling {
+		t.Error("esc returned to the terminal with no poll behind it, " +
+			"so the pane it draws is never asked about again")
+	}
+	if cmd == nil {
+		t.Fatal("esc from the task panel produced no command, so nothing asks tmux anything")
 	}
 }
 

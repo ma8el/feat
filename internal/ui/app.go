@@ -245,6 +245,21 @@ type Model struct {
 	// (the rule ADR-037 applies to cleanup's warnings).
 	stopping string
 
+	// cancelling is the draft a cancel is waiting for a yes about, by
+	// identifier.
+	//
+	// It asks always, where stopping asks only when there is something to
+	// interrupt, because there is no state a draft can be in that makes losing it
+	// harmless: a brief is text somebody wrote, it is the only copy, and nothing
+	// puts it back. The question is what the rest of G2-04 was about — a refresh
+	// arriving between the decision and the key press moved the selection, and `x`
+	// then destroyed a draft that was never chosen without anything on screen
+	// naming what was about to go.
+	//
+	// The identifier is held rather than re-read on the yes, for the same reason.
+	// The answer applies to the task the question named.
+	cancelling string
+
 	width, height int
 	loaded        bool
 	quitting      bool
@@ -944,6 +959,19 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
+	if m.cancelling != "" {
+		id := m.cancelling
+		m.cancelling = ""
+		switch key.String() {
+		case "y", "Y":
+			return m.cancelDraft(id)
+		default:
+			// Named, as the question was. A user who answered about one task and
+			// is told "nothing was cancelled" has been told nothing about which.
+			m.status = "draft " + m.taskKey(id) + " was kept"
+			return m, nil
+		}
+	}
 
 	switch key.String() {
 	case "ctrl+c", "q":
@@ -1268,11 +1296,19 @@ func (m Model) stopAgent(id string) (tea.Model, tea.Cmd) {
 	}, m.reconcile())
 }
 
-// cancel abandons a draft.
+// cancel asks whether to abandon a draft.
 //
 // Only a draft can be cancelled here. Removing the resources of a launched task
 // is cleanup, which resolves exact targets and asks for confirmation per
 // resource class.
+//
+// It asks rather than doing it, which is the half of G2-04 the selection fix
+// did not cover. Holding the selection by identifier stopped `x` acting on a
+// task the rail was not marking; it did not put anything on the screen naming
+// what the key is about to destroy. A draft is a brief somebody typed, Feat
+// holds the only copy, and cleanup — the neighbouring key, on the same row of
+// the same footer — confirms per resource class for things that can be
+// recreated from a repository.
 func (m Model) cancel() (tea.Model, tea.Cmd) {
 	task, ok := m.subject()
 	if !ok {
@@ -1284,9 +1320,14 @@ func (m Model) cancel() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	m.cancelling = task.ID
+	return m, nil
+}
+
+// cancelDraft abandons the draft the question named.
+func (m Model) cancelDraft(id string) (tea.Model, tea.Cmd) {
 	backend := m.backend
-	id := task.ID
-	m.status = "cancelled draft " + task.Key
+	m.status = "cancelled draft " + m.taskKey(id)
 	if m.screen == screenTask {
 		m.screen = m.home()
 	}
@@ -1297,6 +1338,19 @@ func (m Model) cancel() (tea.Model, tea.Cmd) {
 		tasks, err := backend.Tasks(context.Background())
 		return tasksMsg{tasks: tasks, err: err}
 	}
+}
+
+// taskKey is the short key a message names a task by, or the identifier when
+// the task has left the list.
+//
+// A confirmation can outlive its subject: the refresh that arrives between the
+// question and the answer is the thing this whole area is about, and a sentence
+// with an empty name in it would be worse than a long one.
+func (m Model) taskKey(id string) string {
+	if task, ok := m.task(id); ok {
+		return task.Key
+	}
+	return id
 }
 
 // finishPreparation returns to the dashboard once preparation ends.

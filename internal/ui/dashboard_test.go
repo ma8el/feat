@@ -325,9 +325,11 @@ func TestOnlyADraftIsCancelledFromTheDashboard(t *testing.T) {
 		t.Errorf("status = %q, want one naming what removes a launched task's resources", model.status)
 	}
 
-	// A draft, by contrast, is cancelled.
+	// A draft, by contrast, is cancelled — once the question `x` asks has been
+	// answered.
 	model = dashboard(backend, pendingDraft())
-	updated, cmd := model.Update(key("x"))
+	asked, _ := model.Update(key("x"))
+	updated, cmd := asked.(Model).Update(key("y"))
 	model = updated.(Model)
 	if cmd != nil {
 		cmd()
