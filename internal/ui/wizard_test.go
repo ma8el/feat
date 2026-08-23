@@ -169,6 +169,61 @@ func TestSteppingBackReachesTheAnswerBefore(t *testing.T) {
 	}
 }
 
+// TestTheWizardIsSizedToItsContent keeps the dialog off the width of the screen.
+//
+// dialogBox shrinks to the widest line it is handed, and lipgloss pads every
+// wrapped line out to the width it wrapped to — so from the review step onwards
+// the wizard reported itself as exactly as wide as it was allowed, and took
+// three quarters of the terminal to show a file whose lines are half that.
+//
+// It is not capped at a measure, because this dialog is a form and a file: what
+// decides its width is what is on it, and a longer path or a wider question is
+// entitled to more room.
+func TestTheWizardIsSizedToItsContent(t *testing.T) {
+	backend := newFakeBackend()
+	model := enter(t, sized(wizardScreen(t, backend), 240, 44), 10)
+
+	if model.wizard.step != wizardReviewing {
+		t.Fatalf("step = %v, want the review", model.wizard.step)
+	}
+
+	drawn, _ := blockSize(model.dialogView())
+	allowed, _ := model.dialogLimits()
+	if drawn >= allowed {
+		t.Errorf("the review took all %d cells it was allowed rather than sizing to the file", allowed)
+	}
+
+	// The same content in a narrower terminal is the same dialog: the width
+	// follows what is on the screen, not what the screen has.
+	narrow := enter(t, sized(wizardScreen(t, newFakeBackend()), 140, 44), 10)
+	if other, _ := blockSize(narrow.dialogView()); other != drawn {
+		t.Errorf("the same review is %d cells at 240 columns and %d at 140", drawn, other)
+	}
+}
+
+// TestScrollingTheFileDoesNotResizeTheDialog is the cost of the fix above, paid
+// where it would otherwise show.
+//
+// Once the box follows its widest line, the widest line must not be whichever
+// part of the file happens to be on screen — a dialog that grew and shrank as the
+// user scrolled through a configuration would be worse than one that was always
+// too wide.
+func TestScrollingTheFileDoesNotResizeTheDialog(t *testing.T) {
+	backend := newFakeBackend()
+	model := enter(t, sized(wizardScreen(t, backend), 200, 30), 10)
+
+	before, _ := blockSize(model.dialogView())
+	for range 8 {
+		model = press(t, model, "j")
+		if after, _ := blockSize(model.dialogView()); after != before {
+			t.Fatalf("scrolling the file moved the dialog from %d cells to %d", before, after)
+		}
+	}
+	if model.wizard.scroll == 0 {
+		t.Error("the file did not scroll, so this proved nothing")
+	}
+}
+
 // TestNothingIsWrittenBeforeTheFileIsConfirmed is FR-PROJ-005 at the screen that
 // implements it: the whole file is displayed, and writing it is a separate act.
 func TestNothingIsWrittenBeforeTheFileIsConfirmed(t *testing.T) {
