@@ -701,13 +701,17 @@ func (s *service) removeBranches(
 // gitRemoveRequest builds the per-repository removal context.
 //
 // Every field of it is what the path check needs, and the check runs again
-// inside internal/git immediately before anything is deleted.
+// inside internal/git immediately before anything is deleted. The project's own
+// directory is resolved beside the root because the two bound different things:
+// the root is what a worktree must be inside, and the project's directory is
+// where the tidy-up above a removed worktree stops.
 func (s *service) gitRemoveRequest(task *domain.Task) (map[domain.RepositoryID]git.RemoveRequest, error) {
 	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
 	if err != nil {
 		return nil, translateConfig(err)
 	}
 	root := config.StaticPrefix(cfg.Git.WorktreeRoot)
+	projectDir := config.ProjectPrefix(cfg.Git.WorktreeRoot, task.ProjectID.String())
 
 	checkouts := make([]string, 0, len(task.Repositories))
 	for _, binding := range task.Repositories {
@@ -723,9 +727,10 @@ func (s *service) gitRemoveRequest(task *domain.Task) (map[domain.RepositoryID]g
 			continue
 		}
 		requests[binding.RepositoryID] = git.RemoveRequest{
-			HostPath:  repository.HostPath,
-			Root:      root,
-			Checkouts: checkouts,
+			HostPath:   repository.HostPath,
+			Root:       root,
+			ProjectDir: projectDir,
+			Checkouts:  checkouts,
 		}
 	}
 	return requests, nil

@@ -621,9 +621,10 @@ func TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety(t *testing.T) {
 // on the machine after every cleanup, which the next recovery pass then reported
 // as an orphan for the user to look at. Feat created them, so Feat removes them.
 //
-// The root itself is the boundary, and it is checked here rather than only in a
-// unit test: it is the one directory in this walk that must survive a cleanup,
-// because the next task of any project is created inside it.
+// The boundaries are checked here rather than only in a unit test, because they
+// are the directories in this walk that must survive a cleanup: the project's
+// own directory, where its next task is created, and the root under it, where
+// every project's tasks are.
 func TestRealRemovalTakesTheDirectoriesTheTaskWasGiven(t *testing.T) {
 	requireGit(t)
 	f := realProject(t)
@@ -645,7 +646,8 @@ func TestRealRemovalTakesTheDirectoriesTheTaskWasGiven(t *testing.T) {
 	var pruned []string
 	for _, repository := range plan.Repositories {
 		removal, err := adapter.RemoveWorktree(context.Background(), repository.WorktreePath, RemoveRequest{
-			HostPath: repository.HostPath, Root: f.root, Checkouts: []string{f.api, f.store},
+			HostPath: repository.HostPath, Root: f.root, ProjectDir: projectDir,
+			Checkouts: []string{f.api, f.store},
 		})
 		if err != nil {
 			t.Fatalf("removing the worktree of %s: %v", repository.ID, err)
@@ -656,18 +658,18 @@ func TestRealRemovalTakesTheDirectoriesTheTaskWasGiven(t *testing.T) {
 		pruned = append(pruned, removal.Directories...)
 	}
 
-	// Reported innermost first, and reported once: the task's directory goes
-	// with the last worktree in it, and the project's with the task's.
-	if want := []string{taskDir, projectDir}; !slices.Equal(pruned, want) {
+	// Reported once: the task's directory goes with the last worktree in it, and
+	// nothing above it does.
+	if want := []string{taskDir}; !slices.Equal(pruned, want) {
 		t.Errorf("the removals reported %v, want %v", pruned, want)
 	}
-	for _, dir := range []string{taskDir, projectDir} {
-		if _, err := os.Stat(dir); !os.IsNotExist(err) {
-			t.Errorf("%s is still there: %v", dir, err)
-		}
+	if _, err := os.Stat(taskDir); !os.IsNotExist(err) {
+		t.Errorf("the task's own directory is still there: %v", err)
 	}
-	if _, err := os.Stat(f.root); err != nil {
-		t.Fatalf("the worktree root every other task is created in is gone: %v", err)
+	for _, dir := range []string{projectDir, f.root} {
+		if _, err := os.Stat(dir); err != nil {
+			t.Fatalf("%s was removed with the task, and the next task is created in it: %v", dir, err)
+		}
 	}
 
 	// And the checkouts the worktrees came from are untouched, which is the rule

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -513,6 +514,90 @@ func TestACleanupLeavesNothingUnderTheWorktreeRootToReport(t *testing.T) {
 				binding.WorktreePath, err)
 		}
 	}
+}
+
+// TestAProjectsOwnDirectoryOutlivesItsLastTask is the second half of the same
+// report: `orphaned worktrees …/worktrees/jobharbor-dev`, about a project whose
+// tasks had all been cleaned up.
+//
+// That directory is not a leftover. Feat generates it from the worktree root,
+// creates it for the project's first task, and creates every later task inside
+// it, so a project between tasks has one exactly as a project with six does —
+// and a report that calls it an orphan is telling the user to delete a directory
+// Feat is going to recreate.
+//
+// So it is neither removed with the last task nor reported afterwards, and both
+// halves are checked here. The third check is what keeps the rule narrow: a
+// stale task directory inside it is still reported, which is also what proves
+// the scan looked rather than passing because it never ran.
+func TestAProjectsOwnDirectoryOutlivesItsLastTask(t *testing.T) {
+	service, arranged, _ := launched(t)
+
+	plan := planFor(t, service, arranged)
+	worktrees, ok := classOf(plan, reconcile.ClassWorktrees)
+	if !ok || len(worktrees.Targets) == 0 {
+		t.Fatal("the plan named no worktrees")
+	}
+	taskDir := filepath.Dir(worktrees.Targets[0].Identity)
+	projectDir := filepath.Dir(taskDir)
+
+	selection := api.CleanupSelection{Token: plan.Token, Archive: true}
+	for _, class := range plan.Classes {
+		selection.Classes = append(selection.Classes, api.CleanupChoice{
+			Class: class.Class, ConfirmedWarnings: class.Warnings,
+		})
+	}
+	result, err := service.Cleanup(context.Background(), arranged.ref.Task, selection)
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if !result.Archived {
+		t.Fatal("the task was not archived, so the project still has one")
+	}
+
+	// Nothing of the task is left in it, so this is the state the report was
+	// about: a project with no task, and a directory of its own.
+	if entries, err := os.ReadDir(projectDir); err != nil {
+		t.Fatalf("the project's own directory went with its last task: %v", err)
+	} else if len(entries) != 0 {
+		t.Fatalf("the project's directory still holds %d entries, so it is not the empty one under test", len(entries))
+	}
+	for _, entry := range result.Removed {
+		if entry.Identity == projectDir {
+			t.Errorf("the cleanup removed %s, which belongs to the project rather than to the task", projectDir)
+		}
+	}
+	if orphans := orphanedWorktrees(t, service); len(orphans) != 0 {
+		t.Errorf("a project between tasks was asked about: %v", orphans)
+	}
+
+	// The rule is narrow rather than off: the residue of a cleanup by an older
+	// build sits at the same depth as the task directory that has just gone, and
+	// is still reported. It is also what proves the scan looked at all.
+	stale := filepath.Join(projectDir, "0f8fad5b-d9cb-469f-a165-70867728950e")
+	if err := os.MkdirAll(stale, 0o755); err != nil {
+		t.Fatalf("arranging the residue of an older cleanup: %v", err)
+	}
+	orphans := orphanedWorktrees(t, service)
+	if slices.Contains(orphans, projectDir) {
+		t.Errorf("the project's own directory %s was reported as an orphan a user should look at", projectDir)
+	}
+	if !slices.Contains(orphans, stale) {
+		t.Errorf("the stale task directory %s was not reported; the orphans were %v", stale, orphans)
+	}
+}
+
+// orphanedWorktrees runs a pass and returns the directories it wants looked at.
+func orphanedWorktrees(t *testing.T, service *service) []string {
+	t.Helper()
+
+	var found []string
+	for _, finding := range findings(reconciled(t, service), reconcile.ClassWorktrees) {
+		if finding.Status == string(reconcile.StatusOrphaned) {
+			found = append(found, finding.Identity)
+		}
+	}
+	return found
 }
 
 // TestAnEmptyDirectoryLeftByAnOlderCleanupSaysItIsEmpty is what the machines

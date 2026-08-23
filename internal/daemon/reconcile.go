@@ -368,22 +368,8 @@ func (s *service) resumeAction(task *domain.Task) string {
 // removal explainable.
 func (s *service) reconcileWorktrees(ctx context.Context, tasks []*domain.Task, report *reconcile.Report) {
 	claimed := make(map[string]bool)
-	roots := make(map[string]domain.ProjectID)
 
 	for _, task := range tasks {
-		if len(task.Repositories) == 0 {
-			continue
-		}
-		cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
-		if err != nil {
-			report.Fail(reconcile.Problem{Class: reconcile.ClassWorktrees, Project: task.ProjectID, Task: task.ID,
-				Reason: "the project's configuration could not be read: " + err.Error()})
-			continue
-		}
-		if root := config.StaticPrefix(cfg.Git.WorktreeRoot); root != "" {
-			roots[root] = task.ProjectID
-		}
-
 		for _, binding := range task.Repositories {
 			if binding.WorktreePath == "" {
 				continue
@@ -419,34 +405,93 @@ func (s *service) reconcileWorktrees(ctx context.Context, tasks []*domain.Task, 
 		}
 	}
 
-	s.reportOrphanWorktrees(roots, claimed, report)
+	s.reportOrphanWorktrees(ctx, claimed, report)
 }
 
-// reportOrphanWorktrees names directories under a project's worktree root that
-// no task claims.
+// worktreeDirectories resolves the directories every registered project's
+// configuration generates: the fixed root its worktrees are created under, and
+// the directory that root gives the project itself.
+//
+// It reads the projects rather than the tasks, which is the difference between
+// asking what Feat manages here and asking what is in use right now. A project
+// with no task still has a worktree root and still has its own directory in it,
+// and a scan that learned both from tasks could not tell the directory of a
+// project between tasks from a directory nobody claims — which is exactly what
+// it reported.
+//
+// A project whose configuration cannot be read is a problem rather than the end
+// of the pass, and it is reported once for the project instead of once for each
+// of its tasks: the configuration is one file, and it failing to load is one
+// fact about it.
+func (s *service) worktreeDirectories(
+	ctx context.Context, report *reconcile.Report,
+) (roots, projects map[string]domain.ProjectID) {
+	roots = make(map[string]domain.ProjectID)
+	projects = make(map[string]domain.ProjectID)
+
+	registered, err := s.store.Projects().List(ctx)
+	if err != nil {
+		report.Fail(reconcile.Problem{Class: reconcile.ClassWorktrees,
+			Reason: "the registered projects could not be listed, so no worktree root could be scanned: " + err.Error()})
+		return roots, projects
+	}
+
+	for _, project := range registered {
+		cfg, err := config.Load(s.layout.ProjectConfigDir(), project.ID.String(), s.configOptions())
+		if err != nil {
+			report.Fail(reconcile.Problem{Class: reconcile.ClassWorktrees, Project: project.ID,
+				Reason: "the project's configuration could not be read: " + err.Error()})
+			continue
+		}
+
+		root := config.StaticPrefix(cfg.Git.WorktreeRoot)
+		if root == "" {
+			continue
+		}
+		// The first project to name a root keeps it. Several projects share one
+		// under the default configuration, and the identifier here only says
+		// whose report a failure to list that directory belongs in.
+		if _, named := roots[root]; !named {
+			roots[root] = project.ID
+		}
+
+		directory := config.ProjectPrefix(cfg.Git.WorktreeRoot, project.ID.String())
+		if directory != root && paths.Under(root, directory) {
+			projects[directory] = project.ID
+		}
+	}
+	return roots, projects
+}
+
+// reportOrphanWorktrees names directories under a worktree root that nothing
+// claims.
 //
 // They are reported and never removed. A directory Feat created and lost track
 // of and a directory the user put there look identical from here, and only one
 // of them is safe to delete — so neither is.
 //
-// The scan descends only where a task's own paths lead. A worktree root of
-// `…/worktrees/{project_id}/{task_id}` puts the interesting directories two
-// levels down, and a scan that listed one level would report a live project's
-// directory as an orphan while missing the stale task directory inside it —
-// which is both halves of the mistake at once. Descending only into directories
-// that hold something a task records bounds the walk by the template's own
-// depth rather than by a number somebody chose.
+// The scan descends where Feat's own paths lead, and reports what is beside
+// them. A worktree root of `…/worktrees/{project_id}/{task_id}` puts the
+// interesting directories two levels down, and a scan that listed one level
+// would report a live project's directory as an orphan while missing the stale
+// task directory inside it — which is both halves of the mistake at once. What
+// leads it is a task's recorded worktree and a registered project's own
+// directory, so the walk is bounded by the templates' own depth rather than by a
+// number somebody chose, and a project between tasks is not mistaken for a
+// leftover.
 func (s *service) reportOrphanWorktrees(
-	roots map[string]domain.ProjectID, claimed map[string]bool, report *reconcile.Report,
+	ctx context.Context, claimed map[string]bool, report *reconcile.Report,
 ) {
+	roots, projects := s.worktreeDirectories(ctx, report)
 	for root, project := range roots {
-		s.scanForOrphans(root, project, claimed, report)
+		s.scanForOrphans(root, project, claimed, projects, report)
 	}
 }
 
-// scanForOrphans reports the directories under one root that no task claims.
+// scanForOrphans reports the directories under one root that nothing claims.
 func (s *service) scanForOrphans(
-	dir string, project domain.ProjectID, claimed map[string]bool, report *reconcile.Report,
+	dir string, project domain.ProjectID, claimed map[string]bool,
+	projects map[string]domain.ProjectID, report *reconcile.Report,
 ) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -465,14 +510,20 @@ func (s *service) scanForOrphans(
 			continue
 		}
 		path := filepath.Join(dir, entry.Name())
-		switch {
+		switch owner, owned := projects[path]; {
 		case claimed[path]:
 			// A worktree a task records. Whether it is there is reported by the
 			// pass over that task's own bindings.
-		case holdsAClaimedWorktree(path, claimed):
-			// On the way to one, so it belongs to a task even though no task
-			// names it. Keep looking inside it.
-			s.scanForOrphans(path, project, claimed, report)
+		case owned:
+			// A registered project's own directory. It is never reported: Feat
+			// generated it, the project's next task is created inside it, and a
+			// project between tasks is not a leftover. What is inside it is
+			// still looked at, and reported as that project's.
+			s.scanForOrphans(path, owner, claimed, projects, report)
+		case holdsAClaimedWorktree(path, claimed) || holdsAProjectDirectory(path, projects):
+			// On the way to one, so it belongs to a task or a project even
+			// though nothing names it. Keep looking inside it.
+			s.scanForOrphans(path, project, claimed, projects, report)
 		default:
 			report.Add(orphanWorktreeFinding(project, path))
 		}
@@ -509,6 +560,21 @@ func orphanWorktreeFinding(project domain.ProjectID, path string) reconcile.Find
 			"Feat never removes a directory no task claims"
 	}
 	return finding
+}
+
+// holdsAProjectDirectory reports whether a directory contains the directory a
+// registered project's worktrees are created in.
+//
+// A root of `…/worktrees/{project_id}/{task_id}` puts that directory one level
+// down, but a template may put it deeper, and every directory on the way to it
+// is Feat's own for the same reason the destination is.
+func holdsAProjectDirectory(path string, projects map[string]domain.ProjectID) bool {
+	for directory := range projects {
+		if paths.Under(path, directory) {
+			return true
+		}
+	}
+	return false
 }
 
 // holdsAClaimedWorktree reports whether a directory is, or contains, a worktree

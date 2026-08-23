@@ -293,8 +293,8 @@ Responsibilities:
 - produce exact cleanup plans;
 - remove worktrees/branches only after confirmation, re-checking the path against
   the directory Feat owns immediately before deleting anything;
-- remove the generated directories a removed worktree sat in, once they hold
-  nothing.
+- remove the generated directories a task was given, once they hold nothing, and
+  never the directory its project keeps.
 
 The adapter invokes Git as an argument vector, not through interpolated shell strings.
 
@@ -316,7 +316,9 @@ Whether a worktree exists is observed, not stored: the recorded branch and path 
 
 A task worktree path must be absolute, clean, strictly inside the fixed leading directory of the configured worktree root, outside every repository checkout, and never a shared system directory. The check resolves symbolic links as far as the path exists, and cleanup applies the same check to a recorded path, refusing a target rather than removing it.
 
-Creating a worktree creates the directories above it, so removing one removes them. A generated root such as `…/worktrees/{project_id}/{task_id}` gives a task directories nothing else uses, and the adapter creates them before Git runs; a removal that left them would leave an empty tree outliving every resource it was made for, which reconciliation then reports as an orphan under the worktree root. So a removal walks up from the worktree, removing each directory that is now empty, and stops at the fixed leading directory of the configured worktree root — which it never removes, because the next task of any project is created inside it — and at the first directory that still holds anything. A symbolic link is stepped over rather than followed. Each directory that goes is reported with the worktree, and one that cannot be removed is left rather than forced: the worktree is already gone, and reconciliation names what is left. See ADR-037.
+A worktree root generates three kinds of directory, and each has a different lifetime. Its fixed leading prefix is the directory a user allowed Feat to write under, shared by every project on the machine. Between that and a worktree, a root such as `…/worktrees/{project_id}/{task_id}` gives each project a directory of its own — `config.ProjectPrefix` resolves it — which Feat creates for the project's first task and every later task is created inside; a project with no task right now still has one. The rest is the task's, created by the adapter before Git runs.
+
+Creating those creates them, so removing the task removes them. A removal walks up from the worktree, removing each directory that is now empty, and stops at the project's own directory, at the fixed prefix under it, and at the first directory that still holds anything. A symbolic link is stepped over rather than followed. Each directory that goes is reported with the worktree, and one that cannot be removed is left rather than forced: the worktree is already gone, and reconciliation names what is left. See ADR-037.
 
 ## tmux adapter
 

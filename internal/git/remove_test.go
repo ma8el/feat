@@ -56,15 +56,17 @@ func removalFixture(t *testing.T) (*fakeGit, map[string]string, string) {
 //
 // Both halves are checked here. The first worktree takes nothing above it,
 // because the task's other worktree is still there and a directory holding
-// something is never removed; the second takes the task's directory and the
-// project's, and stops at the root.
+// something is never removed; the second takes the directory the task was given
+// and stops there, because the directory above it is the project's and outlives
+// every task in it.
 func TestRemovingTheLastWorktreeTakesTheDirectoriesTheTaskWasGiven(t *testing.T) {
 	fake, paths, root := removalFixture(t)
 	adapter := New(fake)
 	request := RemoveRequest{
-		HostPath:  "/checkout/api",
-		Root:      root,
-		Checkouts: []string{"/checkout/api", "/checkout/store"},
+		HostPath:   "/checkout/api",
+		Root:       root,
+		ProjectDir: paths["project"],
+		Checkouts:  []string{"/checkout/api", "/checkout/store"},
 	}
 
 	first, err := adapter.RemoveWorktree(context.Background(), paths["api"], request)
@@ -85,16 +87,20 @@ func TestRemovingTheLastWorktreeTakesTheDirectoriesTheTaskWasGiven(t *testing.T)
 	if err != nil {
 		t.Fatalf("removing the second worktree: %v", err)
 	}
-	if want := []string{paths["task"], paths["project"]}; !slices.Equal(second.Directories, want) {
+	if want := []string{paths["task"]}; !slices.Equal(second.Directories, want) {
 		t.Errorf("the removal reported %v, want %v", second.Directories, want)
 	}
-	for _, name := range []string{"task", "project"} {
-		if _, err := os.Stat(paths[name]); !os.IsNotExist(err) {
-			t.Errorf("the %s directory is still there: %v", name, err)
-		}
+	if _, err := os.Stat(paths["task"]); !os.IsNotExist(err) {
+		t.Errorf("the task's own directory is still there: %v", err)
 	}
-	if _, err := os.Stat(root); err != nil {
-		t.Fatalf("the worktree root every other task is created in is gone: %v", err)
+
+	// The project's directory and the root both stay. Neither belongs to the
+	// task: the project's next task is created inside the first, and every
+	// project's tasks are created inside the second.
+	for _, name := range []string{"project", "root"} {
+		if _, err := os.Stat(paths[name]); err != nil {
+			t.Errorf("the %s directory was removed with the task: %v", name, err)
+		}
 	}
 }
 
@@ -114,9 +120,10 @@ func TestAWorktreeRemovedByHandStillLosesItsDirectories(t *testing.T) {
 	}
 
 	removal, err := New(fake).RemoveWorktree(context.Background(), paths["api"], RemoveRequest{
-		HostPath:  "/checkout/api",
-		Root:      root,
-		Checkouts: []string{"/checkout/api", "/checkout/store"},
+		HostPath:   "/checkout/api",
+		Root:       root,
+		ProjectDir: paths["project"],
+		Checkouts:  []string{"/checkout/api", "/checkout/store"},
 	})
 	if err != nil {
 		t.Fatalf("removing an absent worktree: %v", err)
@@ -127,17 +134,22 @@ func TestAWorktreeRemovedByHandStillLosesItsDirectories(t *testing.T) {
 	if !fake.ran("worktree", "prune") {
 		t.Error("the stale registration was not pruned")
 	}
-	if want := []string{paths["task"], paths["project"]}; !slices.Equal(removal.Directories, want) {
+	if want := []string{paths["task"]}; !slices.Equal(removal.Directories, want) {
 		t.Errorf("the removal reported %v, want %v", removal.Directories, want)
 	}
-	if _, err := os.Stat(root); err != nil {
-		t.Fatalf("the worktree root is gone: %v", err)
+	for _, name := range []string{"project", "root"} {
+		if _, err := os.Stat(paths[name]); err != nil {
+			t.Errorf("the %s directory was removed with the task: %v", name, err)
+		}
 	}
 }
 
 // TestNothingIsPrunedThatIsNotAnEmptyDirectoryBelowTheRoot checks each rule the
 // walk stops on, because every one of them is a directory that would otherwise
 // be deleted.
+//
+// These are the rules that hold with no project directory to stop at, so the
+// root is the only boundary: a layout that generates one is the test above.
 func TestNothingIsPrunedThatIsNotAnEmptyDirectoryBelowTheRoot(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "worktrees")
@@ -152,7 +164,7 @@ func TestNothingIsPrunedThatIsNotAnEmptyDirectoryBelowTheRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(held, "notes.txt"), []byte("mine\n"), 0o644); err != nil {
 		t.Fatalf("arranging a file: %v", err)
 	}
-	if pruned := pruneGeneratedDirectories(filepath.Join(held, "api"), root); len(pruned) != 0 {
+	if pruned := pruneGeneratedDirectories(filepath.Join(held, "api"), RemoveRequest{Root: root}); len(pruned) != 0 {
 		t.Errorf("a directory with a file in it was pruned: %v", pruned)
 	}
 	if _, err := os.Stat(held); err != nil {
@@ -170,7 +182,7 @@ func TestNothingIsPrunedThatIsNotAnEmptyDirectoryBelowTheRoot(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Skipf("this filesystem has no symbolic links: %v", err)
 	}
-	if pruned := pruneGeneratedDirectories(filepath.Join(link, "api"), root); len(pruned) != 0 {
+	if pruned := pruneGeneratedDirectories(filepath.Join(link, "api"), RemoveRequest{Root: root}); len(pruned) != 0 {
 		t.Errorf("a symbolic link was pruned: %v", pruned)
 	}
 	if _, err := os.Lstat(link); err != nil {
@@ -182,7 +194,7 @@ func TestNothingIsPrunedThatIsNotAnEmptyDirectoryBelowTheRoot(t *testing.T) {
 
 	// A worktree whose parent is the root itself — the layout a template that
 	// names the repository directly produces — prunes nothing at all.
-	if pruned := pruneGeneratedDirectories(filepath.Join(root, "api"), root); len(pruned) != 0 {
+	if pruned := pruneGeneratedDirectories(filepath.Join(root, "api"), RemoveRequest{Root: root}); len(pruned) != 0 {
 		t.Errorf("the root's own children were pruned: %v", pruned)
 	}
 	if _, err := os.Stat(root); err != nil {
@@ -192,11 +204,11 @@ func TestNothingIsPrunedThatIsNotAnEmptyDirectoryBelowTheRoot(t *testing.T) {
 	// And a root that is not a prefix of the path, or is a shared system
 	// directory, prunes nothing: neither says which directories a task was
 	// given.
-	if pruned := pruneGeneratedDirectories(filepath.Join(dir, "outside", "api"), root); len(pruned) != 0 {
+	if pruned := pruneGeneratedDirectories(filepath.Join(dir, "outside", "api"), RemoveRequest{Root: root}); len(pruned) != 0 {
 		t.Errorf("a path outside the root was pruned: %v", pruned)
 	}
 	for _, broad := range []string{"", "/", "/tmp"} {
-		if pruned := pruneGeneratedDirectories(filepath.Join(dir, "api"), broad); len(pruned) != 0 {
+		if pruned := pruneGeneratedDirectories(filepath.Join(dir, "api"), RemoveRequest{Root: broad}); len(pruned) != 0 {
 			t.Errorf("a root of %q pruned %v", broad, pruned)
 		}
 	}
