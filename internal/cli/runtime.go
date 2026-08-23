@@ -30,7 +30,7 @@ database, for instance — are never touched.`
 func newRuntimeCommand(env *environment) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "runtime",
-		Short: "Control a task's application runtime",
+		Short: "Control a task's application services",
 		Long:  runtimeLong,
 	}
 	cmd.AddCommand(
@@ -41,7 +41,7 @@ func newRuntimeCommand(env *environment) *cobra.Command {
 		newRuntimeActionCommand(env, api.RuntimeStop, "stop <task>",
 			"Stop the task's application services, keeping their containers"),
 		newRuntimeActionCommand(env, api.RuntimeObserve, "status <task>",
-			"Show what the task's application services are doing"),
+			"Show the state of the task's application services"),
 		newRuntimeLogsCommand(env),
 		newRuntimeDestroyCommand(env),
 	)
@@ -131,16 +131,16 @@ func newRuntimeDestroyCommand(env *environment) *cobra.Command {
 	return cmd
 }
 
-const logsLong = `Open the normal Docker Compose logs of the task's application services.
+const logsLong = `Follow the Docker Compose logs of the task's application services.
 
-Feat does not aggregate, store, or re-render them: it resolves which Compose
-project belongs to the task and runs the ordinary command, following the output
-until you interrupt it.`
+Feat does not aggregate, store, or re-render them: it runs ` + "`docker compose logs`" + `
+against the task's own Compose project and follows the output until you
+interrupt it.`
 
 func newRuntimeLogsCommand(env *environment) *cobra.Command {
 	return &cobra.Command{
 		Use:   "logs <task>",
-		Short: "Follow the task's normal Compose logs",
+		Short: "Follow the task's Compose logs",
 		Long:  withTaskArgument(logsLong),
 		Args:  checkArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -43,7 +43,9 @@ func newProjectAddCommand(env *environment) *cobra.Command {
 	return &cobra.Command{
 		Use:   "add <project>",
 		Short: "Register a project from its YAML configuration",
-		Long: `Register the project configured in <config>/projects/<project>.yaml.
+		Long: `Register the project configured in <config>/projects/<project>.yaml, where
+<config> is Feat's configuration directory — ~/.config/feat unless
+XDG_CONFIG_HOME says otherwise.
 
 The daemon reads the file itself, from the configuration directory it resolved,
 so the file that is validated is the file that will be read again later.

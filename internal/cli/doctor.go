@@ -17,11 +17,11 @@ project is registered, which is the order to work in: write the configuration,
 run this, fix what it reports, then register the project.
 
 A check this build cannot run is reported as skipped rather than passed, with
-the reason it did not run. The checks inside the agent's execution environment
-are asked where that environment is: on this machine for a host-mode project,
-and inside a running container of the project for one that configures a
-devcontainer. Nothing is started to answer them, so those checks are skipped
-until the project has a task running, and running this again then checks them.
+the reason it did not run. Checks that need the agent's execution environment
+run where that environment is: on this machine for a host-mode project, and
+inside a running container for one that configures a devcontainer. Feat starts
+nothing to answer them, so they are skipped until the project has a task
+running.
 
 The exit code is 0 when nothing failed and 1 when something did. Warnings do not
 fail the run.`

@@ -79,10 +79,8 @@ func newAttachCommand(env *environment) *cobra.Command {
 	return &cobra.Command{
 		Use:   "attach <task>",
 		Short: "Attach to a task's agent terminal",
-		Long: withTaskArgument(`Resolve the task's tagged terminal through the daemon and temporarily yield
-this terminal to native tmux. Detach with the user's normal tmux binding to
-return to Feat. Window names and indexes are not used as identity.`),
-		Args: checkArgs(cobra.ExactArgs(1)),
+		Long:  withTaskArgument(`Attach this terminal to the task's agent session (in tmux).`),
+		Args:  checkArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			layout, err := env.resolve()
 			if err != nil {
