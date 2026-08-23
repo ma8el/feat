@@ -214,6 +214,21 @@ var phrases = map[Condition]string{
 // the part that says what happened off the end of it.
 const maxTitle = 60
 
+// mark heads every notification. It is Feat's logo, reduced to what this medium
+// can carry: the prompt chevron the mark opens with, and nothing else of it.
+//
+// It is text because there is nowhere else to put it. The image beside a macOS
+// notification is the icon of the application that posted it, and Feat posts
+// through osascript, so that icon is Script Editor's — a name the user cannot
+// find in Notification Center and an icon that says nothing about Feat
+// (ADR-035, evidence 12). The heading is the one part of the notification Feat
+// writes, so it is where the notification is made recognisable as Feat's.
+//
+// One glyph rather than several. A notification heading competes with a task's
+// key and its project for a single line, and a mark that cost the project's
+// name would be a decoration that removed information.
+const mark = "❯"
+
 // Compose renders a notification, and reports false for a condition this build
 // does not notify about.
 //
@@ -229,7 +244,7 @@ func Compose(condition Condition, subject Subject, idle time.Duration) (Notifica
 		phrase += " for " + roundIdle(idle).String()
 	}
 
-	heading := "feat"
+	heading := mark + " feat"
 	if subject.Key != "" {
 		heading += " · " + subject.Key
 	}

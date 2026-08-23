@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="16" height="16" fill="none" role="img" aria-label="feat">
+  <title>feat</title>
+  <!-- A favicon sits on a tab strip whose colour is the browser's rather than
+       Feat's, so the ink follows the reader's theme and the accent does not.
+       The stroke attribute is the light ink and the rule below overrides it: a
+       renderer that drops the stylesheet still draws the mark. -->
+  <style>
+    @media (prefers-color-scheme: dark) { .feat-ink { stroke: #e9edf7; } }
+  </style>
+  <g fill="none" stroke-width="8" stroke-linecap="butt">
+    <path class="feat-ink" stroke="#1a1d24" d="M28 16 H48"/>
+    <path class="feat-ink" stroke="#1a1d24" d="M28 48 H40"/>
+    <path stroke="#f5a623" d="M20 32 H56"/>
+    <path class="feat-ink" stroke="#1a1d24" stroke-linecap="round" stroke-linejoin="round" d="M12 16 L20 32 L12 48"/>
+  </g>
+</svg>

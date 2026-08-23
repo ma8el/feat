@@ -16,7 +16,9 @@
 //   - idle notifications never fire immediately, and never while the user is
 //     attached to that task;
 //   - notification text identifies the task without exposing secrets or task
-//     content that should stay local.
+//     content that should stay local;
+//   - every notification is headed by Feat's mark, because the icon beside one
+//     belongs to whichever application posted it and never to Feat.
 //
 // The second rule is a property of what this package can reach rather than a
 // filter over what it writes: Compose is given a task's key, title, and project

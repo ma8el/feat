@@ -1,11 +1,20 @@
-# Feat
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/feat-wordmark-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/feat-wordmark-light.svg">
+    <img width="352" alt="Feat" src="docs/assets/feat-wordmark-light.svg">
+  </picture>
+</p>
 
-Feat is a terminal-native development control plane for running feature work
-through several coding-agent sessions in parallel. It connects a task to the
-things needed to implement and review it — task context, selected repositories,
-branches and worktrees, one native coding-agent session, an optional isolated
-agent environment, an optional application runtime, and review — without
-replacing the underlying tools.
+<p align="center">
+  A terminal-native development control plane for running feature work<br>
+  through several coding-agent sessions in parallel.
+</p>
+
+Feat connects a task to the things needed to implement and review it — task
+context, selected repositories, branches and worktrees, one native coding-agent
+session, an optional isolated agent environment, an optional application
+runtime, and review — without replacing the underlying tools.
 
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
@@ -243,7 +252,14 @@ grace period before the task is called idle, and again for
 dropped entirely while you are looking at that task's terminal, which Feat asks
 tmux rather than assuming from an earlier attach. The text names the task and
 says what happened; it never carries your brief, the agent's words, or anything
-from your configuration.
+from your configuration. It is headed by Feat's own mark:
+
+```text
+❯ feat · 7f3a1c2e · example
+the agent asked for review — Add a scheduled export job
+```
+
+What a project decides about being interrupted:
 
 ```yaml
 notifications:
@@ -257,9 +273,14 @@ notification over; it cannot tell you one was shown, because macOS decides that
 per application and drops an unauthorised notification without saying so.
 
 A notification Feat sends is attributed to **Script Editor**, which is what
-`osascript` posts as. Depending on the macOS version that may or may not appear
-as an entry under System Settings › Notifications, so if you never see one, the
-setting is not always there to check and this is the answer:
+`osascript` posts as, and the icon beside it is Script Editor's for the same
+reason — an application's own, and not something the sender chooses. That is
+why the heading carries the mark: it is the only part of the notification Feat
+writes.
+
+Depending on the macOS version, Script Editor may or may not appear as an entry
+under System Settings › Notifications, so if you never see one, the setting is
+not always there to check and this is the answer:
 
 ```sh
 log show --last 5m --predicate 'process == "usernoted"' --style compact \

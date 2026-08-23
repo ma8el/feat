@@ -687,6 +687,13 @@ reach a brief, an agent's summary, a path, or a configured value. A delivered
 notification is recorded as a `notification_sent` task event, because a desktop
 notification is gone the moment it is dismissed.
 
+Every notification is headed by Feat's mark, `❯`, before the task's key and its
+project. That is the logo reduced to what the medium can carry: the image beside
+a desktop notification is the icon of the application that posted it, and the
+one Feat posts through is not Feat, so the heading is the only part of a
+notification that can say whose it is. One glyph and not several, because the
+heading is a single line it shares with the two things that identify the task.
+
 A notification Feat decides not to deliver names the policy that stopped it in
 the daemon's log: the daemon still catching up after a restart, a platform that
 delivers none, `notifications.desktop`, `notifications.suppress_while_attached`
