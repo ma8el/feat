@@ -279,3 +279,148 @@ func TestOneWaitRunsOneChainOfFrames(t *testing.T) {
 		t.Errorf("a stopped indicator marked a line: %q", advanced.mark("resolving…"))
 	}
 }
+
+// TestTheTaskPanelShowsTheComparisonItOpensWith is the review screen's own wait.
+//
+// Opening the panel compares every one of the task's worktrees against its
+// recorded base, which is seconds on a task with three of them — and the panel
+// around the line saying so is already complete, so nothing else on it moves
+// while it happens.
+func TestTheTaskPanelShowsTheComparisonItOpensWith(t *testing.T) {
+	backend := newFakeBackend()
+	backend.reviewStatus = reviewed()
+	model := dashboard(backend, backend.reviewStatus.Task)
+
+	updated, cmd := model.Update(key("v"))
+	model = updated.(Model)
+
+	if !model.review.observing || !model.activity.running {
+		t.Fatalf("observing=%v running=%v, want the comparison shown as running",
+			model.review.observing, model.activity.running)
+	}
+	view := model.taskPanel()
+	if !strings.Contains(flowed(view), "comparing every repository against its recorded base") {
+		t.Errorf("the panel does not say what it is waiting for:\n%s", view)
+	}
+	if !spinning(view) {
+		t.Errorf("the comparison is drawn without an indicator:\n%s", view)
+	}
+
+	model = applyCommand(t, model, cmd)
+	if model.review.observing || model.activity.running {
+		t.Error("the comparison came back and the panel is still animating")
+	}
+	if spinning(model.taskPanel()) {
+		t.Errorf("a compared panel is drawn with an indicator on it:\n%s", model.taskPanel())
+	}
+}
+
+// TestAReviewDecisionInFlightSaysSo covers the other half of the panel: not the
+// read it opens with, but the decision a key press asked for.
+func TestAReviewDecisionInFlightSaysSo(t *testing.T) {
+	backend := newFakeBackend()
+	model := reviewScreen(t, backend)
+	if model.activity.running {
+		t.Fatal("a panel with nothing outstanding is animating")
+	}
+
+	updated, cmd := model.Update(key("A"))
+	model = updated.(Model)
+
+	if model.review.pending != api.ReviewApprove || !model.activity.running {
+		t.Fatalf("pending=%q running=%v, want the approval shown as running",
+			model.review.pending, model.activity.running)
+	}
+	view := model.taskPanel()
+	if !strings.Contains(flowed(view), "waiting for approve") {
+		t.Errorf("the panel does not say what it is waiting for:\n%s", view)
+	}
+	if !spinning(view) {
+		t.Errorf("the approval is drawn without an indicator:\n%s", view)
+	}
+
+	model = applyCommand(t, model, cmd)
+	if model.activity.running {
+		t.Error("the approval landed and the panel is still animating")
+	}
+}
+
+// TestTheRuntimeScreenShowsBothOfItsWaits covers the read it opens with and the
+// action a key press asks for.
+//
+// The second is the longest wait anywhere in Feat: a first start pulls the
+// project's images and runs its builds, which is minutes. The sentence saying so
+// was already there and was perfectly still.
+func TestTheRuntimeScreenShowsBothOfItsWaits(t *testing.T) {
+	backend := newFakeBackend()
+	model := dashboard(backend, liveTask())
+
+	updated, cmd := model.Update(key("R"))
+	model = updated.(Model)
+
+	if !model.runtime.observing || !model.activity.running {
+		t.Fatalf("observing=%v running=%v, want the read shown as running",
+			model.runtime.observing, model.activity.running)
+	}
+	view := model.runtimeBody()
+	if !strings.Contains(flowed(view), "reading what is running") || !spinning(view) {
+		t.Errorf("the opening read is not drawn as one:\n%s", view)
+	}
+
+	model = applyCommand(t, model, cmd)
+	if model.activity.running {
+		t.Fatal("the read came back and the screen is still animating")
+	}
+
+	updated, cmd = model.Update(key("u"))
+	model = updated.(Model)
+
+	if model.runtime.pending != api.RuntimeStart || !model.activity.running {
+		t.Fatalf("pending=%q running=%v, want the start shown as running",
+			model.runtime.pending, model.activity.running)
+	}
+	view = model.runtimeBody()
+	if !strings.Contains(flowed(view), "waiting for start") {
+		t.Errorf("the screen does not say what it is waiting for:\n%s", view)
+	}
+	if !spinning(view) {
+		t.Errorf("the start is drawn without an indicator:\n%s", view)
+	}
+	// The explanation stays with it. An indicator says a wait is being spent and
+	// this says why it is minutes rather than seconds; neither replaces the other.
+	if !strings.Contains(flowed(view), "pulls images and runs builds") {
+		t.Errorf("the screen no longer says why the first start is slow:\n%s", view)
+	}
+
+	model = applyCommand(t, model, cmd)
+	if model.activity.running {
+		t.Error("the start landed and the screen is still animating")
+	}
+}
+
+// TestTheOpeningReadDoesNotRefuseTheFirstKey is why the opening read is recorded
+// apart from the action a key press asked for.
+//
+// Runtime's keys are gated on that action, one at a time, because two starts of
+// the same task queue behind one lock in the daemon. The read the screen opens
+// with is nobody's key press, and recording it there would refuse the first `u`
+// pressed on a screen the user had only just opened.
+func TestTheOpeningReadDoesNotRefuseTheFirstKey(t *testing.T) {
+	backend := newFakeBackend()
+	model := dashboard(backend, liveTask())
+
+	updated, _ := model.Update(key("R"))
+	model = updated.(Model)
+	if !model.runtime.observing {
+		t.Fatal("opening the runtime screen recorded no read")
+	}
+
+	updated, _ = model.Update(key("u"))
+	model = updated.(Model)
+	if model.runtime.pending != api.RuntimeStart {
+		t.Errorf("pending = %q, want the start the user asked for", model.runtime.pending)
+	}
+	if strings.Contains(model.status, "to finish first") {
+		t.Errorf("the opening read refused the key that follows it: %q", model.status)
+	}
+}

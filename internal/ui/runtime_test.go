@@ -36,15 +36,30 @@ func press(t *testing.T, model Model, key string) Model {
 	t.Helper()
 
 	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
-	next := updated.(Model)
-	if cmd == nil {
-		return next
+	return applyCommand(t, updated.(Model), cmd)
+}
+
+// applyCommand runs one command and applies what it produced, following a batch
+// into the commands it holds as Bubble Tea's own loop does.
+//
+// A screen that opens onto a request now returns that request batched with the
+// loading indicator's first frame, and a helper that applied only the outer
+// message would report that the request was never made.
+func applyCommand(t *testing.T, model Model, cmd tea.Cmd) Model {
+	t.Helper()
+
+	message := run(cmd)
+	if message == nil {
+		return model
 	}
-	if message := cmd(); message != nil {
-		applied, _ := next.Update(message)
-		return applied.(Model)
+	if batch, ok := message.(tea.BatchMsg); ok {
+		for _, command := range batch {
+			model = applyCommand(t, model, command)
+		}
+		return model
 	}
-	return next
+	updated, _ := model.Update(message)
+	return updated.(Model)
 }
 
 // runtimeScreen opens the runtime screen for the fixture task.

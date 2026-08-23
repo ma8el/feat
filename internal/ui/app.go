@@ -314,7 +314,7 @@ func New(opts Options) Model {
 		// it arrives the panel is a reference waiting to become a task.
 		model.screen = screenTask
 		model.selected = opts.Review
-		model.review = reviewModel{task: opts.Review}
+		model.review = reviewModel{task: opts.Review, observing: true}
 	}
 	return model
 }
@@ -563,6 +563,10 @@ func (m Model) waiting() bool {
 		return m.prepare.busy
 	case screenCleanup:
 		return m.cleanup.working
+	case screenTask:
+		return m.review.observing || m.review.pending != ""
+	case screenRuntime:
+		return m.runtime.observing || m.runtime.pending != ""
 	}
 	return false
 }

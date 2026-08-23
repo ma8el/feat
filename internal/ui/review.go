@@ -33,6 +33,14 @@ type reviewModel struct {
 	scroll int
 	// pending is the action in flight, so the screen says what it is waiting for.
 	pending api.ReviewAction
+	// observing reports that the comparison the panel opened with is in flight.
+	//
+	// It is separate from pending, which is the action a key press asked for.
+	// The opening read is nobody's key press, and it is what the loading
+	// indicator is drawn for here: a comparison walks every one of the task's
+	// worktrees and takes seconds, and until this the line saying so was as still
+	// as the one preparation used to draw.
+	observing bool
 	// err is a failed action, shown rather than thrown.
 	err error
 }
@@ -81,6 +89,7 @@ func (m Model) openTask() (tea.Model, tea.Cmd) {
 	// Opening the panel compares every repository against its own recorded
 	// base. Nothing else happens: a review action never starts, stops, or
 	// removes anything.
+	m.review.observing = true
 	return m, m.reviewAction(api.ReviewObserve)
 }
 
@@ -247,7 +256,7 @@ func (m Model) applyReview(message reviewMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.review.pending = ""
+	m.review.pending, m.review.observing = "", false
 	if message.err != nil {
 		m.review.err = message.err
 		return m, nil
