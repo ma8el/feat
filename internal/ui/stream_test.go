@@ -159,6 +159,11 @@ func TestAnEndedStreamIsNotReopened(t *testing.T) {
 // dashboard's commands block by design — awaitEvent waits for an item that may
 // never come — and what is under test is what they did, not whether they
 // returned.
+//
+// A batch inside a batch is followed into, as Bubble Tea's own loop follows one:
+// an update that batches its work and has that batched again with the loading
+// indicator's first frame produces exactly that shape, and a helper that stopped
+// at the first level would report that the work never ran.
 func runCommands(t *testing.T, cmd tea.Cmd) {
 	t.Helper()
 
@@ -167,7 +172,7 @@ func runCommands(t *testing.T, cmd tea.Cmd) {
 		return
 	}
 	for _, command := range batch {
-		run(command)
+		runCommands(t, command)
 	}
 }
 

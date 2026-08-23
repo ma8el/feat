@@ -23,6 +23,15 @@ type runtimeModel struct {
 	loaded bool
 	// pending is the action in flight, so the screen says what it is waiting for.
 	pending api.RuntimeAction
+	// observing reports that the read the screen opened with is in flight.
+	//
+	// It is separate from pending, which is the action a key press asked for and
+	// which the keys below are gated on: an opening read recorded there would
+	// refuse the first `u` a user pressed on a screen they had only just opened,
+	// for a request nobody made. What it is for is the loading indicator, because
+	// walking a project's Compose state is seconds spent under a line that used
+	// to be perfectly still.
+	observing bool
 	// confirming reports that destroy is waiting for a yes.
 	confirming bool
 	// err is a failed action, shown rather than thrown: a dashboard that exited
@@ -66,6 +75,7 @@ func (m Model) openRuntime() (tea.Model, tea.Cmd) {
 	}
 	// Opening the screen asks what is running. Nothing is started, and nothing
 	// would be: v0 starts application services only when a user asks (FR-RUN-005).
+	m.runtime.observing = true
 	return m, m.runtimeAction(api.RuntimeObserve)
 }
 
@@ -191,7 +201,7 @@ func (m Model) applyRuntime(message runtimeMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.runtime.pending = ""
+	m.runtime.pending, m.runtime.observing = "", false
 	if message.err != nil {
 		m.runtime.err = message.err
 		return m, nil
@@ -236,7 +246,7 @@ func (m Model) runtimeBody() string {
 		out.WriteString(mutedStyle.Render(
 			"this task is still a draft; nothing has been created for it to run") + "\n")
 	case task.Runtime == nil && !m.runtime.loaded:
-		out.WriteString(mutedStyle.Render("reading what is running…") + "\n")
+		out.WriteString(mutedStyle.Render(m.activity.mark("reading what is running…")) + "\n")
 	case task.Runtime == nil:
 		out.WriteString(field("state", "absent  "+
 			mutedStyle.Render("(nothing has been created; Feat starts services only when you ask)")))
@@ -261,7 +271,7 @@ func (m Model) runtimeBody() string {
 			// nobody explained is a wait a user reads as a hang.
 			waiting += "  (the first one pulls images and runs builds, which takes minutes)"
 		}
-		out.WriteString("\n" + mutedStyle.Render(waiting) + "\n")
+		out.WriteString("\n" + mutedStyle.Render(m.activity.mark(waiting)) + "\n")
 	}
 	if m.runtime.confirming {
 		out.WriteString("\n" + attentionStyle.Render(

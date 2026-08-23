@@ -45,6 +45,16 @@ type cleanupModel struct {
 	executing bool
 	// working reports that a request is in flight.
 	working bool
+	// removing reports that the removal itself is in flight, as against the
+	// resolutions that surround it.
+	//
+	// It is the longest wait the screen has — worktrees taken off disk, a tmux
+	// window killed, containers and volumes removed, one class at a time — and
+	// working alone cannot name it: the screen resolves before it asks, and
+	// resolves again after a removal that failed halfway, so the same flag covers
+	// three waits that say three different things. Naming this one is also what
+	// keeps the keyboard shut while it runs; see cleanupKey.
+	removing bool
 	// pending reports that a confirmation is waiting on the plan in flight.
 	//
 	// Enter resolves before it asks, so that the question is put against what is
@@ -217,12 +227,26 @@ func (m Model) cleanupKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cleanup.executing = false
 		switch key.String() {
 		case "y", "Y":
-			m.cleanup.working = true
+			m.cleanup.working, m.cleanup.removing = true, true
 			return m, m.cleanupExecute()
 		default:
 			m.status = "nothing was removed"
 			return m, nil
 		}
+	}
+	// A removal in flight takes it as well, and gives nothing back but the way
+	// out of Feat. Every key below either resolves the plan again or edits a
+	// selection that has already been sent, and the wait is long enough that a
+	// user who thinks nothing is happening will press one: preparation shuts its
+	// keyboard for the same seconds and the same reason. What the screen offers
+	// instead is the indicator, which says the wait is Feat's rather than theirs.
+	if m.cleanup.removing {
+		if key.String() == "ctrl+c" {
+			m.quitting = true
+			m.stopStream()
+			return m, tea.Quit
+		}
+		return m, nil
 	}
 	// A question being prepared takes it too. The selection this is resolving
 	// against is the one enter was pressed on, and a tick landing in between would
@@ -440,7 +464,7 @@ func cleanupSubstance(plan api.CleanupPlan) string {
 // and the plan is read again so the inventory names what is left rather than what
 // was there before (ADR-029).
 func (m Model) applyCleanupResult(message cleanupDoneMsg) (tea.Model, tea.Cmd) {
-	m.cleanup.working = false
+	m.cleanup.working, m.cleanup.removing = false, false
 	m.cleanup.err = message.err
 	// The recovery band is refreshed either way: a cleanup is precisely the thing
 	// that resolves what the band was reporting, and a band still naming it
@@ -598,7 +622,11 @@ func (m Model) cleanupBody() string {
 		// that wraps here is a block drawn over the question below it (ADR-054).
 		out.WriteString(failureStyle.Render(truncate(plainLine(m.cleanup.err.Error()), width)) + "\n")
 	case m.cleanup.working && !m.cleanup.loaded:
-		out.WriteString(mutedStyle.Render("resolving what this task owns…") + "\n")
+		// The first thing the screen ever draws, and the one the user waits at with
+		// nothing else on it: opening the dialog asks the daemon to walk the task's
+		// worktrees, its tmux window, and its containers before there is an
+		// inventory to show. The mark is what says the wait is being spent.
+		out.WriteString(mutedStyle.Render(m.activity.mark("resolving what this task owns…")) + "\n")
 	case !m.cleanup.loaded:
 		out.WriteString(mutedStyle.Render("nothing has been resolved yet") + "\n")
 	case len(m.cleanup.plan.Classes) == 0:
@@ -631,8 +659,8 @@ func (m Model) cleanupSubject(width int) string {
 		subject += "  ·  " + workflow
 	}
 	switch at := m.cleanup.plan.ResolvedAt; {
-	case m.cleanup.working:
-		subject += "  ·  resolving…"
+	case m.cleanup.working && !m.cleanup.removing:
+		subject += "  ·  " + m.activity.mark("resolving…")
 	case !at.IsZero():
 		subject += "  ·  resolved " + at.Local().Format("15:04:05")
 	}
@@ -883,7 +911,17 @@ func (m Model) cleanupPage(delta int) int {
 // too small for both must keep the line that says what answering does. The
 // warnings are drawn twice over — beside their targets and here — and the
 // question is drawn nowhere else.
+//
+// Once it has been answered the removal takes the same line. It is where the
+// user's eye already is, and it is the wait the screen used to spend saying
+// nothing at all: the question disappeared, the inventory stayed exactly as it
+// was, and the several seconds it takes to remove a task's worktrees and its
+// terminal looked like a dashboard that had stopped answering.
 func (m Model) cleanupPrompt(width int) string {
+	if m.cleanup.removing {
+		return "\n" + mutedStyle.Render(truncate(
+			m.activity.mark("removing what you selected…"), width)) + "\n"
+	}
 	if !m.cleanup.executing {
 		return ""
 	}
@@ -929,6 +967,12 @@ func (m Model) cleanupHints() string {
 	// disbelieved.
 	if m.cleanup.executing {
 		return keyHints(keyHint("y", "remove"), keyHint("n", "cancel"))
+	}
+	// And while the removal it authorised is running, nothing does: the screen is
+	// waiting for the daemon, and a key map offering "esc back" beside a removal
+	// that will not be abandoned is one that has to be tried to be disbelieved.
+	if m.cleanup.removing {
+		return mutedStyle.Render("removing…")
 	}
 	return keyHints(
 		keyHint("space", "select"),

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/ma8el/feat/internal/api"
@@ -217,6 +218,12 @@ type Model struct {
 	// execution carries back.
 	cleanup cleanupModel
 
+	// activity is the loading indicator, animating exactly while waiting says a
+	// screen is waiting for the daemon. It is the dashboard's rather than any one
+	// screen's, so that starting and stopping it is one rule rather than a pair
+	// of calls each screen has to remember.
+	activity activity
+
 	// events carries what the daemon's stream delivered. It is created once and
 	// read repeatedly, because receiving an event must cost a channel read
 	// rather than a connection: see connect below.
@@ -282,6 +289,7 @@ func New(opts Options) Model {
 		daemon:     opts.Daemon,
 		now:        now,
 		prepare:    newPrepare(opts.Backend, opts.Project, opts.Brief, opts.Source),
+		activity:   newActivity(),
 		events:     make(chan api.Event, eventBuffer),
 		streamCtx:  streamCtx,
 		stopStream: stopStream,
@@ -306,7 +314,7 @@ func New(opts Options) Model {
 		// it arrives the panel is a reference waiting to become a task.
 		model.screen = screenTask
 		model.selected = opts.Review
-		model.review = reviewModel{task: opts.Review}
+		model.review = reviewModel{task: opts.Review, observing: true}
 	}
 	return model
 }
@@ -513,8 +521,58 @@ func tick() tea.Cmd {
 	return tea.Tick(refreshInterval, func(now time.Time) tea.Msg { return tickMsg(now) })
 }
 
-// Update applies one message.
+// Update applies one message and leaves the loading indicator in step with it.
+//
+// Every message goes through the same two steps: the screens apply it, and then
+// the indicator is set to whatever they are now waiting for. Doing it here is
+// what makes it impossible to start a spinner and forget to stop it — the
+// screens set the flags they already had, and none of them knows there is a
+// spinner at all.
 func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	updated, cmd := m.apply(message)
+	model, ok := updated.(Model)
+	if !ok {
+		return updated, cmd
+	}
+	return model.animate(cmd)
+}
+
+// animate starts or stops the indicator to match what the dashboard is waiting
+// for, carrying the update's own command with it.
+func (m Model) animate(cmd tea.Cmd) (tea.Model, tea.Cmd) {
+	if !m.waiting() {
+		m.activity.stop()
+		return m, cmd
+	}
+	if start := m.activity.start(); start != nil {
+		return m, tea.Batch(cmd, start)
+	}
+	return m, cmd
+}
+
+// waiting reports whether the screen with the keyboard is waiting for a request
+// it has told the user about.
+//
+// It asks the open screen rather than every screen, because the indicator is
+// drawn on the screen that is waiting and nowhere else: a dialog closed over a
+// request still in flight has nothing left to draw a spinner in, and the answer
+// it is waiting for lands in the footer.
+func (m Model) waiting() bool {
+	switch m.screen {
+	case screenPrepare:
+		return m.prepare.busy
+	case screenCleanup:
+		return m.cleanup.working
+	case screenTask:
+		return m.review.observing || m.review.pending != ""
+	case screenRuntime:
+		return m.runtime.observing || m.runtime.pending != ""
+	}
+	return false
+}
+
+// apply is Update's first step: one message, given to whatever it belongs to.
+func (m Model) apply(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = message.Width, message.Height
@@ -571,6 +629,16 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		return m, tea.Batch(m.load(), m.loadResources(), m.loadReconciliation(), tick())
+
+	case spinner.TickMsg:
+		// One frame of the loading indicator. It is answered here rather than by
+		// the screen showing it, because the indicator is the dashboard's: a
+		// screen that closed while a request was in flight would otherwise stop
+		// answering the ticks it started, and there would be nothing left to end
+		// the chain.
+		updated, cmd := m.activity.advance(message)
+		m.activity = updated
+		return m, cmd
 
 	case execMsg:
 		if message.err != nil {
@@ -1491,7 +1559,7 @@ func (m Model) View() string {
 func (m Model) stackedView() string {
 	switch m.screen {
 	case screenPrepare:
-		return m.prepare.View()
+		return m.prepare.View(m.activity)
 	case screenWizard:
 		return m.wizard.View()
 	case screenDiagnosis:
@@ -1531,7 +1599,7 @@ func (m Model) dialogView() string {
 
 	switch m.screen {
 	case screenPrepare:
-		return dialogBox("prepare a task", m.prepare.View(), inner, tallest)
+		return dialogBox("prepare a task", m.prepare.View(m.activity), inner, tallest)
 	case screenWizard:
 		return dialogBox("configure a project", m.wizard.View(), inner, tallest)
 	case screenDiagnosis:

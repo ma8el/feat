@@ -166,8 +166,12 @@ func (m Model) taskPanel() string {
 		out.WriteString(mutedStyle.Render(
 			"  a draft has nothing to compare yet; it owns no worktree until it is launched") + "\n")
 	case !m.review.loaded:
+		// The wait every task panel opens with. It walks each of the task's
+		// worktrees, so on a task with three of them it is seconds of a panel that
+		// is otherwise complete and still; the mark is what says they are being
+		// spent (see activity).
 		out.WriteString(mutedStyle.Render(
-			"  comparing every repository against its recorded base…") + "\n")
+			"  "+m.activity.mark("comparing every repository against its recorded base…")) + "\n")
 	}
 	for _, note := range m.review.status.Notes {
 		out.WriteString("  " + attentionStyle.Render("note") + " " + note + "\n")
@@ -176,7 +180,8 @@ func (m Model) taskPanel() string {
 		out.WriteString("  " + failureStyle.Render(m.review.err.Error()) + "\n")
 	}
 	if m.review.pending != "" {
-		out.WriteString("  " + mutedStyle.Render("waiting for "+string(m.review.pending)+"…") + "\n")
+		out.WriteString("  " + mutedStyle.Render(
+			m.activity.mark("waiting for "+string(m.review.pending)+"…")) + "\n")
 	}
 
 	out.WriteString("\n" + headingStyle.Render("repositories"))
