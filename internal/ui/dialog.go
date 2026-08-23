@@ -183,6 +183,7 @@ func keyMap(width int) string {
 		}},
 		{"everything else", [][2]string{
 			{"!", "what recovery found"},
+			{"S", "start the daemon"},
 			{"n", "prepare a new task"},
 			{"p", "configure a project"},
 			{"D", "check against the host"},

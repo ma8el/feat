@@ -145,7 +145,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 			// Opening the dashboard starts the daemon when none is running
 			// (ADR-008); see describeDaemon for what a non-interactive run does
 			// instead.
-			daemonLine, socket := env.describeDaemon(cmd)
+			summary := env.describeDaemon(cmd)
 			if !opts.Interactive {
 				// A run with no terminal reports what it observed rather than
 				// opening a screen nobody can read (ADR-027).
@@ -154,8 +154,8 @@ func NewRootCommand(opts Options) *cobra.Command {
 					Commit:    env.build.Commit,
 					GoVersion: env.build.GoVersion,
 					Platform:  env.build.Platform(),
-					Daemon:    daemonLine,
-					Socket:    socket,
+					Daemon:    summary.line,
+					Socket:    summary.socket,
 				}, cmd.OutOrStdout(), false)
 			}
 
@@ -165,8 +165,11 @@ func NewRootCommand(opts Options) *cobra.Command {
 			}
 			if status := daemon.Inspect(layout); !status.Running() {
 				// describeDaemon starts one; if there still is none, the
-				// dashboard has nothing to show and says so.
-				return &NotRunningError{Socket: layout.Socket}
+				// dashboard has nothing to show and says why. A failed start
+				// used to be reported as "no daemon is running; start one with
+				// `feat daemon start`", which is the command that had just
+				// failed, and the reason — a quoted daemon log — was dropped.
+				return &NotRunningError{Socket: layout.Socket, Cause: summary.startErr}
 			}
 
 			caller := client.New(layout.Socket)

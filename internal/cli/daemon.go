@@ -283,41 +283,63 @@ func buildSkew(env *environment, daemonVersion string) string {
 		env.build.Version, daemonVersion)
 }
 
+// daemonSummary is what the root command learned about the daemon.
+//
+// The failure is carried separately from the line because the two are read by
+// different callers and cut to different lengths. The line is one row of a
+// health summary; startErr is why a daemon could not be started, and a spawn
+// that failed says so in a quoted daemon log, which is several lines and all of
+// them worth showing.
+type daemonSummary struct {
+	// line is the one-line rendering for the health summary.
+	line string
+	// socket is where a daemon would be listening.
+	socket string
+	// startErr is why starting one failed, when one was tried and could not be.
+	startErr error
+}
+
 // describeDaemon renders the daemon's state for the dashboard, starting one when
 // the dashboard is interactive.
 //
 // Opening the dashboard starts the daemon it needs (ADR-008). A non-interactive
 // `feat`, in a pipe or in CI, reports what it observes instead: printing a
 // summary should not start a background process as a side effect.
-func (e *environment) describeDaemon(cmd *cobra.Command) (line, socket string) {
+func (e *environment) describeDaemon(cmd *cobra.Command) daemonSummary {
 	layout, err := e.resolve()
 	if err != nil {
-		return "unavailable: " + err.Error(), ""
+		return daemonSummary{line: "unavailable: " + err.Error()}
 	}
-	socket = layout.Socket
+	summary := daemonSummary{socket: layout.Socket}
 
 	status := daemon.Inspect(layout)
 	if !status.Running() {
 		if !e.interactive {
-			return status.Diagnose(), socket
+			summary.line = status.Diagnose()
+			return summary
 		}
 		if _, err := daemon.Spawn(cmd.Context(), layout, daemon.SpawnOptions{
 			Args: foregroundCommand(slog.LevelInfo.String()),
 		}); err != nil {
-			return "could not be started: " + firstLine(err.Error()), socket
+			summary.line = "could not be started: " + firstLine(err.Error())
+			summary.startErr = err
+			return summary
 		}
 	}
 
 	health, err := client.New(layout.Socket).Health(cmd.Context())
 	if err != nil {
-		return "not answering: " + firstLine(err.Error()), socket
+		summary.line = "not answering: " + firstLine(err.Error())
+		return summary
 	}
 
-	line = fmt.Sprintf("%s (pid %d, up %s)", health.Status, health.Daemon.PID, uptime(health.Daemon.StartedAt))
+	summary.line = fmt.Sprintf("%s (pid %d, up %s)",
+		health.Status, health.Daemon.PID, uptime(health.Daemon.StartedAt))
 	if health.Daemon.Version != e.build.Version {
-		line += ", build " + health.Daemon.Version
+		summary.line += ", build " + health.Daemon.Version
 	}
-	return line, health.Daemon.Socket
+	summary.socket = health.Daemon.Socket
+	return summary
 }
 
 // firstLine keeps a multi-line failure, such as a quoted daemon log, from

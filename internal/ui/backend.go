@@ -30,6 +30,16 @@ type Backend interface {
 	// separately from tasks because it is an observation nobody stores, with its
 	// own time and its own failure mode (FR-UI-005).
 	Resources(ctx context.Context) (api.ResourceReport, error)
+	// StartDaemon starts a daemon and waits until it answers, so that a dashboard
+	// whose daemon stopped can be repaired without being quit. It is the one
+	// thing here that is not a request over the socket, and it is asked for
+	// rather than done because starting a process belongs to an adapter
+	// (ADR-031): internal/ui does not import internal/daemon.
+	//
+	// Nothing calls it on its own. Opening the dashboard starts a daemon
+	// (ADR-008) and this is the same act offered again, after a user has been
+	// asked and has said yes.
+	StartDaemon(ctx context.Context) error
 
 	// CreateDraft records a new task draft and creates nothing else.
 	CreateDraft(ctx context.Context, request api.CreateDraft) (api.Task, error)

@@ -114,6 +114,15 @@ type fakeBackend struct {
 	resources   api.ResourceReport
 	resourceErr error
 
+	// tasksErr is what a read of task state fails with, and daemonStarts counts
+	// the daemons the dashboard asked to have started. The counter's most
+	// important assertion is that it stays at zero: starting a process is the one
+	// thing on this interface that is not a request over a socket, and nothing
+	// but a user's yes may reach it.
+	tasksErr     error
+	daemonStarts int
+	daemonErr    error
+
 	planErr   error
 	launchErr error
 	// fingerprint is what a plan reports, and what a launch is checked against.
@@ -146,7 +155,25 @@ func (f *fakeBackend) Projects(context.Context) ([]api.Project, error) {
 func (f *fakeBackend) Tasks(context.Context) ([]api.Task, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.tasksErr != nil {
+		return nil, f.tasksErr
+	}
 	return f.tasks, nil
+}
+
+// StartDaemon records that the dashboard asked for one, and stops failing the
+// reads that made it ask unless the test arranged otherwise. A fake that went on
+// refusing after a successful start could not tell a dashboard that recovered
+// from one that only said it had.
+func (f *fakeBackend) StartDaemon(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.daemonStarts++
+	if f.daemonErr != nil {
+		return f.daemonErr
+	}
+	f.tasksErr = nil
+	return nil
 }
 
 // Events ends at once, so a test drives the model itself rather than racing a
