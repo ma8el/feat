@@ -1611,7 +1611,7 @@ func (m Model) dialogView() string {
 		// The dialog carries its own keys, as cleanup's does: the frame's footer
 		// says how to close an overlay, and this one is answered rather than
 		// closed.
-		return dialogBox("the daemon",
+		return dialogBox(daemonTitle,
 			m.daemonBody(inner-cardChrome)+"\n\n"+m.daemonHints(), inner, tallest)
 	default:
 		return ""

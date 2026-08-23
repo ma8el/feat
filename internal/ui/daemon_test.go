@@ -64,16 +64,49 @@ func TestALostDaemonAsksBeforeStartingOne(t *testing.T) {
 
 	body := flowed(model.daemonBody(60))
 	for _, want := range []string{
-		"No feat daemon is listening on /run/feat/feat.sock",
-		// What the user needs in order to answer: that nothing was destroyed,
-		// and that what is behind the dialog is old.
-		"nothing it was supervising has been touched",
-		"what was true when it stopped answering",
+		// Where, which the title cannot carry, and the one consequence that
+		// decides the answer: the dashboard behind the dialog is not live.
+		"No daemon is listening on /run/feat/feat.sock",
+		"the dashboard is not usable",
+		"no longer current",
 		"Start one now?",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the dialog does not say %q:\n%s", want, body)
 		}
+	}
+}
+
+// TestTheFooterSaysItOnceCounts the lines the footer spends on one fact.
+//
+// Three of its rows can carry the same absence: the error line, the machine note
+// beside the worktree, and the rail's own row. The error line is the only one
+// that names the key.
+func TestTheFooterSaysItOnce(t *testing.T) {
+	model := stopped(t, newFakeBackend())
+	updated, _ := model.Update(resourcesMsg{err: gone()})
+	model = sized(updated.(Model), 120, 40)
+
+	footer := flowed(model.frameFooter(120))
+	if occurrences := strings.Count(footer, "no feat daemon is listening"); occurrences != 1 {
+		t.Errorf("the footer says the daemon is gone %d times:\n%s", occurrences, footer)
+	}
+	if !strings.Contains(footer, "press "+startDaemonKey+" to start one") {
+		t.Errorf("the footer no longer names the key:\n%s", footer)
+	}
+}
+
+// TestTheDialogIsTitledAsAWarning keeps the heading saying what is wrong.
+//
+// Every other overlay is titled with what the user asked for — "prepare a task",
+// "keys", "recovery". This one opens because something broke, and a title that
+// read like the others would be the only line on the screen that did not say so.
+func TestTheDialogIsTitledAsAWarning(t *testing.T) {
+	model := sized(stopped(t, newFakeBackend()), 120, 40)
+
+	drawn := flowed(model.View())
+	if !strings.Contains(drawn, daemonTitle) {
+		t.Errorf("the dialog is not titled %q:\n%s", daemonTitle, drawn)
 	}
 }
 

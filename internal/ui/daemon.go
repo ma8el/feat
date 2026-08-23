@@ -201,6 +201,13 @@ func (m Model) offerDaemonStart() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// daemonTitle is the dialog's heading.
+//
+// It is a warning where the other dialogs are labels, because it is the only one
+// that opens because something is wrong rather than because the user asked for
+// it.
+const daemonTitle = "Warning: No running daemon"
+
 // daemonHints are the keys of the dialog.
 func (m Model) daemonHints() string {
 	if m.daemonStarting {
@@ -239,20 +246,23 @@ func (m Model) daemonBody(width int) string {
 		return out.String()
 	}
 
+	// One line, because the title has already said what is wrong and the keys
+	// below say what to do about it. What is left is the fact neither of those
+	// carries: the dashboard behind this dialog is not live.
 	out.WriteString("\n\n" + mutedStyle.Render(fold(
-		"It may have been stopped deliberately, or it may have failed. Either way "+
-			"nothing it was supervising has been touched: worktrees, containers, and "+
-			"tmux sessions are where they were. What is listed behind this dialog is "+
-			"what was true when it stopped answering.")))
+		"Without one the dashboard is not usable, and what it lists is no longer current.")))
 	out.WriteString("\n\n" + fold("Start one now?"))
 	return out.String()
 }
 
-// daemonSituation is the first line of the dialog, which names the socket when
-// there is one to name.
+// daemonSituation is the first line of the dialog.
+//
+// It carries the socket, which is the one thing the title cannot: the title says
+// what is wrong and this says where. It does not repeat "no feat daemon", which
+// the title has just said directly above it.
 func (m Model) daemonSituation() string {
 	if m.daemon.Socket == "" {
-		return "No feat daemon is listening."
+		return "No daemon is listening."
 	}
-	return "No feat daemon is listening on " + m.daemon.Socket + "."
+	return "No daemon is listening on " + m.daemon.Socket + "."
 }
