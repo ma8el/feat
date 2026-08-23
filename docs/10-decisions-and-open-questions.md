@@ -1791,6 +1791,35 @@ of them was reachable from this repository's own fixtures:
     acted on from the screen it is on: one with no time on it reads as current
     however old it is.
 
+15. **Every cleanup left a directory behind, and the recovery pass asked the
+    user about it.** A worktree path is generated — `…/worktrees/{project_id}/{task_id}/{repository_id}`
+    by default — and preparing a task creates the directories above the
+    worktree; `git worktree remove` removes the worktree and, correctly, nothing
+    above it, because Git did not create those. So a confirmed cleanup left an
+    empty `…/worktrees/{project_id}/{task_id}` on the machine for every task ever
+    run, and evidence 11's scan then reported each of them to whoever still had a
+    live task in that project: an orphan "no task records", with advice to look
+    at it and remove it if it was stale.
+
+    Reported by the maintainer from the dashboard, which is where it is visible:
+    the recovery band counts findings, so the residue of ordinary use accumulated
+    into a permanent warning marker. Nothing in the suite could see it — every
+    fixture asserts on the worktrees, and the directory holding them was nobody's
+    assertion.
+
+    Decision: removal is the mirror of creation. `RemoveWorktree` walks up from
+    the worktree it removed and removes each directory that is now empty,
+    stopping at the fixed leading directory of the configured worktree root,
+    which it never removes, and at the first directory that still holds
+    something — another task's worktree, a repository the task no longer records,
+    or a file the user put there. Each directory that goes is reported with the
+    worktree, so the event log and `feat task cleanup` account for it. Nothing
+    about reconciliation changes: it still removes nothing, and a directory that
+    could not be removed is still reported. What changed there is one sentence —
+    an orphan that is empty is named as empty and given the command that clears
+    it, because the machines that have this residue already will keep it until
+    somebody removes it by hand.
+
 ### ADR-038 — Naming a task
 
 Status: accepted  

@@ -650,10 +650,19 @@ func (s *service) removeWorktrees(
 		// with Git's own safety in place.
 		req.Force = target.Risky()
 
-		gone, err := s.git.RemoveWorktree(ctx, target.Identity, req)
+		removal, err := s.git.RemoveWorktree(ctx, target.Identity, req)
 		removed = append(removed, api.CleanupRemoval{
-			Class: string(reconcile.ClassWorktrees), Identity: target.Identity, Removed: gone,
+			Class: string(reconcile.ClassWorktrees), Identity: target.Identity, Removed: removal.Removed,
 		})
+		// The generated directories the worktree sat in, when it was the last
+		// thing in them. They are reported rather than done quietly: a cleanup
+		// says what it removed, and a directory Feat deleted is part of that
+		// answer even though no target named it.
+		for _, directory := range removal.Directories {
+			removed = append(removed, api.CleanupRemoval{
+				Class: string(reconcile.ClassWorktrees), Identity: directory, Removed: true,
+			})
+		}
 		if err != nil {
 			return removed, err
 		}

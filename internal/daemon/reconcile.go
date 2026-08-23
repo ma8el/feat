@@ -474,15 +474,41 @@ func (s *service) scanForOrphans(
 			// names it. Keep looking inside it.
 			s.scanForOrphans(path, project, claimed, report)
 		default:
-			report.Add(reconcile.Finding{
-				Class: reconcile.ClassWorktrees, Status: reconcile.StatusOrphaned,
-				Project: project, Identity: path,
-				Detail: "a directory under the project's worktree root that no task records",
-				Action: "look at it and remove it yourself if it is stale. " +
-					"Feat never removes a directory no task claims",
-			})
+			report.Add(orphanWorktreeFinding(project, path))
 		}
 	}
+}
+
+// orphanWorktreeFinding describes one directory under a worktree root that no
+// task claims.
+//
+// An empty one is named as empty, and that is worth the extra sentence. Every
+// build up to this one removed a task's worktrees and left the generated
+// directories they sat in, so most of what is found here is the residue of
+// cleanups the user confirmed themselves — and "look at it and remove it if it
+// is stale" sends somebody to the end of a path to discover there is nothing
+// there. Cleanup takes those directories with the worktree now; the ones already
+// on a machine stay until somebody removes them, and what this says about one is
+// what it saw: it is empty, and the command that clears it loses nothing. The
+// path is not repeated into the action, because the finding already names it and
+// the dashboard truncates a line rather than wrapping it.
+//
+// Empty or not, nothing is removed from here: reconciliation reports and the
+// user acts (ADR-037).
+func orphanWorktreeFinding(project domain.ProjectID, path string) reconcile.Finding {
+	finding := reconcile.Finding{
+		Class: reconcile.ClassWorktrees, Status: reconcile.StatusOrphaned,
+		Project: project, Identity: path,
+		Detail: "a directory under the project's worktree root that no task records",
+		Action: "look at it and remove it yourself if it is stale. " +
+			"Feat never removes a directory no task claims",
+	}
+	if entries, err := os.ReadDir(path); err == nil && len(entries) == 0 {
+		finding.Detail = "an empty directory under the project's worktree root that no task records"
+		finding.Action = "it holds nothing, so removing it with `rmdir` loses nothing. " +
+			"Feat never removes a directory no task claims"
+	}
+	return finding
 }
 
 // holdsAClaimedWorktree reports whether a directory is, or contains, a worktree

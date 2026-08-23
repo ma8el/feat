@@ -349,6 +349,13 @@ networks, and volumes are enumerated by the Compose project name the task
 derives — which names this task's resources by construction, so the inventory
 stays exact. See ADR-059.
 
+Removing a resource removes what Feat created to hold it. A task's worktree path
+is generated, so preparing the task creates the directories above the worktree,
+and cleanup removes each of them that is empty once the worktree is gone —
+stopping at the configured worktree root and at anything still in use. They are
+reported with the worktree rather than enumerated as targets of their own: they
+are where a resource lived, not a resource the user chooses about. See ADR-037.
+
 The enumeration is also what every surface offering the choice shows.
 `feat task cleanup` and the dashboard's cleanup screen present the same targets,
 each with what it is and whether it is still there, and a warning that is true of
