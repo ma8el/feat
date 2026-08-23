@@ -12,8 +12,8 @@ import (
 
 // Resume continues a task's recorded agent session in a fresh terminal.
 //
-// ADR-032 deferred this to the slice that owns recovery, and the reason it gave
-// is the reason it is here rather than in the agent adapter: a dead agent pane
+// ADR-032 deferred this to whatever owns recovery, and the reason it gave is the
+// reason it is here rather than in the agent adapter: a dead agent pane
 // is the same recovery question as a missing tmux window, a removed worktree,
 // and a stopped Compose project, and answering it inside one adapter would set a
 // policy for all of them.
@@ -23,8 +23,8 @@ import (
 //   - nothing reaches it on its own. Reconciliation reports that a session can
 //     be resumed and never resumes one, no workflow transition arrives here, and
 //     no agent message does;
-//   - it continues the provider session the task recorded, which slice 7
-//     captured from the session-start event before the process could fail. A new
+//   - it continues the provider session the task recorded, captured from the
+//     session-start event before the process could fail. A new
 //     session would have lost the task's history, and would look identical from
 //     the outside;
 //   - a provider that cannot find the recorded session fails visibly. Measured

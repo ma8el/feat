@@ -163,8 +163,8 @@ func TestCleanupRefusesAStalePlan(t *testing.T) {
 	}
 }
 
-// TestCleanupRefusesUnconfirmedDirtyWork is slice 12's eighth acceptance
-// criterion at the daemon, where the warning is observed rather than supplied.
+// TestCleanupRefusesUnconfirmedDirtyWork is FR-CLEAN-003 at the daemon, where
+// the warning is observed rather than supplied.
 //
 // The worktree is made dirty after the plan was taken, which is the case the
 // re-resolution exists for: the plan the user was shown had no warning, and the
@@ -219,8 +219,8 @@ func TestCleanupRefusesUnconfirmedDirtyWork(t *testing.T) {
 	}
 }
 
-// TestCleanupRetainsVolumesThatWereNotChosen is slice 12's sixth acceptance
-// criterion at the daemon.
+// TestCleanupRetainsVolumesThatWereNotChosen is FR-CLEAN-004's retention rule at
+// the daemon.
 //
 // The fixture is a host-execution task with no Compose project at all, so the
 // assertion is the narrow one that can be made here: no volume command is ever

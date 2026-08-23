@@ -207,8 +207,8 @@ func (d *drafting) worktreeRoot() string {
 	return filepath.Join(d.layout.State, "worktrees")
 }
 
-// TestCancellingADraftCreatesNothing is the slice 6 acceptance criterion that
-// cancelling a draft creates no worktrees, tmux windows, or containers.
+// TestCancellingADraftCreatesNothing covers the rule that cancelling a draft
+// creates no worktrees, tmux windows, or containers.
 //
 // It is checked at the adapters rather than at the outcome: a Git command that
 // creates a worktree and a tmux command that creates a window are the only ways
@@ -254,8 +254,8 @@ func TestCancellingADraftCreatesNothing(t *testing.T) {
 	}
 }
 
-// TestConfirmingLaunchesTheDisplayedSnapshot is the slice 6 acceptance
-// criterion that confirming launches the previously displayed snapshot.
+// TestConfirmingLaunchesTheDisplayedSnapshot is ADR-031's rule that confirming
+// launches the previously displayed snapshot.
 //
 // The world moves between the plan and the confirmation: the fake resolves a
 // different commit the second time it is asked, which is what a fetch that
@@ -303,7 +303,7 @@ func TestConfirmingLaunchesTheDisplayedSnapshot(t *testing.T) {
 
 	stored := arranged.reload(t, draft.ID)
 	if stored.Workflow != domain.WorkflowPreparing {
-		t.Errorf("workflow = %q, want preparing: slice 6 opens a task terminal and starts no agent",
+		t.Errorf("workflow = %q, want preparing: this launch opens a task terminal and starts no agent",
 			stored.Workflow)
 	}
 	if stored.Session == nil {
@@ -408,8 +408,8 @@ func TestChangingTheSelectionDiscardsWhatWasResolvedForIt(t *testing.T) {
 	}
 }
 
-// TestSeveralDraftsAndLiveTasksCoexist is the slice 6 acceptance criterion that
-// several task drafts and live tasks can coexist.
+// TestSeveralDraftsAndLiveTasksCoexist covers the rule that several task drafts
+// and live tasks can coexist.
 //
 // Three drafts and two launched tasks are held at once, and each keeps its own
 // identity: its own branch, its own worktrees, and its own terminal. The v0.1

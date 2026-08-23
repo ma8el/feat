@@ -17,9 +17,9 @@ func newTestReview(t *testing.T) *Review {
 	return review
 }
 
-// TestGatedResultsDoNotEraseAgentClaims is half of slice 11's fifth acceptance
-// criterion in the aggregate: after a gate has run, a result it enforced and a
-// result the agent asserted are both present and still tell each other apart.
+// TestGatedResultsDoNotEraseAgentClaims is half of FR-AGENT-006 in the
+// aggregate: after a gate has run, a result it enforced and a result the agent
+// asserted are both present and still tell each other apart.
 //
 // A gate that cleared everything it did not run would be Feat deciding that a
 // report it had not verified never happened.

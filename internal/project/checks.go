@@ -216,9 +216,8 @@ func (c *checker) checkExecution(ctx context.Context) {
 //
 // `feat doctor` still starts nothing (ADR-028). A project with no live task has
 // no container to look inside, and that is reported as skipped with the reason —
-// not as passing, and no longer as a slice that has not arrived: from this build
-// on, whether the check can run is a fact about the machine rather than about
-// Feat (ADR-033).
+// not as passing, and not as a capability that has yet to arrive: whether the
+// check can run is a fact about the machine rather than about Feat (ADR-033).
 func (c *checker) checkAgentEnvironment(ctx context.Context) {
 	if !c.config.Agent.Execution.Devcontainer() {
 		c.checkHostDockerCapability()
@@ -423,8 +422,8 @@ func providerCLIs(cfg *config.Config) []providerCLI {
 
 // noContainer is why the devcontainer checks did not run.
 //
-// It names the condition rather than a slice, because the check is deliverable
-// now and it is the state of the machine that decides whether it can run. The
+// It names the condition rather than a missing capability, because the check
+// exists and it is the state of the machine that decides whether it can run. The
 // action is what a user can actually do about it.
 const noContainer = "launch a task for this project and run `feat doctor` again; " +
 	"a task launch checks the same things in its own container before it starts an agent"
@@ -607,7 +606,7 @@ func (c *checker) checkReviewCommands() {
 // in the agent's environment is looked up inside a live container of this
 // project, and reported as skipped when there is none — the rule ADR-033 set for
 // every other question about that environment: whether the check can run is a
-// fact about the machine rather than about which slice this build is.
+// fact about the machine rather than about this build.
 func (c *checker) checkChecks(ctx context.Context) {
 	container, found := "", false
 	if c.config.Agent.Execution.Devcontainer() {

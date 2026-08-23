@@ -17,6 +17,4 @@
 //   - derived resource samples are not persisted continuously.
 //
 // Dependency rule: storage code contains no daemon or TUI dependencies.
-//
-// Delivered by slice 1.
 package fs

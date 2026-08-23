@@ -27,8 +27,8 @@ func render(sections []config.Section) string {
 	return out.String()
 }
 
-// TestSecretFileContentsNeverAppearInResolvedConfiguration is the slice 3
-// acceptance criterion "Secret file contents never appear in diagnostics".
+// TestSecretFileContentsNeverAppearInResolvedConfiguration covers the rule that
+// secret file contents never appear in diagnostics.
 //
 // It is checked as a property of the data rather than of a filter: this package
 // records the path of an environment file and never opens it, so there is
@@ -73,9 +73,8 @@ func TestSecretFileContentsNeverAppearInResolvedConfiguration(t *testing.T) {
 	}
 }
 
-// TestRepositoryAndContainerPathsAreDescribedAccurately is the slice 3
-// acceptance criterion "Repository/container-path mappings are printed
-// accurately".
+// TestRepositoryAndContainerPathsAreDescribedAccurately covers the requirement
+// that repository and container-path mappings are printed accurately.
 func TestRepositoryAndContainerPathsAreDescribedAccurately(t *testing.T) {
 	dir := write(t, "app.yaml", fixture(t, "app.yaml"))
 	opts, home := testOptions(t, nil)

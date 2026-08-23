@@ -18,7 +18,8 @@ import (
 // Every probe runs through the environment's own runner, so the questions are
 // asked where the agent will run rather than wherever the daemon happens to be.
 // That distinction is the whole reason FR-PROJ-004 words the requirement the way
-// it does, and it is what makes this check meaningful again in slice 8.
+// it does, and it is what keeps this check meaningful once the agent is in a
+// container.
 func (a Adapter) Validate(ctx context.Context, env agent.Environment) error {
 	if env.Runner == nil {
 		return fmt.Errorf("validating a Claude environment needs a runner")

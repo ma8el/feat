@@ -42,7 +42,7 @@ func otherTask() api.Task {
 	return task
 }
 
-// TestNoLineWrapsAtTheSupportedWidth is the slice 13 acceptance criterion.
+// TestNoLineWrapsAtTheSupportedWidth is ADR-041's layout rule.
 //
 // A task row used to be 158 cells against a terminal of 80 to 160, so three
 // tasks read as nine lines of unaligned text. Nothing the dashboard draws may

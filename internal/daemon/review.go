@@ -173,8 +173,7 @@ func (s *service) loadReview(ctx context.Context, task *domain.Task) (*domain.Re
 //
 // Expansion happens here because the placeholder vocabulary belongs to
 // internal/config, which validates it (ADR-029); whether the result may run is
-// internal/review's, which is where slice 11's third acceptance criterion is
-// checked. A command that is refused becomes a note rather than a failure: the
+// internal/review's, which is where the escape rule is checked. A command that is refused becomes a note rather than a failure: the
 // other repositories' commands are still usable, and a user who cannot open a
 // diff is better served by being told why than by an empty screen.
 func (s *service) reviewCommands(cfg *config.Config, task *domain.Task) ([]api.ReviewCommand, []string) {
@@ -833,8 +832,8 @@ func gateReport(results []domain.Check, verdict review.Verdict) string {
 
 // containerChecks runs a check inside a task's execution environment.
 //
-// It is the seam ADR-032 left and slice 8 filled for probes, used here for
-// something that takes minutes rather than milliseconds: the check runs where
+// It is the seam ADR-032 left, filled for probes by the execution adapter and
+// used here for something that takes minutes rather than milliseconds: the check runs where
 // the agent runs, as the agent's own user, which is what "verified in the
 // environment the work was done in" means. Neither adapter learns about the
 // other — this shim is the daemon's, as containerRunner is.

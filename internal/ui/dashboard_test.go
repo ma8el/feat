@@ -111,13 +111,13 @@ func dashboard(backend *fakeBackend, tasks ...api.Task) Model {
 	return updated.(Model)
 }
 
-// TestTheTaskPanelNamesTheSlicesItIsWaitingOn checks the honesty rule: a field
-// this build cannot fill says which slice fills it, rather than showing nothing
-// and leaving the user to guess.
+// TestTheTaskPanelSaysWhatItIsWaitingOn checks the honesty rule: a field with
+// nothing in it yet says what would fill it, rather than showing nothing and
+// leaving the user to guess.
 //
 // It reads the panel rather than a rendered region, because the panel is taller
 // than any region and what a region shows depends on where the user scrolled to.
-func TestTheTaskPanelNamesTheSlicesItIsWaitingOn(t *testing.T) {
+func TestTheTaskPanelSaysWhatItIsWaitingOn(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask())
 	model.selected = liveTask().ID
 	model.screen = screenTask
@@ -127,21 +127,14 @@ func TestTheTaskPanelNamesTheSlicesItIsWaitingOn(t *testing.T) {
 		// FR-UI-003's required content.
 		"Export the daily report", "core", "origin/main", "1a2b3c4d5e6f",
 		"feat/7f3a1c2e-add-a-scheduled-export-job", "$0", "@3", "%7",
-		// And what it cannot fill yet. Slice 7 delivered the agent-reported half
-		// of verification, slice 8 the environment, and slice 10 the resource
-		// figures, so what remains outstanding is the gate that runs a project's
-		// configured checks, which is slice 11's.
-		"slice 11",
+		// And the field that has nothing in it yet: this task's agent has
+		// reported no checks, so the panel says what would produce some rather
+		// than leaving the column blank.
+		"the agent has reported no checks",
+		"asks for review",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the task panel does not show %q:\n%s", want, view)
-		}
-	}
-	// The slices that have been delivered stop being named. A screen that still
-	// promised one would be telling the user to wait for something they have.
-	for _, delivered := range []string{"slice 7", "slice 8", "slice 10"} {
-		if strings.Contains(view, delivered) {
-			t.Errorf("the task panel still names %q, which has been delivered:\n%s", delivered, view)
 		}
 	}
 }

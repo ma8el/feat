@@ -222,9 +222,9 @@ func TestStoppingKeepsEverythingTheTaskOwns(t *testing.T) {
 
 // TestStoppingIsRefusedForAHostNativeAgent names what Feat does not own.
 //
-// Host execution arrives in slice 14. Until it does — and after it does — the
-// agent of a host-native task is a process in a pane rather than a container,
-// and a verb that silently did nothing would be worse than one that says so.
+// The agent of a host-native task is a process in a pane rather than a
+// container, and a verb that silently did nothing would be worse than one that
+// says so.
 func TestStoppingIsRefusedForAHostNativeAgent(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 

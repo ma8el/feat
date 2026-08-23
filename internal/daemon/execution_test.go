@@ -498,7 +498,7 @@ func TestAnAgentIsNeverStartedInARefusedContainer(t *testing.T) {
 //
 // It is under the state directory, outside the control workspace, and outside
 // every task worktree. A file the agent could write that decided what its own
-// container mounts would undo every other rule in this slice.
+// container mounts would undo every other mount rule.
 func TestTheGeneratedOverrideIsNotWhereTheAgentCanReachIt(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)

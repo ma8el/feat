@@ -102,7 +102,7 @@ func renderHealth(h Health, styled bool) string {
 
 	if !styled {
 		var b strings.Builder
-		b.WriteString("feat — pre-alpha skeleton\n")
+		b.WriteString("feat — alpha\n")
 		for _, field := range fields {
 			fmt.Fprintf(&b, "%-10s %s\n", field[0], field[1])
 		}
@@ -111,7 +111,7 @@ func renderHealth(h Health, styled bool) string {
 
 	lines := []string{
 		titleStyle.Render("feat"),
-		mutedStyle.Render("pre-alpha skeleton"),
+		mutedStyle.Render("alpha"),
 		"",
 	}
 	for _, field := range fields {

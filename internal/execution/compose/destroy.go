@@ -41,7 +41,7 @@ func (e *Environment) Stop(ctx context.Context) (execution.State, error) {
 
 // Destroy removes the containers and networks of this task's agent environment.
 //
-// It is the method ADR-033 deferred to the slice that owns what cleanup retains.
+// It is the method ADR-033 deferred to whatever owns what cleanup retains.
 // Three things it deliberately does not do, each a rule rather than an omission:
 //
 //   - no --volumes, so every volume survives. A task's Claude configuration

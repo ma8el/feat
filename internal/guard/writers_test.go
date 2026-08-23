@@ -23,8 +23,8 @@ var storageReaders = []string{
 	"internal/store/",
 }
 
-// TestOnlyTheDaemonReachesPersistentState checks the slice 2 acceptance criterion
-// that the daemon is the only state writer.
+// TestOnlyTheDaemonReachesPersistentState checks that the daemon is the only
+// state writer.
 //
 // depguard enforces the same boundary for the packages that exist today; this
 // test states the rule positively, so that a package added later is covered

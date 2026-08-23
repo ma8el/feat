@@ -323,9 +323,9 @@ func (s *service) planAgent(
 		return launchPlan{}, err
 	}
 
-	// While execution is host-native, the agent sees the host's own paths. Slice
-	// 8 fills the same structure with the container's, and nothing in the
-	// adapter changes.
+	// Under host-native execution the agent sees the host's own paths. A
+	// devcontainer fills the same structure with the container's, and nothing in
+	// the adapter changes.
 	spec, err := s.agent.Prepare(ctx, agent.PrepareRequest{
 		Task: task,
 		Workspace: agent.Workspace{

@@ -32,8 +32,8 @@
 //   - create read-write and read-only task worktrees;
 //   - observe dirty, ahead, behind, and merged state;
 //   - compute change summaries against each repository's recorded base;
-//   - produce exact cleanup plans. Removing anything is slice 12's, and this
-//     package has no code that does it.
+//   - produce exact cleanup plans. Removing anything belongs to
+//     internal/reconcile, and this package has no code that does it.
 //
 // Two reference points are used deliberately: what a task did is measured
 // against its recorded base commit, which never moves, and where the world went
@@ -50,6 +50,5 @@
 //     passed;
 //   - a collision is reported, never resolved by renaming.
 //
-// Delivered by slice 4. See ADR-029 in
-// docs/10-decisions-and-open-questions.md.
+// See ADR-029 in docs/10-decisions-and-open-questions.md.
 package git

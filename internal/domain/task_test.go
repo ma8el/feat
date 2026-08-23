@@ -18,9 +18,9 @@ const (
 	otherCommit   = "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c"
 )
 
-// TestInvalidTransitionsAreTyped checks the slice 1 acceptance criterion that an
-// invalid state transition fails with a typed error, and that the error explains
-// where the task can go instead.
+// TestInvalidTransitionsAreTyped checks that an invalid state transition fails
+// with a typed error, and that the error explains where the task can go
+// instead.
 func TestInvalidTransitionsAreTyped(t *testing.T) {
 	task := launchedTask(t)
 

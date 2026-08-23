@@ -14,7 +14,7 @@ import (
 // a task, change different parts of it, and save produce a file holding one of
 // the two changes, and the other is gone without a trace.
 //
-// That is not hypothetical. It was found by running slice 11 end to end: a
+// That is not hypothetical. It was found by running review end to end: a
 // completion gate finishing while the review request that started it was still
 // observing the repositories left a task recorded as ready_for_review whose
 // review held no checks at all — the state said the checks had passed and the

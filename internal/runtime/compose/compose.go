@@ -278,7 +278,7 @@ func (r *Runtime) Stop(ctx context.Context) (runtime.State, error) {
 // omission:
 //
 //   - no --volumes, so every volume survives. Volumes are retained by default
-//     and removing one is a choice slice 12 asks for explicitly (FR-CLEAN-004);
+//     and removing one is a choice cleanup asks for explicitly (FR-CLEAN-004);
 //   - no --remove-orphans, because an orphan is a container Feat did not put
 //     there and removing one would be a destructive act nobody asked for;
 //   - nothing outside this Compose project, so an external staging database is

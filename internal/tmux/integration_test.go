@@ -73,9 +73,9 @@ func realTmux(t *testing.T) *realServer {
 }
 
 // TestRealManagedServerIsIsolatedAndIdentitySurvivesUserChanges covers three
-// Slice 5 criteria against tmux itself: the dedicated socket does not collide
-// with another server, user indexes/names do not become identity, and a fresh
-// adapter rediscovers the tagged objects after a daemon-equivalent restart.
+// rules against tmux itself: the dedicated socket does not collide with another
+// server, user indexes and names do not become identity, and a fresh adapter
+// rediscovers the tagged objects after a daemon-equivalent restart.
 func TestRealManagedServerIsIsolatedAndIdentitySurvivesUserChanges(t *testing.T) {
 	server := realTmux(t)
 	ctx := context.Background()
@@ -541,8 +541,8 @@ func waitForWatched(
 	}
 }
 
-// TestRealTerminalsWorkWithoutALocale pins the defect slice 11's end-to-end run
-// found in slice 5's adapter.
+// TestRealTerminalsWorkWithoutALocale pins the defect an end-to-end review run
+// found in this adapter.
 //
 // A tmux client whose locale is not UTF-8 replaces every non-printable character
 // in the output of `-F` with an underscore, and every format this package uses

@@ -91,8 +91,8 @@ func overrideOf(t *testing.T, arranged *drafting, id domain.TaskID) string {
 // cost of being too short is reporting a window shut while it is open.
 const reservationPause = 2 * time.Second
 
-// TestEachTaskIsPublishedOnItsOwnHostPort is the first acceptance criterion of
-// this slice, at the daemon.
+// TestEachTaskIsPublishedOnItsOwnHostPort is ADR-065's first rule, at the
+// daemon.
 //
 // Two tasks of one project run the same application. A host port is global to
 // the machine, so the fixed one their Compose file writes down could serve one

@@ -7,5 +7,5 @@
 // Host-native and devcontainer execution share one task domain; selecting a
 // mode must not change task semantics.
 //
-// Delivered by slice 14 (public v0.2).
+// Host-native execution is v0.2 work; see docs/09-roadmap.md.
 package host

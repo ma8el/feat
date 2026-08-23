@@ -318,8 +318,8 @@ func (c *Config) resolveIntervals() error {
 // expand resolves a leading "~" and requires the result to be absolute.
 //
 // A template placeholder is left in place: git.worktree_root is expanded here
-// and completed per task in slice 4, so "~/x/{task_id}" has to survive this
-// step intact.
+// and completed per task by the Git adapter, so "~/x/{task_id}" has to survive
+// this step intact.
 func expand(opts Options, path, value string) (string, error) {
 	if value == "" {
 		return "", nil

@@ -1,6 +1,6 @@
 # Decisions and Open Questions
 
-This document is the architecture decision log before implementation. Accepted decisions should not be reopened during v0 implementation without new evidence.
+This document is the architecture decision log. It records what was decided, the evidence that decided it, and when. Accepted decisions should not be reopened without new evidence.
 
 ## Accepted decisions
 
@@ -163,7 +163,7 @@ Adapters are compiled-in Go implementations initially. Maintain interface/packag
 ### ADR-025 — Package layout additions and mechanical rule enforcement
 
 Status: accepted  
-Recorded: slice 0
+Recorded: 2026-08-04
 
 Evidence found while bootstrapping the repository:
 
@@ -188,7 +188,7 @@ This decision affects package layout only. It does not change any product behavi
 ### ADR-026 — Domain and storage modelling
 
 Status: accepted  
-Recorded: slice 1
+Recorded: 2026-08-04
 
 Evidence found while implementing the domain and the file-backed store:
 
@@ -212,7 +212,7 @@ Consequence: no product behaviour, milestone, or scope boundary changes. The rul
 ### ADR-027 — Daemon ownership, runtime file layout, and local API surface
 
 Status: accepted  
-Recorded: slice 2, before implementation
+Recorded: 2026-08-04, before implementation
 
 Evidence found while planning the daemon and the local API:
 
@@ -251,7 +251,7 @@ The user-visible additions are a hidden `daemon run` subcommand and exit code 4.
 ### ADR-028 — Configuration loading, project registration, and the honesty of diagnostics
 
 Status: accepted  
-Recorded: slice 3
+Recorded: 2026-08-05
 
 Evidence found while implementing YAML configuration and `feat doctor`:
 
@@ -290,7 +290,7 @@ The user-visible changes are the `<project>` argument on `feat project add`, and
 ### ADR-029 — Git adapter boundary, preparation order, and path safety
 
 Status: accepted  
-Recorded: slice 4
+Recorded: 2026-08-05
 
 Evidence found while implementing the Git and worktree lifecycle:
 
@@ -327,7 +327,7 @@ The four acceptance criteria that are really about Git's behaviour are verified 
 ### ADR-030 — tmux identity, command ownership, and attach boundary
 
 Status: accepted
-Recorded: slice 5, before implementation
+Recorded: 2026-08-05, before implementation
 
 Evidence found while planning the tmux backend:
 
@@ -371,7 +371,7 @@ The Slice 3 target-machine acceptance check remains outstanding in this reposito
 ### ADR-031 — Task drafts, confirmation, and the first user-facing task lifecycle
 
 Status: accepted
-Recorded: slice 6, before implementation
+Recorded: 2026-08-06, before implementation
 
 Evidence found while planning task preparation and the initial TUI:
 
@@ -405,7 +405,7 @@ The Slice 3 target-machine acceptance check remains outstanding, as it did for s
 ### ADR-032 — Control workspace, agent boundary, and where Claude runs before slice 8
 
 Status: accepted
-Recorded: slice 7, before implementation
+Recorded: 2026-08-06, before implementation
 
 Evidence found while planning the control workspace and the Claude adapter:
 
@@ -463,7 +463,7 @@ The Slice 3 target-machine acceptance check remains outstanding, as it did for s
 ### ADR-033 — Devcontainer execution, generated mounts, and what a container may not already hold
 
 Status: accepted
-Recorded: slice 8, before implementation
+Recorded: 2026-08-06, before implementation
 
 Evidence found while planning devcontainer execution. Items 2 to 5 and 7 were
 measured against Docker Compose v5.1.4 and Docker Desktop on the target machine
@@ -750,7 +750,7 @@ which project it comes from.
 ### ADR-034 — Application runtime identity, generated mounts, and what a manual lifecycle owns
 
 Status: accepted
-Recorded: slice 9, before implementation
+Recorded: 2026-08-07, before implementation
 
 Evidence found while planning the manual application runtime:
 
@@ -1048,7 +1048,7 @@ since by definition there is nobody left to answer.
 ### ADR-035 — Resource observation, notification policy, and what a machine can honestly report
 
 Status: accepted
-Recorded: slice 10, before implementation
+Recorded: 2026-08-07, before implementation
 
 Evidence found while planning notifications and resources. Items 1 to 6 were
 measured on the target machine — Docker 29.5.2, Compose 5.1.4, tmux 3.7b, macOS
@@ -1280,7 +1280,7 @@ produced both.
 ### ADR-036 — Review comparisons, external commands, and where a completion gate can honestly interrupt an agent
 
 Status: accepted
-Recorded: slice 11, before implementation
+Recorded: 2026-08-07, before implementation
 
 Evidence found while planning review and the completion gate. Items 1 to 3 are
 properties of code this repository already has, and each of them decides
@@ -1528,7 +1528,7 @@ from this repository's own fakes:
 ### ADR-037 — Quarantine, recovery, and what cleanup is allowed to resolve
 
 Status: accepted
-Recorded: slice 12, before implementation
+Recorded: 2026-08-07, before implementation
 
 Evidence found while planning reconciliation and cleanup. Items 1 to 5 are
 properties of code this repository already has:
@@ -1794,7 +1794,7 @@ of them was reachable from this repository's own fixtures:
 ### ADR-038 — Naming a task
 
 Status: accepted  
-Recorded: slice 13
+Recorded: 2026-08-08
 
 Evidence found while running the product by hand, across slices 9 and 11:
 
@@ -1863,7 +1863,7 @@ and only what counts as naming a task moves.
 ### ADR-039 — Proving a notification arrived
 
 Status: accepted  
-Recorded: slice 13
+Recorded: 2026-08-08
 
 Evidence found while walking every notifiable condition against a real desktop:
 
@@ -1927,7 +1927,7 @@ answer, and that every condition has been shown to reach a desktop once.
 ### ADR-040 — Where a command lives
 
 Status: accepted  
-Recorded: slice 13, before implementation
+Recorded: 2026-08-08, before implementation
 
 Evidence found by reading the command surface rather than by running it, which is
 why it is recorded before the change rather than after a failure:
@@ -2027,7 +2027,7 @@ one from a command that ran.
 ### ADR-041 — What the dashboard is shaped like
 
 Status: accepted  
-Recorded: slice 13, before implementation
+Recorded: 2026-08-08, before implementation
 
 Evidence found by reading the dashboard against the terminal it is read in, after
 the maintainer reported it as confusing while preparing the three-task dogfood
@@ -2209,7 +2209,7 @@ produce evidence about three.
 ### ADR-042 — Showing the agent's terminal without becoming one
 
 Status: accepted  
-Recorded: slice 13, before implementation
+Recorded: 2026-08-08, before implementation
 
 ADR-041 built the dashboard around views Feat writes itself, on the reasoning
 that the alternative was a terminal emulator inside Bubble Tea. The maintainer
@@ -2394,7 +2394,7 @@ first traffic of that kind and the reason it is scoped to one pane.
 ### ADR-043 — Removing the overview table
 
 Status: accepted  
-Recorded: slice 13, after use
+Recorded: 2026-08-09, after use
 
 ADR-041 kept the overview tab's wide task table provisionally, to be removed if
 the three-task runs never used it. The maintainer used the dashboard and asked
@@ -2460,7 +2460,7 @@ task whose agent had stopped.
 ### ADR-044 — The machine's resources at the foot of the rail
 
 Status: accepted  
-Recorded: slice 13, after use
+Recorded: 2026-08-09, after use
 
 ADR-041 put the machine's figures in the footer beside the selected task's
 worktree path, to get them out of the vertical stack that pushed the task list
@@ -2556,7 +2556,7 @@ with the code, as it did for ADR-035, ADR-041, and ADR-043.
 ### ADR-045 — The status command loses its key
 
 Status: accepted  
-Recorded: slice 13, after use
+Recorded: 2026-08-09, after use
 
 The task panel bound `s` to the project's configured status command, the third of
 the external commands FR-REV-002 asks for. The maintainer pressed it and reported
@@ -2605,7 +2605,7 @@ expanded and reported.
 ### ADR-046 — Shifted keys move the frame, plain keys move the view
 
 Status: accepted  
-Recorded: slice 13, after use
+Recorded: 2026-08-09, after use
 
 The maintainer reported that dashboard navigation was inconsistent: the arrow
 keys sometimes moved the task rail and sometimes moved a cursor inside the main
@@ -2675,7 +2675,7 @@ the two meanings look interchangeable.
 ### ADR-047 — One record of a review decision
 
 Status: accepted  
-Recorded: slice 13, after use
+Recorded: 2026-08-09, after use
 
 The maintainer, reading the review surface during dogfood, observed that the
 states a user can put a review into have no consequences beyond changing the
@@ -2742,7 +2742,7 @@ carrying the user's revision note into the session, or it folds into attaching.
 ### ADR-048 — Removing the external resource declaration
 
 Status: accepted  
-Recorded: slice 13, after use
+Recorded: 2026-08-09, after use
 
 `runtime.external_resources` is the one part of the runtime model drawn from the
 reference project's shape rather than from the product's. The maintainer, asking
@@ -2827,7 +2827,7 @@ still there under the name Feat generates.
 ### ADR-049 — Who owns the interrupt while another program has the terminal
 
 Status: accepted  
-Recorded: slice 13, after use
+Recorded: 2026-08-09, after use
 
 The maintainer opened the Compose logs from the runtime tab and found no way out
 of them that was not also a way out of Feat.
@@ -2892,7 +2892,7 @@ the way back, which belongs with the deferred dashboard polish rather than here.
 ### ADR-050 — The writable Git directory is host execution, and is disclosed rather than closed
 
 Status: accepted  
-Recorded: alpha review, after slice 13
+Recorded: 2026-08-11, alpha review
 
 The alpha review asked what the devcontainer boundary is worth and found one
 mount that goes straight through it. ADR-033 gives a task's container the main
@@ -3002,7 +3002,7 @@ and belongs to `fix/security-claims`.
 ### ADR-051 — What the dashboard looks like
 
 Status: accepted  
-Recorded: alpha review, after slice 13
+Recorded: 2026-08-11, alpha review
 
 ADR-041 decided what the dashboard is *shaped* like — a rail, a main region, and
 a footer, all on screen at once — and left what it looks like to whatever each
@@ -3095,7 +3095,7 @@ made folding a one-way door, and a fold is now a cursor position of its own.
 ### ADR-052 — A folded project is a cursor position
 
 Status: accepted  
-Recorded: alpha review, after ADR-051 shipped
+Recorded: 2026-08-12, alpha review, after ADR-051 shipped
 
 ADR-051 gave the rail's fold marker the control it had always been promising, and
 paired it with a rule: the cursor never stays inside a fold, because the main
@@ -3140,7 +3140,7 @@ and no new binding: `space` is the same key with a reachable inverse.
 ### ADR-053 — The palette is ordered by chroma, and measured
 
 Status: accepted  
-Recorded: alpha review, after ADR-052
+Recorded: 2026-08-12, alpha review, after ADR-052
 
 ADR-051 chose the six colours as a set and said what the set was for: the
 selection colour and the attention colour at one weight, so that the eye reads
@@ -3200,7 +3200,7 @@ them should be measured the same way rather than compared by eye.
 ### ADR-054 — Text Feat did not write is made measurable before it is measured
 
 Status: accepted  
-Recorded: alpha review, after ADR-053
+Recorded: 2026-08-12, alpha review, after ADR-053
 
 ADR-051 made the dashboard draw its own frame a line at a time, cutting by cell
 through escape-aware primitives, precisely so that content could not run into the
@@ -3249,7 +3249,7 @@ and a region that measures what it draws has to be given something measurable.
 ### ADR-055 — A check that could not run belongs to the user, not to the agent
 
 Status: accepted  
-Recorded: slice 13, from the first real feature run on the reference project
+Recorded: 2026-08-12, from the first real feature run on the reference project
 
 ADR-036 drew the distinction and the code kept it: a check that could not be
 started, or that exceeded its bound, is recorded as `unknown` with the reason,
@@ -3343,7 +3343,7 @@ measured.
 ### ADR-056 — One stash stack is shared by every worktree, and Feat says so rather than working around it
 
 Status: accepted  
-Recorded: slice 13, from an assessment of what concurrent tasks on one repository share
+Recorded: 2026-08-13, from an assessment of what concurrent tasks on one repository share
 
 A linked worktree has its own working tree, index, and HEAD. Everything else
 belongs to the repository it was created from, and Git's per-worktree ref
@@ -3566,7 +3566,7 @@ and the cleanup contract at once.
 ### ADR-057 — The agent's environment is owned by its session, and the pair of verbs is resume and stop
 
 Status: accepted  
-Recorded: slice 13, from dogfooding the devcontainer lifecycle
+Recorded: 2026-08-13, from dogfooding the devcontainer lifecycle
 
 A task's agent environment had two ways in and one way out of the product:
 `feat implement` created it, cleanup removed it, and nothing else named it. The
@@ -3662,7 +3662,7 @@ finding a container for a task with no session is a separate piece of work.
 ### ADR-058 — Attention is set by the end of a turn, not by a message the agent wrote mid-turn
 
 Status: accepted  
-Recorded: slice 13, from the event logs of the dogfood runs
+Recorded: 2026-08-13, from the event logs of the dogfood runs
 
 The maintainer's observation, from dogfooding: `possibly_waiting` shows up while
 the agent is still running. The stored event logs say it did, on every task that
@@ -3742,7 +3742,7 @@ generation check rather than a decision.
 ### ADR-059 — A task's containers are addressable by name, and a mounted directory is released before it is removed
 
 Status: accepted  
-Recorded: slice 13, from dogfooding the mount-and-socket rules
+Recorded: 2026-08-14, from dogfooding the mount-and-socket rules
 
 Both halves of this are one sentence: the container outlives the request that
 created it. A launch that fails after its container exists leaves resources the
@@ -3924,7 +3924,7 @@ rather than of this one, and is recorded here as open rather than closed.
 ### ADR-060 — A failed task carries the reason it failed
 
 Status: accepted  
-Recorded: slice 13, from dogfooding the launch refusals
+Recorded: 2026-08-14, from dogfooding the launch refusals
 
 The maintainer, watching a launch fail on purpose to test ADR-059: it is not
 clear in the TUI why the task launch failed.
@@ -3983,7 +3983,7 @@ per-task events endpoint stays a separate piece of work.
 ### ADR-061 — The confirmation belongs to the removal, not to each tick that led to it
 
 Status: accepted  
-Recorded: slice 13, from using the cleanup screen
+Recorded: 2026-08-14, from using the cleanup screen
 
 The maintainer, on the dashboard's cleanup dialog: it is clunky — why the extra
 confirmation, and why the extra archive button.
@@ -4143,7 +4143,7 @@ otherwise yet.
 ### ADR-062 — A project is configured by answering questions, and the answers are checked before there is a file
 
 Status: accepted  
-Recorded: slice 13, from the cost of adding a project by hand
+Recorded: 2026-08-15, from the cost of adding a project by hand
 
 The maintainer, adding a second project: adding a project to Feat is quite
 involved as it stands — the YAML file has to be created by hand, copied from the
@@ -4166,10 +4166,10 @@ Evidence:
    whether a task runs application services, and what verifies the work. Six
    questions, against a file with sixty fields in it.
 4. [02-user-workflows.md](02-user-workflows.md) had already put a wizard in
-   public v0 and [11-implementation-plan.md](11-implementation-plan.md) had made
-   it conditional on manual configuration being "the dominant public blocker".
-   Dogfooding answered that question ahead of schedule: it is the step that is
-   hardest and the only one Feat does not help with.
+   public v0, and the plan of the day had made it conditional on manual
+   configuration being "the dominant public blocker". Dogfooding answered that
+   question ahead of schedule: it is the step that is hardest and the only one
+   Feat does not help with.
 
 Decisions:
 
@@ -4224,7 +4224,7 @@ wizard writes a project once, and the file is the user's from then on.
 ### ADR-063 — One flow, two askers: the wizard's questions are a package, and the dashboard asks them itself
 
 Status: accepted  
-Recorded: slice 13, from asking whether the wizard is reachable from the TUI
+Recorded: 2026-08-15, from asking whether the wizard is reachable from the TUI
 
 The maintainer, after `feat project init` landed: is it possible to execute the
 project wizard in the TUI? It was not. The dashboard's only answer to an
@@ -4301,7 +4301,7 @@ has never run Feat.
 ### ADR-064 — Diagnosis is read on the dashboard, and it says which process it is true of
 
 Status: accepted  
-Recorded: slice 13, from the hole ADR-063 left
+Recorded: 2026-08-15, from the hole ADR-063 left
 
 The dashboard could configure a project and could not tell the user whether it
 worked. The wizard's last screen named `feat doctor`, which is a command — so
@@ -4363,7 +4363,7 @@ environments differ.
 ### ADR-065 — A runtime is composed of its repositories, and a service that is not running the task's code says so
 
 Status: accepted
-Recorded: slice 13, before implementation
+Recorded: 2026-08-16, before implementation
 
 Evidence found while making the reference project's whole application — an API
 and a frontend in separate repositories — run for one task. Most of it is
@@ -4789,7 +4789,7 @@ editing an environment and is what `feat runtime create` does.
 ### ADR-066 — What a container grants and no rule refuses is said out loud
 
 Status: accepted
-Recorded: round-2 review, batch 8, from `G7-05` and the half of `G7-04` the
+Recorded: 2026-08-22, round-2 review, batch 8, from `G7-05` and the half of `G7-04` the
 maintainer's acceptance does not cover
 
 The launch inspection had two answers about a container — accepted, or refused
@@ -4890,7 +4890,7 @@ statement about, under the profile whose requirement it qualifies, and rewrites
 ### ADR-067 — The confinement the other rules stand on is checked, and a policy Feat cannot read is disclosed
 
 Status: accepted
-Recorded: round-2 review, batch 2's outstanding half, from the last field of
+Recorded: 2026-08-22, round-2 review, batch 2's outstanding half, from the last field of
 `G4-04`'s own claim
 
 Batch 2 closed six of the seven fields `G4-04` named. `security_opt` was decoded

@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// TestNoReferenceProjectIdentifiers checks the slice 0 acceptance criterion
-// that no project-specific path or service name is compiled into the binary.
+// TestNoReferenceProjectIdentifiers checks CLAUDE.md scope rule 3: no
+// project-specific path or service name is compiled into the binary.
 func TestNoReferenceProjectIdentifiers(t *testing.T) {
 	root := repoRoot(t)
 	rules := loadIdentifierRules(t)

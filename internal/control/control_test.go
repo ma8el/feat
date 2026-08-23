@@ -209,8 +209,8 @@ func TestPendingReturnsMessagesOldestFirst(t *testing.T) {
 }
 
 // TestDuplicateMalformedAndOutOfTaskMessagesDoNotExecute is the protocol half of
-// the slice 7 acceptance criterion. The daemon half, which proves no transition
-// follows, lives in internal/daemon.
+// the control-workspace validation rule. The daemon half, which proves no
+// transition follows, lives in internal/daemon.
 func TestDuplicateMalformedAndOutOfTaskMessagesDoNotExecute(t *testing.T) {
 	oversize := func() string {
 		document := map[string]any{

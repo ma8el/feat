@@ -10,9 +10,9 @@
 // The two things it owns are the two that are worth having in one place:
 //
 //   - an expanded command may run only in one of its own task's recorded
-//     worktrees, and only when nothing in it was left unexpanded. That is
-//     slice 11's third acceptance criterion, checked against one list rather
-//     than spread across the three commands that happen to exist today;
+//     worktrees, and only when nothing in it was left unexpanded. That rule is
+//     checked against one list rather than spread across the three commands
+//     that happen to exist today;
 //   - a gate's results are attributed to the provider because the gate ran the
 //     command itself, and a check that could not be started or that exceeded
 //     its bound is inconclusive rather than failed. A task never reaches
@@ -26,5 +26,5 @@
 //
 // The TUI does not render source diffs in v0.
 //
-// Delivered by slice 11. See ADR-036.
+// See ADR-036.
 package review

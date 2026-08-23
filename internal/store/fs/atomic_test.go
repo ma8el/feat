@@ -15,8 +15,8 @@ import (
 
 var errCrash = errors.New("simulated crash")
 
-// TestACrashNeverLeavesAPartiallyReplacedSnapshot checks the slice 1 acceptance
-// criterion at every point of an atomic replacement.
+// TestACrashNeverLeavesAPartiallyReplacedSnapshot checks the atomicity rule at
+// every point of a replacement.
 //
 // The store is interrupted while replacing an existing snapshot with a different
 // one. Before the rename the previous snapshot must still be the current one and

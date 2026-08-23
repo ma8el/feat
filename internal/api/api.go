@@ -57,7 +57,7 @@ type Service interface {
 	//
 	// It is separate from the task because it lives in the review aggregate,
 	// where docs/03-domain-model.md puts an agent-reported completion summary
-	// and agent-reported checks. Slice 11 fills the rest of that aggregate.
+	// and agent-reported checks.
 	Verification(ctx context.Context, id domain.TaskID) (Verification, bool, error)
 	// CreateDraft records a new task draft and creates nothing else. No
 	// worktree, branch, terminal, or container exists until the draft is
@@ -155,8 +155,8 @@ type Service interface {
 
 // Limits applied to every request.
 const (
-	// maxRequestBody bounds a request body. Slice 2 serves no body at all; the
-	// limit is in place before the first endpoint that reads one.
+	// maxRequestBody bounds a request body. The limit was in place before the
+	// first endpoint that read one.
 	maxRequestBody = 1 << 20
 	// writeTimeout bounds one non-streaming response. The event stream clears
 	// its deadline instead, because an idle stream is not a stuck one.
@@ -255,9 +255,9 @@ func NewHandler(opts Options) http.Handler {
 		http.MethodPost: server.stop,
 	}))
 	// Reading the last pass and running a new one are the same resource: GET
-	// answers with what was found, and POST looks again. It is the shape slice 9
-	// used for runtime status — an observation is a POST because it records what
-	// it observed.
+	// answers with what was found, and POST looks again. It is the shape runtime
+	// status uses — an observation is a POST because it records what it
+	// observed.
 	mux.Handle("/v1/reconciliation", route(map[string]http.HandlerFunc{
 		http.MethodGet:  server.reconciliation,
 		http.MethodPost: server.reconcile,

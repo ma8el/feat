@@ -16,10 +16,10 @@ import (
 	"github.com/ma8el/feat/internal/store/storetest"
 )
 
-// TestTaskWithSeveralRepositoriesRoundTripsExactly checks the slice 1 acceptance
-// criterion. The fixture binds two repositories with different access, owns a
-// session and a runtime, and carries observations, so a field the mapping
-// forgets is a field that comes back changed.
+// TestTaskWithSeveralRepositoriesRoundTripsExactly checks that a task survives a
+// round trip unchanged. The fixture binds two repositories with different
+// access, owns a session and a runtime, and carries observations, so a field the
+// mapping forgets is a field that comes back changed.
 func TestTaskWithSeveralRepositoriesRoundTripsExactly(t *testing.T) {
 	ctx := context.Background()
 	fixture := storetest.Task()

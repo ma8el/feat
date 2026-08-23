@@ -55,9 +55,8 @@ func recordingLogger() (*slog.Logger, func() string) {
 	return logger, written.String
 }
 
-// TestAcquireClaimsTheRuntimeDirectory covers the slice 2 acceptance criterion
-// that socket permissions restrict access to the current user, and checks what a
-// claim consists of.
+// TestAcquireClaimsTheRuntimeDirectory covers the rule that socket permissions
+// restrict access to the current user, and checks what a claim consists of.
 func TestAcquireClaimsTheRuntimeDirectory(t *testing.T) {
 	layout := testLayout(t)
 	started := time.Date(2026, time.August, 4, 12, 0, 0, 0, time.UTC)
@@ -179,8 +178,8 @@ func TestAcquireRefusesASecondDaemon(t *testing.T) {
 	}
 }
 
-// TestAcquireReclaimsAStaleSocket is the slice 2 acceptance criterion that a
-// stale socket is diagnosed and safely recovered.
+// TestAcquireReclaimsAStaleSocket covers the rule that a stale socket is
+// diagnosed and safely recovered.
 //
 // The socket file is left behind deliberately, which is what a killed daemon
 // leaves: the lock is free because the kernel released it, and nothing answers.

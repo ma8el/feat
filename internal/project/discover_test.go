@@ -235,9 +235,9 @@ func TestEveryFormOfPublishedPortIsRead(t *testing.T) {
 	}
 }
 
-// TestNoValueFromAComposeFileReachesAProposal is an acceptance criterion of the
-// slice, checked against the whole derived result rather than against the
-// fields it happens to expose.
+// TestNoValueFromAComposeFileReachesAProposal is ADR-062's rule, checked against
+// the whole derived result rather than against the fields it happens to
+// expose.
 //
 // A Compose file names environment files, build arguments, and sometimes a
 // password that should not have been written there. None of it has any business

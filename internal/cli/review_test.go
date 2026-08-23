@@ -79,8 +79,8 @@ func TestAPrintedReviewNamesEveryRepositoryAndItsBase(t *testing.T) {
 	}
 }
 
-// TestAReviewCommandIsCheckedBeforeItRuns is the client half of slice 11's third
-// acceptance criterion.
+// TestAReviewCommandIsCheckedBeforeItRuns is the client half of the rule that a
+// review command may run only in its own task's recorded worktrees.
 //
 // The daemon expanded the command and refused anything that could leave the
 // task's worktrees. This checks it again, for the reason `feat runtime logs`

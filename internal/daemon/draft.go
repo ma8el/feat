@@ -585,8 +585,8 @@ func recordedPlan(cfg *config.Config, task *domain.Task) (*git.Plan, error) {
 // shellCommand is a plain terminal in the task's own worktree.
 //
 // It is what a task gets when no agent is started: a project that configures a
-// container, on a daemon that was not opted in to host execution, waits for
-// slice 8 rather than being given an agent somewhere it did not ask for. The
+// container, on a daemon that was not opted in to host execution, waits for its
+// container rather than being given an agent somewhere it did not ask for. The
 // pane is real, so attach and shell work, and the task stays preparing because
 // nothing is running that could be called an agent session (ADR-031, ADR-032).
 func (s *service) shellCommand(cfg *config.Config, task *domain.Task) (tmux.CommandSpec, error) {

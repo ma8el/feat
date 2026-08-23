@@ -26,8 +26,8 @@ Drafts appear alongside launched tasks and are marked as drafts: a draft has no
 worktree, no branch, and no terminal until it is confirmed. Archived tasks,
 which a cancelled draft becomes, are counted rather than listed.
 
-Fields a later implementation slice delivers are shown as "-" rather than as a
-value that was never measured.
+A field this build cannot fill is shown as "-" rather than as a value that was
+never measured.
 
 The TASK column is the short key derived from a task's identifier, and it is
 what every command that takes a task accepts.`
@@ -114,10 +114,10 @@ func newTaskListCommand(env *environment) *cobra.Command {
 
 // printTasks renders the task list.
 //
-// The columns are the v0 task row (FR-UI-002) minus the ones no slice has
-// delivered: verification state arrives with the Claude adapter and resource
-// usage with the resource monitor, and both are shown as absent in the
-// dashboard rather than dropped. PR state is not required in v0.
+// The columns are the v0 task row (FR-UI-002). Verification state comes from
+// the Claude adapter and resource usage from the resource monitor; either is
+// shown as absent rather than dropped when there is nothing to report. PR state
+// is not required in v0.
 func printTasks(out io.Writer, tasks []api.Task, now time.Time) {
 	active, archived := 0, 0
 	for _, task := range tasks {

@@ -8,7 +8,7 @@ import (
 	"github.com/ma8el/feat/internal/runtime/compose/runtimetest"
 )
 
-// TestAServiceRunningTheOrdinaryCheckoutIsReported is the failure this slice is
+// TestAServiceRunningTheOrdinaryCheckoutIsReported is the failure this package is
 // least able to see on its own.
 //
 // A repository's container_path is the path the *agent's* Compose files mount it

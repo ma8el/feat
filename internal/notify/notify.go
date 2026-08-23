@@ -89,7 +89,7 @@ var notifiableWorkflow = map[domain.WorkflowState]Condition{
 
 // notifiableProcess maps the agent process states worth interrupting for.
 //
-// Only a failure, and only when the workflow did not move: slice 7's
+// Only a failure, and only when the workflow did not move: the daemon's
 // normalization already turns a dead agent into a failed task wherever that is
 // meaningful, and two notifications for one death would be one too many. The
 // caller chooses between this table and the one above; see daemon.notifyTask.

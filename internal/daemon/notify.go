@@ -140,7 +140,7 @@ func (s *service) notifyPolicy(ctx context.Context, task *domain.Task) notify.Po
 //
 // A tmux that cannot answer is treated as nobody watching, so the notification
 // is delivered. Of the two mistakes, an unnecessary notification is noise and a
-// missing one is the failure this slice exists to prevent.
+// missing one is the failure notifications exist to prevent.
 func (s *service) watching(ctx context.Context, task *domain.Task) bool {
 	if task.Session == nil {
 		return false

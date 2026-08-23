@@ -189,8 +189,8 @@ func TestNothingRunningCostsNoContainerStats(t *testing.T) {
 	}
 }
 
-// TestCollectionFailureDegradesGracefully is the second slice 10 acceptance
-// criterion.
+// TestCollectionFailureDegradesGracefully is the rule that a metric never blocks
+// a task.
 //
 // Every source is asked independently. A machine that cannot report its memory,
 // a Docker that refuses, and a ps that is not there produce three notes and one

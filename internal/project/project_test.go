@@ -239,9 +239,8 @@ func TestHealthyProjectPassesEveryCheckItCanRun(t *testing.T) {
 	}
 }
 
-// TestMissingToolsProduceActionableDiagnostics is part of the slice 3
-// acceptance criterion "Missing tools/files/services produce actionable
-// diagnostics".
+// TestMissingToolsProduceActionableDiagnostics covers the rule that missing
+// tools, files, and services produce actionable diagnostics.
 //
 // Actionable is asserted rather than assumed: every error and warning must say
 // what to do, not only what is wrong.
@@ -488,9 +487,9 @@ func TestUncheckableChecksAreSkippedRatherThanPassed(t *testing.T) {
 	}
 
 	// A configured check that the gate runs in the agent's environment is
-	// skipped for the same reason as the rest: from slice 11 on the gate exists,
-	// so what decides whether the check can be looked up is whether there is a
-	// container to look inside.
+	// skipped for the same reason as the rest: the gate exists, so what decides
+	// whether the check can be looked up is whether there is a container to look
+	// inside.
 	gate := finding(t, findings, "checks.api.test")
 	if gate.Severity != project.SeveritySkipped {
 		t.Errorf("checks.api.test is %q, want skipped", gate.Severity)
@@ -545,11 +544,11 @@ func hostMode(t *testing.T, w *world) {
 	w.runner.output["glab auth status"] = "Logged in"
 }
 
-// TestHostModeChecksTheEnvironmentTheAgentWillRunIn is the slice 7 half of
+// TestHostModeChecksTheEnvironmentTheAgentWillRunIn is the host half of
 // FR-PROJ-004.
 //
 // The requirement is worded around the environment where the agent runs, so a
-// host-mode project can be checked now and a devcontainer one cannot. What was
+// host-mode project is checked on this machine and a devcontainer one is not. What was
 // skipped before must genuinely run here, or the wording would be satisfied by
 // a check that never looks at anything.
 func TestHostModeChecksTheEnvironmentTheAgentWillRunIn(t *testing.T) {
@@ -731,8 +730,8 @@ func rewrite(t *testing.T, w *world, old, replacement string) {
 	}
 }
 
-// TestSecretFileContentsNeverAppearInDiagnostics is the slice 3 acceptance
-// criterion "Secret file contents never appear in diagnostics".
+// TestSecretFileContentsNeverAppearInDiagnostics covers the rule that secret
+// file contents never appear in diagnostics.
 //
 // The environment file is made unreadable, so a diagnostic that opened it could
 // not pass by accident, and its contents are searched for across the whole
@@ -795,9 +794,9 @@ func TestOnlyServiceNamesAreReadFromCompose(t *testing.T) {
 	}
 }
 
-// TestRepositoryAndContainerPathsAreReported is the slice 3 acceptance
-// criterion "Repository/container-path mappings are printed accurately", at the
-// level that produces them for `feat doctor`.
+// TestRepositoryAndContainerPathsAreReported covers the rule that repository and
+// container-path mappings are printed accurately, at the level that produces
+// them for `feat doctor`.
 func TestRepositoryAndContainerPathsAreReported(t *testing.T) {
 	w := arrange(t)
 	report := w.diagnose(t)
@@ -950,7 +949,7 @@ func TestDiagnosisSurvivesAnUnreadableConfigurationDirectory(t *testing.T) {
 	}
 }
 
-// TestALiveContainerIsCheckedInsteadOfBeingSkipped is the slice 8 half of
+// TestALiveContainerIsCheckedInsteadOfBeingSkipped is the devcontainer half of
 // FR-PROJ-004.
 //
 // The requirement is worded around the environment where the agent runs. Once a

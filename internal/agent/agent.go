@@ -35,10 +35,10 @@ type Adapter interface {
 
 // Environment describes where an agent will run and how to ask it questions.
 //
-// Slice 7 fills it for the trusted host. Slice 8 fills the same structure for a
-// Compose service, which is the whole reason validation takes an environment
-// rather than reaching for the host itself: a check that ran in the wrong place
-// answers a question nobody asked.
+// Host-native execution fills it for the trusted host, and a devcontainer fills
+// the same structure for a Compose service. That is the whole reason validation
+// takes an environment rather than reaching for the host itself: a check that
+// ran in the wrong place answers a question nobody asked.
 type Environment struct {
 	// Mode is where the agent runs.
 	Mode domain.ExecutionMode
@@ -160,9 +160,9 @@ type Gate struct {
 // Workspace tells an adapter how the agent will see its own filesystem.
 //
 // Every path here is expressed in the agent's terms rather than the host's.
-// While execution is host-native the two are the same; once slice 8 runs the
-// agent in a container they are not, and the adapter is written against this
-// structure so that it never has to know which case it is in.
+// Under host-native execution the two are the same; with the agent in a
+// container they are not, and the adapter is written against this structure so
+// that it never has to know which case it is in.
 type Workspace struct {
 	// WorkingDirectory is where the agent starts, as the agent sees it. It is
 	// the task's primary worktree.
@@ -190,9 +190,9 @@ func (w Workspace) Validate() error {
 // LaunchSpec is how to start an agent, expressed in the terms its own
 // environment uses.
 //
-// The daemon turns it into something a terminal can run: today by using the
-// values directly on the host, and from slice 8 by wrapping them in a command
-// that enters the configured container. Neither is the adapter's business.
+// The daemon turns it into something a terminal can run: by using the values
+// directly on the host, or by wrapping them in a command that enters the
+// configured container. Neither is the adapter's business.
 type LaunchSpec struct {
 	// Program is the agent executable.
 	Program string

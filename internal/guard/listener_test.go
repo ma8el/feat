@@ -34,9 +34,8 @@ var networkArgIndex = map[string]int{
 	"DialContext":  1,
 }
 
-// TestNoNetworkListenerOrDial checks the slice 2 acceptance criterion that no TCP
-// listener is opened, and the security rule that the local API is a Unix-domain
-// socket only (ADR-009).
+// TestNoNetworkListenerOrDial checks that no TCP listener is opened, and the
+// security rule that the local API is a Unix-domain socket only (ADR-009).
 //
 // It is a source rule rather than a runtime assertion because that is where it
 // can be complete: a test can only observe the listeners a particular code path

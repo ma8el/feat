@@ -58,7 +58,8 @@ func findings(report api.Reconciliation, class reconcile.Class) []api.Reconcilia
 	return found
 }
 
-// TestDaemonRestartLosesNoTaskIdentity is slice 12's first acceptance criterion.
+// TestDaemonRestartLosesNoTaskIdentity is the rule that a restart loses no task
+// identity.
 //
 // Identity is the task's own record and the metadata on the live tmux objects,
 // neither of which the daemon holds in memory. So the check is that a second
@@ -157,8 +158,8 @@ func TestAnActionNamesSomethingAUserCanDo(t *testing.T) {
 	}
 }
 
-// TestOneDamagedTerminalLeavesTheHealthyOnesUsable is slice 12's fifth
-// acceptance criterion, and the deferral ADR-030 recorded.
+// TestOneDamagedTerminalLeavesTheHealthyOnesUsable is the quarantine rule, and
+// the deferral ADR-030 recorded.
 //
 // Before quarantine, one inconsistent tagged object failed discovery for the
 // whole server: every unrelated task became unreachable and startup
@@ -216,8 +217,8 @@ func TestOneDamagedTerminalLeavesTheHealthyOnesUsable(t *testing.T) {
 	}
 }
 
-// TestStoppedContainersAreNotRestarted is slice 12's second acceptance
-// criterion, checked by counting the commands a pass produces.
+// TestStoppedContainersAreNotRestarted is FR-STATE-004, checked by counting the
+// commands a pass produces.
 //
 // That no container command ran at all is a stronger statement than that a
 // container happens to still be stopped.
@@ -261,8 +262,8 @@ func TestStoppedContainersAreNotRestarted(t *testing.T) {
 	}
 }
 
-// TestOrphanResourcesAreReportedBeforeAdoptionOrRemoval is slice 12's fourth
-// acceptance criterion.
+// TestOrphanResourcesAreReportedBeforeAdoptionOrRemoval is the rule that an
+// orphan is reported rather than adopted or removed.
 func TestOrphanResourcesAreReportedBeforeAdoptionOrRemoval(t *testing.T) {
 	arranged := prepared(t)
 	orphan := domain.NewTaskID()

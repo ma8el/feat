@@ -9,8 +9,8 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// The completion gate is `make check`, which CLAUDE.md declares a slice
-// complete against. Two of its properties are configuration rather than code,
+// The completion gate is `make check`, which CLAUDE.md declares work complete
+// against. Two of its properties are configuration rather than code,
 // and both were wrong: the tier that proves anything about Git, tmux and Docker
 // downgraded a missing tool to a skip, and a skipped package prints "ok"; and CI
 // ran the same tier without -count=1 against a warm test cache, so a re-run

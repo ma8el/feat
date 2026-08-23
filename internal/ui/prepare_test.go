@@ -623,8 +623,8 @@ func TestConfirmingCarriesTheDisplayedFingerprint(t *testing.T) {
 	}
 }
 
-// TestCancellingPreparationCreatesNothing is the slice 6 acceptance criterion
-// at the screen the user cancels from.
+// TestCancellingPreparationCreatesNothing is FR-TASK-003 at the screen the user
+// cancels from.
 func TestCancellingPreparationCreatesNothing(t *testing.T) {
 	backend := newFakeBackend()
 	model := prepared(t, backend)

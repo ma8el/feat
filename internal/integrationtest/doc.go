@@ -4,7 +4,7 @@
 // Feat proves anything about Git, tmux, Docker, or a container boundary. Every
 // file in that tier used to downgrade a missing or unanswering tool to t.Skip,
 // and non-verbose `go test` prints "ok" for a package whose selected tests all
-// skipped. So `make check`, the gate CLAUDE.md declares a slice complete
+// skipped. So `make check`, the gate CLAUDE.md declares work complete
 // against, passed identically on a machine that proved everything and one that
 // proved nothing: stopping Docker Desktop silently removed every
 // container-boundary proof and the gate still went green.

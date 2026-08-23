@@ -7,7 +7,8 @@
 //
 // Commands in this package are clients. They must not read or write persistent
 // state directly: the daemon is the only writer (CLAUDE.md architectural rules).
-// Every command that a later slice will implement is registered now with a
-// NotImplementedError naming its owning slice, so that `feat --help` describes
-// the real v0 command surface without any subcommand pretending to work.
+// A command that does not do its work yet is registered all the same, returning
+// a NotImplementedError that says what is missing, so that `feat --help`
+// describes the real v0 command surface without any subcommand pretending to
+// work.
 package cli

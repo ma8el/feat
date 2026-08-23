@@ -16,8 +16,8 @@ import (
 // fakeNotifier records what would have reached the desktop.
 //
 // It exists so that the suite never shows a real notification, and so that a
-// test can assert the absence of one — which is most of what slice 10's
-// acceptance criteria are about.
+// test can assert the absence of one — which is most of what the notification
+// rules are about.
 //
 // It can also be pointed at this platform's own notifier, which is how the
 // opt-in walk in notify_integration_test.go reaches a real desktop while these
@@ -100,8 +100,8 @@ func (s *session) delivering() *session {
 	return s
 }
 
-// TestIdleNotificationsDoNotFireImmediately is the third slice 10 acceptance
-// criterion, in its first half.
+// TestIdleNotificationsDoNotFireImmediately is the grace-period rule, in its
+// first half.
 //
 // Two grace periods pass before the user is interrupted, and they are measured
 // from different moments: the provider's own decides when an ended turn becomes
@@ -195,8 +195,8 @@ func TestAnAgentThatStartsTalkingAgainIsNotNotifiedAbout(t *testing.T) {
 	}
 }
 
-// TestAReviewRequestNotifiesWithoutExposingTaskContent is the fourth slice 10
-// acceptance criterion.
+// TestAReviewRequestNotifiesWithoutExposingTaskContent is the rule that a
+// notification never carries task content.
 //
 // The task's brief carries a marker no notification may contain. The check is
 // worth more than it looks: the notification is composed from a Subject that has
@@ -256,8 +256,8 @@ func TestAFailedSessionIsNotifiedAboutOnce(t *testing.T) {
 // TestNotificationsAreRecordedAsTaskEvents checks the durable trace.
 //
 // A desktop notification is gone the moment it is dismissed. Recording one keeps
-// the answer to "what did Feat interrupt me about", and gives slice 13 the
-// figures it has to measure false idle notifications from.
+// the answer to "what did Feat interrupt me about", and gives the figures that
+// false idle notifications are measured from.
 func TestNotificationsAreRecordedAsTaskEvents(t *testing.T) {
 	live := launch(t, hostFixture, installed(), true).watchable()
 	live.start(t)
@@ -344,8 +344,8 @@ notifications:
 // TestFailedApplicationServicesAreNotifiedAbout covers the one notifiable
 // condition that had no test reaching it.
 //
-// It was found by walking every condition against a real desktop for slice 13:
-// six arrived and this one did not, because the fixture could not express a
+// It was found by walking every condition against a real desktop: six arrived
+// and this one did not, because the fixture could not express a
 // container that exited non-zero and so could not produce a failed runtime at
 // all. What the notification path needed was already right; what was missing was
 // any test that got there.
@@ -386,9 +386,9 @@ func TestFailedApplicationServicesAreNotifiedAbout(t *testing.T) {
 	}
 }
 
-// TestEveryDroppedNotificationSaysWhichPolicyDroppedIt is the slice 13
-// acceptance criterion that each policy which drops a notification drops it for
-// a reason a user would recognise.
+// TestEveryDroppedNotificationSaysWhichPolicyDroppedIt is the rule that each
+// policy which drops a notification drops it for a reason a user would
+// recognise.
 //
 // A notification that never arrives is invisible by construction. The state
 // change it was about is recorded correctly either way, so there is nothing to

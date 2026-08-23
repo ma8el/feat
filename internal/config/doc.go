@@ -44,6 +44,5 @@
 //     never imply Docker access, and the three capabilities Feat cannot
 //     actually vary accept only the value Feat delivers.
 //
-// Delivered by slice 3. See ADR-028 in
-// docs/10-decisions-and-open-questions.md.
+// See ADR-028 in docs/10-decisions-and-open-questions.md.
 package config

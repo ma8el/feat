@@ -15,9 +15,9 @@
 //     authentication inside the execution environment where Claude will run.
 //
 // Enforcing configured checks through a provider-native completion gate is not
-// here. Those checks run in the agent's environment, and nothing starts one
-// before slice 8; until then a review request carries what the agent says it
-// ran, attributed to the agent (ADR-032).
+// here. Those checks run in the agent's environment, which the daemon owns; a
+// review request from a project that configures none carries what the agent
+// says it ran, attributed to the agent (ADR-032).
 //
 // Rules this package must enforce:
 //

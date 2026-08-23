@@ -106,8 +106,8 @@ func (r *running) client(t *testing.T) *client.Client {
 	return caller
 }
 
-// TestTwoClientsQueryConcurrently is the slice 2 acceptance criterion that two
-// clients can query the daemon at the same time. Two operating-system processes
+// TestTwoClientsQueryConcurrently covers the rule that two clients can query the
+// daemon at the same time. Two operating-system processes
 // doing it are covered by the opt-in test in integration_test.go; this checks the
 // daemon under concurrent load, which is the part that can break silently.
 func TestTwoClientsQueryConcurrently(t *testing.T) {
@@ -181,13 +181,12 @@ func TestHealthReportsTheRunningDaemon(t *testing.T) {
 	}
 }
 
-// TestServeStreamsEventsInOrder is the slice 2 acceptance criterion that state
-// events arrive through SSE in order, checked over a real socket with two
-// connected clients.
+// TestServeStreamsEventsInOrder covers the rule that state events arrive through
+// SSE in order, checked over a real socket with two connected clients.
 //
-// Slice 2 has no writer of persistent state, so the events are published
-// directly; the bus, the SSE encoding, the socket, and the client parser in the
-// path are the real ones (ADR-027).
+// The events are published directly rather than through a write; the bus, the
+// SSE encoding, the socket, and the client parser in the path are the real ones
+// (ADR-027).
 func TestServeStreamsEventsInOrder(t *testing.T) {
 	live := serve(t, Options{})
 
@@ -381,7 +380,7 @@ func TestShutdownReleasesOwnership(t *testing.T) {
 }
 
 // seed writes state directly through the daemon's own store, which is how a test
-// arranges state that slices 3 and 6 will write for real.
+// arranges state that registration and task preparation write for real.
 func seed(t *testing.T, live *running, project *domain.Project, task *domain.Task) {
 	t.Helper()
 

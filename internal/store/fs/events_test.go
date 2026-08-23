@@ -85,8 +85,7 @@ func TestSequencesContinueAfterARestart(t *testing.T) {
 	}
 }
 
-// TestReplayIgnoresOnlyAnIncompleteFinalRecord checks the slice 1 acceptance
-// criterion.
+// TestReplayIgnoresOnlyAnIncompleteFinalRecord checks what replay may drop.
 //
 // A record is complete when it is terminated by a newline. An unterminated final
 // record is what a crash during an append leaves behind. Anything else that

@@ -162,9 +162,9 @@ func realProject(t *testing.T) *realFixture {
 	}
 }
 
-// TestRealDirtyCheckoutIsPreservedAndDoesNotBlockATask is the slice 4
-// acceptance criterion that dirty changes in the ordinary checkout are
-// preserved and do not block an independent task (FR-GIT-003).
+// TestRealDirtyCheckoutIsPreservedAndDoesNotBlockATask covers the rule that
+// dirty changes in the ordinary checkout are preserved and do not block an
+// independent task (FR-GIT-003).
 //
 // The check is byte-for-byte on the porcelain status, and includes the branch,
 // HEAD, and the index, because "preserved" has to mean all of them: a stray
@@ -228,8 +228,8 @@ func gitQuery(name string) []string {
 	}
 }
 
-// TestRealRemoteBaseUsesTheFetchedCommit is the slice 4 acceptance criterion
-// that remote base resolution uses the fetched remote-tracking commit.
+// TestRealRemoteBaseUsesTheFetchedCommit covers the rule that remote base
+// resolution uses the fetched remote-tracking commit.
 //
 // The distinction only becomes visible when the three candidate commits differ:
 // what this checkout has, what its remote-tracking ref had before the fetch, and
@@ -277,9 +277,9 @@ func TestRealRemoteBaseUsesTheFetchedCommit(t *testing.T) {
 	}
 }
 
-// TestRealTwoRepositoryTaskMapping is the slice 4 acceptance criterion that a
-// two-repository task receives the correct branch and worktree mapping, and
-// that read-only and read-write selections are recorded correctly.
+// TestRealTwoRepositoryTaskMapping covers the rule that a two-repository task
+// receives the correct branch and worktree mapping, and that read-only and
+// read-write selections are recorded correctly.
 func TestRealTwoRepositoryTaskMapping(t *testing.T) {
 	requireGit(t)
 	f := realProject(t)
@@ -348,9 +348,9 @@ func TestRealTwoRepositoryTaskMapping(t *testing.T) {
 	}
 }
 
-// TestRealFailureHalfwayLeavesNoUnidentifiedWorktree is the slice 4 acceptance
-// criterion that a failure halfway through creation leaves a recoverable record
-// and no unidentified worktree.
+// TestRealFailureHalfwayLeavesNoUnidentifiedWorktree covers the rule that a
+// failure halfway through creation leaves a recoverable record and no
+// unidentified worktree.
 //
 // "Unidentified" is checked literally: every directory under the task's
 // worktree root and every worktree Git has registered must be one the plan
@@ -434,9 +434,9 @@ func TestRealFailureHalfwayLeavesNoUnidentifiedWorktree(t *testing.T) {
 	}
 }
 
-// TestRealCleanupPlanSeesDirtyAndUnmergedWork checks that the inventory a later
-// slice acts on reports the risks Git actually knows about, rather than the ones
-// a fake was told to report.
+// TestRealCleanupPlanSeesDirtyAndUnmergedWork checks that the inventory cleanup
+// acts on reports the risks Git actually knows about, rather than the ones a
+// fake was told to report.
 func TestRealCleanupPlanSeesDirtyAndUnmergedWork(t *testing.T) {
 	requireGit(t)
 	f := realProject(t)
@@ -500,8 +500,8 @@ func TestRealCleanupPlanSeesDirtyAndUnmergedWork(t *testing.T) {
 	}
 }
 
-// TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety is slice 12's
-// seventh acceptance criterion against Git itself.
+// TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety is the refusal rule
+// for broad and non-task paths, against Git itself.
 //
 // The precise rule — that a target is inside the directory Feat owns and outside
 // every checkout — is this adapter's, and it runs again immediately before
@@ -603,8 +603,7 @@ func TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety(t *testing.T) {
 	}
 }
 
-// TestRealComparisonAgainstTheRecordedBase is slice 11's first acceptance
-// criterion against Git itself.
+// TestRealComparisonAgainstTheRecordedBase is FR-REV-001 against Git itself.
 //
 // The commit the task started from is what every number is measured against,
 // and the point of asking real Git is the parts a fake cannot decide: that

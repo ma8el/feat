@@ -396,7 +396,7 @@ func runtimeSource(service api.RuntimeService) string {
 	return "dependency"
 }
 
-// approvalOffer is the fifth acceptance criterion of slice 9, in words.
+// approvalOffer is FR-RUN-005's rule about approval, in words.
 //
 // An approved task whose services are still running is offered the stop and
 // never given it: approval is a statement about the work, and the environment

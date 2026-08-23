@@ -44,7 +44,7 @@ func (s *service) controlWorkspace(task *domain.Task) (*control.Workspace, error
 //
 // A task whose delivery fails is logged and the others are still read: one
 // task's damaged workspace must not stop every other task from reporting, which
-// is the same rule slice 12 will state for reconciliation generally.
+// is the same rule reconciliation states generally.
 func (s *service) pollControl(ctx context.Context) {
 	tasks, err := s.Tasks(ctx)
 	if err != nil {

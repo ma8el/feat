@@ -10,11 +10,11 @@ import (
 
 // unavailable explains why this build delivers nothing.
 //
-// It names the slice that delivers Linux support, which is the rule ADR-028
-// established for a diagnostic a build cannot run: a capability that is absent
-// says so, rather than reporting success it has not earned. The TUI's attention
-// badges work everywhere and are unaffected.
-const unavailable = "Feat delivers desktop notifications on macOS in v0.1; Linux support arrives with slice 14"
+// It says which platform is supported and which is not, which is the rule
+// ADR-028 established for a diagnostic a build cannot run: a capability that is
+// absent says so, rather than reporting success it has not earned. The TUI's
+// attention badges work everywhere and are unaffected.
+const unavailable = "Feat delivers desktop notifications on macOS only; support for this platform is v0.2 work"
 
 // Absent is the notifier of a platform Feat does not deliver on yet.
 type Absent struct{}

@@ -14,9 +14,9 @@ import (
 // claimStateDirectory reads the durable daemon record, refuses a state
 // directory this build must not write to, and records that a run has begun.
 //
-// ADR-027 deferred this record to the first slice that reads one, and named this
-// slice. It is written here because it has three readers rather than because it
-// was scheduled: the state schema decides whether this build may write at all,
+// ADR-027 deferred this record to the first code that reads one. It is written
+// here because it has three readers rather than because it was scheduled: the
+// state schema decides whether this build may write at all,
 // the clean-shutdown flag is what lets a recovery report say a daemon crashed
 // rather than leaving a user to infer it, and the stop time is how long Feat was
 // not looking (ADR-037).

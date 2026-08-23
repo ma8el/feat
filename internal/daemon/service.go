@@ -379,10 +379,8 @@ func (s *service) Subscribe(ctx context.Context) (<-chan api.Event, error) {
 
 // Publish records a state change on the event stream.
 //
-// Slice 2 has no writer of persistent state, so nothing calls this in
-// production yet: the endpoints that change the world arrive with the slices
-// that can create something to change. The delivery path is real, and its order
-// and backpressure behaviour are tested through it (ADR-027).
+// The delivery path's order and backpressure behaviour are tested through it
+// (ADR-027).
 func (s *service) Publish(event domain.Event) uint64 {
 	return s.bus.Publish(api.TaskEventOf(event))
 }

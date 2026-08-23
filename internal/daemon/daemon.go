@@ -258,9 +258,8 @@ func truthy(value string) bool {
 // Publish records a state change on the event stream and returns its stream
 // sequence.
 //
-// It is how a later slice reports what it changed: the writer publishes after it
-// has persisted, so a client that reacts to an event finds the state the event
-// describes.
+// The writer publishes after it has persisted, so a client that reacts to an
+// event finds the state the event describes.
 func (d *Daemon) Publish(event domain.Event) uint64 { return d.service.Publish(event) }
 
 // Store returns the persistent state. It is the daemon's own store, and the

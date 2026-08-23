@@ -361,7 +361,7 @@ other than the plan that will be executed.
 
 Stopping/removing containers, removing volumes, removing worktrees, and deleting branches MUST be separate choices.
 
-Slice 12 separates the agent's containers from the application's, because they
+Cleanup separates the agent's containers from the application's, because they
 are distinct concepts everywhere else in the product, and adds two classes this
 list does not reach: the task's tmux window and its control workspace. Both are
 resources a task owns, and FR-CLEAN-001 requires the inventory to be exact. The

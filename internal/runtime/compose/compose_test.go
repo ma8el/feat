@@ -530,8 +530,8 @@ func TestCreateBuildsWhatItIsAboutToCreate(t *testing.T) {
 	}
 }
 
-// TestAServiceNothingDefinesIsRefusedByName is the defect this slice's own
-// dogfood run produced.
+// TestAServiceNothingDefinesIsRefusedByName is a defect a dogfood run
+// produced.
 //
 // One repository's `compose_files` was switched to the file defining its
 // production service while its `services` still named the development one. The

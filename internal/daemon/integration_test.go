@@ -13,9 +13,8 @@ import (
 )
 
 // TestBinaryLifecycle exercises `feat daemon start`, `status`, and `stop` as
-// separate operating-system processes, and is the literal form of the slice 2
-// acceptance criterion that two client processes can query the daemon
-// concurrently.
+// separate operating-system processes, and is the literal form of the rule that
+// two client processes can query the daemon concurrently.
 //
 // It is opt-in because it builds the binary. Set FEAT_INTEGRATION=1 to run it;
 // CI does.

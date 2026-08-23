@@ -16,8 +16,8 @@ import (
 // Ownership labels applied to every resource of a task's runtime.
 //
 // They make what a task owns discoverable without reading any persistent state,
-// which is how a later reconciliation resolves it and how this slice lists a
-// task's networks and volumes. The kind label separates an application service
+// which is how reconciliation resolves it and how this package lists a task's
+// networks and volumes. The kind label separates an application service
 // from the agent's own container: both are Feat's, and only one of them is the
 // environment the user is testing.
 const (

@@ -8,6 +8,4 @@
 // docs/08-v0-scope.md excludes a built-in source diff renderer and a full
 // transcript view from v0. Review opens the user's configured external
 // commands instead.
-//
-// Slice 0 provides only the health screen.
 package ui

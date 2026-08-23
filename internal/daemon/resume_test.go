@@ -44,8 +44,8 @@ func dead(t *testing.T, sessionID string) *session {
 	return live
 }
 
-// TestAFailedSessionIsResumedOnlyByExplicitUserAction is slice 12's third
-// acceptance criterion, first half.
+// TestAFailedSessionIsResumedOnlyByExplicitUserAction is the rule that recovery
+// is never automatic, first half.
 //
 // It is checked by counting the commands every automatic path produces: that
 // reconciliation ran no tmux command at all is a stronger statement than that a

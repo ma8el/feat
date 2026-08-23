@@ -25,6 +25,4 @@
 // meet. They answer different questions — what the user tests, and where the
 // agent runs — and the Compose plumbing is deliberately duplicated rather than
 // shared, because sharing it would put both behind one type (ADR-034).
-//
-// Delivered by slice 9.
 package compose

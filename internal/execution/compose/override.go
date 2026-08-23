@@ -16,7 +16,7 @@ import (
 //
 // They are what makes a task's container discoverable without reading any
 // persistent state, which is how `feat doctor` finds one to probe inside
-// without a daemon and how slice 12 will resolve what a task owns. The schema
+// without a daemon and how cleanup resolves what a task owns. The schema
 // label exists so a later version can recognise a container this one created.
 const (
 	LabelOwner   = "dev.feat.owner"

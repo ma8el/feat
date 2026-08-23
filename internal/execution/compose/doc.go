@@ -20,6 +20,4 @@
 // Compose is invoked as an argument vector on the trusted host. A normal
 // devcontainer is not claimed to resist deliberate kernel or container-runtime
 // exploitation.
-//
-// Delivered by slice 8.
 package compose

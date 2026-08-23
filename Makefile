@@ -1,7 +1,7 @@
 # Development commands for Feat.
 #
 # `make check` runs everything CI runs. CLAUDE.md requires formatting, lint,
-# tests, and build to pass before a slice is declared complete.
+# tests, and build to pass before work is declared complete.
 
 BINARY := feat
 MODULE := github.com/ma8el/feat

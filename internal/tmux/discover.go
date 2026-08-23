@@ -225,7 +225,7 @@ func parseWindows(output string) (map[string]windowRecord, []Damaged) {
 			// nobody watching. Suppression then errs towards delivering a
 			// notification, which is the safer of the two mistakes: a notification
 			// the user did not need is noise, and one they never got is the
-			// failure this slice exists to prevent.
+			// failure suppression exists to prevent.
 			viewers: parseCount(fields[6]),
 		}
 	}
