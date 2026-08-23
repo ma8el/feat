@@ -192,10 +192,10 @@ func newDaemonRunCommand(env *environment) *cobra.Command {
 		Long: `Run the daemon in this process until it is interrupted.
 
 This is the process that ` + "`feat daemon start`" + ` spawns, and the command a
-service manager should invoke. It is hidden from help because it is not the way
-a person starts a daemon.`,
-		// Hidden, but still pinned by the command-surface golden file: hidden is
-		// not the same as unpublished (ADR-027).
+service manager should invoke.`,
+		// Hidden from help because it is not the way a person starts a daemon,
+		// but still pinned by the command-surface golden file: hidden is not the
+		// same as unpublished (ADR-027).
 		Hidden: true,
 		Args:   checkArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {

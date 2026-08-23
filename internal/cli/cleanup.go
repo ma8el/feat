@@ -21,9 +21,6 @@ them: what holds a file is stopped before the file is removed. Volumes are
 retained unless you choose them. Dirty worktrees, unpushed commits, and unmerged
 branches are shown and need a second, explicit confirmation.
 
-There is no flag that answers every question. Removing a task's work is not a
-thing to do by accident, and a single --yes is exactly how it would happen.
-
 Outside a terminal the inventory is printed and nothing is removed, so this is
 safe in a pipe or a script that only wants to see what a task owns.`
 

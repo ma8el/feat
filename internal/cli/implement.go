@@ -22,7 +22,7 @@ import (
 // before being told so is worth avoiding here as well.
 const maxBriefBytes = 256 << 10
 
-const implementLong = `Open task preparation.
+const implementLong = `Prepare and launch a task.
 
 You choose the project, write the task brief, and select which repositories the
 task may read and write. Feat then fetches, resolves each repository's base

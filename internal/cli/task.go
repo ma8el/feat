@@ -34,14 +34,12 @@ what every command that takes a task accepts.`
 
 // taskArgument says what <task> is, wherever a command takes one.
 //
-// It is one sentence repeated rather than a rule stated once somewhere else,
-// because the command a user is reading is where they need it: the defect this
-// answers was a user reading `feat attach <task>` with nowhere to get the
-// argument from.
-const taskArgument = `<task> is a task's short key as ` + "`feat task list`" + ` prints it, its whole
-identifier as the dashboard's task detail shows it, or any prefix of that
-identifier. A prefix that matches two tasks is reported rather than resolved to
-either.`
+// It is repeated rather than stated once somewhere else, because the command a
+// user is reading is where they need it: the defect this answers was a user
+// reading `feat attach <task>` with nowhere to get the argument from.
+const taskArgument = `<task> is a task's short key as ` + "`feat task list`" + ` prints it, its full
+identifier, or any prefix of that identifier. A prefix that matches more than
+one task is reported rather than resolved to one of them.`
 
 // withTaskArgument appends that sentence to a command's help.
 func withTaskArgument(long string) string {
@@ -53,9 +51,8 @@ func withTaskArgument(long string) string {
 
 const taskLong = `Work with the tasks Feat knows about.
 
-Every command that acts on an existing task is here, because naming a task is
-what they have in common (ADR-040). A task is created by ` + "`feat implement`" + `, which
-takes no task: it produces one.`
+Every command that acts on an existing task is here. To create one, run
+` + "`feat implement`" + `.`
 
 // newTaskCommand groups everything that acts on an existing task.
 //
@@ -65,7 +62,7 @@ takes no task: it produces one.`
 func newTaskCommand(env *environment, attach, review *cobra.Command) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "task",
-		Short: "List tasks and act on one",
+		Short: "Work with existing tasks",
 		Long:  taskLong,
 
 		// Cleanup was a top-level command until ADR-040 and is the one that did

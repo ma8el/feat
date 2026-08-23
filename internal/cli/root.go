@@ -115,8 +115,7 @@ runtime.
 
 Running feat without a subcommand opens the dashboard.
 
-This build is alpha. What it does not do yet, it says so rather than
-reporting a success it has not earned.`
+This build is alpha.`
 
 // NewRootCommand builds the full feat command tree.
 func NewRootCommand(opts Options) *cobra.Command {
@@ -230,9 +229,10 @@ func NewRootCommand(opts Options) *cobra.Command {
 // walks hidden commands, still pins it.
 func aliasOf(canonical *cobra.Command, path string) *cobra.Command {
 	return &cobra.Command{
-		Use:    canonical.Use,
-		Short:  canonical.Short,
-		Long:   "This is " + path + " under a shorter name.\n\n" + canonical.Long,
+		Use:   canonical.Use,
+		Short: canonical.Short,
+		Long: canonical.Long + "\n\n" +
+			"`feat " + canonical.Name() + "` is a shorter name for `" + path + "`.",
 		Args:   canonical.Args,
 		Hidden: true,
 		RunE:   canonical.RunE,
@@ -243,6 +243,7 @@ func newVersionCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print build information",
+		Long:  `Print this build's version, commit, build date, Go version, and platform.`,
 		Args:  checkArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			_, err := fmt.Fprintln(cmd.OutOrStdout(), version.Get())
