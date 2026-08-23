@@ -45,21 +45,33 @@ func (s *service) controlWorkspace(task *domain.Task) (*control.Workspace, error
 // A task whose delivery fails is logged and the others are still read: one
 // task's damaged workspace must not stop every other task from reporting, which
 // is the same rule reconciliation states generally.
+// It runs four times a second, so a failure it reports on every tick is a
+// failure written to the log four times a second for as long as it lasts. Both
+// reports below are therefore made once per distinct failure rather than once
+// per tick; see repeats.
 func (s *service) pollControl(ctx context.Context) {
 	tasks, err := s.Tasks(ctx)
 	if err != nil {
-		s.logger.WarnContext(ctx, "listing tasks to read control messages", slog.Any("error", err))
+		if s.repeats.changed("control:tasks", err.Error()) {
+			s.logger.WarnContext(ctx, "listing tasks to read control messages", slog.Any("error", err))
+		}
 		return
 	}
+	s.repeats.clear("control:tasks")
 
 	for _, task := range tasks {
 		if !watching(task) {
 			continue
 		}
+		subject := "control:" + task.ID.String()
 		if err := s.deliverControl(ctx, task); err != nil {
-			s.logger.WarnContext(ctx, "reading a task's control workspace",
-				slog.String("task", task.ID.String()), slog.Any("error", err))
+			if s.repeats.changed(subject, err.Error()) {
+				s.logger.WarnContext(ctx, "reading a task's control workspace",
+					slog.String("task", task.ID.String()), slog.Any("error", err))
+			}
+			continue
 		}
+		s.repeats.clear(subject)
 	}
 }
 

@@ -1087,6 +1087,16 @@ func (s *server) recoverPanic(next http.Handler) http.Handler {
 }
 
 // logRequests records one line per request.
+//
+// At debug level, because every dashboard refresh and every CLI invocation is a
+// request: an access log kept at the default level is the one thing here whose
+// volume is set by how long the daemon has been running rather than by anything
+// happening.
+//
+// What the default level keeps is the part that reports a problem: fail logs a
+// request the daemon could not explain, and recoverPanic logs one that panicked.
+// A request rejected as malformed is not logged at either level, because the
+// client was told exactly why in the response it got back.
 func (s *server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := s.requests.Add(1)
@@ -1095,7 +1105,7 @@ func (s *server) logRequests(next http.Handler) http.Handler {
 
 		next.ServeHTTP(recorder, r)
 
-		s.logger.InfoContext(r.Context(), "request",
+		s.logger.DebugContext(r.Context(), "request",
 			slog.Uint64("request", id),
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),

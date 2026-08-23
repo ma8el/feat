@@ -1064,18 +1064,29 @@ func (s *service) runtimes(spec runtime.Spec) (runtime.Runtime, error) {
 func (s *service) pollRuntimes(ctx context.Context) {
 	tasks, err := s.Tasks(ctx)
 	if err != nil {
-		s.logger.WarnContext(ctx, "listing tasks to observe their runtimes", slog.Any("error", err))
+		if s.repeats.changed("runtime:tasks", err.Error()) {
+			s.logger.WarnContext(ctx, "listing tasks to observe their runtimes", slog.Any("error", err))
+		}
 		return
 	}
+	s.repeats.clear("runtime:tasks")
 
 	for _, task := range tasks {
 		if task.Runtime == nil || task.Workflow == domain.WorkflowArchived {
 			continue
 		}
+		// A container runtime that is not running fails this for every task on
+		// every tick, so it is reported once per distinct failure rather than
+		// once per tick; see repeats.
+		subject := "runtime:" + task.ID.String()
 		if _, err := s.observeRuntime(ctx, task); err != nil && !errors.Is(err, ErrRuntimeUnconfigured) {
-			s.logger.WarnContext(ctx, "observing a task's application services",
-				slog.String("task", task.ID.String()), slog.Any("error", err))
+			if s.repeats.changed(subject, err.Error()) {
+				s.logger.WarnContext(ctx, "observing a task's application services",
+					slog.String("task", task.ID.String()), slog.Any("error", err))
+			}
+			continue
 		}
+		s.repeats.clear(subject)
 	}
 }
 
