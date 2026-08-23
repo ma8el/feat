@@ -96,6 +96,39 @@ func TestTheFooterSaysItOnce(t *testing.T) {
 	}
 }
 
+// TestTheDialogIsSizedToItsContent keeps the box the size of its text.
+//
+// dialogBox shrinks to the widest line it is handed, and lipgloss pads every
+// wrapped line out to the width it wrapped to — so a body folded to what it was
+// allowed reported itself as exactly that wide, and a dialog holding two
+// sentences took three quarters of the terminal.
+func TestTheDialogIsSizedToItsContent(t *testing.T) {
+	model := sized(stopped(t, newFakeBackend()), 200, 50)
+
+	drawn, _ := blockSize(model.dialogView())
+	allowed, _ := model.dialogLimits()
+
+	if drawn >= allowed {
+		t.Errorf("the dialog took all %d cells it was allowed rather than sizing to its text", allowed)
+	}
+	if ceiling := daemonBodyWidest + dialogChrome; drawn > ceiling {
+		t.Errorf("the dialog is %d cells wide, and its prose is folded to %d", drawn, daemonBodyWidest)
+	}
+}
+
+// TestTheDialogStillFitsANarrowTerminal checks the other end: the measure is a
+// ceiling, not a width, so a terminal narrower than it is not overrun.
+func TestTheDialogStillFitsANarrowTerminal(t *testing.T) {
+	model := sized(stopped(t, newFakeBackend()), 90, 30)
+
+	drawn, _ := blockSize(model.dialogView())
+	allowed, _ := model.dialogLimits()
+
+	if drawn > allowed {
+		t.Errorf("the dialog is %d cells wide in a box allowed %d", drawn, allowed)
+	}
+}
+
 // TestTheDialogIsTitledAsAWarning keeps the heading saying what is wrong.
 //
 // Every other overlay is titled with what the user asked for — "prepare a task",

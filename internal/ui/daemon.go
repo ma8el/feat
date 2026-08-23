@@ -19,10 +19,17 @@ import (
 // own connection to the thing that answers every other key.
 const startDaemonKey = "S"
 
-// daemonBodyNarrowest is the width the dialog's prose is folded into when the
-// caller allows less. Below it a sentence is one word per line, which is worse
-// than a line that overruns.
-const daemonBodyNarrowest = 24
+// What the dialog's prose is folded into.
+//
+// The widest is a measure rather than an allowance: three quarters of a
+// hundred-and-sixty-cell terminal is a hundred and twenty, and a sentence set
+// across a hundred and twenty cells is one the eye loses its place returning to
+// the start of. The narrowest is where folding stops helping — below it a
+// sentence is one word per line, which is worse than a line that overruns.
+const (
+	daemonBodyNarrowest = 24
+	daemonBodyWidest    = 60
+)
 
 // daemonGone reports whether a failure means nothing is listening on the
 // daemon's socket.
@@ -219,13 +226,36 @@ func (m Model) daemonHints() string {
 	return keyHints(keyHint("y", "start a daemon"), keyHint("n", "leave it stopped"))
 }
 
+// foldProse wraps prose to a readable measure and takes back the padding
+// lipgloss adds.
+//
+// Named for prose because this package already folds something else: a project
+// in the rail folds away, and `fold` in a footer hint means that.
+//
+// Two things at once, and the second is the one that is easy to miss. dialogBox
+// shrinks its box to the widest line it is handed — but lipgloss pads every line
+// out to the width it wrapped to, so a body that kept that padding reported
+// itself as exactly as wide as it was allowed. The box then took three quarters
+// of the terminal to hold two sentences, and the shrink that was written to
+// prevent that could never fire.
+func foldProse(text string, width int) string {
+	measure := min(max(daemonBodyNarrowest, width), daemonBodyWidest)
+	wrapped := lipgloss.NewStyle().Width(measure).Render(text)
+
+	lines := strings.Split(wrapped, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
 // daemonBody is what the dialog says.
 //
 // The prose is folded here rather than left to the box, which composites by cell
 // and truncates: a sentence that has to be read in full is the one thing on this
 // screen that must not end in an ellipsis.
 func (m Model) daemonBody(width int) string {
-	fold := lipgloss.NewStyle().Width(max(daemonBodyNarrowest, width)).Render
+	fold := func(text string) string { return foldProse(text, width) }
 
 	var out strings.Builder
 	out.WriteString(fold(m.daemonSituation()))
