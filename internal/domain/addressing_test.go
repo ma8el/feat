@@ -15,8 +15,8 @@ const (
 	thirdTask  = TaskID("a10b2c3d-4e5f-4061-9273-8495a6b7c8d9")
 )
 
-// TestATaskIsNamedByWhatAUserCanSee is the slice 13 acceptance criterion that a
-// task can be named by what a user can see.
+// TestATaskIsNamedByWhatAUserCanSee is ADR-038's rule that a task can be named
+// by what a user can see.
 //
 // Every list prints the eight-character key and nothing else, so the key has to
 // name a task. The whole identifier keeps working because the dashboard's task

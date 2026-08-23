@@ -67,7 +67,7 @@ linters:
             - pkg: github.com/spf13/cobra
 
         # "Storage code contains no daemon/TUI dependencies"
-        # (docs/11-implementation-plan.md, slice 1 acceptance criteria).
+        # (docs/06-technical-architecture.md; ADR-026).
         storage-stays-independent:
           files:
             - "**/internal/store/**"

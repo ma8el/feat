@@ -171,7 +171,7 @@ func checkOverlaps(found *problems, kind string, mounts []mount) {
 // Whether a contribution without a container path can produce a runtime worth
 // having is a separate question with a separate answer: it produces services
 // running the user's ordinary checkout, which is ADR-065 evidence 1, and
-// refusing it belongs to the slice that can also say which services those are.
+// refusing it belongs where the services those are can also be named.
 func (c *Config) validateRepositoryRuntime(found *problems, id string, repository Repository) {
 	runtime := repository.Runtime
 	if runtime == nil {
@@ -425,9 +425,9 @@ func (c *Config) validateExecution(found *problems) {
 	case execution.User == "":
 		found.add("agent.execution.user", "must name the container user the agent runs as, which must not be root")
 	case isRoot(execution.User):
-		// docs/05-security-model.md requires a non-root agent user, and slice 8
-		// checks the running process. Refusing the configuration is the earlier
-		// and cheaper of the two.
+		// docs/05-security-model.md requires a non-root agent user, and the
+		// execution adapter checks the running process. Refusing the
+		// configuration is the earlier and cheaper of the two.
 		found.add("agent.execution.user", fmt.Sprintf(
 			"is %q: the agent must run as a non-root user in the devcontainer", execution.User))
 	}
@@ -468,8 +468,8 @@ func (c *Config) validateExecution(found *problems) {
 // Three of them accept one value each. That is deliberate: Feat has no
 // mechanism that grants an agent Docker, restricts its network, or limits its
 // Git access, so accepting another value would record a promise the binary does
-// not keep. The declaration is still worth making, because slice 8 checks the
-// running container against it (docs/05-security-model.md).
+// not keep. The declaration is still worth making, because the running
+// container is checked against it (docs/05-security-model.md).
 func (c *Config) validateCapabilities(found *problems) {
 	capabilities := c.Agent.Capabilities
 

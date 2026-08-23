@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// TestComparisonMeasuresAgainstTheRecordedBase is acceptance criterion 1 of
-// slice 11 at the adapter: every number a review shows is measured against the
-// commit the task started from, and the command that produced it says so.
+// TestComparisonMeasuresAgainstTheRecordedBase is FR-REV-001 at the adapter:
+// every number a review shows is measured against the commit the task started
+// from, and the command that produced it says so.
 //
 // It is checked on the argument vector as well as on the result, because a
 // comparison that happened to produce the right numbers against HEAD~1 would

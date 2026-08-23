@@ -15,9 +15,8 @@ Read in this order:
 7. `07-configuration-model.md`
 8. `08-v0-scope.md`
 9. `10-decisions-and-open-questions.md`
-10. the current slice in `11-implementation-plan.md`
 
-Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadmap.md` only to preserve extension boundaries. Do not implement roadmap features during v0 slices.
+Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadmap.md` when the change touches something the roadmap holds for later, so that extension boundaries survive. Do not implement roadmap features during v0.
 
 ## Current product contract
 
@@ -43,8 +42,8 @@ Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadma
 
 ## Scope rules
 
-1. Implement the current ordered slice from `11-implementation-plan.md`.
-2. Do not add ticket ingestion, automated runtime phases, stable hostnames, Codex, remote control, plugin RPC, team features, or an internal diff viewer during v0.1.
+1. Implement what the change asks for and no more; a prerequisite that is proven missing is part of it, a nearby improvement is not.
+2. Do not add ticket ingestion, automated runtime phases, stable hostnames, Codex, remote control, plugin RPC, team features, or an internal diff viewer during v0.
 3. Do not hard-code the reference project's repository names, paths, Compose services, or database behavior.
 4. If an accepted decision appears infeasible, stop and record concrete evidence before changing it.
 5. Open questions are not permission to choose a permanent design prematurely.
@@ -83,7 +82,7 @@ Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadma
 
 ## Quality bar
 
-For every slice:
+For every change:
 
 - write focused unit tests for domain/config/storage logic;
 - use fake adapters for orchestration tests;
@@ -91,9 +90,11 @@ For every slice:
 - make failure halfway through a lifecycle recoverable and explainable;
 - include actionable errors with project/task/resource context;
 - preserve unrelated user checkouts, tmux sessions, containers, volumes, and configuration;
-- run formatting, lint, tests, and build before declaring the slice complete.
+- run formatting, lint, tests, and build before declaring the work complete.
 
 ## Definition of complete
 
-A slice is complete only when its acceptance criteria in `11-implementation-plan.md` pass. Feature presence without recovery, validation, and safe failure behavior is incomplete.
+Work is complete when the behavior it promised is verified, not when the code that would produce it exists. Feature presence without recovery, validation, and safe failure behavior is incomplete.
+
+Prefer fake adapters and deterministic harnesses to requiring real Docker, tmux, or Git in every unit test, and add opt-in end-to-end tests for the real tools. Never expose Docker to the agent to simplify an implementation, and never replace structured agent events with terminal scraping as the semantic source of truth. When evidence changes an accepted design, update `10-decisions-and-open-questions.md` in the same change.
 

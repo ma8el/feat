@@ -10,16 +10,18 @@ replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: pre-alpha.** Slices 0 to 12 of the
-> [implementation plan](docs/11-implementation-plan.md) are complete. The
-> repository has its package skeleton, the full command
-> surface, its development and CI commands, a versioned domain model with
-> file-backed storage, a local daemon serving a JSON API and a state-event
-> stream over a Unix-domain socket, YAML project configuration with
-> diagnostics, and the Git and worktree lifecycle that gives a task its
-> branches and worktrees across several repositories. It also has a dedicated
-> tmux backend with tagged stable identity, native attachment, shell-pane
-> creation, and daemon-restart reconciliation.
+> **Status: alpha.** The v0.1 dogfood scope is complete and Feat is being used
+> on real work. It is not yet packaged for anyone else's machine: host-native
+> execution, Linux notifications, and release binaries are what
+> [the roadmap](docs/09-roadmap.md) still calls v0.2.
+>
+> Feat has the full command surface, a versioned domain model with file-backed
+> storage, a local daemon serving a JSON API and a state-event stream over a
+> Unix-domain socket, YAML project configuration with diagnostics, and the Git
+> and worktree lifecycle that gives a task its branches and worktrees across
+> several repositories. It has a dedicated tmux backend with tagged stable
+> identity, native attachment, shell-pane creation, and daemon-restart
+> reconciliation.
 >
 > **Setting a project up** starts with `feat project init`, or with `p` in the
 > dashboard, which asks the same questions as a dialog. It asks about the
@@ -35,7 +37,7 @@ environment. A task may span several repositories.
 > task control workspace, and goes idle only after a grace period — idle never
 > means done, and only an explicit request from the agent reaches review.
 >
-> A project configured for a devcontainer now runs its agent inside one: Feat
+> A project configured for a devcontainer runs its agent inside one: Feat
 > starts the configured Compose service, mounts each task worktree at the
 > container path its repository configures, mounts the task's control workspace,
 > and launches Claude there as the configured non-root user. Before starting the
@@ -54,17 +56,17 @@ environment. A task may span several repositories.
 > `FEAT_HOST_AGENT=1` in the daemon's environment to run Claude directly on your
 > host instead, with no container boundary around it.
 >
-> A task's **application services** are now yours to run from Feat: create,
-> start, stop, status, logs, and destroy, each under that task's own Compose
-> project. Nothing starts on its own and nothing stops because a task reached
-> review or approval.
+> A task's **application services** are yours to run from Feat: create, start,
+> stop, status, logs, and destroy, each under that task's own Compose project.
+> Nothing starts on its own and nothing stops because a task reached review or
+> approval.
 >
-> The dashboard now shows **what the machine has left** and what each task is
-> using, and Feat **tells you when a task may need you** — on macOS, through the
+> The dashboard shows **what the machine has left** and what each task is using,
+> and Feat **tells you when a task may need you** — on macOS, through the
 > ordinary notification centre.
 >
-> **Review** is now real: every repository against the base commit it started
-> from, your own diff and editor commands, and a gate that runs the project's
+> **Review** compares every repository against the base commit it started from,
+> opens your own diff and editor commands, and runs a gate over the project's
 > configured checks before a task is called ready.
 >
 > **Recovery and cleanup** close the loop. Feat compares what it recorded with
@@ -76,7 +78,7 @@ environment. A task may span several repositories.
 > resource, what it is, and whether it is still there — and remove only what you
 > select, one class at a time, with volumes retained unless chosen. Anything that
 > would lose work says so beside the resource it would lose it on, and again in
-> the confirmation that removes it. Nothing here is usable for real work yet.
+> the confirmation that removes it.
 
 ## Preparing a task
 
@@ -346,7 +348,6 @@ in order, starting with [`docs/README.md`](docs/README.md).
 - [v0 scope](docs/08-v0-scope.md)
 - [Roadmap](docs/09-roadmap.md)
 - [Decisions and open questions](docs/10-decisions-and-open-questions.md)
-- [Implementation plan](docs/11-implementation-plan.md)
 
 ## Development
 

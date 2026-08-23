@@ -16,8 +16,7 @@ import (
 // PrepareTerminal creates or rediscovers the persistent terminal of a confirmed
 // task, running a caller-supplied command in it.
 //
-// It is the seam ADR-030 left for the slices that decide what a task terminal
-// runs. Launch itself no longer goes through it: what a launch runs is chosen by
+// It is the seam ADR-030 left for whatever decides what a task terminal runs. Launch itself no longer goes through it: what a launch runs is chosen by
 // planLaunch, which knows whether an agent can start. What remains here is the
 // terminal lifecycle, exercised directly by the tests that own it.
 func (s *service) PrepareTerminal(ctx context.Context, ref store.TaskRef, command tmux.CommandSpec) (*domain.Task, error) {
@@ -165,8 +164,8 @@ func (s *service) ensureTmux(
 // chose would be a program the daemon runs on its owner's behalf, and the local
 // API takes identifiers rather than things to execute
 // (docs/05-security-model.md, local daemon API). The adapter still receives a
-// resolved command, as ADR-030 requires; slice 8 replaces the host shell with
-// one inside the execution environment.
+// resolved command, as ADR-030 requires, and a devcontainer project gets a shell
+// inside the execution environment rather than on the host.
 func (s *service) OpenShell(ctx context.Context, id domain.TaskID) (api.AttachInfo, error) {
 	task, err := s.Task(ctx, id)
 	if err != nil {

@@ -25,7 +25,7 @@ import (
 )
 
 // hostFixture is a project that runs its agent on the host, which is the mode
-// slice 7 can launch without the execution environment slice 8 delivers.
+// that launches without a container around it.
 const hostFixture = `version: 1
 
 project:
@@ -408,8 +408,8 @@ func agentCommand(t *testing.T, calls [][]string, program string) []string {
 	return nil
 }
 
-// TestClaudeLaunchesInTheTaskWorkingDirectoryWithTheFinalBrief is the first
-// slice 7 acceptance criterion.
+// TestClaudeLaunchesInTheTaskWorkingDirectoryWithTheFinalBrief checks that a
+// session starts where the task's work is, with the brief the user confirmed.
 func TestClaudeLaunchesInTheTaskWorkingDirectoryWithTheFinalBrief(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 
@@ -457,8 +457,8 @@ func TestClaudeLaunchesInTheTaskWorkingDirectoryWithTheFinalBrief(t *testing.T) 
 	}
 }
 
-// TestANormalEndOfTurnBecomesIdleOnlyAfterTheGracePeriod is the second slice 7
-// acceptance criterion.
+// TestANormalEndOfTurnBecomesIdleOnlyAfterTheGracePeriod is the rule that an
+// ended turn is not a finished task.
 func TestANormalEndOfTurnBecomesIdleOnlyAfterTheGracePeriod(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
@@ -521,8 +521,8 @@ func TestActivityWithinTheGracePeriodCancelsIdle(t *testing.T) {
 	}
 }
 
-// TestASubmittedRevisionPromptChangesReviewStateConservatively is the third
-// slice 7 acceptance criterion.
+// TestASubmittedRevisionPromptChangesReviewStateConservatively is the rule that
+// a prompt sent back to the agent moves review state no further than it must.
 func TestASubmittedRevisionPromptChangesReviewStateConservatively(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
@@ -549,8 +549,8 @@ func TestASubmittedRevisionPromptChangesReviewStateConservatively(t *testing.T) 
 }
 
 // TestDuplicateMalformedAndOutOfTaskMessagesDoNotTransition is the daemon half
-// of the fourth slice 7 acceptance criterion. The protocol half, which proves
-// each is refused, lives in internal/control.
+// of the control-workspace validation rule. The protocol half, which proves each
+// is refused, lives in internal/control.
 func TestDuplicateMalformedAndOutOfTaskMessagesDoNotTransition(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
@@ -833,9 +833,9 @@ func (s *session) refusals(t *testing.T) []string {
 	return details
 }
 
-// TestReviewRequestIsExplicitAndDistinguishableFromIdle is the fifth slice 7
-// acceptance criterion, and it is the shape a "Stop means complete" defect
-// would take.
+// TestReviewRequestIsExplicitAndDistinguishableFromIdle is the rule that only an
+// explicit request reaches review, and it is the shape a "Stop means complete"
+// defect would take.
 func TestReviewRequestIsExplicitAndDistinguishableFromIdle(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
@@ -932,8 +932,8 @@ func TestNoEndOfTurnPathReachesAReviewState(t *testing.T) {
 	}
 }
 
-// TestMissingRequiredGitLabAuthenticationPreventsLaunch is the sixth slice 7
-// acceptance criterion.
+// TestMissingRequiredGitLabAuthenticationPreventsLaunch is FR-PROJ-004's rule
+// that a missing required provider CLI stops a launch.
 func TestMissingRequiredGitLabAuthenticationPreventsLaunch(t *testing.T) {
 	fixture := strings.Replace(hostFixture,
 		"  claude:\n    idle_grace_period: 5s\n",
@@ -1095,8 +1095,8 @@ func TestAFailedSessionLeavesAnExplainableTask(t *testing.T) {
 	}
 	_ = event
 
-	// The provider session identifier survives the failure, so the resume slice
-	// 12 offers can continue this session rather than open an empty one.
+	// The provider session identifier survives the failure, so a resume can
+	// continue this session rather than open an empty one.
 	if task.Session.ProviderSessionID != "claude-session-1" {
 		t.Errorf("provider session id = %q, want it retained through the failure", task.Session.ProviderSessionID)
 	}
@@ -1458,7 +1458,7 @@ func TestControlWorkspaceIsOutsideTheSnapshotDirectory(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	workspace := live.workspace(t)
 
-	// The tree slice 8 mounts into a container must not contain the task's own
+	// The tree that is mounted into a container must not contain the task's own
 	// snapshot, event log, or stored brief (ADR-032).
 	snapshots := filepath.Join(live.state, "projects", "app", "tasks", live.ref.Task.String())
 	if strings.HasPrefix(workspace.Root(), snapshots) {

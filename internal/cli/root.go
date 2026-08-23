@@ -115,8 +115,8 @@ runtime.
 
 Running feat without a subcommand opens the dashboard.
 
-This build is a pre-alpha skeleton. Subcommands report the implementation
-slice that delivers them.`
+This build is alpha. What it does not do yet, it says so rather than
+reporting a success it has not earned.`
 
 // NewRootCommand builds the full feat command tree.
 func NewRootCommand(opts Options) *cobra.Command {
@@ -185,7 +185,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		root.SetIn(opts.Input)
 	}
 
-	// Shell completion is delivered by slice 14. Hiding the generated command
+	// Shell completion is not supported yet. Hiding the generated command
 	// keeps `feat --help` equal to the documented v0 command surface.
 	root.CompletionOptions.DisableDefaultCmd = true
 

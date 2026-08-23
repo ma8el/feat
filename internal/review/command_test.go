@@ -5,7 +5,8 @@ import (
 	"testing"
 )
 
-// TestCommandsCannotEscapeTheTaskPaths is slice 11's third acceptance criterion.
+// TestCommandsCannotEscapeTheTaskPaths is the rule that a review command may run
+// only in its own task's recorded worktrees.
 //
 // Every case is an expansion that produced something, because a template that
 // cannot expand is refused before it reaches here: what this checks is what an

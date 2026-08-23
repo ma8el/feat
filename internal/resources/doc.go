@@ -18,5 +18,5 @@
 // to it, which is why a `resources-stays-an-adapter` rule denies it either
 // package.
 //
-// Delivered by slice 10. See ADR-035.
+// See ADR-035.
 package resources

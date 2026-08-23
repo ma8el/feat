@@ -61,8 +61,7 @@ func TestTheNotifiableStatesArePinned(t *testing.T) {
 // Idle is not a state a task arrives in — it is a state it stays in, and how
 // long it has stayed is what decides whether it is worth interrupting somebody.
 // A process state that mapped to the idle condition would notify the moment the
-// provider's grace expired, which is what the third acceptance criterion of this
-// slice forbids.
+// provider's grace expired, which is what the notification policy forbids.
 func TestAnEndOfTurnIsNotNotifiable(t *testing.T) {
 	for _, state := range []domain.ProcessState{
 		domain.ProcessStarting, domain.ProcessRunning, domain.ProcessIdle, domain.ProcessStopped,

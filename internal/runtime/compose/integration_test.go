@@ -311,8 +311,9 @@ func TestRealTheLifecycleIsManualAndComplete(t *testing.T) {
 	}
 }
 
-// TestRealABakedServiceRunsTheTaskWorktree is this slice's first acceptance
-// criterion against real Docker, and the failure it exists for.
+// TestRealABakedServiceRunsTheTaskWorktree checks that a task's services run the
+// task's worktree against real Docker, and is the failure that rule exists
+// for.
 //
 // The web service of the fixture is the shape that defeats every mount-based
 // check: its image copies the repository in and it mounts nothing of it, so
@@ -433,8 +434,8 @@ func TestRealTwoTasksRunTheSameServicesAtOnce(t *testing.T) {
 	}
 }
 
-// TestRealAllocatedPortsAreWhatIsPublished is the mechanism this slice rests on,
-// against real Docker.
+// TestRealAllocatedPortsAreWhatIsPublished is the mechanism per-task ports rest
+// on, against real Docker.
 //
 // Three things are checked at once because they are one arrangement: two tasks
 // whose application publishes a fixed host port both start, each is bound to the
@@ -442,7 +443,7 @@ func TestRealTwoTasksRunTheSameServicesAtOnce(t *testing.T) {
 // neither — not the managed service's, and not the one on the dependency nobody
 // named. A host port is global to the machine, so if any of that were wrong the
 // second `up` would fail with an address already in use, which is the failure
-// this slice removes.
+// port allocation removes (ADR-065).
 //
 // The Compose tags doing the work are !override on the service that has an
 // allocation and !reset on every service that has none. Both are read by the

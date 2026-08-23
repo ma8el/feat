@@ -65,8 +65,8 @@ func prepareWith(t *testing.T, outsideBoundary bool, gate agent.Gate) (agent.Lau
 }
 
 // TestClaudeLaunchesInTheTaskDirectoryWithTheFinalBrief is the adapter half of
-// the first slice 7 acceptance criterion. The daemon half, which proves the
-// directory is the task's own primary worktree, lives in internal/daemon.
+// the launch requirement. The daemon half, which proves the directory is the
+// task's own primary worktree, lives in internal/daemon.
 func TestClaudeLaunchesInTheTaskDirectoryWithTheFinalBrief(t *testing.T) {
 	spec, workspace := prepared(t, false)
 
@@ -407,10 +407,10 @@ func TestReportHelperWritesAWellFormedMessage(t *testing.T) {
 	}
 }
 
-// TestAFailedGateReachesTheAgentAsAFailedCommand is slice 11's fifth acceptance
-// criterion at the provider adapter: a check the gate failed comes back to the
-// running session as a non-zero exit with the reason on standard error, which is
-// what the model reads and carries on from.
+// TestAFailedGateReachesTheAgentAsAFailedCommand is FR-AGENT-006 at the provider
+// adapter: a check the gate failed comes back to the running session as a
+// non-zero exit with the reason on standard error, which is what the model reads
+// and carries on from.
 //
 // It runs the generated helper under a real shell and answers it the way the
 // daemon does, because the whole mechanism is a script waiting for a file: a
@@ -507,7 +507,8 @@ func TestAFailedGateReachesTheAgentAsAFailedCommand(t *testing.T) {
 }
 
 // TestAHelperWithNoGateDoesNotWait checks that a project configuring no checks
-// gets the slice 7 helper: a review request is recorded and the command returns.
+// gets the ungated helper: a review request is recorded and the command
+// returns.
 //
 // The gate is the one thing in this session that can take minutes, and a session
 // that waited for a verdict nobody was going to write would hang on every review
@@ -644,9 +645,9 @@ func TestACheckStatusIsNeverGuessed(t *testing.T) {
 	}
 }
 
-// TestMissingRequiredProviderCLIPreventsLaunch is the adapter half of the sixth
-// slice 7 acceptance criterion. The daemon half, which proves nothing was
-// created, lives in internal/daemon.
+// TestMissingRequiredProviderCLIPreventsLaunch is the adapter half of
+// FR-PROJ-004's rule that a missing required provider CLI stops a launch. The
+// daemon half, which proves nothing was created, lives in internal/daemon.
 func TestMissingRequiredProviderCLIPreventsLaunch(t *testing.T) {
 	installed := agent.Output{Stdout: "2.1.220 (Claude Code)"}
 

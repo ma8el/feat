@@ -75,9 +75,8 @@ func listed(tasks []api.Task) string {
 	return out.String()
 }
 
-// TestTaskListContainsRequiredV0Fields is the slice 6 acceptance criterion that
-// the task list carries the required v0 fields except the integrations no slice
-// has delivered.
+// TestTaskListContainsRequiredV0Fields checks that the task list carries the
+// required v0 fields.
 //
 // FR-UI-002 lists nine fields plus two this build cannot measure. The two are
 // checked separately, in TestUnmeasuredFieldsAreNotReportedAsValues: what must

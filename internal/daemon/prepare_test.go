@@ -379,8 +379,8 @@ func selection() []Selection {
 	}
 }
 
-// TestPreparationRecordsEveryResourceBeforeCreatingIt is the ordering the slice
-// 4 acceptance criterion about recoverability rests on.
+// TestPreparationRecordsEveryResourceBeforeCreatingIt is the ordering
+// recoverability rests on.
 //
 // The record is written first and the worktrees are created afterwards, so that
 // no worktree can exist that the record does not name. The assertion is made
@@ -425,9 +425,9 @@ func TestPreparationRecordsEveryResourceBeforeCreatingIt(t *testing.T) {
 	}
 }
 
-// TestPreparationMapsEachRepositoryToItsOwnResources is the slice 4 acceptance
-// criterion that a two-repository task receives the correct branch and worktree
-// mapping, and that read-only and read-write selections are recorded correctly.
+// TestPreparationMapsEachRepositoryToItsOwnResources covers the rule that a
+// two-repository task receives the correct branch and worktree mapping, and that
+// read-only and read-write selections are recorded correctly.
 func TestPreparationMapsEachRepositoryToItsOwnResources(t *testing.T) {
 	fake := newFakeGit()
 	arranged := arrangeTask(t, fake)
@@ -517,10 +517,9 @@ func TestAWorktreeRootThatNamesTheRepositoryIsUsedAsWritten(t *testing.T) {
 	}
 }
 
-// TestPreparationFailureLeavesARecoverableRecord is the slice 4 acceptance
-// criterion that a failure halfway through creation leaves a recoverable record
-// and no unidentified worktree, checked against the state a restarted daemon
-// would read.
+// TestPreparationFailureLeavesARecoverableRecord covers the rule that a failure
+// halfway through creation leaves a recoverable record and no unidentified
+// worktree, checked against the state a restarted daemon would read.
 func TestPreparationFailureLeavesARecoverableRecord(t *testing.T) {
 	fake := newFakeGit()
 	fake.failAdd = "store"

@@ -18,11 +18,11 @@ import (
 // rather than an *exec.Cmd, because the terminal backend constructs the
 // process; Run exists because validation asks an environment questions rather
 // than attaching a terminal to it; and Shell is folded into Command, because the
-// daemon already decides what a task shell is. Destroy is slice 12's, which owns
-// what is retained and what needs confirming.
+// daemon already decides what a task shell is. Destroy belongs to cleanup,
+// which owns what is retained and what needs confirming.
 //
-// No method exposes an implementation type, so slice 14 can add host-native
-// execution without changing a caller (ADR-024).
+// No method exposes an implementation type, so host-native execution can be
+// added without changing a caller (ADR-024).
 type Environment interface {
 	// Validate reports whether this machine can run the environment at all. It
 	// answers questions about the tools on the host, not about a container: a

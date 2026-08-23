@@ -27,6 +27,4 @@
 // what an adapter reports, as it does for Git (ADR-029), the agent (ADR-032),
 // and agent execution (ADR-033). The runtime-stays-an-adapter depguard rule
 // makes that mechanical (ADR-034).
-//
-// Delivered by slice 9.
 package runtime

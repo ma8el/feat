@@ -114,7 +114,7 @@ func resourceReport(sample resources.Sample) api.ResourceReport {
 // state (docs/06-technical-architecture.md), and nothing is published either: a
 // figure that changes every two seconds would make every dashboard re-read every
 // two seconds through the event stream as well as through its own refresh, which
-// is the loop slice 6 paid for once.
+// is a loop the dashboard has paid for once.
 func (s *service) sampleResources(ctx context.Context) {
 	targets, err := s.resourceTargets(ctx)
 	if err != nil {

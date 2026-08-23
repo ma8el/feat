@@ -223,8 +223,7 @@ func TestCollisionsAreDetectedBeforeAnythingIsCreated(t *testing.T) {
 	})
 }
 
-// TestUnsafeAndBroadPathsAreRejected is the slice 4 acceptance criterion that
-// tests cover unsafe and broad path rejection.
+// TestUnsafeAndBroadPathsAreRejected covers unsafe and broad path rejection.
 //
 // Every path below is one Feat would later remove, so each case is a directory
 // that must never become a task worktree. The check runs before any Git command,

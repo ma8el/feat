@@ -84,8 +84,8 @@ const (
 	//
 	// A desktop notification is gone the moment it is dismissed, so without this
 	// there would be no record that Feat asked for somebody's attention. That
-	// matters twice: a user who half-saw one can find out what it was, and slice
-	// 13 has to measure how many idle notifications turned out to be false.
+	// matters twice: a user who half-saw one can find out what it was, and how
+	// many idle notifications turned out to be false is measurable.
 	//
 	// It is deliberately not itself a notifiable change. Recording an event
 	// publishes it, and a notification that notified about itself would be a loop

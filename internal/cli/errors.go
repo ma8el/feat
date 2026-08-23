@@ -8,30 +8,29 @@ import (
 )
 
 // NotImplementedError reports that a command belongs to the documented v0
-// command surface but is delivered by a later implementation slice.
+// command surface but does not do its work yet.
 //
 // Placeholder commands return this error rather than printing a success
 // message, so that scripts and tests can never mistake an unimplemented
 // command for a working one.
 //
-// Slice 12 leaves no command using it: every entry in the documented surface now
-// does its work. The type stays because the exit-code contract in Execute reads
-// it and because a later slice that defers something needs it — reintroducing
-// the two-line constructor beside its one caller is less than the cost of a dead
-// helper nobody can see the shape of.
+// No command uses it today: every entry in the documented surface does its
+// work. The type stays because the exit-code contract in Execute reads it and
+// because anything deferred later needs it — reintroducing the two-line
+// constructor beside its one caller is less than the cost of a dead helper
+// nobody can see the shape of.
 type NotImplementedError struct {
 	// Command is the full command path, such as "feat daemon start".
 	Command string
-	// Slice is the implementation slice that delivers the command.
-	Slice int
-	// Outcome summarises what that slice delivers.
+	// Outcome names what the command will do once it does anything, so that the
+	// error says what is missing rather than only that something is.
 	Outcome string
 }
 
 func (e *NotImplementedError) Error() string {
 	return fmt.Sprintf(
-		"%s is not implemented yet: it is delivered by implementation slice %d (%s). See docs/11-implementation-plan.md",
-		e.Command, e.Slice, e.Outcome,
+		"%s is not implemented yet: it will %s. See docs/09-roadmap.md",
+		e.Command, e.Outcome,
 	)
 }
 

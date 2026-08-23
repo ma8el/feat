@@ -2,8 +2,8 @@
 
 // This file is a hand-driven probe, not part of the test suite: the `manual`
 // build tag keeps it out of `go test ./...`, `make check`, and CI. It exists so
-// that slice 4 can be exercised against a real project before slice 6 delivers
-// the command that would do it properly.
+// that the Git and devcontainer lifecycles can be driven against a real project
+// by hand, without going through the commands that do it properly.
 //
 // Dry run — resolves bases and proposes names, and creates nothing. It fetches
 // the configured remotes, which updates remote-tracking refs and never touches
@@ -85,7 +85,7 @@ func TestManualPrepare(t *testing.T) {
 
 	title := os.Getenv("FEAT_TITLE")
 	if title == "" {
-		title = "Manual slice 4 probe"
+		title = "Manual Git lifecycle probe"
 	}
 	task, err := domain.NewTask(domain.NewTaskID(), domain.ProjectID(project), title,
 		domain.TaskSource{Kind: domain.SourcePrompt}, time.Now())
@@ -163,7 +163,7 @@ func TestManualPrepare(t *testing.T) {
 		t.Fatalf("planning cleanup: %v", err)
 	}
 
-	fmt.Printf("\ncleanup plan (nothing is removed by this slice)\n")
+	fmt.Printf("\ncleanup plan (nothing is removed by this probe)\n")
 	for _, worktree := range cleanup.Worktrees {
 		fmt.Printf("  worktree %-12s present=%t registered=%t dirty=%t %v\n",
 			worktree.Repository, worktree.Present, worktree.Registered, worktree.Dirty, worktree.Warnings)
@@ -265,7 +265,7 @@ func renderSelection(selection []Selection) string {
 // TestManualDevcontainer launches real tasks in the project's real devcontainer
 // and reports what the containers turned out to be.
 //
-// It is the slice 8 acceptance probe. Everything it drives is real: Git, tmux,
+// It is the devcontainer probe. Everything it drives is real: Git, tmux,
 // Docker, and Claude. Task records go to a temporary state directory, but the
 // worktrees, the containers, and the tmux windows are not temporary, so it
 // prints the commands that undo them.
@@ -374,7 +374,7 @@ func manualLaunch(t *testing.T, service *service, project string, selected []Sel
 	t.Helper()
 	ctx := context.Background()
 
-	title := fmt.Sprintf("Slice 8 devcontainer probe %d", n)
+	title := fmt.Sprintf("Devcontainer probe %d", n)
 	draft, err := service.CreateDraft(ctx, api.DraftRequest{
 		Project: domain.ProjectID(project), Title: title,
 		Brief:  "A probe of devcontainer execution. Read your task brief and then report with feat-report.",

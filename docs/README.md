@@ -1,6 +1,6 @@
 # Feat Product Specification
 
-Status: accepted product direction; implementation started, slices 0 to 12 complete  
+Status: accepted product direction; alpha, v0.1 dogfood scope complete  
 Working name: **Feat**  
 Primary CLI: `feat`  
 Initial implementation language: Go  
@@ -20,7 +20,6 @@ Feat is a terminal-native development control plane for running feature work thr
 8. [08-v0-scope.md](08-v0-scope.md)
 9. [09-roadmap.md](09-roadmap.md)
 10. [10-decisions-and-open-questions.md](10-decisions-and-open-questions.md)
-11. [11-implementation-plan.md](11-implementation-plan.md)
 
 The root [CLAUDE.md](../CLAUDE.md) is the implementation contract for Claude Code. It intentionally points back to these documents instead of duplicating the specification.
 

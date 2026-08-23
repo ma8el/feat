@@ -24,6 +24,4 @@
 // vector and working directory. tmux owns terminal persistence and attachment;
 // it does not implement or import the execution-environment interface
 // (ADR-030).
-//
-// Delivered by slice 5.
 package tmux

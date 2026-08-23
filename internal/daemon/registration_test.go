@@ -68,12 +68,12 @@ func configured(t *testing.T, layout paths.Layout, id, body string) paths.Enviro
 	}
 }
 
-// TestDaemonIsTheOnlyWriterOfProjectState is the behavioural form of the slice 2
-// acceptance criterion that the daemon is the sole state writer.
+// TestDaemonIsTheOnlyWriterOfProjectState is the behavioural form of the rule
+// that the daemon is the sole state writer.
 //
-// Slice 2 could only check it structurally, as ADR-027 recorded in advance,
-// because nothing wrote persistent state yet. Registering a project is the first
-// write, and it goes through the socket: the client sends an identifier, and the
+// Before anything wrote persistent state the rule could only be checked
+// structurally, as ADR-027 recorded in advance. Registering a project is the
+// first write, and it goes through the socket: the client sends an identifier, and the
 // snapshot appears in the daemon's state directory.
 func TestDaemonIsTheOnlyWriterOfProjectState(t *testing.T) {
 	layout := testLayout(t)

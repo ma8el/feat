@@ -145,7 +145,7 @@ func askCleanup(in io.Reader, out io.Writer, plan api.CleanupPlan) (api.CleanupS
 
 	// Archiving is offered only when everything the plan names was chosen,
 	// because the daemon refuses it otherwise: an archived task that still owns a
-	// running container is the orphan this slice exists to report.
+	// running container is exactly the orphan reconciliation exists to report.
 	if len(selection.Classes) == len(plan.Classes) && plan.Archivable {
 		archive, err := ask(reader, out, "\nArchive the task's metadata? Its record and history are kept.")
 		if err != nil {

@@ -575,7 +575,7 @@ func (s *service) environments(spec execution.Spec) (execution.Environment, erro
 // containerRunner runs an agent adapter's probes inside an execution
 // environment.
 //
-// It is the seam ADR-032 left for this slice: the Claude adapter asks its
+// It is the seam ADR-032 left: the Claude adapter asks its
 // questions through agent.Runner, and this makes the answers come from the
 // container rather than from the host. Neither adapter knows about the other —
 // this shim is the daemon's, which is what keeps both boundaries mechanical.

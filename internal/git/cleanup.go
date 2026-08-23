@@ -49,8 +49,8 @@ type CleanupRepository struct {
 // CleanupPlan is the exact set of Git resources one task owns, with what makes
 // each of them risky to remove.
 //
-// It has no execute method, and slice 4 has no caller that removes anything.
-// Producing the inventory and acting on it are separate steps on purpose: the
+// It has no execute method: this package produces the inventory and removes
+// nothing. Producing it and acting on it are separate steps on purpose: the
 // user chooses per class of resource, and the classes are separate here for the
 // same reason (FR-CLEAN-002).
 type CleanupPlan struct {

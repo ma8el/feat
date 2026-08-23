@@ -285,7 +285,8 @@ func found(report api.Reconciliation, class reconcile.Class, status reconcile.St
 }
 
 // TestReconciliationReportsATaggedTerminalWithNoRecordedTask keeps an orphan
-// visible. Slice 12 decides what to do about it; recovery must not drop it.
+// visible. What to do about it is the user's choice; recovery must not drop
+// it.
 func TestReconciliationReportsATaggedTerminalWithNoRecordedTask(t *testing.T) {
 	arranged := prepared(t)
 	orphan := domain.NewTaskID()

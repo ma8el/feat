@@ -78,8 +78,8 @@ func problemAt(t *testing.T, err *config.Error, path string) config.Problem {
 	return config.Problem{}
 }
 
-// TestUnknownFieldFailsWithLocationAndMessage is the slice 3 acceptance
-// criterion "Unknown YAML fields fail with a useful location/message".
+// TestUnknownFieldFailsWithLocationAndMessage covers the requirement that
+// unknown YAML fields fail with a useful location and message.
 //
 // Useful means three things, and each is asserted separately: the message names
 // the field, it says where the field is, and the file is not loaded anyway.

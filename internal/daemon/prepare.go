@@ -16,8 +16,8 @@ import (
 // Selection is one repository's part in a task, as the user chose it.
 //
 // It is the output of the repository-access step of task preparation
-// (FR-TASK-003). Slice 4 takes it as an argument; the draft API that collects it
-// from the user arrives with slice 6.
+// (FR-TASK-003), taken as an argument here and collected from the user by the
+// draft API.
 type Selection struct {
 	// Repository identifies the repository within the project.
 	Repository domain.RepositoryID

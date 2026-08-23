@@ -344,9 +344,9 @@ func TestTheGeneratedOverrideIsNotWhereAnAgentCanReachIt(t *testing.T) {
 	}
 }
 
-// TestTheApplicationIsComposedOfItsRepositories is the slice's first acceptance
-// criterion at the daemon: a project's application runs from a generated
-// include, with no hand-written combined Compose file anywhere.
+// TestTheApplicationIsComposedOfItsRepositories is ADR-065's rule at the daemon:
+// a project's application runs from a generated include, with no hand-written
+// combined Compose file anywhere.
 //
 // Each entry carries the repository's own checkout as its project directory, so
 // that repository's build contexts and relative mounts resolve against it. A
@@ -474,8 +474,8 @@ func TestTheTasksOwnCodeIsWhatTheServicesRun(t *testing.T) {
 // whatever the agent does, so reading the mount from the binding gave a
 // host-execution project a generated override with no volumes at all: its
 // services ran the user's ordinary checkout, every record Feat kept was correct,
-// and the only thing that said so was the note this slice added for the other
-// half of the same problem.
+// and the only thing that said so was the note added for the other half of the
+// same problem.
 func TestAHostExecutionProjectStillMountsItsWorktrees(t *testing.T) {
 	hostFixture := strings.Replace(runtimeFixture, "mode: devcontainer", "mode: host", 1)
 	// Host execution sets these itself, and configuration refuses them. The
@@ -680,7 +680,7 @@ func TestADestroyedRuntimePicksUpAFixedConfiguration(t *testing.T) {
 //
 // The dashboard re-reads state on every event, so a poll that published every
 // time it looked would make every task with services a permanent source of
-// reads. Slice 6 has already paid for that shape once.
+// reads. The dashboard has already paid for that shape once.
 func TestAnObservationPublishesOnlyWhatChanged(t *testing.T) {
 	arranged := arrangeConfigured(t, runtimeFixture)
 	task := arranged.launched(t)
@@ -902,8 +902,8 @@ func unreachedFixture() string {
 		"    runtime:\n      services:\n        - worker\n", 1)
 }
 
-// TestAServiceThatRunsNoTaskCodeSaysSoBeforeAnythingStarts is the third
-// acceptance criterion of the slice.
+// TestAServiceThatRunsNoTaskCodeSaysSoBeforeAnythingStarts is ADR-065's rule
+// about a service that runs none of the task's work.
 //
 // A service that mounts no task worktree and builds from no task worktree runs
 // whatever the project's own files give it, which is the user's ordinary
@@ -912,9 +912,9 @@ func unreachedFixture() string {
 // evidence 7). It is resolved from configuration when the runtime is, so a
 // create says it before a single container exists.
 //
-// The record is read at the first Compose command of the action, which is the
-// slice's fourth acceptance criterion made observable: the answer is already on
-// the task before Compose has been asked anything, so no path to it can be
+// The record is read at the first Compose command of the action, which makes the
+// rule observable: the answer is already on the task before Compose has been
+// asked anything, so no path to it can be
 // `docker compose config` — the command that would render the values of the
 // project's environment files (ADR-034 evidence 5).
 func TestAServiceThatRunsNoTaskCodeSaysSoBeforeAnythingStarts(t *testing.T) {
@@ -958,7 +958,8 @@ func TestAServiceThatRunsNoTaskCodeSaysSoBeforeAnythingStarts(t *testing.T) {
 	}
 }
 
-// TestABuiltServiceIsPointedAtTheTaskWorktree is the trap this slice exists for.
+// TestABuiltServiceIsPointedAtTheTaskWorktree is the trap per-repository
+// composition exists for.
 //
 // A service whose image copies its source in has no mount to replace, so the
 // container path decides nothing about it and ADR-034's post-start inspection

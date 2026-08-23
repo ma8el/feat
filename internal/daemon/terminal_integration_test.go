@@ -78,8 +78,8 @@ func TestRealKilledWindowIsReportedAndRebuilt(t *testing.T) {
 	}
 }
 
-// TestRealDaemonRestartRediscoversTaggedTerminal is the Slice 5 restart
-// acceptance criterion at the daemon boundary. A new daemon instance ignores a
+// TestRealDaemonRestartRediscoversTaggedTerminal is the restart rule at the
+// daemon boundary. A new daemon instance ignores a
 // deliberately stale stored target and recovers the live IDs from tmux
 // metadata.
 func TestRealDaemonRestartRediscoversTaggedTerminal(t *testing.T) {

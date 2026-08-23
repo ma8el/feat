@@ -322,7 +322,7 @@ func (s Selection) Chose(class Class) bool {
 // Check reports whether a selection may be executed against a freshly resolved
 // plan.
 //
-// Every rule here is one of slice 12's acceptance criteria, and each is checked
+// Every rule here is one of FR-CLEAN-001 to FR-CLEAN-004's, and each is checked
 // against the plan as it is now rather than as it was displayed.
 func (p Plan) Check(selection Selection) error {
 	if selection.Token == "" {

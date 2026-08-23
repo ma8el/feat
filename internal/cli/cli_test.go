@@ -137,21 +137,20 @@ func TestExecuteExitCodes(t *testing.T) {
 // error must say what is missing and where to look, not merely that something
 // failed.
 //
-// It exercises the error rather than a command, because slice 12 leaves no
-// command unimplemented: every entry in the documented surface now does its
-// work. The rule still has to hold for whatever a later slice defers, and
-// TestPlaceholdersDeclareOwningSlice is what would catch a placeholder that
-// stopped naming its slice.
+// It exercises the error rather than a command, because no command is
+// unimplemented: every entry in the documented surface does its work. The rule
+// still has to hold for whatever is deferred later, and
+// TestPlaceholdersSayWhatIsMissing is what would catch a placeholder that
+// stopped saying what is missing.
 func TestNotImplementedErrorIsActionable(t *testing.T) {
 	isolate(t)
 
 	err := &NotImplementedError{
 		Command: "feat example",
-		Slice:   14,
-		Outcome: "host-native execution",
+		Outcome: "run the agent on the host rather than in a container",
 	}
 	message := err.Error()
-	for _, want := range []string{"feat example", "slice 14", "host-native execution", "docs/11-implementation-plan.md"} {
+	for _, want := range []string{"feat example", "run the agent on the host", "docs/09-roadmap.md"} {
 		if !strings.Contains(message, want) {
 			t.Errorf("error message does not mention %q:\n%s", want, message)
 		}
@@ -190,12 +189,13 @@ func TestAnUnknownCommandNamesTheOnesItMightBe(t *testing.T) {
 	}
 }
 
-// TestEveryDocumentedCommandIsImplemented records what slice 12 finished.
+// TestEveryDocumentedCommandIsImplemented records that the documented surface is
+// whole.
 //
-// It is the counterpart of TestPlaceholdersDeclareOwningSlice: that one requires
-// a placeholder to name its slice, and this one requires there to be none left.
-// A later slice that defers something has to change this test deliberately,
-// which is the point.
+// It is the counterpart of TestPlaceholdersSayWhatIsMissing: that one requires a
+// placeholder to say what is missing, and this one requires there to be no
+// placeholder left. Deferring something later has to change this test
+// deliberately, which is the point.
 func TestEveryDocumentedCommandIsImplemented(t *testing.T) {
 	isolate(t)
 
@@ -215,7 +215,7 @@ func TestEveryDocumentedCommandIsImplemented(t *testing.T) {
 	walk(NewRootCommand(Options{}))
 
 	if len(placeholders) > 0 {
-		t.Errorf("commands still report an unimplemented slice: %s", strings.Join(placeholders, ", "))
+		t.Errorf("commands still report themselves as unimplemented: %s", strings.Join(placeholders, ", "))
 	}
 }
 

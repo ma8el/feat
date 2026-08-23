@@ -228,7 +228,7 @@ func parseBytes(value string) uint64 {
 // firstLine returns the first non-empty line of the first non-empty stream.
 //
 // Docker reports some failures on standard output rather than standard error,
-// which slice 8 found the hard way, so both are read (ADR-033, evidence 10).
+// which was found the hard way, so both are read (ADR-033, evidence 10).
 func firstLine(streams ...string) string {
 	for _, stream := range streams {
 		for line := range strings.SplitSeq(stream, "\n") {

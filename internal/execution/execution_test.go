@@ -143,7 +143,7 @@ func TestASpecificationIsCheckedBeforeItCanCreateAnything(t *testing.T) {
 //
 // The failure it prevents is silent: the agent holds both its task worktree and
 // the user's own working copy, and everything Feat records about the task is
-// correct. Slice 4's first acceptance criterion is what this protects.
+// correct. Leaving the user's own checkout alone is what this protects.
 func TestMountingTheOrdinaryCheckoutIsRefused(t *testing.T) {
 	spec := valid()
 	spec.Mounts = append(spec.Mounts, execution.Mount{

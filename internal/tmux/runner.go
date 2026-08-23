@@ -26,8 +26,8 @@ const Executable = "tmux"
 // why the flag belongs here rather than on whatever starts the server.
 //
 // An environment with no locale is the ordinary case for a process started by a
-// service manager, which is how a daemon is meant to run. Found by running slice
-// 11 end to end; recorded in ADR-036.
+// service manager, which is how a daemon is meant to run. Found by running
+// review end to end; recorded in ADR-036.
 //
 // Interactive attachment deliberately does not pass it: there the client is the
 // user's own terminal, and what it can render is theirs to declare.

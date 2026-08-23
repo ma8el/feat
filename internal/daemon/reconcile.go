@@ -21,7 +21,7 @@ import (
 // Reconcile compares every persisted task with what the machine actually has,
 // and returns what it found.
 //
-// It is the one recovery workflow ADR-030 said slice 12 would combine: tmux,
+// It is the one recovery workflow ADR-030 said would be combined: tmux,
 // worktrees, both kinds of Compose project, control messages, and review state
 // are asked the same question in one pass, and the answers land in one report.
 //
@@ -130,7 +130,7 @@ func (s *service) reconcilableTasks(ctx context.Context, report *reconcile.Repor
 
 // reconcileTerminals compares stored sessions with tagged tmux objects.
 //
-// It replaces the tmux-only pass slice 5 delivered, and keeps its behaviour: a
+// It replaces the tmux-only pass that came before it, and keeps its behaviour: a
 // stale stored identifier is repaired from live metadata, a missing terminal is
 // marked stopped without anything being restarted, and a terminal whose
 // metadata claims another project is reported rather than adopted. What it adds
@@ -762,8 +762,8 @@ func describeRunning(running bool) string {
 
 // reconcileRuntimes observes each task's application services.
 //
-// It never starts anything, which is the acceptance criterion FR-STATE-004
-// states and slice 9's poller already honours. Reconciliation reuses that
+// It never starts anything, which is the rule FR-STATE-004 states and the
+// runtime poller already honours. Reconciliation reuses that
 // observation rather than adding a second one, so there is one definition of
 // what a task's runtime state is.
 func (s *service) reconcileRuntimes(ctx context.Context, tasks []*domain.Task, report *reconcile.Report) {
@@ -853,9 +853,9 @@ func (s *service) reconcileControl(ctx context.Context, tasks []*domain.Task, re
 // reconcileReviews returns a task whose completion gate a restart interrupted.
 //
 // A gate does not outlive the process that started it, so a task recorded as
-// verifying is claiming that checks are running when nothing is. Slice 11
-// delivered this; what changes here is that it reports what it did rather than
-// only doing it (ADR-036 evidence 2).
+// verifying is claiming that checks are running when nothing is. What
+// reconciliation adds is that this is reported rather than only done (ADR-036
+// evidence 2).
 func (s *service) reconcileReviews(ctx context.Context, tasks []*domain.Task, report *reconcile.Report) {
 	for _, task := range tasks {
 		if task.Workflow != domain.WorkflowVerifying {

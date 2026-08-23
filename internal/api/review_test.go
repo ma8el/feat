@@ -77,16 +77,15 @@ func TestAReviewActionCarriesNothingToExecute(t *testing.T) {
 	}
 }
 
-// TestAGatedResultIsDistinguishableFromAClaim is slice 11's fifth acceptance
-// criterion on the wire.
+// TestAGatedResultIsDistinguishableFromAClaim is FR-AGENT-006 on the wire.
 //
 // The published verification says who produced the results, and the rule is that
 // one asserted result makes the set a claim: a client cannot tell a user that a
 // task was verified unless everything in it was.
 //
-// The condition was unreachable before this slice — the label started at "agent"
-// and only ever tested whether it was not "agent" — so this is also the test
-// that would have caught it (ADR-036 evidence 1).
+// The condition was unreachable before the gate existed — the label started at
+// "agent" and only ever tested whether it was not "agent" — so this is also the
+// test that would have caught it (ADR-036 evidence 1).
 func TestAGatedResultIsDistinguishableFromAClaim(t *testing.T) {
 	for _, test := range []struct {
 		name     string

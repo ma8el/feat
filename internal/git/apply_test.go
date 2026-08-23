@@ -108,9 +108,9 @@ func lastWorktreeAdd(fake *fakeGit) string {
 	return "nothing"
 }
 
-// TestFailureHalfwayLeavesARecoverableRecord is the slice 4 acceptance
-// criterion that a failure halfway through creation leaves a recoverable record
-// and no unidentified worktree.
+// TestFailureHalfwayLeavesARecoverableRecord covers the rule that a failure
+// halfway through creation leaves a recoverable record and no unidentified
+// worktree.
 //
 // The adapter's half of it is checked here: what exists is reported, what does
 // not is named, and nothing that was created is silently removed. The daemon's

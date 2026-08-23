@@ -23,5 +23,5 @@
 // and has no way to name a brief, an agent's words, a path, a command, or a
 // configuration value.
 //
-// Delivered by slice 10. See ADR-035.
+// See ADR-035.
 package notify

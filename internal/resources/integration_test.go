@@ -23,8 +23,8 @@ func requireIntegration(t *testing.T) {
 //
 // The parsers are pinned by unit tests against fixtures, which prove that Feat
 // reads a given output correctly. This proves the other half: that the output is
-// what Feat expects. Both matter, and slice 8 found out the hard way that only
-// the second one catches a tool that answers somewhere else.
+// what Feat expects. Both matter, and devcontainer execution found out the hard
+// way that only the second one catches a tool that answers somewhere else.
 func TestRealMachineIsReadable(t *testing.T) {
 	requireIntegration(t)
 

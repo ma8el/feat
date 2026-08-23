@@ -43,8 +43,8 @@ func TestTaskIsAddressableByTaskIDAlone(t *testing.T) {
 	}
 }
 
-// TestATaskIsAddressableByTheKeyEveryListPrints is the slice 13 acceptance
-// criterion, driven through the socket.
+// TestATaskIsAddressableByTheKeyEveryListPrints is ADR-038, driven through the
+// socket.
 //
 // The daemon reads every project to answer it, because a key is unique within a
 // project rather than globally (ADR-026) and the question is asked of the

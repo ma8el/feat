@@ -70,7 +70,7 @@ type Request struct {
 
 // New checks an expanded command and returns it, or says why it may not run.
 //
-// This is slice 11's third acceptance criterion in one place. The rules are
+// This is the escape rule in one place. The rules are
 // about what an expansion can turn into rather than about what a template looks
 // like, because a template is checked once when the configuration is loaded and
 // an expansion happens per task:

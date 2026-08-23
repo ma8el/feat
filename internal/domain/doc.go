@@ -13,6 +13,4 @@
 //   - the resolved base commit is immutable for the lifetime of a task;
 //   - one task owns one agent session and at most one runtime environment;
 //   - tmux identifiers are execution references, not task identity.
-//
-// Delivered by slice 1.
 package domain

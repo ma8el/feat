@@ -78,33 +78,33 @@ internal/guard               repository-wide invariant tests, no runtime code
 
 Adapters are compiled into the binary initially. Interfaces must avoid leaking implementation types so a future external plugin protocol remains possible.
 
-`internal/cli`, `internal/paths`, `internal/version`, and `internal/guard` were added during slice 0; see ADR-025. `internal/store/storetest` was added during slice 1; see ADR-026. `internal/paths` is implemented by slice 2, which also denies storage to `internal/api` and `internal/client`; see ADR-027. Import boundaries between these packages are enforced by `depguard` rules in `.golangci.yml`.
+`internal/cli`, `internal/paths`, `internal/version`, and `internal/guard` were added to the layout above; see ADR-025. `internal/store/storetest` was added with the store; see ADR-026. `internal/paths` owns directory resolution and nothing else, and storage is denied to `internal/api` and `internal/client`; see ADR-027. Import boundaries between these packages are enforced by `depguard` rules in `.golangci.yml`.
 
-`internal/git` is implemented by slice 4, which denies it `internal/config` and `internal/store`: it works on domain types and final names, the daemon expands templates, and the daemon records what it creates. See ADR-029. `internal/paths` gained the shared-directory list in the same change, so configuration validation and the adapter that creates and removes directories ask one question of one list.
+`internal/git` is denied `internal/config` and `internal/store`: it works on domain types and final names, the daemon expands templates, and the daemon records what it creates. See ADR-029. `internal/paths` owns the shared-directory list, so configuration validation and the adapter that creates and removes directories ask one question of one list.
 
-`internal/agent`, `internal/agent/claude`, and `internal/control` are implemented by slice 7 under the boundary ADR-029 established for Git: the adapters receive final values and read neither configuration nor persistent state, and `agent-stays-an-adapter` and `control-stays-a-protocol` `depguard` rules make that mechanical. The provider adapter returns a launch specification expressed in the terms the agent's own environment uses, and the daemon supplies how the agent sees its worktrees and control directory — host paths while execution is host-native, container paths once slice 8 supplies them. That is the seam through which slice 8 replaces the environment without touching the provider adapter. See ADR-032.
+`internal/agent`, `internal/agent/claude`, and `internal/control` sit under the boundary ADR-029 established for Git: the adapters receive final values and read neither configuration nor persistent state, and `agent-stays-an-adapter` and `control-stays-a-protocol` `depguard` rules make that mechanical. The provider adapter returns a launch specification expressed in the terms the agent's own environment uses, and the daemon supplies how the agent sees its worktrees and control directory — host paths under host-native execution, container paths under a devcontainer. That is the seam through which an execution environment is replaced without touching the provider adapter. See ADR-032.
 
-`internal/runtime` and `internal/runtime/compose` are implemented by slice 9 under the same rule, with a `runtime-stays-an-adapter` `depguard` rule that also denies them `internal/execution`. `internal/paths` gained the runtime root. See ADR-034.
+`internal/runtime` and `internal/runtime/compose` sit under the same rule, with a `runtime-stays-an-adapter` `depguard` rule that also denies them `internal/execution`. `internal/paths` owns the runtime root. See ADR-034.
 
-`internal/execution` and `internal/execution/compose` are implemented by slice 8 under the same rule, with an `execution-stays-an-adapter` `depguard` rule. The daemon resolves configuration into an execution specification, wraps the environment's probe runner as the agent adapter's runner, and turns the adapter's launch specification into a host command the terminal backend runs. The two adapters therefore never import each other, and slice 17 replaces the environment without touching either. See ADR-033.
+`internal/execution` and `internal/execution/compose` sit under the same rule, with an `execution-stays-an-adapter` `depguard` rule. The daemon resolves configuration into an execution specification, wraps the environment's probe runner as the agent adapter's runner, and turns the adapter's launch specification into a host command the terminal backend runs. The two adapters therefore never import each other, and host-native execution is added behind the same interface without touching either. See ADR-033.
 
-`internal/review` is implemented by slice 11 under the same rule, with a
+`internal/review` sits under the same rule, with a
 `review-stays-a-policy` `depguard` rule. It receives final values — an expanded
 argument vector, the task's own worktree paths, a resolved check — and reads
 neither configuration nor persistent state. It is denied `internal/git` as well,
 because a change summary is Git's own answer and belongs to its adapter. See
 ADR-036.
 
-`internal/resources` and `internal/notify` are implemented by slice 10 under the
+`internal/resources` and `internal/notify` sit under the
 same rule, with `resources-stays-an-adapter` and `notify-stays-a-policy`
 `depguard` rules. The observer receives process identifiers, a label selector,
 and a path; the notification policy receives a resolved `Policy` and a `Subject`
 carrying a task's key, title, and project, and can reach nothing else. See
 ADR-035.
 
-`internal/wizard` is added by slice 13 and holds the sequence of questions that composes a project configuration: which question comes next, what it proposes, and whether an answer is acceptable. It reaches nothing — what it needs to know about the machine it asks through a `Host` that `internal/cli` implements over `internal/project` — so both askers can drive it: `feat project init` as a line conversation, and the dashboard as a dialog. See ADR-063.
+`internal/wizard` holds the sequence of questions that composes a project configuration: which question comes next, what it proposes, and whether an answer is acceptable. It reaches nothing — what it needs to know about the machine it asks through a `Host` that `internal/cli` implements over `internal/project` — so both askers can drive it: `feat project init` as a line conversation, and the dashboard as a dialog. See ADR-063.
 
-`internal/config` and `internal/project` are implemented by slice 3, which draws one boundary between them: `internal/config` decides whether a configuration is well formed and safe, and asks the host nothing; `internal/project` asks the host and reports what it found. A configuration therefore stays loadable on a machine where a repository is temporarily missing, which is the machine `feat doctor` is most useful on. See ADR-028.
+`internal/config` and `internal/project` have one boundary drawn between them: `internal/config` decides whether a configuration is well formed and safe, and asks the host nothing; `internal/project` asks the host and reports what it found. A configuration therefore stays loadable on a machine where a repository is temporarily missing, which is the machine `feat doctor` is most useful on. See ADR-028.
 
 ## Local API
 
@@ -163,8 +163,7 @@ A draft is a task in `draft` state, so `{draft_id}` is a task identifier and a d
 The runtime endpoints are one per manual action, because each is a separate
 thing a user asks for and the path is what names it: an action Feat does not
 perform is an endpoint that does not exist, rather than a request the daemon has
-to interpret. `create`, `status`, and `destroy` are added by slice 9 and recorded
-in ADR-034. `status` is a POST because it observes and records what it observed.
+to interpret. `create`, `status`, and `destroy` are recorded in ADR-034. `status` is a POST because it observes and records what it observed.
 `destroy` is the only one carrying a body, and what it carries is the user's
 confirmation; every other action takes none, for the reason the shell endpoint
 does. `logs-info` returns a command rather than output — Feat does not aggregate
@@ -395,13 +394,13 @@ type ExecutionEnvironment interface {
 }
 ```
 
-Slice 8 amends the conceptual interface in three places, and ADR-033 records
-why. `Command` returns an argument vector rather than an `*exec.Cmd`, because
+Devcontainer execution amended the conceptual interface in three places, and
+ADR-033 records why. `Command` returns an argument vector rather than an `*exec.Cmd`, because
 the terminal backend constructs the process and an `*exec.Cmd` returned here
 would be a process nobody runs. `Run` is added, because validation asks an
 environment questions rather than attaching a terminal to it. `Shell` is folded
 into `Command`, because the daemon already decides what a task shell is.
-`Destroy` arrives with slice 12, and removes containers and networks only.
+`Destroy` removes containers and networks only.
 Volume enumeration and removal are separate methods rather than a flag, so that
 "volumes are retained by default" is the shape of the interface rather than an
 argument that can be passed wrongly (ADR-037).
@@ -576,8 +575,8 @@ nothing for Feat to own, verify, or destroy (ADR-048).
 Destroy removes the containers and networks of the task's own Compose project.
 It passes neither `--volumes` nor `--remove-orphans`: volumes are retained by
 default (FR-CLEAN-004) and an orphan is a container Feat did not put there. What
-else a user may choose to remove, and what a dirty worktree requires, is slice
-12's.
+else a user may choose to remove, and what a dirty worktree requires, belongs to
+cleanup (ADR-037).
 
 ## Control workspace protocol
 

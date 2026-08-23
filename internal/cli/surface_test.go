@@ -16,8 +16,8 @@ import (
 
 var update = flag.Bool("update", false, "rewrite golden files")
 
-// TestCommandSurface pins the slice 0 acceptance criterion that `feat --help`
-// shows the intended top-level command model.
+// TestCommandSurface pins the requirement that `feat --help` shows the intended
+// top-level command model.
 //
 // It compares a normalized rendering of the command tree rather than cobra's
 // help text, so that a cobra formatting change does not fail the build while a
@@ -80,10 +80,10 @@ func localFlagNames(cmd *cobra.Command) []string {
 	return names
 }
 
-// TestPlaceholdersDeclareOwningSlice checks that every command a later slice
-// delivers reports which slice that is, instead of failing vaguely or, worse,
+// TestPlaceholdersSayWhatIsMissing checks that a command which does not do its
+// work yet says what that work is, instead of failing vaguely or, worse,
 // reporting success.
-func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
+func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 	// Commands that are implemented. Their RunE is not invoked here: the root
 	// command opens the dashboard, the daemon commands start, stop, and inspect
 	// a background process, and the project and doctor commands read the
@@ -144,12 +144,9 @@ func TestPlaceholdersDeclareOwningSlice(t *testing.T) {
 			switch {
 			case !errors.As(err, &notImplemented):
 				t.Errorf("%s: want a NotImplementedError, got %v", cmd.CommandPath(), err)
-			case notImplemented.Slice < 1 || notImplemented.Slice > 14:
-				t.Errorf("%s: slice %d is outside the plan in docs/11-implementation-plan.md",
-					cmd.CommandPath(), notImplemented.Slice)
 			case notImplemented.Outcome == "":
-				t.Errorf("%s: placeholder does not describe what slice %d delivers",
-					cmd.CommandPath(), notImplemented.Slice)
+				t.Errorf("%s: placeholder does not describe what is missing",
+					cmd.CommandPath())
 			case notImplemented.Command != cmd.CommandPath():
 				t.Errorf("%s: error names the command %q", cmd.CommandPath(), notImplemented.Command)
 			}

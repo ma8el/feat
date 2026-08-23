@@ -8,8 +8,7 @@
 // Current guards:
 //
 //   - no reference-project repository name, path, Compose service, or database
-//     identifier is compiled into the binary (CLAUDE.md scope rule 3, and the
-//     slice 0 acceptance criteria in docs/11-implementation-plan.md);
+//     identifier is compiled into the binary (CLAUDE.md scope rule 3);
 //   - Git, tmux, and Docker Compose are invoked as argument vectors rather than
 //     through an interpolated shell (CLAUDE.md architectural rules).
 //

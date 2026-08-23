@@ -33,8 +33,7 @@ func choose(p *Plan, classes ...Class) Selection {
 	return selection
 }
 
-// TestVolumesRemainUnlessExplicitlyChosen is slice 12's sixth acceptance
-// criterion.
+// TestVolumesRemainUnlessExplicitlyChosen is FR-CLEAN-004's retention rule.
 //
 // It is checked as a property of the selection rather than of an outcome,
 // because a volume that survived because a fake never removed it proves nothing.
@@ -70,8 +69,7 @@ func TestVolumesRemainUnlessExplicitlyChosen(t *testing.T) {
 	}
 }
 
-// TestDirtyAndUnmergedResourcesRequireExplicitConfirmation is slice 12's eighth
-// acceptance criterion.
+// TestDirtyAndUnmergedResourcesRequireExplicitConfirmation is FR-CLEAN-003.
 //
 // The confirmation is the exact warning the user was shown, so a selection that
 // confirmed something else does not cover it. That is what makes the rule about
@@ -193,8 +191,8 @@ func TestAPlanThatGainedOrLostAResourceIsRefused(t *testing.T) {
 	}
 }
 
-// TestBroadPathOrNonTaskResourceDeletionIsRejected is slice 12's seventh
-// acceptance criterion.
+// TestBroadPathOrNonTaskResourceDeletionIsRejected is the refusal rule for broad
+// and non-task targets.
 //
 // The table is every shape a record could take after being edited, restored
 // from a backup, or written by an older version. Each one is a directory a
@@ -234,7 +232,7 @@ func TestBroadPathOrNonTaskResourceDeletionIsRejected(t *testing.T) {
 }
 
 // TestArchivingIsRefusedWhileTheTaskStillOwnsSomething keeps an archived task
-// from becoming the orphan this slice exists to report.
+// from becoming the orphan reconciliation exists to report.
 func TestArchivingIsRefusedWhileTheTaskStillOwnsSomething(t *testing.T) {
 	p := plan(
 		worktree("/state/feat/worktrees/example/7f3a1c2e/api"),

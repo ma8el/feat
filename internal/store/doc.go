@@ -8,6 +8,4 @@
 // records no SQLite in v0, but the boundary must permit it later).
 //
 // The daemon is the only writer of persistent state.
-//
-// Delivered by slice 1.
 package store

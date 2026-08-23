@@ -20,9 +20,9 @@ const probeTimeout = 20 * time.Second
 
 // HostRunner executes probe commands on the trusted host.
 //
-// It is the environment for host-native execution. Slice 8 supplies a runner
-// that executes the same commands inside the configured container, which is why
-// nothing here is specific to a provider or to a check.
+// It is the environment for host-native execution; a devcontainer supplies a
+// runner that executes the same commands inside the configured container, which
+// is why nothing here is specific to a provider or to a check.
 type HostRunner struct{}
 
 var _ Runner = HostRunner{}

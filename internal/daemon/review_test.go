@@ -209,8 +209,7 @@ func (s *reviewSession) awaitGate(t *testing.T) {
 	}
 }
 
-// TestEachRepositoryUsesItsOwnRecordedBaseCommit is slice 11's first acceptance
-// criterion.
+// TestEachRepositoryUsesItsOwnRecordedBaseCommit is FR-REV-001.
 //
 // It is checked on the expanded commands as well as on the summaries, because a
 // review that produced the right numbers while offering a diff against the wrong
@@ -371,8 +370,8 @@ func TestApprovalDoesNotStopOrDestroyRuntime(t *testing.T) {
 	}
 }
 
-// TestReviewDecisionsSurviveARestart checks the slice's work item that review
-// state is preserved across a restart.
+// TestReviewDecisionsSurviveARestart checks that review state is preserved
+// across a restart.
 //
 // What this really checks is that the decision goes to disk rather than into the
 // running process: a daemon restarted after an approval must not present the
@@ -621,9 +620,8 @@ func TestAFailingCheckOutranksOneThatCouldNotRun(t *testing.T) {
 	}
 }
 
-// TestAPassingGateReachesReadyForReview is the other half of the fifth
-// criterion: the states this slice makes reachable are reached, and only by
-// running the checks.
+// TestAPassingGateReachesReadyForReview is the other half of the gate rule: the
+// states the gate makes reachable are reached, and only by running the checks.
 func TestAPassingGateReachesReadyForReview(t *testing.T) {
 	live := launchForReview(t, nil)
 	live.checks.outputs["unit"] = review.Output{Stdout: "84 passed"}
@@ -849,7 +847,7 @@ func TestAProjectWithNoChecksLeavesTheRequestWithTheUser(t *testing.T) {
 // A gate takes as long as the project's suite does, and a task whose checks are
 // running has not arrived with the user yet. Telling them twice for one arrival
 // is how a notification becomes something people learn to dismiss (ADR-035's
-// rule, applied to the state this slice adds).
+// rule, applied to the verifying state).
 func TestAGatedTaskIsAnnouncedOnceItHasBeenChecked(t *testing.T) {
 	live := launchForReview(t, nil)
 	live.watchable()
@@ -1003,7 +1001,7 @@ func firstLine(document string) string {
 }
 
 // TestAFinishingGateDoesNotLoseItsResultsToAConcurrentRead is the regression
-// test for the defect slice 11's end-to-end run found.
+// test for the defect an end-to-end review run found.
 //
 // The daemon is the only process that writes state and every write is atomic,
 // and neither of those makes a load-change-save cycle safe against another one.

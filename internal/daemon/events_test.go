@@ -26,8 +26,8 @@ func TestBusAssignsSequencesFromOne(t *testing.T) {
 	}
 }
 
-// TestBusDeliversEveryEventInOrder is the delivery half of the slice 2
-// acceptance criterion that state events arrive in order. The transport half is
+// TestBusDeliversEveryEventInOrder is the delivery half of the rule that state
+// events arrive in order. The transport half is
 // covered over a real socket in TestServeStreamsEventsInOrder.
 func TestBusDeliversEveryEventInOrder(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

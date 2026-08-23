@@ -160,9 +160,9 @@ func printSummary(out io.Writer, report project.Report) {
 	printf(out, "\n%s\n", join(parts))
 
 	if counts[project.SeveritySkipped] > 0 {
-		// What a skipped check says is the reason, not a slice number. Naming
-		// the condition is what lets a reader act on it, and it is what the
-		// findings actually carry (ADR-033).
+		// What a skipped check says is the reason it could not run. Naming the
+		// condition is what lets a reader act on it, and it is what the findings
+		// actually carry (ADR-033).
 		printf(out, "skipped checks are not passing checks; each one says why it did not run\n")
 	}
 }

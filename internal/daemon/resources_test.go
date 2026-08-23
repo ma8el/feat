@@ -16,9 +16,9 @@ import (
 
 // brokenResources is a machine on which nothing can be measured.
 //
-// Every command fails, which is the state the first two acceptance criteria of
-// this slice are about: a metric must never block a task, and a collection
-// failure must degrade rather than break something.
+// Every command fails, which is the state the two rules that matter are about: a
+// metric must never block a task, and a collection failure must degrade rather
+// than break something.
 type brokenResources struct {
 	mu    sync.Mutex
 	calls int
@@ -37,7 +37,8 @@ func (b *brokenResources) ran() int {
 	return b.calls
 }
 
-// TestMetricsNeverBlockTaskCreation is the first slice 10 acceptance criterion.
+// TestMetricsNeverBlockTaskCreation is the rule that a metric never blocks a
+// task.
 //
 // The whole lifecycle runs on a machine where every observation command fails:
 // the draft is planned, launched, and taken to working, and the daemon still
@@ -155,8 +156,8 @@ func TestReadingResourcesRunsNoCommand(t *testing.T) {
 // seconds does not become an event that moves every two seconds.
 //
 // The dashboard re-reads state on every event, so a sample that published would
-// make every task a permanent source of reads — the shape slice 6 paid for once
-// and slice 9 pinned for the runtime poller.
+// make every task a permanent source of reads — the shape the dashboard paid for
+// once and the runtime poller is pinned against.
 func TestSamplingPublishesNothing(t *testing.T) {
 	broken := &brokenResources{}
 	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
@@ -249,8 +250,8 @@ func TestTheSamplingIntervalIsFlooredByTheLastSample(t *testing.T) {
 	}
 }
 
-// TestAProjectsConfiguredIntervalIsRead checks that the configuration field this
-// slice gives its first reader is actually read.
+// TestAProjectsConfiguredIntervalIsRead checks that the configured interval is
+// actually read.
 func TestAProjectsConfiguredIntervalIsRead(t *testing.T) {
 	fixture := hostFixture + `
 resources:

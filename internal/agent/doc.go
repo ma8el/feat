@@ -13,9 +13,9 @@
 //
 // The seam between an agent and where it runs is Workspace and LaunchSpec: an
 // adapter is told how the agent will see its own filesystem and answers with a
-// command in those terms. While execution is host-native those paths are the
-// host's; once slice 8 runs the agent in a container they are the container's,
-// and no adapter code changes. Environment is the matching seam for validation,
+// command in those terms. Under host-native execution those paths are the
+// host's; under a devcontainer they are the container's, and no adapter code
+// changes. Environment is the matching seam for validation,
 // so a probe always runs where the agent will run rather than wherever the
 // daemon happens to be.
 //

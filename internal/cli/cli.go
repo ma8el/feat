@@ -21,7 +21,7 @@ const (
 	// number of positional arguments.
 	ExitUsage = 2
 	// ExitNotImplemented reports a command that exists in the v0 command
-	// surface but is delivered by a later implementation slice.
+	// surface but does not do its work yet.
 	ExitNotImplemented = 3
 	// ExitNotRunning reports that a command needed a daemon and none was
 	// running. It is separate from ExitError because an absent daemon is a state

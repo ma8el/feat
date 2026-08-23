@@ -8,8 +8,8 @@
 // *exec.Cmd would be a process nobody runs; Run is added, because validation
 // asks an environment questions rather than attaching a terminal to it; and
 // Shell is folded into Command, because the daemon already decides what a task
-// shell is. Destroy waits for slice 12, which owns what cleanup retains and
-// what it must confirm.
+// shell is. Destroy belongs to cleanup, which owns what is retained and what
+// must be confirmed.
 //
 // Agent execution and application runtime are separate concepts even when both
 // use Docker Compose. This package covers only where the agent runs;
@@ -21,6 +21,4 @@
 // execution-stays-an-adapter depguard rule makes that mechanical.
 //
 // Commands are argument vectors, never interpolated shell strings.
-//
-// Delivered by slice 8, with the host implementation in slice 14.
 package execution

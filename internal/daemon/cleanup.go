@@ -62,8 +62,8 @@ func (s *service) resolveCleanup(ctx context.Context, task *domain.Task) (*recon
 // resolveGitCleanup fills the worktree and branch targets.
 //
 // The inventory itself is internal/git's, because what is dirty, unpushed, or
-// unmerged is Git's own answer about a worktree; slice 4 built it and this is
-// its first caller.
+// unmerged is Git's own answer about a worktree, and this is the caller that
+// acts on it.
 func (s *service) resolveGitCleanup(
 	ctx context.Context, cfg *config.Config, task *domain.Task, plan *reconcile.Plan,
 ) {

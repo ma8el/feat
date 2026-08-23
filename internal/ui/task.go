@@ -9,14 +9,15 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// gateSlice explains what the verification column can and cannot mean today.
+// claimedCaveat explains what the verification column means when the agent is
+// the only reporter.
 //
-// A reported result is the agent's claim; a gate that runs the project's
-// configured checks arrives with slice 11 (ADR-032, corrected by ADR-033). It is
-// named in the task detail rather than left blank, so that a user who asks why a
-// column is empty is told, and a reviewer can see which requirement is still
-// outstanding (FR-UI-002, FR-UI-003).
-const gateSlice = "checks are the agent's own report; a gate that runs them arrives with slice 11"
+// Feat runs the checks a project configures when the agent asks for review, and
+// marks those results as its own. A project that configures none leaves the
+// agent's claim as the whole of what is known, and the column says so rather
+// than reading like a verdict Feat reached (ADR-032, corrected by ADR-033;
+// FR-UI-002, FR-UI-003).
+const claimedCaveat = "Feat verifies the checks a project configures"
 
 // Attention badges.
 //
@@ -57,7 +58,7 @@ func attentionSummary(tasks []api.Task) string {
 func verificationDetail(task api.Task) string {
 	if task.Verification == nil {
 		return absent + "  " + mutedStyle.Render("(the agent has reported no checks; "+
-			"a gate that runs the project's configured checks arrives with slice 11)")
+			"the project's configured checks run when it asks for review)")
 	}
 	reported := *task.Verification
 
@@ -77,7 +78,7 @@ func verificationDetail(task api.Task) string {
 
 	detail := strings.Join(parts, ", ")
 	if reported.Source == "agent" {
-		detail += "  " + mutedStyle.Render("(reported by the agent, not verified; "+gateSlice+")")
+		detail += "  " + mutedStyle.Render("(reported by the agent, not verified; "+claimedCaveat+")")
 	}
 	if reported.Summary != "" {
 		detail += "\n  " + mutedStyle.Render(reported.Summary)

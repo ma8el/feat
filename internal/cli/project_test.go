@@ -300,9 +300,9 @@ func TestProjectListDistinguishesConfiguredFromRegistered(t *testing.T) {
 	}
 }
 
-// TestProjectShowPrintsResolvedConfiguration is the slice 3 acceptance
-// criterion "Repository/container-path mappings are printed accurately", at the
-// command that prints them.
+// TestProjectShowPrintsResolvedConfiguration covers the rule that repository and
+// container-path mappings are printed accurately, at the command that prints
+// them.
 func TestProjectShowPrintsResolvedConfiguration(t *testing.T) {
 	m := prepare(t)
 	m.configure(t, "app", projectFixture)
@@ -376,12 +376,12 @@ func TestDoctorReportsAHealthyMachine(t *testing.T) {
 //
 // The long help said the agent-environment checks are skipped "because nothing
 // starts that environment yet", and the summary said each skipped check "says
-// which slice delivers it". Neither has been true since the checks moved inside
-// a live container: what a skip names is the condition — no container of this
-// project is running — and what it offers is launching a task. A user read the
-// header saying the capability does not exist, the finding saying to start a
-// task, and the footer sending them to look for a slice number no finding
-// carries.
+// which slice delivers it" — a pointer into a plan document that no longer
+// exists. Neither has been true since the checks moved inside a live container:
+// what a skip names is the condition — no container of this project is running —
+// and what it offers is launching a task. A user read the header saying the
+// capability does not exist, the finding saying to start a task, and the footer
+// sending them to look for something no finding carries.
 func TestDoctorDescribesTheSkipsItActuallyProduces(t *testing.T) {
 	m := prepare(t)
 	m.configure(t, "app", projectFixture)
@@ -531,9 +531,9 @@ func lastLines(output string, count int) string {
 	return strings.Join(lines, "\n")
 }
 
-// TestDoctorFailsOnAnInvalidConfiguration is the slice 3 acceptance criterion
-// that a broken configuration produces an actionable diagnostic, checked at the
-// command and its exit code.
+// TestDoctorFailsOnAnInvalidConfiguration covers the rule that a broken
+// configuration produces an actionable diagnostic, checked at the command and
+// its exit code.
 func TestDoctorFailsOnAnInvalidConfiguration(t *testing.T) {
 	m := prepare(t)
 	m.configure(t, "app", strings.Replace(projectFixture, "    default_access: read_write", "    default_acess: read_write", 1))
@@ -594,9 +594,9 @@ func (e *notInstalled) Error() string { return e.name + " is not installed" }
 
 func (e *notInstalled) Unwrap() error { return project.ErrNotInstalled }
 
-// TestDoctorNeverPrintsSecretFileContents is the slice 3 acceptance criterion
-// "Secret file contents never appear in diagnostics", checked at the command
-// that prints them.
+// TestDoctorNeverPrintsSecretFileContents covers the rule that secret file
+// contents never appear in diagnostics, checked at the command that prints
+// them.
 func TestDoctorNeverPrintsSecretFileContents(t *testing.T) {
 	const secret = "ThisValueMustNeverBePrinted"
 

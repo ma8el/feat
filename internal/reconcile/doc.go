@@ -30,5 +30,5 @@
 // identity is a broad or unresolvable path is refused rather than removed
 // (FR-CLEAN-004, docs/05-security-model.md).
 //
-// Delivered by slice 12. See ADR-037.
+// See ADR-037.
 package reconcile

@@ -366,10 +366,10 @@ func mustFail[T any](_ T, err error) error { return err }
 // TestThePortRangeHasADefault keeps a project that never thought about ports
 // running.
 //
-// The reachable declaration was collected a slice before anything allocated from
-// it, so a project written then names no range — and a range is a decision about
-// this machine's own ports rather than about the project, which is exactly the
-// kind of value that should have a default the user can see.
+// The reachable declaration was collected before anything allocated from it, so
+// a project written then names no range — and a range is a decision about this
+// machine's own ports rather than about the project, which is exactly the kind
+// of value that should have a default the user can see.
 func TestThePortRangeHasADefault(t *testing.T) {
 	cfg, err := loadReplacing(t, "", "")
 	if err != nil {

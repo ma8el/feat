@@ -92,8 +92,8 @@ func TestTheTaskPanelGroupsChangesByRepository(t *testing.T) {
 	}
 }
 
-// TestTheTaskPanelTellsAClaimFromAnEnforcedResult is slice 11's fifth
-// acceptance criterion where the user reads it.
+// TestTheTaskPanelTellsAClaimFromAnEnforcedResult is FR-AGENT-006 where the user
+// reads it.
 //
 // A result Feat ran and a result the agent asserted are both shown, and they do
 // not read alike. Showing them alike would tell the user something Feat does not
@@ -111,9 +111,9 @@ func TestTheTaskPanelTellsAClaimFromAnEnforcedResult(t *testing.T) {
 	if !strings.Contains(view, "2 failed, 82 passed") {
 		t.Errorf("the failing check's own output is not shown:\n%s", view)
 	}
-	// The strings slice 8 left behind, which named a slice rather than a state.
-	if strings.Contains(view, "slice 11") {
-		t.Errorf("the panel still names the slice that was going to deliver it:\n%s", view)
+	// A result Feat ran must not carry the caveat that belongs to a claim.
+	if strings.Contains(view, "reported by the agent, not verified") {
+		t.Errorf("an enforced result still carries the unverified caveat:\n%s", view)
 	}
 }
 
@@ -286,9 +286,9 @@ func TestOpeningReviewObservesRatherThanDecides(t *testing.T) {
 	}
 }
 
-// TestAnApprovedTaskWithRunningServicesIsOfferedTheStop is slice 9's fifth
-// acceptance criterion, exercised for the first time by the approval this slice
-// delivers.
+// TestAnApprovedTaskWithRunningServicesIsOfferedTheStop is FR-RUN-005's rule
+// that approval offers to stop a task's services rather than stopping them,
+// exercised by the approval the review screen makes.
 //
 // The offer is made in words on the screen the user is on when they approve, and
 // Feat never acts on it (docs/02-user-workflows.md §7).

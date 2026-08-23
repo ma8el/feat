@@ -502,7 +502,7 @@ func (s *service) recordRuntimeInputs(
 //
 // The event is published only when the state or health actually changed. Every
 // poll would otherwise publish, every publication makes a dashboard re-read, and
-// a re-read that publishes is the loop slice 6 paid for once already.
+// a re-read that publishes is a loop the dashboard has paid for once already.
 func (s *service) recordRuntime(
 	ctx context.Context, task *domain.Task, record *domain.RuntimeEnvironment,
 	state runtime.State, notes []string, action string,
@@ -1085,8 +1085,7 @@ func (s *service) pollRuntimes(ctx context.Context) {
 // It is a distinct error because it is not a failure: the task's Compose project
 // is still there and is still the task's, and what has gone is the configuration
 // that would say how to address it. Reconciliation reports it as an orphan,
-// which is what the note in the observer promised the slice that owns recovery
-// would do.
+// which is what the note in the observer promised recovery would do.
 var ErrRuntimeUnconfigured = errors.New("the project no longer configures an application runtime")
 
 // observeRuntime reads one task's services, records a change, and returns what

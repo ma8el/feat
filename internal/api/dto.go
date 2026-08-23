@@ -248,8 +248,8 @@ type Repository struct {
 //
 // The brief is included in list responses as well as in a single task, because
 // v0 lists the tasks of one machine and splitting the shape would mean two
-// mappings and two golden files for no observed cost. Slice 6 may split it if
-// the dashboard shows that it should.
+// mappings and two golden files for no observed cost. It can be split if the
+// dashboard turns out to need it.
 type Task struct {
 	ID string `json:"id"`
 	// Key is the human-facing short identifier derived from the ID.
@@ -1018,9 +1018,9 @@ func NewVerification(review *domain.Review) (Verification, bool) {
 		// if every result in it was, because one asserted result is enough to
 		// make "verified" a claim rather than a fact.
 		//
-		// This condition was unreachable until slice 11, when a gate first
-		// produced a provider result: it started from "agent" and only ever
-		// tested whether it was not "agent" (ADR-036 evidence 1).
+		// This condition was unreachable until a gate first produced a provider
+		// result: it started from "agent" and only ever tested whether it was
+		// not "agent" (ADR-036 evidence 1).
 		verification.Source = string(domain.ReporterProvider)
 	}
 	for _, check := range review.Checks {

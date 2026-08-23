@@ -40,7 +40,7 @@ runtime:
     - api
 `
 
-// TestThePreviousShapeIsRefusedByName is an acceptance criterion of the slice.
+// TestThePreviousShapeIsRefusedByName covers the rule the rename came with.
 //
 // There is no version bump and no compatibility period: Feat is used by its
 // author and nobody else. The break is still a break the user should not have to

@@ -158,8 +158,8 @@ func (s *service) applyAgentEvent(ctx context.Context, task *domain.Task, event 
 	now := s.now()
 	if event.ProviderSessionID != "" && task.Session.ProviderSessionID != event.ProviderSessionID {
 		// Recorded as soon as it is known, and before anything can fail, so the
-		// resume slice 12 offers can continue this session rather than open an
-		// empty one (ADR-032).
+		// resume can continue this session rather than open an empty one
+		// (ADR-032).
 		task.Session.ProviderSessionID = event.ProviderSessionID
 	}
 
@@ -247,8 +247,8 @@ func (s *service) applyAgentEvent(ctx context.Context, task *domain.Task, event 
 // notifyChange interrupts the user about one applied agent event, at most once.
 //
 // The workflow wins over the process when both moved, because they moved for the
-// same reason: slice 7's normalization turns a dead agent into a failed task, and
-// a user told twice about one death learns to read the second one as noise. A
+// same reason: normalization turns a dead agent into a failed task, and a user
+// told twice about one death learns to read the second one as noise. A
 // process failure that left the workflow where it was still says so, because
 // that is the case nothing else reports.
 func (s *service) notifyChange(ctx context.Context, task *domain.Task, workflowMoved, processMoved bool) {
@@ -492,7 +492,7 @@ func (s *service) cancelIdle(id domain.TaskID) {
 // Feat therefore cannot learn this from the provider, and the honest thing is to
 // say what it does know: nothing has been heard. A task that sits in `preparing`
 // reporting a running process and no attention would look like a task getting on
-// with its work, which is the one thing this slice exists to prevent.
+// with its work, which is the one thing the startup grace exists to prevent.
 func (s *service) armStartup(ctx context.Context, task *domain.Task) {
 	id := task.ID
 	s.startup.arm(id, startupGrace, func() {

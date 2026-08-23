@@ -26,13 +26,13 @@ const deliveredHint = "Compare these against the desktop. For any that did not a
 	"looking; no line at all means it never arrived. A notification Feat dropped on\n" +
 	"purpose says so in the daemon's log as \"not interrupting the user about a task\"."
 
-// TestRealNotificationReachesTheDesktop is the slice 13 acceptance criterion that
-// every notifiable condition has been shown to reach a real desktop once, from
-// the state change that produces it.
+// TestRealNotificationReachesTheDesktop covers the rule that every notifiable
+// condition has been shown to reach a real desktop once, from the state change
+// that produces it.
 //
-// It exists because slices 10 and 11 each added notifications with unit tests
-// over a fake notifier, and a fake notifier proves the daemon asked rather than
-// that anybody was told. The defect that prompted it was a task passing its
+// It exists because notifications were added with unit tests over a fake
+// notifier, and a fake notifier proves the daemon asked rather than that
+// anybody was told. The defect that prompted it was a task passing its
 // completion gate, reaching ready_for_review, and the user never hearing: the
 // state, the event, and the review record were all correct, so what was missing
 // was the interruption.

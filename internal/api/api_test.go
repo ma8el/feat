@@ -727,8 +727,8 @@ func TestDraftResponseBodies(t *testing.T) {
 	}
 }
 
-// TestLaunchingWithoutTheDisplayedPlanIsRefused is the transport half of the
-// slice 6 criterion that confirming launches the snapshot that was displayed.
+// TestLaunchingWithoutTheDisplayedPlanIsRefused is the transport half of
+// FR-TASK-003's rule that confirming launches the snapshot that was displayed.
 //
 // The daemon compares the fingerprint; what the transport has to get right is
 // that a refusal is a request error the user can act on rather than a failure
@@ -845,9 +845,8 @@ func TestErrorResponses(t *testing.T) {
 	}
 }
 
-// TestEveryTaskEndpointTakesTheKeyTheListsPrint checks the slice 13 acceptance
-// criterion at the transport, where it applies to the whole command surface at
-// once.
+// TestEveryTaskEndpointTakesTheKeyTheListsPrint checks ADR-038 at the transport,
+// where it applies to the whole command surface at once.
 //
 // The endpoints below are what `feat attach`, `feat review`, `feat runtime`, and
 // `feat task cleanup` call, and every one of them took an identifier no list printed.
