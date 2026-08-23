@@ -169,6 +169,26 @@ func TestSteppingBackReachesTheAnswerBefore(t *testing.T) {
 	}
 }
 
+// atReview opens the wizard, answers every question, and stops at the file.
+func atReview(t *testing.T, width int) Model {
+	t.Helper()
+
+	model := enter(t, sized(wizardScreen(t, newFakeBackend()), width, 44), 10)
+	if model.wizard.step != wizardReviewing {
+		t.Fatalf("after every question the step is %v, want the review", model.wizard.step)
+	}
+	return model
+}
+
+// roomFor is a terminal wide enough that a dialog of this width is not clamped.
+//
+// dialogLimits allows three quarters of the terminal, so a dialog is drawn at its
+// own size only where three quarters of the screen is at least that. The width is
+// derived rather than written down because what the review holds is a path, and
+// how long a path is depends on the machine the test is running on — which is how
+// this test first failed on somebody else's.
+func roomFor(cells int) int { return cells*4/3 + 8 }
+
 // TestTheWizardIsSizedToItsContent keeps the dialog off the width of the screen.
 //
 // dialogBox shrinks to the widest line it is handed, and lipgloss pads every
@@ -178,26 +198,31 @@ func TestSteppingBackReachesTheAnswerBefore(t *testing.T) {
 //
 // It is not capped at a measure, because this dialog is a form and a file: what
 // decides its width is what is on it, and a longer path or a wider question is
-// entitled to more room.
+// entitled to more room, up to the allowance.
 func TestTheWizardIsSizedToItsContent(t *testing.T) {
-	backend := newFakeBackend()
-	model := enter(t, sized(wizardScreen(t, backend), 240, 44), 10)
+	// Wide enough that nothing is clamped, so what is measured is what the
+	// content wants rather than what the screen would allow.
+	model := atReview(t, 400)
 
-	if model.wizard.step != wizardReviewing {
-		t.Fatalf("step = %v, want the review", model.wizard.step)
-	}
-
-	drawn, _ := blockSize(model.dialogView())
+	natural, _ := blockSize(model.dialogView())
 	allowed, _ := model.dialogLimits()
-	if drawn >= allowed {
-		t.Errorf("the review took all %d cells it was allowed rather than sizing to the file", allowed)
+	if natural >= allowed {
+		t.Fatalf("the review took all %d cells it was allowed rather than sizing to the file", allowed)
 	}
 
-	// The same content in a narrower terminal is the same dialog: the width
-	// follows what is on the screen, not what the screen has.
-	narrow := enter(t, sized(wizardScreen(t, newFakeBackend()), 140, 44), 10)
-	if other, _ := blockSize(narrow.dialogView()); other != drawn {
-		t.Errorf("the same review is %d cells at 240 columns and %d at 140", drawn, other)
+	// A smaller terminal that still has room for it draws the same dialog: the
+	// width follows what is on the screen, not what the screen has.
+	roomy := roomFor(natural)
+	if got, _ := blockSize(sized(model, roomy, 44).dialogView()); got != natural {
+		t.Errorf("the same review is %d cells at 400 columns and %d at %d", natural, got, roomy)
+	}
+
+	// And a terminal with no room for it is still not overrun: the allowance is
+	// a ceiling, and the file's lines are cut to it.
+	cramped := sized(model, natural, 44)
+	crampedAllowed, _ := cramped.dialogLimits()
+	if got, _ := blockSize(cramped.dialogView()); got > crampedAllowed {
+		t.Errorf("the review is %d cells in a box allowed %d", got, crampedAllowed)
 	}
 }
 
@@ -209,10 +234,16 @@ func TestTheWizardIsSizedToItsContent(t *testing.T) {
 // user scrolled through a configuration would be worse than one that was always
 // too wide.
 func TestScrollingTheFileDoesNotResizeTheDialog(t *testing.T) {
-	backend := newFakeBackend()
-	model := enter(t, sized(wizardScreen(t, backend), 200, 30), 10)
+	model := atReview(t, 400)
 
 	before, _ := blockSize(model.dialogView())
+	allowed, _ := model.dialogLimits()
+	if before >= allowed {
+		// Clamped to the allowance, the width cannot move whatever this does,
+		// and the test would pass having proved nothing.
+		t.Fatalf("the review is clamped at %d cells, so scrolling could not move it anyway", allowed)
+	}
+
 	for range 8 {
 		model = press(t, model, "j")
 		if after, _ := blockSize(model.dialogView()); after != before {
