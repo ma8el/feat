@@ -46,14 +46,28 @@ type NotRunningError struct {
 	Detail string
 	// Socket is where a daemon would be listening.
 	Socket string
+	// Cause is why starting one failed, when Feat tried and could not.
+	//
+	// It replaces the advice rather than joining it: telling a user to run
+	// `feat daemon start` after the dashboard has just run it for them and been
+	// refused is advice that has already been taken. What they need instead is
+	// the reason, which for a spawn that never began serving is the end of the
+	// daemon log.
+	Cause error
 }
 
 func (e *NotRunningError) Error() string {
+	if e.Cause != nil {
+		return "no feat daemon is running on " + e.Socket + ", and starting one failed: " + e.Cause.Error()
+	}
 	if e.Detail != "" {
 		return e.Detail + "; start one with `feat daemon start`"
 	}
 	return "no feat daemon is running on " + e.Socket + "; start one with `feat daemon start`"
 }
+
+// Unwrap exposes the failed start, so that a caller can ask what kind it was.
+func (e *NotRunningError) Unwrap() error { return e.Cause }
 
 // usageError marks an argument or flag error so that Execute can report the
 // usage exit code and print the command's usage text.

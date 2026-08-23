@@ -123,6 +123,16 @@ task up opens over the dashboard rather than replacing it, so the tasks you were
 watching stay on screen. A terminal too narrow for three regions falls back to
 one column.
 
+Opening the dashboard starts the daemon it needs. If that daemon later stops —
+because you stopped it, or because it failed — the dashboard says so and offers
+to start another rather than starting one behind your back: a daemon that died
+may have left tmux sessions and containers running, and the reconciliation pass
+of the one that replaces it is where you find out. The offer is made once per
+outage; decline it and the footer carries `S`, which puts the question again.
+Nothing on screen is destroyed by any of this, and nothing the daemon was
+supervising is touched — but what the dashboard is showing stops being current
+the moment it stops answering.
+
 Everything that acts on a task you already have is under `feat task`. Attaching
 and reviewing are typed often enough to keep their shorter top-level names too.
 

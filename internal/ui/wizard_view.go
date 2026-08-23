@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ma8el/feat/internal/wizard"
 )
@@ -135,8 +136,12 @@ func (w wizardModel) reviewView() string {
 	first := min(w.scroll, max(0, len(lines)-1))
 	last := min(len(lines), first+height)
 
+	// Every line is drawn in the width of the file's widest, so that scrolling
+	// through it does not resize the dialog around it. The measure is the whole
+	// file rather than the window, because the window is what changes.
+	block := reviewBlock(lines, max(1, w.width-2))
 	for _, line := range lines[first:last] {
-		out.WriteString(mutedStyle.Render(truncate(line, max(1, w.width-2))) + "\n")
+		out.WriteString(mutedStyle.Render(pad(line, block)) + "\n")
 	}
 	if last < len(lines) {
 		out.WriteString(mutedStyle.Render("… " + count(len(lines)-last, "more line", "more lines")))
@@ -145,6 +150,18 @@ func (w wizardModel) reviewView() string {
 
 	out.WriteString("\n" + mutedStyle.Render("nothing has been written yet") + "\n")
 	return out.String()
+}
+
+// reviewBlock is the width the configuration is drawn in: its own widest line,
+// up to what the dialog allows.
+func reviewBlock(lines []string, limit int) int {
+	widest := 0
+	for _, line := range lines {
+		if measured := ansi.StringWidth(line); measured > widest {
+			widest = measured
+		}
+	}
+	return min(max(widest, 1), limit)
 }
 
 // checkView draws what this machine says about the project that now exists.
@@ -204,8 +221,22 @@ func (w wizardModel) doneView() string {
 // A path and the reason an answer was refused are the two things on this screen
 // that a user acts on, and the box composites by cell: without this they end in
 // an ellipsis, and a path that is cut is a path nobody can check.
+//
+// The padding lipgloss adds is taken back off. dialogBox shrinks its box to the
+// widest line it is handed, and a line padded out to the width it wrapped to
+// reports itself as exactly as wide as the dialog was allowed — so the wizard
+// took three quarters of the terminal from the review step onwards, to show a
+// file whose lines are half that. What decides the width now is the widest thing
+// actually on the screen, which is what lets this dialog have as much room as it
+// needs and no more.
 func (w wizardModel) wrap(text string) string {
-	return lipgloss.NewStyle().Width(max(20, w.width)).Render(text)
+	wrapped := lipgloss.NewStyle().Width(max(20, w.width)).Render(text)
+
+	lines := strings.Split(wrapped, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " ")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (w wizardModel) hints() string {

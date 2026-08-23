@@ -82,6 +82,13 @@ const (
 	// finding is three lines — what, where, and what to do — which is more than a
 	// footer holds and more than a rail is wide enough for.
 	screenRecovery
+	// screenDaemon is the offer to start a daemon when none is answering.
+	//
+	// It is an overlay for the reason preparation is: it is answered before work
+	// continues. Nothing else on the dashboard works while it is open — every key
+	// reaches the daemon — and the tasks the user was watching stay behind it,
+	// which is the last state anything knew about them.
+	screenDaemon
 )
 
 // mainRegion reports whether this screen is a view of the selected task that the
@@ -92,7 +99,7 @@ const (
 // answered before work continues.
 func (s screen) mainRegion() bool {
 	switch s {
-	case screenPrepare, screenWizard, screenCleanup, screenDiagnosis, screenKeys, screenRecovery:
+	case screenPrepare, screenWizard, screenCleanup, screenDiagnosis, screenKeys, screenRecovery, screenDaemon:
 		return false
 	default:
 		return true
@@ -251,6 +258,25 @@ type Model struct {
 	// a question with an obvious answer teaches people to answer without reading
 	// (the rule ADR-037 applies to cleanup's warnings).
 	stopping string
+
+	// daemonGone reports that the last read failed because nothing is listening
+	// on the daemon's socket, and daemonAsked that the offer to start one has
+	// already been made about this absence.
+	//
+	// The pair is what makes the question a question rather than a loop: the read
+	// that discovers an absent daemon runs every two seconds. daemonStarting is a
+	// start the user asked for and that has not come back, and daemonErr is why
+	// the last one did not work — kept beside the dialog rather than in the
+	// footer, because a failed start says what it says in a quoted daemon log.
+	daemonGone     bool
+	daemonAsked    bool
+	daemonStarting bool
+	daemonErr      error
+
+	// streamEnded reports that the event subscription is over, which is what
+	// makes reopening it after a restart safe: replacing a live channel would
+	// leave a subscriber on both sides of a socket nobody reads.
+	streamEnded bool
 
 	// cancelling is the draft a cancel is waiting for a yes about, by
 	// identifier.
@@ -583,10 +609,16 @@ func (m Model) apply(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tasksMsg:
 		m.loaded = true
 		if message.err != nil {
+			// Every action funnels its failure through this message, so this is
+			// the one place a daemon that stopped answering has to be recognised.
+			if daemonGone(message.err) {
+				return m.noteDaemonGone()
+			}
 			m.err = message.err
 			return m, nil
 		}
 		m.err = nil
+		m.noteDaemonAnswered()
 		listed := m.tasks
 		m.tasks, m.archived = activeTasks(sortTasks(message.tasks))
 		m.anchorSelection(listed)
@@ -620,6 +652,10 @@ func (m Model) apply(message tea.Msg) (tea.Model, tea.Cmd) {
 		// resuming (ADR-027), and a dashboard that reconnected on its own would
 		// have to decide how often — which is exactly the decision that was
 		// missing when it reconnected on every event.
+		//
+		// Recording that it ended is what lets a daemon the user restarts get a
+		// subscription again, once, on the way back.
+		m.streamEnded = true
 		m.status = "the daemon's event stream ended; refreshing every " +
 			refreshInterval.String() + " instead"
 		if message.err != nil {
@@ -663,6 +699,9 @@ func (m Model) apply(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.diagnosis = m.diagnosis.apply(message)
 		return m, nil
+
+	case daemonStartedMsg:
+		return m.applyDaemonStart(message)
 
 	case runtimeMsg:
 		return m.applyRuntime(message)
@@ -925,6 +964,11 @@ func (m Model) selectTab(active tab) (tea.Model, tea.Cmd) {
 
 // key routes a key press to the screen that has the keyboard.
 func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The daemon dialog is answered before anything else, because everything
+	// else needs the daemon it is asking about.
+	if m.screen == screenDaemon {
+		return m.daemonKey(key)
+	}
 	// A reading overlay answers only the keys that close it. One that passed
 	// every other key through would act on a task the user cannot see while they
 	// are reading about how to act on it.
@@ -937,9 +981,7 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.screen = screenFor(m.tab)
 			return m, nil
 		case "ctrl+c", "q":
-			m.quitting = true
-			m.stopStream()
-			return m, tea.Quit
+			return m.quit()
 		case "r":
 			// Looking again from here is the one action this overlay offers, and
 			// it is why the pass has a time on it: a user who has just resumed a
@@ -997,6 +1039,18 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.dashboardKey(key)
 }
 
+// quit leaves the dashboard.
+//
+// The daemon serves a subscription until its client goes away, so the dashboard
+// says so on the way out rather than leaving one to be collected when the
+// process happens to exit. Every screen that offers `q` goes through here, so
+// that there is one way out rather than one per overlay.
+func (m Model) quit() (tea.Model, tea.Cmd) {
+	m.quitting = true
+	m.stopStream()
+	return m, tea.Quit
+}
+
 // dashboardKey answers the keys that belong to the dashboard rather than to one
 // of its views: opening an overlay, acting on the selected task, quitting.
 //
@@ -1043,12 +1097,10 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key.String() {
 	case "ctrl+c", "q":
-		m.quitting = true
-		// The daemon serves a subscription until its client goes away, so the
-		// dashboard says so on the way out rather than leaving one to be
-		// collected when the process happens to exit.
-		m.stopStream()
-		return m, tea.Quit
+		return m.quit()
+
+	case startDaemonKey:
+		return m.offerDaemonStart()
 
 	case "esc":
 		if m.screen == screenKeys {
@@ -1577,6 +1629,9 @@ func (m Model) stackedView() string {
 		return m.keyMap(width) + m.footer(keyHints(keyHint("esc", "close")))
 	case screenRecovery:
 		return m.recoveryList() + m.footer(keyHints(keyHint("r", "look again"), keyHint("esc", "close")))
+	case screenDaemon:
+		width, _ := m.frameSize()
+		return m.daemonBody(width) + m.footer(m.daemonHints())
 	default:
 		return m.listView()
 	}
@@ -1620,6 +1675,12 @@ func (m Model) dialogView() string {
 		return dialogBox("keys", m.keyMap(inner-4), inner, tallest)
 	case screenRecovery:
 		return dialogBox("recovery", m.recoveryList(), inner, tallest)
+	case screenDaemon:
+		// The dialog carries its own keys, as cleanup's does: the frame's footer
+		// says how to close an overlay, and this one is answered rather than
+		// closed.
+		return dialogBox(daemonTitle,
+			m.daemonBody(inner-cardChrome)+"\n\n"+m.daemonHints(), inner, tallest)
 	default:
 		return ""
 	}

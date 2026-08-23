@@ -169,6 +169,92 @@ func TestSteppingBackReachesTheAnswerBefore(t *testing.T) {
 	}
 }
 
+// atReview opens the wizard, answers every question, and stops at the file.
+func atReview(t *testing.T, width int) Model {
+	t.Helper()
+
+	model := enter(t, sized(wizardScreen(t, newFakeBackend()), width, 44), 10)
+	if model.wizard.step != wizardReviewing {
+		t.Fatalf("after every question the step is %v, want the review", model.wizard.step)
+	}
+	return model
+}
+
+// roomFor is a terminal wide enough that a dialog of this width is not clamped.
+//
+// dialogLimits allows three quarters of the terminal, so a dialog is drawn at its
+// own size only where three quarters of the screen is at least that. The width is
+// derived rather than written down because what the review holds is a path, and
+// how long a path is depends on the machine the test is running on — which is how
+// this test first failed on somebody else's.
+func roomFor(cells int) int { return cells*4/3 + 8 }
+
+// TestTheWizardIsSizedToItsContent keeps the dialog off the width of the screen.
+//
+// dialogBox shrinks to the widest line it is handed, and lipgloss pads every
+// wrapped line out to the width it wrapped to — so from the review step onwards
+// the wizard reported itself as exactly as wide as it was allowed, and took
+// three quarters of the terminal to show a file whose lines are half that.
+//
+// It is not capped at a measure, because this dialog is a form and a file: what
+// decides its width is what is on it, and a longer path or a wider question is
+// entitled to more room, up to the allowance.
+func TestTheWizardIsSizedToItsContent(t *testing.T) {
+	// Wide enough that nothing is clamped, so what is measured is what the
+	// content wants rather than what the screen would allow.
+	model := atReview(t, 400)
+
+	natural, _ := blockSize(model.dialogView())
+	allowed, _ := model.dialogLimits()
+	if natural >= allowed {
+		t.Fatalf("the review took all %d cells it was allowed rather than sizing to the file", allowed)
+	}
+
+	// A smaller terminal that still has room for it draws the same dialog: the
+	// width follows what is on the screen, not what the screen has.
+	roomy := roomFor(natural)
+	if got, _ := blockSize(sized(model, roomy, 44).dialogView()); got != natural {
+		t.Errorf("the same review is %d cells at 400 columns and %d at %d", natural, got, roomy)
+	}
+
+	// And a terminal with no room for it is still not overrun: the allowance is
+	// a ceiling, and the file's lines are cut to it.
+	cramped := sized(model, natural, 44)
+	crampedAllowed, _ := cramped.dialogLimits()
+	if got, _ := blockSize(cramped.dialogView()); got > crampedAllowed {
+		t.Errorf("the review is %d cells in a box allowed %d", got, crampedAllowed)
+	}
+}
+
+// TestScrollingTheFileDoesNotResizeTheDialog is the cost of the fix above, paid
+// where it would otherwise show.
+//
+// Once the box follows its widest line, the widest line must not be whichever
+// part of the file happens to be on screen — a dialog that grew and shrank as the
+// user scrolled through a configuration would be worse than one that was always
+// too wide.
+func TestScrollingTheFileDoesNotResizeTheDialog(t *testing.T) {
+	model := atReview(t, 400)
+
+	before, _ := blockSize(model.dialogView())
+	allowed, _ := model.dialogLimits()
+	if before >= allowed {
+		// Clamped to the allowance, the width cannot move whatever this does,
+		// and the test would pass having proved nothing.
+		t.Fatalf("the review is clamped at %d cells, so scrolling could not move it anyway", allowed)
+	}
+
+	for range 8 {
+		model = press(t, model, "j")
+		if after, _ := blockSize(model.dialogView()); after != before {
+			t.Fatalf("scrolling the file moved the dialog from %d cells to %d", before, after)
+		}
+	}
+	if model.wizard.scroll == 0 {
+		t.Error("the file did not scroll, so this proved nothing")
+	}
+}
+
 // TestNothingIsWrittenBeforeTheFileIsConfirmed is FR-PROJ-005 at the screen that
 // implements it: the whole file is displayed, and writing it is a separate act.
 func TestNothingIsWrittenBeforeTheFileIsConfirmed(t *testing.T) {

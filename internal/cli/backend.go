@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/client"
+	"github.com/ma8el/feat/internal/daemon"
 	"github.com/ma8el/feat/internal/project"
 	"github.com/ma8el/feat/internal/ui"
 	"github.com/ma8el/feat/internal/wizard"
@@ -58,6 +60,31 @@ func (b *backend) Events(ctx context.Context, handle func(api.Event) error) erro
 
 func (b *backend) Resources(ctx context.Context) (api.ResourceReport, error) {
 	return b.client.Resources(ctx)
+}
+
+// StartDaemon starts a daemon for a dashboard whose own has stopped answering.
+//
+// It is the same act that opening the dashboard performs (ADR-008), reached
+// again from inside it. It lives here rather than in internal/ui for the reason
+// the tmux attach and the editor do: this is where a process is started, and the
+// TUI reaches the daemon over the socket rather than in process.
+//
+// A daemon that is already answering is left alone and reported as success. Two
+// clients can be asking at once — the periodic read that discovered the absence
+// and the key the user pressed — and Spawn's own answer to that race is that the
+// loser's child exits reporting the winner; this is the cheaper half of it.
+func (b *backend) StartDaemon(ctx context.Context) error {
+	layout, err := b.env.resolve()
+	if err != nil {
+		return err
+	}
+	if status := daemon.Inspect(layout); status.Running() {
+		return nil
+	}
+	_, err = daemon.Spawn(ctx, layout, daemon.SpawnOptions{
+		Args: foregroundCommand(slog.LevelInfo.String()),
+	})
+	return err
 }
 
 func (b *backend) CreateDraft(ctx context.Context, request api.CreateDraft) (api.Task, error) {

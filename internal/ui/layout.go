@@ -254,6 +254,11 @@ func (m Model) frameFooter(width int) string {
 // The footer shows what is reachable from here rather than every key the
 // dashboard has, which is what the key overlay on "?" is for.
 func (m Model) hints() string {
+	// The daemon dialog is a question, so the footer carries the answers rather
+	// than the key that would dismiss it.
+	if m.screen == screenDaemon {
+		return m.daemonHints()
+	}
 	if m.screen == screenRecovery {
 		return keyHints(keyHint("r", "look again"), keyHint("esc", "close"))
 	}

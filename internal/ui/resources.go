@@ -61,6 +61,12 @@ func (m Model) machineBlock() string {
 // once.
 func (m Model) machineNote() string {
 	if m.resourceErr != nil {
+		if daemonGone(m.resourceErr) {
+			// The footer's error line already says this, and says which key
+			// answers it. Repeating it a line lower, in the version that names
+			// no key, is two thirds of the footer spent on one fact.
+			return ""
+		}
 		return mutedStyle.Render(m.resourceErr.Error())
 	}
 	note := strings.Join(m.resources.Notes, "; ")
