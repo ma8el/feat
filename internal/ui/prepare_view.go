@@ -7,7 +7,12 @@ import (
 )
 
 // View renders task preparation.
-func (p prepareModel) View() string {
+//
+// The indicator is passed in rather than kept here, because there is one of them
+// for the whole dashboard and it is animated by the dashboard (see activity).
+// What this screen owns is what it is waiting for and what it calls that; the
+// frame in front of it belongs to the model that ticks.
+func (p prepareModel) View(indicator activity) string {
 	var out strings.Builder
 	out.WriteString(headingStyle.Render("prepare a task") + mutedStyle.Render("  "+p.trail()) + "\n\n")
 
@@ -26,7 +31,11 @@ func (p prepareModel) View() string {
 	if p.err != nil {
 		out.WriteString("\n" + failureStyle.Render(p.err.Error()) + "\n")
 	} else if p.busy && p.status != "" {
-		out.WriteString("\n" + mutedStyle.Render(p.status) + "\n")
+		// Marked while it is waiting, and it is only drawn while it is waiting.
+		// Resolving a draft reaches every repository in the project and confirming
+		// one creates the worktrees, the branches, and the terminal; both take long
+		// enough that a line which never moved was read as a screen that had stopped.
+		out.WriteString("\n" + mutedStyle.Render(indicator.mark(p.status)) + "\n")
 	} else {
 		out.WriteString("\n")
 	}
@@ -207,6 +216,14 @@ func agentProfile(task api.Task) string {
 }
 
 func (p prepareModel) hints() string {
+	// While a request is in flight only the cancel is answered — see key — so it
+	// is the only one offered. A key map naming four keys that do nothing is one
+	// a user has to try to disbelieve, which is exactly what they do when a screen
+	// has been still for three seconds; the cleanup screen's key map holds to the
+	// same rule while its own removal runs.
+	if p.busy {
+		return keyHints(keyHint("ctrl+c", "cancel"))
+	}
 	switch p.step {
 	case stepProject:
 		return keyHints(keyHint("↑↓", "select"), keyHint("enter", "continue"), keyHint("ctrl+c", "cancel"))

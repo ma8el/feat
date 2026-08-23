@@ -257,6 +257,17 @@ func (m Model) hints() string {
 	if m.screen == screenRecovery {
 		return keyHints(keyHint("r", "look again"), keyHint("esc", "close"))
 	}
+	// A screen that has shut its keyboard while it waits for a request it cannot
+	// take back names the one key it still answers, rather than the "esc close"
+	// that is true of every other moment in the same dialog. Both of these are
+	// waits of several seconds with an indicator running in them, which is
+	// precisely when somebody reads a footer looking for a way out.
+	switch {
+	case m.screen == screenPrepare && m.prepare.busy:
+		return keyHints(keyHint("ctrl+c", "cancel"))
+	case m.screen == screenCleanup && m.cleanup.removing:
+		return keyHints(keyHint("ctrl+c", "quit"))
+	}
 	if !m.screen.mainRegion() {
 		return keyHints(keyHint("esc", "close"))
 	}

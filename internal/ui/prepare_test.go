@@ -568,7 +568,7 @@ func TestAFirstRunIsPointedAtTheWizard(t *testing.T) {
 	if !strings.Contains(model.err.Error(), "press esc, then p,") {
 		t.Errorf("error = %q, want the keys that reach the wizard from here", model.err)
 	}
-	if view := model.View(); !strings.Contains(view, "configure one") {
+	if view := model.View(newActivity()); !strings.Contains(view, "configure one") {
 		t.Errorf("the screen does not show the way out of a first run:\n%s", view)
 	}
 }
@@ -595,7 +595,7 @@ func TestNothingIsCreatedBeforeTheUserConfirms(t *testing.T) {
 
 	// The review screen shows what confirming would create, which is what the
 	// user is being asked about.
-	view := model.View()
+	view := model.View(newActivity())
 	for _, want := range []string{
 		"1a2b3c4d5e6f", "origin/main", "feat/2c4e6a80-core",
 		"/srv/worktrees/example/2c4e6a80/core", "nothing above exists yet",
@@ -712,8 +712,8 @@ func TestAnImportedBriefSuppliesTheTitle(t *testing.T) {
 	}
 
 	model = settle(t, model, model.Init())
-	if !strings.Contains(model.View(), "task.md") {
-		t.Errorf("the brief screen does not say where the brief came from:\n%s", model.View())
+	if !strings.Contains(model.View(newActivity()), "task.md") {
+		t.Errorf("the brief screen does not say where the brief came from:\n%s", model.View(newActivity()))
 	}
 }
 
