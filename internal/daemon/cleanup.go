@@ -650,10 +650,19 @@ func (s *service) removeWorktrees(
 		// with Git's own safety in place.
 		req.Force = target.Risky()
 
-		gone, err := s.git.RemoveWorktree(ctx, target.Identity, req)
+		removal, err := s.git.RemoveWorktree(ctx, target.Identity, req)
 		removed = append(removed, api.CleanupRemoval{
-			Class: string(reconcile.ClassWorktrees), Identity: target.Identity, Removed: gone,
+			Class: string(reconcile.ClassWorktrees), Identity: target.Identity, Removed: removal.Removed,
 		})
+		// The generated directories the worktree sat in, when it was the last
+		// thing in them. They are reported rather than done quietly: a cleanup
+		// says what it removed, and a directory Feat deleted is part of that
+		// answer even though no target named it.
+		for _, directory := range removal.Directories {
+			removed = append(removed, api.CleanupRemoval{
+				Class: string(reconcile.ClassWorktrees), Identity: directory, Removed: true,
+			})
+		}
 		if err != nil {
 			return removed, err
 		}
@@ -692,13 +701,17 @@ func (s *service) removeBranches(
 // gitRemoveRequest builds the per-repository removal context.
 //
 // Every field of it is what the path check needs, and the check runs again
-// inside internal/git immediately before anything is deleted.
+// inside internal/git immediately before anything is deleted. The project's own
+// directory is resolved beside the root because the two bound different things:
+// the root is what a worktree must be inside, and the project's directory is
+// where the tidy-up above a removed worktree stops.
 func (s *service) gitRemoveRequest(task *domain.Task) (map[domain.RepositoryID]git.RemoveRequest, error) {
 	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
 	if err != nil {
 		return nil, translateConfig(err)
 	}
 	root := config.StaticPrefix(cfg.Git.WorktreeRoot)
+	projectDir := config.ProjectPrefix(cfg.Git.WorktreeRoot, task.ProjectID.String())
 
 	checkouts := make([]string, 0, len(task.Repositories))
 	for _, binding := range task.Repositories {
@@ -714,9 +727,10 @@ func (s *service) gitRemoveRequest(task *domain.Task) (map[domain.RepositoryID]g
 			continue
 		}
 		requests[binding.RepositoryID] = git.RemoveRequest{
-			HostPath:  repository.HostPath,
-			Root:      root,
-			Checkouts: checkouts,
+			HostPath:   repository.HostPath,
+			Root:       root,
+			ProjectDir: projectDir,
+			Checkouts:  checkouts,
 		}
 	}
 	return requests, nil

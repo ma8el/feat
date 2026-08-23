@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 )
@@ -199,10 +200,16 @@ func (r *fakeRepository) revParse(args []string, dir string) (string, error) {
 	return "", &ExitError{Args: args, Dir: dir, Code: 1}
 }
 
-// worktree answers `worktree list` and `worktree add`.
+// worktree answers `worktree list`, `worktree add`, `worktree remove`, and
+// `worktree prune`.
 //
-// Adding one has the effects the real command has that this package depends on:
-// the worktree is registered and the new branch exists.
+// Adding one and removing one have the effects the real command has that this
+// package depends on: a worktree is registered with its branch when it is added,
+// and its directory is deleted from disk and deregistered when it is removed.
+// Removing a dirty one without --force is refused, because that is Git's own
+// safety and the confirmation rule in internal/reconcile sits on top of it — a
+// fake that removed dirty work regardless would let a caller that forgot to
+// force pass here and fail against Git.
 func (f *fakeGit) worktree(repository *fakeRepository, args []string, dir string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -244,9 +251,43 @@ func (f *fakeGit) worktree(repository *fakeRepository, args []string, dir string
 		repository.refs["HEAD"] = args[len(args)-1]
 		return "", nil
 
+	case "remove":
+		path := args[len(args)-1]
+		if repository.dirty[path] != "" && !contains(args, "--force") {
+			return "", &ExitError{
+				Args: args, Dir: dir, Code: 128,
+				Stderr: "fatal: '" + path + "' contains modified or untracked files, use --force to delete it",
+			}
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return "", err
+		}
+		remaining := make([]Worktree, 0, len(repository.worktrees))
+		for _, worktree := range repository.worktrees {
+			if worktree.Path != path {
+				remaining = append(remaining, worktree)
+			}
+		}
+		repository.worktrees = remaining
+		delete(f.repositories, path)
+		return "", nil
+
+	case "prune":
+		return "", nil
+
 	default:
 		return "", fmt.Errorf("fake git: unexpected worktree command %q", strings.Join(args, " "))
 	}
+}
+
+// contains reports whether an argument vector carries a flag.
+func contains(args []string, flag string) bool {
+	for _, arg := range args {
+		if arg == flag {
+			return true
+		}
+	}
+	return false
 }
 
 // branchOf returns the branch a `worktree add` creates, empty when detached.

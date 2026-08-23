@@ -1791,6 +1791,54 @@ of them was reachable from this repository's own fixtures:
     acted on from the screen it is on: one with no time on it reads as current
     however old it is.
 
+15. **Every cleanup left a directory behind, and the recovery pass asked the
+    user about it.** A worktree path is generated — `…/worktrees/{project_id}/{task_id}/{repository_id}`
+    by default — and preparing a task creates the directories above the
+    worktree; `git worktree remove` removes the worktree and, correctly, nothing
+    above it, because Git did not create those. So a confirmed cleanup left an
+    empty `…/worktrees/{project_id}/{task_id}` on the machine for every task ever
+    run, and evidence 11's scan then reported each of them to whoever still had a
+    live task in that project: an orphan "no task records", with advice to look
+    at it and remove it if it was stale.
+
+    Reported by the maintainer from the dashboard, which is where it is visible:
+    the recovery band counts findings, so the residue of ordinary use accumulated
+    into a permanent warning marker. Nothing in the suite could see it — every
+    fixture asserts on the worktrees, and the directory holding them was nobody's
+    assertion.
+
+    The same report named a second directory: `orphaned worktrees
+    …/worktrees/jobharbor-dev`, the directory the root gives one project, about a
+    project whose tasks had all been cleaned up. That one is not residue at all.
+    Feat generates it, creates it for the project's first task, and creates every
+    later task inside it, so a project between tasks has one exactly as a busy
+    project does — and the scan could not tell it from a leftover because it
+    learned which directories were Feat's from the *tasks*, and this project had
+    none.
+
+    Decision: a worktree root generates three kinds of directory, and each is
+    treated differently. The fixed leading prefix is shared by every project and
+    is never touched. The directory between it and a task — `{project_id}` under
+    the default root, resolved by `config.ProjectPrefix` — belongs to the
+    project: it is not removed with a task, and it is never reported, because a
+    project with no task right now is not a leftover. What a task was given is
+    removed with the task: removal is the mirror of creation, so `RemoveWorktree`
+    walks up from the worktree it removed and removes each directory that is now
+    empty, stopping at the project's directory and at the first directory that
+    still holds something — another task's worktree, a repository the task no
+    longer records, or a file the user put there. Each directory that goes is
+    reported with the worktree, so the event log and `feat task cleanup` account
+    for it.
+
+    The orphan scan therefore reads the registered projects rather than only the
+    tasks: what Feat manages here is a question about the projects, and asking the
+    tasks answered a different one. Nothing else about reconciliation changes —
+    it still removes nothing, and a directory that really is nobody's is still
+    reported, including a stale task directory inside a project's own. What
+    changed there is one sentence: an orphan that is empty is named as empty and
+    given the command that clears it, because the machines that have this residue
+    already will keep it until somebody removes it by hand.
+
 ### ADR-038 — Naming a task
 
 Status: accepted  

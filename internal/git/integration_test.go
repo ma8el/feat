@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -557,22 +558,30 @@ func TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety(t *testing.T) {
 
 	confirmed := request
 	confirmed.Force = true
-	removed, err := adapter.RemoveWorktree(context.Background(), worktree, confirmed)
+	removal, err := adapter.RemoveWorktree(context.Background(), worktree, confirmed)
 	if err != nil {
 		t.Fatalf("a confirmed removal of dirty work failed: %v", err)
 	}
-	if !removed {
+	if !removal.Removed {
 		t.Error("the removal reported that there was nothing to remove")
 	}
 	if _, err := os.Stat(worktree); !os.IsNotExist(err) {
 		t.Errorf("the worktree is still there: %v", err)
 	}
+	// The task's other worktree is still in the directory above, so nothing
+	// above this one may go with it.
+	if len(removal.Directories) != 0 {
+		t.Errorf("removing one of two worktrees took %v", removal.Directories)
+	}
+	if _, err := os.Stat(filepath.Dir(worktree)); err != nil {
+		t.Errorf("the directory still holding the task's other worktree is gone: %v", err)
+	}
 
 	// Removing it again is a success rather than an error: the user asked for it
 	// to be absent and it is, which is what makes a partial cleanup finishable.
-	if removed, err := adapter.RemoveWorktree(context.Background(), worktree, confirmed); err != nil {
+	if again, err := adapter.RemoveWorktree(context.Background(), worktree, confirmed); err != nil {
 		t.Errorf("removing an absent worktree failed: %v", err)
-	} else if removed {
+	} else if again.Removed {
 		t.Error("removing an absent worktree reported that something went")
 	}
 
@@ -600,6 +609,75 @@ func TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety(t *testing.T) {
 		t.Errorf("deleting an absent branch failed: %v", err)
 	} else if deleted {
 		t.Error("deleting an absent branch reported that something went")
+	}
+}
+
+// TestRealRemovalTakesTheDirectoriesTheTaskWasGiven is the other half of
+// FR-CLEAN-001 against Git itself: a cleanup leaves nothing of the task behind.
+//
+// What only real Git can settle is that `worktree remove` removes the worktree
+// directory and nothing above it. That is correct of Git — it did not create
+// those directories — and it is what left an empty `…/worktrees/{project}/{task}`
+// on the machine after every cleanup, which the next recovery pass then reported
+// as an orphan for the user to look at. Feat created them, so Feat removes them.
+//
+// The boundaries are checked here rather than only in a unit test, because they
+// are the directories in this walk that must survive a cleanup: the project's
+// own directory, where its next task is created, and the root under it, where
+// every project's tasks are.
+func TestRealRemovalTakesTheDirectoriesTheTaskWasGiven(t *testing.T) {
+	requireGit(t)
+	f := realProject(t)
+
+	adapter := Host()
+	plan, err := adapter.Plan(context.Background(), f.req)
+	if err != nil {
+		t.Fatalf("planning: %v", err)
+	}
+	if _, err := adapter.Apply(context.Background(), plan, JournalFunc(
+		func(context.Context, Created) error { return nil },
+	)); err != nil {
+		t.Fatalf("applying: %v", err)
+	}
+
+	taskDir := filepath.Dir(plan.Repositories[0].WorktreePath)
+	projectDir := filepath.Dir(taskDir)
+
+	var pruned []string
+	for _, repository := range plan.Repositories {
+		removal, err := adapter.RemoveWorktree(context.Background(), repository.WorktreePath, RemoveRequest{
+			HostPath: repository.HostPath, Root: f.root, ProjectDir: projectDir,
+			Checkouts: []string{f.api, f.store},
+		})
+		if err != nil {
+			t.Fatalf("removing the worktree of %s: %v", repository.ID, err)
+		}
+		if !removal.Removed {
+			t.Errorf("removing the worktree of %s reported that nothing went", repository.ID)
+		}
+		pruned = append(pruned, removal.Directories...)
+	}
+
+	// Reported once: the task's directory goes with the last worktree in it, and
+	// nothing above it does.
+	if want := []string{taskDir}; !slices.Equal(pruned, want) {
+		t.Errorf("the removals reported %v, want %v", pruned, want)
+	}
+	if _, err := os.Stat(taskDir); !os.IsNotExist(err) {
+		t.Errorf("the task's own directory is still there: %v", err)
+	}
+	for _, dir := range []string{projectDir, f.root} {
+		if _, err := os.Stat(dir); err != nil {
+			t.Fatalf("%s was removed with the task, and the next task is created in it: %v", dir, err)
+		}
+	}
+
+	// And the checkouts the worktrees came from are untouched, which is the rule
+	// every removal in this package is bounded by.
+	for _, checkout := range []string{f.api, f.store} {
+		if _, err := os.Stat(filepath.Join(checkout, ".git")); err != nil {
+			t.Errorf("the ordinary checkout %s was damaged: %v", checkout, err)
+		}
 	}
 }
 

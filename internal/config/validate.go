@@ -880,6 +880,71 @@ func StaticPrefix(template string) string {
 	return filepath.Clean(head)
 }
 
+// ProjectPrefix returns the directory a worktree root gives one project:
+// the leading part of the template that names the project and nothing narrower,
+// with the project substituted.
+//
+// It sits between StaticPrefix and a task's own worktree, and it is a different
+// kind of directory from either. The static prefix is the fixed directory a user
+// allowed Feat to write under, and it is shared by every project on the machine.
+// A task's directory belongs to that task and goes when the task is cleaned up.
+// What is between them — `…/worktrees/{project_id}` under the default root —
+// belongs to the project: Feat creates it for the project's first task, the
+// project's next task is created inside it, and it says nothing about whether
+// the project has a task right now.
+//
+// So it is neither removed with a task nor reported as a directory nobody
+// claims. A template that generates no such directory, `…/worktrees/{task_id}`
+// among them, returns the static prefix, and both rules then apply from there.
+func ProjectPrefix(template, projectID string) string {
+	static := StaticPrefix(template)
+	if projectID == "" {
+		return static
+	}
+
+	// The leading run of segments whose only placeholder is the project. The
+	// first segment that names anything narrower ends it, wherever in the
+	// segment the placeholder sits: `{project_id}-{task_id}` is one directory
+	// per task, not one per project.
+	segments := strings.Split(filepath.ToSlash(template), "/")
+	kept := 0
+	for _, segment := range segments {
+		if !projectScoped(segment) {
+			break
+		}
+		kept++
+	}
+	if kept == len(segments) {
+		// Every segment is the project's, so the template names no task and this
+		// is not a worktree root a task could be created under. The fixed prefix
+		// is the only answer that is true of it.
+		return static
+	}
+
+	expanded, err := Expand(strings.Join(segments[:kept], "/"), Values{ProjectID: projectID})
+	if err != nil || expanded == "" {
+		return static
+	}
+	prefix := filepath.Clean(filepath.FromSlash(expanded))
+	if !paths.Under(static, prefix) {
+		// A template whose project part does not sit under its own fixed prefix
+		// is not one this can say anything about.
+		return static
+	}
+	return prefix
+}
+
+// projectScoped reports whether a path segment names the project or nothing at
+// all, rather than a task or a repository.
+func projectScoped(segment string) bool {
+	for _, name := range placeholders(segment) {
+		if name != PlaceholderProjectID {
+			return false
+		}
+	}
+	return true
+}
+
 // isRoot reports whether a container user is the superuser, by name or by id.
 func isRoot(user string) bool {
 	name, _, _ := strings.Cut(user, ":")

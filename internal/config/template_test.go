@@ -117,6 +117,42 @@ func TestUsesFindsAPlaceholder(t *testing.T) {
 	}
 }
 
+// TestProjectPrefixNamesTheDirectoryAProjectKeeps separates the three
+// directories a worktree root generates, because each of them is treated
+// differently and only their boundaries say which is which.
+//
+// The fixed prefix is shared by every project on the machine, a task's own
+// directory goes when the task is cleaned up, and what is between them belongs
+// to the project: it survives the last task and is not a directory nobody
+// claims. A layout that generates nothing between them answers with the fixed
+// prefix, so both rules apply from there rather than from a directory that does
+// not exist.
+func TestProjectPrefixNamesTheDirectoryAProjectKeeps(t *testing.T) {
+	for _, tc := range []struct {
+		template string
+		project  string
+		want     string
+	}{
+		{"/state/worktrees/{project_id}/{task_id}", "app", "/state/worktrees/app"},
+		{"/state/worktrees/{project_id}/{task_id}/{repository_id}", "app", "/state/worktrees/app"},
+		// Deeper: everything fixed for the project is the project's, not only
+		// the segment the placeholder is in.
+		{"/state/{project_id}/tasks/{task_id}", "app", "/state/app/tasks"},
+		// No directory of its own: one per task, or one for every project.
+		{"/state/worktrees/{task_id}", "app", "/state/worktrees"},
+		{"/state/worktrees/{project_id}-{task_id}", "app", "/state/worktrees"},
+		{"/state/worktrees/fixed/{task_key}", "app", "/state/worktrees/fixed"},
+		// A template naming no task is not a worktree root a task is created
+		// under, and this says nothing more about it than the fixed prefix does.
+		{"/state/worktrees/{project_id}", "app", "/state/worktrees"},
+		{"/state/worktrees/{project_id}/{task_id}", "", "/state/worktrees"},
+	} {
+		if got := config.ProjectPrefix(tc.template, tc.project); got != tc.want {
+			t.Errorf("ProjectPrefix(%q, %q) = %q, want %q", tc.template, tc.project, got, tc.want)
+		}
+	}
+}
+
 // TestSlugIsSafeInABranchName checks what a task title becomes.
 //
 // The slug reaches a branch name, so what matters is that nothing survives it
