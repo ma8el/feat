@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-label="feat">
+  <title>feat</title>
+  <g fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- two lanes branch off the beam; their start caps sit hidden beneath it -->
+    <path stroke="#e9edf7" d="M18 32 L26 21 L40.5 21"/>
+    <path stroke="#e9edf7" d="M18 32 L26 43 L34 43"/>
+    <!-- the accent lane: longest, drawn over the branch point -->
+    <path stroke="#f5a623" d="M14 32 H47"/>
+    <!-- prompt chevron, drawn last so the apex stays clean -->
+    <path stroke="#e9edf7" d="M9 18 L14 32 L9 46"/>
+  </g>
+  <!-- cursor blocks: 6.5-unit stagger, 3-unit gap ahead of each -->
+  <rect fill="#e9edf7" x="39.5" y="40.5" width="5.5" height="5" rx="1"/>
+  <rect fill="#e9edf7" x="46" y="18.5" width="5.5" height="5" rx="1"/>
+  <rect fill="#f5a623" x="52.5" y="29.5" width="5.5" height="5" rx="1"/>
+</svg>

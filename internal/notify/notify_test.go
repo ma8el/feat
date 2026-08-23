@@ -159,6 +159,53 @@ func TestEveryConditionComposesAMessage(t *testing.T) {
 	}
 }
 
+// TestEveryNotificationIsHeadedByTheMark pins the one piece of Feat's logo a
+// desktop notification can carry.
+//
+// The image beside a macOS notification is the icon of the application that
+// posted it, and Feat posts through osascript, so it is Script Editor's
+// (ADR-035, evidence 12). The heading is the only part of the notification Feat
+// writes. One that did not carry the mark would arrive under another
+// application's name and another application's icon with nothing on it to say
+// whose it was.
+func TestEveryNotificationIsHeadedByTheMark(t *testing.T) {
+	subject := Subject{Key: "7f3a1c2e", Title: "Add a rate limit", Project: "example"}
+
+	for _, condition := range Conditions() {
+		notification, ok := Compose(condition, subject, time.Second)
+		if !ok {
+			t.Fatalf("Compose(%s) reports no notification", condition)
+		}
+		if !strings.HasPrefix(notification.Title, mark+" feat") {
+			t.Errorf("Compose(%s) is headed %q, want it to open with %q",
+				condition, notification.Title, mark+" feat")
+		}
+		if !strings.Contains(notification.Title, subject.Project) {
+			t.Errorf("Compose(%s) is headed %q; the mark must not cost the project its name",
+				condition, notification.Title)
+		}
+	}
+
+	// A subject with nothing in it still says who is interrupting.
+	notification, ok := Compose(ConditionIdle, Subject{}, 0)
+	if !ok {
+		t.Fatal("Compose reports no notification")
+	}
+	if notification.Title != mark+" feat" {
+		t.Errorf("a notification about a subject carrying no fields is headed %q, want %q",
+			notification.Title, mark+" feat")
+	}
+
+	// The macOS notifier refuses text it would misread, and the file that
+	// refuses it compiles on one platform. A mark that the notifier would reject
+	// must fail everywhere the suite runs and not only where it could be
+	// delivered, so the rule is checked here against the value rather than left
+	// to a build nobody runs on this machine.
+	if strings.HasPrefix(mark, "-") || strings.ContainsAny(mark, "\x00\n\r") {
+		t.Errorf("the mark %q is text a notifier would refuse or misread as one of its own options", mark)
+	}
+}
+
 // TestAnIdleNotificationSaysHowLong checks the one measurement that reaches the
 // text, and that it is rounded the way somebody would say it out loud.
 func TestAnIdleNotificationSaysHowLong(t *testing.T) {
