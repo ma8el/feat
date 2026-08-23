@@ -202,6 +202,7 @@ State directory:
 ```text
 ~/.local/share/feat/
   logs/daemon.log
+  logs/daemon.log.<generation>
   projects/<project-id>/project.json
   projects/<project-id>/tasks/<task-id>/task.json
   projects/<project-id>/tasks/<task-id>/prompt.md
@@ -211,6 +212,16 @@ State directory:
   runtime/<project-id>/<task-id>/compose.override.yaml
   control/<project-id>/<task-id>/
 ```
+
+The daemon log is bounded. Nothing prunes it otherwise and the daemon appends
+for as long as it runs, so its size would be decided by uptime rather than by
+activity. It is rotated once it reaches a fixed size, a fixed number of numbered
+generations is kept beside it, and a log already past the bound when it is opened
+is cut down to its most recent records rather than carried over whole. Rotation
+copies and truncates rather than renaming, because `feat daemon start` opens the
+log itself and hands that descriptor to the process it spawns as standard output
+and standard error: a rename would leave the spawned daemon's own output going to
+the rotated file. See ADR-069.
 
 The generated execution override sits beside the control workspace rather than
 inside it, and outside the per-task snapshot directory. It decides what the

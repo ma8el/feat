@@ -167,6 +167,10 @@ type service struct {
 	// record of what it has already applied.
 	workspaceMu sync.Mutex
 	workspaces  map[domain.TaskID]*control.Workspace
+	// repeats keeps the polling loops from writing the same failure to the log
+	// on every tick. A persistent failure is reported when it appears and when
+	// it changes, rather than four times a second for as long as it lasts.
+	repeats *repeats
 	// pollNow asks the control poller to read immediately.
 	pollNow chan struct{}
 }

@@ -118,7 +118,13 @@ func resourceReport(sample resources.Sample) api.ResourceReport {
 func (s *service) sampleResources(ctx context.Context) {
 	targets, err := s.resourceTargets(ctx)
 	if err != nil {
-		s.logger.WarnContext(ctx, "resolving the tasks to sample resources for", slog.Any("error", err))
+		// Sampling runs every couple of seconds, so this is reported once per
+		// distinct failure rather than once per tick; see repeats.
+		if s.repeats.changed("resources:targets", err.Error()) {
+			s.logger.WarnContext(ctx, "resolving the tasks to sample resources for", slog.Any("error", err))
+		}
+	} else {
+		s.repeats.clear("resources:targets")
 	}
 
 	sample := s.observer.Observe(ctx, targets)
