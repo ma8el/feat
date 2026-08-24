@@ -28,7 +28,20 @@ func TestOutputThatDoesNotConformIsRefusedByName(t *testing.T) {
 		{
 			name:   "output that is not JSON",
 			output: "gh: command failed\n",
-			want:   []string{"is not JSON"},
+			want:   []string{"is not JSON", `it begins "gh: command failed"`},
+		},
+		{
+			// The mistake this quoting was added for: a heredoc that swallowed
+			// two lines of the script, so the command printed its own source and
+			// the refusal could only name the character a parser gave up on.
+			name:   "a command that printed its own source",
+			output: "echo 'reading tickets' >&2\ncat <<'JSON'\n[]\n",
+			want:   []string{"is not JSON", `it begins "echo 'reading tickets' >&2"`},
+		},
+		{
+			name:   "a JSON null, which decodes into anything and means nothing",
+			output: "null\n",
+			want:   []string{"is null", "prints a list of tickets", "`[]`"},
 		},
 		{
 			name:   "a single ticket rather than a list",
@@ -98,6 +111,41 @@ func TestOutputThatDoesNotConformIsRefusedByName(t *testing.T) {
 					"rather than a failure of Feat", err)
 			}
 		})
+	}
+}
+
+// TestWhatARefusalRepeatsBackIsBounded checks the other half of quoting a
+// command's own words: the output may be a quarter of a megabyte, and a
+// diagnostic, a log line, and a screen all have to hold what the refusal says.
+func TestWhatARefusalRepeatsBackIsBounded(t *testing.T) {
+	_, err := Parse([]byte("error: " + strings.Repeat("é", 4096)))
+	if err == nil {
+		t.Fatal("prose was accepted as a list of tickets")
+	}
+
+	message := err.Error()
+	_, quoted, found := strings.Cut(message, "it begins ")
+	if !found {
+		t.Fatalf("the refusal does not repeat what the command printed: %v", err)
+	}
+	if !strings.HasPrefix(quoted, `"error: `) {
+		t.Errorf("the refusal quotes %s, and the command began with prose", quoted)
+	}
+	// Escaping can lengthen what is quoted, so the bound checked here is not the
+	// constant itself; what it proves is that eight kilobytes of output became a
+	// line rather than a wall.
+	if len(quoted) > 2*maxQuotedBytes {
+		t.Errorf("the refusal repeats %d bytes back, and what it quotes is bounded at %d",
+			len(quoted), maxQuotedBytes)
+	}
+	if !strings.Contains(message, "…") {
+		t.Errorf("the refusal does not say that what it quotes was cut: %v", err)
+	}
+	// A multi-byte character cut in half would be quoted as escaped bytes that
+	// were never in the output, which is the one thing repeating a command's own
+	// words back must not do.
+	if strings.Contains(message, `\x`) {
+		t.Errorf("the refusal quotes bytes that were not characters in the output: %v", err)
 	}
 }
 

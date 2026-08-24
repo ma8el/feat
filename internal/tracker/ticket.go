@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // MaxOutputBytes bounds what a tracker command may print.
@@ -85,14 +86,30 @@ func Parse(output []byte) ([]Ticket, error) {
 		}
 	}
 
+	// A JSON null decodes into a slice without complaint and would be read as a
+	// user with no tickets. It is a mapping mistake rather than an answer, and
+	// the commonest one there is: `jq` prints null when its filter was handed
+	// something it could not map, so a command whose query changed under it
+	// would otherwise report an empty backlog rather than a broken mapping.
+	if bytes.Equal(document, nullLiteral) {
+		return nil, &RejectionError{
+			Reason: "is null, and a tracker command prints a list of tickets, " +
+				"which is `[]` when the user has none",
+		}
+	}
+
 	var entries []json.RawMessage
 	if err := decode(document, &entries); err != nil {
 		var mismatch *json.UnmarshalTypeError
-		if errors.As(err, &mismatch) {
+		switch {
+		case errors.Is(err, errSecondDocument):
+			return nil, &RejectionError{Reason: err.Error()}
+		case errors.As(err, &mismatch):
 			return nil, &RejectionError{Reason: "is " + describeJSON(mismatch.Value) +
-				", and a tracker command prints a list of tickets"}
+				", and a tracker command prints a list of tickets" + beginning(document)}
+		default:
+			return nil, &RejectionError{Reason: "is not JSON: " + err.Error() + beginning(document)}
 		}
-		return nil, &RejectionError{Reason: "is not JSON: " + err.Error()}
 	}
 
 	tickets := make([]Ticket, 0, len(entries))
@@ -106,6 +123,13 @@ func Parse(output []byte) ([]Ticket, error) {
 	return tickets, nil
 }
 
+// nullLiteral is the JSON value that decodes into anything and means nothing.
+var nullLiteral = []byte("null")
+
+// errSecondDocument reports output that continues after the list.
+var errSecondDocument = errors.New(
+	"carries more than one document, and a tracker command prints one list")
+
 // decode reads one JSON document and refuses anything after it, so that a
 // command printing a list followed by a warning is a mistake with a name rather
 // than a list that silently loses the warning.
@@ -115,9 +139,53 @@ func decode(document []byte, into any) error {
 		return err
 	}
 	if decoder.More() {
-		return errors.New("carries more than one document, and a tracker command prints one list")
+		return errSecondDocument
 	}
 	return nil
+}
+
+// maxQuotedBytes bounds what a refusal repeats back.
+//
+// Every byte quoted here came from a command Feat did not write, and a refusal
+// reaches a diagnostic, a log line, and a screen. The output may be a quarter of
+// a megabyte, and none of those readers is improved by a line that long.
+const maxQuotedBytes = 96
+
+// beginning renders the start of what a command printed, for a refusal a JSON
+// parser could otherwise only describe by position.
+//
+// It is the difference between "invalid character 'e'" and seeing that the
+// command printed its own source: the character a parser gave up on says
+// nothing about what went wrong, and the line usually says all of it.
+func beginning(document []byte) string {
+	line := document
+	if end := bytes.IndexByte(line, '\n'); end >= 0 {
+		line = line[:end]
+	}
+	line = bytes.TrimRight(line, "\r")
+
+	truncated := false
+	if len(line) > maxQuotedBytes {
+		line, truncated = line[:maxQuotedBytes], true
+		// Never cut a rune in half. The quoted form would otherwise carry
+		// escaped bytes that were never in the output, which is the one thing
+		// repeating a command's own words back must not do.
+		for len(line) > 0 {
+			if r, size := utf8.DecodeLastRune(line); r != utf8.RuneError || size != 1 {
+				break
+			}
+			line = line[:len(line)-1]
+		}
+	}
+	if len(line) == 0 {
+		return ""
+	}
+
+	quoted := fmt.Sprintf("%q", string(line))
+	if truncated {
+		quoted += "…"
+	}
+	return "; it begins " + quoted
 }
 
 // parseTicket checks one entry against the published shape.
@@ -157,7 +225,7 @@ func parseTicket(entry json.RawMessage) (Ticket, error) {
 		if !present {
 			return Ticket{}, fmt.Errorf("has no %q, which the published shape requires", name)
 		}
-		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		if bytes.Equal(bytes.TrimSpace(value), nullLiteral) {
 			return Ticket{}, fmt.Errorf("has a %q that is null, and the published shape carries a string", name)
 		}
 	}
