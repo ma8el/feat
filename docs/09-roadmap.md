@@ -208,8 +208,15 @@ Priority:
   user rather than by a release (ADR-071);
 - Shortcut and GitLab Issues through it, because the dogfood machine needs those
   two and neither shares a credential model with the other;
-- native adapters for GitHub Issues and GitLab Issues afterwards, as
-  optimisations of a path that already works.
+- worked example commands afterwards — GitHub Issues, GitLab Issues, GitHub
+  Projects, Shortcut — each validated against the published ticket schema by the
+  test suite, so a user copying one cannot drift from what Feat accepts.
+
+Native Go adapters were scheduled here and are withdrawn. A tracker CLI already
+prints JSON, so the only thing a native adapter adds is the mapping from its
+field names to the published shape; an example command supplies the same mapping
+without making another tool's output format Feat's compatibility problem. See the
+ADR-071 amendment.
 
 This order inverts the one first recorded here, which put GitHub Issues first and
 GitLab Issues "later if demanded". The demand arrived: see ADR-071.
@@ -227,8 +234,8 @@ Behavior:
 
 - immutable task snapshot;
 - comments left to the configured command, which decides what reaches the body;
-  selection by Feat returns only with a native adapter, because the published
-  schema carries no comment field (ADR-071);
+  the published schema carries no comment field, so selection by Feat would need
+  a path that fetches comments itself, and none is scheduled (ADR-071);
 - change notification without automatic context mutation;
 - issue/ticket reference carried into publication.
 

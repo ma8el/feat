@@ -82,14 +82,16 @@ Sources, in the order ADR-071 builds them:
 
 - a configured command printing JSON that conforms to the ticket schema Feat publishes, which is what makes a tracker Feat has never heard of configurable by the user rather than by a release;
 - Shortcut and GitLab issues through that command;
-- native GitHub and GitLab adapters later, as optimisations of a path that already works.
+- worked example commands afterwards, covering GitHub Issues, GitLab Issues, GitHub Projects, and Shortcut.
+
+Where a ticket lives is the command's business rather than Feat's. Issues attached to a repository, stories in a workspace, and an organisation-level board that spans repositories are all one command away, including the case where tickets are filed in a planning repository that holds no code and is not registered with Feat at all.
 
 Flow:
 
 1. Feat lists matching tickets.
 2. The user selects one or several tickets.
 3. Feat snapshots what the ticket schema carries: a reference, a title, a body, a URL, and a state. Anything richer belongs in the brief, which is Markdown and holds whatever the user wants (ADR-071).
-4. Whether comments reach the body is the configured command's decision rather than Feat's. Selection by Feat returns only with a native adapter.
+4. Whether comments reach the body is the configured command's decision rather than Feat's. Selection by Feat would need a path that fetches comments itself, and none is scheduled.
 5. The snapshot is placed in the task control workspace and does not mutate while the agent is working.
 6. If the ticket later changes, Feat notifies the user; it does not silently alter the active agent context.
 7. The rest of the flow matches an ad hoc task.
