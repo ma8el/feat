@@ -32,6 +32,7 @@
         "items": { "$ref": "#/$defs/check" }
       }
     },
+    "tracker": { "$ref": "#/$defs/tracker" },
     "notifications": { "$ref": "#/$defs/notifications" },
     "resources": { "$ref": "#/$defs/resources" }
   },
@@ -110,6 +111,7 @@
         },
         "agent": { "$ref": "#/$defs/repositoryAgent" },
         "runtime": { "$ref": "#/$defs/repositoryRuntime" },
+        "forge": { "$ref": "#/$defs/repositoryForge" },
         "default_branch": {
           "description": "The branch a base policy resolves against. Defaults to \"main\".",
           "type": "string"
@@ -133,6 +135,19 @@
         "container_path": {
           "description": "Where task worktrees are mounted in the devcontainer. Required for every repository a task can select when agent.execution.mode is \"devcontainer\", rejected under \"host\", and agent container paths must not overlap.",
           "$ref": "#/$defs/containerPath"
+        }
+      }
+    },
+
+    "repositoryForge": {
+      "description": "Where this repository's merge requests are opened. Omit it for a repository Feat never publishes. It is per repository because a repository lives on exactly one forge and a task may span several, and it is separate from the project's tracker because a forge hosts code and a tracker holds tickets: the two coincide only where a forge hosts its own issues.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "description": "The forge this repository publishes to. It is declared rather than guessed: a self-hosted instance is not recognisable from its remote, and guessing wrong would open a merge request somewhere you did not mean.",
+          "enum": ["github", "gitlab"]
         }
       }
     },
@@ -355,6 +370,26 @@
         "status": {
           "description": "Shows a repository's Git status. Defaults to git status --short --branch.",
           "$ref": "#/$defs/command"
+        }
+      }
+    },
+
+    "tracker": {
+      "description": "Where this project's tickets come from. Omit it for a project whose tasks are all written by hand. It is per project because the thing a ticket seeds is a task: trackers do not agree on where a ticket lives — issues hang off a repository, stories off a workspace, a board off an organisation — so this says how to obtain a list, and the scope of that list belongs to the command.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "kind": {
+          "description": "How tickets are obtained. A configured command is the only kind: a tracker CLI already prints JSON, so a native adapter would add nothing but a mapping from its field names to the shape Feat publishes.",
+          "const": "command",
+          "default": "command"
+        },
+        "command": {
+          "description": "A command printing your tickets as JSON conforming to schema/feat-tickets.schema.json. Feat passes it no filter and no placeholder: which tickets are yours is the command's decision, and feat doctor checks that what it prints is the published shape.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
         }
       }
     },

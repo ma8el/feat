@@ -31,11 +31,73 @@ type taskDocument struct {
 	Repositories  []taskRepositoryDocument `json:"repositories,omitempty"`
 	Session       *sessionDocument         `json:"session,omitempty"`
 	Runtime       *runtimeDocument         `json:"runtime,omitempty"`
+	Publication   *publicationDocument     `json:"publication,omitempty"`
 }
 
 type sourceDocument struct {
-	Kind      string `json:"kind"`
-	Reference string `json:"reference,omitempty"`
+	Kind      string          `json:"kind"`
+	Reference string          `json:"reference,omitempty"`
+	Ticket    *ticketDocument `json:"ticket,omitempty"`
+}
+
+// ticketDocument is the ticket a task was composed from.
+//
+// The snapshot is stored with the reference rather than beside it, because the
+// two are read together: what the ticket said when Feat read it is the thing a
+// change is compared against, and a reference with no snapshot could not answer
+// whether anything changed (ADR-071).
+//
+// Like the failure below, it is an added optional field at the same schema
+// version: a task written by an earlier build has no ticket and decodes to
+// none, which is the truth about a brief that came from somewhere else.
+type ticketDocument struct {
+	Provider        string                 `json:"provider,omitempty"`
+	Reference       string                 `json:"reference"`
+	URL             string                 `json:"url"`
+	Snapshot        ticketSnapshotDocument `json:"snapshot"`
+	ChangeAvailable bool                   `json:"change_available"`
+}
+
+type ticketSnapshotDocument struct {
+	Title   string    `json:"title"`
+	Body    string    `json:"body,omitempty"`
+	State   string    `json:"state"`
+	TakenAt time.Time `json:"taken_at"`
+}
+
+// publicationDocument is what publishing a task planned to do and what came of
+// it.
+//
+// The plan is written before anything is attempted and every result before the
+// next repository begins, so this document is what an interrupted publication
+// is read from: a repository still recorded as planned is one nothing was
+// attempted for, and a merge request that exists is always named here
+// (ADR-073).
+//
+// It is an added optional field at the same schema version, on the same rule as
+// the ticket above: a task that never published has no publication, which is
+// what a document written before this build decodes to.
+type publicationDocument struct {
+	Repositories []repositoryPublicationDocument `json:"repositories,omitempty"`
+	PlannedAt    time.Time                       `json:"planned_at"`
+	UpdatedAt    time.Time                       `json:"updated_at"`
+}
+
+type repositoryPublicationDocument struct {
+	RepositoryID string                `json:"repository_id"`
+	Forge        string                `json:"forge"`
+	Remote       string                `json:"remote"`
+	BaseBranch   string                `json:"base_branch"`
+	Commit       string                `json:"commit"`
+	State        string                `json:"state"`
+	Request      *mergeRequestDocument `json:"request,omitempty"`
+	Failure      string                `json:"failure,omitempty"`
+	AttemptedAt  *time.Time            `json:"attempted_at,omitempty"`
+}
+
+type mergeRequestDocument struct {
+	Reference string `json:"reference"`
+	URL       string `json:"url"`
 }
 
 // failureDocument is why a task is in `failed`.
@@ -283,11 +345,15 @@ func encodeTask(task *domain.Task) taskDocument {
 		UpdatedAt:     task.UpdatedAt.UTC(),
 		ProjectID:     task.ProjectID.String(),
 		Title:         task.Title,
-		Source:        sourceDocument{Kind: string(task.Source.Kind), Reference: task.Source.Reference},
-		Workflow:      string(task.Workflow),
-		Attention:     string(task.Attention),
-		Failure:       encodeFailure(task.Failure),
-		CreatedAt:     task.CreatedAt.UTC(),
+		Source: sourceDocument{
+			Kind:      string(task.Source.Kind),
+			Reference: task.Source.Reference,
+			Ticket:    encodeTicket(task.Source.Ticket),
+		},
+		Workflow:  string(task.Workflow),
+		Attention: string(task.Attention),
+		Failure:   encodeFailure(task.Failure),
+		CreatedAt: task.CreatedAt.UTC(),
 	}
 	for _, binding := range task.Repositories {
 		document.Repositories = append(document.Repositories, taskRepositoryDocument{
@@ -323,7 +389,105 @@ func encodeTask(task *domain.Task) taskDocument {
 	if task.Runtime != nil {
 		document.Runtime = encodeRuntime(task.Runtime)
 	}
+	if task.Publication != nil {
+		document.Publication = encodePublication(task.Publication)
+	}
 	return document
+}
+
+// encodeTicket records the ticket a task was composed from.
+func encodeTicket(ticket *domain.ExternalTaskReference) *ticketDocument {
+	if ticket == nil {
+		return nil
+	}
+	return &ticketDocument{
+		Provider:  ticket.Provider,
+		Reference: ticket.Reference,
+		URL:       ticket.URL,
+		Snapshot: ticketSnapshotDocument{
+			Title:   ticket.Snapshot.Title,
+			Body:    ticket.Snapshot.Body,
+			State:   ticket.Snapshot.State,
+			TakenAt: ticket.Snapshot.TakenAt.UTC(),
+		},
+		ChangeAvailable: ticket.ChangeAvailable,
+	}
+}
+
+// decodeTicket reads the ticket a task was composed from.
+func decodeTicket(document *ticketDocument) *domain.ExternalTaskReference {
+	if document == nil {
+		return nil
+	}
+	return &domain.ExternalTaskReference{
+		Provider:  document.Provider,
+		Reference: document.Reference,
+		URL:       document.URL,
+		Snapshot: domain.TicketSnapshot{
+			Title:   document.Snapshot.Title,
+			Body:    document.Snapshot.Body,
+			State:   document.Snapshot.State,
+			TakenAt: document.Snapshot.TakenAt.UTC(),
+		},
+		ChangeAvailable: document.ChangeAvailable,
+	}
+}
+
+// encodePublication records what publishing the task planned and what came of
+// it.
+func encodePublication(publication *domain.Publication) *publicationDocument {
+	document := &publicationDocument{
+		PlannedAt: publication.PlannedAt.UTC(),
+		UpdatedAt: publication.UpdatedAt.UTC(),
+	}
+	for _, entry := range publication.Repositories {
+		repository := repositoryPublicationDocument{
+			RepositoryID: entry.RepositoryID.String(),
+			Forge:        string(entry.Forge),
+			Remote:       entry.Remote,
+			BaseBranch:   entry.BaseBranch,
+			Commit:       entry.Commit,
+			State:        string(entry.State),
+			Failure:      entry.Failure,
+			AttemptedAt:  optionalTime(entry.AttemptedAt),
+		}
+		if entry.Request != nil {
+			repository.Request = &mergeRequestDocument{
+				Reference: entry.Request.Reference,
+				URL:       entry.Request.URL,
+			}
+		}
+		document.Repositories = append(document.Repositories, repository)
+	}
+	return document
+}
+
+// decodePublication reads what publishing the task planned and what came of it.
+func decodePublication(document *publicationDocument) *domain.Publication {
+	publication := &domain.Publication{
+		PlannedAt: document.PlannedAt.UTC(),
+		UpdatedAt: document.UpdatedAt.UTC(),
+	}
+	for _, entry := range document.Repositories {
+		repository := domain.RepositoryPublication{
+			RepositoryID: domain.RepositoryID(entry.RepositoryID),
+			Forge:        domain.ForgeKind(entry.Forge),
+			Remote:       entry.Remote,
+			BaseBranch:   entry.BaseBranch,
+			Commit:       entry.Commit,
+			State:        domain.PublicationState(entry.State),
+			Failure:      entry.Failure,
+			AttemptedAt:  timeValue(entry.AttemptedAt),
+		}
+		if entry.Request != nil {
+			repository.Request = &domain.MergeRequest{
+				Reference: entry.Request.Reference,
+				URL:       entry.Request.URL,
+			}
+		}
+		publication.Repositories = append(publication.Repositories, repository)
+	}
+	return publication
 }
 
 func encodeFailure(failure *domain.TaskFailure) *failureDocument {
@@ -401,6 +565,7 @@ func decodeTask(document taskDocument, brief string) *domain.Task {
 		Source: domain.TaskSource{
 			Kind:      domain.SourceKind(document.Source.Kind),
 			Reference: document.Source.Reference,
+			Ticket:    decodeTicket(document.Source.Ticket),
 		},
 		Workflow:  domain.WorkflowState(document.Workflow),
 		Attention: domain.AttentionState(document.Attention),
@@ -441,6 +606,9 @@ func decodeTask(document taskDocument, brief string) *domain.Task {
 	}
 	if document.Runtime != nil {
 		task.Runtime = decodeRuntime(document.Runtime)
+	}
+	if document.Publication != nil {
+		task.Publication = decodePublication(document.Publication)
 	}
 	return task
 }

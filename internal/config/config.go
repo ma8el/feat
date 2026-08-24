@@ -48,6 +48,9 @@ type Config struct {
 	// Checks are per-repository verification commands, keyed by repository
 	// identifier.
 	Checks map[string][]Check `yaml:"checks"`
+	// Tracker configures where the project's tickets come from. It is absent
+	// for a project whose tasks are all written by hand.
+	Tracker *TrackerSection `yaml:"tracker"`
 	// Notifications configures attention notifications.
 	Notifications NotificationsSection `yaml:"notifications"`
 	// Resources configures resource sampling.
@@ -86,6 +89,9 @@ type Repository struct {
 	// Runtime is what this repository contributes to the application runtime.
 	// It is absent for a repository whose code no service runs.
 	Runtime *RepositoryRuntime `yaml:"runtime"`
+	// Forge is where this repository's merge requests are opened. It is absent
+	// for a repository Feat never publishes.
+	Forge *RepositoryForge `yaml:"forge"`
 	// DefaultBranch is the branch a base policy resolves against.
 	DefaultBranch string `yaml:"default_branch"`
 	// Remote is the Git remote to fetch before resolving a base.
@@ -133,6 +139,26 @@ type RepositoryRuntime struct {
 	// Reachable are the services of this repository a user reaches from the
 	// host. Feat allocates a published port for each of them.
 	Reachable []string `yaml:"reachable"`
+}
+
+// RepositoryForge is where one repository's merge requests are opened.
+//
+// It is per repository rather than per project because a repository lives on
+// exactly one forge and a task may span several: a project holding a private
+// repository and a public dependency publishes to two, and a publication is one
+// merge request per changed repository (ADR-071 evidence 3).
+//
+// It is separate from the project's tracker for the same reason the two
+// sections exist at all: a forge hosts code and a tracker holds tickets, and
+// neither implies the other (ADR-071).
+type RepositoryForge struct {
+	// Kind is the forge this repository publishes to.
+	//
+	// It is declared rather than inferred, because inference works only where
+	// the remote's host is one Feat recognises: a self-hosted instance is not
+	// guessable, and guessing wrong would open a merge request somewhere the
+	// user did not mean (ADR-071).
+	Kind string `yaml:"kind"`
 }
 
 // GitSection configures base resolution and generated names.
@@ -367,6 +393,32 @@ type Check struct {
 	Execution string `yaml:"execution"`
 }
 
+// TrackerSection configures where a project's tickets come from.
+//
+// It is per project because the thing a ticket seeds is a task, and a task
+// belongs to one project. Feat does not model where tickets live: trackers do
+// not agree on it — issues hang off a repository, stories off a workspace, a
+// board off an organisation — so the section says how to obtain a list and the
+// scope of that list belongs to whatever produces it (ADR-071 evidence 2 and 4).
+type TrackerSection struct {
+	// Kind is how tickets are obtained.
+	//
+	// A configured command is the only kind, so the field decides nothing
+	// today. It is here because the configuration file is a compatibility
+	// surface: a discriminator added after that surface is finalised means
+	// either a breaking change or an inference from which fields happen to be
+	// present (ADR-071).
+	Kind string `yaml:"kind"`
+	// Command prints the user's tickets as JSON conforming to
+	// schema/feat-tickets.schema.json, and is held as an argument vector for
+	// the reason every other user-supplied command is.
+	//
+	// Feat passes it no filter: a filter vocabulary would have to map onto
+	// every tracker's query language, and iteration is exactly where that
+	// fails. What the user's tickets are is the command's decision (ADR-071).
+	Command []string `yaml:"command"`
+}
+
 // NotificationsSection configures attention notifications.
 type NotificationsSection struct {
 	// Desktop enables desktop notifications. Unset means true.
@@ -598,4 +650,10 @@ const (
 	ExecutionAgent = "agent"
 	// ExecutionHost runs a check on the trusted host.
 	ExecutionHost = "host"
+
+	// TrackerCommand obtains tickets by running a configured command that
+	// prints them as JSON. It is the only tracker kind: a tracker CLI already
+	// prints JSON, so a native adapter would add nothing but a mapping from its
+	// field names to the published shape (ADR-071).
+	TrackerCommand = "command"
 )

@@ -28,6 +28,11 @@ const (
 	// because the state excludes the one above: a task carries the reason it
 	// failed only while it is failed, so no single fixture can cover both.
 	FailedID = domain.TaskID("5d9b0e14-7c2a-42f6-8b31-0a4c6e8d1f35")
+	// PublishedID is a fixture task that came from a ticket and has been
+	// published. It is a fixture of its own for the same reason as the one
+	// above: a brief comes from one source, so a task built from a Markdown
+	// file can never also carry the ticket it was composed from.
+	PublishedID = domain.TaskID("3e5a7c91-8d2b-4e60-b1f3-6c8a0d2e4f68")
 )
 
 // Base commits recorded for the fixture task. They are immutable for the
@@ -39,6 +44,10 @@ const (
 	SecondaryBaseCommit = "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c"
 	// PrimaryHeadCommit is the fixture task branch's current commit.
 	PrimaryHeadCommit = "0011223344556677889900aabbccddeeff001122"
+	// SecondaryHeadCommit is the second repository's task branch commit, which
+	// a publication describes separately from the first: one merge request per
+	// repository means one commit per repository.
+	SecondaryHeadCommit = "aabbccddeeff00112233445566778899aabbccdd"
 )
 
 // Origin is the timestamp the fixtures are built from. Every other fixture
@@ -165,6 +174,115 @@ func Failed() *domain.Task {
 	must(task.SetAttention(domain.AttentionNeedsInput, after(5)))
 
 	return task
+}
+
+// Published returns a fixture task composed from a ticket and published to two
+// forges, one of which refused it.
+//
+// It carries the two states the fixtures above cannot: a brief comes from one
+// source, so a task imported from Markdown never also holds a ticket, and a
+// task that has not been published holds no publication record.
+//
+// The publication is deliberately a partial one. A failure on one repository
+// does not abort the others, and what is left behind is a recorded state rather
+// than one to be undone, so the record a user meets after a publication that
+// went half way is exactly this one (ADR-073).
+func Published() *domain.Task {
+	source := domain.TaskSource{Kind: domain.SourceTicket, Ticket: &domain.ExternalTaskReference{
+		Provider:  "tracker",
+		Reference: "PROJ-482",
+		URL:       "https://tracker.example.com/stories/482",
+		Snapshot: domain.TicketSnapshot{
+			Title:   "Retry the nightly export",
+			Body:    "The nightly export gives up on the first timeout.\n",
+			State:   "in progress",
+			TakenAt: Origin,
+		},
+		ChangeAvailable: true,
+	}}
+	task, err := domain.NewTask(PublishedID, ProjectID, "Retry the nightly export", source, Origin)
+	must(err)
+
+	must(task.SetBrief(Brief, after(1)))
+	// Both repositories read-write, because publication is one merge request
+	// per changed repository and a read-only binding has no branch to open one
+	// from.
+	must(task.Bind(domain.TaskRepository{
+		RepositoryID:  PrimaryRepositoryID,
+		Access:        domain.TaskAccessReadWrite,
+		Branch:        "feat/3e5a7c91-retry-the-nightly-export",
+		WorktreePath:  "/srv/state/worktrees/example/3e5a7c91/core",
+		ContainerPath: "/src/core",
+	}, after(2)))
+	must(task.Bind(domain.TaskRepository{
+		RepositoryID:  SecondaryRepositoryID,
+		Access:        domain.TaskAccessReadWrite,
+		Branch:        "feat/3e5a7c91-retry-the-nightly-export",
+		WorktreePath:  "/srv/state/worktrees/example/3e5a7c91/schema",
+		ContainerPath: "/src/schema",
+	}, after(2)))
+	must(task.ResolveBase(PrimaryRepositoryID, "origin/main", PrimaryBaseCommit, after(3)))
+	must(task.ResolveBase(SecondaryRepositoryID, "origin/main", SecondaryBaseCommit, after(3)))
+
+	must(task.TransitionTo(domain.WorkflowPreparing, after(4)))
+	must(task.AttachSession(PublishedSession(), after(5)))
+	must(task.TransitionTo(domain.WorkflowWorking, after(5)))
+	must(task.TransitionTo(domain.WorkflowReviewRequested, after(30)))
+	must(task.TransitionTo(domain.WorkflowApproved, after(35)))
+
+	// The plan is recorded before anything is attempted, and every result
+	// before the next repository begins.
+	must(task.PlanPublication([]domain.RepositoryPublication{
+		{
+			RepositoryID: PrimaryRepositoryID,
+			Forge:        domain.ForgeGitLab,
+			Remote:       "origin",
+			BaseBranch:   "main",
+			Commit:       PrimaryHeadCommit,
+		},
+		{
+			RepositoryID: SecondaryRepositoryID,
+			Forge:        domain.ForgeGitHub,
+			Remote:       "origin",
+			BaseBranch:   "main",
+			Commit:       SecondaryHeadCommit,
+		},
+	}, after(36)))
+	must(task.RecordPublished(PrimaryRepositoryID, domain.MergeRequest{
+		Reference: "!128",
+		URL:       "https://forge.example.com/example/core/-/merge_requests/128",
+	}, after(37)))
+	// The refusal is one repository's own — a protected branch or a missing
+	// project is true of one forge and not the others — which is why a failure
+	// does not abort the repositories after it (ADR-073 evidence 3). It is
+	// verbatim from the forge, because a second account of one event helps
+	// nobody.
+	must(task.RecordPublicationFailure(SecondaryRepositoryID,
+		"HTTP 403: Resource not accessible by personal access token "+
+			"(https://api.github.com/repos/example/schema/pulls)",
+		after(38)))
+
+	return task
+}
+
+// PublishedSession returns the agent session of the published fixture task.
+//
+// It runs on the host, so it records no execution environment: the fixtures
+// above cover the devcontainer case, and a host session that carried one would
+// be a record of something the domain refuses.
+func PublishedSession() *domain.AgentSession {
+	session, err := domain.NewAgentSession(
+		"claude",
+		domain.ExecutionHost,
+		domain.TmuxTarget{Socket: "/run/feat/tmux.sock", Session: "$3", Window: "@9", Pane: "%14"},
+		"/srv/state/control/example/3e5a7c91",
+		after(5),
+	)
+	must(err)
+
+	must(session.Observe(domain.ProcessStopped, after(35)))
+	must(session.RecordEvent(9, after(35)))
+	return session
 }
 
 // Draft returns a fixture task that has been resolved but not confirmed.

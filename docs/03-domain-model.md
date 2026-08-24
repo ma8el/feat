@@ -49,7 +49,8 @@ Properties:
 
 - stable UUID and human-facing short ID;
 - title and frozen task brief;
-- source: prompt, Markdown file, or external ticket;
+- source: prompt, Markdown file, or external ticket, with the ticket reference
+  itself where the brief was composed from one;
 - project ID;
 - immutable creation timestamp;
 - workflow state;
@@ -61,7 +62,7 @@ Properties:
 - selected repositories and base commits;
 - one agent session;
 - zero or one runtime environment;
-- review and optional publication artifacts.
+- review, and the optional publication record below.
 
 ### TaskRepository
 
@@ -154,20 +155,55 @@ Properties:
 - agent-reported completion summary;
 - agent-reported or provider-gated checks;
 - when the agent requested review;
-- configured diff/editor commands;
-- optional publication artifacts.
+- configured diff/editor commands.
+
+What a task published is not here. It is the publication record on the task,
+because it holds a plan before it holds a result and a re-publication reads it
+back to skip what already published (ADR-073); a second copy beside the review
+would be a second answer to what exists on a forge.
 
 ### ExternalTaskReference
 
-Optional reference to GitHub, Shortcut, GitLab, or another ticket source.
+Optional reference to GitHub, Shortcut, GitLab, or another ticket source. It is
+provider-neutral because a tracker is a configured command rather than an
+adapter per service, and what Feat holds is the shape it publishes as
+`schema/feat-tickets.schema.json` (ADR-071).
 
 Properties:
 
-- provider;
+- provider, which is what the published shape's optional source fills and is
+  absent for a project drawing on one tracker;
 - external ID and URL;
-- snapshot version/time;
-- snapshot content;
+- snapshot content: the title, body, and state the tracker's command printed,
+  and nothing richer;
+- snapshot time, which is what versions a snapshot: the published shape carries
+  no revision of the tracker's own, and a change is found by running the command
+  again and comparing;
 - change-available indicator.
+
+### Publication
+
+What publishing one task's work would do, and what came of it. It is optional
+and belongs to the task.
+
+Properties:
+
+- one entry per repository, in the order they are applied, each holding the
+  plan — the forge, the remote, the base branch, and the commit the agent's
+  draft describes — before it holds any result;
+- per entry, whether that repository is still planned, published, or failed;
+  the merge request that was opened, or the reason it was not; and when it was
+  attempted;
+- when the plan was recorded, and when the record last changed.
+
+The plan is recorded before anything is attempted and every result before the
+next repository begins, so an interrupted publication names what it had not yet
+attempted rather than leaving it to be discovered on a forge (ADR-073). Nothing
+here is rolled back: a partial publication is a recorded state, because a merge
+request that was just opened cannot be un-created reliably and a notification
+that has gone out cannot be recalled. Re-publishing keeps every merge request
+already opened and skips that repository as already published, which is distinct
+from refusing one as stale.
 
 ### ProviderArtifact
 
@@ -181,7 +217,12 @@ Properties:
 - URL;
 - observed state.
 
-Provider artifacts are roadmap entities and must not be required by the v0 task lifecycle.
+Provider artifacts are roadmap entities and must not be required by the v0 task
+lifecycle. Discovering the merge request of a changed repository is not among
+what they are for any more: that existed because the agent published and Feat
+had to find the result, and a host that opens the request records it in the
+publication above instead (ADR-072). What is left for them is observing the
+merge and close state of a request Feat already knows about.
 
 ### ControlMessage
 

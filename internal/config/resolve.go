@@ -81,6 +81,7 @@ func (c *Config) Resolve(opts Options) error {
 	if err := c.resolveReview(opts); err != nil {
 		return err
 	}
+	c.resolveTracker()
 	if err := c.resolveIntervals(); err != nil {
 		return err
 	}
@@ -257,6 +258,21 @@ func (c *Config) resolveRuntime(opts Options) error {
 		*field.value = expanded
 	}
 	return nil
+}
+
+// resolveTracker fills the tracker's kind.
+//
+// A configured command is the only kind there is, so the field decides nothing
+// and a project need not write it. It is filled in rather than left empty for
+// the reason every other default is: `feat project show` prints the values Feat
+// will act on, and a default a user cannot see is one they cannot check.
+func (c *Config) resolveTracker() {
+	if c.Tracker == nil {
+		return
+	}
+	if c.Tracker.Kind == "" {
+		c.Tracker.Kind = TrackerCommand
+	}
 }
 
 func (c *Config) resolveReview(opts Options) error {

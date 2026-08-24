@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ma8el/feat/schema/feat-tickets.schema.json",
+  "title": "Feat tickets",
+  "description": "What a project's tracker command prints on standard output: the tickets a task may be created from. Feat's shape is the contract rather than the tracker's, because reading an arbitrary shape would mean a mapping language in configuration, and a mapping language has no end. Whatever the tracker is, the command maps its output onto this — `feat doctor` reads a command's output and reports what does not conform.",
+  "type": "array",
+  "items": { "$ref": "#/$defs/ticket" },
+
+  "$defs": {
+    "ticket": {
+      "description": "One ticket. The shape is sized by what Feat acts on rather than by what trackers offer: no story points, epics, sprints, or custom fields, which Feat would carry without doing anything with them, and no comments, which the command decides about because Feat fetches none itself. Anything richer belongs in the brief, which is Markdown and holds whatever you want.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference", "title", "body", "url", "state"],
+      "properties": {
+        "reference": {
+          "description": "The tracker's own identifier for the ticket, as you would type it to a person: an issue number, a story key. It is what a merge request names when it says which ticket it closes.",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "description": "The ticket's title.",
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "description": "The ticket's description. It may be empty, and it is text a task brief is composed from rather than instructions Feat acts on: what reaches the agent is the composed brief you confirmed.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Where the ticket can be read.",
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "description": "The ticket's state in the tracker's own vocabulary, such as \"open\", \"in progress\", or \"Ready for Dev\". Feat does not map it onto a vocabulary of its own: trackers do not agree on states, and the ones they have are yours rather than Feat's.",
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "description": "Which tracker this ticket came from. Optional, because a project drawing on one tracker has nothing to disambiguate; a command that merges two labels each ticket with the one it came from, and Feat records it with the task.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

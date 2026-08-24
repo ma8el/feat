@@ -53,6 +53,8 @@ repositories:
         - frontend
       reachable:
         - frontend
+    forge:
+      kind: gitlab
     default_branch: main
     remote: origin
     default_access: read_write
@@ -132,6 +134,10 @@ checks:
     - id: test
       command: ["pytest"]
       execution: agent
+
+tracker:
+  kind: command
+  command: ["tickets-for-me"]
 
 notifications:
   desktop: true
@@ -435,6 +441,50 @@ inside the path the worktree is mounted at — an installed virtualenv, a
 mount hides it. That is what mounting source over a built image costs, and Feat
 neither checks it nor needs it.
 
+### Where the code goes and where the tickets come from
+
+`repositories.<id>.forge` and `tracker` are separate optional sections, absent
+for a project that publishes nowhere and for one whose tasks are all written by
+hand. They answer different questions with different owners, and they coincide
+only where a forge hosts its own issues: a self-hosted GitLab holds the code of
+a team whose planning is in Shortcut, and Shortcut, Jira, and Linear host no
+code at all (ADR-071).
+
+The forge belongs to the repository, because a repository lives on exactly one
+forge and a publication is one merge request per changed repository. It carries
+a kind alone: the project path and the host are in the repository's own Git
+remote, and what cannot be read from there is which forge a self-hosted instance
+is. That is declared rather than guessed, because guessing wrong would open a
+merge request somewhere the user did not mean.
+
+The tracker belongs to the project, because the thing a ticket seeds is a task
+and a task belongs to one project. Feat does not model where tickets live at
+all: issues hang off a repository, stories off a workspace, and a board off an
+organisation, so the section says how to obtain a list and the scope of that list
+belongs to whatever produces it. A planning repository that holds no code is one
+command away and is never registered with Feat as a repository, which would make
+it a candidate for a worktree, a branch, and a Compose project.
+
+`tracker.command` is a host command printing JSON that conforms to
+`schema/feat-tickets.schema.json`, in the class `review` and `checks` already
+establish for user-supplied commands. The published shape is the contract rather
+than the tracker's own, because reading an arbitrary shape would mean a mapping
+language in configuration, and a mapping language has no end. It carries a
+reference, a title, a body, a URL, a state, and an optional source, and nothing
+richer: anything else belongs in the brief, which is Markdown and holds whatever
+the user wants. Feat passes the command no filter, because a filter vocabulary
+would have to map onto every tracker's query language; which tickets are the
+user's is the command's decision. `tracker.kind` has one value, `command`, and
+is kept because the configuration file is a compatibility surface: a
+discriminator added later means either a breaking change or an inference from
+which fields happen to be present.
+
+The output is validated against the published schema by `feat doctor`, and
+bounded in size for the reason a control message is: it becomes a brief, and a
+brief is what the agent is told to do. A tracker that emits the wrong shape is
+then found when the user asks whether the project is configured rather than when
+they are trying to start work.
+
 ### Notifications and resource sampling
 
 Two grace periods exist and they are measured from different moments, which is
@@ -575,7 +625,8 @@ At minimum:
 - Worktree roots cannot resolve to a broad unsafe path, cannot be rooted at one, and cannot overlap a repository checkout.
 - Devcontainer user is non-root when the policy requires it.
 - Docker capability is denied.
-- Command arrays contain a non-empty executable, and the executable itself is never a placeholder.
+- Command arrays contain a non-empty executable, and the executable itself is never a placeholder. A tracker command may contain no placeholder at all: it runs before there is a task, so nothing would fill one.
+- A repository's forge is one Feat publishes to, and a tracker's kind is one it knows how to run.
 - Unknown fields fail validation, as do repeated keys.
 - Configuration that the selected execution mode would ignore is rejected rather than ignored.
 

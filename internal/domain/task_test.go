@@ -408,8 +408,99 @@ func TestNewTaskRejectsAnInvalidIdentity(t *testing.T) {
 	if _, err := NewTask(testTask, testProject, "Title", TaskSource{Kind: SourceMarkdown}, origin); !errors.Is(err, ErrInvalid) {
 		t.Errorf("an imported task without a file reference was accepted: %v", err)
 	}
-	if _, err := NewTask(testTask, testProject, "Title", TaskSource{Kind: "ticket"}, origin); !errors.Is(err, ErrInvalid) {
+	if _, err := NewTask(testTask, testProject, "Title", TaskSource{Kind: "epic"}, origin); !errors.Is(err, ErrInvalid) {
 		t.Errorf("an undocumented source was accepted: %v", err)
+	}
+}
+
+// testTicket is the ticket a task brief was composed from.
+func testTicket() *ExternalTaskReference {
+	return &ExternalTaskReference{
+		Provider:  "tracker",
+		Reference: "PROJ-482",
+		URL:       "https://tracker.example.com/stories/482",
+		Snapshot: TicketSnapshot{
+			Title:   "Retry the nightly export",
+			Body:    "The nightly export gives up on the first timeout.\n",
+			State:   "in progress",
+			TakenAt: origin,
+		},
+	}
+}
+
+// TestATaskFromATicketCarriesTheSnapshotItWasComposedFrom checks the reference
+// a ticket-sourced task holds.
+//
+// The snapshot is what a later change is compared against, and it is what lets
+// a merge request name the ticket it closes; a source that recorded only the
+// kind would leave both questions with nothing to answer them (ADR-071).
+func TestATaskFromATicketCarriesTheSnapshotItWasComposedFrom(t *testing.T) {
+	ticket := testTicket()
+	task, err := NewTask(testTask, testProject, "Retry the nightly export",
+		TaskSource{Kind: SourceTicket, Ticket: ticket}, origin)
+	if err != nil {
+		t.Fatalf("creating a task from a ticket: %v", err)
+	}
+
+	if task.Source.Kind != SourceTicket {
+		t.Errorf("source kind = %q, want %q", task.Source.Kind, SourceTicket)
+	}
+	if task.Source.Ticket == nil {
+		t.Fatal("the task records no ticket")
+	}
+	if got, want := task.Source.Ticket.Reference, ticket.Reference; got != want {
+		t.Errorf("ticket reference = %q, want %q", got, want)
+	}
+	if got, want := task.Source.Ticket.Snapshot.State, ticket.Snapshot.State; got != want {
+		// The tracker's own vocabulary, not one of Feat's: trackers do not
+		// agree on states, and mapping them would be a mapping language.
+		t.Errorf("ticket state = %q, want the tracker's own %q", got, want)
+	}
+}
+
+// TestATicketSourceIsRefusedWhenItCannotBeActedOn covers the inconsistencies a
+// ticket source must not hold.
+//
+// Each of them would leave Feat with a task that says it came from a ticket and
+// cannot say which one, or with two answers to where it came from.
+func TestATicketSourceIsRefusedWhenItCannotBeActedOn(t *testing.T) {
+	without := func(edit func(ticket *ExternalTaskReference)) TaskSource {
+		ticket := testTicket()
+		edit(ticket)
+		return TaskSource{Kind: SourceTicket, Ticket: ticket}
+	}
+
+	for name, source := range map[string]TaskSource{
+		"a ticket source with no ticket": {Kind: SourceTicket},
+		"a ticket beside a file reference": {
+			Kind: SourceTicket, Reference: "/srv/briefs/example.md", Ticket: testTicket(),
+		},
+		"a ticket on a typed prompt":    {Kind: SourcePrompt, Ticket: testTicket()},
+		"a ticket with no reference":    without(func(k *ExternalTaskReference) { k.Reference = "" }),
+		"a ticket with nowhere to read": without(func(k *ExternalTaskReference) { k.URL = "" }),
+		"a snapshot with no title":      without(func(k *ExternalTaskReference) { k.Snapshot.Title = "" }),
+		"a snapshot with no state":      without(func(k *ExternalTaskReference) { k.Snapshot.State = "" }),
+		"a snapshot with no time":       without(func(k *ExternalTaskReference) { k.Snapshot.TakenAt = time.Time{} }),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := NewTask(testTask, testProject, "Title", source, origin); !errors.Is(err, ErrInvalid) {
+				t.Errorf("%s was accepted: %v", name, err)
+			}
+		})
+	}
+}
+
+// TestATicketWithNoSourceIsStillATicket checks that the provider is optional.
+//
+// A project drawing on one tracker has nothing to disambiguate, so requiring it
+// would make every such command carry a constant (ADR-071).
+func TestATicketWithNoSourceIsStillATicket(t *testing.T) {
+	ticket := testTicket()
+	ticket.Provider = ""
+
+	if _, err := NewTask(testTask, testProject, "Title",
+		TaskSource{Kind: SourceTicket, Ticket: ticket}, origin); err != nil {
+		t.Errorf("a ticket from an unnamed tracker was refused: %v", err)
 	}
 }
 

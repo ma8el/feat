@@ -57,6 +57,10 @@ var (
 		PlaceholderRepositoryID, PlaceholderRepositoryPath,
 		PlaceholderBaseCommit, PlaceholderBranch,
 	}
+	// trackerPlaceholders may appear in tracker.command, and there are none: a
+	// tracker command runs before there is a task, so every placeholder Feat
+	// expands would have nothing to expand to (ADR-071).
+	trackerPlaceholders []string
 	// taskScopedPlaceholders distinguish one task from another. A template
 	// that names a per-task resource must contain one, or two tasks resolve to
 	// the same branch, the same worktree, or the same Compose project, and an

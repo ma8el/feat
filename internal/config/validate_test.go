@@ -166,6 +166,30 @@ func TestValidationRejectsUnsafeConfiguration(t *testing.T) {
 			old: "    config_volume: example-claude-config", new: "    config_volume: not/a/volume",
 			path: "agent.claude.config_volume", contains: "volume name",
 		},
+		"forge is not one Feat publishes to": {
+			old: "      kind: gitlab", new: "      kind: bitbucket",
+			path: "repositories.api.forge.kind", contains: "not a forge Feat publishes to",
+		},
+		"forge names no kind": {
+			old: "      kind: gitlab", new: "      kind: \"\"",
+			path: "repositories.api.forge.kind", contains: "which forge this repository publishes to",
+		},
+		"tracker kind is unknown": {
+			old: "  kind: command", new: "  kind: shortcut",
+			path: "tracker.kind", contains: "running a command that prints them",
+		},
+		"tracker command is empty": {
+			old: `  command: ["tickets-for-me"]`, new: "  command: []",
+			path: "tracker.command", contains: "argument vector",
+		},
+		"tracker program is a placeholder": {
+			old: `  command: ["tickets-for-me"]`, new: `  command: ["{tracker}"]`,
+			path: "tracker.command", contains: "program to run is fixed",
+		},
+		"tracker command uses a placeholder": {
+			old: `  command: ["tickets-for-me"]`, new: `  command: ["tickets-for-me", "{task_id}"]`,
+			path: "tracker.command[1]", contains: "does not expand",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := loadReplacing(t, testCase.old, testCase.new)
@@ -177,6 +201,66 @@ func TestValidationRejectsUnsafeConfiguration(t *testing.T) {
 					testCase.path, problem.Reason, testCase.contains)
 			}
 		})
+	}
+}
+
+// TestTheTrackerAndTheForgeAreEachOptional checks that a project may configure
+// either, both, or neither.
+//
+// They answer different questions with different owners — where the code goes
+// and where the tickets come from — and a forge hosts its own issues only
+// sometimes, so neither may imply the other (ADR-071).
+func TestTheTrackerAndTheForgeAreEachOptional(t *testing.T) {
+	const tracker = `tracker:
+  kind: command
+  # Whatever prints this project's tickets as JSON in the shape of
+  # schema/feat-tickets.schema.json. Feat passes no filter of its own: which
+  # tickets are the user's is the command's decision.
+  command: ["tickets-for-me"]
+
+`
+	const forge = `    forge:
+      kind: gitlab
+`
+
+	for name, removed := range map[string]string{
+		"without a tracker": tracker,
+		"without a forge":   forge,
+	} {
+		t.Run(name, func(t *testing.T) {
+			loaded, err := loadReplacing(t, removed, "")
+			if err != nil {
+				t.Fatalf("a project configured %s was rejected:\n%v", name, err)
+			}
+			if removed == tracker && loaded.Tracker != nil {
+				t.Error("the tracker section was removed and the configuration still has one")
+			}
+			if removed == forge {
+				api, _ := loaded.Repository("api")
+				if api.Forge != nil {
+					t.Error("the forge was removed and the repository still has one")
+				}
+			}
+		})
+	}
+}
+
+// TestTheTrackerKindHasADefault checks that a project need not write the one
+// value the field can hold.
+//
+// It is filled in rather than left empty for the reason every other default is:
+// `feat project show` prints what Feat will act on, and a default a user cannot
+// see is one they cannot check.
+func TestTheTrackerKindHasADefault(t *testing.T) {
+	loaded, err := loadReplacing(t, "  kind: command\n", "")
+	if err != nil {
+		t.Fatalf("loading a tracker with no kind: %v", err)
+	}
+	if loaded.Tracker == nil {
+		t.Fatal("the configuration declares a tracker and none was loaded")
+	}
+	if loaded.Tracker.Kind != config.TrackerCommand {
+		t.Errorf("tracker kind = %q, want the default %q", loaded.Tracker.Kind, config.TrackerCommand)
 	}
 }
 
