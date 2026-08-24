@@ -133,6 +133,10 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 		// belonging to one of the running user's tasks.
 		"feat task resume": true,
 		"feat task stop":   true,
+		// Publishing reaches the daemon, pushes branches, and opens merge
+		// requests on somebody else's server. Invoking it here would be the one
+		// command in this list whose effect is not on this machine.
+		"feat task publish": true,
 	}
 
 	var walk func(cmd *cobra.Command)

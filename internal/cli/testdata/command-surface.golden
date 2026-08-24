@@ -24,6 +24,7 @@ feat task
 feat task attach <task>
 feat task cleanup <task>
 feat task list
+feat task publish <task>
 feat task resume <task>
 feat task review <task>
 feat task stop <task>
