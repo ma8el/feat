@@ -5703,6 +5703,97 @@ publication names what it had not yet attempted. `internal/daemon` owns the
 sequencing, as it owns preparation's; `internal/forge` sees one repository at a
 time and knows nothing about the others.
 
+### ADR-074 — What publication left to the implementation
+
+Status: accepted
+Recorded: 2026-08-24, from building ADR-070 and ADR-073
+
+ADR-070 says the agent writes a publication draft and the user reads and edits it
+before anything is sent. ADR-073 says a publication plans every repository,
+records the plan, and applies one at a time. Four questions were left between
+them, and each was answered by something already in the codebase rather than by a
+new mechanism.
+
+Evidence:
+
+1. There is nowhere in the domain to keep the draft's prose, and there should not
+   be. `Publication` holds the plan and the result — the forge, the remote, the
+   base branch, the commit, and the merge request — and deliberately not the
+   words: the words are what the user rewrites, and a stored copy would be a
+   second answer to what was sent. The one place they already live durably is the
+   outbox, which "stays an audit trail until slice 12 cleans it up" (ADR-032) and
+   is the account of what the agent sent.
+2. `Workspace.Pending` never returns a message twice, which is what stops one
+   message being applied twice, so reading a draft back is a different question
+   from delivering it.
+3. The review command vocabulary has no placeholder for "the document to open".
+   Every placeholder `internal/config` expands names something about a repository
+   (`internal/config/template.go`), and a draft is not one.
+4. There is no `glab` on the machine this was built on, and
+   [06-technical-architecture.md](06-technical-architecture.md) requires a
+   provider CLI's flags to be verified against the installed version rather than
+   assumed.
+
+Decisions:
+
+- The draft is read back out of the control workspace when the user asks to
+  publish, through the provider adapter that parsed it when it arrived.
+  `internal/control` gains `Workspace.Latest`, which reads the newest message of
+  one type whether or not it was applied and settles nothing. Two callers, one
+  parser: a message the poller applied to the task's history is the same message
+  a publication composes from, hours later and across a restart.
+- The publication endpoint is plan and apply, as cleanup's is, and the apply
+  carries the words verbatim. What is displayed is what is sent, so the daemon
+  composes each request from the approved text rather than from the agent's
+  message — reviewing one document and sending another would make the approval a
+  formality (ADR-070).
+- The configured editor command keeps its own flags and is given the draft to
+  open. The daemon returns the program and the arguments that are not the
+  repository placeholder, and the client appends the document it wrote. `code -w`
+  stays `code -w`, which matters: an editor that returns immediately is a draft
+  approved unread. Expanding `{repository_path}` to a draft file was rejected —
+  the vocabulary is closed and that placeholder means a worktree.
+- Staleness is checked twice against the same fact and refuses the whole request
+  before the plan is recorded. The approved commit must still be the repository's
+  head, and the agent's draft must describe that head where it drafted one at
+  all. A repository that has already published is exempt from both, because
+  re-publishing skips it as already published and asking whether its words are
+  current would turn that skip into a refusal — which is the confusion ADR-073
+  keeps the two reasons apart to avoid.
+- `internal/forge` gains a `forge-stays-an-adapter` `depguard` rule, mirroring
+  `agent-stays-an-adapter`. ADR-025 requires an ADR for a boundary rule, and this
+  is that record. It denies `internal/git` as well: pushing is Git's, and a forge
+  adapter never runs `git`.
+- `domain.EventPublicationChanged` is added, which is the one domain shape this
+  work needed. Every other lifecycle records what it did in the task's history,
+  and a publication — which creates something on somebody else's server, one
+  repository at a time, and does not roll back — is the one that most needs an
+  account of a run that stopped half way. It carries no from and no to: a task
+  has no publication state of its own to move between.
+- `glab`'s flags are verified by an opt-in test that reads `glab mr create
+  --help` wherever glab is installed, and `internal/integrationtest` gains `glab`
+  as a demandable tool. It is demanded by nothing by default, like `claude` and
+  `notify`: the check needs an installed glab and nothing else — no account, no
+  network, no project — so a maintainer with one can make it mandatory and nobody
+  is made to install it.
+
+What this does not decide is whether Feat should run a `pre-push` hook it can
+attribute to the user rather than to the agent. That is OQ-015, and it still
+needs somebody who has one.
+
+Consequence: `internal/control` gains `TypePublicationDraft`, the payload it
+validates, and `Workspace.Latest`; `internal/agent` gains `KindPublicationDraft`
+and the draft on its event; `internal/agent/claude` instructs the agent and
+parses what it wrote; `internal/git` gains `Push`, `PushEnvironment`, and
+`SuppressedHooks`; `internal/forge` and `internal/forge/gitlab` are new;
+`internal/review` gains `NewPublication` and the result a publication records;
+`internal/daemon` owns the sequencing; `internal/api`, `internal/client`,
+`internal/cli`, and `internal/ui` carry the surface. `feat doctor` gains the
+`pre-push` report and the host-native capability note ADR-070 asked for.
+[06-technical-architecture.md](06-technical-architecture.md) gains the two
+packages, the two routes, and the adapter's new obligation; [README.md](README.md)
+gains the command.
+
 ## Decision change process
 
 During implementation:

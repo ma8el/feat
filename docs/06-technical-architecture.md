@@ -67,7 +67,9 @@ internal/execution/compose   devcontainer execution through Compose
 internal/runtime             application runtime interface
 internal/runtime/compose     Docker Compose runtime
 internal/control             task inbox/outbox protocol
-internal/review              base comparisons and external commands
+internal/review              base comparisons, external commands, and publication
+internal/forge               forge interface: one merge request per repository
+internal/forge/gitlab        GitLab merge requests through glab
 internal/resources           host/task resource observation
 internal/notify              desktop/TUI notification policy
 internal/reconcile           startup discovery and repair proposals
@@ -94,6 +96,15 @@ argument vector, the task's own worktree paths, a resolved check — and reads
 neither configuration nor persistent state. It is denied `internal/git` as well,
 because a change summary is Git's own answer and belongs to its adapter. See
 ADR-036.
+
+`internal/forge` and `internal/forge/gitlab` sit under the same rule, with a
+`forge-stays-an-adapter` `depguard` rule. An adapter receives a directory, a
+remote, two branches, and the words the user approved, and returns where the
+request can be read; it records nothing, because the daemon is the only writer of
+persistent state and a second record would be a second answer to what a task
+published. It is denied `internal/git` as well: pushing is Git's and stays in its
+adapter, where the argument vectors and the hook suppression already are. See
+ADR-070, ADR-073, and ADR-074.
 
 `internal/resources` and `internal/notify` sit under the
 same rule, with `resources-stays-an-adapter` and `notify-stays-a-policy`
@@ -140,6 +151,8 @@ POST   /v1/tasks/{task_id}/review/approve
 POST   /v1/tasks/{task_id}/review/changes
 POST   /v1/tasks/{task_id}/review/pending
 POST   /v1/tasks/{task_id}/review/verify
+POST   /v1/tasks/{task_id}/publication/plan     what publishing would do; sends nothing
+POST   /v1/tasks/{task_id}/publication/apply    the approved words, one merge request per repository
 POST   /v1/tasks/{task_id}/cleanup/plan
 POST   /v1/tasks/{task_id}/cleanup/execute
 POST   /v1/tasks/{task_id}/resume            continues the recorded agent session
@@ -393,7 +406,12 @@ The Claude adapter:
 - does not treat a normal Stop event as task completion;
 - tells the agent whether a completion gate will answer its review requests, and
   how it learns the verdict;
-- supports direct `gh`/`glab` usage when configured and authenticated.
+- asks the agent, where the project configures a forge, for the merge request it
+  proposes per repository — a title, a description, and the commit each one
+  describes — as a control message that asks for nothing;
+- supports direct `gh`/`glab` usage when configured and authenticated, which is a
+  path a project may configure rather than the one publication is built on
+  (ADR-070).
 
 Implementation must verify exact supported Claude CLI flags and hook schemas against the installed/supported Claude Code version. Provider-specific flags must remain inside the adapter.
 

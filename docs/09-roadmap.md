@@ -145,7 +145,11 @@ Capabilities:
 
 - publication from the trusted host: a task's branch pushed and one MR/PR opened
   per changed repository, composed from a title and body the agent drafted and
-  the user read and edited before anything was sent (ADR-070);
+  the user read and edited before anything was sent (ADR-070). **Built**, GitLab
+  first: `feat task publish`, the publication screen, `internal/forge` and
+  `internal/forge/gitlab`. The GitHub adapter is what is left of it, and a
+  repository configured for a forge this build has no adapter for is refused by
+  name rather than attempted;
 - task-level linking of related provider artifacts;
 - issue/ticket linking, which needs the provider-neutral ticket reference Phase 6
   puts on the task;
