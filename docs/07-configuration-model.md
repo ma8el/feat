@@ -209,6 +209,8 @@ Validation occurs inside the same execution environment where Claude will run th
 
 `docker`, `network`, and `git` accept one value each — `denied`, `unrestricted`, and `full`. Feat has no mechanism that grants an agent Docker, restricts its network, or limits its Git access, so any other value would record a promise the binary does not keep. The declaration is still made, because the execution adapter checks the running container against it. See ADR-028.
 
+Under host-native execution there is no container to check. The agent runs as the user and holds whatever the user holds — Docker, the network, Git, and any provider CLI already authenticated in that environment — so every capability level describes intent there rather than a condition Feat verified. `feat doctor` reports this when the daemon is running host-native, for the reason ADR-067 discloses a policy Feat cannot read: a level that was never checked must not read as one that passed.
+
 ### A runtime is composed of its repositories
 
 An application's Compose files belong to the repositories that bring them, so

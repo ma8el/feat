@@ -5278,6 +5278,38 @@ host, using the authentication the user already has there. The agent environment
 receives no provider token, and `agent.capabilities.github_cli` and `gitlab_cli`
 stay `disabled` for a project that needs nothing beyond this.
 
+That containment argument is about the devcontainer, and it does not survive
+host-native execution. An agent launched by `FEAT_HOST_AGENT` (ADR-032) runs as
+the user and inherits the user's environment, so it reaches whatever `gh` or
+`glab` authentication the user has, and can call the provider's API directly
+besides. There is no inside for a token to be kept out of, and `disabled` becomes
+a declaration Feat cannot make true rather than a mount it declines to make. Feat
+never enforced it in either mode — a capability is probed only where a project
+marks it `required` (`internal/agent/claude/validate.go:44`) — but in a
+devcontainer the declaration has an effect anyway, because a credential the
+project does not mount is not there.
+
+Publication stays host-side in both modes regardless, for reasons that are not
+containment. Host-native and devcontainer execution share one task domain and
+selecting a mode must not change task semantics
+(`internal/execution/host/doc.go`), and ADR-073's record — a plan, a result per
+repository, a re-publication that skips what already published — exists only
+where Feat is the one publishing. An agent running `glab` itself would put that
+record back to being discovered rather than known, which is the capability Phase
+3 dropped when this decision was taken. Keeping one path costs almost nothing,
+because the host-side path has to exist for the devcontainer anyway; two paths
+would cost a second set of failure modes and a second answer to what a task
+published.
+
+What the execution mode changes is therefore what the approval step is, not
+whether it happens. In a devcontainer it is a control: the agent cannot publish,
+so the user reading the draft is how anything reaches a forge at all. On the host
+it is a product behaviour: the agent could publish on its own and nothing here
+prevents it, so what the approval buys is that Feat's own publication is one the
+user read. Which of the two a user has is worth saying out loud, and claiming the
+first in both modes would be exactly the uniform security property ADR-066 and
+ADR-067 exist to refuse.
+
 Where the agent's knowledge is needed, it is carried as data rather than as an
 action. The agent writes a publication draft — a title and a body per repository
 — into the control workspace when it requests review, which is when it still
@@ -5355,7 +5387,8 @@ only writer (ADR-008). The task gains the merge request it opened and the commit
 its draft described, so that a draft written before further work is refused
 rather than published, as ADR-031 refuses a stale plan. `feat doctor` gains the
 `pre-push` report described above, beside the per-repository checks in
-`internal/project/checks.go`. The GitHub and GitLab section of
+`internal/project/checks.go`, and reports under a host-native daemon that
+capability levels describe intent rather than enforcement there. The GitHub and GitLab section of
 `docs/05-security-model.md` gains
 the host-side mode and the reason a token in the container is a different question
 from a token's scope. Phase 3 of `docs/09-roadmap.md` keeps its GitLab-first order.
