@@ -71,6 +71,8 @@ Excluded:
 
 Claude may use authenticated `glab`/`gh` directly when the user prompts it; Feat only validates the configured capability in v0.1.
 
+These exclusions record what v0.1 shipped. Feat-owned publication arrives after this milestone and does not contradict them: it is host-side and user-approved rather than automatic, and the agent holds no provider credential (ADR-070).
+
 ### Agent lifecycle
 
 Included:
@@ -212,11 +214,11 @@ Included:
 - Apache 2.0 license and contribution documentation
 - no telemetry
 
-Shortcut integration enters v0.2 only if core reliability is already complete and time remains. It must not delay public preview.
+Publication and the ticket adapter arrive before this milestone rather than inside it, in that order, because the dogfood cannot finish a task without the first (ADR-072). This replaces the condition recorded here previously, which admitted Shortcut into v0.2 only if core reliability was already complete and required that it not delay public preview.
 
 ## Explicit v0 non-goals
 
-- Ticket-to-PR automation
+- Ticket-to-PR **automation**. Feat composes a task from a ticket and opens a merge request from a task, and a user reads and approves at both ends (ADR-070). What remains excluded is the unattended path between them.
 - Automated runtime lifecycle phases
 - Stable per-task hostnames
 - Codex adapter

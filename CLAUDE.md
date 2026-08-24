@@ -16,7 +16,7 @@ Read in this order:
 8. `08-v0-scope.md`
 9. `10-decisions-and-open-questions.md`
 
-Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadmap.md` when the change touches something the roadmap holds for later, so that extension boundaries survive. Do not implement roadmap features during v0.
+Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadmap.md` when the change touches something the roadmap holds for later, so that extension boundaries survive. Do not implement roadmap features during v0 unless a recorded decision schedules one. ADR-072 is the only one that has: it pulls publication from Phase 3 and the ticket adapter from Phase 6 ahead of the public preview, in that order, because the dogfood cannot finish a task without the first.
 
 ## Current product contract
 
@@ -33,7 +33,9 @@ Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadma
 - Devcontainer execution for dogfood; host-native by public v0
 - Docker Compose CLI on the trusted host
 - Agent receives no Docker socket/host Docker CLI
-- Agent may have full Git and configured `gh`/`glab` access
+- Agent may have full Git access
+- Provider work is host-side by default; the agent drafts the words and the user approves them before anything is sent
+- `gh`/`glab` in the agent environment remains a configurable path, not the one publication is built on
 - Manual application runtime lifecycle in v0
 - External diff/editor commands; no built-in source diff viewer
 - Conservative explicit cleanup
@@ -43,7 +45,7 @@ Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadma
 ## Scope rules
 
 1. Implement what the change asks for and no more; a prerequisite that is proven missing is part of it, a nearby improvement is not.
-2. Do not add ticket ingestion, automated runtime phases, stable hostnames, Codex, remote control, plugin RPC, team features, or an internal diff viewer during v0.
+2. Do not add automated runtime phases, stable hostnames, Codex, remote control, plugin RPC, team features, or an internal diff viewer during v0. Ticket ingestion left this list when ADR-072 scheduled the tracker before the public preview; the list changes only by a recorded decision, never by a change that finds it inconvenient.
 3. Do not hard-code the reference project's repository names, paths, Compose services, or database behavior.
 4. If an accepted decision appears infeasible, stop and record concrete evidence before changing it.
 5. Open questions are not permission to choose a permanent design prematurely.
@@ -55,7 +57,8 @@ Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadma
 - Keep host and devcontainer execution behind one execution interface.
 - Keep application runtime separate from agent execution even if both use Compose.
 - Keep storage behind repositories/interfaces; the daemon is the only writer.
-- Use argument vectors rather than interpolated shell commands for Git, tmux, and Docker Compose.
+- Use argument vectors rather than interpolated shell commands for Git, tmux, Docker Compose, the provider CLIs, and every user-supplied command — tracker, review, and checks.
+- Plan, record, then apply, so that no resource can exist that the record cannot name and an interruption at any point is recoverable rather than mysterious. This holds hardest where the resource is on somebody else's server.
 - Use stable IDs and tagged metadata; never use tmux window indexes or display names as identity.
 - Record immutable Git base commits when launching a task.
 - Make reconciliation explicit; never assume persisted desired state equals observed state.
@@ -67,6 +70,8 @@ Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadma
 - Never copy secret values into generated YAML, JSON, logs, or Compose overrides.
 - Validate every control-workspace message, path, capability, size, task ID, and event ID.
 - A runtime request is inert until host validation and user approval.
+- Make credentialed provider calls on the trusted host; the agent environment receives no provider token.
+- Agent-authored text bound for a durable destination is read by the user before it is sent, and what was displayed is what is sent. The same holds inbound: what the user approves is the composed brief, not the ticket it came from.
 - Full Git and provider CLI access are allowed only when configured; do not conflate them with Docker access.
 - Resolve exact task-owned resources before cleanup.
 - Retain volumes by default and require explicit confirmation for dirty/unmerged work.

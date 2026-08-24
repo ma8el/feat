@@ -89,7 +89,12 @@ and the second pass over the wizard, each of which says so where it appears:
     proposes nothing rather than guessing, and asking the application first would
     let it propose what is left — which reorders the whole conversation.
 - **Verified absence of telemetry.**
-- **Shortcut**, only if all core reliability work is complete.
+
+Shortcut was a conditional item here, admitted only if all core reliability work
+was complete. It has left this milestone entirely: ADR-072 schedules the ticket
+adapter before the public preview rather than inside it, and ADR-071 makes
+Shortcut one configuration of a generic adapter rather than an integration of its
+own.
 
 Done when the public-v0 definition of done passes on macOS and Linux, host-native
 and devcontainer modes use the same task domain, the installation and first-task
@@ -221,7 +226,9 @@ forge hosts its own issues.
 Behavior:
 
 - immutable task snapshot;
-- comments excluded by default and selectable;
+- comments left to the configured command, which decides what reaches the body;
+  selection by Feat returns only with a native adapter, because the published
+  schema carries no comment field (ADR-071);
 - change notification without automatic context mutation;
 - issue/ticket reference carried into publication.
 
