@@ -32,7 +32,7 @@ List the work scheduled for the current iteration
 
 ## Initial target user
 
-1. The product author using a real multi-repository, Compose-based company project.
+1. The product author using a real multi-repository, Compose-based project.
 2. Individual terminal-centric developers using Claude Code.
 3. Individual developers whose agents run in devcontainers.
 4. Later, small engineering teams and developers using additional coding agents.

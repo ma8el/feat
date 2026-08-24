@@ -4,7 +4,7 @@ Roadmap items are ordered by product value and dependency, not promised dates.
 
 ## Phase 0 — v0.1 dogfood
 
-Goal: prove the product on the real multi-repository company project.
+Goal: prove the product on the real multi-repository reference project.
 
 Deliver the exact scope in [08-v0-scope.md](08-v0-scope.md), centered on:
 
@@ -22,8 +22,16 @@ Exit signal: three concurrent tasks can be implemented and reviewed with less co
 
 Goal: make the local core usable outside the reference project.
 
-The v0.1 dogfood milestone is complete. What is left before a new macOS or Linux
-user can run Feat outside the reference project:
+The v0.1 dogfood milestone is complete. Two capabilities from later phases are
+scheduled ahead of this one, in the order ADR-072 sets: publication from the
+trusted host, which Phase 3 describes, and then the ticket adapter, which Phase 6
+describes. The dogfood cannot finish a task without the first, and this
+milestone's documentation is written against dogfood runs.
+
+What is left before a new macOS or Linux user can run Feat outside the reference
+project. Two of these come last within the milestone, because they wait on
+dogfood runs rather than on anything listed here — the first-task documentation
+and the second pass over the wizard, each of which says so where it appears:
 
 - **Host-native execution.** The task domain, the execution interface, and the
   provider adapter already separate the agent from the environment it runs in;
@@ -119,22 +127,41 @@ Do not introduce opinionated framework templates until several real projects rev
 
 Goal: close the task-to-PR/MR loop while preserving native provider tools.
 
+Publication — the first capability below — is scheduled ahead of Phase 1 rather
+than after it, because the dogfood machine cannot finish a task without it
+(ADR-072). The rest of this phase keeps its place.
+
 Order:
 
-1. GitLab for company dogfooding.
+1. GitLab, which the reference project uses.
 2. GitHub as the primary public integration.
 
 Capabilities:
 
-- validate `glab`/`gh` inside the agent environment;
-- allow Claude to create commits, push, and publish when prompted;
-- discover one MR/PR per changed repository;
+- publication from the trusted host: a task's branch pushed and one MR/PR opened
+  per changed repository, composed from a title and body the agent drafted and
+  the user read and edited before anything was sent (ADR-070);
 - task-level linking of related provider artifacts;
-- issue/ticket linking;
+- issue/ticket linking, which needs the provider-neutral ticket reference Phase 6
+  puts on the task;
 - observe merge/close state and offer cleanup;
 - no automatic merging.
 
-Host-side provider execution may be added as another configured mode, but container-side native CLI access is a first-class path.
+Host-side execution is the recommended mode and the one built first, because it
+is the only mode that needs no provider credential inside the agent environment
+(ADR-070). Committing stays the agent's, as it already is under full Git access;
+what moves to the host is everything that reaches a remote. Native `gh`/`glab`
+inside the agent environment remains a path a project may configure, and Feat
+validates the capability it was told about, but it is no longer what the loop is
+built on. This reverses the note first recorded here, which made container-side
+native CLI access first-class and host-side execution a possible second mode.
+
+One capability recorded here goes away with that reversal rather than being
+dropped. Discovering one MR/PR per changed repository was needed because the
+agent published and Feat had to find what it had made; a host that opens the
+request records it instead. Discovery returns only for a project that configures
+the agent-side path, and for observing the merge state of a request Feat already
+knows about, which is the bullet above.
 
 ## Phase 4 — stable local hostnames
 
@@ -171,9 +198,25 @@ Goal: eliminate copying task context between planning systems and agents.
 
 Priority:
 
-- GitHub Issues: issue number/URL and repository lists first, Projects iterations later;
-- Shortcut: current iteration assigned to the user or team;
-- GitLab Issues later if demanded.
+- a generic command adapter, whose output conforms to the ticket schema Feat
+  publishes, so that a tracker Feat has never heard of is configurable by the
+  user rather than by a release (ADR-071);
+- Shortcut and GitLab Issues through it, because the dogfood machine needs those
+  two and neither shares a credential model with the other;
+- native adapters for GitHub Issues and GitLab Issues afterwards, as
+  optimisations of a path that already works.
+
+This order inverts the one first recorded here, which put GitHub Issues first and
+GitLab Issues "later if demanded". The demand arrived: see ADR-071.
+
+The generic adapter is scheduled directly after publication and before the whole
+of Phase 1 (ADR-072). It removes friction at the start of a task rather than a
+wall at the end of one, which is why it follows publication rather than
+accompanying it, despite the two having been designed together.
+
+A tracker is configured per project and is independent of the forge a repository
+publishes to, which is configured per repository. The two coincide only where a
+forge hosts its own issues.
 
 Behavior:
 

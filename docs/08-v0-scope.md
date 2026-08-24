@@ -4,7 +4,7 @@
 
 `v0` consists of two milestones:
 
-- `v0.1`: personally usable dogfood on the company project.
+- `v0.1`: personally usable dogfood on the reference project.
 - `v0.2`: generalized public preview.
 
 The first milestone is allowed to use manually authored project YAML and project-specific configuration. It must not hard-code the reference project's paths, repository names, or services into the domain model.
