@@ -24,8 +24,13 @@ that name your own board, and point the project at it:
 ```yaml
 tracker:
   kind: command
-  command: ["/home/you/bin/feat-tickets"]
+  command: ["feat-tickets"]
 ```
+
+A name is looked up on the path, exactly as `git` and your editor are in the
+other command sections. A script that is not on the path is named by an absolute
+one: Feat expands nothing in a command, so a leading `~` reaches the program
+loader as a `~`.
 
 Then run `feat doctor`. It runs the command and validates what it printed, so a
 mapping that is wrong is found there rather than when you are trying to start
