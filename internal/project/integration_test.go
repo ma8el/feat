@@ -423,3 +423,72 @@ func dropRuntimeSection(t *testing.T, w *world) {
 		t.Fatalf("writing the configuration: %v", err)
 	}
 }
+
+// TestRealTrackerCommandIsRunAndValidated runs a project's tracker command as a
+// real process and checks what diagnostics make of it.
+//
+// The unit tests decide what a tracker printed. This one asks a process, which
+// is the only way to find out that the configured argument vector never becomes
+// a command, that it runs somewhere it cannot, or that what a program actually
+// writes to standard output is not what the validator is given (ADR-071).
+//
+// It needs no tracker and no account: the command is a shell script the test
+// writes, which is a program every machine Feat targets has.
+func TestRealTrackerCommandIsRunAndValidated(t *testing.T) {
+	requireRealTools(t)
+
+	const conforming = `[{"reference":"ACME-14","title":"Reset links expire",` +
+		`"body":"After five minutes.","url":"https://example.test/14","state":"open"}]`
+	// What `gh issue list --json number,…` prints with no mapping at all, which
+	// is the mistake `feat doctor` exists to find.
+	const unmapped = `[{"number":14,"title":"Reset links expire",` +
+		`"body":"","url":"https://example.test/14","state":"open"}]`
+
+	for _, testCase := range []struct {
+		name     string
+		prints   string
+		severity project.Severity
+		says     string
+	}{
+		{
+			name: "output that conforms", prints: conforming,
+			severity: project.SeverityOK, says: "1 ticket",
+		},
+		{
+			name: "the tracker's own field names", prints: unmapped,
+			severity: project.SeverityError, says: `"number"`,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			w := arrange(t)
+			w.opts.Runner = project.HostRunner{}
+			// No fake tracker: the command below is run for real.
+			w.configureTrackerCommand(t, writeTrackerScript(t, testCase.prints))
+
+			found := finding(t, w.only(t, w.diagnose(t)).Findings, "tracker.command")
+			if found.Severity != testCase.severity {
+				t.Fatalf("the finding is %q, want %q: %s", found.Severity, testCase.severity, found.Summary)
+			}
+			if !strings.Contains(found.Summary, testCase.says) {
+				t.Errorf("the finding does not say %q: %s", testCase.says, found.Summary)
+			}
+		})
+	}
+}
+
+// writeTrackerScript writes an executable that prints what it is given, and
+// returns its path.
+//
+// It prints to standard output and writes a line to standard error as well,
+// because a tool that says something while succeeding is ordinary and only what
+// it printed on standard output is the document.
+func writeTrackerScript(t *testing.T, prints string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "tickets-for-me")
+	script := "#!/bin/sh\necho 'reading tickets' >&2\ncat <<'TICKETS'\n" + prints + "\nTICKETS\n"
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { // #nosec G306 -- it is run
+		t.Fatalf("writing the tracker command: %v", err)
+	}
+	return path
+}

@@ -27,6 +27,7 @@ import (
 	"github.com/ma8el/feat/internal/store"
 	"github.com/ma8el/feat/internal/store/fs"
 	"github.com/ma8el/feat/internal/tmux"
+	"github.com/ma8el/feat/internal/tracker"
 )
 
 // Server timeouts.
@@ -70,6 +71,10 @@ type Options struct {
 	// own, because whether a gate reports what it ran should not depend on which
 	// tools the tester happens to have installed.
 	Checks review.Runner
+	// Tracker runs a project's configured ticket command on the trusted host. A
+	// nil value runs it here; a test supplies its own, because which tickets are
+	// somebody's is decided by a command Feat does not ship.
+	Tracker tracker.Runner
 	// Docker runs the container commands that create and observe a task's
 	// devcontainer. A nil value drives the real Docker CLI; a test supplies its
 	// own so that a container that refuses to start, or turns out to run as
@@ -215,6 +220,7 @@ func New(opts Options) (*Daemon, error) {
 			agent:         claude.New(),
 			runner:        probe,
 			checks:        opts.Checks,
+			tracker:       opts.Tracker,
 			docker:        opts.Docker,
 			runtimeDocker: opts.RuntimeDocker,
 

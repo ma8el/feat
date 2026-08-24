@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -27,6 +28,11 @@ const (
 	stepBrief
 	stepRepositories
 	stepReview
+	// stepTickets is the project's tickets offered as a selection. It is last
+	// rather than in sequence because it is not a stage of preparation: it is a
+	// way of filling the brief, reached from the brief step and returning to it,
+	// and a project with no tracker never sees it.
+	stepTickets
 )
 
 // access modes a repository can be selected with, in the order the selection
@@ -67,6 +73,18 @@ type prepareModel struct {
 	// imported is a brief supplied by `feat implement --file`.
 	imported string
 
+	// tickets is what the project's tracker printed, read when the user asked
+	// for it. Nothing holds it between screens: Feat passes the command no
+	// filter, so a held list could not be re-filtered, and a ticket that changed
+	// is found by running the command again (ADR-071).
+	tickets []api.Ticket
+	// ticketsReadAt is when that list was read, which is what a snapshot taken
+	// from one of them records.
+	ticketsReadAt time.Time
+	// ticket is the reference `feat implement --ticket` named, matched against
+	// what the command emitted once the project is known and cleared after.
+	ticket string
+
 	selection []selectionRow
 	cursor    int
 	focus     int
@@ -99,9 +117,33 @@ type (
 		brief string
 		err   error
 	}
+	draftDiscardedMsg struct{ err error }
+	ticketsMsg        struct {
+		list api.TicketList
+		err  error
+		// want is the reference `--ticket` named, empty for a list the user
+		// asked to browse.
+		want string
+	}
 )
 
-func newPrepare(backend Backend, project, brief string, source api.Source) prepareModel {
+// prepareStart is what a caller opens preparation with.
+//
+// It is a value rather than a list of arguments because the four are all
+// optional and all strings, and a call site that swapped two of them would
+// compile.
+type prepareStart struct {
+	// project preselects a project, from --project.
+	project string
+	// brief is an imported Markdown brief, read by the caller.
+	brief string
+	// source records where that brief came from.
+	source api.Source
+	// ticket is the reference --ticket named.
+	ticket string
+}
+
+func newPrepare(backend Backend, start prepareStart) prepareModel {
 	title := textinput.New()
 	title.Placeholder = "what the task is, in a few words"
 	title.CharLimit = 120
@@ -115,15 +157,16 @@ func newPrepare(backend Backend, project, brief string, source api.Source) prepa
 
 	model := prepareModel{
 		backend:  backend,
-		project:  project,
+		project:  start.project,
 		title:    title,
 		brief:    body,
-		source:   source,
-		imported: brief,
+		source:   start.source,
+		imported: start.brief,
+		ticket:   start.ticket,
 	}
-	if brief != "" {
-		model.brief.SetValue(brief)
-		model.title.SetValue(titleFrom(brief))
+	if start.brief != "" {
+		model.brief.SetValue(start.brief)
+		model.title.SetValue(titleFrom(start.brief))
 	}
 	if model.source.Kind == "" {
 		model.source.Kind = "prompt"
@@ -134,7 +177,7 @@ func newPrepare(backend Backend, project, brief string, source api.Source) prepa
 // restart returns a fresh preparation screen, so that opening one from the
 // dashboard never shows the previous task's answers.
 func (p prepareModel) restart() prepareModel {
-	fresh := newPrepare(p.backend, p.project, "", api.Source{Kind: "prompt"})
+	fresh := newPrepare(p.backend, prepareStart{project: p.project, source: api.Source{Kind: "prompt"}})
 	fresh.projects = p.projects
 	fresh.width, fresh.height = p.width, p.height
 	fresh.resize(p.width, p.height)
@@ -196,6 +239,18 @@ func (p prepareModel) Update(message tea.Msg) (prepareModel, tea.Cmd) {
 		}
 		return p, nil
 
+	case ticketsMsg:
+		return p.ticketsRead(message)
+
+	case draftDiscardedMsg:
+		if message.err != nil {
+			// The draft is still recorded and this screen is no longer the one
+			// that owns it, so the user is told rather than left with a record
+			// nothing will mention again.
+			p.err = message.err
+		}
+		return p, nil
+
 	case tea.KeyMsg:
 		return p.key(message)
 	}
@@ -229,6 +284,8 @@ func (p prepareModel) key(key tea.KeyMsg) (prepareModel, tea.Cmd) {
 		return p.repositoryKey(key)
 	case stepReview:
 		return p.reviewKey(key)
+	case stepTickets:
+		return p.ticketKey(key)
 	}
 	return p, nil
 }
@@ -257,6 +314,11 @@ func (p prepareModel) back() (prepareModel, tea.Cmd) {
 	case stepReview:
 		p.step = stepRepositories
 		return p, nil
+	case stepTickets:
+		// Back out of the list without taking one. The brief is whatever it was
+		// before, which for a screen reached by mistake is what the user typed.
+		p.step = stepBrief
+		return p, p.focusBrief()
 	case stepRepositories:
 		p.step = stepBrief
 		return p, p.focusBrief()
@@ -330,9 +392,16 @@ func (p prepareModel) projectKey(key tea.KeyMsg) (prepareModel, tea.Cmd) {
 }
 
 // enterBrief moves to the title and brief.
+//
+// A run that named a ticket asks for the project's tickets here, because this is
+// the first moment the project is known: the tracker is configured per project,
+// and which project a task is in is answered before what the task is (ADR-071).
 func (p prepareModel) enterBrief() (prepareModel, tea.Cmd) {
 	p.step = stepBrief
 	p.err = nil
+	if p.ticket != "" {
+		return p.readTickets(p.ticket)
+	}
 	return p, p.focusBrief()
 }
 
@@ -358,6 +427,9 @@ func (p prepareModel) briefKey(key tea.KeyMsg) (prepareModel, tea.Cmd) {
 
 	case "ctrl+e":
 		return p, p.edit()
+
+	case "ctrl+t":
+		return p.readTickets("")
 
 	case "ctrl+s":
 		return p.enterRepositories()
@@ -408,6 +480,192 @@ func (p prepareModel) edit() tea.Cmd {
 			return editedMsg{brief: string(edited)}
 		})()
 	}
+}
+
+// readTickets asks the daemon to run the project's tracker command.
+//
+// It runs on a key the user pressed rather than when the screen opens, for the
+// reason resolving a draft is its own request: the command reaches somebody's
+// tracker over a network, and a screen should not do that because a field was
+// edited (ADR-031).
+//
+// The want is the reference `--ticket` named, and is empty for a list the user
+// asked to browse. Either way the same command runs and the same list comes
+// back: Feat passes no filter, so there is nothing else to ask for (ADR-071).
+func (p prepareModel) readTickets(want string) (prepareModel, tea.Cmd) {
+	p.busy = true
+	p.err = nil
+	p.status = "reading the project's tickets…"
+	p.title.Blur()
+	p.brief.Blur()
+
+	backend, project := p.backend, p.project
+	return p, func() tea.Msg {
+		list, err := backend.Tickets(context.Background(), project)
+		return ticketsMsg{list: list, err: err, want: want}
+	}
+}
+
+// ticketsRead takes what the tracker printed.
+func (p prepareModel) ticketsRead(message ticketsMsg) (prepareModel, tea.Cmd) {
+	p.busy = false
+	// Asked for once. A run that named a ticket and could not find it goes on as
+	// an ordinary preparation rather than asking the tracker again.
+	p.ticket = ""
+
+	if message.err != nil {
+		p.err = message.err
+		p.step = stepBrief
+		return p, p.focusBrief()
+	}
+
+	p.tickets = message.list.Tickets
+	p.ticketsReadAt = message.list.ReadAt
+	if message.want != "" {
+		return p.chooseByReference(message.want)
+	}
+	if len(p.tickets) == 0 {
+		// An empty list is an answer rather than a failure: which tickets are
+		// the user's is the command's decision, and none is one of them.
+		p.err = errors.New("the project's tracker printed no tickets")
+		p.step = stepBrief
+		return p, p.focusBrief()
+	}
+
+	p.err = nil
+	p.cursor = 0
+	p.step = stepTickets
+	return p, nil
+}
+
+// chooseByReference finds the ticket `--ticket` named.
+//
+// Feat parses no reference. What it does is match what the user typed against
+// what the command emitted, so a tracker whose references are issue numbers,
+// story keys, or anything else works without Feat knowing the shape of one
+// (ADR-071). A reference the command did not emit is reported with what it did,
+// because the command decides what the user's tickets are and the answer may
+// simply be that this one is not among them.
+func (p prepareModel) chooseByReference(want string) (prepareModel, tea.Cmd) {
+	var matched []api.Ticket
+	for _, ticket := range p.tickets {
+		if ticket.Reference == want {
+			matched = append(matched, ticket)
+		}
+	}
+
+	switch len(matched) {
+	case 1:
+		return p.composeFrom(matched[0])
+	case 0:
+		p.err = fmt.Errorf("the project's tracker printed no ticket %s; it printed %s",
+			want, references(p.tickets))
+	default:
+		// A merged command labels each ticket with the tracker it came from, and
+		// two trackers can use the same key. Feat picks neither.
+		p.err = fmt.Errorf("the project's tracker printed %d tickets called %s, from %s; "+
+			"select one from the list instead", len(matched), want, sources(matched))
+	}
+	p.step = stepBrief
+	return p, p.focusBrief()
+}
+
+// composeFrom fills the title and brief from a ticket and returns to the brief.
+//
+// The composed brief goes into the same field a typed prompt is written in, so
+// the confirmation, the fingerprint, and every other invariant of preparation
+// apply to it unchanged. What the confirmation displays is therefore this
+// document rather than the ticket it came from, which is what keeps the approval
+// from being a formality (ADR-070).
+func (p prepareModel) composeFrom(ticket api.Ticket) (prepareModel, tea.Cmd) {
+	reference := api.NewTicketReference(ticket, p.ticketsReadAt)
+	title, brief := reference.ComposeBrief()
+
+	p.title.SetValue(title)
+	p.brief.SetValue(brief)
+	p.source = api.Source{Kind: "ticket", Ticket: &reference}
+	p.err = nil
+	p.step = stepBrief
+
+	// A draft records where its brief came from when it is created, and nothing
+	// later replaces that: updating one replaces its title, brief, and
+	// repositories. So a draft recorded before this ticket was chosen is
+	// discarded rather than edited, and the next resolve records a new one. A
+	// task whose brief is one ticket's and whose recorded source is a prompt, or
+	// another ticket, would be a record nothing could act on — it is what a
+	// merge request names and what a change is compared against (ADR-071).
+	//
+	// Discarding removes nothing: nothing is created for a draft (FR-TASK-003).
+	return p, tea.Batch(p.focusBrief(), p.discardDraft())
+}
+
+// discardDraft cancels a draft the daemon already holds, without leaving
+// preparation.
+func (p *prepareModel) discardDraft() tea.Cmd {
+	if p.draft == nil {
+		return nil
+	}
+
+	backend, id := p.backend, p.draft.ID
+	p.draft, p.plan = nil, nil
+	return func() tea.Msg {
+		if _, err := backend.CancelDraft(context.Background(), id); err != nil {
+			return draftDiscardedMsg{err: fmt.Errorf("discarding the draft recorded before "+
+				"the ticket was chosen: %w", err)}
+		}
+		return draftDiscardedMsg{}
+	}
+}
+
+func (p prepareModel) ticketKey(key tea.KeyMsg) (prepareModel, tea.Cmd) {
+	switch key.String() {
+	case "up", "k":
+		if p.cursor > 0 {
+			p.cursor--
+		}
+	case "down", "j":
+		if p.cursor < len(p.tickets)-1 {
+			p.cursor++
+		}
+	case "enter":
+		if p.cursor < len(p.tickets) {
+			return p.composeFrom(p.tickets[p.cursor])
+		}
+	}
+	return p, nil
+}
+
+// references lists what a tracker printed, for a reference it did not.
+//
+// It is bounded because the list is somebody's whole backlog and this is one
+// line of an error message.
+func references(tickets []api.Ticket) string {
+	if len(tickets) == 0 {
+		return "nothing"
+	}
+	const shown = 5
+	named := make([]string, 0, shown)
+	for _, ticket := range tickets[:min(shown, len(tickets))] {
+		named = append(named, ticket.Reference)
+	}
+	listed := strings.Join(named, ", ")
+	if len(tickets) > shown {
+		return fmt.Sprintf("%s and %d more", listed, len(tickets)-shown)
+	}
+	return listed
+}
+
+// sources names the trackers a merged command drew an ambiguous reference from.
+func sources(tickets []api.Ticket) string {
+	named := make([]string, 0, len(tickets))
+	for _, ticket := range tickets {
+		if ticket.Source == "" {
+			named = append(named, "an unlabelled tracker")
+			continue
+		}
+		named = append(named, ticket.Source)
+	}
+	return strings.Join(named, " and ")
 }
 
 // enterRepositories moves to the access selection, seeding it from the

@@ -68,6 +68,7 @@ internal/runtime             application runtime interface
 internal/runtime/compose     Docker Compose runtime
 internal/control             task inbox/outbox protocol
 internal/review              base comparisons and external commands
+internal/tracker             the configured ticket command and its output
 internal/resources           host/task resource observation
 internal/notify              desktop/TUI notification policy
 internal/reconcile           startup discovery and repair proposals
@@ -94,6 +95,14 @@ argument vector, the task's own worktree paths, a resolved check — and reads
 neither configuration nor persistent state. It is denied `internal/git` as well,
 because a change summary is Git's own answer and belongs to its adapter. See
 ADR-036.
+
+`internal/tracker` sits under the same rule, with a `tracker-stays-an-adapter`
+`depguard` rule. It receives a resolved command and returns the tickets it
+printed, validated against the shape Feat publishes; the caller resolves the
+project's tracker section, and the daemon records what becomes of a ticket. There
+is no adapter per service, because a tracker CLI already prints JSON and holds
+its own credential: what a native adapter would add is the mapping, and the
+mapping belongs to the user's command. See ADR-071.
 
 `internal/resources` and `internal/notify` sit under the
 same rule, with `resources-stays-an-adapter` and `notify-stays-a-policy`

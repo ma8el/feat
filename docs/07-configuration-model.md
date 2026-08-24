@@ -485,6 +485,17 @@ brief is what the agent is told to do. A tracker that emits the wrong shape is
 then found when the user asks whether the project is configured rather than when
 they are trying to start work.
 
+The command runs on the trusted host as the user, in their home directory. There
+is no task when it runs, so there is no worktree to run it in, and an explicit
+directory is what makes `feat doctor` and the daemon ask the same question of the
+same machine rather than inheriting whichever directory each was started in.
+
+`docs/examples/tickets` holds a worked command per tracker — GitHub Issues,
+GitHub Projects, GitLab Issues, and Shortcut — each beside the document it
+printed, and the test suite validates every one of those documents with the code
+`feat doctor` uses, for the reason `docs/examples/project.yaml` is validated
+against the configuration schema.
+
 ### Notifications and resource sampling
 
 Two grace periods exist and they are measured from different moments, which is

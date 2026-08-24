@@ -52,6 +52,9 @@ func (s *service) CreateDraft(ctx context.Context, request api.DraftRequest) (*d
 	if err := checkBrief(request.Brief); err != nil {
 		return nil, err
 	}
+	if err := s.checkTicket(request.Source.Ticket); err != nil {
+		return nil, err
+	}
 	if _, err := s.store.Projects().Load(ctx, request.Project); err != nil {
 		return nil, translate(err, "no project "+request.Project.String()+" is registered")
 	}
@@ -520,6 +523,34 @@ func checkBrief(brief string) error {
 	if len(brief) > maxBriefBytes {
 		return fmt.Errorf("%w: the task brief is %d bytes, and the limit is %d",
 			api.ErrInvalid, len(brief), maxBriefBytes)
+	}
+	return nil
+}
+
+// checkTicket bounds and sanity-checks the ticket a brief was composed from.
+//
+// The ticket is a record Feat keeps for the life of the task — it is what lets a
+// merge request name what it closes, and what a ticket observed again later is
+// compared against — so it is validated rather than believed. Whether the
+// values make a consistent reference is the domain's to say; what is checked
+// here is what the domain cannot know: how large it is, and that it was not
+// read in the future.
+//
+// A whole snapshot is bounded at what a brief is bounded at, because a snapshot
+// is text of the same kind from the same place, and the tracker's whole output
+// was already bounded when Feat read it (ADR-071).
+func (s *service) checkTicket(ticket *domain.ExternalTaskReference) error {
+	if ticket == nil {
+		return nil
+	}
+	if size := len(ticket.Snapshot.Title) + len(ticket.Snapshot.Body) + len(ticket.Snapshot.State) +
+		len(ticket.Reference) + len(ticket.URL) + len(ticket.Provider); size > maxBriefBytes {
+		return fmt.Errorf("%w: the ticket is %d bytes, and the limit is %d",
+			api.ErrInvalid, size, maxBriefBytes)
+	}
+	if taken := ticket.Snapshot.TakenAt; !taken.IsZero() && taken.After(s.now()) {
+		return fmt.Errorf("%w: the ticket says it was read at %s, which is in the future",
+			api.ErrInvalid, taken.UTC().Format(time.RFC3339))
 	}
 	return nil
 }

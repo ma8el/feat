@@ -46,6 +46,19 @@ environment. A task may span several repositories.
 > task control workspace, and goes idle only after a grace period — idle never
 > means done, and only an explicit request from the agent reaches review.
 >
+> **A task's brief can come from a ticket.** A project points `tracker.command`
+> at a command of yours that prints your tickets as JSON — `docs/examples/tickets`
+> has a worked one for GitHub Issues, GitHub Projects, GitLab Issues, and
+> Shortcut — and Feat runs it on your machine, with your own authentication and
+> no filter of its own: which tickets are yours is the command's decision.
+> `feat doctor` runs it too and reports what does not conform, so a mapping that
+> is wrong is found when you ask whether the project is configured.
+> `feat project tickets` lists them, and `feat implement --ticket <reference>`
+> matches the reference against the ones the command printed. Selecting one
+> composes a brief you then read, edit, and confirm — what you approve is that
+> brief rather than the ticket it came from, and the agent's environment never
+> sees a tracker credential.
+>
 > A project configured for a devcontainer runs its agent inside one: Feat
 > starts the configured Compose service, mounts each task worktree at the
 > container path its repository configures, mounts the task's control workspace,

@@ -49,10 +49,12 @@ feat
 feat implement
 feat implement --file task.md
 feat implement --project <project>
+feat implement --ticket <reference>
 feat project init [<project>]
 feat project add <project>
 feat project list
 feat project show <project>
+feat project tickets <project>
 feat task list
 feat task attach <task>
 feat task review <task>
@@ -71,6 +73,8 @@ feat daemon run
 ```
 
 `feat` without arguments opens the dashboard. `feat implement` opens task preparation and creates nothing until the user confirms the final task brief and repository selection. Confirming creates exactly what was displayed: a draft that changed since the plan was shown is refused rather than launched, and `--project` preselects the project without removing the confirmation. See ADR-031.
+
+`feat project tickets` runs the project's configured tracker command and lists what it printed. `feat implement --ticket` runs the same command and matches the reference it was given against the ones that command emitted; Feat parses no part of a reference, and passes the command no filter. Selecting a ticket — by that flag, or from the same list offered while the brief is being written — composes a brief from it into the field a typed prompt is written in, so the confirmation, the fingerprint, and every other invariant of preparation apply unchanged. What the confirmation displays is that composed brief rather than the ticket it came from. See ADR-070 and ADR-071.
 
 `feat project add` takes the project's identifier, which is also its configuration file's name; the daemon reads the file from the configuration directory rather than from a path a caller supplies. See ADR-028.
 

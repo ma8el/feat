@@ -13,6 +13,7 @@ import (
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution/compose"
+	"github.com/ma8el/feat/internal/tracker"
 )
 
 // The executables Feat drives on the trusted host.
@@ -24,8 +25,17 @@ const (
 
 // checker collects findings for one project.
 type checker struct {
-	runner   Runner
-	config   *config.Config
+	runner Runner
+	// tracker runs the project's configured ticket command. It is separate from
+	// runner because the two answer differently shaped questions: a diagnostic
+	// command is asked for a line of output, and a tracker command is asked for
+	// a bounded document (ADR-071).
+	tracker tracker.Runner
+	config  *config.Config
+	// home is where a tracker command runs. There is no task yet, so there is
+	// no worktree to run it in, and an explicit directory is what makes `feat
+	// doctor` and the daemon ask the same question of the same machine.
+	home     string
 	findings []Finding
 }
 
@@ -55,6 +65,7 @@ func (c *checker) run(ctx context.Context) []Finding {
 	c.checkRuntime(ctx)
 	c.checkReviewCommands()
 	c.checkChecks(ctx)
+	c.checkTracker(ctx)
 	c.checkCapabilities()
 	return c.findings
 }
@@ -643,6 +654,77 @@ func (c *checker) checkChecks(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// checkTracker checks where the project's tickets come from.
+//
+// It is the one diagnostic that runs a command for its output rather than for
+// its exit status, and the only one that reaches a network, because asking a
+// tracker for a list is what the section configures. ADR-071 puts the check
+// here on purpose: a tracker that emits the wrong shape is better found when the
+// user asks whether the project is configured than when they are trying to start
+// work.
+//
+// A project with no tracker section is asked nothing and reports nothing, which
+// is the rule a check with nothing to report follows (ADR-028).
+//
+// Output that does not conform is an error, because the mapping is wrong and
+// will stay wrong until somebody changes the command. A command that could not
+// be run is a warning: an expired credential and a machine with no network are
+// both outside the configuration this is a report about, and neither is fixed
+// by editing the file.
+func (c *checker) checkTracker(ctx context.Context) {
+	if c.config.Tracker == nil || len(c.config.Tracker.Command) == 0 {
+		return
+	}
+
+	const check = "tracker.command"
+	vector := c.config.Tracker.Command
+	if _, err := c.runner.Look(vector[0]); err != nil {
+		c.warn(check, err.Error(), "install "+vector[0]+", or configure another command for "+check)
+		return
+	}
+
+	// Bounded here, as every diagnostic command is: a tracker that has not
+	// answered in this long is stuck rather than slow, and `feat doctor` should
+	// say so instead of hanging.
+	bounded, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
+
+	tickets, err := tracker.List(bounded, c.tracker, tracker.Command{
+		Program:   vector[0],
+		Arguments: vector[1:],
+		Directory: c.home,
+	})
+	if err != nil {
+		var rejected *tracker.RejectionError
+		if errors.As(err, &rejected) {
+			// The two refusals are fixed differently: a mapping is corrected in
+			// the command, and a command printing a whole backlog is asked for
+			// less of it.
+			action := "make the command print what schema/feat-tickets.schema.json publishes; " +
+				"docs/examples/tickets holds a worked command per tracker"
+			if rejected.Oversized {
+				action = "narrow what the command asks for, or page it: a ticket becomes a task brief, " +
+					"and what Feat will read is bounded at what a brief is"
+			}
+			c.fail(check, err.Error(), action)
+			return
+		}
+		c.warn(check, err.Error(),
+			"run `"+strings.Join(vector, " ")+"` yourself to see what it says")
+		return
+	}
+	c.ok(check, fmt.Sprintf("%s printed %s", strings.Join(vector, " "), count(len(tickets), "ticket")))
+}
+
+// count renders a quantity with its noun, so that a diagnostic says "1 ticket"
+// rather than "1 tickets".
+func count(quantity int, noun string) string {
+	if quantity == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", quantity, noun)
 }
 
 // checkedRepositories lists the repositories that configure checks, in a stable

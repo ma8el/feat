@@ -23,6 +23,13 @@ type Backend interface {
 	Projects(ctx context.Context) ([]api.Project, error)
 	// Tasks returns every task of every project, drafts included.
 	Tasks(ctx context.Context) ([]api.Task, error)
+	// Tickets runs a project's configured tracker command and returns the
+	// tickets it printed.
+	//
+	// It is asked for on a key rather than when a screen opens: the command
+	// reaches somebody's tracker, and a network call should follow a key the
+	// user pressed (ADR-031, ADR-071).
+	Tickets(ctx context.Context, project string) (api.TicketList, error)
 	// Events delivers daemon state changes until the context ends. Handle
 	// returning an error ends the subscription.
 	Events(ctx context.Context, handle func(api.Event) error) error

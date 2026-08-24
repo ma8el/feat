@@ -51,6 +51,10 @@ type Options struct {
 	Brief string
 	// Source records where an imported brief came from.
 	Source api.Source
+	// Ticket is the reference `feat implement --ticket` named. Preparation
+	// matches it against what the project's tracker command emitted, once the
+	// project is known.
+	Ticket string
 	// Now supplies the current time. A nil value uses the wall clock.
 	Now func() time.Time
 }
@@ -311,10 +315,15 @@ func New(opts Options) Model {
 	streamCtx, stopStream := context.WithCancel(parent)
 
 	model := Model{
-		backend:    opts.Backend,
-		daemon:     opts.Daemon,
-		now:        now,
-		prepare:    newPrepare(opts.Backend, opts.Project, opts.Brief, opts.Source),
+		backend: opts.Backend,
+		daemon:  opts.Daemon,
+		now:     now,
+		prepare: newPrepare(opts.Backend, prepareStart{
+			project: opts.Project,
+			brief:   opts.Brief,
+			source:  opts.Source,
+			ticket:  opts.Ticket,
+		}),
 		activity:   newActivity(),
 		events:     make(chan api.Event, eventBuffer),
 		streamCtx:  streamCtx,

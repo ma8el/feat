@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -144,6 +145,54 @@ type ExternalTaskReference struct {
 	// silently alters the context an agent is already working from, so what
 	// Feat does with a change is tell the user (FR-TASK-005).
 	ChangeAvailable bool
+}
+
+// ComposeBrief renders a task title and a task brief from the ticket.
+//
+// The composed brief is what the user reads and confirms, and it is what
+// reaches the agent. A ticket is written by whoever filed it and becomes the
+// agent's instructions, so displaying the ticket and sending something else
+// would make the confirmation a formality (ADR-070). Everything this reference
+// carries is therefore in the document: nothing Feat recorded about the ticket
+// is held back from the screen that asks whether to go ahead.
+//
+// It composes from the record rather than from what a tracker printed, so the
+// brief and the ticket the task keeps cannot describe different things. The
+// brief is a starting point: it is composed into the same editable field a
+// typed prompt is written in, so what launches is whatever the user left there.
+func (r ExternalTaskReference) ComposeBrief() (title, brief string) {
+	title = r.Reference + ": " + r.Snapshot.Title
+
+	provenance := ""
+	if r.Provider != "" {
+		// Which tracker a merged list labelled the ticket with. A project
+		// drawing on one tracker has nothing to disambiguate (ADR-071).
+		provenance = " in " + r.Provider
+	}
+
+	var out strings.Builder
+	fmt.Fprintf(&out, "# %s\n\n", title)
+	fmt.Fprintf(&out, "Ticket %s (%s)%s: %s\n", r.Reference, r.Snapshot.State, provenance, r.URL)
+
+	if body := ticketText(r.Snapshot.Body); body != "" {
+		// The heading marks where Feat stops writing and the ticket starts. What
+		// follows it was written by whoever filed the ticket, which is the whole
+		// reason the user reads this document before it becomes a task.
+		fmt.Fprintf(&out, "\n## From the ticket\n\n%s\n", body)
+		return title, out.String()
+	}
+	out.WriteString("\nThe ticket has no description.\n")
+	return title, out.String()
+}
+
+// ticketText normalises a ticket description for a Markdown document.
+//
+// Carriage returns are removed because trackers reached through a web form
+// return them — a GitHub issue body arrives with CRLF line endings — and a brief
+// that carries them is a document whose editor, diff, and terminal all disagree
+// about what is on a line.
+func ticketText(body string) string {
+	return strings.TrimSpace(strings.ReplaceAll(body, "\r\n", "\n"))
 }
 
 // TicketSnapshot is the ticket as it was when Feat read it.

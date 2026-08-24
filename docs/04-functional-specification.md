@@ -87,7 +87,15 @@ Feat MUST NOT create worktrees, containers, or agent sessions until the user con
 
 ### FR-TASK-004 — External tickets
 
-Post-v0 ticket adapters SHOULD provide selectable ticket lists and immutable task snapshots. Comments MUST be excluded by default and MAY be selected.
+A project MAY configure a tracker. Where one is configured, Feat MUST obtain the project's tickets by running that configured command on the trusted host, MUST validate what it printed against `schema/feat-tickets.schema.json`, and MUST refuse output that does not conform with a message naming what was wrong. It MUST bound how much the command may print.
+
+Feat MUST pass the command no filter: which tickets are the user's is the command's decision. It MUST offer them as a selection and MUST record an immutable snapshot of the selected ticket on the task. It MUST NOT parse a reference — a reference the user supplies is matched against the ones the command emitted.
+
+Feat fetches no comments. Whether comments reach a ticket's body is the configured command's decision rather than Feat's.
+
+A brief composed from a ticket MUST be confirmed like any other, and the confirmation MUST display that composed brief rather than the ticket it came from.
+
+This replaces the post-v0 adapters recorded here previously, which ADR-071 rules out in favour of the command and ADR-072 schedules before the public preview. See ADR-070 and ADR-071.
 
 ### FR-TASK-005 — Snapshot changes
 

@@ -1,0 +1,16 @@
+[
+  {
+    "reference": "acme/planning#118",
+    "title": "Password reset links expire before the email arrives",
+    "body": "Support has three reports this week. The link is valid for five minutes and our own delivery is averaging six.\n\nRaise it to an hour, and say so on the page that sends it.",
+    "url": "https://github.com/acme/planning/issues/118",
+    "state": "OPEN"
+  },
+  {
+    "reference": "acme/planning#124",
+    "title": "Export job stops at the first failed row",
+    "body": "",
+    "url": "https://github.com/acme/planning/issues/124",
+    "state": "OPEN"
+  }
+]

@@ -311,6 +311,40 @@ linters:
             - pkg: github.com/charmbracelet
             - pkg: github.com/spf13/cobra
 
+        # ADR-071: the tracker runs a configured command and validates what it
+        # printed, under the rule ADR-029 established for Git. The caller
+        # resolves the project's tracker section into a Command, so this package
+        # never learns the shape of a YAML file; it records nothing, because the
+        # daemon is the only writer; and it knows no tracker, because there is no
+        # adapter per service — the mapping belongs to the user's command.
+        tracker-stays-an-adapter:
+          files:
+            - "**/internal/tracker/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/cli
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/config
+              desc: the caller resolves the tracker section and hands this package a final command
+            - pkg: github.com/ma8el/feat/internal/control
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/execution
+              desc: a tracker command is host work, and the agent environment receives no tracker access
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/notify
+            - pkg: github.com/ma8el/feat/internal/project
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/resources
+            - pkg: github.com/ma8el/feat/internal/review
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/tmux
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+            - pkg: github.com/spf13/cobra
+
         # ADR-037: reconciliation decides what a report says and what a cleanup
         # is allowed to remove. The daemon observes the world through the
         # adapters and hands this package the observations; nothing here drives
@@ -540,6 +574,7 @@ linters:
             - "!**/internal/review/**"
             - "!**/internal/runtime/**"
             - "!**/internal/tmux/**"
+            - "!**/internal/tracker/**"
           deny:
             - pkg: os/exec
               desc: run processes from an adapter package, using an argument vector

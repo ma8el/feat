@@ -2,6 +2,7 @@ package project_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
+	"github.com/ma8el/feat/internal/tracker"
 )
 
 // fakeRunner answers diagnostic commands from a script, so that a test can
@@ -1153,5 +1155,203 @@ func TestDoctorStartsNoContainer(t *testing.T) {
 				t.Errorf("feat doctor ran %q, which creates or starts a container", call)
 			}
 		}
+	}
+}
+
+// fakeTracker answers with what a project's ticket command is meant to have
+// printed, so that whether a project is configured does not depend on the
+// tester holding an account with somebody's tracker.
+type fakeTracker struct {
+	output  []byte
+	err     error
+	command tracker.Command
+	runs    int
+}
+
+func (f *fakeTracker) Run(_ context.Context, command tracker.Command) ([]byte, error) {
+	f.command = command
+	f.runs++
+	return f.output, f.err
+}
+
+// configureTracker adds a tracker section to the arranged project and the
+// tracker that answers for it.
+func (w *world) configureTracker(t *testing.T, answer *fakeTracker) {
+	t.Helper()
+
+	w.configureTrackerCommand(t, "tickets-for-me")
+	w.opts.Tracker = answer
+}
+
+// configureTrackerCommand points the arranged project's tracker at a program.
+//
+// It is separate from the fake above because the opt-in integration test runs a
+// real one, and what that test is for is the seam between a configured argument
+// vector and a process.
+func (w *world) configureTrackerCommand(t *testing.T, program string) {
+	t.Helper()
+
+	file := filepath.Join(w.configDir, "app.yaml")
+	body, err := os.ReadFile(file) // #nosec G304 -- a file this test wrote
+	if err != nil {
+		t.Fatalf("reading the configuration: %v", err)
+	}
+	body = append(body, []byte("\ntracker:\n  kind: command\n  command: [\""+program+"\"]\n")...)
+	if err := os.WriteFile(file, body, 0o600); err != nil {
+		t.Fatalf("writing the configuration: %v", err)
+	}
+}
+
+// TestATrackerEmittingTheWrongShapeIsAnError is why ADR-071 validates a
+// tracker's output in diagnostics: the mapping is the user's to write, and a
+// command that maps it wrongly should be found when they ask whether the project
+// is configured rather than when they are trying to start work.
+//
+// The output here is what `gh issue list --json number,title,body,url,state`
+// prints with no mapping at all, which is the mistake this check exists for.
+func TestATrackerEmittingTheWrongShapeIsAnError(t *testing.T) {
+	w := arrange(t)
+	w.configureTracker(t, &fakeTracker{
+		output: []byte(`[{"number":7,"title":"t","body":"","url":"u","state":"open"}]`),
+	})
+
+	report := w.diagnose(t)
+	if !report.Failed() {
+		t.Error("a tracker emitting the wrong shape did not fail the run")
+	}
+
+	found := finding(t, w.only(t, report).Findings, "tracker.command")
+	if found.Severity != "error" {
+		t.Errorf("the finding is %q, want error", found.Severity)
+	}
+	for _, want := range []string{`"number"`, "published shape"} {
+		if !strings.Contains(found.Summary, want) {
+			t.Errorf("the finding does not name %q: %s", want, found.Summary)
+		}
+	}
+	if !strings.Contains(found.Action, "schema/feat-tickets.schema.json") {
+		t.Errorf("the finding does not say where the shape is published: %s", found.Action)
+	}
+}
+
+// TestATrackerThatCouldNotBeRunIsAWarning separates the two failures, because
+// their remedies are different: a mapping is fixed by editing the command, and
+// an expired credential or an absent network is outside the configuration this
+// report is about.
+func TestATrackerThatCouldNotBeRunIsAWarning(t *testing.T) {
+	w := arrange(t)
+	w.configureTracker(t, &fakeTracker{err: errors.New("gh: HTTP 401: Bad credentials")})
+
+	report := w.diagnose(t)
+	if report.Failed() {
+		t.Error("a tracker that could not be run failed the whole diagnostic run")
+	}
+
+	found := finding(t, w.only(t, report).Findings, "tracker.command")
+	if found.Severity != "warning" {
+		t.Errorf("the finding is %q, want warning", found.Severity)
+	}
+	if !strings.Contains(found.Summary, "Bad credentials") {
+		t.Errorf("the finding does not carry the tracker's own words: %s", found.Summary)
+	}
+	if found.Action == "" {
+		t.Error("the finding says what is wrong and not what to do about it")
+	}
+}
+
+// TestAWorkingTrackerReportsWhatItPrinted checks the passing case, and that the
+// command runs with no filter of Feat's own and in a directory it decided
+// rather than whichever one `feat doctor` was started in (ADR-071).
+func TestAWorkingTrackerReportsWhatItPrinted(t *testing.T) {
+	w := arrange(t)
+	answer := &fakeTracker{output: []byte(
+		`[{"reference":"ACME-14","title":"t","body":"","url":"u","state":"open"}]`)}
+	w.configureTracker(t, answer)
+
+	report := w.diagnose(t)
+
+	found := finding(t, w.only(t, report).Findings, "tracker.command")
+	if found.Severity != "ok" {
+		t.Fatalf("the finding is %q: %s", found.Severity, found.Summary)
+	}
+	if !strings.Contains(found.Summary, "1 ticket") {
+		t.Errorf("the finding does not say what the command printed: %s", found.Summary)
+	}
+	if answer.command.Program != "tickets-for-me" || len(answer.command.Arguments) != 0 {
+		t.Errorf("the command ran as %q %v, and Feat adds nothing to a tracker command",
+			answer.command.Program, answer.command.Arguments)
+	}
+	if answer.command.Directory != w.home {
+		t.Errorf("the command ran in %q, want the user's home directory %q",
+			answer.command.Directory, w.home)
+	}
+}
+
+// TestAProjectWithNoTrackerIsAskedNothing is ADR-028's rule that a check with
+// nothing to report reports nothing: a project whose tasks are all written by
+// hand configures no tracker, and nothing should run on its behalf.
+func TestAProjectWithNoTrackerIsAskedNothing(t *testing.T) {
+	w := arrange(t)
+	answer := &fakeTracker{output: []byte(`[]`)}
+	w.opts.Tracker = answer
+
+	report := w.diagnose(t)
+
+	if answer.runs != 0 {
+		t.Errorf("a command ran %d times for a project that configures no tracker", answer.runs)
+	}
+	for _, found := range w.only(t, report).Findings {
+		if strings.HasPrefix(found.Check, "tracker") {
+			t.Errorf("a project with no tracker reported %q: %s", found.Check, found.Summary)
+		}
+	}
+}
+
+// TestAnAbsentTrackerProgramIsFoundBeforeItIsRun checks that a command naming a
+// program this machine does not have is reported the way every other configured
+// command is, rather than as a failure of the command itself.
+func TestAnAbsentTrackerProgramIsFoundBeforeItIsRun(t *testing.T) {
+	w := arrange(t)
+	answer := &fakeTracker{output: []byte(`[]`)}
+	w.configureTracker(t, answer)
+	w.runner.missing["tickets-for-me"] = true
+
+	report := w.diagnose(t)
+
+	found := finding(t, w.only(t, report).Findings, "tracker.command")
+	if found.Severity != "warning" {
+		t.Errorf("the finding is %q, want warning", found.Severity)
+	}
+	if !strings.Contains(found.Summary, "not installed") {
+		t.Errorf("the finding does not say the program is missing: %s", found.Summary)
+	}
+	if answer.runs != 0 {
+		t.Error("a program that is not installed was run anyway")
+	}
+}
+
+// TestATrackerPrintingTooMuchIsToldWhatToDoAboutIt separates the two refusals a
+// tracker's output can meet, because they are fixed differently: a mapping is
+// corrected in the command, and a command printing somebody's whole backlog is
+// asked for less of it.
+func TestATrackerPrintingTooMuchIsToldWhatToDoAboutIt(t *testing.T) {
+	w := arrange(t)
+	w.configureTracker(t, &fakeTracker{
+		output: []byte(strings.Repeat("x", tracker.MaxOutputBytes+1)),
+	})
+
+	found := finding(t, w.only(t, w.diagnose(t)).Findings, "tracker.command")
+	if found.Severity != "error" {
+		t.Errorf("the finding is %q, want error", found.Severity)
+	}
+	if !strings.Contains(found.Summary, "the limit is") {
+		t.Errorf("the finding does not say the output was too large: %s", found.Summary)
+	}
+	if strings.Contains(found.Action, "schema/feat-tickets.schema.json") {
+		t.Errorf("the finding tells the user to fix a mapping that is not what was wrong: %s",
+			found.Action)
+	}
+	if !strings.Contains(found.Action, "narrow") {
+		t.Errorf("the finding does not say to ask for fewer tickets: %s", found.Action)
 	}
 }

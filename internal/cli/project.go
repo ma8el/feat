@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/ma8el/feat/internal/client"
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/daemon"
+	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/paths"
 )
 
@@ -35,6 +37,7 @@ func newProjectCommand(env *environment) *cobra.Command {
 		newProjectInitCommand(env),
 		newProjectListCommand(env),
 		newProjectShowCommand(env),
+		newProjectTicketsCommand(env),
 	)
 	return cmd
 }
@@ -216,6 +219,93 @@ secrets are listed by path; their contents are never read.`,
 			return nil
 		},
 	}
+}
+
+func newProjectTicketsCommand(env *environment) *cobra.Command {
+	return &cobra.Command{
+		Use:   "tickets <project>",
+		Short: "List the tickets the project's tracker prints",
+		Long: `Run the project's configured tracker command and list what it printed.
+
+The command decides which tickets are yours. Feat passes it no filter and parses
+no part of what comes back beyond checking it against the shape it publishes,
+which is why a state here is the tracker's own word rather than one of Feat's.
+
+The reference in the first column is what ` + "`feat implement --ticket`" + ` takes: it
+runs this same command again and matches what you typed against what the command
+printed.
+
+Nothing is created by listing. Run ` + "`feat doctor`" + ` to check the command itself,
+which validates its output without a running daemon.`,
+		Args: checkArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			layout, err := env.resolve()
+			if err != nil {
+				return err
+			}
+			id := args[0]
+			if err := domain.ProjectID(id).Validate(); err != nil {
+				return err
+			}
+
+			// The daemon runs the tracker command, because that is where every
+			// credentialed provider call is made and where a ticket becomes a
+			// task (ADR-070). Listing changes nothing, and it still does not
+			// start a daemon: a command that reaches somebody's tracker should
+			// not start a background process to do it.
+			if status := daemon.Inspect(layout); !status.Running() {
+				return &NotRunningError{Socket: layout.Socket}
+			}
+			caller := client.New(layout.Socket)
+			defer caller.Close()
+
+			list, err := caller.Tickets(cmd.Context(), id)
+			if err != nil {
+				return err
+			}
+
+			printTickets(cmd.OutOrStdout(), id, list)
+			return nil
+		},
+	}
+}
+
+// printTickets renders what a tracker printed.
+//
+// The tracker column is shown only where a ticket carries one, because a project
+// drawing on one tracker has nothing to disambiguate and a column of blanks says
+// less than no column at all (ADR-071).
+func printTickets(out io.Writer, id string, list api.TicketList) {
+	if len(list.Tickets) == 0 {
+		printf(out, "%s's tracker printed no tickets\n", id)
+		printf(out, "which tickets are yours is the command's decision; "+
+			"run `feat doctor` to see the command Feat ran\n")
+		return
+	}
+
+	labelled := false
+	for _, ticket := range list.Tickets {
+		if ticket.Source != "" {
+			labelled = true
+			break
+		}
+	}
+
+	tickets := &table{header: []string{"TICKET", "STATE", "TITLE"}}
+	if labelled {
+		tickets.header = []string{"TICKET", "STATE", "TRACKER", "TITLE"}
+	}
+	for _, ticket := range list.Tickets {
+		if labelled {
+			tickets.add(ticket.Reference, ticket.State, orNone(ticket.Source), ticket.Title)
+			continue
+		}
+		tickets.add(ticket.Reference, ticket.State, ticket.Title)
+	}
+	tickets.render(out, "")
+
+	printf(out, "\nread at %s\n", list.ReadAt.Local().Format(time.RFC3339))
+	printf(out, "start one with `feat implement --project %s --ticket <ticket>`\n", id)
 }
 
 // printConfigured lists the configuration files present, for a run with no
