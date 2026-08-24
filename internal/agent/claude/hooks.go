@@ -102,6 +102,10 @@ type reportOptions struct {
 	// gate reports that a completion gate will answer a review request, so the
 	// helper waits for the verdict rather than returning at once.
 	gate bool
+	// publication reports that this task has somewhere to publish, so the
+	// helper accepts a publication draft. A project with no forge configured
+	// never sees the type (ADR-070).
+	publication bool
 	// acknowledge and verdict are the two waits, in whole seconds.
 	acknowledge int
 	verdict     int
@@ -139,7 +143,7 @@ func reportScript(opts reportOptions) string {
 #   review_requested   the work is ready for a human to review
 #   completion_report  an account of what was done
 #   open_question      you are blocked on a decision only the user can make
-#
+%[3]s#
 # The body is read as data and never executed. Feat validates it and decides
 # what it means; this script only puts it in the outbox atomically.
 set -u
@@ -149,9 +153,9 @@ task=%[1]s
 
 type=${1:-}
 case "$type" in
-  review_requested|completion_report|open_question) ;;
+  %[4]s) ;;
   *)
-    echo "usage: feat-report {review_requested|completion_report|open_question} < body.json" >&2
+    echo "usage: feat-report {%[4]s} < body.json" >&2
     exit 2
     ;;
 esac
@@ -181,7 +185,7 @@ mv "$staging" "$outbox/$id.json" || {
   exit 1
 }
 echo "feat-report: recorded $type as $id"
-`, opts.task, shellQuote(opts.outbox))
+`, opts.task, shellQuote(opts.outbox), publicationUsage(opts), acceptedTypes(opts))
 
 	if !opts.gate {
 		return script + "exit 0\n"
@@ -257,4 +261,26 @@ while :; do
   esac
 done
 `, shellQuote(opts.inbox), opts.acknowledge, opts.verdict)
+}
+
+// acceptedTypes renders the message types the helper accepts, in the order the
+// usage line lists them.
+//
+// A project with no forge configured never sees publication_draft: a type the
+// helper would accept and Feat would have nowhere to send is an invitation to
+// write a document nobody reads (ADR-070).
+func acceptedTypes(opts reportOptions) string {
+	types := []string{"review_requested", "completion_report", "open_question"}
+	if opts.publication {
+		types = append(types, "publication_draft")
+	}
+	return strings.Join(types, "|")
+}
+
+// publicationUsage is the helper's own comment about the draft, or nothing.
+func publicationUsage(opts reportOptions) string {
+	if !opts.publication {
+		return ""
+	}
+	return "#   publication_draft  the merge request you propose for each repository\n"
 }

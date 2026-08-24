@@ -44,6 +44,23 @@ const (
 	TypeCompletionReport MessageType = "completion_report"
 	// TypeOpenQuestion is the agent reporting that it is blocked on the user.
 	TypeOpenQuestion MessageType = "open_question"
+	// TypePublicationDraft is the agent's proposed title and description for
+	// the merge request of each repository it changed, and the commit each one
+	// describes.
+	//
+	// It is its own type rather than a field on TypeReviewRequested because the
+	// protocol already separates the act from the account: a review request is
+	// the only way a task reaches that state, and a draft is an account. A
+	// project with no forge configured never sees this type, where a field
+	// would sit unused in every generated protocol document, and correcting a
+	// description does not have to re-enter a workflow state to do it. What the
+	// separation costs is that two messages can drift, which is why the draft
+	// carries the commit it describes (ADR-070).
+	//
+	// It requires no capability, because it asks for nothing: it is weaker than
+	// a runtime request, which at least asks. Nothing in it reaches a forge
+	// until the user has read it and approved it.
+	TypePublicationDraft MessageType = "publication_draft"
 	// TypeRuntimeRequested is the agent asking for application services.
 	//
 	// It is recognised and recorded, and it does nothing. FR-RUN-009 places
@@ -59,7 +76,7 @@ const (
 func (t MessageType) Valid() bool {
 	switch t {
 	case TypeProviderEvent, TypeReviewRequested, TypeCompletionReport,
-		TypeOpenQuestion, TypeRuntimeRequested:
+		TypeOpenQuestion, TypePublicationDraft, TypeRuntimeRequested:
 		return true
 	default:
 		return false

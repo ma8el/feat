@@ -3,6 +3,7 @@ package agent
 import (
 	"time"
 
+	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
 )
 
@@ -45,6 +46,13 @@ const (
 	KindCompletionReport EventKind = "completion_report"
 	// KindOpenQuestion is the agent reporting that it is blocked on the user.
 	KindOpenQuestion EventKind = "open_question"
+	// KindPublicationDraft is the agent's proposed merge request title and
+	// description for each repository it changed.
+	//
+	// It is an account and never an action: it asks for nothing, changes no
+	// state, and nothing in it reaches a forge until the user has read it and
+	// approved it (ADR-070).
+	KindPublicationDraft EventKind = "publication_draft"
 )
 
 // Valid reports whether the kind is documented.
@@ -52,7 +60,7 @@ func (k EventKind) Valid() bool {
 	switch k {
 	case KindSessionStarted, KindPromptSubmitted, KindTurnEnded, KindNotification,
 		KindSessionEnded, KindSessionFailed, KindReviewRequested,
-		KindCompletionReport, KindOpenQuestion:
+		KindCompletionReport, KindOpenQuestion, KindPublicationDraft:
 		return true
 	default:
 		return false
@@ -88,6 +96,15 @@ type Event struct {
 	// claim rather than a result, which domain.Check records through its
 	// reporter.
 	Checks []domain.Check
+	// Draft is the agent's proposed merge request per repository, present only
+	// on a KindPublicationDraft event.
+	//
+	// It is the one field here that carries agent-authored prose, and it is the
+	// exception the rule above is worth restating for: it never reaches the
+	// task's event log or the daemon's event stream, which carry state rather
+	// than what the agent wrote. It reaches one place, which is the screen the
+	// user reads before approving a publication (ADR-070).
+	Draft *control.PublicationDraft
 }
 
 // AgentReported converts the event's checks into review checks attributed to

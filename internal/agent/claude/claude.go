@@ -150,6 +150,8 @@ func (a Adapter) ParseEvent(_ context.Context, message control.Message) (agent.E
 		return parseReport(message, agent.KindCompletionReport)
 	case control.TypeOpenQuestion:
 		return parseQuestion(message)
+	case control.TypePublicationDraft:
+		return parsePublicationDraft(message)
 	case control.TypeRuntimeRequested:
 		// A runtime request never reaches an adapter: the protocol refuses it
 		// for want of a capability before anything is asked to interpret it.
