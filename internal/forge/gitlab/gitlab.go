@@ -9,6 +9,10 @@ import (
 	"github.com/ma8el/feat/internal/forge"
 )
 
+// editorDescription is the one description glab does not read as a
+// description: its own documented shorthand for "open an editor".
+const editorDescription = "-"
+
 // Executable is the GitLab command line.
 //
 // It is a constant rather than a configured value, for the reason the agent's
@@ -17,15 +21,22 @@ import (
 // publishes to is already declared by repositories.<id>.forge.kind.
 const Executable = "glab"
 
+// Verified is the glab release this adapter's flags and behaviour were checked
+// against, as docs/06-technical-architecture.md requires of a provider CLI.
+//
+// It is recorded rather than enforced. Another version is far more likely to
+// work than not, and refusing to publish because a user upgraded glab would be
+// Feat inventing a failure; what recording it buys is that a report of odd
+// behaviour can be compared with what was actually tried.
+const Verified = "1.114.0"
+
 // Flags are the glab flags this adapter passes, exported so that the opt-in
 // test which asks an installed glab whether it still accepts them has one list
 // to check rather than a copy of it.
 //
-// docs/06-technical-architecture.md requires that a provider CLI's flags be
-// verified against the installed version rather than assumed. There is no glab
-// on the machine this adapter was written on, so the verification is where it
-// can run: TestRealGlabAcceptsTheFlagsThisAdapterPasses reads `glab mr create
-// --help` wherever glab is installed and fails if one of these is gone.
+// TestRealGlabAcceptsTheFlagsThisAdapterPasses reads `glab mr create --help`
+// wherever glab is installed and fails if one of these is gone. It needs no
+// account and no network, so it runs anywhere glab is.
 var Flags = []string{
 	"--source-branch",
 	"--target-branch",
@@ -62,10 +73,35 @@ func (Adapter) Kind() domain.ForgeKind { return domain.ForgeGitLab }
 // `--yes` is what makes this non-interactive: glab otherwise asks whether to
 // submit, and a daemon has no terminal to answer on. Nothing else about the
 // request is left to a default — the title and the description are always
-// passed, so glab never opens an editor.
+// passed, so glab never prompts for either.
+//
+// `--recover` is deliberately never passed. glab writes a recovery file under
+// the user's own configuration directory when a creation fails, and its
+// documented behaviour is to load the options back out of that file when the
+// flag is given. Feat must never take that path: what is sent has to be the
+// words the user just read, not the ones a previous attempt left on disk.
+// Checked against Verified above: a recovery file whose contents had been
+// replaced with nonsense was ignored and overwritten by a run that did not pass
+// the flag.
 func (a Adapter) Open(ctx context.Context, req forge.Request) (domain.MergeRequest, error) {
 	if err := req.Validate(); err != nil {
 		return domain.MergeRequest{}, err
+	}
+	if req.Body == editorDescription {
+		// glab documents a description of exactly "-" as "open an editor", and a
+		// daemon has no terminal to open one on. The installed version sent it
+		// through as text instead, which is the behaviour that would hang if a
+		// later one honoured its own documentation — and the description is the
+		// one field where a leading hyphen is ordinary prose, so it cannot be
+		// refused by the rule that keeps an option out of an argument.
+		//
+		// It is refused rather than altered. What was displayed is what is sent,
+		// so a description Feat quietly changed would be worse than one it
+		// declined to send (ADR-070).
+		return domain.MergeRequest{}, fmt.Errorf(
+			"the description is %q on its own, which %s reads as a request to open an editor rather "+
+				"than as the description. Write something beside it in the draft",
+			editorDescription, Executable)
 	}
 
 	arguments := []string{
@@ -74,7 +110,7 @@ func (a Adapter) Open(ctx context.Context, req forge.Request) (domain.MergeReque
 		"--target-branch", req.TargetBranch,
 		"--title", req.Title,
 		// Always passed, empty description included: a missing --description is
-		// what sends glab to an editor.
+		// what sends glab to a prompt.
 		"--description", req.Body,
 		"--yes",
 	}

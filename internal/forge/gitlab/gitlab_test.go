@@ -189,6 +189,61 @@ func TestARequestThatCannotBeSentIsRefusedBeforeTheCLIRuns(t *testing.T) {
 	}
 }
 
+// TestADescriptionGlabWouldReadAsAModeSwitchIsRefused is the one value the
+// neutral rules cannot catch.
+//
+// A description is the one field where a leading hyphen is ordinary prose — a
+// Markdown list — so it is not refused for starting with one. A description of
+// exactly "-" is glab's own documented shorthand for "open an editor", and a
+// daemon has no terminal to open one on. It is refused rather than altered:
+// what was displayed is what is sent, so a description Feat quietly changed
+// would be worse than one it declined to send (ADR-070).
+func TestADescriptionGlabWouldReadAsAModeSwitchIsRefused(t *testing.T) {
+	glab := &fakeGlab{}
+
+	one := request()
+	one.Body = "-"
+	_, err := gitlab.New(glab).Open(context.Background(), one)
+	if err == nil {
+		t.Fatal("a description glab reads as a request for an editor was sent")
+	}
+	if !strings.Contains(err.Error(), "open an editor") {
+		t.Errorf("the refusal is %q, and it does not say what glab would do", err)
+	}
+	if len(glab.commands) != 0 {
+		t.Errorf("a refused description still ran %v", glab.commands)
+	}
+
+	// A description that merely begins with a hyphen is prose and is sent.
+	one.Body = "- it is per token\n- and per route"
+	glab.output = forge.Output{Stdout: "https://gitlab.example.com/app/api/-/merge_requests/3"}
+	if _, err := gitlab.New(glab).Open(context.Background(), one); err != nil {
+		t.Fatalf("a Markdown list was refused as a description: %v", err)
+	}
+}
+
+// TestTheAdapterNeverAsksGlabToRecoverAPreviousAttempt is what keeps the
+// approval meaningful across a retry.
+//
+// glab writes a recovery file when a creation fails and loads the options back
+// out of it when --recover is given. Feat must never take that path: what is
+// sent has to be the words the user just read, not the ones a previous attempt
+// left on disk.
+func TestTheAdapterNeverAsksGlabToRecoverAPreviousAttempt(t *testing.T) {
+	glab := &fakeGlab{output: forge.Output{
+		Stdout: "https://gitlab.example.com/app/api/-/merge_requests/4",
+	}}
+	if _, err := gitlab.New(glab).Open(context.Background(), request()); err != nil {
+		t.Fatalf("opening a merge request: %v", err)
+	}
+
+	for _, argument := range glab.commands[0].Arguments {
+		if strings.HasPrefix(argument, "--recover") {
+			t.Errorf("the command passes %q, which would send words nobody just read", argument)
+		}
+	}
+}
+
 // TestTheURLIsReadFromWhicheverStreamGlabUsed keeps the adapter from depending
 // on which stream a version happens to print to.
 func TestTheURLIsReadFromWhicheverStreamGlabUsed(t *testing.T) {

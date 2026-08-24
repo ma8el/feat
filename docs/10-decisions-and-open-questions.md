@@ -5777,6 +5777,28 @@ Decisions:
   network, no project — so a maintainer with one can make it mandatory and nobody
   is made to install it.
 
+  It has now run, against glab 1.114.0, which `gitlab.Verified` records. The five
+  flags are accepted, the project is resolved from the repository the command
+  runs in, and a title and description supplied together with `--yes` reach the
+  API without a prompt or an editor. Two things the flag list could not have
+  shown came out of it:
+
+  - glab writes a recovery file under the user's own configuration directory
+    when a creation fails, and its documented behaviour is to load the options
+    back out of that file when `--recover` is given. Feat must never take that
+    path — what is sent has to be the words the user just read, not the ones a
+    previous attempt left on disk — so the flag is never passed. A recovery file
+    whose contents had been replaced with nonsense was ignored and overwritten by
+    a run that did not pass it, so nothing loads it by default.
+  - a description of exactly `-` is glab's own shorthand for "open an editor",
+    and a daemon has no terminal to open one on. The installed version sent it
+    through as text, which is the behaviour that would hang if a later one
+    honoured its own documentation. The description is the one field where a
+    leading hyphen is ordinary prose — a Markdown list — so it cannot be refused
+    by the rule that keeps an option out of an argument vector, and the adapter
+    refuses that one value by name instead. It is refused rather than altered: a
+    description Feat quietly changed would be worse than one it declined to send.
+
 What this does not decide is whether Feat should run a `pre-push` hook it can
 attribute to the user rather than to the agent. That is OQ-015, and it still
 needs somebody who has one.
