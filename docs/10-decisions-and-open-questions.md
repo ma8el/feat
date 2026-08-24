@@ -98,7 +98,7 @@ Invoke Docker Compose CLI on the host. v0 uses base files plus generated overrid
 
 Status: accepted
 
-The company agent is non-root and receives no Docker socket/CLI. A normal devcontainer is not claimed to resist deliberate kernel/runtime exploitation.
+The dogfood profile's agent is non-root and receives no Docker socket/CLI. A normal devcontainer is not claimed to resist deliberate kernel/runtime exploitation.
 
 ### ADR-015 — Network
 
@@ -116,7 +116,7 @@ Claude has full Git access. Worktree shared-metadata implications are documented
 
 Status: accepted
 
-Claude may have authenticated `gh`/`glab` access inside its execution environment. Feat validates configured capabilities; Docker access remains denied. GitLab is required for the company project, while GitHub is the primary public integration.
+Claude may have authenticated `gh`/`glab` access inside its execution environment. Feat validates configured capabilities; Docker access remains denied. GitLab is required for the reference project, while GitHub is the primary public integration.
 
 ### ADR-018 — Task input
 
@@ -283,7 +283,7 @@ Decisions:
 
 Consequence: registering a project is the first write the local API carries, so the slice 2 acceptance criterion that the daemon is the only state writer — which ADR-027 recorded as structurally verified — is now checked behaviourally as well, by a test that registers through the socket and finds the snapshot in the daemon's state directory.
 
-Slice 3 cannot verify its own second acceptance criterion, that the company project configuration validates on the target machine, because that needs the reference project and the machine it lives on. The criterion is verified by running `feat doctor` there, and slice 3 is not complete until that has been done.
+Slice 3 cannot verify its own second acceptance criterion, that the reference project's configuration validates on the target machine, because that needs the project itself and the machine it lives on. The criterion is verified by running `feat doctor` there, and slice 3 is not complete until that has been done.
 
 The user-visible changes are the `<project>` argument on `feat project add`, and `feat doctor` exiting 1 when it finds an error. Package layout gained no new package. [07-configuration-model.md](07-configuration-model.md) and [06-technical-architecture.md](06-technical-architecture.md) were updated in the same change.
 
@@ -3529,6 +3529,15 @@ Docker socket this product's headline denies the agent.
 
 What external adapter protocol is justified after internal interfaces have stabilized? Do not define it speculatively.
 
+**Open, with one candidate declined for one use.** MCP is the first concrete
+answer this question has had, and ADR-071 declines it as the tracker's mechanism:
+it carries transport and discovery rather than a shared ticket vocabulary, so it
+moves a per-provider mapping behind a protocol instead of removing it, while
+adding a server process and session state to the only writer. That is an argument
+about one use rather than about the protocol, and the same ADR records where MCP
+would be the right implementation — an adapter somebody schedules, where a
+maintained mapping is what it buys. The question stays open.
+
 ### OQ-010 — Mobile product scope
 
 Which remote actions users actually perform on a phone remains a product discovery question. Do not build native mobile apps before PWA usage evidence.
@@ -3610,6 +3619,30 @@ state a worktree does not isolate, and what a task branch being invisible in the
 user's own checkout would cost the review workflow in practice. Do not decide
 before that; a boundary changed on reasoning alone would move ADR-029, ADR-032,
 and the cleanup contract at once.
+
+### OQ-015 — Whether a Git hook can be attributed to the user rather than to the agent
+
+ADR-070 disables hooks for the host-side push, because the agent can write
+`.git/hooks` (ADR-050) and approving a publication should not be how a user runs
+whatever is in `pre-push`. The dogfood machine has no such hook, so the decision
+is unexposed there, and the ADR discloses what it costs elsewhere rather than
+resolving it: where a `pre-push` hook is somebody's check rather than its user's
+own convenience, Feat's publication is the one path that skips it.
+
+The question is whether the two can be told apart. A hook Feat could attribute to
+somebody other than the agent could be run — one under a `core.hooksPath` outside
+every worktree the agent can reach, or one whose content still matches what it
+was when the task launched, which is a digest recorded beside the base commit
+Feat already records. Against both: `core.hooksPath` is repository configuration
+the agent can also write, so the path would have to be read from somewhere the
+agent cannot reach before it could be trusted; a digest taken at launch checks
+against modification rather than against a hook that was already hostile; and
+either one puts a trust decision inside a step whose whole value is that the user
+is reading the words before they are sent.
+
+The evidence to decide on is a user who depends on a `pre-push` hook they did not
+write, and the dogfood cannot supply one. Do not decide before the public preview
+has such a user; a mechanism built now would be fitted to a hook nobody has.
 
 ### ADR-057 — The agent's environment is owned by its session, and the pair of verbs is resume and stop
 
@@ -5210,6 +5243,465 @@ wraps the log file in the bound; `pollControl`, `pollRuntimes`, and
 debug. `LogTail`'s whole-file read is now bounded by construction. The state
 directory listing in `docs/06-technical-architecture.md` gains the rotated
 generations.
+
+### ADR-070 — Provider work happens on the trusted host, and the agent writes the words rather than sending them
+
+Status: accepted
+Recorded: 2026-08-23, from the provider feature set the dogfood needs
+
+The question this started as was how an agent could use `gh` or `glab` without
+holding the credential. v0.1 does not answer it. `agent.capabilities.github_cli`
+and `gitlab_cli` are `disabled`, `optional`, or `required`, and the only thing
+the binary does with either is run `gh auth status` inside the agent environment
+at launch (`internal/agent/claude/validate.go:44`). Where the credential comes
+from is left to the project, and `docs/05-security-model.md` records the exposure
+plainly: an agent with provider credentials can mutate remote repositories within
+token scope.
+
+A least-privilege token bounds that scope. It does not answer the question,
+because scope and exposure come apart: general outbound internet is allowed in
+the accepted configuration and Feat claims no data-loss prevention, so a token
+inside the container is a durable secret reachable by any prompt injection —
+including one arriving in the issue body `gh` just fetched.
+
+Evidence, from the operations the dogfood actually needs:
+
+1. There are four: fetch the tickets assigned to a user, turn one into a task,
+   push a task's branch, and open a merge request. Every one of them happens
+   either before a task exists or after the agent has stopped working. Not one is
+   a step inside an agent's turn.
+2. The approval the user wants before work reaches an agent is already an
+   invariant. `PrepareTask` refuses a task with no brief before it makes a
+   network call (`internal/daemon/prepare.go:85`), `SetBrief` accepts edits only
+   while the task is a draft (`internal/domain/task.go:189`), confirmation
+   carries a fingerprint that refuses a draft which changed after it was
+   displayed (ADR-031), and `WriteBrief` is called at launch, so the control
+   workspace holds the brief only once it was confirmed
+   (`internal/control/workspace.go:220`).
+3. The one part of the work that does need the agent is the merge request's title
+   and description, because the agent is what knows what it did. That is text,
+   and text is not an action.
+
+Decision: every credentialed provider call is made by the daemon on the trusted
+host, using the authentication the user already has there. The agent environment
+receives no provider token, and `agent.capabilities.github_cli` and `gitlab_cli`
+stay `disabled` for a project that needs nothing beyond this.
+
+That containment argument is about the devcontainer, and it does not survive
+host-native execution. An agent launched by `FEAT_HOST_AGENT` (ADR-032) runs as
+the user and inherits the user's environment, so it reaches whatever `gh` or
+`glab` authentication the user has, and can call the provider's API directly
+besides. There is no inside for a token to be kept out of, and `disabled` becomes
+a declaration Feat cannot make true rather than a mount it declines to make. Feat
+never enforced it in either mode — a capability is probed only where a project
+marks it `required` (`internal/agent/claude/validate.go:44`) — but in a
+devcontainer the declaration has an effect anyway, because a credential the
+project does not mount is not there.
+
+Publication stays host-side in both modes regardless, for reasons that are not
+containment. Host-native and devcontainer execution share one task domain and
+selecting a mode must not change task semantics
+(`internal/execution/host/doc.go`), and ADR-073's record — a plan, a result per
+repository, a re-publication that skips what already published — exists only
+where Feat is the one publishing. An agent running `glab` itself would put that
+record back to being discovered rather than known, which is the capability Phase
+3 dropped when this decision was taken. Keeping one path costs almost nothing,
+because the host-side path has to exist for the devcontainer anyway; two paths
+would cost a second set of failure modes and a second answer to what a task
+published.
+
+What the execution mode changes is therefore what the approval step is, not
+whether it happens. In a devcontainer it is a control: the agent cannot publish,
+so the user reading the draft is how anything reaches a forge at all. On the host
+it is a product behaviour: the agent could publish on its own and nothing here
+prevents it, so what the approval buys is that Feat's own publication is one the
+user read. Which of the two a user has is worth saying out loud, and claiming the
+first in both modes would be exactly the uniform security property ADR-066 and
+ADR-067 exist to refuse.
+
+Where the agent's knowledge is needed, it is carried as data rather than as an
+action. The agent writes a publication draft — a title and a body per repository
+— into the control workspace when it requests review, which is when it still
+knows what it did and is still running. The draft requires no capability, because
+it asks for nothing; it is weaker than a `runtime_requested`, which at least
+asks. The user reads it, edits it through the configured editor command, and the
+host composes the final request from the agent's prose together with what Feat
+already knows: the base branch, the task, and the ticket the task came from.
+
+The draft is its own control-message type rather than a field on the review
+request. The protocol already separates the act from the account:
+`review_requested` is the only way a task reaches that state, and
+`completion_report` is the agent's account of what it did
+(`internal/control/message.go:38`). A draft is an account, so a third type
+follows that grain rather than cutting across it. Both types already require no
+capability, so the separation costs nothing to make; a project with no forge
+configured never sees the type, where a field would sit unused in every generated
+protocol document; and correcting a description does not have to re-enter a
+workflow state to do it. What the separation costs is that two messages can
+drift, which is why the draft carries the commit it describes.
+
+This is not a weaker version of letting the agent publish. The description is
+agent-authored text bound for somewhere durable, and it can carry anything the
+agent read — a value out of a configuration file, text injected through a
+dependency or an issue body. A user who reads it before it is sent is the only
+control that exists; an agent that publishes on its own has none. The same
+argument runs inbound: a brief composed from a ticket is written by whoever filed
+the ticket and becomes the agent's instructions, so what the confirmation step
+displays is the composed brief rather than the ticket it came from. Reviewing one
+document and sending another would make the approval a formality.
+
+A host-side push runs Git in a repository whose configuration and hooks the agent
+can write, which ADR-050 records as an accepted exposure. It does not widen it —
+Feat already runs `git fetch` and `git worktree add` there — but a user-approved
+publication should not be the thing that fires an agent-authored `pre-push`, so
+the push runs with hooks and the external pager and diff commands disabled.
+
+Disabling hooks costs nothing on the dogfood machine, whose repositories define
+no `pre-push` hook and set no `core.hooksPath`. It does not cost nothing
+everywhere. A `pre-push` hook is not always its user's own convenience: it may be
+what scans for secrets before anything leaves the machine, or what refuses a
+protected branch. Where it is, Feat's publication is the one route out that skips
+the check, which a user who never chose that has no way to learn. The decision
+stands, because what it closes is host code execution on approval; what changes
+is that it stops being silent. Where a repository carries a `pre-push` hook or a
+configured `core.hooksPath`, the approval step names the hook it is not running,
+so a user who depends on one can push by hand rather than find out afterwards
+that a check was skipped on their behalf. Whether Feat should go further and run
+a hook it can attribute to the user rather than to the agent is OQ-015, which
+needs somebody who has one.
+
+`feat doctor` reports the same fact at configuration time, for the reason ADR-071
+validates a tracker's output there: what Feat will not run is better learned when
+the user asks whether the project is configured than at the moment they are
+approving a publication. It warns rather than fails, because Feat cannot tell a
+load-bearing hook from a personal convenience — that is exactly what OQ-015
+leaves open — and it says nothing where there is no hook, because a check with
+nothing to report reports nothing (ADR-028).
+
+What this does not decide is the agent-facing broker. An agent that asks for a
+provider operation mid-turn — a schema-valid message, validated, capability-gated,
+and inert until the user approves it — remains the shape for that case. It is not
+built, because nothing in this feature set needs it.
+
+Consequence: `internal/forge` gains the provider-neutral interface and
+`internal/forge/gitlab` and `internal/forge/github` the adapters, mirroring
+`internal/agent` and `internal/agent/claude` so that a forge's own flags and
+output parsing stay inside its adapter. Pushing stays Git's: `internal/git` gains
+`Push`, and the hook and pager suppression joins the `GIT_CONFIG_COUNT` settings
+already there (`internal/git/environment.go:45`) rather than being rebuilt in a
+forge adapter, which never runs `git`. `internal/review` gains publication
+alongside its viewer commands, and the two differ in that a publication has a
+result to record; `internal/forge` records none of it, because the daemon is the
+only writer (ADR-008). The task gains the merge request it opened and the commit
+its draft described, so that a draft written before further work is refused
+rather than published, as ADR-031 refuses a stale plan. `feat doctor` gains the
+`pre-push` report described above, beside the per-repository checks in
+`internal/project/checks.go`, and reports under a host-native daemon that
+capability levels describe intent rather than enforcement there. The GitHub and GitLab section of
+`docs/05-security-model.md` gains
+the host-side mode and the reason a token in the container is a different question
+from a token's scope. Phase 3 of `docs/09-roadmap.md` keeps its GitLab-first order.
+
+### ADR-071 — Where the code goes and where the tickets come from are different questions
+
+Status: accepted
+Recorded: 2026-08-23, from a dogfood project whose repositories are on GitLab and whose tickets are in Shortcut
+
+`gh` and `glab` each speak to a forge and to an issue tracker, so a single
+provider setting appears to cover both. The dogfood machine shows it does not:
+its code and merge requests live on a self-hosted GitLab and its tickets live in
+Shortcut. A project needs both, and neither implies the other.
+
+The configuration made this separation once already, for the same reason.
+`RepositoryAgent` and `RepositoryRuntime` are separate types because the two
+answer different questions with different owners, and one field could not say
+both (`internal/config/config.go:99`, ADR-065).
+
+Evidence:
+
+1. Forge and tracker coincide only where a forge hosts its own issues. Shortcut,
+   Jira, and Linear host no code; a self-hosted GitLab hosts code for a team
+   whose planning is somewhere else. One setting makes that case unconfigurable.
+2. Trackers do not agree on where a ticket lives. GitHub and GitLab attach issues
+   to a repository; Shortcut, Jira, and Linear attach them to a workspace or
+   team; GitHub Projects attaches them to an organisation-level board that spans
+   repositories and carries its own iteration field. There is no level at which
+   "this is where tickets are" holds generally.
+3. The forge belongs to the repository and the ticket belongs to the task. A
+   repository lives on exactly one forge and publication is one merge request per
+   changed repository; a task spans repositories (ADR-004), so a ticket that
+   seeds one belongs to none of them in particular. A project holding a private
+   repository and a public dependency is not exotic.
+4. Tickets are often filed where no code lives. A planning repository holds
+   issues describing work done in other repositories entirely, and it is not a
+   `Repository` in Feat's sense: that type means a checkout tasks get worktrees
+   of, carrying a host path, a default branch, a remote, a default access level,
+   an agent mount, and optionally a runtime contribution. A per-repository
+   tracker would force a planning repository to be registered as one in order to
+   be read, which would make it a candidate for a worktree, a branch, and a
+   Compose project.
+5. The mechanism does not transfer. `gh` and `glab` hold their own credentials
+   and Feat never handles a token; it runs a command that is already
+   authenticated. Shortcut publishes no first-party general-purpose CLI — client
+   libraries and community tools — so an adapter written in Go would have Feat
+   holding a credential, which it does for nothing today.
+
+Decision: forge and tracker are separate, optional sections, following
+`Runtime *RuntimeSection` in being absent for a project that has neither. The
+tracker is configured per project and the forge per repository, inferred from the
+remote's host where that host is recognisable and declared otherwise; a
+self-hosted instance is not guessable, so Feat asks rather than guesses.
+
+The tracker sits on the project because a task does, not because tickets do.
+Evidence 2 is that tickets have no general home, and evidence 4 is that their
+home is sometimes a repository Feat should never be told about; what makes the
+project the right level is evidence 3, that the thing a ticket seeds is
+project-level. Feat therefore does not model where tickets live at all. The
+tracker section says how to obtain a list, and the scope of the source belongs to
+whatever produces it — for the adapter below, to the command.
+
+The tracker runs a configured command that prints JSON, in the class `review` and
+`checks` already establish for user-supplied host commands. Feat publishes the
+shape as `schema/feat-tickets.schema.json`, beside the project schema that
+`internal/config/config.go:21` already describes the configuration file with, and
+the user's command conforms to it. The inverse — the user supplying a schema for
+Feat to interpret — is rejected: reading an arbitrary shape means a mapping
+language in configuration, and a mapping language has no end. Making Feat's shape
+the contract keeps the user's obligation to one sentence, and it is the same
+document any other source of tickets would have to produce.
+
+The section carries a kind, whose only value is that command. Nothing below
+schedules a second one, so the field buys nothing today; it is kept because the
+configuration file is a compatibility surface Phase 1 finalises, and a
+discriminator added after that means either a breaking change or an inference
+from which fields happen to be present. One field now is the cheaper option to
+hold.
+
+The shape is sized by what Feat acts on rather than by what trackers offer. A
+reference, a title, a body, a URL, a state, and an optional source; not story
+points, epics, sprints, or custom fields, which Feat would carry without doing
+anything with them. Anything richer belongs in the brief, which is Markdown and
+holds whatever the user wants. The source is optional because a project drawing
+on one tracker has nothing to disambiguate; a command that merges two labels each
+ticket with it, and it is what the `provider` on `ExternalTaskReference`
+(`docs/03-domain-model.md`) records.
+
+The command decides what the user's tickets are. Feat passes it no filter,
+because a filter vocabulary would have to map onto every tracker's query
+language, and iteration is exactly where that fails: GitLab has iterations and
+milestones, GitHub has them as a Projects field behind a different API, Shortcut
+has them natively. Defining that vocabulary now would settle a permanent shape
+for a question the dogfood answers with a script. Placeholders can be added when
+a picker needs to re-filter without re-running the command.
+
+The output is validated against the schema by `feat doctor`, so a tracker that
+emits the wrong shape is found when the user asks whether the project is
+configured rather than when they are trying to start work. It is bounded in size
+for the reason a control message is: it becomes a brief, and a brief is what the
+agent is told to do.
+
+There is no second adapter, and what would have been one is an example instead.
+`gh issue list --repo acme/planning --json number,title,body,url,state` is
+already a configured command printing JSON, so the only thing a GitHub tracker
+written in Go would add is the mapping from that output to the shape published
+here, because `gh` says `number` where the schema says `reference`. Everything
+else such an adapter might offer belongs to the command in either case: `gh`
+holds its own credential (evidence 5), no filter is passed, and a change is found
+by re-running and comparing.
+
+So Feat ships worked example commands — one per tracker worth making easy, each
+validated against `schema/feat-tickets.schema.json` by the test suite, for the
+reason `docs/examples/project.yaml` is validated against the configuration
+schema: the file a new user copies cannot drift from what Feat accepts. That is
+cheaper than an adapter, and it declines a liability an adapter takes on, which
+is that another tool's JSON field names become Feat's compatibility problem the
+day they change. An adapter in Go is not forbidden; it is not scheduled, and
+whoever schedules one should say what it buys beyond a mapping.
+
+These trackers publish MCP servers, and using one instead was considered. It does
+not remove the mapping. MCP carries transport and discovery rather than a shared
+ticket vocabulary, so each server names its own tools and shapes its own results,
+and Feat would map per provider exactly as an adapter does — the cost is not
+avoided, only moved behind a protocol. What the protocol adds is a server process
+to supervise and session state to hold, inside the daemon that is the only
+writer, against `exec.Command` and a JSON decode. A credential still has to live
+somewhere, which is evidence 5. And a client for an external adapter protocol is
+the question OQ-009 holds open, under an instruction not to define one
+speculatively.
+
+Where an MCP server would be right is as the implementation of an adapter
+somebody schedules, because what it buys beyond a mapping is a *maintained* one:
+the service's own team tracking their own API, rather than Feat carrying a client
+for it. Until then a command that wants one can drive it without Feat knowing.
+Handing the server to the agent instead is a different proposal and is refused by
+ADR-070's inbound argument — a ticket the agent fetches never passes the
+confirmation step, so text written by whoever filed it becomes the agent's
+instructions unread, and Feat cannot record a ticket it never saw.
+
+Consequence: `internal/config` gains a tracker section, carrying a kind and a
+command, and a per-repository forge; `schema/` gains
+`feat-tickets.schema.json`; `internal/domain` gains a provider-neutral ticket
+reference on the task, which is what lets a merge request name the ticket it
+closes and what a later phase would observe to offer cleanup. `docs/examples/`
+gains a worked ticket command per tracker, validated by the test suite. Phase 6
+of `docs/09-roadmap.md` is reordered to match Phase 3 — GitLab and the command
+adapter before GitHub, because the machine Feat is dogfooded on needs them in
+that order — and its native adapters become those examples. Shortcut's endpoints
+for assignment and current iteration were not verified when this was recorded,
+and are the script's concern rather than Feat's.
+
+### ADR-072 — Publication is scheduled before the public preview, because a dogfood task cannot finish without it
+
+Status: accepted
+Recorded: 2026-08-24, from the ordering question the dogfood machine raised
+
+ADR-070 and ADR-071 describe Phase 3 and Phase 6 work, and the declared next
+milestone is Phase 1, the public preview. The machine Feat is now dogfooded on
+needs the later phases first, so the order this roadmap records and the order the
+work is wanted in came apart. The phases are ordered by product value and
+dependency rather than by date, which makes this a question about dependency
+rather than about impatience.
+
+Evidence:
+
+1. Feat has no push path at all. No production code runs `git push`;
+   `internal/git` only observes whether a branch has a remote-tracking ref, for
+   the unpushed count a cleanup plan carries
+   (`internal/git/cleanup.go:263`). v0.1 excluded a Feat-owned push/PR/MR
+   workflow deliberately and left publication to the agent running `glab` in its
+   own environment.
+2. That one remaining route is closed on the dogfood machine. The agent receives
+   no provider credential there, and Feat propagates none: there is no handling
+   of SSH agent forwarding, a credential helper, a proxy, or a certificate
+   authority anywhere in `internal/`. `agent.capabilities.gitlab_cli` therefore
+   has nothing to authenticate with, whatever it is set to.
+3. The credential is already on the host, and Feat already uses it. `git fetch`
+   and `git worktree add` run there (ADR-050), which is how a task's worktrees
+   get their content in the first place. Host-side publication reuses
+   authentication that is demonstrably working on that machine rather than
+   needing a second one to be arranged.
+4. Phase 1 is partly downstream of the dogfood by its own text. The
+   clean-installation-to-first-task documentation is to be written against what
+   the dogfood runs turned out to need, the wizard's second pass against what
+   users hit, and OQ-013 and OQ-014 both name dogfood as the evidence that
+   settles them. A dogfood that stops before publication produces less of that
+   evidence, and produces none at all about the end of a task.
+5. Phase 1's largest single item is the one the dogfood cannot exercise.
+   `internal/execution/host` is a package comment and nothing else;
+   `FEAT_HOST_AGENT` (ADR-032) launches Claude natively but is an opt-in in the
+   daemon's environment rather than the second implementation behind the
+   execution interface. The dogfood machine mandates devcontainers, so nothing
+   there runs host-native execution whatever the order.
+6. ADR-070 and ADR-071 were recorded together and are not equally urgent.
+   Publication is at the end of a task and needs a credential the agent
+   environment does not have. Ticket ingestion is at the start, and what it
+   replaces is pasting text into a brief that is Markdown the user composes
+   anyway. One removes a wall; the other removes friction.
+
+Decision: the whole dogfood feature set is built before the public-preview
+milestone — publication (ADR-070) first, because evidence 6 makes it the wall
+rather than the friction, and the tracker (ADR-071) second. Phase 1 follows both,
+with its first-task documentation and its second pass over the wizard last within
+it, because those two wait on dogfood runs rather than on dogfood features.
+
+Interleaving Phase 1's evidence-independent items between the two was considered
+and rejected. What recommends them — that packaging, Linux notifications, and
+machine-readable output are what make Feat installable by somebody other than its
+author — is an argument about an audience that is not there yet, which is what
+evidence 5 observes of host-native execution and evidence 4 of the documentation.
+Building the installable half first would serve nobody while the dogfood still
+could not finish a task, and would split two features that one machine needs for
+one reason.
+
+The phases keep their numbers. ADR-070 and ADR-071 each name the phase they
+belong to, so renumbering would rewrite decisions that are already accepted, and
+it would misrepresent what the numbers are — an ordering by value and dependency,
+not a schedule. A capability wanted earlier than its phase is scheduled where it
+is wanted and says so in both places, which is what Phase 1, Phase 3, and Phase 6
+now do.
+
+What this does not decide is whether host-native execution earns its place in the
+public preview. Evidence 5 is an argument about exercise rather than about worth:
+the user it serves is somebody with no devcontainer, which is a real audience
+that the dogfood happens not to contain. It stays in Phase 1 unchanged, and a
+decision to drop it would need evidence about that audience rather than about
+this machine.
+
+Consequence: Phase 1 of `docs/09-roadmap.md` gains the note that publication and
+the tracker both precede it and says which of its own items come last, and
+Phase 6 gains where the tracker falls in the same order. Phase 3 gains the ordering note and
+has its capability list rewritten against ADR-070, which reverses two things it
+promised: `gh`/`glab` validated inside the agent environment as the way the loop
+closes, and a closing note making container-side native CLI access first-class
+with host-side execution a possible second mode. A third goes away rather than
+being dropped — discovering one MR/PR per changed repository existed because the
+agent published and Feat had to find the result, and a host that opens the
+request records it instead.
+
+### ADR-073 — A publication is applied one repository at a time, and a partial one is recorded rather than undone
+
+Status: accepted
+Recorded: 2026-08-24, from working through what ADR-070 left unspecified
+
+ADR-071 puts the forge on the repository, and publication is one merge request
+per changed repository, so a task can legitimately publish to two forges in one
+action. ADR-070 describes what one publication is and says nothing about what
+happens when the third of five fails. That is not an edge case: a push crosses a
+network to somebody else's server, and the resources it creates are not on this
+machine and cannot be un-created reliably.
+
+Evidence:
+
+1. The shape is already decided elsewhere for the same hazard. ADR-029 made task
+   preparation plan, record, apply, in that order, so that "every path and branch
+   that could exist afterwards is written down first, so no resource can exist
+   that the record cannot name, and an interruption at any point is recoverable
+   rather than mysterious." Publication has that hazard in a stronger form,
+   because a worktree Feat forgot is on the user's disk and a merge request Feat
+   forgot is not.
+2. Idempotence has a precedent in this codebase and it is an identifier, not a
+   timestamp. A control message ID "is what makes replaying an outbox idempotent:
+   an identifier Feat already applied is recognised and skipped"
+   (`internal/control/message.go:98`).
+3. The failures are not correlated in the direction that would justify stopping.
+   A protected branch or a missing forge project is true of one repository; a
+   broken credential or an unreachable proxy is true of all of them and produces
+   the same error however many are attempted.
+
+Decision: publication plans every repository first — forge, remote, base branch,
+and the commit each draft describes — records that plan on the task, and then
+applies one repository at a time, recording each result before the next begins.
+
+Rollback is rejected. Deleting a merge request that was just opened and
+force-deleting a branch that was just pushed is destructive, can fail on its own
+account, and cannot recall a notification that has already gone out. CLAUDE.md
+requires resolving exact task-owned resources before cleanup and retaining by
+default; an automatic rollback across a network is the opposite of that. A
+partial publication is therefore a recorded state rather than one to be undone,
+and what the user sees is which repositories published and which did not.
+
+A failure on one repository does not abort the others, on evidence 3. Where the
+cause is common, the user reads one cause reported several times, which costs
+nothing; where the cause is local to a repository, the others land and the user
+has one thing to fix rather than an unknown number still unattempted. Stopping
+early would turn a single round trip into as many as there are repositories.
+
+Re-publishing skips a repository that already has a recorded merge request, by
+evidence 2, and skips it as already published rather than as stale. Keeping those
+two reasons distinct is what lets ADR-070's staleness refusal keep one meaning: a
+refusal says the agent's draft describes a commit that is no longer current, and
+never says merely that this ran before.
+
+What this does not decide is what Feat does about a merge request that was opened
+and then closed by somebody on the forge. Observing merge and close state is
+Phase 3 work that comes after publication, and a record that is accurate when it
+is written is the precondition for observing it later, not a substitute.
+
+Consequence: the task's publication record is per repository rather than per
+task, and holds the plan before it holds any result, so that an interrupted
+publication names what it had not yet attempted. `internal/daemon` owns the
+sequencing, as it owns preparation's; `internal/forge` sees one repository at a
+time and knows nothing about the others.
 
 ## Decision change process
 

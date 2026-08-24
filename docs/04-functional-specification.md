@@ -420,7 +420,7 @@ Feat MUST NOT automatically delete resources based only on age.
 
 ### FR-PUB-001 — Provider adapters
 
-Post-v0 provider support SHOULD cover GitLab first for company dogfooding and GitHub as the primary public integration.
+Post-v0 provider support SHOULD cover GitLab first, which the reference project uses, and GitHub as the primary public integration.
 
 ### FR-PUB-002 — PR/MR mapping
 

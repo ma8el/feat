@@ -76,20 +76,22 @@ Flow:
 
 ## 3. Implement a ticket
 
-Ticket ingestion is post-v0 unless pulled forward.
+Ticket ingestion was post-v0 unless pulled forward, and ADR-072 pulled it forward: the tracker is built after publication and before the public preview.
 
-Target sources:
+Sources, in the order ADR-071 builds them:
 
-- GitHub Issues;
-- Shortcut stories in the current iteration assigned to the user or team;
-- later GitLab issues and additional systems.
+- a configured command printing JSON that conforms to the ticket schema Feat publishes, which is what makes a tracker Feat has never heard of configurable by the user rather than by a release;
+- Shortcut and GitLab issues through that command;
+- worked example commands afterwards, covering GitHub Issues, GitLab Issues, GitHub Projects, and Shortcut.
+
+Where a ticket lives is the command's business rather than Feat's. Issues attached to a repository, stories in a workspace, and an organisation-level board that spans repositories are all one command away, including the case where tickets are filed in a planning repository that holds no code and is not registered with Feat at all.
 
 Flow:
 
 1. Feat lists matching tickets.
 2. The user selects one or several tickets.
-3. Feat snapshots the title, description, acceptance criteria, selected comments, and relevant metadata.
-4. Comments are excluded by default and selectable.
+3. Feat snapshots what the ticket schema carries: a reference, a title, a body, a URL, and a state. Anything richer belongs in the brief, which is Markdown and holds whatever the user wants (ADR-071).
+4. Whether comments reach the body is the configured command's decision rather than Feat's. Selection by Feat would need a path that fetches comments itself, and none is scheduled.
 5. The snapshot is placed in the task control workspace and does not mutate while the agent is working.
 6. If the ticket later changes, Feat notifies the user; it does not silently alter the active agent context.
 7. The rest of the flow matches an ad hoc task.
@@ -183,17 +185,17 @@ Target versions may start services based on configured phases or an agent-writte
 
 ## 9. Publish changes
 
-Publishing is post-v0.
+Publishing is scheduled before the public preview (ADR-072). Every credentialed call is made by the daemon on the trusted host, and the agent environment receives no provider token (ADR-070).
 
-When `gh` or `glab` access is enabled inside the agent environment:
+1. The agent writes a publication draft — a title and a body per repository — into the control workspace when it requests review, which is while it still knows what it did. The draft asks for nothing and needs no capability.
+2. The user reads it and edits it through the configured editor command. What was displayed is what is sent.
+3. A draft describing a commit that is no longer current is refused rather than published, as a stale launch plan is refused (ADR-031).
+4. On approval Feat pushes each changed repository's task branch and opens one PR/MR per repository, composing the final request from the agent's prose and what Feat already knows: the base branch, the task, and the ticket the task came from.
+5. The push runs with hooks and the external pager and diff commands disabled, and the approval step names any `pre-push` hook it is skipping.
+6. Repositories are published one at a time, each result recorded before the next begins. A failure on one does not abort the others, nothing is rolled back, and re-publishing skips a repository that already has a recorded request (ADR-073).
+7. Merge remains outside Feat.
 
-1. Feat verifies CLI installation and authentication before launch or publication.
-2. Claude may prepare commits, push branches, create one PR/MR per changed repository, and update provider artifacts when the user prompts it to do so.
-3. Feat does not grant Docker access as a consequence.
-4. The credential scope determines what remote mutations Claude can perform.
-5. Merge remains outside Feat initially.
-
-Projects may instead configure host-side provider execution later, but that is not the required model.
+A project may instead enable `gh` or `glab` inside the agent environment and let Claude publish when prompted. Feat verifies CLI installation and authentication before launch, grants no Docker access as a consequence, and the credential's scope determines what remote mutations are possible. That path stays configurable and is not what the flow above is built on.
 
 ## 10. Recovery
 

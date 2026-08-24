@@ -27,7 +27,7 @@ May be:
 - host-native, with no container isolation; or
 - a configured non-root devcontainer.
 
-The company dogfood profile uses a non-root devcontainer.
+The dogfood profile uses a non-root devcontainer.
 
 The agent receives only configured mounts and capabilities. It does not receive Docker access.
 
@@ -57,7 +57,7 @@ Required:
 - Full Git access is allowed.
 - `glab` and/or `gh` access may be enabled.
 
-Not required by current company policy:
+Not required by the dogfood profile:
 
 - read-only container root filesystem;
 - dropped capabilities beyond runtime defaults;
@@ -139,7 +139,7 @@ The accurate claim is:
 
 > The devcontainer prevents direct access to undeclared local host resources; it does not provide network data-loss prevention.
 
-Organizations requiring source-code egress control need allowlisted networking and approved inference/registry destinations, which are outside v0.
+Source-code egress control needs allowlisted networking and approved inference/registry destinations, which are outside v0.
 
 ## Published ports and who can reach them
 
@@ -164,9 +164,27 @@ The agent's own execution environment publishes nothing: the generated execution
 
 ## GitHub and GitLab capabilities
 
-Git-provider access is independent from Docker access.
+Git-provider access is independent from Docker access. There are two modes, and they differ by which side of the boundary the credential is on.
 
-When enabled:
+### Host-side, which is the recommended mode
+
+The daemon makes every credentialed provider call on the trusted host, with the `gh` or `glab` authentication the user already has there. Fetching tickets, pushing a task's branch, and opening a PR/MR are all either before a task exists or after the agent has stopped, so none of them needs a credential inside the agent environment, and `agent.capabilities.github_cli` and `gitlab_cli` stay `disabled`.
+
+What that declaration is worth depends on the execution mode. In a devcontainer it has an effect: a credential the project does not mount is not in the agent's environment. Host-native execution has no inside. An agent launched by `FEAT_HOST_AGENT` runs as the user and inherits the user's environment, so it reaches whatever provider authentication the user has and can call the provider's API directly; there, `disabled` describes intent rather than enforcement, and `feat doctor` says so when the daemon is running host-native. Publication stays host-side in both modes, but for record-keeping rather than containment (ADR-070) — so in a devcontainer the approval step is what stops the agent publishing, and on the host it is what makes Feat's own publication one the user read.
+
+Where the agent's knowledge is needed — the title and description of a PR/MR — it is carried as data. The agent writes a publication draft into the control workspace, requiring no capability because it asks for nothing, and the user reads and edits it before the host sends anything. That review is a control rather than a convenience: the description is agent-authored text bound for somewhere durable, and it can carry anything the agent read.
+
+The reverse direction carries the same caution. A brief composed from a ticket was written by whoever filed the ticket and becomes the agent's instructions, so the confirmation step displays the composed brief rather than the ticket it came from, and ticket comments are excluded by default.
+
+A host-side push runs Git in a repository whose configuration and hooks the agent can write (ADR-050). That exposure is not widened here — Feat already runs `git fetch` and `git worktree add` in it — but the push disables hooks and the external pager and diff commands, so a user-approved publication is not what fires an agent-authored `pre-push`.
+
+Disabling hooks is not free for every reader of this document. A `pre-push` hook is not always its user's own convenience: it may be what scans for secrets before anything leaves the machine, or what refuses a protected branch. Where it is, Feat's publication is the one route out that does not run it. Feat still does not run it, because the agent can write `.git/hooks` and approving a description should not be how a user executes whatever is in there; what Feat refuses is to make that trade silently. The approval step names the hook it is skipping, so a user who depends on one can push by hand instead. OQ-015 holds whether a hook can be attributed to the user rather than to the agent.
+
+See ADR-070 and OQ-015.
+
+### In the agent environment
+
+When a project enables it:
 
 - `gh`/`glab` may be installed in the agent environment;
 - authentication may be mounted, injected, or provided by the user's environment;
@@ -174,6 +192,8 @@ When enabled:
 - Claude may push, create PRs/MRs, comment, label, or perform other operations allowed by the credential and user prompt.
 
 The security impact is explicit: an agent with provider credentials can mutate remote repositories within token scope. Least-privilege credentials are recommended. Feat does not automatically merge in initial versions.
+
+A least-privilege token bounds scope, and scope is not the whole of the exposure. General internet is allowed and Feat claims no data-loss prevention, so a token in the agent environment is a durable secret reachable by any prompt injection, including one arriving in the issue body `gh` just fetched. That is the reason the host-side mode exists, and the reason it is the recommended one.
 
 ## Claude authentication and state
 

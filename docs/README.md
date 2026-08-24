@@ -122,7 +122,7 @@ a terminal the inventory is printed and nothing is removed. See ADR-037.
 
 ## Release boundary
 
-- **v0.1 dogfood:** the multi-repository company project, Claude Code in a non-root devcontainer, manual Compose lifecycle, macOS, local prompt/Markdown tasks.
+- **v0.1 dogfood:** the multi-repository reference project, Claude Code in a non-root devcontainer, manual Compose lifecycle, macOS, local prompt/Markdown tasks.
 - **v0.2 public preview:** generalized configuration, host-native execution, macOS and Linux, public documentation and release packaging.
 - Ticket ingestion, automated runtime phases, provider publication workflows, stable hostnames, additional agents, and remote control are roadmap work unless explicitly pulled forward.
 
