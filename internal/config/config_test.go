@@ -217,6 +217,22 @@ func TestCompleteConfigurationResolves(t *testing.T) {
 	if !loaded.HasRuntime() {
 		t.Error("the configuration declares a runtime, but HasRuntime reports none")
 	}
+
+	// The tracker and the forge are separate sections with separate owners:
+	// where the code goes and where the tickets come from are different
+	// questions, and this project answers both (ADR-071).
+	if loaded.Tracker == nil {
+		t.Fatal("the configuration declares a tracker and none was loaded")
+	}
+	if got, want := strings.Join(loaded.Tracker.Command, " "), "tickets-for-me"; got != want {
+		t.Errorf("tracker command = %q, want %q", got, want)
+	}
+	if api.Forge == nil {
+		t.Fatal("the api repository declares a forge and none was loaded")
+	}
+	if got, want := api.Forge.Kind, "gitlab"; got != want {
+		t.Errorf("api forge = %q, want %q", got, want)
+	}
 }
 
 // TestDefaultsAreFilledIn checks the minimal configuration, where almost

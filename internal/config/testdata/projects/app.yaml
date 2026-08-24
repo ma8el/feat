@@ -27,6 +27,10 @@ repositories:
         - worker
       reachable:
         - app
+    # Where this repository's merge requests are opened. It is declared rather
+    # than guessed: a self-hosted instance is not recognisable from its remote.
+    forge:
+      kind: gitlab
     default_branch: main
     remote: origin
     default_access: read_write
@@ -97,6 +101,13 @@ checks:
     - id: test
       command: ["pytest"]
       execution: agent
+
+tracker:
+  kind: command
+  # Whatever prints this project's tickets as JSON in the shape of
+  # schema/feat-tickets.schema.json. Feat passes no filter of its own: which
+  # tickets are the user's is the command's decision.
+  command: ["tickets-for-me"]
 
 notifications:
   desktop: true

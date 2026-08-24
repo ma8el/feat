@@ -63,6 +63,9 @@ type Task struct {
 	// Runtime is the task's application runtime (invariant 3). It is nil until
 	// the user creates one, and it is never shared with another task.
 	Runtime *RuntimeEnvironment
+	// Publication is what publishing the task's work would do and what came of
+	// it. It is nil until a publication is planned.
+	Publication *Publication
 	// CreatedAt is immutable.
 	CreatedAt time.Time
 	// UpdatedAt is when the snapshot last changed.
@@ -84,13 +87,20 @@ type TaskFailure struct {
 // SourceKind records where a task's brief came from.
 type SourceKind string
 
-// Task sources supported in v0. Ticket sources arrive with the provider
-// adapters on the roadmap.
+// Task sources.
 const (
 	// SourcePrompt is a brief typed during task preparation.
 	SourcePrompt SourceKind = "prompt"
 	// SourceMarkdown is a brief imported from a Markdown file.
 	SourceMarkdown SourceKind = "markdown"
+	// SourceTicket is a brief composed from a ticket the project's tracker
+	// listed.
+	//
+	// What the user confirms is that composed brief rather than the ticket it
+	// came from: a ticket is written by whoever filed it and becomes the
+	// agent's instructions, so reviewing one document and sending another would
+	// make the confirmation a formality (ADR-070).
+	SourceTicket SourceKind = "ticket"
 )
 
 // TaskSource records the origin of a task brief.
@@ -98,13 +108,72 @@ type TaskSource struct {
 	// Kind is the origin.
 	Kind SourceKind
 	// Reference locates the origin: the Markdown file path for an imported
-	// brief, empty for a typed prompt.
+	// brief, empty for a typed prompt and for a ticket, which is located by the
+	// ticket record below rather than by a second copy of it here.
 	Reference string
+	// Ticket is the ticket the brief was composed from, and is present exactly
+	// for a ticket source.
+	Ticket *ExternalTaskReference
+}
+
+// ExternalTaskReference is the ticket a task came from, as Feat read it.
+//
+// It is provider-neutral because the tracker is a configured command rather
+// than an adapter per service: what Feat holds is the shape it publishes as
+// schema/feat-tickets.schema.json, and the command's output conforms to it
+// (ADR-071). It is what lets a merge request name the ticket it closes, and
+// what a ticket observed again later is compared against.
+type ExternalTaskReference struct {
+	// Provider is which tracker the ticket came from, and is what the published
+	// shape's optional `source` fills.
+	//
+	// It is optional because a project drawing on one tracker has nothing to
+	// disambiguate; a command that merges two labels each ticket with it
+	// (ADR-071).
+	Provider string
+	// Reference is the tracker's own identifier for the ticket.
+	Reference string
+	// URL is where the ticket can be read.
+	URL string
+	// Snapshot is the ticket as Feat last read it.
+	Snapshot TicketSnapshot
+	// ChangeAvailable reports that the tracker has since shown something
+	// different from the snapshot.
+	//
+	// It is an indicator rather than an update: a ticket that changes never
+	// silently alters the context an agent is already working from, so what
+	// Feat does with a change is tell the user (FR-TASK-005).
+	ChangeAvailable bool
+}
+
+// TicketSnapshot is the ticket as it was when Feat read it.
+//
+// It holds what the published shape carries and nothing richer — no story
+// points, epics, sprints, or custom fields, which Feat would carry without
+// doing anything with them. Anything richer belongs in the brief, which is
+// Markdown and holds whatever the user wants (ADR-071).
+//
+// The snapshot is immutable while the agent works, and what versions it is when
+// it was taken: the published shape carries no revision of the tracker's own,
+// and a change is found by running the command again and comparing.
+type TicketSnapshot struct {
+	// Title is the ticket's own title.
+	Title string
+	// Body is the ticket's description, in whatever the tracker's command
+	// printed.
+	Body string
+	// State is the ticket's state on the tracker, in the tracker's own
+	// vocabulary. Feat does not map it onto one of its own: trackers do not
+	// agree on states, and a mapping language in configuration has no end
+	// (ADR-071).
+	State string
+	// TakenAt is when Feat read the ticket.
+	TakenAt time.Time
 }
 
 // Valid reports whether the kind is a documented source.
 func (k SourceKind) Valid() bool {
-	return k == SourcePrompt || k == SourceMarkdown
+	return k == SourcePrompt || k == SourceMarkdown || k == SourceTicket
 }
 
 // TaskRepository binds a task to one repository of its project.
@@ -514,6 +583,26 @@ func (t *Task) Validate() error {
 			return err
 		}
 	}
+	if t.Publication != nil {
+		if err := t.Publication.Validate(t.ID); err != nil {
+			return err
+		}
+		for _, entry := range t.Publication.Repositories {
+			// A publication of a repository the task does not bind names a
+			// branch that was never created. The selection is frozen when a
+			// task leaves draft, so this can only be a record edited or written
+			// by something else.
+			if _, bound := t.Repository(entry.RepositoryID); !bound {
+				return &ValidationError{
+					Entity: "task",
+					ID:     t.ID.String(),
+					Field:  "publication.repositories",
+					Reason: "publishes repository " + entry.RepositoryID.String() +
+						", which the task does not bind",
+				}
+			}
+		}
+	}
 
 	if reason := t.notReadyFor(t.Workflow); reason != "" {
 		return &ValidationError{
@@ -616,6 +705,89 @@ func (s TaskSource) Validate(task TaskID) error {
 			ID:     task.String(),
 			Field:  "source.reference",
 			Reason: "must be empty for a typed prompt",
+		}
+	}
+	if s.Kind == SourceTicket && s.Reference != "" {
+		// The ticket record locates the ticket, and a second copy here would be
+		// a second answer to where the task came from.
+		return &ValidationError{
+			Entity: "task",
+			ID:     task.String(),
+			Field:  "source.reference",
+			Reason: "must be empty for a ticket, which is located by source.ticket",
+		}
+	}
+	if s.Kind == SourceTicket && s.Ticket == nil {
+		return &ValidationError{
+			Entity: "task",
+			ID:     task.String(),
+			Field:  "source.ticket",
+			Reason: "must carry the ticket the brief was composed from",
+		}
+	}
+	if s.Kind != SourceTicket && s.Ticket != nil {
+		return &ValidationError{
+			Entity: "task",
+			ID:     task.String(),
+			Field:  "source.ticket",
+			Reason: "must be absent for a brief that did not come from a ticket, but the source is " +
+				quote(string(s.Kind)),
+		}
+	}
+	if s.Ticket != nil {
+		return s.Ticket.Validate(task)
+	}
+	return nil
+}
+
+// Validate reports whether the ticket reference is internally consistent.
+//
+// What it checks is what Feat itself needs to act on the ticket: something to
+// name it by, somewhere to read it, and a snapshot that was taken at a knowable
+// time. The ticket's own vocabulary — what its states are called, what its
+// reference looks like — belongs to the tracker rather than to Feat (ADR-071).
+func (r ExternalTaskReference) Validate(task TaskID) error {
+	if r.Reference == "" {
+		return &ValidationError{
+			Entity: "task",
+			ID:     task.String(),
+			Field:  "source.ticket.reference",
+			Reason: "must carry the tracker's own identifier for the ticket",
+		}
+	}
+	if r.URL == "" {
+		return &ValidationError{
+			Entity: "task",
+			ID:     task.String(),
+			Field:  "source.ticket.url",
+			Reason: "must say where the ticket can be read",
+		}
+	}
+	if r.Snapshot.Title == "" {
+		return &ValidationError{
+			Entity: "task",
+			ID:     task.String(),
+			Field:  "source.ticket.snapshot.title",
+			Reason: "must carry the ticket's title as it was read",
+		}
+	}
+	if r.Snapshot.State == "" {
+		return &ValidationError{
+			Entity: "task",
+			ID:     task.String(),
+			Field:  "source.ticket.snapshot.state",
+			Reason: "must carry the ticket's state as it was read, in the tracker's own words",
+		}
+	}
+	if r.Snapshot.TakenAt.IsZero() {
+		// A snapshot is what versions itself: the published shape carries no
+		// revision of the tracker's own, so a snapshot with no time is one
+		// nothing can say anything about later.
+		return &ValidationError{
+			Entity: "task",
+			ID:     task.String(),
+			Field:  "source.ticket.snapshot.taken_at",
+			Reason: "must record when the ticket was read",
 		}
 	}
 	return nil

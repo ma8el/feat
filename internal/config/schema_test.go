@@ -12,8 +12,16 @@ import (
 	"github.com/ma8el/feat/internal/config"
 )
 
-// schemaFile is the JSON Schema published for editor support.
-const schemaFile = "../../schema/feat-project.schema.json"
+// The JSON Schemas Feat publishes.
+const (
+	// schemaFile describes the project configuration file, for editor support.
+	schemaFile = "../../schema/feat-project.schema.json"
+	// ticketSchemaFile describes what a project's tracker command prints. It is
+	// the other half of the tracker section in this package: the configuration
+	// says which command to run, and this says what its output has to be
+	// (ADR-071).
+	ticketSchemaFile = "../../schema/feat-tickets.schema.json"
+)
 
 // schema is enough of JSON Schema to walk the document's shape.
 //
@@ -42,13 +50,16 @@ type schema struct {
 	Const                any                `json:"const"`
 }
 
-// load reads the published schema.
-func loadSchema(t *testing.T) *schema {
+// loadSchema reads the published project schema.
+func loadSchema(t *testing.T) *schema { return readSchema(t, schemaFile) }
+
+// readSchema reads one published schema.
+func readSchema(t *testing.T, path string) *schema {
 	t.Helper()
 
-	body, err := os.ReadFile(schemaFile)
+	body, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("reading %s: %v", schemaFile, err)
+		t.Fatalf("reading %s: %v", path, err)
 	}
 
 	var document schema
@@ -58,7 +69,7 @@ func loadSchema(t *testing.T) *schema {
 		// The struct above covers the keywords this test walks. A keyword it
 		// does not know means the schema grew something this test should learn
 		// about rather than ignore.
-		t.Fatalf("the schema uses a keyword this test does not model: %v", err)
+		t.Fatalf("%s uses a keyword this test does not model: %v", path, err)
 	}
 	return &document
 }
@@ -207,26 +218,74 @@ func join(path string) string {
 	return path
 }
 
-// TestSchemaDescribesEveryField keeps the schema useful in an editor, where the
+// TestSchemaDescribesEveryField keeps the schemas useful in an editor, where the
 // description is the whole point of publishing one.
 func TestSchemaDescribesEveryField(t *testing.T) {
-	root := loadSchema(t)
+	for _, file := range []string{schemaFile, ticketSchemaFile} {
+		t.Run(filepath.Base(file), func(t *testing.T) {
+			root := readSchema(t, file)
 
-	var walk func(node *schema, path string)
-	walk = func(node *schema, path string) {
-		for name, property := range node.Properties {
-			where := path + "." + name
-			if property.Description == "" && property.Ref == "" {
-				t.Errorf("%s has no description", where)
+			var walk func(node *schema, path string)
+			walk = func(node *schema, path string) {
+				for name, property := range node.Properties {
+					where := path + "." + name
+					if property.Description == "" && property.Ref == "" {
+						t.Errorf("%s has no description", where)
+					}
+					if property.Ref == "" {
+						walk(property, where)
+					}
+				}
 			}
-			if property.Ref == "" {
-				walk(property, where)
+			walk(root, "")
+			for name, definition := range root.Defs {
+				walk(definition, "$defs."+name)
 			}
-		}
+		})
 	}
-	walk(root, "")
-	for name, definition := range root.Defs {
-		walk(definition, "$defs."+name)
+}
+
+// TestTicketSchemaPublishesTheShapeFeatActsOn pins the published ticket shape.
+//
+// It is the contract a user's tracker command is written against, so a field
+// added to it is a field every one of those commands may have to produce, and a
+// field removed is one they may already be producing. ADR-071 sizes it by what
+// Feat acts on: a reference, a title, a body, a URL, a state, and an optional
+// source. Anything richer belongs in the brief.
+func TestTicketSchemaPublishesTheShapeFeatActsOn(t *testing.T) {
+	root := readSchema(t, ticketSchemaFile)
+
+	if root.Type != "array" {
+		t.Errorf("the document is %v, and a tracker command prints a list of tickets", root.Type)
+	}
+	if root.Items == nil {
+		t.Fatal("the document describes no ticket")
+	}
+	ticket := root.Items.resolve(t, root)
+
+	want := []string{"reference", "title", "body", "url", "state", "source"}
+	var got []string
+	for name := range ticket.Properties {
+		got = append(got, name)
+	}
+	sort.Strings(got)
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("a ticket carries %v, and the published shape is %v", got, want)
+	}
+
+	// Everything but the source, which a project drawing on one tracker has
+	// nothing to disambiguate.
+	required := append([]string(nil), ticket.Required...)
+	sort.Strings(required)
+	if !reflect.DeepEqual(required, []string{"body", "reference", "state", "title", "url"}) {
+		t.Errorf("a ticket requires %v", required)
+	}
+
+	if string(ticket.AdditionalProperties) != "false" {
+		t.Errorf("a ticket allows properties beyond the published shape: %s\n"+
+			"\tFeat carries what it acts on, so a field it does not know is a mapping mistake "+
+			"rather than something to keep.", ticket.AdditionalProperties)
 	}
 }
 

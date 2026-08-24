@@ -92,6 +92,88 @@ func TestAFailedTaskKeepsItsReason(t *testing.T) {
 	}
 }
 
+// TestAPublishedTaskKeepsWhatItPublishedAndWhatItDidNot is the round trip a
+// partial publication depends on.
+//
+// A merge request Feat opened is on somebody else's server, so a record that
+// lost it after a restart would leave a resource nothing can name; a repository
+// still recorded as planned is one nothing was attempted for, and that is
+// exactly what an interrupted publication has to be able to say (ADR-073).
+func TestAPublishedTaskKeepsWhatItPublishedAndWhatItDidNot(t *testing.T) {
+	ctx := context.Background()
+	fixture := storetest.Published()
+	tasks := newStore(t).Tasks()
+
+	if err := tasks.Save(ctx, fixture); err != nil {
+		t.Fatalf("saving the published task: %v", err)
+	}
+	loaded, err := tasks.Load(ctx, store.Ref(fixture))
+	if err != nil {
+		t.Fatalf("loading the published task: %v", err)
+	}
+
+	if !reflect.DeepEqual(fixture, loaded) {
+		t.Errorf("the published task changed on the way through storage.\n got: %#v\nwant: %#v", loaded, fixture)
+	}
+	if loaded.Publication == nil {
+		t.Fatal("the task came back with no publication record")
+	}
+
+	published, ok := loaded.Publication.Repository(storetest.PrimaryRepositoryID)
+	if !ok {
+		t.Fatalf("%s is missing from the loaded publication", storetest.PrimaryRepositoryID)
+	}
+	if published.State != domain.PublicationPublished || published.Request == nil {
+		t.Fatalf("the published repository came back as %s with request %+v", published.State, published.Request)
+	}
+	if published.Request.URL == "" {
+		t.Error("the merge request came back with no URL, so nothing names what was opened")
+	}
+
+	refused, ok := loaded.Publication.Repository(storetest.SecondaryRepositoryID)
+	if !ok {
+		t.Fatalf("%s is missing from the loaded publication", storetest.SecondaryRepositoryID)
+	}
+	if refused.State != domain.PublicationFailed || refused.Failure == "" {
+		t.Errorf("the refused repository came back as %s with failure %q", refused.State, refused.Failure)
+	}
+}
+
+// TestATicketedTaskKeepsTheSnapshotItWasComposedFrom checks the source of a
+// brief that came from a tracker.
+//
+// The snapshot is what a change is compared against, so a round trip that lost
+// it would leave Feat unable to say whether the ticket still says what the task
+// was created from (FR-TASK-005).
+func TestATicketedTaskKeepsTheSnapshotItWasComposedFrom(t *testing.T) {
+	ctx := context.Background()
+	fixture := storetest.Published()
+	tasks := newStore(t).Tasks()
+
+	if err := tasks.Save(ctx, fixture); err != nil {
+		t.Fatalf("saving the task: %v", err)
+	}
+	loaded, err := tasks.Load(ctx, store.Ref(fixture))
+	if err != nil {
+		t.Fatalf("loading the task: %v", err)
+	}
+
+	if loaded.Source.Kind != domain.SourceTicket {
+		t.Fatalf("the source came back as %q", loaded.Source.Kind)
+	}
+	ticket := loaded.Source.Ticket
+	if ticket == nil {
+		t.Fatal("the task came back with no ticket")
+	}
+	if !reflect.DeepEqual(ticket, fixture.Source.Ticket) {
+		t.Errorf("the ticket changed on the way through storage.\n got: %#v\nwant: %#v",
+			ticket, fixture.Source.Ticket)
+	}
+	if ticket.Snapshot.TakenAt.IsZero() {
+		t.Error("the snapshot came back with no time, so nothing says when the ticket was read")
+	}
+}
+
 // TestASnapshotWithoutAFailureIsNotACorruptOne is the compatibility rule the
 // codec states: a field added at the same schema version leaves an older
 // document readable, and a task written before this build simply has no reason
@@ -142,7 +224,11 @@ func TestFixturesPopulateEveryPersistedField(t *testing.T) {
 		// Two tasks, because two of a task's fields exclude each other: the
 		// reason it failed exists only while it is failed, and the fixture that
 		// has reached review cannot also be.
-		"task":   {storetest.Task(), storetest.Failed()},
+		// The published fixture carries the third pair that excludes the
+		// others: a brief comes from one source, so a task imported from
+		// Markdown never also holds the ticket it was composed from, and a task
+		// that was never published holds no publication record.
+		"task":   {storetest.Task(), storetest.Failed(), storetest.Published()},
 		"review": {storetest.Review()},
 	}
 	for name, fixture := range fixtures {

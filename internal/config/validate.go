@@ -39,6 +39,7 @@ func (c *Config) Validate() error {
 	c.validateRuntime(found)
 	c.validateReview(found)
 	c.validateChecks(found)
+	c.validateTracker(found)
 
 	return found.err(c.path, c.source)
 }
@@ -135,6 +136,7 @@ func (c *Config) validateRepositories(found *problems) {
 		}
 
 		c.validateRepositoryRuntime(found, id, repository)
+		validateRepositoryForge(found, id, repository)
 	}
 
 	checkOverlaps(found, "agent", agentMounts)
@@ -234,6 +236,50 @@ func (c *Config) validateRepositoryRuntime(found *problems, id string, repositor
 				"path is where its own services expect its source, so a repository that manages none has "+
 				"nowhere to put it", runtime.ContainerPath, field))
 	}
+}
+
+// validateRepositoryForge checks where one repository's merge requests are
+// opened.
+//
+// The forge is declared rather than inferred, so the only thing to check is
+// that it is one Feat publishes to: a value Feat does not recognise would leave
+// a publication with no adapter to make it, and finding that out at the moment
+// of publishing is exactly what configuration validation exists to prevent
+// (ADR-071).
+func validateRepositoryForge(found *problems, id string, repository Repository) {
+	if repository.Forge == nil {
+		return
+	}
+	field := "repositories." + id + ".forge.kind"
+	kinds := forgeKinds()
+	switch {
+	case repository.Forge.Kind == "":
+		found.add(field, fmt.Sprintf(
+			"must say which forge this repository publishes to: %s", words(kinds)))
+	case !domain.ForgeKind(repository.Forge.Kind).Valid():
+		found.add(field, fmt.Sprintf(
+			"is %q, which is not a forge Feat publishes to: %s", repository.Forge.Kind, words(kinds)))
+	}
+}
+
+// validateTracker checks where the project's tickets come from.
+//
+// The command is the whole of the mechanism, so it is checked the way every
+// other user-supplied command is — an argument vector whose program is fixed by
+// configuration — with one difference: it may contain no placeholder at all. A
+// tracker command runs before there is a task, so there is nothing to fill one
+// with, and Feat passes it no filter of its own (ADR-071).
+func (c *Config) validateTracker(found *problems) {
+	if c.Tracker == nil {
+		return
+	}
+	kinds := []string{TrackerCommand}
+	if !contains(kinds, c.Tracker.Kind) {
+		found.add("tracker.kind", fmt.Sprintf(
+			"is %q, and a tracker obtains its tickets by running a command that prints them: %s",
+			c.Tracker.Kind, words(kinds)))
+	}
+	checkCommand(found, "tracker.command", c.Tracker.Command, trackerPlaceholders)
 }
 
 func (c *Config) validateGit(found *problems) {
@@ -738,7 +784,7 @@ func (c *Config) validateReview(found *problems) {
 			// still a valid project.
 			continue
 		}
-		checkCommand(found, command.path, command.value.Command)
+		checkCommand(found, command.path, command.value.Command, commandPlaceholders)
 	}
 }
 
@@ -763,7 +809,7 @@ func (c *Config) validateChecks(found *problems) {
 			}
 			seen[check.ID] = true
 
-			checkCommand(found, element+".command", check.Command)
+			checkCommand(found, element+".command", check.Command, commandPlaceholders)
 
 			executions := []string{ExecutionAgent, ExecutionHost}
 			if !contains(executions, check.Execution) {
@@ -775,8 +821,13 @@ func (c *Config) validateChecks(found *problems) {
 	}
 }
 
-// checkCommand validates one external command.
-func checkCommand(found *problems, path string, command []string) {
+// checkCommand validates one external command against the placeholders its
+// caller can fill.
+//
+// The vocabulary is a parameter because it is not the same everywhere: a review
+// or check command runs for one task repository and can name it, and a tracker
+// command runs before any task exists.
+func checkCommand(found *problems, path string, command []string, allowed []string) {
 	if len(command) == 0 {
 		found.add(path, "must be an argument vector whose first element is the program to run")
 		return
@@ -794,7 +845,7 @@ func checkCommand(found *problems, path string, command []string) {
 			program))
 	}
 	for i, argument := range command[1:] {
-		checkPlaceholders(found, fmt.Sprintf("%s[%d]", path, i+1), argument, commandPlaceholders)
+		checkPlaceholders(found, fmt.Sprintf("%s[%d]", path, i+1), argument, allowed)
 	}
 }
 
@@ -949,6 +1000,12 @@ func projectScoped(segment string) bool {
 func isRoot(user string) bool {
 	name, _, _ := strings.Cut(user, ":")
 	return name == "root" || name == "0"
+}
+
+// forgeKinds names the forges Feat publishes to, so that a rejection says what
+// would have been accepted.
+func forgeKinds() []string {
+	return []string{string(domain.ForgeGitHub), string(domain.ForgeGitLab)}
 }
 
 // accessModes lists the documented default access modes.

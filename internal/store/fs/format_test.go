@@ -25,12 +25,20 @@ func TestStoredFormat(t *testing.T) {
 	filestore := newStore(t)
 	task := storetest.Task()
 	ref := store.Ref(task)
+	published := storetest.Published()
 
 	if err := filestore.Projects().Save(ctx, storetest.Project()); err != nil {
 		t.Fatalf("saving the project: %v", err)
 	}
 	if err := filestore.Tasks().Save(ctx, task); err != nil {
 		t.Fatalf("saving the task: %v", err)
+	}
+	// A second task, because the ticket a brief was composed from and the
+	// publication a task recorded are shapes the first one cannot hold: a brief
+	// comes from one source, and a task that was never published has no
+	// publication.
+	if err := filestore.Tasks().Save(ctx, published); err != nil {
+		t.Fatalf("saving the published task: %v", err)
 	}
 	if err := filestore.Reviews().Save(ctx, ref, storetest.Review()); err != nil {
 		t.Fatalf("saving the review: %v", err)
@@ -43,12 +51,14 @@ func TestStoredFormat(t *testing.T) {
 
 	projectDir := filepath.Join(filestore.Root(), projectsDir, storetest.ProjectID.String())
 	taskDir := filepath.Join(projectDir, tasksDir, storetest.TaskID.String())
+	publishedDir := filepath.Join(projectDir, tasksDir, storetest.PublishedID.String())
 	files := map[string]string{
-		"project.json.golden": filepath.Join(projectDir, projectFile),
-		"task.json.golden":    filepath.Join(taskDir, taskFile),
-		"prompt.md.golden":    filepath.Join(taskDir, briefFile),
-		"review.json.golden":  filepath.Join(taskDir, reviewFile),
-		"events.jsonl.golden": filepath.Join(taskDir, eventsFile),
+		"project.json.golden":        filepath.Join(projectDir, projectFile),
+		"task.json.golden":           filepath.Join(taskDir, taskFile),
+		"published-task.json.golden": filepath.Join(publishedDir, taskFile),
+		"prompt.md.golden":           filepath.Join(taskDir, briefFile),
+		"review.json.golden":         filepath.Join(taskDir, reviewFile),
+		"events.jsonl.golden":        filepath.Join(taskDir, eventsFile),
 	}
 
 	for name, path := range files {
