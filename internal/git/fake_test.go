@@ -55,6 +55,13 @@ type fakeRepository struct {
 	fail map[string]error
 	// missing marks the repository as not being one at all.
 	missing bool
+	// hooksPath answers `config --get core.hooksPath`, empty when it is unset.
+	hooksPath string
+	// hooksDir answers `rev-parse --git-path hooks`, which is where a test that
+	// wants a pre-push hook puts one.
+	hooksDir string
+	// pushed records the refspecs pushed to each remote, keyed by remote name.
+	pushed map[string][]string
 }
 
 // fakeGit answers Git commands for a set of checkouts.
@@ -67,6 +74,9 @@ type fakeGit struct {
 	calls [][]string
 	// dirs records the working directory of each call.
 	dirs []string
+	// environments records the extra environment of each call, so that a test
+	// can assert what a command ran under as well as what it ran.
+	environments [][]string
 }
 
 func newFakeGit() *fakeGit {
@@ -127,10 +137,27 @@ func (f *fakeGit) vectors() []string {
 }
 
 // Run answers one Git command.
-func (f *fakeGit) Run(_ context.Context, dir string, args ...string) (string, error) {
+func (f *fakeGit) Run(ctx context.Context, dir string, args ...string) (string, error) {
+	return f.RunWith(ctx, dir, nil, args...)
+}
+
+// environmentOf returns the extra environment the call at one index ran with.
+func (f *fakeGit) environmentOf(index int) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if index < 0 || index >= len(f.environments) {
+		return nil
+	}
+	return f.environments[index]
+}
+
+// RunWith answers one Git command, recording the environment it ran with.
+func (f *fakeGit) RunWith(_ context.Context, dir string, env []string, args ...string) (string, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, append([]string(nil), args...))
 	f.dirs = append(f.dirs, dir)
+	f.environments = append(f.environments, append([]string(nil), env...))
 	repository, known := f.repositories[dir]
 	f.mu.Unlock()
 
@@ -180,6 +207,21 @@ func (f *fakeGit) Run(_ context.Context, dir string, args ...string) (string, er
 			return "", nil
 		}
 		return "", &ExitError{Args: args, Dir: dir, Code: 1}
+	case "config":
+		if repository.hooksPath == "" {
+			// Git's own answer for a setting that is not set.
+			return "", &ExitError{Args: args, Dir: dir, Code: 1}
+		}
+		return repository.hooksPath, nil
+	case "push":
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if repository.pushed == nil {
+			repository.pushed = make(map[string][]string)
+		}
+		remote := args[1]
+		repository.pushed[remote] = append(repository.pushed[remote], args[2])
+		return "", nil
 	default:
 		return "", fmt.Errorf("fake git: unexpected command %q", strings.Join(args, " "))
 	}
@@ -187,6 +229,12 @@ func (f *fakeGit) Run(_ context.Context, dir string, args ...string) (string, er
 
 // revParse answers `rev-parse --git-dir` and `rev-parse --verify --quiet`.
 func (r *fakeRepository) revParse(args []string, dir string) (string, error) {
+	if len(args) == 3 && args[1] == "--git-path" && args[2] == "hooks" {
+		if r.hooksDir == "" {
+			return ".git/hooks", nil
+		}
+		return r.hooksDir, nil
+	}
 	if len(args) == 2 && args[1] == "--git-dir" {
 		if r.missing {
 			return "", &ExitError{Args: args, Dir: dir, Code: 128, Stderr: "not a git repository"}

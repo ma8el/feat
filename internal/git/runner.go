@@ -34,6 +34,22 @@ type Runner interface {
 	// surrounding whitespace removed. A command that ran and failed returns an
 	// *ExitError.
 	Run(ctx context.Context, dir string, args ...string) (string, error)
+	// RunWith is Run with extra environment entries, as KEY=VALUE.
+	//
+	// It exists because two of this package's operations have to be run under
+	// settings rather than under flags: a task session's Git runs with autostash
+	// turned off, and a host-side push runs with hooks, the pager, and an
+	// external diff driver turned off. Both are expressed in Git's own
+	// GIT_CONFIG_COUNT form, because the alternative is writing them into the
+	// user's configuration file — which a linked worktree shares with the user's
+	// own checkout, so a value set to protect one task would outlive it
+	// (environment.go, ADR-056, ADR-070).
+	//
+	// It is on the interface rather than optional so that a runner which cannot
+	// carry them cannot be handed a command that needs them. A push that
+	// silently ran with the settings it was meant to run without is exactly the
+	// failure the settings exist to prevent.
+	RunWith(ctx context.Context, dir string, env []string, args ...string) (string, error)
 }
 
 // HostRunner runs Git on the machine Feat is running on.
@@ -50,6 +66,11 @@ type HostRunner struct {
 // Feat runs Git with no terminal attached, so a prompt would otherwise hang
 // until the timeout and report nothing useful about why.
 func (r HostRunner) Run(ctx context.Context, dir string, args ...string) (string, error) {
+	return r.RunWith(ctx, dir, nil, args...)
+}
+
+// RunWith executes one Git command with extra environment entries.
+func (r HostRunner) RunWith(ctx context.Context, dir string, env []string, args ...string) (string, error) {
 	timeout := r.Timeout
 	if timeout <= 0 {
 		timeout = commandTimeout
@@ -60,6 +81,7 @@ func (r HostRunner) Run(ctx context.Context, dir string, args ...string) (string
 	command := exec.CommandContext(ctx, Executable, args...)
 	command.Dir = dir
 	command.Env = append(command.Environ(), "GIT_TERMINAL_PROMPT=0")
+	command.Env = append(command.Env, env...)
 
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
