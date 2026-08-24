@@ -95,6 +95,60 @@ func (c *checker) checkRepositories(ctx context.Context) {
 		c.ok(check, repository.HostPath)
 		c.checkRemote(ctx, id, repository)
 		c.checkDefaultBranch(ctx, id, repository)
+		c.checkPrePush(ctx, id, repository)
+	}
+}
+
+// checkPrePush reports what a host-side publication will not run.
+//
+// Feat pushes with hooks disabled, because a task's worktrees share `.git/hooks`
+// with this checkout and the agent can write them: approving a publication must
+// not be how a user runs what the agent left there (ADR-050, ADR-070). Disabling
+// them costs nothing in a repository that has none, and it does not cost nothing
+// everywhere — a `pre-push` hook may be what scans for secrets before anything
+// leaves the machine, and Feat's publication would then be the one route out
+// that skips the check.
+//
+// It is reported here for the reason a tracker's output is validated here: what
+// Feat will not run is better learned when the user asks whether the project is
+// configured than at the moment they are approving a publication. It warns
+// rather than fails, because Feat cannot tell a load-bearing hook from a
+// personal convenience — which is what OQ-015 leaves open — and it says nothing
+// where there is no hook, because a check with nothing to report reports nothing
+// (ADR-028).
+//
+// A repository with no forge is never published, so it is never asked.
+func (c *checker) checkPrePush(ctx context.Context, id string, repository config.Repository) {
+	if repository.Forge == nil {
+		return
+	}
+	check := "repositories." + id + ".forge"
+
+	if path, err := c.runner.Run(ctx, repository.HostPath, gitExecutable,
+		"config", "--get", "core.hooksPath"); err == nil && strings.TrimSpace(path) != "" {
+		// An error is Git's answer that the setting is not there, which is the
+		// ordinary case: `config --get` exits 1 for an unset key.
+		c.warn(check, fmt.Sprintf("core.hooksPath is %s, and Feat's push runs no hook from it",
+			strings.TrimSpace(path)),
+			"push by hand if one of those hooks has to run before your work leaves this machine")
+	}
+
+	hooks, err := c.runner.Run(ctx, repository.HostPath, gitExecutable, "rev-parse", "--git-path", "hooks")
+	if err != nil {
+		return
+	}
+	hooks = strings.TrimSpace(hooks)
+	if !filepath.IsAbs(hooks) {
+		hooks = filepath.Join(repository.HostPath, hooks)
+	}
+	// The filesystem rather than Git: Git has no command that reports which
+	// hooks a repository has without running one, and running one is what this
+	// exists to say Feat does not do. A file named exactly `pre-push` is the
+	// hook; Git's own examples are installed as `pre-push.sample` and never run.
+	hook := filepath.Join(hooks, "pre-push")
+	if info, err := os.Stat(hook); err == nil && !info.IsDir() {
+		c.warn(check, fmt.Sprintf("%s exists and Feat's push does not run it", hook),
+			"push by hand if that hook has to run before your work leaves this machine")
 	}
 }
 
@@ -220,6 +274,7 @@ func (c *checker) checkExecution(ctx context.Context) {
 // check can run is a fact about the machine rather than about Feat (ADR-033).
 func (c *checker) checkAgentEnvironment(ctx context.Context) {
 	if !c.config.Agent.Execution.Devcontainer() {
+		c.checkHostCapabilities()
 		c.checkHostDockerCapability()
 		c.checkAgentExecutable(ctx)
 		for _, capability := range providerCLIs(c.config) {
@@ -752,6 +807,32 @@ func listOf(values []string, conjunction string) string {
 	default:
 		return strings.Join(values[:len(values)-1], ", ") + ", " + conjunction + " " + values[len(values)-1]
 	}
+}
+
+// checkHostCapabilities reports what a capability level means for an agent that
+// runs on this machine.
+//
+// In a container a declaration has an effect whether or not Feat enforces it: a
+// credential the project does not mount is not there. On the host there is no
+// inside for a token to be kept out of. An agent launched here runs as the user
+// and inherits the user's environment, so it reaches whatever `gh` or `glab`
+// authentication that user has and can call a provider's API besides, whatever
+// the levels below say.
+//
+// It warns rather than fails, because host execution is a supported mode and
+// this is what it is rather than something wrong with it. Saying it out loud is
+// the point: claiming the container's property in both modes would be exactly
+// the uniform security property ADR-066 and ADR-067 exist to refuse (ADR-070).
+//
+// Publication is unaffected either way. Feat opens merge requests from the host
+// in both modes, so what the mode changes is what the approval buys — a control
+// in a container, and a product behaviour here — rather than whether it happens.
+func (c *checker) checkHostCapabilities() {
+	c.warn("agent.capabilities",
+		"agent.execution.mode is host, so the capability levels below describe intent rather than "+
+			"enforcement: the agent runs as the user the daemon runs as and inherits that user's "+
+			"environment, including any gh or glab authentication in it",
+		"run the agent in a devcontainer if a capability has to be a boundary rather than a declaration")
 }
 
 // checkCapabilities reports the declared capabilities.
