@@ -112,6 +112,21 @@ type Service interface {
 	// about the work, and the runtime the user was testing it in is theirs
 	// (FR-REV-004, ADR-034).
 	Review(ctx context.Context, id domain.TaskID, action ReviewAction) (ReviewResult, error)
+	// PublicationPlan composes what publishing a task would do — one merge
+	// request per changed repository, from the agent's draft together with the
+	// remote, the base branch, and the commit — and records nothing.
+	//
+	// It is the document the user reads and edits. Nothing reaches a forge on
+	// the strength of it (ADR-070).
+	PlanPublication(ctx context.Context, id domain.TaskID) (PublicationResult, error)
+	// Publish opens one merge request per approved repository.
+	//
+	// It records the whole plan before it attempts anything and each result
+	// before the next repository begins, so that an interrupted publication
+	// names what it had not yet attempted. Nothing is rolled back: a partial
+	// publication is a recorded state, because a merge request that was just
+	// opened cannot be un-created reliably (ADR-073).
+	ApplyPublication(ctx context.Context, id domain.TaskID, request PublishRequest) (PublicationResult, error)
 	// Reconciliation returns the most recent reconciliation pass without
 	// running one, and false when none has run.
 	Reconciliation() (Reconciliation, bool)
@@ -231,6 +246,13 @@ func NewHandler(opts Options) http.Handler {
 	// records what it observed.
 	mux.Handle("/v1/tasks/{task_id}/review/{action}", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.review,
+	}))
+	// Publication sits beside review because it is the other half of the end of
+	// a task, and its two actions are plan and apply for the reason cleanup's
+	// are: what is sent has to be what the user read. The apply is the only one
+	// carrying a body, and what it carries is the words the user approved.
+	mux.Handle("/v1/tasks/{task_id}/publication/{action}", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.publication,
 	}))
 	// The two cleanup endpoints are plan and execute rather than one request,
 	// for the reason preparation is plan and launch: what is removed has to be
@@ -765,6 +787,48 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, NewReviewStatus(result))
+}
+
+// publication plans or applies one task's publication.
+func (s *server) publication(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "task_id")
+	if !ok {
+		return
+	}
+
+	action := PublicationAction(r.PathValue("action"))
+	if !action.Valid() {
+		writeJSON(w, http.StatusNotFound, errorEnvelope{Error: Error{
+			Code:    CodeNotFound,
+			Message: "no publication action " + strconv.Quote(string(action)) + "; the actions are plan and apply",
+		}})
+		return
+	}
+
+	var result PublicationResult
+	var err error
+	if action == PublicationPlan {
+		// A plan carries no body. It asks what publishing would do, and a
+		// request that could name a title would be a caller writing the words
+		// before anybody had read them.
+		if err := decodeEmptyBody(r); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		result, err = s.service.PlanPublication(r.Context(), id)
+	} else {
+		var request PublishRequest
+		if err := decodeBody(r, &request); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		result, err = s.service.ApplyPublication(r.Context(), id, request)
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, NewPublicationStatus(result))
 }
 
 // runtimeLogs returns the command that opens the task's normal Compose logs.

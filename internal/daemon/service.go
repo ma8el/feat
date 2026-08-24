@@ -15,6 +15,7 @@ import (
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution/compose"
+	"github.com/ma8el/feat/internal/forge"
 	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/notify"
 	"github.com/ma8el/feat/internal/paths"
@@ -56,6 +57,11 @@ type service struct {
 	// checks runs a completion gate's host checks. A nil value runs them as
 	// processes on this host.
 	checks review.Runner
+	// forges open merge requests, one adapter per forge a repository can
+	// declare. Every credentialed provider call is made through one of them, on
+	// this host, with the authentication the user already has: the agent
+	// environment receives no provider token (ADR-070).
+	forges map[domain.ForgeKind]forge.Adapter
 	// docker runs the container commands a devcontainer task needs. A nil value
 	// drives the real Docker CLI.
 	docker compose.Runner

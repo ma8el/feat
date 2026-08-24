@@ -324,6 +324,63 @@ func (f *fakeService) Review(_ context.Context, id domain.TaskID, action ReviewA
 	return ReviewResult{}, fmt.Errorf("%w: no task %s", ErrNotFound, id)
 }
 
+func (f *fakeService) PlanPublication(_ context.Context, id domain.TaskID) (PublicationResult, error) {
+	if err := f.check(); err != nil {
+		return PublicationResult{}, err
+	}
+	f.actions = append(f.actions, "publication-plan")
+
+	for _, task := range f.tasks {
+		if task.ID == id {
+			return PublicationResult{
+				Task: task,
+				Drafts: []PublicationDraft{{
+					RepositoryID: storetest.PrimaryRepositoryID.String(),
+					Forge:        "gitlab",
+					Remote:       "origin",
+					Branch:       "feat/7f3a1c2e-example",
+					BaseBranch:   "main",
+					Commit:       storetest.PrimaryBaseCommit,
+					Title:        "Add the shapes publication needs",
+					Body:         "What changed and why.",
+					DraftCommit:  storetest.PrimaryBaseCommit,
+				}},
+				Editor: EditorCommand{Program: "vi"},
+				Notes:  []string{"api: .git/hooks/pre-push exists and Feat's push does not run it"},
+			}, nil
+		}
+	}
+	return PublicationResult{}, fmt.Errorf("%w: no task %s", ErrNotFound, id)
+}
+
+func (f *fakeService) ApplyPublication(
+	_ context.Context, id domain.TaskID, request PublishRequest,
+) (PublicationResult, error) {
+	if err := f.check(); err != nil {
+		return PublicationResult{}, err
+	}
+	f.actions = append(f.actions, "publication-apply")
+	for _, one := range request.Repositories {
+		f.actions = append(f.actions, "publish:"+one.RepositoryID+":"+one.Title)
+	}
+
+	for _, task := range f.tasks {
+		if task.ID == id {
+			// The partial publication fixture, which is what a user meets after
+			// one repository published and another did not: a recorded state
+			// rather than one to be undone (ADR-073).
+			published := storetest.Published()
+			published.ID = task.ID
+			return PublicationResult{
+				Task: published,
+				Notes: []string{"schema's branch is on the remote and its merge request is not: " +
+					"publishing again opens the request from it"},
+			}, nil
+		}
+	}
+	return PublicationResult{}, fmt.Errorf("%w: no task %s", ErrNotFound, id)
+}
+
 func (f *fakeService) Reconciliation() (Reconciliation, bool) {
 	if f.reconciliation == nil {
 		return Reconciliation{}, false

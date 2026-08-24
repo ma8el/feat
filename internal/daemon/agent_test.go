@@ -121,13 +121,32 @@ func (t *testTimer) fire() {
 func selectDraftRepositories(t *testing.T, service *service, arranged *preparation) error {
 	t.Helper()
 
-	_, err := service.UpdateDraft(context.Background(), arranged.ref.Task, api.DraftUpdate{
-		Title: "Add a rate limit",
-		Brief: "Add a rate limit to the public API.",
-		Repositories: []api.DraftSelection{
-			{Repository: "api", Access: domain.TaskAccessReadWrite},
-			{Repository: "store", Access: domain.TaskAccessReadOnly},
-		},
+	// Every repository the project configures, at the access it declares, which
+	// is what the preparation screen proposes. Naming two of them here would
+	// mean a fixture with more could never be launched.
+	project, err := service.Project(context.Background(), arranged.ref.Project)
+	if err != nil {
+		return err
+	}
+	var selected []api.DraftSelection
+	for _, repository := range project.Repositories {
+		switch repository.DefaultAccess {
+		case domain.DefaultAccessReadOnly:
+			selected = append(selected, api.DraftSelection{
+				Repository: repository.ID, Access: domain.TaskAccessReadOnly,
+			})
+		case domain.DefaultAccessOmitted:
+		default:
+			selected = append(selected, api.DraftSelection{
+				Repository: repository.ID, Access: domain.TaskAccessReadWrite,
+			})
+		}
+	}
+
+	_, err = service.UpdateDraft(context.Background(), arranged.ref.Task, api.DraftUpdate{
+		Title:        "Add a rate limit",
+		Brief:        "Add a rate limit to the public API.",
+		Repositories: selected,
 	})
 	return err
 }
