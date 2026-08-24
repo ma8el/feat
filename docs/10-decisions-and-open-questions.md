@@ -3529,6 +3529,15 @@ Docker socket this product's headline denies the agent.
 
 What external adapter protocol is justified after internal interfaces have stabilized? Do not define it speculatively.
 
+**Open, with one candidate declined for one use.** MCP is the first concrete
+answer this question has had, and ADR-071 declines it as the tracker's mechanism:
+it carries transport and discovery rather than a shared ticket vocabulary, so it
+moves a per-provider mapping behind a protocol instead of removing it, while
+adding a server process and session state to the only writer. That is an argument
+about one use rather than about the protocol, and the same ADR records where MCP
+would be the right implementation — an adapter somebody schedules, where a
+maintained mapping is what it buys. The question stays open.
+
 ### OQ-010 — Mobile product scope
 
 Which remote actions users actually perform on a phone remains a product discovery question. Do not build native mobile apps before PWA usage evidence.
@@ -5508,6 +5517,26 @@ cheaper than an adapter, and it declines a liability an adapter takes on, which
 is that another tool's JSON field names become Feat's compatibility problem the
 day they change. An adapter in Go is not forbidden; it is not scheduled, and
 whoever schedules one should say what it buys beyond a mapping.
+
+These trackers publish MCP servers, and using one instead was considered. It does
+not remove the mapping. MCP carries transport and discovery rather than a shared
+ticket vocabulary, so each server names its own tools and shapes its own results,
+and Feat would map per provider exactly as an adapter does — the cost is not
+avoided, only moved behind a protocol. What the protocol adds is a server process
+to supervise and session state to hold, inside the daemon that is the only
+writer, against `exec.Command` and a JSON decode. A credential still has to live
+somewhere, which is evidence 5. And a client for an external adapter protocol is
+the question OQ-009 holds open, under an instruction not to define one
+speculatively.
+
+Where an MCP server would be right is as the implementation of an adapter
+somebody schedules, because what it buys beyond a mapping is a *maintained* one:
+the service's own team tracking their own API, rather than Feat carrying a client
+for it. Until then a command that wants one can drive it without Feat knowing.
+Handing the server to the agent instead is a different proposal and is refused by
+ADR-070's inbound argument — a ticket the agent fetches never passes the
+confirmation step, so text written by whoever filed it becomes the agent's
+instructions unread, and Feat cannot record a ticket it never saw.
 
 Consequence: `internal/config` gains a tracker section, carrying a kind and a
 command, and a per-repository forge; `schema/` gains
