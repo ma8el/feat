@@ -297,6 +297,8 @@ linters:
             - pkg: github.com/ma8el/feat/internal/daemon
             - pkg: github.com/ma8el/feat/internal/execution
               desc: a gate runs a command through a Runner; where that is is the daemon's to decide
+            - pkg: github.com/ma8el/feat/internal/forge
+              desc: this package decides whether a publication may run; opening it is the adapter's
             - pkg: github.com/ma8el/feat/internal/git
               desc: change summaries are Git's own answers and belong to its adapter
             - pkg: github.com/ma8el/feat/internal/notify
@@ -306,6 +308,46 @@ linters:
             - pkg: github.com/ma8el/feat/internal/runtime
             - pkg: github.com/ma8el/feat/internal/store
               desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/tmux
+            - pkg: github.com/ma8el/feat/internal/ui
+            - pkg: github.com/charmbracelet
+            - pkg: github.com/spf13/cobra
+
+        # ADR-070: internal/forge is an adapter under the rule ADR-029
+        # established for Git and ADR-032 for the agent. It receives final
+        # values — a directory, a remote, two branches, and the words the user
+        # approved — and returns where the request can be read. It reads no
+        # configuration and no persistent state, because the daemon composes the
+        # request and the daemon writes down what came of it: an adapter that
+        # recorded its own result would be a second answer to what a task
+        # published (ADR-008, ADR-073).
+        #
+        # internal/git is denied with the rest. Pushing is Git's and stays in its
+        # own adapter, where the argument vectors, the environment, and the hook
+        # suppression already are; a forge adapter never runs git.
+        forge-stays-an-adapter:
+          files:
+            - "**/internal/forge/**"
+          deny:
+            - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/api
+            - pkg: github.com/ma8el/feat/internal/cli
+            - pkg: github.com/ma8el/feat/internal/client
+            - pkg: github.com/ma8el/feat/internal/config
+              desc: the daemon reads configuration and hands the adapter final values
+            - pkg: github.com/ma8el/feat/internal/control
+            - pkg: github.com/ma8el/feat/internal/daemon
+            - pkg: github.com/ma8el/feat/internal/execution
+            - pkg: github.com/ma8el/feat/internal/git
+              desc: pushing is Git's and stays in its adapter; a forge adapter never runs git
+            - pkg: github.com/ma8el/feat/internal/notify
+            - pkg: github.com/ma8el/feat/internal/project
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/resources
+            - pkg: github.com/ma8el/feat/internal/review
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only writer of persistent state, and a forge records nothing
             - pkg: github.com/ma8el/feat/internal/tmux
             - pkg: github.com/ma8el/feat/internal/ui
             - pkg: github.com/charmbracelet
@@ -533,6 +575,7 @@ linters:
             - "!**/internal/cli/**"
             - "!**/internal/daemon/**"
             - "!**/internal/execution/**"
+            - "!**/internal/forge/**"
             - "!**/internal/git/**"
             - "!**/internal/notify/**"
             - "!**/internal/project/**"

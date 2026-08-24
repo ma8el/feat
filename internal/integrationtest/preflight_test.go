@@ -84,6 +84,8 @@ func probe(tool integrationtest.Tool) error {
 		return answers(ctx, tmux.Executable, "-V")
 	case integrationtest.Claude:
 		return answers(ctx, "claude", "--version")
+	case integrationtest.Glab:
+		return answers(ctx, "glab", "--version")
 	case integrationtest.Notify:
 		// The notifier is asked rather than looked up on PATH: what it needs is
 		// per-platform, and the build that has no notifier at all answers this
