@@ -261,7 +261,7 @@ func TestDefaultsAreFilledIn(t *testing.T) {
 		{"branch template", loaded.Git.BranchTemplate, "feat/{task_key}-{slug}"},
 		{"agent provider", loaded.Agent.Provider, config.ProviderClaude},
 		{"docker capability", loaded.Agent.Capabilities.Docker, config.CapabilityDenied},
-		{"github cli", loaded.Agent.Capabilities.GitHubCLI, config.CLIDisabled},
+		{"network capability", loaded.Agent.Capabilities.Network, config.CapabilityUnrestricted},
 	} {
 		if field.got != field.want {
 			t.Errorf("%s = %q, want %q", field.name, field.got, field.want)

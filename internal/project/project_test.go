@@ -474,7 +474,6 @@ func TestUncheckableChecksAreSkippedRatherThanPassed(t *testing.T) {
 		"agent.executable",
 		"agent.execution.user",
 		"agent.capabilities.docker",
-		"agent.capabilities.gitlab_cli",
 	} {
 		found := finding(t, findings, check)
 		if found.Severity != project.SeveritySkipped {
@@ -503,20 +502,6 @@ func TestUncheckableChecksAreSkippedRatherThanPassed(t *testing.T) {
 		t.Errorf("checks.api.test does not say what would let it run: %q", gate.Action)
 	}
 
-	// An optional provider CLI is skipped for the same reason as the rest: this
-	// build cannot look inside the environment where the agent would run it.
-	if got := finding(t, findings, "agent.capabilities.github_cli").Severity; got != project.SeveritySkipped {
-		t.Errorf("an optional provider CLI is %q, want skipped", got)
-	}
-
-	// A capability that is switched off is genuinely checked: there is nothing
-	// to validate, so reporting it as skipped would be its own kind of lie.
-	disabled := arrange(t)
-	rewrite(t, disabled, "    github_cli: optional", "    github_cli: disabled")
-	if got := finding(t, disabled.only(t, disabled.diagnose(t)).Findings,
-		"agent.capabilities.github_cli").Severity; got != project.SeverityOK {
-		t.Errorf("a disabled provider CLI is %q, want ok", got)
-	}
 }
 
 // rewrite edits the arranged configuration in place.
@@ -560,8 +545,6 @@ func TestHostModeChecksTheEnvironmentTheAgentWillRunIn(t *testing.T) {
 
 	for _, check := range []string{
 		"agent.executable",
-		"agent.capabilities.github_cli",
-		"agent.capabilities.gitlab_cli",
 	} {
 		found := finding(t, findings, check)
 		if found.Severity == project.SeveritySkipped {
@@ -643,47 +626,23 @@ func TestADevcontainerProjectNamesTheHostAgentOverride(t *testing.T) {
 	}
 }
 
-func TestAMissingRequiredProviderCLIFailsDoctorAndAnOptionalOneWarns(t *testing.T) {
+// TestNoProviderCLICheckAsksTheAgentEnvironment is the absence ADR-075 leaves
+// behind. `feat doctor` asks the host whether it can publish, and asks nothing
+// of the agent's environment about `gh` or `glab`: the credential is on the
+// host, so a CLI the project installed in its own container is its business.
+func TestNoProviderCLICheckAsksTheAgentEnvironment(t *testing.T) {
 	w := arrange(t)
 	hostMode(t, w)
 	w.runner.missing["glab"] = true
 	w.runner.missing["gh"] = true
 
-	findings := w.only(t, w.diagnose(t)).Findings
-
-	// The fixture makes glab required and gh optional, and the difference has to
-	// show: one stops a launch and the other does not.
-	required := finding(t, findings, "agent.capabilities.gitlab_cli")
-	if required.Severity != project.SeverityError {
-		t.Errorf("a missing required CLI is %q, want an error", required.Severity)
-	}
-	if !strings.Contains(required.Action, "install glab") {
-		t.Errorf("action = %q, want it to name the remedy", required.Action)
-	}
-
-	optional := finding(t, findings, "agent.capabilities.github_cli")
-	if optional.Severity != project.SeverityWarning {
-		t.Errorf("a missing optional CLI is %q, want a warning", optional.Severity)
-	}
-}
-
-func TestAnUnauthenticatedProviderCLIIsDistinguishedFromAnAbsentOne(t *testing.T) {
-	w := arrange(t)
-	hostMode(t, w)
-	w.runner.failing["glab auth status"] = true
-
-	found := finding(t, w.only(t, w.diagnose(t)).Findings, "agent.capabilities.gitlab_cli")
-	if found.Severity != project.SeverityError {
-		t.Errorf("an unauthenticated required CLI is %q, want an error", found.Severity)
-	}
-	// Installed and unauthenticated are different states with different
-	// remedies, and a diagnostic that conflated them would send the user to
-	// install something they already have.
-	if !strings.Contains(found.Summary, "not authenticated") {
-		t.Errorf("summary = %q, want it to say the tool is unauthenticated", found.Summary)
-	}
-	if !strings.Contains(found.Action, "glab auth login") {
-		t.Errorf("action = %q, want it to name the login command", found.Action)
+	report := w.only(t, w.diagnose(t))
+	for _, check := range []string{"agent.capabilities.github_cli", "agent.capabilities.gitlab_cli"} {
+		for _, found := range report.Findings {
+			if found.Check == check {
+				t.Errorf("%s is still reported: %q", check, found.Summary)
+			}
+		}
 	}
 }
 
@@ -970,7 +929,7 @@ func TestALiveContainerIsCheckedInsteadOfBeingSkipped(t *testing.T) {
 
 	findings := w.only(t, w.diagnose(t)).Findings
 
-	for _, check := range []string{"agent.executable", "agent.execution.user", "agent.capabilities.gitlab_cli"} {
+	for _, check := range []string{"agent.executable", "agent.execution.user"} {
 		found := finding(t, findings, check)
 		if found.Severity == project.SeveritySkipped {
 			t.Errorf("%s was skipped although a container of the project is running: %q", check, found.Summary)

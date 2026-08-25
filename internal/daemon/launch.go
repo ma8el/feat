@@ -165,10 +165,8 @@ func (s *service) planContainerAgent(
 	}
 
 	env := agent.Environment{
-		Mode:      domain.ExecutionDevcontainer,
-		Runner:    containerRunner{environment: environment},
-		GitHubCLI: agent.CapabilityLevel(cfg.Agent.Capabilities.GitHubCLI),
-		GitLabCLI: agent.CapabilityLevel(cfg.Agent.Capabilities.GitLabCLI),
+		Mode:   domain.ExecutionDevcontainer,
+		Runner: containerRunner{environment: environment},
 	}
 	if err := s.agent.Validate(ctx, env); err != nil {
 		return launchPlan{}, fmt.Errorf("%w: task %s cannot start its agent: %w", api.ErrInvalid, task.ID, err)
@@ -309,8 +307,6 @@ func (s *service) planAgent(
 		Mode:                      mode,
 		OutsideConfiguredBoundary: outsideBoundary,
 		Runner:                    s.runner,
-		GitHubCLI:                 agent.CapabilityLevel(cfg.Agent.Capabilities.GitHubCLI),
-		GitLabCLI:                 agent.CapabilityLevel(cfg.Agent.Capabilities.GitLabCLI),
 	}
 	if err := s.agent.Validate(ctx, env); err != nil {
 		return launchPlan{}, fmt.Errorf("%w: task %s cannot start its agent: %w", api.ErrInvalid, task.ID, err)

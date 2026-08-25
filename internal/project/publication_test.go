@@ -58,10 +58,10 @@ func TestAProjectThatPublishesNowhereIsAskedNothingAboutPublishing(t *testing.T)
 
 // TestTheHostIsAskedWhetherItCanPublish is the check nothing else makes.
 //
-// agent.capabilities.gitlab_cli describes the agent's environment and is probed
-// inside the container on a devcontainer project, so it answers a different
-// question about a different machine. Publication runs on the host in both
-// modes, and this is the only thing that asks the host (ADR-070, ADR-074).
+// Publication runs on the host in both execution modes, and since ADR-075 no
+// other check asks any machine about `gh` or `glab`, so a project configured for
+// a forge would otherwise pass every check and fail at the merge request
+// (ADR-070, ADR-074).
 func TestTheHostIsAskedWhetherItCanPublish(t *testing.T) {
 	w := arrange(t)
 	forged(t, w, "api", "gitlab")

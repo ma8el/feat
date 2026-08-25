@@ -164,13 +164,15 @@ The agent's own execution environment publishes nothing: the generated execution
 
 ## GitHub and GitLab capabilities
 
-Git-provider access is independent from Docker access. There are two modes, and they differ by which side of the boundary the credential is on.
+Git-provider access is independent from Docker access. There is one mode: the credential stays on the trusted host.
 
-### Host-side, which is the recommended mode
+### Host-side, which is the only mode Feat implements
 
-The daemon makes every credentialed provider call on the trusted host, with the `gh` or `glab` authentication the user already has there. Fetching tickets, pushing a task's branch, and opening a PR/MR are all either before a task exists or after the agent has stopped, so none of them needs a credential inside the agent environment, and `agent.capabilities.github_cli` and `gitlab_cli` stay `disabled`.
+The daemon makes every credentialed provider call on the trusted host, with the `gh` or `glab` authentication the user already has there. Fetching tickets, pushing a task's branch, and opening a PR/MR are all either before a task exists or after the agent has stopped, so none of them needs a credential inside the agent environment.
 
-What that declaration is worth depends on the execution mode. In a devcontainer it has an effect: a credential the project does not mount is not in the agent's environment. Host-native execution has no inside. An agent launched by `FEAT_HOST_AGENT` runs as the user and inherits the user's environment, so it reaches whatever provider authentication the user has and can call the provider's API directly; there, `disabled` describes intent rather than enforcement, and `feat doctor` says so when the daemon is running host-native. Publication stays host-side in both modes, but for record-keeping rather than containment (ADR-070) — so in a devcontainer the approval step is what stops the agent publishing, and on the host it is what makes Feat's own publication one the user read.
+Feat therefore declares nothing about a provider CLI in the agent's environment. It used to: `agent.capabilities.github_cli` and `gitlab_cli` named a level, and a `required` one was probed inside the container before a launch. Both are removed (ADR-075). What they gated was a mode Feat no longer builds on, and Feat neither installs such a CLI nor supplies it a credential, so the declaration described a setup the project made for itself and Feat could only re-check.
+
+A project remains free to install `gh` or `glab` in its own image and mount its own credential. Feat does not prevent it, does not check it, and does not report it, and the exposure below is the reason it is not recommended. Publication stays host-side either way, but for record-keeping rather than containment (ADR-070) — so in a devcontainer the approval step is what stops the agent publishing, and on the host it is what makes Feat's own publication one the user read. Host-native execution has no inside at all: an agent launched by `FEAT_HOST_AGENT` runs as the user and reaches whatever provider authentication the user has, which `feat doctor` says when the daemon is running host-native.
 
 Where the agent's knowledge is needed — the title and description of a PR/MR — it is carried as data. The agent writes a publication draft into the control workspace, requiring no capability because it asks for nothing, and the user reads and edits it before the host sends anything. That review is a control rather than a convenience: the description is agent-authored text bound for somewhere durable, and it can carry anything the agent read.
 
@@ -182,18 +184,11 @@ Disabling hooks is not free for every reader of this document. A `pre-push` hook
 
 See ADR-070 and OQ-015.
 
-### In the agent environment
+### A credential in the agent environment, which Feat does not manage
 
-When a project enables it:
+A project that puts a provider credential inside its own agent environment takes on what follows, and Feat states it rather than declaring the arrangement unsupported: an agent with provider credentials can mutate remote repositories within token scope. Least-privilege credentials bound that scope, and scope is not the whole of the exposure. General internet is allowed and Feat claims no data-loss prevention, so a token in the agent environment is a durable secret reachable by any prompt injection, including one arriving in the issue body `gh` just fetched.
 
-- `gh`/`glab` may be installed in the agent environment;
-- authentication may be mounted, injected, or provided by the user's environment;
-- Feat validates authentication where possible;
-- Claude may push, create PRs/MRs, comment, label, or perform other operations allowed by the credential and user prompt.
-
-The security impact is explicit: an agent with provider credentials can mutate remote repositories within token scope. Least-privilege credentials are recommended. Feat does not automatically merge in initial versions.
-
-A least-privilege token bounds scope, and scope is not the whole of the exposure. General internet is allowed and Feat claims no data-loss prevention, so a token in the agent environment is a durable secret reachable by any prompt injection, including one arriving in the issue body `gh` just fetched. That is the reason the host-side mode exists, and the reason it is the recommended one.
+That is why publication is host-side, and why Feat removed the fields that made an agent-side credential look like a configuration Feat supported (ADR-075). Feat does not automatically merge in initial versions.
 
 ## Claude authentication and state
 

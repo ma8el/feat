@@ -27,7 +27,7 @@ A project MUST identify a primary editable repository/workspace used as the defa
 - Docker Compose availability when configured;
 - configured Compose files and service names;
 - agent executable and user identity in the selected execution environment;
-- optional `gh` and `glab` installation/authentication in the environment where Claude will use them;
+- `gh` or `glab` installation/authentication on the trusted host, per forge the project's repositories declare, because that is where publication runs (ADR-075);
 - review commands.
 
 It MUST redact secret values and SHOULD show resolved paths and commands.

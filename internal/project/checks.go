@@ -297,9 +297,6 @@ func (c *checker) checkAgentEnvironment(ctx context.Context) {
 		c.checkHostCapabilities()
 		c.checkHostDockerCapability()
 		c.checkAgentExecutable(ctx)
-		for _, capability := range providerCLIs(c.config) {
-			c.checkProviderCLI(ctx, capability)
-		}
 		return
 	}
 
@@ -321,9 +318,6 @@ func (c *checker) checkAgentEnvironment(ctx context.Context) {
 	}
 	c.checkContainerDockerCapability(ctx)
 	c.checkAgentExecutable(ctx)
-	for _, capability := range providerCLIs(c.config) {
-		c.checkProviderCLI(ctx, capability)
-	}
 	c.runner = host
 
 	c.checkContainerUser(ctx, container)
@@ -446,55 +440,6 @@ func (c *checker) checkAgentExecutable(ctx context.Context) {
 	c.ok(check, fmt.Sprintf("%s, version %s", path, version))
 }
 
-// checkProviderCLI reports whether a provider CLI is installed and
-// authenticated.
-func (c *checker) checkProviderCLI(ctx context.Context, capability providerCLI) {
-	if capability.level == config.CLIDisabled {
-		c.ok(capability.field, "disabled")
-		return
-	}
-
-	// An optional CLI that is absent is a note; a required one that is absent
-	// stops a launch, so `feat doctor` says so before the user finds out at
-	// launch time.
-	report := c.warn
-	if capability.level == config.CLIRequired {
-		report = c.fail
-	}
-
-	if _, err := c.runner.Look(capability.tool); errors.Is(err, ErrNotInstalled) {
-		report(capability.field,
-			fmt.Sprintf("%s is %s, and it is not installed", capability.tool, capability.level),
-			fmt.Sprintf("install %s, or set %s to disabled", capability.tool, capability.field))
-		return
-	} else if err != nil {
-		report(capability.field, fmt.Sprintf("%s could not be resolved: %v", capability.tool, err), "check the PATH")
-		return
-	}
-
-	if _, err := c.runner.Run(ctx, "", capability.tool, "auth", "status"); err != nil {
-		report(capability.field,
-			fmt.Sprintf("%s is %s, and it is not authenticated", capability.tool, capability.level),
-			fmt.Sprintf("run `%s auth login`", capability.tool))
-		return
-	}
-	c.ok(capability.field, fmt.Sprintf("%s is installed and authenticated", capability.tool))
-}
-
-// providerCLI is one configured provider-CLI capability.
-type providerCLI struct {
-	field string
-	tool  string
-	level string
-}
-
-func providerCLIs(cfg *config.Config) []providerCLI {
-	return []providerCLI{
-		{"agent.capabilities.github_cli", "gh", cfg.Agent.Capabilities.GitHubCLI},
-		{"agent.capabilities.gitlab_cli", "glab", cfg.Agent.Capabilities.GitLabCLI},
-	}
-}
-
 // noContainer is why the devcontainer checks did not run.
 //
 // It names the condition rather than a missing capability, because the check
@@ -522,17 +467,6 @@ func (c *checker) skipAgentEnvironmentChecks() {
 		fmt.Sprintf("%s: the devcontainer is not checked for a client that speaks a container runtime's API: %s",
 			c.config.Agent.Capabilities.Docker, reason),
 		noContainer)
-
-	for _, capability := range providerCLIs(c.config) {
-		if capability.level == config.CLIDisabled {
-			c.ok(capability.field, "disabled")
-			continue
-		}
-		c.skip(capability.field,
-			fmt.Sprintf("%s is %s, and its installation and authentication in the devcontainer are not checked: %s",
-				capability.tool, capability.level, reason),
-			noContainer)
-	}
 }
 
 // checkRuntime checks the application runtime inputs.
@@ -678,14 +612,12 @@ func (c *checker) checkReviewCommands() {
 // checkPublication reports whether this machine can publish what the project
 // declares.
 //
-// Nothing else asks. `agent.capabilities.gitlab_cli` and `github_cli` describe
-// the agent's environment — in a devcontainer they are probed inside the
-// container, and ADR-070 expects them to be `disabled` — so on a project that
-// publishes through the host they answer a different question about a different
-// machine. Without this, a project could be configured for a forge, pass every
-// check, and then push a branch and fail to open the merge request because the
-// host has no `glab` or is logged out. What Feat cannot do is better learned
-// when the user asks whether the project is configured (ADR-070, ADR-074).
+// Nothing else asks, and nothing else needs to: publication runs here, so this
+// machine is the only one whose `gh` or `glab` matters (ADR-075). Without this,
+// a project could be configured for a forge, pass every check, and then push a
+// branch and fail to open the merge request because the host has no `glab` or is
+// logged out. What Feat cannot do is better learned when the user asks whether
+// the project is configured (ADR-070, ADR-074).
 //
 // It is asked once per forge the repositories declare rather than once per
 // repository: the answer is about this machine, and a project with five GitLab

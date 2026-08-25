@@ -296,8 +296,8 @@ published", and the two never read alike.
 `feat doctor` checks that this machine can publish what the project declares:
 that the forge's command line is installed and authenticated here, and that Feat
 has an adapter for the forge at all. It asks the host in both execution modes,
-because that is where publication runs — `agent.capabilities.gitlab_cli`
-describes the agent's own environment and answers a different question.
+because that is where publication runs, and nothing asks the agent's own
+environment about `gh` or `glab` — the credential is here, not there.
 
 The push runs with hooks, the pager, and external diff commands disabled, because
 a task's worktrees share `.git/hooks` with your own checkout and the agent can

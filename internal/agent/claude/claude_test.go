@@ -645,67 +645,12 @@ func TestACheckStatusIsNeverGuessed(t *testing.T) {
 	}
 }
 
-// TestMissingRequiredProviderCLIPreventsLaunch is the adapter half of
-// FR-PROJ-004's rule that a missing required provider CLI stops a launch. The
-// daemon half, which proves nothing was created, lives in internal/daemon.
-func TestMissingRequiredProviderCLIPreventsLaunch(t *testing.T) {
-	installed := agent.Output{Stdout: "2.1.220 (Claude Code)"}
-
-	t.Run("absent", func(t *testing.T) {
-		runner := agenttest.New().
-			Answer(installed, "claude", "--version").
-			Absent("glab", "auth", "status")
-
-		err := claude.New().Validate(context.Background(), agent.Environment{
-			Mode: domain.ExecutionHost, Runner: runner, GitLabCLI: agent.CapabilityRequired,
-		})
-		if err == nil {
-			t.Fatal("launch validation passed with a required CLI absent")
-		}
-		for _, want := range []string{"glab", "agent.capabilities.gitlab_cli", "optional"} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("message = %q, want it to mention %q", err, want)
-			}
-		}
-	})
-
-	t.Run("unauthenticated", func(t *testing.T) {
-		runner := agenttest.New().
-			Answer(installed, "claude", "--version").
-			Fail(1, "not logged in to gitlab.com", "glab", "auth", "status")
-
-		err := claude.New().Validate(context.Background(), agent.Environment{
-			Mode: domain.ExecutionHost, Runner: runner, GitLabCLI: agent.CapabilityRequired,
-		})
-		if err == nil {
-			t.Fatal("launch validation passed with a required CLI unauthenticated")
-		}
-		// The message has to name the remedy, or the user is told only that
-		// something is wrong.
-		for _, want := range []string{"glab auth login", "not authenticated", "not logged in to gitlab.com"} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("message = %q, want it to mention %q", err, want)
-			}
-		}
-	})
-
-	t.Run("optional is not required", func(t *testing.T) {
-		runner := agenttest.New().
-			Answer(installed, "claude", "--version").
-			Absent("gh", "auth", "status")
-
-		// An optional capability that is missing is `feat doctor`'s business.
-		// Failing a launch over it would make "optional" mean nothing.
-		if err := claude.New().Validate(context.Background(), agent.Environment{
-			Mode: domain.ExecutionHost, Runner: runner, GitHubCLI: agent.CapabilityOptional,
-		}); err != nil {
-			t.Errorf("launch validation failed on an optional CLI: %v", err)
-		}
-		if runner.Ran("gh", "auth", "status") {
-			t.Error("launch probed an optional CLI; only a required one blocks a launch")
-		}
-	})
-
+// TestValidateAsksOnlyAboutTheAgentExecutable is the adapter half of
+// FR-PROJ-004. Launch validation used to probe `gh` and `glab` here too, for a
+// project that declared one required in the agent's environment; publication
+// runs on the trusted host now, so the only thing that stops a launch is an
+// agent that could not start (ADR-075).
+func TestValidateAsksOnlyAboutTheAgentExecutable(t *testing.T) {
 	t.Run("a missing agent executable is named", func(t *testing.T) {
 		err := claude.New().Validate(context.Background(), agent.Environment{
 			Mode: domain.ExecutionHost, Runner: agenttest.New().Absent("claude", "--version"),
@@ -715,6 +660,26 @@ func TestMissingRequiredProviderCLIPreventsLaunch(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "claude") || !strings.Contains(err.Error(), "not installed") {
 			t.Errorf("message = %q, want it to name the missing executable", err)
+		}
+	})
+
+	// A provider CLI the project installed itself is not Feat's business, and
+	// an unauthenticated one is not a reason to refuse a task.
+	t.Run("an unauthenticated provider CLI does not stop a launch", func(t *testing.T) {
+		runner := agenttest.New().
+			Answer(agent.Output{Stdout: "2.1.220 (Claude Code)"}, "claude", "--version").
+			Absent("glab", "auth", "status").
+			Absent("gh", "auth", "status")
+
+		if err := claude.New().Validate(context.Background(), agent.Environment{
+			Mode: domain.ExecutionHost, Runner: runner,
+		}); err != nil {
+			t.Errorf("launch validation failed over a provider CLI: %v", err)
+		}
+		for _, tool := range []string{"gh", "glab"} {
+			if runner.Ran(tool, "auth", "status") {
+				t.Errorf("launch probed %s; the host holds the credential, not the agent", tool)
+			}
 		}
 	})
 }

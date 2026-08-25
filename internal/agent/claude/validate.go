@@ -29,58 +29,14 @@ func (a Adapter) Validate(ctx context.Context, env agent.Environment) error {
 	// An unverified version is deliberately not a failure here: it is a reason
 	// to be careful, which `feat doctor` reports, and refusing to launch on one
 	// would make every Claude release an outage until Feat caught up.
+	//
+	// Nothing else is asked. `gh` and `glab` used to be probed here, because a
+	// project could declare them required in the agent's environment; publication
+	// runs on the trusted host now, so a provider CLI inside the container is a
+	// thing the project may install and Feat has no business gating a launch on
+	// (ADR-075).
 	if _, err := a.Version(ctx, env); err != nil {
 		return err
-	}
-
-	var problems []error
-	for _, capability := range []struct {
-		level    agent.CapabilityLevel
-		tool     string
-		field    string
-		remedy   string
-		authArgs []string
-	}{
-		{env.GitHubCLI, "gh", "agent.capabilities.github_cli", "gh auth login", []string{"auth", "status"}},
-		{env.GitLabCLI, "glab", "agent.capabilities.gitlab_cli", "glab auth login", []string{"auth", "status"}},
-	} {
-		if capability.level != agent.CapabilityRequired {
-			// Optional and disabled capabilities are `feat doctor`'s business.
-			// Launch fails only for what the project said it cannot work
-			// without (docs/07-configuration-model.md).
-			continue
-		}
-		if err := probeCLI(ctx, env, capability.tool, capability.authArgs, capability.field, capability.remedy); err != nil {
-			problems = append(problems, err)
-		}
-	}
-	return errors.Join(problems...)
-}
-
-// probeCLI reports whether a required provider CLI is installed and
-// authenticated in the agent's environment.
-func probeCLI(ctx context.Context, env agent.Environment, tool string, args []string, field, remedy string) error {
-	output, err := env.Runner.Run(ctx, agent.Command{Program: tool, Arguments: args})
-	if errors.Is(err, agent.ErrNotInstalled) {
-		return fmt.Errorf(
-			"%s is required by %s, and %s is not installed %s: install it or set %s to optional",
-			tool, field, tool, where(env), field)
-	}
-	if err != nil {
-		return fmt.Errorf("checking whether %s is authenticated %s: %w", tool, where(env), err)
-	}
-	if !output.Succeeded() {
-		detail := firstLine(output.Stderr)
-		if detail == "" {
-			detail = firstLine(output.Stdout)
-		}
-		message := fmt.Sprintf(
-			"%s is required by %s, and it is not authenticated %s: run %s",
-			tool, field, where(env), remedy)
-		if detail != "" {
-			message += " (" + tool + " reported: " + detail + ")"
-		}
-		return errors.New(message)
 	}
 	return nil
 }

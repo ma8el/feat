@@ -419,9 +419,9 @@ The Claude adapter:
 - asks the agent, where the project configures a forge, for the merge request it
   proposes per repository — a title, a description, and the commit each one
   describes — as a control message that asks for nothing;
-- supports direct `gh`/`glab` usage when configured and authenticated, which is a
-  path a project may configure rather than the one publication is built on
-  (ADR-070).
+- declares nothing about `gh`/`glab` in the agent environment and probes neither
+  there: publication runs on the trusted host, so a provider CLI a project
+  installs in its own image is that project's business (ADR-070, ADR-075).
 
 Implementation must verify exact supported Claude CLI flags and hook schemas against the installed/supported Claude Code version. Provider-specific flags must remain inside the adapter.
 

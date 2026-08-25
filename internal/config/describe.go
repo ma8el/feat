@@ -204,8 +204,6 @@ func (c *Config) describeAgent() Section {
 			Note: "Feat does not provide network data-loss prevention"},
 		Field{Name: "capabilities.git", Value: c.Agent.Capabilities.Git,
 			Note: "a native worktree shares repository metadata with the agent"},
-		Field{Name: "capabilities.github_cli", Value: c.Agent.Capabilities.GitHubCLI},
-		Field{Name: "capabilities.gitlab_cli", Value: c.Agent.Capabilities.GitLabCLI},
 	)
 	return Section{Title: "agent", Fields: fields}
 }

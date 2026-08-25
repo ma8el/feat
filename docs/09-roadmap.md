@@ -162,10 +162,10 @@ Host-side execution is the recommended mode and the one built first, because it
 is the only mode that needs no provider credential inside the agent environment
 (ADR-070). Committing stays the agent's, as it already is under full Git access;
 what moves to the host is everything that reaches a remote. Native `gh`/`glab`
-inside the agent environment remains a path a project may configure, and Feat
-validates the capability it was told about, but it is no longer what the loop is
-built on. This reverses the note first recorded here, which made container-side
-native CLI access first-class and host-side execution a possible second mode.
+inside the agent environment is something a project may still install for itself,
+and since ADR-075 Feat declares nothing about it and validates nothing there.
+This reverses the note first recorded here, which made container-side native CLI
+access first-class and host-side execution a possible second mode.
 
 One capability recorded here goes away with that reversal rather than being
 dropped. Discovering one MR/PR per changed repository was needed because the

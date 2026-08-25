@@ -139,7 +139,6 @@ func TestTheFlowComposesAConfigurationFromWhatItIsTold(t *testing.T) {
 		"",        // default access: read_write
 		"n",       // no second repository
 		"",        // execution mode: host
-		"",        // provider CLI: none
 		"n",       // no application services
 		"go test ./...",
 		"", // check name: go-test
@@ -340,7 +339,7 @@ func TestTheDevcontainerQuestionsFollowTheMode(t *testing.T) {
 	if err := flow.Answer(context.Background(), "root"); err == nil {
 		t.Error("the agent was allowed to run as root in the devcontainer")
 	}
-	answers(t, flow, "developer", "/srv/api", "y", "feat-claude", "gh", "n", "")
+	answers(t, flow, "developer", "/srv/api", "y", "feat-claude", "n", "")
 
 	if !flow.Complete() {
 		question, _ := flow.Step()
@@ -375,7 +374,6 @@ func TestTheApplicationIsAnsweredOneRepositoryAtATime(t *testing.T) {
 		"",    // default access: read_write
 		"n",   // no second repository
 		"",    // execution mode: host, which has no agent container at all
-		"",    // provider CLI: none
 		"y",   // the project runs application services
 	)
 
@@ -469,7 +467,6 @@ func TestBlankFinishesAFileLoop(t *testing.T) {
 		"",    // default access: read_write
 		"n",   // no second repository
 		"",    // execution mode: host
-		"",    // provider CLI: none
 		"y",   // the project runs application services
 		"y",   // api brings Compose files
 	)

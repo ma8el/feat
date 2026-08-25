@@ -130,10 +130,6 @@ func TestValidationRejectsUnsafeConfiguration(t *testing.T) {
 			old: "    network: unrestricted", new: "    network: allowlist",
 			path: "agent.capabilities.network", contains: "does not implement network restriction",
 		},
-		"provider cli level is unknown": {
-			old: "    gitlab_cli: required", new: "    gitlab_cli: maybe",
-			path: "agent.capabilities.gitlab_cli", contains: "not a capability level",
-		},
 		"runtime start policy is automatic": {
 			old: "  start_policy: manual", new: "  start_policy: automatic",
 			path: "runtime.start_policy", contains: "explicit user action",

@@ -47,7 +47,7 @@ Writing the file by hand is the same workflow without the first five steps: copy
 Either way:
 
 1. `feat doctor` validates paths and required executables on the host.
-2. For devcontainer execution, Feat validates the configured service, non-root user, Claude executable, required mounts, and optional `gh`/`glab` availability inside the environment.
+2. For devcontainer execution, Feat validates the configured service, non-root user, Claude executable, and required mounts inside the environment. `gh`/`glab` are validated on the host instead, where publication runs (ADR-075).
 3. Feat resolves and prints the effective configuration without printing secret values.
 4. The user registers the project.
 

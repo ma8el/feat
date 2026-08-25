@@ -62,7 +62,6 @@ func devcontainerDraft() Draft {
 		User:               "developer",
 		ClaudeConfigVolume: "feat-claude",
 	}
-	draft.Capabilities = DraftCapabilities{GitHubCLI: CLIOptional}
 	draft.Runtime = &DraftRuntime{EnvFiles: []string{"/checkouts/api/.env"}}
 	draft.Checks = []DraftCheck{{
 		Repository: "api",
@@ -127,7 +126,6 @@ func TestADraftWritesWhatWasDecidedAndNothingElse(t *testing.T) {
 		"version: 1", "id: app", "primary_repository: api",
 		"host_path: /checkouts/api", "default_access: read_write", "mode: host",
 		"docker: denied", "network: unrestricted", "git: full",
-		"github_cli: disabled", "gitlab_cli: disabled",
 	} {
 		if !strings.Contains(host, present) {
 			t.Errorf("a host-mode project does not write %q:\n%s", present, host)
@@ -146,7 +144,6 @@ func TestADevcontainerDraftWritesEveryFieldItsModeNeeds(t *testing.T) {
 		"service: dev",
 		"user: developer",
 		"config_volume: feat-claude",
-		"github_cli: optional",
 		"container_path: /srv/api",
 		"container_path: /srv/store",
 		"default_access: selectable",

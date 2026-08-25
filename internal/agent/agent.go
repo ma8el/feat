@@ -48,25 +48,7 @@ type Environment struct {
 	OutsideConfiguredBoundary bool
 	// Runner executes probe commands in that environment. It is required.
 	Runner Runner
-	// GitHubCLI and GitLabCLI are the configured capability levels, already
-	// resolved from configuration by the daemon.
-	GitHubCLI CapabilityLevel
-	GitLabCLI CapabilityLevel
 }
-
-// CapabilityLevel is how strictly a provider CLI is required.
-type CapabilityLevel string
-
-// Capability levels, from docs/07-configuration-model.md.
-const (
-	// CapabilityDisabled means Feat neither expects nor validates the CLI.
-	CapabilityDisabled CapabilityLevel = "disabled"
-	// CapabilityOptional means its absence is reported and tolerated.
-	CapabilityOptional CapabilityLevel = "optional"
-	// CapabilityRequired means launch fails when it is absent or
-	// unauthenticated.
-	CapabilityRequired CapabilityLevel = "required"
-)
 
 // Runner runs one command inside an agent execution environment.
 //

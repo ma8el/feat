@@ -534,22 +534,6 @@ func (c *Config) validateCapabilities(found *problems) {
 			"is %q, and %q is the only value Feat supports: a native Git worktree shares repository metadata with the agent, which Feat does not restrict",
 			capabilities.Git, CapabilityFull))
 	}
-
-	levels := []string{CLIDisabled, CLIOptional, CLIRequired}
-	for _, capability := range []struct {
-		path  string
-		value string
-		tool  string
-	}{
-		{"agent.capabilities.github_cli", capabilities.GitHubCLI, "gh"},
-		{"agent.capabilities.gitlab_cli", capabilities.GitLabCLI, "glab"},
-	} {
-		if !contains(levels, capability.value) {
-			found.add(capability.path, fmt.Sprintf(
-				"is %q, which is not a capability level: %s. %q reports %s but never fails, and %q fails task launch when it is missing",
-				capability.value, words(levels), CLIOptional, capability.tool, CLIRequired))
-		}
-	}
 }
 
 func (c *Config) validateRuntime(found *problems) {

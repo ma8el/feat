@@ -189,7 +189,6 @@ const (
 	stageMount
 	stageClaudeVolume
 	stageVolumeName
-	stageProviderCLI
 	stageRuntimeWanted
 	// The application stages, asked once per repository: a runtime is composed
 	// of its repositories, so what it is made of is answered where the code is.
@@ -212,13 +211,6 @@ const (
 const (
 	defaultRemoteName = "origin"
 	defaultBranchName = "main"
-)
-
-// Provider CLI answers. They are the question's own words rather than
-// configuration values, because "both" is not a value the file has.
-const (
-	providerNone = "none"
-	providerBoth = "both"
 )
 
 // New builds a wizard.
@@ -496,20 +488,6 @@ func (w *Wizard) question() Question {
 			Prompt: "Volume name", Proposed: "feat-claude",
 		}
 
-	case stageProviderCLI:
-		return Question{
-			ID: "agent.provider", Section: SectionAgent, Kind: KindChoice,
-			Heading: "Provider CLI",
-			Detail: []string{
-				"The agent may have an authenticated `gh` or `glab` in its environment, to",
-				"open pull or merge requests. This declares which one to expect; Feat",
-				"reports whether it is there and never installs it.",
-			},
-			Prompt:   "Which provider CLI does the agent use?",
-			Options:  []string{providerNone, "gh", "glab", providerBoth},
-			Proposed: providerNone,
-		}
-
 	case stageRuntimeWanted:
 		return Question{
 			ID: "runtime.wanted", Section: SectionServices, Kind: KindConfirm,
@@ -706,7 +684,7 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 	case stageMode:
 		w.draft.Execution.Mode = answer
 		if answer != config.ModeDevcontainer {
-			w.stage = stageProviderCLI
+			w.stage = stageRuntimeWanted
 			break
 		}
 		w.files = nil
@@ -745,15 +723,6 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 
 	case stageVolumeName:
 		w.draft.Execution.ClaudeConfigVolume = answer
-		w.stage = stageProviderCLI
-
-	case stageProviderCLI:
-		if answer == "gh" || answer == providerBoth {
-			w.draft.Capabilities.GitHubCLI = config.CLIOptional
-		}
-		if answer == "glab" || answer == providerBoth {
-			w.draft.Capabilities.GitLabCLI = config.CLIOptional
-		}
 		w.stage = stageRuntimeWanted
 
 	case stageRuntimeCompose:
@@ -876,7 +845,7 @@ func (w *Wizard) confirmed(yes bool) error {
 			w.stage = stageVolumeName
 			return nil
 		}
-		w.stage = stageProviderCLI
+		w.stage = stageRuntimeWanted
 
 	case stageRuntimeWanted:
 		if !yes {
