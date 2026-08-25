@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -293,16 +292,82 @@ func environmentEditor(env *environment) string {
 	return fallbackEditor
 }
 
-// publicationMarker starts one repository's section of the draft.
+// publicationFenceWidth is the narrowest section marker a document uses.
+const publicationFenceWidth = 3
+
+// publicationMarker reports the repository a line names, if the line is one of
+// this document's section markers.
 //
-// It is a line nothing in a Markdown description produces by accident, and it is
-// the only structure the document has: everything after it is the words, exactly
-// as they will be sent.
-var publicationMarker = regexp.MustCompile(`^=== ([A-Za-z0-9][A-Za-z0-9._-]*) ===$`)
+// The marker is the only structure the document has: everything under it is the
+// words, exactly as they will be sent. What decides a marker is therefore the
+// fence the document was written with rather than the shape alone, because a
+// description is prose and prose can contain the shape.
+func publicationMarker(line, fence string) (string, bool) {
+	id, found := strings.CutPrefix(line, fence+" ")
+	if !found {
+		return "", false
+	}
+	id, found = strings.CutSuffix(id, " "+fence)
+	if !found || !publicationName(id) {
+		return "", false
+	}
+	return id, true
+}
+
+// publicationName reports whether a marker names something that could be a
+// repository, so that ordinary prose between two runs of "=" stays prose.
+func publicationName(id string) bool {
+	for i, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case i > 0 && (r == '.' || r == '_' || r == '-'):
+		default:
+			return false
+		}
+	}
+	return id != ""
+}
+
+// publicationFence is the marker width a plan's document uses.
+//
+// It widens until no line of any draft is one, the way a Markdown code fence
+// widens around a snippet containing backticks. The agent wrote those lines and
+// they can carry anything it read, including a line shaped exactly like a
+// marker; a fixed marker would let that line become structure, which is the one
+// thing the words must never become — it would cut a description short at the
+// injected line, refuse the whole publication because a repository then appears
+// twice, or manufacture a section for a repository the user never approved. The
+// fence makes all three unreachable from words alone.
+//
+// The reader computes it from the same drafts the writer did, so the document
+// does not have to declare it and an edited document cannot lie about it.
+func publicationFence(drafts []api.PublicationDraft) string {
+	fence := strings.Repeat("=", publicationFenceWidth)
+	for publicationMarked(drafts, fence) {
+		fence += "="
+	}
+	return fence
+}
+
+// publicationMarked reports whether any words a plan composed contain a line
+// this fence would read as a marker.
+func publicationMarked(drafts []api.PublicationDraft, fence string) bool {
+	for _, draft := range drafts {
+		for _, words := range []string{draft.Title, draft.Body} {
+			for _, line := range strings.Split(words, "\n") {
+				if _, marker := publicationMarker(strings.TrimRight(line, "\r"), fence); marker {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
 
 // publicationDocument renders the draft the user edits.
 func publicationDocument(plan api.PublicationStatus) string {
 	var b strings.Builder
+	fence := publicationFence(plan.Drafts)
 
 	fmt.Fprintf(&b, "# Publication for %s — %s\n", plan.Task.Key, plan.Task.Title)
 	b.WriteString("#\n")
@@ -310,11 +375,13 @@ func publicationDocument(plan api.PublicationStatus) string {
 	b.WriteString("# credentials. The title and the description were written by the agent: read them\n")
 	b.WriteString("# before you approve, because they can carry anything the agent read.\n")
 	b.WriteString("#\n")
-	b.WriteString("# In each section the first non-empty line is the title and everything after it is\n")
-	b.WriteString("# the description, sent exactly as it stands — including lines beginning with \"#\",\n")
-	b.WriteString("# which are Markdown headings there rather than comments. Only these lines above\n")
-	b.WriteString("# the first \"===\" marker are comments.\n")
+	b.WriteString("# In each section the line under the marker is the title and everything below it\n")
+	b.WriteString("# is the description, sent exactly as it stands — including lines beginning with\n")
+	b.WriteString("# \"#\", which are Markdown headings there rather than comments. Only these lines\n")
+	fmt.Fprintf(&b, "# above the first \"%s\" marker are comments, and only a line of exactly that\n", fence)
+	b.WriteString("# width starts a section: a description containing one of its own is description.\n")
 	b.WriteString("#\n")
+	b.WriteString("# A section whose title line is left empty is refused rather than published.\n")
 	b.WriteString("# Delete a whole section to leave that repository unpublished.\n")
 
 	for _, draft := range plan.Drafts {
@@ -324,7 +391,7 @@ func publicationDocument(plan api.PublicationStatus) string {
 			// sent would suggest that saving them changes something.
 			continue
 		}
-		fmt.Fprintf(&b, "\n=== %s ===\n", draft.RepositoryID)
+		fmt.Fprintf(&b, "\n%s\n", publicationSection(fence, draft.RepositoryID))
 		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(draft.Title))
 		if body := strings.TrimRight(draft.Body, "\n"); body != "" {
 			b.WriteString(body + "\n")
@@ -333,20 +400,35 @@ func publicationDocument(plan api.PublicationStatus) string {
 	return b.String()
 }
 
+// publicationSection renders one repository's marker line.
+func publicationSection(fence, id string) string {
+	return fence + " " + id + " " + fence
+}
+
 // readPublicationDocument reads the edited draft back.
 //
 // What it returns is what the user approved, word for word, together with the
 // commit the plan composed each section against — so that the daemon can refuse
 // a repository whose branch moved while the editor was open.
+//
+// The title is the line under the marker rather than the first non-empty line of
+// the section. A section can arrive with its title slot empty — the agent wrote
+// no draft for that repository, and the plan said so — and the forgiving rule
+// would then promote whatever stands below it: the agent's first sentence, or
+// the ticket line Feat itself added, sent as a merge request title with the
+// description missing the line it took. A slot that is left empty is refused
+// instead, which is what the plan already told the user would happen.
 func readPublicationDocument(document string, drafts []api.PublicationDraft) ([]api.ApprovedPublication, error) {
 	known := make(map[string]api.PublicationDraft, len(drafts))
 	for _, draft := range drafts {
 		known[draft.RepositoryID] = draft
 	}
+	fence := publicationFence(drafts)
 
 	var (
 		approved []api.ApprovedPublication
 		current  *api.ApprovedPublication
+		titled   bool
 		body     []string
 		seen     = make(map[string]bool, len(drafts))
 	)
@@ -356,14 +438,12 @@ func readPublicationDocument(document string, drafts []api.PublicationDraft) ([]
 		}
 		current.Body = strings.TrimSpace(strings.Join(body, "\n"))
 		approved = append(approved, *current)
-		current, body = nil, nil
+		current, titled, body = nil, false, nil
 	}
 
 	for _, line := range strings.Split(document, "\n") {
-		marker := publicationMarker.FindStringSubmatch(strings.TrimRight(line, "\r"))
-		if marker != nil {
+		if id, marker := publicationMarker(strings.TrimRight(line, "\r"), fence); marker {
 			flush()
-			id := marker[1]
 			draft, planned := known[id]
 			if !planned {
 				return nil, fmt.Errorf("the draft names repository %q, which is not one this publication "+
@@ -381,11 +461,8 @@ func readPublicationDocument(document string, drafts []api.PublicationDraft) ([]
 			// Before the first marker: the header, which is comments.
 			continue
 		}
-		if current.Title == "" {
-			if strings.TrimSpace(line) == "" {
-				continue
-			}
-			current.Title = strings.TrimSpace(line)
+		if !titled {
+			current.Title, titled = strings.TrimSpace(line), true
 			continue
 		}
 		body = append(body, line)
@@ -395,7 +472,8 @@ func readPublicationDocument(document string, drafts []api.PublicationDraft) ([]
 	for _, one := range approved {
 		if one.Title == "" {
 			return nil, fmt.Errorf("repository %s has no title, and a merge request needs one. "+
-				"Write one, or delete the section to leave it unpublished", one.RepositoryID)
+				"Write one on the line under %q, or delete the section to leave it unpublished",
+				one.RepositoryID, publicationSection(fence, one.RepositoryID))
 		}
 	}
 	return approved, nil

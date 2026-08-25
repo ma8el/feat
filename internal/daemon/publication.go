@@ -281,9 +281,10 @@ func (s *service) recordPublication(ctx context.Context, task *domain.Task, resu
 // Every refusal here happens before the plan is recorded and before anything is
 // pushed, so a request this rejects leaves nothing behind. That is deliberate:
 // every refusal it makes is about the request rather than about a forge — a
-// repository that cannot be published, words a merge request cannot carry, a
-// draft describing a commit that is no longer current — and a partial state is
-// only ever the price of reaching somebody else's server.
+// repository that cannot be published, a repository this publication does not
+// offer, words a merge request cannot carry, a draft describing a commit that is
+// no longer current — and a partial state is only ever the price of reaching
+// somebody else's server.
 func (s *service) checkApproved(
 	ctx context.Context, cfg *config.Config, task *domain.Task, request api.PublishRequest,
 ) ([]approvedPublication, error) {
@@ -333,7 +334,21 @@ func (s *service) checkApproved(
 			}
 		}
 
-		reason, current := s.stalePublication(ctx, publishable, drafted, one)
+		// What the plan offered, asked again rather than trusted. A repository
+		// the plan left out was never displayed and so was never approved, and
+		// an approval naming it anyway would push a branch and ask for a merge
+		// request with nothing in it. The answer comes from the function the
+		// plan composes with, so the two cannot drift into disagreeing about
+		// what may be published (ADR-070). Only the refusal is read here: what
+		// an offer has to say about a repository it offers anyway is a note
+		// under the plan, where the user is reading.
+		offer := s.offerPublication(ctx, publishable.binding)
+		if offer.refusal != "" {
+			return nil, fmt.Errorf("%w: the publication was not attempted, because %s. "+
+				"Nothing was pushed and nothing was opened", api.ErrInvalid, offer.refusal)
+		}
+
+		reason, current := stalePublication(id, offer.head, drafted, one)
 		if !current {
 			stale = append(stale, reason)
 			continue
@@ -379,16 +394,14 @@ func (s *service) checkApproved(
 // are usually the same value and they answer different questions — the first is
 // whether what was displayed is still what would be sent, and the second is
 // whether the agent wrote its description before it finished working.
-func (s *service) stalePublication(
-	ctx context.Context, publishable publishableRepository, drafted control.PublicationDraft,
+//
+// The head is the one the offer just read, rather than one read again here: a
+// publication that asked twice could refuse a repository as stale against a
+// commit its own offer never saw.
+func stalePublication(
+	id domain.RepositoryID, head string, drafted control.PublicationDraft,
 	approved api.ApprovedPublication,
 ) (reason string, current bool) {
-	id := publishable.binding.RepositoryID
-	head, err := s.git.Commit(ctx, publishable.binding.WorktreePath, "HEAD")
-	if err != nil {
-		return fmt.Sprintf("what %s has checked out could not be read (%v), so whether the approved "+
-			"description still describes it is unknown", id, err), false
-	}
 	if approved.Commit != head {
 		return fmt.Sprintf("%s was %s when the draft was displayed and is %s now, "+
 			"so what would be sent is not what was read", id, short(approved.Commit), short(head)), false
@@ -453,6 +466,48 @@ func (s *service) publishable(
 	}, nil
 }
 
+// publicationOffer is what one repository would contribute to a publication.
+//
+// It is the answer to a question both halves of publishing ask: the plan, to
+// decide what the user is shown, and the approval, to decide what it may send.
+// One function answers it so that a repository the plan left out cannot be
+// published by naming it anyway.
+type publicationOffer struct {
+	// head is the commit a merge request would be opened from.
+	head string
+	// refusal is why there is nothing to publish, and is empty when there is.
+	// It is a whole sentence, because it is read as a note under a plan and as
+	// a refusal of an approval.
+	refusal string
+	// notes are what a person should know about a repository that is offered
+	// anyway.
+	notes []string
+}
+
+// offerPublication decides whether one repository has something to publish.
+func (s *service) offerPublication(ctx context.Context, binding domain.TaskRepository) publicationOffer {
+	head, err := s.git.Commit(ctx, binding.WorktreePath, "HEAD")
+	if err != nil {
+		return publicationOffer{refusal: fmt.Sprintf(
+			"%s has nothing to publish: what it has checked out could not be read (%v)",
+			binding.RepositoryID, err)}
+	}
+
+	offer := publicationOffer{head: head}
+	ahead, err := s.git.Count(ctx, binding.WorktreePath, binding.BaseCommit, "HEAD")
+	switch {
+	case err != nil:
+		offer.notes = append(offer.notes, fmt.Sprintf(
+			"how far %s is ahead of its base could not be counted (%v); it is offered for publication "+
+				"anyway", binding.RepositoryID, err))
+	case ahead == 0:
+		offer.refusal = fmt.Sprintf(
+			"%s has no commit beyond the base it started from, so there is nothing to open a merge "+
+				"request for", binding.RepositoryID)
+	}
+	return offer
+}
+
 // composePublication builds the document the user reads, one row per repository
 // that can be published.
 func (s *service) composePublication(
@@ -472,24 +527,13 @@ func (s *service) composePublication(
 			continue
 		}
 
-		head, err := s.git.Commit(ctx, binding.WorktreePath, "HEAD")
-		if err != nil {
-			notes = append(notes, fmt.Sprintf(
-				"%s has nothing to publish: what it has checked out could not be read (%v)",
-				binding.RepositoryID, err))
+		offer := s.offerPublication(ctx, binding)
+		notes = append(notes, offer.notes...)
+		if offer.refusal != "" {
+			notes = append(notes, offer.refusal)
 			continue
 		}
-		ahead, err := s.git.Count(ctx, binding.WorktreePath, binding.BaseCommit, "HEAD")
-		if err != nil {
-			notes = append(notes, fmt.Sprintf(
-				"how far %s is ahead of its base could not be counted (%v); it is offered for publication "+
-					"anyway", binding.RepositoryID, err))
-		} else if ahead == 0 {
-			notes = append(notes, fmt.Sprintf(
-				"%s has no commit beyond the base it started from, so there is nothing to open a merge "+
-					"request for", binding.RepositoryID))
-			continue
-		}
+		head := offer.head
 
 		row := api.PublicationDraft{
 			RepositoryID: binding.RepositoryID.String(),

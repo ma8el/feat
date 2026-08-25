@@ -883,6 +883,67 @@ func TestRepublishingWithNoWordsForWhatAlreadyPublishedIsFine(t *testing.T) {
 	}
 }
 
+// TestARepositoryThePlanDoesNotOfferIsRefusedRatherThanPushed keeps an approval
+// from reaching further than the document it came from.
+//
+// A repository with no commit beyond the base it started from is left out of the
+// plan and explained in a note, so it was never displayed and never approved.
+// Publishing it anyway would push a task branch to somebody's remote and ask for
+// a merge request with nothing in it, which is exactly the state ADR-073's
+// ordering exists to keep out of the record. What the plan offers and what an
+// approval may name is one decision, asked twice.
+func TestARepositoryThePlanDoesNotOfferIsRefusedRatherThanPushed(t *testing.T) {
+	fake := newFakeGit()
+	fake.head = head
+	// Nothing beyond the base: the agent committed nothing in any of them.
+	fake.ahead = 0
+	forges := newFakeForge()
+
+	live := launchWith(t, publishFixture, installed(), false, func(options *Options) {
+		options.Git = fake
+		options.Forges = map[domain.ForgeKind]forge.Adapter{domain.ForgeGitLab: forges}
+	})
+	live.fake = fake
+
+	plan, err := live.service.PlanPublication(context.Background(), live.ref.Task)
+	if err != nil {
+		t.Fatalf("planning the publication: %v", err)
+	}
+	if len(plan.Drafts) != 0 {
+		t.Fatalf("%d repositories with nothing to publish were offered", len(plan.Drafts))
+	}
+	if !strings.Contains(strings.Join(plan.Notes, " "), "no commit beyond the base") {
+		t.Errorf("the notes do not say why nothing is offered: %v", plan.Notes)
+	}
+
+	_, err = live.service.ApplyPublication(context.Background(), live.ref.Task,
+		api.PublishRequest{Repositories: []api.ApprovedPublication{
+			{RepositoryID: "alpha", Title: "A title nobody was shown", Commit: head},
+		}})
+	if err == nil {
+		t.Fatal("a repository the plan does not offer was published")
+	}
+	if !errors.Is(err, api.ErrInvalid) {
+		t.Errorf("the refusal is %v, want an invalid request", err)
+	}
+	if !strings.Contains(err.Error(), "nothing to open a merge request for") {
+		t.Errorf("the refusal does not say why it was not offered: %q", err)
+	}
+	if !strings.Contains(err.Error(), "Nothing was pushed and nothing was opened") {
+		t.Errorf("the refusal does not say what was not done: %q", err)
+	}
+
+	if got := forges.requests(); len(got) != 0 {
+		t.Errorf("a refused publication opened %v", got)
+	}
+	if got := fake.pushes(); len(got) != 0 {
+		t.Errorf("a refused publication pushed %v", got)
+	}
+	if task := live.task(t); task.Publication != nil {
+		t.Errorf("a refused publication recorded a plan: %+v", task.Publication)
+	}
+}
+
 // TestTheForgesThisBuildPublishesToAreTheOnesItDeclares holds the registry and
 // the declaration together.
 //
