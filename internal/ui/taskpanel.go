@@ -393,6 +393,7 @@ func taskPanelHints() string {
 		keyHint("A", "approve"),
 		keyHint("C", "request changes"),
 		keyHint("V", "run checks"),
+		keyHint("P", "publish"),
 		keyHint("pgup/pgdn", "scroll"),
 	)
 }

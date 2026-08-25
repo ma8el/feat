@@ -629,6 +629,11 @@ func (m Model) apply(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = message.Width, message.Height
 		m.prepare.resize(m.preparationSize())
 		m.wizard.resize(m.preparationSize())
+		// A window that grew shows more of the publication draft than the last
+		// one did, and what has been shown is what may be published: the frame
+		// that follows this message is drawn at the new size, so this is where
+		// it is known (ADR-076).
+		m.publication = m.witnessPublication()
 		return m, nil
 
 	case tasksMsg:
@@ -1662,7 +1667,7 @@ func (m Model) stackedView() string {
 	case screenCleanup:
 		return m.cleanupView()
 	case screenPublication:
-		return m.publicationBody() + m.footer(m.publicationHints())
+		return m.publicationView()
 	case screenKeys:
 		width, _ := m.frameSize()
 		return m.keyMap(width) + m.footer(keyHints(keyHint("esc", "close")))
@@ -1705,6 +1710,14 @@ func (m Model) dialogView() string {
 		// how to close a dialog and this says what this one can do.
 		return dialogBox("clean up "+m.cleanupTitle(),
 			m.cleanupBody()+"\n"+m.cleanupHints(), inner, tallest)
+	case screenPublication:
+		// The same shape as cleanup, and for the same reasons: a sequence that is
+		// answered rather than glanced at, drawn over the task list it is about,
+		// carrying its own keys because the frame's footer only says how to
+		// close an overlay. A screen that is drawn in the narrow fallback and
+		// nowhere else is a screen nobody sees (ADR-076).
+		return dialogBox(m.publicationTitle(),
+			m.publicationBody()+"\n"+m.publicationHints(), inner, tallest)
 	case screenKeys:
 		// The key map is given the same three quarters as every other dialog, and
 		// lays itself out inside them. A reference sheet is a good reason to want

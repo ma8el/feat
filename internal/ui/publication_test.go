@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -37,10 +38,21 @@ func publishable(t *testing.T, backend *fakeBackend) Model {
 	return press(t, model, "P")
 }
 
+// document is the whole draft, window or no window.
+//
+// A test about what the screen says is not a test about how many lines of it
+// fit at once: what is on the screen is what TestThePublicationScreenIsDrawn
+// and the reading gate are about, and this is for the rest.
+func document(m Model) string {
+	width, _ := m.publicationRegion()
+	lines, _ := m.publicationLines(width)
+	return strings.Join(lines, "\n")
+}
+
 // TestOpeningPublicationSendsNothing is why it is safe to reach with one key.
 //
 // What publishing would do is a question. Only what the user approves is ever
-// acted on, and approving is three key presses further on.
+// acted on, and approving is two key presses further on.
 func TestOpeningPublicationSendsNothing(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
@@ -57,50 +69,150 @@ func TestOpeningPublicationSendsNothing(t *testing.T) {
 	if backend.publicationEdits != 0 {
 		t.Errorf("opening the screen opened the editor %d times", backend.publicationEdits)
 	}
+}
 
-	body := model.publicationBody()
-	for _, want := range []string{"core", "gitlab", "main", "Export the daily report"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("the screen does not show %q:\n%s", want, body)
-		}
+// TestThePublicationScreenIsDrawnWhereItIsOpened is the defect this screen
+// shipped with: it was drawn in the narrow fallback and nowhere else.
+//
+// dialogView answered every other overlay and not this one, so on a terminal of
+// an ordinary size P changed the screen, asked the daemon for a plan, and drew
+// the dashboard it was already drawing — with a footer offering "esc close" over
+// a dialog that was never there. What the user could see of the publication was
+// the daemon's socket path (ADR-076).
+func TestThePublicationScreenIsDrawnWhereItIsOpened(t *testing.T) {
+	backend := newFakeBackend()
+
+	for _, size := range []struct {
+		name          string
+		width, height int
+	}{
+		{"a dialog over the dashboard", 120, 40},
+		{"the narrow fallback", minimumWidth - 1, 30},
+	} {
+		t.Run(size.name, func(t *testing.T) {
+			model := sized(publishable(t, backend), size.width, size.height)
+			view := flowed(model.View())
+
+			for _, want := range []string{
+				"publish task " + liveTask().Key,   // whose publication this is
+				"core",                             // the repository
+				"Export the daily report",          // the title that would be sent
+				"It writes to the configured buck", // and the description
+				"e edit the draft",                 // what to press, and
+				"enter publish",                    // what it leads to
+			} {
+				if !strings.Contains(view, want) {
+					t.Errorf("the publication screen does not show %q at %dx%d:\n%s",
+						want, size.width, size.height, model.View())
+				}
+			}
+		})
 	}
 }
 
-// TestNothingIsSentBeforeTheDraftHasBeenRead is the control ADR-070 rests on.
+// TestNothingIsSentBeforeTheWordsHaveBeenRead is the control ADR-070 rests on.
 //
-// The agent's words can carry anything it read. A person reading them before
-// they are sent is the only control there is, and a title in a table is not
-// reading them: what is sent is the document the user had open.
-func TestNothingIsSentBeforeTheDraftHasBeenRead(t *testing.T) {
+// The agent's words can carry anything it read, and a person reading them before
+// they are sent is the only control there is. A draft longer than the window has
+// not been read while its end is below the fold, and the screen refuses to
+// publish it — reading is scrolling to the end of it, not pressing a key that
+// says one did.
+func TestNothingIsSentBeforeTheWordsHaveBeenRead(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
+	model.publication.status.Drafts[0].Body = longDescription()
 
-	confirming := press(t, model, "enter")
-	if confirming.publication.confirming {
-		t.Error("the screen asked to publish before the draft had been opened")
+	if model.publicationRead() {
+		t.Fatal("a draft longer than the screen counts as read before it was scrolled")
+	}
+
+	refused := press(t, model, "enter")
+	if refused.publication.confirming {
+		t.Error("the screen asked to publish words that were still below the fold")
 	}
 	if len(backend.publicationRequests) != 0 {
-		t.Fatalf("enter published %v without the draft being read", backend.publicationRequests)
+		t.Fatalf("enter published %v with the draft half read", backend.publicationRequests)
 	}
-	if !strings.Contains(confirming.status, "open the draft first") {
-		t.Errorf("the screen does not say what is missing: %q", confirming.status)
+	if !strings.Contains(refused.status, "read to the end") {
+		t.Errorf("the screen does not say what is missing: %q", refused.status)
+	}
+	if strings.Contains(refused.publicationHints(), "enter publish") {
+		t.Errorf("the footer offers a key that will refuse: %q", refused.publicationHints())
 	}
 
-	// Reading it, and then approving.
-	read := readDraft(t, model, backend)
-	if backend.publicationEdits != 1 {
-		t.Fatalf("e opened the editor %d times", backend.publicationEdits)
-	}
+	// And reading it is what opens the gate.
+	read := readToTheEnd(t, refused)
 	if len(backend.publicationRequests) != 0 {
 		t.Errorf("reading the draft published %v", backend.publicationRequests)
 	}
-
 	asked := press(t, read, "enter")
 	if !asked.publication.confirming {
-		t.Fatal("enter after reading the draft did not ask the last question")
+		t.Fatalf("enter after reading the whole draft did not ask the last question: %q", asked.status)
 	}
 	if len(backend.publicationRequests) != 0 {
 		t.Errorf("the question published %v before it was answered", backend.publicationRequests)
+	}
+}
+
+// TestADraftThatFitsHasBeenReadWhereItIsDrawn is the other half of the gate.
+//
+// The words are on the screen in full, so they have been read, and publishing
+// them takes no trip through an editor: what is displayed is what is sent, and
+// this is where it was displayed (ADR-076). The editor is for rewriting them.
+func TestADraftThatFitsHasBeenReadWhereItIsDrawn(t *testing.T) {
+	backend := newFakeBackend()
+	model := press(t, publishable(t, backend), "down")
+
+	if !model.publicationRead() {
+		t.Fatalf("a draft drawn in full does not count as read:\n%s", model.publicationBody())
+	}
+
+	published := press(t, press(t, model, "enter"), "y")
+	if backend.publicationEdits != 0 {
+		t.Errorf("publishing what was on the screen opened an editor %d times", backend.publicationEdits)
+	}
+	if len(backend.publicationRequests) != 1 {
+		t.Fatalf("%d publications reached the daemon, want one", len(backend.publicationRequests))
+	}
+
+	sent := backend.publicationRequests[0].Repositories
+	if len(sent) != 1 {
+		t.Fatalf("what was sent is %+v, want the one repository on the screen", sent)
+	}
+	// Word for word what the screen drew, which is the invariant: a publication
+	// composed from anything else would make the reading a formality.
+	drawn := document(model)
+	if !strings.Contains(drawn, sent[0].Title) || !strings.Contains(drawn, sent[0].Body) {
+		t.Errorf("what was sent is %+v, and the screen showed:\n%s", sent[0], drawn)
+	}
+	if sent[0].Commit != "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d" {
+		t.Errorf("the approval was composed against %q", sent[0].Commit)
+	}
+	if !published.publication.done {
+		t.Error("the screen does not know the publication ran")
+	}
+}
+
+// TestAnUntitledRepositoryIsRefusedByName keeps a publication from being
+// quietly narrower than the screen it was approved from.
+//
+// A merge request needs a title and the agent wrote none, so this one cannot be
+// opened. Publishing the rest and saying nothing would leave the user believing
+// they had published every repository they just read.
+func TestAnUntitledRepositoryIsRefusedByName(t *testing.T) {
+	backend := newFakeBackend()
+	model := publishable(t, backend)
+	model.publication.status.Drafts[0].Title = ""
+
+	refused := press(t, press(t, model, "down"), "enter")
+	if refused.publication.confirming {
+		t.Error("a repository with no title reached the last question")
+	}
+	if !strings.Contains(refused.status, "core") || !strings.Contains(refused.status, "no title") {
+		t.Errorf("the refusal does not name the repository: %q", refused.status)
+	}
+	if !strings.Contains(document(refused), "no title yet") {
+		t.Errorf("the screen does not mark the untitled repository:\n%s", document(refused))
 	}
 }
 
@@ -116,8 +228,14 @@ func TestWhatIsSentIsWhatCameBackFromTheEditor(t *testing.T) {
 		Commit:       "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
 	}}
 
-	published := press(t, press(t, readDraft(t, model, backend), "enter"), "y")
+	edited := editDraft(t, model, backend)
+	// On the screen as well as in the request: what is drawn after an edit is
+	// the user's own words, because those are the ones that would be sent.
+	if drawn := document(edited); !strings.Contains(drawn, "Rewritten by the person sending it.") {
+		t.Errorf("the screen still shows the agent's words after an edit:\n%s", drawn)
+	}
 
+	press(t, press(t, edited, "enter"), "y")
 	if len(backend.publicationRequests) != 1 {
 		t.Fatalf("%d publications reached the daemon, want one", len(backend.publicationRequests))
 	}
@@ -128,7 +246,31 @@ func TestWhatIsSentIsWhatCameBackFromTheEditor(t *testing.T) {
 	if sent[0].Body != "Rewritten by the person sending it." {
 		t.Errorf("body = %q", sent[0].Body)
 	}
-	_ = published
+}
+
+// TestARepositoryRemovedInTheEditorIsSaidToBeGone is what an edit that deletes
+// a section leaves on the screen.
+//
+// The plan still names the repository, and the words that would have been sent
+// for it are not being sent. A screen that went on drawing the agent's draft
+// there would be showing something that is not going to happen.
+func TestARepositoryRemovedInTheEditorIsSaidToBeGone(t *testing.T) {
+	backend := newFakeBackend()
+	model := publishable(t, backend)
+	backend.approved = nil
+
+	edited := editDraft(t, model, backend)
+	if !strings.Contains(document(edited), "removed from the draft") {
+		t.Errorf("the screen does not say the repository was removed:\n%s", document(edited))
+	}
+
+	refused := press(t, edited, "enter")
+	if refused.publication.confirming {
+		t.Error("a draft with every repository removed reached the last question")
+	}
+	if len(backend.publicationRequests) != 0 {
+		t.Errorf("an empty draft published %v", backend.publicationRequests)
+	}
 }
 
 // TestAnythingButYesLeavesThePublicationUnsent keeps the last question from
@@ -137,7 +279,7 @@ func TestAnythingButYesLeavesThePublicationUnsent(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
 
-	asked := press(t, readDraft(t, model, backend), "enter")
+	asked := press(t, editDraft(t, model, backend), "enter")
 	left := press(t, asked, "n")
 
 	if len(backend.publicationRequests) != 0 {
@@ -165,7 +307,7 @@ func TestAStaleDraftIsRefusedOnTheScreenToo(t *testing.T) {
 	model.publication.status.Drafts[0].Stale = true
 	model.publication.status.Drafts[0].DraftCommit = "9999999999999999999999999999999999999999"
 
-	asked := press(t, readDraft(t, model, backend), "enter")
+	asked := press(t, editDraft(t, model, backend), "enter")
 	if asked.publication.confirming {
 		t.Error("a stale draft reached the last question")
 	}
@@ -175,8 +317,8 @@ func TestAStaleDraftIsRefusedOnTheScreenToo(t *testing.T) {
 	if !strings.Contains(asked.status, "no longer current") {
 		t.Errorf("the screen does not say why: %q", asked.status)
 	}
-	if !strings.Contains(asked.publicationBody(), "no longer current") {
-		t.Errorf("the screen does not mark the stale repository:\n%s", asked.publicationBody())
+	if !strings.Contains(document(asked), "no longer current") {
+		t.Errorf("the screen does not mark the stale repository:\n%s", document(asked))
 	}
 }
 
@@ -199,16 +341,16 @@ func TestOneStaleDraftLeavesTheOtherRepositoriesPublishable(t *testing.T) {
 		Stale: true, DraftCommit: "9999999999999999999999999999999999999999",
 	})
 
-	// The document offers core alone, so that is what comes back from the
-	// editor: the stale repository was never the user's to approve.
-	asked := press(t, readDraft(t, model, backend), "enter")
+	// The stale repository is never the user's to approve, in the document or on
+	// the screen: what would be sent is core alone.
+	asked := press(t, readToTheEnd(t, model), "enter")
 	if !asked.publication.confirming {
 		t.Fatalf("a stale draft in another repository stopped the publication: %q", asked.status)
 	}
 	// And the one that was left out is on the screen the user answers from,
 	// saying why it is not among them.
-	if !strings.Contains(asked.publicationBody(), "no longer current") {
-		t.Errorf("the screen does not mark the stale repository:\n%s", asked.publicationBody())
+	if !strings.Contains(document(asked), "no longer current") {
+		t.Errorf("the screen does not mark the stale repository:\n%s", document(asked))
 	}
 
 	press(t, asked, "y")
@@ -240,8 +382,11 @@ func TestAScreenWithNothingLeftToPublishOffersNoEditor(t *testing.T) {
 	if !strings.Contains(after.publicationBody(), "none of these is left to publish") {
 		t.Errorf("the screen does not say why nothing can be published:\n%s", after.publicationBody())
 	}
-	if strings.Contains(after.publicationHints(), "read and edit the draft") {
+	if strings.Contains(after.publicationHints(), "edit the draft") {
 		t.Errorf("the footer offers a key that does nothing: %q", after.publicationHints())
+	}
+	if strings.Contains(after.publicationHints(), "enter publish") {
+		t.Errorf("the footer offers to publish nothing: %q", after.publicationHints())
 	}
 }
 
@@ -260,13 +405,39 @@ func TestTheRecordIsShownIncludingWhatWasNotAttempted(t *testing.T) {
 		{RepositoryID: "docs", State: "planned"},
 	}}
 
-	body := model.publicationBody()
+	drawn := document(model)
 	for _, want := range []string{
 		"merge_requests/1", "GitLab: protected branch", "not attempted",
 	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("the screen does not show %q:\n%s", want, body)
+		if !strings.Contains(drawn, want) {
+			t.Errorf("the screen does not show %q:\n%s", want, drawn)
 		}
+	}
+}
+
+// TestTheRecordIsNotSomethingToScrollPastToPublish keeps the reading gate about
+// the words.
+//
+// What has to be read is what would be sent. Feat's own account of what this
+// task already published is under it, and a user who has read the draft is not
+// made to scroll through a list of merge requests that already exist before the
+// screen will send the ones that do not.
+func TestTheRecordIsNotSomethingToScrollPastToPublish(t *testing.T) {
+	backend := newFakeBackend()
+	model := publishable(t, backend)
+
+	recorded := make([]api.PublicationRepository, 0, 40)
+	for i := 0; i < 40; i++ {
+		recorded = append(recorded, api.PublicationRepository{
+			RepositoryID: "repository-" + strconv.Itoa(i), State: "published",
+			Request: &api.MergeRequest{Reference: "!1", URL: "https://example.com/1"},
+		})
+	}
+	model.publication.status.Task.Publication = &api.Publication{Repositories: recorded}
+
+	asked := press(t, press(t, model, "down"), "enter")
+	if !asked.publication.confirming {
+		t.Errorf("a long record kept a read draft from being published: %q", asked.status)
 	}
 }
 
@@ -288,7 +459,7 @@ func TestLookingAgainAfterAPublicationShowsTheNewPlan(t *testing.T) {
 		{RepositoryID: "core", State: "failed", Failure: "GitLab: protected branch"},
 	}}
 	backend.publicationDone = api.PublicationStatus{Task: finished}
-	published := press(t, press(t, readDraft(t, model, backend), "enter"), "y")
+	published := press(t, press(t, editDraft(t, model, backend), "enter"), "y")
 	if !published.publication.done {
 		t.Fatal("the screen does not know a publication ran")
 	}
@@ -301,24 +472,30 @@ func TestLookingAgainAfterAPublicationShowsTheNewPlan(t *testing.T) {
 	if len(backend.publicationCalls) != 2 {
 		t.Fatalf("r planned %d times, want a fresh plan", len(backend.publicationCalls))
 	}
-	again, cmd := looking.Update(publicationPlanMsg{
-		task: looking.publication.task, status: backend.publicationStatus,
-	})
+	// The fresh plan is long enough not to fit, so that what the screen makes of
+	// it says whether the last plan's reading carried over.
+	fresh := backend.publicationStatus
+	fresh.Drafts = []api.PublicationDraft{backend.publicationStatus.Drafts[0]}
+	fresh.Drafts[0].Body = longDescription()
+
+	again, cmd := looking.Update(publicationPlanMsg{task: looking.publication.task, status: fresh})
 	replanned := applyCommand(t, again.(Model), cmd)
 
 	if replanned.publication.done {
 		t.Error("a fresh plan arrived and the screen still shows the publication that ran")
 	}
-	body := replanned.publicationBody()
-	if !strings.Contains(body, "Export the daily report") {
-		t.Errorf("the screen does not show the plan it just asked for:\n%s", body)
+	if !strings.Contains(document(replanned), "Export the daily report") {
+		t.Errorf("the screen does not show the plan it just asked for:\n%s", document(replanned))
 	}
-	// The draft has to be read again before anything is sent, and the record of
-	// what already happened is still there to read.
-	if replanned.publication.read || len(replanned.publication.approved) != 0 {
+	// Fresh words are read again before anything is sent, and the record of what
+	// already happened is still there to read.
+	if replanned.publication.edited || len(replanned.publication.approved) != 0 {
 		t.Error("looking again kept an approval from before the publication")
 	}
-	if !strings.Contains(replanned.publicationHints(), "read and edit the draft") {
+	if replanned.publicationRead() {
+		t.Error("looking again counted a publication ago's reading against the new words")
+	}
+	if !strings.Contains(replanned.publicationHints(), "edit the draft") {
 		t.Errorf("the screen does not offer the draft again: %q", replanned.publicationHints())
 	}
 }
@@ -344,6 +521,10 @@ func TestAPublicationInFlightSwallowsTheKeyboard(t *testing.T) {
 	if !strings.Contains(after.publicationBody(), "one repository at a time") {
 		t.Errorf("the screen does not say what it is doing:\n%s", after.publicationBody())
 	}
+	if !strings.Contains(flowed(after.publicationHints()), "publishing") {
+		t.Errorf("the footer offers a way out of a publication that will not be abandoned: %q",
+			after.publicationHints())
+	}
 }
 
 // TestAFailedPlanIsShownRatherThanThrown checks the ordinary error path.
@@ -360,7 +541,8 @@ func TestAFailedPlanIsShownRatherThanThrown(t *testing.T) {
 	}
 }
 
-// TestAResponseForAnotherTaskIsDropped is the rule every screen here follows.
+// TestAPublicationResponseForAnotherTaskIsDropped is the rule every screen here
+// follows.
 func TestAPublicationResponseForAnotherTaskIsDropped(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
@@ -389,13 +571,13 @@ func TestEscapeLeavesThePublicationScreen(t *testing.T) {
 	}
 }
 
-// readDraft presses the key that opens the draft and then delivers what the
-// editor came back with.
+// editDraft presses the key that opens the draft in an editor and then delivers
+// what it came back with.
 //
 // The editor itself is Bubble Tea's to run: a screen hands it the terminal and
 // is told afterwards. What this exercises is both halves of that — the request
 // for the document, and the words it returned.
-func readDraft(t *testing.T, model Model, backend *fakeBackend) Model {
+func editDraft(t *testing.T, model Model, backend *fakeBackend) Model {
 	t.Helper()
 
 	opened := press(t, model, "e")
@@ -403,8 +585,33 @@ func readDraft(t *testing.T, model Model, backend *fakeBackend) Model {
 		task: opened.publication.task, approved: backend.approved,
 	})
 	after := applyCommand(t, updated.(Model), cmd)
-	if !after.publication.read {
-		t.Fatal("the draft came back and the screen does not know it was read")
+	if !after.publication.edited {
+		t.Fatal("the draft came back and the screen does not know it was edited")
 	}
 	return after
+}
+
+// readToTheEnd scrolls the draft until every word of it has been on the screen,
+// which is what the gate asks of a user.
+func readToTheEnd(t *testing.T, model Model) Model {
+	t.Helper()
+
+	for page := 0; page < 64; page++ {
+		if model.publicationRead() {
+			return model
+		}
+		model = press(t, model, "pgdown")
+	}
+	t.Fatalf("the draft never counted as read:\n%s", model.publicationBody())
+	return model
+}
+
+// longDescription is a description that does not fit any window this screen is
+// drawn in, so that reading it is something a user has to do.
+func longDescription() string {
+	lines := make([]string, 0, 60)
+	for i := 0; i < 60; i++ {
+		lines = append(lines, "It writes to the configured bucket, paragraph "+strconv.Itoa(i)+".")
+	}
+	return strings.Join(lines, "\n\n")
 }

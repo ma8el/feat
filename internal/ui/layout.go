@@ -272,6 +272,8 @@ func (m Model) hints() string {
 		return keyHints(keyHint("ctrl+c", "cancel"))
 	case m.screen == screenCleanup && m.cleanup.removing:
 		return keyHints(keyHint("ctrl+c", "quit"))
+	case m.screen == screenPublication && m.publication.publishing:
+		return keyHints(keyHint("ctrl+c", "quit"))
 	}
 	if !m.screen.mainRegion() {
 		return keyHints(keyHint("esc", "close"))
