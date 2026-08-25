@@ -31,7 +31,7 @@ type Adapter interface {
 // is configurable but not yet built is refused by name and reported by
 // `feat doctor` rather than found out at the moment a branch has been pushed and
 // the merge request cannot be opened (ADR-070, ADR-074).
-var Built = []domain.ForgeKind{domain.ForgeGitLab}
+var Built = []domain.ForgeKind{domain.ForgeGitLab, domain.ForgeGitHub}
 
 // Available reports whether this build opens merge requests on a forge.
 func Available(kind domain.ForgeKind) bool {

@@ -19,6 +19,7 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/forge"
+	"github.com/ma8el/feat/internal/forge/github"
 	"github.com/ma8el/feat/internal/forge/gitlab"
 	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/notify"
@@ -475,16 +476,19 @@ func Run(ctx context.Context, opts Options) error {
 
 // forges are the forge adapters a daemon publishes through.
 //
-// GitLab is the one this build has, which is the order the roadmap records:
-// GitLab is what the reference project uses and GitHub follows
-// (docs/09-roadmap.md Phase 3). A repository configured for a forge with no
-// adapter is refused by name when it is published rather than at startup, so a
-// project with one such repository still works for all the others.
+// Both the roadmap's Phase 3 forges are here, in the order it adds them: GitLab
+// is what the reference project's application repositories use, and GitHub is
+// the primary public integration and the one Feat's own repository is on. A
+// repository configured for a forge with no adapter is refused by name when it
+// is published rather than at startup, so a project with one such repository
+// still works for all the others — and `feat doctor` says so before a task
+// reaches that point (ADR-074).
 func forges(opts Options) map[domain.ForgeKind]forge.Adapter {
 	if opts.Forges != nil {
 		return opts.Forges
 	}
 	return map[domain.ForgeKind]forge.Adapter{
 		domain.ForgeGitLab: gitlab.New(nil),
+		domain.ForgeGitHub: github.New(nil),
 	}
 }

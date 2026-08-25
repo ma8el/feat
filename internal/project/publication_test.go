@@ -3,6 +3,7 @@ package project_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -131,31 +132,34 @@ func TestAHostThatCannotPublishIsAWarning(t *testing.T) {
 	})
 }
 
-// TestAForgeThisBuildCannotPublishToIsReportedBeforeItIsTried is the other half
-// of learning at configuration time.
+// TestBothBuiltForgesAreAskedAboutTheHost checks that the check is about the
+// forge a repository declares rather than about one of them.
 //
-// GitHub is a forge the configuration accepts and this build has no adapter for.
-// Publishing refuses it by name; without this, the first anybody hears of it is
-// after a branch has been pushed and the merge request cannot be opened.
-func TestAForgeThisBuildCannotPublishToIsReportedBeforeItIsTried(t *testing.T) {
+// GitHub was reported as unbuildable here until its adapter landed, which is the
+// finding this replaced: what a user needs to know now is whether the machine
+// can drive gh, exactly as it needs to know about glab.
+func TestBothBuiltForgesAreAskedAboutTheHost(t *testing.T) {
 	w := arrange(t)
-	forged(t, w, "api", "github")
+	forged(t, w, "api", "gitlab")
+	forged(t, w, "web", "github")
 
-	found := finding(t, w.only(t, w.diagnose(t)).Findings, "publication.github")
-	if found.Severity != project.SeverityWarning {
-		t.Errorf("a forge with no adapter was reported as %s", found.Severity)
-	}
-	if !strings.Contains(found.Summary, "this build opens merge requests on gitlab") {
-		t.Errorf("the finding does not say what this build does publish to: %q", found.Summary)
-	}
-	if !strings.Contains(found.Action, "by hand") {
-		t.Errorf("the action does not say what to do instead: %q", found.Action)
-	}
-
-	// And it asks the host nothing: what is missing is the adapter, not the CLI.
-	for _, call := range w.runner.calls {
-		if strings.HasPrefix(call, "gh ") {
-			t.Errorf("a forge with no adapter still probed its command line: %q", call)
+	report := w.only(t, w.diagnose(t))
+	for _, expected := range []struct{ check, tool, repository string }{
+		{"publication.gitlab", "glab", "api"},
+		{"publication.github", "gh", "web"},
+	} {
+		found := finding(t, report.Findings, expected.check)
+		if found.Severity != project.SeverityOK {
+			t.Errorf("%s: an installed, authenticated %s was reported as %s: %s",
+				expected.check, expected.tool, found.Severity, found.Summary)
+		}
+		if !strings.Contains(found.Summary, expected.tool) ||
+			!strings.Contains(found.Summary, expected.repository) {
+			t.Errorf("%s: the finding does not say what was checked for whom: %q",
+				expected.check, found.Summary)
+		}
+		if !slices.Contains(w.runner.calls, expected.tool+" auth status") {
+			t.Errorf("%s: nothing asked the host about %s: %v", expected.check, expected.tool, w.runner.calls)
 		}
 	}
 }

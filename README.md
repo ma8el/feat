@@ -263,8 +263,13 @@ and what you read and edit is what is sent.
 repositories:
   api:
     forge:
-      kind: gitlab   # the forge is declared, not guessed from the remote
+      kind: gitlab   # or github; declared, not guessed from the remote
 ```
+
+GitLab and GitHub are both supported, per repository: a task spanning a private
+repository on one and a public dependency on the other opens a merge request on
+each. Feat drives your own `glab` and `gh`, already authenticated on this
+machine.
 
 Publishing shows what it would do, opens the draft in your editor, and asks once.
 It then pushes each task branch and opens each merge request one repository at a

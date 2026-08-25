@@ -14,6 +14,7 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution/compose"
 	"github.com/ma8el/feat/internal/forge"
+	"github.com/ma8el/feat/internal/forge/github"
 	"github.com/ma8el/feat/internal/forge/gitlab"
 )
 
@@ -780,10 +781,14 @@ func declaredForges(cfg *config.Config) []forgeDeclaration {
 // The adapter is the one that names its own executable, so this maps a forge
 // onto the package that owns it rather than repeating the name.
 func forgeTool(kind domain.ForgeKind) (string, bool) {
-	if kind == domain.ForgeGitLab {
+	switch kind {
+	case domain.ForgeGitLab:
 		return gitlab.Executable, true
+	case domain.ForgeGitHub:
+		return github.Executable, true
+	default:
+		return "", false
 	}
-	return "", false
 }
 
 // forgesBuilt renders the forges this build publishes to, so that a refusal says

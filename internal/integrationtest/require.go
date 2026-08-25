@@ -39,6 +39,10 @@ const (
 	// them says so.
 	Claude Tool = "claude"
 
+	// Gh is the GitHub command line the forge adapter drives. It is demandable
+	// on the same terms as Glab below, and for the same reason.
+	Gh Tool = "gh"
+
 	// Glab is the GitLab command line the forge adapter drives.
 	//
 	// It is demandable and demanded by nothing by default, like Claude and
@@ -69,7 +73,7 @@ const (
 // A value outside this list is a failure rather than an unknown-and-ignored
 // name: "FEAT_INTEGRATION_REQUIRE=dockr" that quietly demanded nothing would be
 // the same silent green this package exists to remove.
-var Tools = []Tool{Git, Docker, Tmux, Claude, Glab, Notify}
+var Tools = []Tool{Git, Docker, Tmux, Claude, Gh, Glab, Notify}
 
 // Enabled reports whether this run is opted in to the integration tier.
 func Enabled() bool {

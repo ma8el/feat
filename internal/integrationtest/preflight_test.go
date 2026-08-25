@@ -84,6 +84,8 @@ func probe(tool integrationtest.Tool) error {
 		return answers(ctx, tmux.Executable, "-V")
 	case integrationtest.Claude:
 		return answers(ctx, "claude", "--version")
+	case integrationtest.Gh:
+		return answers(ctx, "gh", "--version")
 	case integrationtest.Glab:
 		return answers(ctx, "glab", "--version")
 	case integrationtest.Notify:

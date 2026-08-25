@@ -139,17 +139,19 @@ than after it, because the dogfood machine cannot finish a task without it
 Order:
 
 1. GitLab, which the reference project uses.
-2. GitHub as the primary public integration.
+2. GitHub as the primary public integration — and the forge Feat's own repository
+   is on, so it is what publishes the work on Feat itself. Both are built.
 
 Capabilities:
 
 - publication from the trusted host: a task's branch pushed and one MR/PR opened
   per changed repository, composed from a title and body the agent drafted and
-  the user read and edited before anything was sent (ADR-070). **Built**, GitLab
-  first: `feat task publish`, the publication screen, `internal/forge` and
-  `internal/forge/gitlab`. The GitHub adapter is what is left of it, and a
-  repository configured for a forge this build has no adapter for is refused by
-  name rather than attempted;
+  the user read and edited before anything was sent (ADR-070). **Built**, in this
+  phase's own order: `feat task publish`, the publication screen, `internal/forge`
+  with `internal/forge/gitlab` and `internal/forge/github`. A repository
+  configured for a forge this build has no adapter for is still refused by name
+  rather than attempted, and `feat doctor` says so at configuration time, which
+  is what the next forge added here will rely on;
 - task-level linking of related provider artifacts;
 - issue/ticket linking, which needs the provider-neutral ticket reference Phase 6
   puts on the task;

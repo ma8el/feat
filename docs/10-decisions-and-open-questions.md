@@ -5815,7 +5815,11 @@ Decisions:
   there too, rather than found out after a branch has been pushed.
   `forge.Built` declares which forges are built and a guard test holds it and the
   daemon's registry together, so the two cannot drift into doctor reporting a
-  project as publishable that a publication then refuses.
+  project as publishable that a publication then refuses. Both of Phase 3's
+  forges are built now — the GitHub adapter followed within the same change,
+  because Feat's own repository is on GitHub and the GitLab-only build could not
+  publish its own development — so the refusal is currently the guard for the
+  next forge rather than a state a user can configure.
 - The pre-push report is `repositories.<id>.publication`. It was
   `repositories.<id>.forge` — the configuration field that decides whether it
   runs — which reads as a check on the forge declaration. That declaration is

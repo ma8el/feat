@@ -909,3 +909,59 @@ func TestTheForgesThisBuildPublishesToAreTheOnesItDeclares(t *testing.T) {
 		t.Errorf("the daemon has %d adapters and forge.Built names %d", len(registry), len(forge.Built))
 	}
 }
+
+// TestAForgeThisBuildHasNoAdapterForIsRefusedByName is the other half of
+// forge.Built, checked where it is reachable.
+//
+// A forge kind can be configurable before its adapter exists, which is the state
+// GitHub was in until its adapter landed. A publication refuses it by name and
+// says what this build does publish to, rather than attempting it — and nothing
+// is pushed and no plan is recorded, because the refusal happens first.
+func TestAForgeThisBuildHasNoAdapterForIsRefusedByName(t *testing.T) {
+	fake := newFakeGit()
+	fake.head = head
+	fake.ahead = 1
+	forges := newFakeForge()
+
+	live := launchWith(t, publishFixture, installed(), false, func(options *Options) {
+		options.Git = fake
+		// A build whose only adapter is for a forge this project does not use.
+		// The fixture's repositories all declare GitLab.
+		options.Forges = map[domain.ForgeKind]forge.Adapter{domain.ForgeGitHub: forges}
+	})
+	live.fake = fake
+
+	_, err := live.service.ApplyPublication(context.Background(), live.ref.Task,
+		api.PublishRequest{Repositories: []api.ApprovedPublication{
+			{RepositoryID: "alpha", Title: "A title", Commit: head},
+		}})
+	if err == nil {
+		t.Fatal("a forge with no adapter was published to")
+	}
+	if !strings.Contains(err.Error(), "publishes to gitlab") ||
+		!strings.Contains(err.Error(), "this build opens merge requests on github") {
+		t.Errorf("the refusal does not say what is missing and what is not: %q", err)
+	}
+
+	if got := forges.requests(); len(got) != 0 {
+		t.Errorf("a refused publication opened %v", got)
+	}
+	if got := fake.pushes(); len(got) != 0 {
+		t.Errorf("a refused publication pushed %v", got)
+	}
+	if task := live.task(t); task.Publication != nil {
+		t.Errorf("a refused publication recorded a plan: %+v", task.Publication)
+	}
+
+	// The plan says the same thing, so it is learned before the approval too.
+	plan, err := live.service.PlanPublication(context.Background(), live.ref.Task)
+	if err != nil {
+		t.Fatalf("planning the publication: %v", err)
+	}
+	if len(plan.Drafts) != 0 {
+		t.Errorf("%d repositories were offered for a forge with no adapter", len(plan.Drafts))
+	}
+	if !strings.Contains(strings.Join(plan.Notes, " "), "this build opens merge requests on github") {
+		t.Errorf("the notes do not say why nothing is offered: %v", plan.Notes)
+	}
+}

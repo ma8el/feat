@@ -70,6 +70,7 @@ internal/control             task inbox/outbox protocol
 internal/review              base comparisons, external commands, and publication
 internal/forge               forge interface: one merge request per repository
 internal/forge/gitlab        GitLab merge requests through glab
+internal/forge/github        GitHub pull requests through gh
 internal/resources           host/task resource observation
 internal/notify              desktop/TUI notification policy
 internal/reconcile           startup discovery and repair proposals
@@ -97,7 +98,7 @@ neither configuration nor persistent state. It is denied `internal/git` as well,
 because a change summary is Git's own answer and belongs to its adapter. See
 ADR-036.
 
-`internal/forge` and `internal/forge/gitlab` sit under the same rule, with a
+`internal/forge` and its adapters sit under the same rule, with a
 `forge-stays-an-adapter` `depguard` rule. An adapter receives a directory, a
 remote, two branches, and the words the user approved, and returns where the
 request can be read; it records nothing, because the daemon is the only writer of
