@@ -455,6 +455,50 @@ func TestNothingLeftToPublishOpensNoEditorAndBlamesNobody(t *testing.T) {
 	}
 }
 
+// TestBothClientsGetTheSameDraftFile is the machinery the two share.
+//
+// The terminal and the dashboard differ only in who runs the editor, so the
+// file, its permissions, the parser, and the cleanup are one constructor's:
+// two copies of this would be two ways for the clients to disagree about what
+// the user approved, and they had already come apart over who removes the
+// directory.
+func TestBothClientsGetTheSameDraftFile(t *testing.T) {
+	plan := plannedStatus()
+	plan.Editor = api.EditorCommand{Program: "true"}
+
+	draft, err := newPublicationDraft(plan, &environment{})
+	if err != nil {
+		t.Fatalf("writing the publication draft: %v", err)
+	}
+
+	info, err := os.Stat(draft.path)
+	if err != nil {
+		t.Fatalf("the draft was not written: %v", err)
+	}
+	// The description of somebody's change, in a file only they can read.
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Errorf("the draft is mode %o, want 0600", mode)
+	}
+	if !strings.Contains(draft.path, plan.Task.Key) {
+		t.Errorf("the draft is at %q, and its name does not say which task it is for", draft.path)
+	}
+
+	// Unedited, which is a user who read it and saved: what comes back is what
+	// the plan composed.
+	approved, err := draft.Read()
+	if err != nil {
+		t.Fatalf("reading the draft back: %v", err)
+	}
+	if len(approved) != 2 || approved[0].Title != plannedDrafts()[0].Title {
+		t.Errorf("the draft came back as %+v", approved)
+	}
+
+	draft.Close()
+	if _, err := os.Stat(draft.directory); !os.IsNotExist(err) {
+		t.Errorf("closing the draft left the description on disk: %v", err)
+	}
+}
+
 // TestTheEditorKeepsItsConfiguredFlags is why the daemon leaves the document
 // slot off.
 //

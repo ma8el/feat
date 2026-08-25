@@ -1342,4 +1342,10 @@ func TestChoosingATicketAfterADraftWasRecordedStartsAgain(t *testing.T) {
 	if source := backend.created[1].Source; source.Kind != "ticket" || source.Ticket == nil {
 		t.Errorf("the second draft's source is %+v, want the ticket", source)
 	}
+	// And nothing was cancelled twice. Choosing the ticket returns the model
+	// that has forgotten the draft it discarded, so the resolve after it has
+	// nothing left to cancel and creates rather than updates.
+	if len(backend.cancelled) != 1 {
+		t.Errorf("cancelled %v, want only the draft the ticket replaced", backend.cancelled)
+	}
 }

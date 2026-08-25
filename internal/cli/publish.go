@@ -100,11 +100,7 @@ func publish(cmd *cobra.Command, caller publisher, env *environment, task string
 		return nil
 	}
 
-	document, err := editPublication(cmd, plan, env, task)
-	if err != nil {
-		return err
-	}
-	approved, err := readPublicationDocument(document, plan.Drafts)
+	approved, err := editPublication(cmd, plan, env)
 	if err != nil {
 		return err
 	}
@@ -215,39 +211,87 @@ func printPublicationRecord(out io.Writer, publication *api.Publication) {
 	rows.render(out, "")
 }
 
-// editPublication writes the draft, opens it, and returns what came back.
+// publicationDraft is one draft document on its way through an editor.
 //
-// The file is this process's, in a directory only this user can read, and it is
-// removed afterwards: it holds the description of a change, which is the user's
-// and belongs nowhere durable.
-func editPublication(
-	cmd *cobra.Command, plan api.PublicationStatus, env *environment, task string,
-) (string, error) {
+// It is what both clients use. The file, the editor command, and the read-back
+// are the same in a terminal and on the dashboard, and the only difference is
+// who runs the editor: this process, which has the terminal, or Bubble Tea,
+// which has to release it first. One document, one parser, and no second way for
+// the two clients to disagree about what the user approved.
+//
+// The directory is this process's, in a place only this user can read, and Close
+// removes it: it holds the description of somebody's change, which is theirs and
+// belongs nowhere durable. A caller that never closes — a process killed while
+// the editor is still open — leaves it to the system, as it leaves any editor's
+// own temporary file.
+type publicationDraft struct {
+	directory string
+	path      string
+	command   *exec.Cmd
+	drafts    []api.PublicationDraft
+}
+
+// newPublicationDraft writes the document and builds the editor that opens it.
+func newPublicationDraft(plan api.PublicationStatus, env *environment) (*publicationDraft, error) {
 	directory, err := os.MkdirTemp("", "feat-publish-")
 	if err != nil {
-		return "", fmt.Errorf("preparing the publication draft: %w", err)
-	}
-	defer func() { _ = os.RemoveAll(directory) }()
-
-	path := filepath.Join(directory, "publication-"+publicationSlug(task)+".md")
-	if err := os.WriteFile(path, []byte(publicationDocument(plan)), 0o600); err != nil {
-		return "", fmt.Errorf("writing the publication draft: %w", err)
+		return nil, fmt.Errorf("preparing the publication draft: %w", err)
 	}
 
-	editor, err := publicationEditor(plan.Editor, env, path)
+	draft := &publicationDraft{
+		directory: directory,
+		// Named from the task's own key rather than from what the caller was
+		// given, which may be a full identifier or a key depending on what the
+		// user typed.
+		path:   filepath.Join(directory, "publication-"+publicationSlug(plan.Task.Key)+".md"),
+		drafts: plan.Drafts,
+	}
+	if err := os.WriteFile(draft.path, []byte(publicationDocument(plan)), 0o600); err != nil {
+		draft.Close()
+		return nil, fmt.Errorf("writing the publication draft: %w", err)
+	}
+
+	command, err := publicationEditor(plan.Editor, env, draft.path)
 	if err != nil {
-		return "", err
+		draft.Close()
+		return nil, err
 	}
+	draft.command = command
+	return draft, nil
+}
+
+// Read returns what the user approved, in the words they left in the file.
+func (d *publicationDraft) Read() ([]api.ApprovedPublication, error) {
+	edited, err := os.ReadFile(d.path) // #nosec G304 -- the path is one newPublicationDraft created
+	if err != nil {
+		return nil, fmt.Errorf("reading the edited publication draft: %w", err)
+	}
+	return readPublicationDocument(string(edited), d.drafts)
+}
+
+// Close removes the document.
+func (d *publicationDraft) Close() { _ = os.RemoveAll(d.directory) }
+
+// editPublication opens the draft in the user's editor and returns what they
+// approved.
+//
+// This process runs the editor and waits: `feat task publish` holds the terminal
+// already, where the dashboard has to hand it over and be told afterwards.
+func editPublication(
+	cmd *cobra.Command, plan api.PublicationStatus, env *environment,
+) ([]api.ApprovedPublication, error) {
+	draft, err := newPublicationDraft(plan, env)
+	if err != nil {
+		return nil, err
+	}
+	defer draft.Close()
+
+	editor := draft.command
 	editor.Stdin, editor.Stdout, editor.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 	if err := editor.Run(); err != nil {
-		return "", fmt.Errorf("the editor did not finish: %w", err)
+		return nil, fmt.Errorf("the editor did not finish: %w", err)
 	}
-
-	edited, err := os.ReadFile(path) // #nosec G304 -- the path is one this function just created
-	if err != nil {
-		return "", fmt.Errorf("reading the edited publication draft: %w", err)
-	}
-	return string(edited), nil
+	return draft.Read()
 }
 
 // publicationEditor builds the editor process.

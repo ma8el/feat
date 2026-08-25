@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -263,54 +262,27 @@ func (b *backend) ApplyPublication(
 // EditPublication writes the draft of a plan and returns it on its way to the
 // editor.
 //
-// The document is written here rather than in the dashboard because the file and
-// the process both belong to an adapter, and because this is the same document
-// `feat task publish` writes: one format, one parser, and no second way for the
-// two clients to disagree about what the user approved.
+// It is the document `feat task publish` writes, through the same constructor:
+// the file, the parser, and the read-back are shared, and what differs is that
+// the dashboard has to release the terminal before the editor runs and is told
+// afterwards. Closing it is the caller's, which for the dashboard is the
+// callback Bubble Tea runs when the editor exits.
 func (b *backend) EditPublication(plan api.PublicationStatus) (ui.PublicationEditor, error) {
-	directory, err := os.MkdirTemp("", "feat-publish-")
+	draft, err := newPublicationDraft(plan, b.env)
 	if err != nil {
-		return nil, fmt.Errorf("preparing the publication draft: %w", err)
-	}
-
-	path := filepath.Join(directory, "publication-"+publicationSlug(plan.Task.Key)+".md")
-	if err := os.WriteFile(path, []byte(publicationDocument(plan)), 0o600); err != nil {
-		_ = os.RemoveAll(directory)
-		return nil, fmt.Errorf("writing the publication draft: %w", err)
-	}
-	command, err := publicationEditor(plan.Editor, b.env, path)
-	if err != nil {
-		_ = os.RemoveAll(directory)
 		return nil, err
 	}
-	return &publicationDraft{directory: directory, path: path, command: command, drafts: plan.Drafts}, nil
-}
-
-// publicationDraft is one draft document on its way through the editor.
-type publicationDraft struct {
-	directory string
-	path      string
-	command   *exec.Cmd
-	drafts    []api.PublicationDraft
+	return draft, nil
 }
 
 var _ ui.PublicationEditor = (*publicationDraft)(nil)
 
 // Command opens the draft in the user's editor.
+//
+// It is the one part of a publication draft that is Bubble Tea's, so it lives
+// here beside the other commands the dashboard runs with the terminal released,
+// rather than with the document the rest of the type is about (ADR-031).
 func (d *publicationDraft) Command() tea.ExecCommand { return execCommand{d.command} }
-
-// Read returns what the user left in the file.
-func (d *publicationDraft) Read() ([]api.ApprovedPublication, error) {
-	edited, err := os.ReadFile(d.path) // #nosec G304 -- the path is one EditPublication created
-	if err != nil {
-		return nil, fmt.Errorf("reading the edited publication draft: %w", err)
-	}
-	return readPublicationDocument(string(edited), d.drafts)
-}
-
-// Close removes the document, which holds the description of somebody's change
-// and belongs nowhere durable.
-func (d *publicationDraft) Close() { _ = os.RemoveAll(d.directory) }
 
 // NewWizard builds the project wizard the dashboard asks its questions from.
 //

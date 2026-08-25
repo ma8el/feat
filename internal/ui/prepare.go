@@ -596,7 +596,17 @@ func (p prepareModel) composeFrom(ticket api.Ticket) (prepareModel, tea.Cmd) {
 	// merge request names and what a change is compared against (ADR-071).
 	//
 	// Discarding removes nothing: nothing is created for a draft (FR-TASK-003).
-	return p, tea.Batch(p.focusBrief(), p.discardDraft())
+	//
+	// The two commands are built before the model is returned rather than in the
+	// return statement, because discarding is a pointer receiver that clears the
+	// draft: Go orders calls among themselves but leaves the read of p relative
+	// to them unspecified, so returning it there would be returning either the
+	// model that forgot the draft or the one that still names it, whichever the
+	// compiler chose. What this screen needs is the first — the cancel is already
+	// in flight for that draft, and a model that still named it would try to
+	// cancel it again on the next resolve.
+	focus, discard := p.focusBrief(), p.discardDraft()
+	return p, tea.Batch(focus, discard)
 }
 
 // discardDraft cancels a draft the daemon already holds, without leaving
