@@ -60,8 +60,6 @@ type fakeRepository struct {
 	// hooksDir answers `rev-parse --git-path hooks`, which is where a test that
 	// wants a pre-push hook puts one.
 	hooksDir string
-	// pushed records the refspecs pushed to each remote, keyed by remote name.
-	pushed map[string][]string
 }
 
 // fakeGit answers Git commands for a set of checkouts.
@@ -214,13 +212,10 @@ func (f *fakeGit) RunWith(_ context.Context, dir string, env []string, args ...s
 		}
 		return repository.hooksPath, nil
 	case "push":
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		if repository.pushed == nil {
-			repository.pushed = make(map[string][]string)
-		}
-		remote := args[1]
-		repository.pushed[remote] = append(repository.pushed[remote], args[2])
+		// What reached the remote is the argument vector, which every call
+		// records above: a second copy of it here read as coverage the assertions
+		// did not have, because nothing ever looked at it. Arranging a push that
+		// fails is fail["push"], like every other command.
 		return "", nil
 	default:
 		return "", fmt.Errorf("fake git: unexpected command %q", strings.Join(args, " "))

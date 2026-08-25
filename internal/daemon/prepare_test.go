@@ -383,7 +383,7 @@ func arrangeTaskWith(t *testing.T, fake *fakeGit, body string) *preparation {
 	// The checkouts the configuration names have to exist, because the fake
 	// answers for the directories it is asked about rather than for any
 	// directory.
-	for _, name := range fixtureRepositories(body) {
+	for _, name := range fixtureRepositories(t, body) {
 		// With a .git directory, because a task worktree is only a repository
 		// while the main checkout's Git directory is reachable — which is what a
 		// containerised task has to mount (ADR-033).
@@ -437,23 +437,55 @@ func arrangeTaskWith(t *testing.T, fake *fakeGit, body string) *preparation {
 // three repositories cannot be arranged with the checkouts of a fixture with
 // two — which is a failure that surfaces as Git refusing a directory rather
 // than as a test saying what is wrong.
-func fixtureRepositories(body string) []string {
-	var (
-		names  []string
-		inside bool
-	)
-	for _, line := range strings.Split(body, "\n") {
-		switch {
-		case line == "repositories:":
-			inside = true
-		case inside && strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") &&
-			strings.HasSuffix(strings.TrimSpace(line), ":"):
-			names = append(names, strings.TrimSuffix(strings.TrimSpace(line), ":"))
-		case inside && line != "" && !strings.HasPrefix(line, " "):
-			inside = false
-		}
+//
+// The document is read by the package that reads it in production rather than
+// scanned for indented lines. A fixture that quotes an identifier, indents by
+// four spaces, or puts a comment between two entries is the same configuration
+// to Feat, and a helper that answered one of those with the wrong names would
+// arrange the wrong checkouts and leave Git to be blamed for it. The file name
+// is empty because there is none: the only rule it decides is that a document's
+// project identifier matches what it is stored as, and this is not stored.
+func fixtureRepositories(t *testing.T, body string) []string {
+	t.Helper()
+
+	cfg, err := config.Parse("", []byte(body))
+	if err != nil {
+		t.Fatalf("reading the repositories out of the fixture: %v", err)
 	}
-	return names
+	return cfg.RepositoryIDs()
+}
+
+// TestAReformattedFixtureArrangesTheSameCheckouts is why the fixture is parsed
+// rather than scanned.
+//
+// Four-space indentation, a quoted identifier, and a comment between two entries
+// are the same configuration to Feat. A reader that answered any of them with
+// the wrong names would arrange checkouts for repositories the fixture does not
+// have, and the test that then failed would be a Git error about a directory
+// rather than anything about the fixture.
+func TestAReformattedFixtureArrangesTheSameCheckouts(t *testing.T) {
+	reformatted := `version: 1
+
+project:
+    id: app
+    name: Example Application
+    primary_repository: api
+
+repositories:
+    # The one the agent may write to.
+    "api":
+        host_path: ~/repos/app/api
+        default_access: read_write
+
+    store:
+        host_path: ~/repos/app/store
+        default_access: read_only
+`
+
+	names := fixtureRepositories(t, reformatted)
+	if len(names) != 2 || names[0] != "api" || names[1] != "store" {
+		t.Errorf("the fixture reader answered %v, want both repositories", names)
+	}
 }
 
 // reload returns the task as it is recorded on disk, which is the only copy a
