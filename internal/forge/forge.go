@@ -23,6 +23,26 @@ type Adapter interface {
 	Open(ctx context.Context, req Request) (domain.MergeRequest, error)
 }
 
+// Built names the forges this build has an adapter for, in the order the
+// roadmap adds them.
+//
+// It is a declaration rather than a discovery. The daemon composes the registry
+// it publishes through, and a guard test holds the two together, so a forge that
+// is configurable but not yet built is refused by name and reported by
+// `feat doctor` rather than found out at the moment a branch has been pushed and
+// the merge request cannot be opened (ADR-070, ADR-074).
+var Built = []domain.ForgeKind{domain.ForgeGitLab}
+
+// Available reports whether this build opens merge requests on a forge.
+func Available(kind domain.ForgeKind) bool {
+	for _, built := range Built {
+		if built == kind {
+			return true
+		}
+	}
+	return false
+}
+
 // Request is one merge request to open.
 //
 // Every value here is final. The words are the agent's, read and edited by the

@@ -5799,6 +5799,30 @@ Decisions:
     refuses that one value by name instead. It is refused rather than altered: a
     description Feat quietly changed would be worse than one it declined to send.
 
+- `feat doctor` asks the host whether it can publish at all, once per forge the
+  project's repositories declare. ADR-070's consequence named two additions to
+  the diagnostics and this is a third, found by a user reading the first one and
+  asking why a forge needed a hook to be noticed. Nothing else asks:
+  `agent.capabilities.github_cli` and `gitlab_cli` describe the *agent's*
+  environment, are probed inside the container on a devcontainer project, and are
+  what ADR-070 expects to be `disabled` — so on the configuration that decision
+  recommends, no check touched the machine that actually runs `glab`. A project
+  could pass every check and then push a branch and fail to open the merge
+  request. It warns rather than fails, because a project may be configured before
+  anybody has logged in, and it says nothing for a project that declares no
+  forge.
+- A forge the configuration accepts and this build has no adapter for is reported
+  there too, rather than found out after a branch has been pushed.
+  `forge.Built` declares which forges are built and a guard test holds it and the
+  daemon's registry together, so the two cannot drift into doctor reporting a
+  project as publishable that a publication then refuses.
+- The pre-push report is `repositories.<id>.publication`. It was
+  `repositories.<id>.forge` — the configuration field that decides whether it
+  runs — which reads as a check on the forge declaration. That declaration is
+  validated when the configuration loads; this is about what a push will skip,
+  and a check name that names the wrong thing is a check that gets asked the
+  wrong question.
+
 What this does not decide is whether Feat should run a `pre-push` hook it can
 attribute to the user rather than to the agent. That is OQ-015, and it still
 needs somebody who has one.
@@ -5811,7 +5835,8 @@ parses what it wrote; `internal/git` gains `Push`, `PushEnvironment`, and
 `internal/review` gains `NewPublication` and the result a publication records;
 `internal/daemon` owns the sequencing; `internal/api`, `internal/client`,
 `internal/cli`, and `internal/ui` carry the surface. `feat doctor` gains the
-`pre-push` report and the host-native capability note ADR-070 asked for.
+`pre-push` report, the host-native capability note ADR-070 asked for, and the
+host publication check above.
 [06-technical-architecture.md](06-technical-architecture.md) gains the two
 packages, the two routes, and the adapter's new obligation; [README.md](README.md)
 gains the command.

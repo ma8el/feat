@@ -13,6 +13,8 @@ import (
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution/compose"
+	"github.com/ma8el/feat/internal/forge"
+	"github.com/ma8el/feat/internal/forge/gitlab"
 )
 
 // The executables Feat drives on the trusted host.
@@ -54,6 +56,7 @@ func (c *checker) run(ctx context.Context) []Finding {
 	c.checkExecution(ctx)
 	c.checkRuntime(ctx)
 	c.checkReviewCommands()
+	c.checkPublication(ctx)
 	c.checkChecks(ctx)
 	c.checkCapabilities()
 	return c.findings
@@ -118,11 +121,16 @@ func (c *checker) checkRepositories(ctx context.Context) {
 // (ADR-028).
 //
 // A repository with no forge is never published, so it is never asked.
+//
+// The check is named for what it is about rather than for the configuration
+// field that decides whether it runs. `repositories.<id>.forge` was the first
+// name, and it reads as a check on the forge declaration — which is validated
+// when the configuration loads, and is not this.
 func (c *checker) checkPrePush(ctx context.Context, id string, repository config.Repository) {
 	if repository.Forge == nil {
 		return
 	}
-	check := "repositories." + id + ".forge"
+	check := "repositories." + id + ".publication"
 
 	if path, err := c.runner.Run(ctx, repository.HostPath, gitExecutable,
 		"config", "--get", "core.hooksPath"); err == nil && strings.TrimSpace(path) != "" {
@@ -653,6 +661,139 @@ func (c *checker) checkReviewCommands() {
 		}
 		c.lookUp(command.check, command.value.Command[0])
 	}
+}
+
+// checkPublication reports whether this machine can publish what the project
+// declares.
+//
+// Nothing else asks. `agent.capabilities.gitlab_cli` and `github_cli` describe
+// the agent's environment — in a devcontainer they are probed inside the
+// container, and ADR-070 expects them to be `disabled` — so on a project that
+// publishes through the host they answer a different question about a different
+// machine. Without this, a project could be configured for a forge, pass every
+// check, and then push a branch and fail to open the merge request because the
+// host has no `glab` or is logged out. What Feat cannot do is better learned
+// when the user asks whether the project is configured (ADR-070, ADR-074).
+//
+// It is asked once per forge the repositories declare rather than once per
+// repository: the answer is about this machine, and a project with five GitLab
+// repositories does not need to be told five times. The repositories are named
+// in the finding, so it still says what is affected. A project that declares no
+// forge is never asked, and says nothing.
+//
+// It warns rather than fails. A project may be configured before anybody has
+// logged in, and a task that is never published works perfectly without any of
+// this.
+func (c *checker) checkPublication(ctx context.Context) {
+	for _, kind := range declaredForges(c.config) {
+		check := "publication." + kind.forge
+		declared := "repositories " + listOf(kind.repositories, "and")
+		if len(kind.repositories) == 1 {
+			declared = "repository " + kind.repositories[0]
+		}
+
+		if !forge.Available(domain.ForgeKind(kind.forge)) {
+			// Configurable and not built. Publishing refuses it by name, and
+			// this is where that is learned rather than at the moment a branch
+			// has been pushed.
+			c.warn(check, fmt.Sprintf(
+				"%s publishes to %s, and this build opens merge requests on %s",
+				declared, kind.forge, forgesBuilt()),
+				fmt.Sprintf("publish %s by hand, or set its forge.kind to %s", declared, forgesBuilt()))
+			continue
+		}
+
+		tool, known := forgeTool(domain.ForgeKind(kind.forge))
+		if !known {
+			// This build has an adapter and this function does not know what it
+			// drives. It is said rather than assumed: a diagnostic that reported
+			// a check it did not run is the one thing worse than not running it
+			// (ADR-028).
+			c.skip(check, fmt.Sprintf("%s publishes to %s, and `feat doctor` does not know which command "+
+				"line that adapter drives", declared, kind.forge),
+				"report this: publication will still work, and this check will not")
+			continue
+		}
+		c.checkForgeCLI(ctx, check, tool, declared)
+	}
+}
+
+// checkForgeCLI asks the host whether one forge's command line can publish.
+//
+// It is the host that is asked, always. Publication runs there in both execution
+// modes, so a `glab` inside the agent's container is not an answer — which is
+// exactly the mistake the capability probes would make if they were reused here.
+func (c *checker) checkForgeCLI(ctx context.Context, check, tool, declared string) {
+	if _, err := c.runner.Look(tool); errors.Is(err, ErrNotInstalled) {
+		c.warn(check, fmt.Sprintf("%s publishes through %s, and it is not installed on this machine",
+			declared, tool),
+			"install "+tool+"; Feat opens every merge request from here, with your own authentication")
+		return
+	} else if err != nil {
+		c.warn(check, fmt.Sprintf("%s could not be resolved: %v", tool, err), "check the PATH")
+		return
+	}
+
+	if _, err := c.runner.Run(ctx, "", tool, "auth", "status"); err != nil {
+		c.warn(check, fmt.Sprintf("%s publishes through %s, and it is not authenticated on this machine",
+			declared, tool),
+			fmt.Sprintf("run `%s auth login`; the agent is never given a provider credential, so this "+
+				"is the authentication a publication uses", tool))
+		return
+	}
+	c.ok(check, fmt.Sprintf("%s is installed and authenticated for %s", tool, declared))
+}
+
+// forgeDeclaration is one forge the project's repositories publish to, and which
+// of them declared it.
+type forgeDeclaration struct {
+	forge        string
+	repositories []string
+}
+
+// declaredForges lists the forges the project publishes to, in a stable order,
+// so that a diagnostic reads the same way twice.
+func declaredForges(cfg *config.Config) []forgeDeclaration {
+	var order []string
+	byForge := make(map[string][]string)
+
+	for _, id := range cfg.RepositoryIDs() {
+		repository, _ := cfg.Repository(id)
+		if repository.Forge == nil || repository.Forge.Kind == "" {
+			continue
+		}
+		if _, seen := byForge[repository.Forge.Kind]; !seen {
+			order = append(order, repository.Forge.Kind)
+		}
+		byForge[repository.Forge.Kind] = append(byForge[repository.Forge.Kind], id)
+	}
+
+	declarations := make([]forgeDeclaration, 0, len(order))
+	for _, kind := range order {
+		declarations = append(declarations, forgeDeclaration{forge: kind, repositories: byForge[kind]})
+	}
+	return declarations
+}
+
+// forgeTool names the command line one built forge is driven through.
+//
+// The adapter is the one that names its own executable, so this maps a forge
+// onto the package that owns it rather than repeating the name.
+func forgeTool(kind domain.ForgeKind) (string, bool) {
+	if kind == domain.ForgeGitLab {
+		return gitlab.Executable, true
+	}
+	return "", false
+}
+
+// forgesBuilt renders the forges this build publishes to, so that a refusal says
+// what would have been accepted.
+func forgesBuilt() string {
+	names := make([]string, 0, len(forge.Built))
+	for _, kind := range forge.Built {
+		names = append(names, string(kind))
+	}
+	return listOf(names, "or")
 }
 
 // checkChecks checks the verification commands the completion gate runs.

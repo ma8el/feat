@@ -882,3 +882,30 @@ func TestRepublishingWithNoWordsForWhatAlreadyPublishedIsFine(t *testing.T) {
 		t.Errorf("the record of alpha is %+v, want the merge request it already had", entry)
 	}
 }
+
+// TestTheForgesThisBuildPublishesToAreTheOnesItDeclares holds the registry and
+// the declaration together.
+//
+// `feat doctor` reads forge.Built to tell a user that a configured forge is one
+// this build has no adapter for, and the daemon publishes through the registry
+// it composes here. Two lists of one fact can disagree, and the way they would
+// disagree is the worst one available: doctor reporting a project as publishable
+// that a publication then refuses, or the reverse (ADR-074).
+func TestTheForgesThisBuildPublishesToAreTheOnesItDeclares(t *testing.T) {
+	registry := forges(Options{})
+
+	for _, kind := range forge.Built {
+		if _, built := registry[kind]; !built {
+			t.Errorf("forge.Built names %s and the daemon publishes through no adapter for it", kind)
+		}
+	}
+	for kind := range registry {
+		if !forge.Available(kind) {
+			t.Errorf("the daemon publishes to %s and forge.Built does not name it, "+
+				"so `feat doctor` will tell a user it is not built", kind)
+		}
+	}
+	if len(registry) != len(forge.Built) {
+		t.Errorf("the daemon has %d adapters and forge.Built names %d", len(registry), len(forge.Built))
+	}
+}

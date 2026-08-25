@@ -275,6 +275,12 @@ than opening a second one. A draft describing a commit that is no longer current
 is refused rather than published — that is a different answer from "this already
 published", and the two never read alike.
 
+`feat doctor` checks that this machine can publish what the project declares:
+that the forge's command line is installed and authenticated here, and that Feat
+has an adapter for the forge at all. It asks the host in both execution modes,
+because that is where publication runs — `agent.capabilities.gitlab_cli`
+describes the agent's own environment and answers a different question.
+
 The push runs with hooks, the pager, and external diff commands disabled, because
 a task's worktrees share `.git/hooks` with your own checkout and the agent can
 write them: approving a publication should not be how you run what the agent left
