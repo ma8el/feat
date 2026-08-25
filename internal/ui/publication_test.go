@@ -153,6 +153,12 @@ func TestAnythingButYesLeavesThePublicationUnsent(t *testing.T) {
 }
 
 // TestAStaleDraftIsRefusedOnTheScreenToo keeps the two clients answering alike.
+//
+// The document does not offer a stale repository, so what this arranges is a
+// document that disagrees with the plan it was written from: the words arrive
+// approved anyway. They are refused here rather than sent for the daemon to
+// refuse, so the answer to the last question is not spent on something that
+// cannot happen.
 func TestAStaleDraftIsRefusedOnTheScreenToo(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
@@ -171,6 +177,71 @@ func TestAStaleDraftIsRefusedOnTheScreenToo(t *testing.T) {
 	}
 	if !strings.Contains(asked.publicationBody(), "no longer current") {
 		t.Errorf("the screen does not mark the stale repository:\n%s", asked.publicationBody())
+	}
+}
+
+// TestOneStaleDraftLeavesTheOtherRepositoriesPublishable is what a stale draft
+// costs and what it does not.
+//
+// It is one repository's problem: the agent described a commit that is no longer
+// current there, and no edit resolves it. Refusing the whole publication for it
+// would leave a user waiting on a fresh draft for a repository they were not
+// publishing — and the daemon, which asks only about the repositories in the
+// request, would have taken the others.
+func TestOneStaleDraftLeavesTheOtherRepositoriesPublishable(t *testing.T) {
+	backend := newFakeBackend()
+	model := publishable(t, backend)
+	model.publication.status.Drafts = append(model.publication.status.Drafts, api.PublicationDraft{
+		RepositoryID: "schema", Forge: "gitlab", Remote: "origin",
+		Branch: "feat/7f3a1c2e-add-a-scheduled-export-job", BaseBranch: "main",
+		Commit: "0011223344556677889900aabbccddeeff001122",
+		Title:  "Add the export table", Body: "Written before the work finished.",
+		Stale: true, DraftCommit: "9999999999999999999999999999999999999999",
+	})
+
+	// The document offers core alone, so that is what comes back from the
+	// editor: the stale repository was never the user's to approve.
+	asked := press(t, readDraft(t, model, backend), "enter")
+	if !asked.publication.confirming {
+		t.Fatalf("a stale draft in another repository stopped the publication: %q", asked.status)
+	}
+	// And the one that was left out is on the screen the user answers from,
+	// saying why it is not among them.
+	if !strings.Contains(asked.publicationBody(), "no longer current") {
+		t.Errorf("the screen does not mark the stale repository:\n%s", asked.publicationBody())
+	}
+
+	press(t, asked, "y")
+	if len(backend.publicationRequests) != 1 {
+		t.Fatalf("%d publications reached the daemon, want the one repository that was publishable",
+			len(backend.publicationRequests))
+	}
+	sent := backend.publicationRequests[0].Repositories
+	if len(sent) != 1 || sent[0].RepositoryID != "core" {
+		t.Errorf("what was sent is %+v, want only core", sent)
+	}
+}
+
+// TestAScreenWithNothingLeftToPublishOffersNoEditor is the empty case.
+//
+// Every repository has published or has a stale draft, so there is no document
+// to open. A key that opens an editor on nothing is a key that appears to do
+// something, and the screen says why instead.
+func TestAScreenWithNothingLeftToPublishOffersNoEditor(t *testing.T) {
+	backend := newFakeBackend()
+	model := publishable(t, backend)
+	model.publication.status.Drafts[0].Stale = true
+	model.publication.status.Drafts[0].DraftCommit = "9999999999999999999999999999999999999999"
+
+	after := press(t, model, "e")
+	if backend.publicationEdits != 0 {
+		t.Errorf("e opened an editor on a document with no sections (%d times)", backend.publicationEdits)
+	}
+	if !strings.Contains(after.publicationBody(), "none of these is left to publish") {
+		t.Errorf("the screen does not say why nothing can be published:\n%s", after.publicationBody())
+	}
+	if strings.Contains(after.publicationHints(), "read and edit the draft") {
+		t.Errorf("the footer offers a key that does nothing: %q", after.publicationHints())
 	}
 }
 

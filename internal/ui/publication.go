@@ -165,7 +165,11 @@ func (m Model) publicationKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.quit()
 
 	case "e":
-		if len(m.publication.status.Drafts) == 0 {
+		if len(api.OfferedDrafts(m.publication.status.Drafts)) == 0 {
+			// Nothing this screen shows is the user's to edit: it has all
+			// published, or its drafts are stale. The document would be empty,
+			// and an editor opening on nothing says less than the screen behind
+			// it already does.
 			return m, nil
 		}
 		m.publication.err = nil
@@ -199,7 +203,11 @@ func (m Model) startPublication() (tea.Model, tea.Cmd) {
 		m.status = "every repository was removed from the draft, so there is nothing to publish"
 		return m, nil
 	}
-	if stale := publicationStale(m.publication.status.Drafts); len(stale) > 0 {
+	// Asked of what came back from the editor rather than of the whole plan. A
+	// stale draft is not offered for editing, so this is the guard for a
+	// document that disagrees with its plan — and one repository's stale draft
+	// never stops the others, which is the answer the daemon gives too.
+	if stale := api.StaleApprovals(m.publication.status.Drafts, m.publication.approved); len(stale) > 0 {
 		m.status = "the agent's draft for " + strings.Join(stale, ", ") +
 			" describes a commit that is no longer current; ask for a fresh draft"
 		return m, nil
@@ -268,17 +276,6 @@ func (m Model) applyPublicationDone(message publicationDoneMsg) (tea.Model, tea.
 	return m, m.load()
 }
 
-// publicationStale names the repositories whose draft describes another commit.
-func publicationStale(drafts []api.PublicationDraft) []string {
-	var stale []string
-	for _, draft := range drafts {
-		if draft.Stale {
-			stale = append(stale, draft.RepositoryID)
-		}
-	}
-	return stale
-}
-
 // publicationBody renders the screen.
 func (m Model) publicationBody() string {
 	var out strings.Builder
@@ -315,6 +312,14 @@ func (m Model) publicationBody() string {
 
 	for _, draft := range m.publication.status.Drafts {
 		out.WriteString(m.publicationEntry(draft))
+	}
+	if len(api.OfferedDrafts(m.publication.status.Drafts)) == 0 {
+		// Every repository is above, and none of them is one this screen can
+		// send: they have published, or their draft describes a commit that is
+		// no longer current. Saying so is the difference between a screen that
+		// offers a key that does nothing and one that says why.
+		out.WriteString("\n" + mutedStyle.Render(
+			"  none of these is left to publish; the lines above say why") + "\n")
 	}
 	out.WriteString(m.publicationRecord())
 	out.WriteString(m.publicationNotes())
@@ -420,7 +425,10 @@ func (m Model) publicationHints() string {
 	if m.publication.confirming {
 		return keyHints(keyHint("y", "publish"), keyHint("esc", "leave it"))
 	}
-	hints := []string{keyHint("e", "read and edit the draft")}
+	var hints []string
+	if len(api.OfferedDrafts(m.publication.status.Drafts)) > 0 {
+		hints = append(hints, keyHint("e", "read and edit the draft"))
+	}
 	if m.publication.read {
 		hints = append(hints, keyHint("enter", "publish"))
 	}

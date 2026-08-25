@@ -90,17 +90,14 @@ func publish(cmd *cobra.Command, caller publisher, env *environment, task string
 	}
 	printPublicationPlan(out, plan)
 
-	if len(plan.Drafts) == 0 {
+	if len(api.OfferedDrafts(plan.Drafts)) == 0 {
+		// Either the task has nothing to publish, or everything it has is
+		// already on a forge or describes a commit that is no longer current.
+		// The table above says which, per repository, and none of the three is
+		// something a user can edit their way out of: there is no document to
+		// open, and saying they removed one would blame them for it.
 		printf(out, "\nnothing to publish\n")
 		return nil
-	}
-	if stale := stalePublications(plan.Drafts); len(stale) > 0 {
-		// Reported and never resolved. Feat does not re-compose a draft on the
-		// user's behalf, because they would be publishing words they never read
-		// (ADR-031's rule for a changed draft, ADR-070's for a stale one).
-		return fmt.Errorf("the agent's draft for %s describes a commit that is no longer current, "+
-			"so nothing was published. Ask the agent for a fresh draft with the commit each one describes",
-			strings.Join(stale, ", "))
 	}
 
 	document, err := editPublication(cmd, plan, env, task)
@@ -114,6 +111,18 @@ func publish(cmd *cobra.Command, caller publisher, env *environment, task string
 	if len(approved) == 0 {
 		printf(out, "\nevery repository was removed from the draft, so nothing was published\n")
 		return nil
+	}
+	if stale := api.StaleApprovals(plan.Drafts, approved); len(stale) > 0 {
+		// Reported and never resolved. Feat does not re-compose a draft on the
+		// user's behalf, because they would be publishing words they never read
+		// (ADR-031's rule for a changed draft, ADR-070's for a stale one). The
+		// document does not offer a stale repository, so this is what a document
+		// that disagrees with its plan reaches — before the confirmation rather
+		// than after it, so the answer is not spent on something that cannot
+		// happen.
+		return fmt.Errorf("the agent's draft for %s describes a commit that is no longer current, "+
+			"so nothing was published. Ask the agent for a fresh draft with the commit each one describes",
+			strings.Join(stale, ", "))
 	}
 
 	printPublicationApproval(out, approved)
@@ -133,17 +142,6 @@ func publish(cmd *cobra.Command, caller publisher, env *environment, task string
 	}
 	printPublicationResult(out, status)
 	return nil
-}
-
-// stalePublications names the repositories whose draft describes another commit.
-func stalePublications(drafts []api.PublicationDraft) []string {
-	var stale []string
-	for _, draft := range drafts {
-		if draft.Stale {
-			stale = append(stale, draft.RepositoryID)
-		}
-	}
-	return stale
 }
 
 // printPublicationPlan renders what publishing would do.
@@ -384,13 +382,12 @@ func publicationDocument(plan api.PublicationStatus) string {
 	b.WriteString("# A section whose title line is left empty is refused rather than published.\n")
 	b.WriteString("# Delete a whole section to leave that repository unpublished.\n")
 
-	for _, draft := range plan.Drafts {
-		if draft.Published != nil {
-			// Already on the forge. It is named in the plan above and left out
-			// of the document, because editing words that have already been
-			// sent would suggest that saving them changes something.
-			continue
-		}
+	// What is left out is what editing cannot change: a repository already on the
+	// forge, where saving different words would suggest they replace what was
+	// sent, and one whose draft is stale, which is refused for the commit it
+	// describes however it is rewritten. Both are named in the plan the user read
+	// before this opened, with what to do about them.
+	for _, draft := range api.OfferedDrafts(plan.Drafts) {
 		fmt.Fprintf(&b, "\n%s\n", publicationSection(fence, draft.RepositoryID))
 		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(draft.Title))
 		if body := strings.TrimRight(draft.Body, "\n"); body != "" {

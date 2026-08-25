@@ -1,8 +1,14 @@
 package cli
 
 import (
+	"bytes"
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/paths"
@@ -294,6 +300,158 @@ func TestAnAlreadyPublishedRepositoryIsNotInTheDocument(t *testing.T) {
 	}
 	if !strings.Contains(document, "=== api ===") {
 		t.Errorf("the repository still to publish is missing:\n%s", document)
+	}
+}
+
+// fakePublisher answers what the daemon would and records what reached it.
+//
+// It is what the publisher interface exists for: the document, the editor, and
+// the confirmation are most of this command, and none of them needs a socket.
+type fakePublisher struct {
+	plan     api.PublicationStatus
+	result   api.PublicationStatus
+	requests []api.PublishRequest
+}
+
+func (f *fakePublisher) PlanPublication(context.Context, string) (api.PublicationStatus, error) {
+	return f.plan, nil
+}
+
+func (f *fakePublisher) ApplyPublication(
+	_ context.Context, _ string, request api.PublishRequest,
+) (api.PublicationStatus, error) {
+	f.requests = append(f.requests, request)
+	return f.result, nil
+}
+
+// runPublish drives the whole command: plan, editor, confirmation, apply.
+//
+// The editor is a program rather than a person, so the document comes back
+// exactly as it was written — which is what a user who reads it and saves does.
+//
+// The answers are a file rather than a reader, because the editor is handed this
+// process's own input the way it is handed a terminal: os/exec passes a file
+// descriptor through and copies anything else, and a copy would drain the
+// answers into a program that never reads them.
+func runPublish(t *testing.T, caller publisher, answer string) (string, error) {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "answers")
+	if err := os.WriteFile(path, []byte(answer), 0o600); err != nil {
+		t.Fatalf("writing the answers: %v", err)
+	}
+	answers, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("opening the answers: %v", err)
+	}
+	defer func() { _ = answers.Close() }()
+
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetIn(answers)
+
+	err = publish(cmd, caller, &environment{}, "7f3a1c2e")
+	return out.String(), err
+}
+
+// TestOneStaleDraftLeavesTheOtherRepositoriesPublishable is what a publication
+// refuses and what it does not.
+//
+// A stale draft is one repository's problem: the agent described a commit that
+// is no longer current there, and no edit resolves it, because the refusal is
+// about the commit rather than about the words. Refusing the whole publication
+// for it would leave a user waiting on a fresh draft for a repository they were
+// not publishing — while the daemon, which only ever asked about the
+// repositories in the request, would have taken the others.
+func TestOneStaleDraftLeavesTheOtherRepositoriesPublishable(t *testing.T) {
+	plan := plannedStatus()
+	plan.Editor = api.EditorCommand{Program: "true"}
+	plan.Drafts[1].Stale = true
+	plan.Drafts[1].DraftCommit = "9999999999999999999999999999999999999999"
+
+	caller := &fakePublisher{plan: plan}
+	printed, err := runPublish(t, caller, "y\n")
+	if err != nil {
+		t.Fatalf("publishing with one stale draft: %v\n%s", err, printed)
+	}
+
+	if len(caller.requests) != 1 {
+		t.Fatalf("%d publications reached the daemon, want the one repository that was publishable",
+			len(caller.requests))
+	}
+	sent := caller.requests[0].Repositories
+	if len(sent) != 1 || sent[0].RepositoryID != "api" {
+		t.Fatalf("what was sent is %+v, want only api", sent)
+	}
+	// And the one that was left out is still named, with the state that says
+	// why: it is not offered for editing, and the plan is where a user learns
+	// that rather than from a document that silently has one section.
+	if !strings.Contains(printed, "stale draft") {
+		t.Errorf("the plan does not say store is stale:\n%s", printed)
+	}
+}
+
+// TestAStaleSectionIsNotOfferedForEditing is the other half of the same rule.
+//
+// The words cannot be made publishable by rewriting them, so offering them for
+// rewriting would be offering something that cannot happen: a user would edit,
+// save, and be refused for a reason their edit could not touch.
+func TestAStaleSectionIsNotOfferedForEditing(t *testing.T) {
+	status := plannedStatus()
+	status.Drafts[1].Stale = true
+
+	document := publicationDocument(status)
+	if strings.Contains(document, "=== store ===") {
+		t.Errorf("a stale draft is offered for editing:\n%s", document)
+	}
+	if !strings.Contains(document, "=== api ===") {
+		t.Errorf("the repository that can still publish is missing:\n%s", document)
+	}
+
+	approved, err := readPublicationDocument(document, status.Drafts)
+	if err != nil {
+		t.Fatalf("reading the draft back: %v", err)
+	}
+	if len(approved) != 1 || approved[0].RepositoryID != "api" {
+		t.Errorf("the document came back as %+v, want only what it offered", approved)
+	}
+}
+
+// TestNothingLeftToPublishOpensNoEditorAndBlamesNobody is the empty case.
+//
+// Every repository has published or has a stale draft, so there is no document:
+// opening an editor on nothing and then reporting that the user removed every
+// repository would blame them for a state they did not make. The editor here is
+// `false`, so running it at all would fail the command.
+func TestNothingLeftToPublishOpensNoEditorAndBlamesNobody(t *testing.T) {
+	plan := plannedStatus()
+	plan.Editor = api.EditorCommand{Program: "false"}
+	plan.Drafts[0].Published = &api.MergeRequest{
+		Reference: "!7", URL: "https://gitlab.example.com/app/api/-/merge_requests/7",
+	}
+	plan.Drafts[1].Stale = true
+
+	caller := &fakePublisher{plan: plan}
+	printed, err := runPublish(t, caller, "")
+	if err != nil {
+		t.Fatalf("publishing a task with nothing left: %v\n%s", err, printed)
+	}
+
+	if len(caller.requests) != 0 {
+		t.Errorf("a task with nothing left to publish sent %+v", caller.requests)
+	}
+	if !strings.Contains(printed, "nothing to publish") {
+		t.Errorf("the command does not say what happened:\n%s", printed)
+	}
+	if strings.Contains(printed, "was removed from the draft") {
+		t.Errorf("the command blames the user for a document it never opened:\n%s", printed)
+	}
+	// What is there is still reported, which is where the user learns why.
+	if !strings.Contains(printed, "merge_requests/7") || !strings.Contains(printed, "stale draft") {
+		t.Errorf("the plan does not say what the task has:\n%s", printed)
 	}
 }
 

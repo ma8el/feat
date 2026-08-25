@@ -1688,6 +1688,31 @@ type PublicationDraft struct {
 	Skipped []string `json:"skipped,omitempty"`
 }
 
+// Offered reports whether this repository's words are the user's to approve.
+//
+// A repository that has already published is on the forge, and a stale draft is
+// refused rather than sent whatever words it carries — the refusal is about the
+// commit the agent described rather than about the prose, so rewriting it
+// changes nothing. Neither is something an edit can resolve, so both are named
+// in the plan and left out of the document (ADR-070, ADR-073).
+func (d PublicationDraft) Offered() bool { return d.Published == nil && !d.Stale }
+
+// OfferedDrafts returns the repositories a publication may still send.
+//
+// It lives beside the wire types because two clients ask it and have to answer
+// alike: a dashboard that offered what a terminal refused — or either of them
+// refusing a whole publication over one repository the daemon would have
+// accepted without — is the drift this removes.
+func OfferedDrafts(drafts []PublicationDraft) []PublicationDraft {
+	offered := make([]PublicationDraft, 0, len(drafts))
+	for _, draft := range drafts {
+		if draft.Offered() {
+			offered = append(offered, draft)
+		}
+	}
+	return offered
+}
+
 // MergeRequest is a request Feat opened on a forge. GitHub calls it a pull
 // request; there is one shape either way.
 type MergeRequest struct {
@@ -1765,6 +1790,31 @@ type ApprovedPublication struct {
 	Title        string `json:"title"`
 	Body         string `json:"body"`
 	Commit       string `json:"commit"`
+}
+
+// StaleApprovals names the approved repositories whose draft describes a commit
+// that is no longer current.
+//
+// The question is asked of what the user approved rather than of the whole plan,
+// which is how the daemon asks it: one repository's stale draft leaves every
+// other repository publishable. A client that refused all of them for one would
+// leave a user waiting for the agent to write a fresh draft for a repository
+// they were not publishing, and no edit would get them out of it.
+func StaleApprovals(drafts []PublicationDraft, approved []ApprovedPublication) []string {
+	stale := make(map[string]bool, len(drafts))
+	for _, draft := range drafts {
+		if draft.Stale {
+			stale[draft.RepositoryID] = true
+		}
+	}
+
+	var names []string
+	for _, one := range approved {
+		if stale[one.RepositoryID] {
+			names = append(names, one.RepositoryID)
+		}
+	}
+	return names
 }
 
 // PublishRequest is the body of POST
