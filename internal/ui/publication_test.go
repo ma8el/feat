@@ -270,6 +270,60 @@ func TestTheRecordIsShownIncludingWhatWasNotAttempted(t *testing.T) {
 	}
 }
 
+// TestLookingAgainAfterAPublicationShowsTheNewPlan is how a partial publication
+// is finished.
+//
+// Nothing is rolled back, so what a failure leaves is a record and repositories
+// that are still unpublished. Looking again composes a fresh plan that skips
+// what already published (ADR-073), and the screen has to show it: a finished
+// view that keeps drawing over a new plan makes the key that asked for it look
+// like it did nothing.
+func TestLookingAgainAfterAPublicationShowsTheNewPlan(t *testing.T) {
+	backend := newFakeBackend()
+	model := publishable(t, backend)
+	// One repository published and one failed, which is what a user comes back
+	// to this screen for.
+	backend.publicationDone = api.PublicationStatus{
+		Task: model.publication.status.Task,
+		Publication: &api.Publication{Repositories: []api.PublicationRepository{
+			{RepositoryID: "core", State: "failed", Failure: "GitLab: protected branch"},
+		}},
+	}
+	published := press(t, press(t, readDraft(t, model, backend), "enter"), "y")
+	if !published.publication.done {
+		t.Fatal("the screen does not know a publication ran")
+	}
+	if !strings.Contains(published.publicationHints(), "look again") {
+		t.Errorf("the finished screen does not offer a way back to a plan: %q", published.publicationHints())
+	}
+
+	// Looking again, and the plan that comes back.
+	looking := press(t, published, "r")
+	if len(backend.publicationCalls) != 2 {
+		t.Fatalf("r planned %d times, want a fresh plan", len(backend.publicationCalls))
+	}
+	again, cmd := looking.Update(publicationPlanMsg{
+		task: looking.publication.task, status: backend.publicationStatus,
+	})
+	replanned := applyCommand(t, again.(Model), cmd)
+
+	if replanned.publication.done {
+		t.Error("a fresh plan arrived and the screen still shows the publication that ran")
+	}
+	body := replanned.publicationBody()
+	if !strings.Contains(body, "Export the daily report") {
+		t.Errorf("the screen does not show the plan it just asked for:\n%s", body)
+	}
+	// The draft has to be read again before anything is sent, and the record of
+	// what already happened is still there to read.
+	if replanned.publication.read || len(replanned.publication.approved) != 0 {
+		t.Error("looking again kept an approval from before the publication")
+	}
+	if !strings.Contains(replanned.publicationHints(), "read and edit the draft") {
+		t.Errorf("the screen does not offer the draft again: %q", replanned.publicationHints())
+	}
+}
+
 // TestAPublicationInFlightSwallowsTheKeyboard keeps one key press from becoming
 // two publications.
 //

@@ -240,6 +240,12 @@ func (m Model) applyPublicationPlan(message publicationPlanMsg) (tea.Model, tea.
 	m.publication.err = nil
 	m.publication.status = message.status
 	m.publication.loaded = true
+	// A composed plan is what would happen, which is the other of the two things
+	// this screen draws. A publication that ran leaves the record it produced —
+	// and after a partial one, looking again is how the repositories it never
+	// reached are published (ADR-073). The record is not lost by clearing this:
+	// the plan carries it, and it is drawn under the drafts either way.
+	m.publication.done = false
 	return m, nil
 }
 
@@ -420,7 +426,10 @@ func (m Model) publicationNotes() string {
 // publicationHints are the keys the footer offers.
 func (m Model) publicationHints() string {
 	if m.publication.done {
-		return keyHints(keyHint("esc", "close"))
+		// Looking again is offered here rather than only before a publication,
+		// because this is where a partial one is read: nothing is rolled back,
+		// and a fresh plan is what names the repositories still to publish.
+		return keyHints(keyHint("r", "look again"), keyHint("esc", "close"))
 	}
 	if m.publication.confirming {
 		return keyHints(keyHint("y", "publish"), keyHint("esc", "leave it"))
