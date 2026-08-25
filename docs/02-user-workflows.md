@@ -89,7 +89,7 @@ Where a ticket lives is the command's business rather than Feat's. Issues attach
 Flow:
 
 1. Feat lists matching tickets.
-2. The user selects one or several tickets.
+2. The user selects one. A task carries one ticket, because the reference on the task is what a merge request names and what a change is compared against, and neither has an answer for several (ADR-071).
 3. Feat snapshots what the ticket schema carries: a reference, a title, a body, a URL, and a state. Anything richer belongs in the brief, which is Markdown and holds whatever the user wants (ADR-071).
 4. Whether comments reach the body is the configured command's decision rather than Feat's. Selection by Feat would need a path that fetches comments itself, and none is scheduled.
 5. The snapshot is placed in the task control workspace and does not mutate while the agent is working.

@@ -40,6 +40,16 @@ type Service interface {
 	// It returns an error matching ErrNotFound when no configuration file
 	// exists, and one matching ErrInvalid when the file does not validate.
 	RegisterProject(ctx context.Context, id domain.ProjectID) (RegisteredProject, error)
+	// Tickets runs the project's configured tracker command and returns the
+	// tickets it printed, validated against the shape Feat publishes.
+	//
+	// It runs the command every time it is asked, because that is the only way
+	// to learn what the user's tickets are now: the command decides what they
+	// are and Feat passes it no filter, so there is nothing to re-filter and
+	// nothing worth caching in place of asking (ADR-071). A project that
+	// configures no tracker returns an error matching ErrNotFound, and output
+	// that does not conform one matching ErrInvalid.
+	Tickets(ctx context.Context, id domain.ProjectID) (TicketList, error)
 	// Tasks returns every task of every project, ordered by project and task.
 	Tasks(ctx context.Context) ([]*domain.Task, error)
 	// Task returns one task addressed by task identifier alone, resolving the
@@ -198,6 +208,11 @@ func NewHandler(opts Options) http.Handler {
 		http.MethodPost: server.registerProject,
 	}))
 	mux.Handle("/v1/projects/{project_id}", get(server.project))
+	// A project's tickets hang off the project because the tracker is
+	// configured there: a task is what a ticket seeds, and a task belongs to one
+	// project (ADR-071). It is a GET because it records nothing; what it does is
+	// run somebody's command and read what it printed.
+	mux.Handle("/v1/projects/{project_id}/tickets", get(server.tickets))
 	mux.Handle("/v1/resources", get(server.resources))
 	mux.Handle("/v1/tasks", get(server.tasks))
 	mux.Handle("/v1/tasks/{task_id}", get(server.task))
@@ -373,6 +388,31 @@ func (s *server) registerProject(w http.ResponseWriter, r *http.Request) {
 		Project: newProject(registered.Project),
 		Created: registered.Created,
 	})
+}
+
+// tickets lists what a project's tracker command printed.
+//
+// Nothing is sent but the project identifier. Which tickets are the user's is
+// the command's decision, and Feat passes it no filter, so there is no query
+// for a caller to supply and none for this handler to validate (ADR-071).
+func (s *server) tickets(w http.ResponseWriter, r *http.Request) {
+	id := domain.ProjectID(r.PathValue("project_id"))
+	if err := id.Validate(); err != nil {
+		s.fail(w, r, fmt.Errorf("%w: %w", ErrInvalid, err))
+		return
+	}
+
+	list, err := s.service.Tickets(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if list.Tickets == nil {
+		// Always a list rather than null, so a client can iterate the response
+		// without a nil check. A user with no tickets is an answer.
+		list.Tickets = []Ticket{}
+	}
+	writeJSON(w, http.StatusOK, list)
 }
 
 // resources returns the most recent resource sample.
@@ -810,6 +850,7 @@ func (s *server) createDraft(w http.ResponseWriter, r *http.Request) {
 		Source: domain.TaskSource{
 			Kind:      domain.SourceKind(request.Source.Kind),
 			Reference: request.Source.Reference,
+			Ticket:    TicketFrom(request.Source.Ticket),
 		},
 	})
 	if err != nil {

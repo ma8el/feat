@@ -646,3 +646,90 @@ func TestATaskPutBackToWorkStopsExplainingItsFailure(t *testing.T) {
 		t.Errorf("a working task still explains a failure it recovered from: %+v", task.Failure)
 	}
 }
+
+// TestTheComposedBriefHoldsEverythingTheTicketRecordCarries is ADR-070's inbound
+// rule read as a property of the document: the confirmation displays the
+// composed brief rather than the ticket it came from, so anything Feat kept from
+// the ticket has to be in that brief. A field recorded on the task but left out
+// of the brief would be a fact the user approved without seeing it.
+func TestTheComposedBriefHoldsEverythingTheTicketRecordCarries(t *testing.T) {
+	ticket := ExternalTaskReference{
+		Provider:  "shortcut",
+		Reference: "ACME-14",
+		URL:       "https://app.shortcut.com/acme/story/14",
+		Snapshot: TicketSnapshot{
+			Title:   "Reset links expire too quickly",
+			Body:    "The link stops working after five minutes.\r\nRaise it to an hour.",
+			State:   "Ready for Dev",
+			TakenAt: origin,
+		},
+	}
+
+	title, brief := ticket.ComposeBrief()
+
+	if !strings.Contains(title, ticket.Reference) || !strings.Contains(title, ticket.Snapshot.Title) {
+		t.Errorf("title = %q, and it names neither the ticket nor what it is about", title)
+	}
+	for _, want := range []string{
+		ticket.Reference, ticket.URL, ticket.Provider,
+		ticket.Snapshot.Title, ticket.Snapshot.State,
+		"The link stops working after five minutes.", "Raise it to an hour.",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the composed brief does not carry %q:\n%s", want, brief)
+		}
+	}
+	if strings.Contains(brief, "\r") {
+		t.Error("the composed brief carries carriage returns, which a tracker reached " +
+			"through a web form returns and a Markdown document should not keep")
+	}
+}
+
+// TestTheComposedBriefSaysWhereTheTicketStops checks that the ticket's own words
+// are marked as such: telling them from Feat's framing is why the user reads the
+// document before it becomes a task.
+func TestTheComposedBriefSaysWhereTheTicketStops(t *testing.T) {
+	ticket := ExternalTaskReference{
+		Reference: "#42",
+		URL:       "https://github.com/acme/planning/issues/42",
+		Snapshot: TicketSnapshot{
+			Title: "Export the daily report", Body: "Nightly, as CSV.",
+			State: "open", TakenAt: origin,
+		},
+	}
+
+	_, brief := ticket.ComposeBrief()
+
+	heading := strings.Index(brief, "## From the ticket")
+	if heading < 0 {
+		t.Fatalf("the composed brief does not mark where the ticket's own words start:\n%s", brief)
+	}
+	if body := strings.Index(brief, "Nightly, as CSV."); body < heading {
+		t.Errorf("the ticket's description is above the heading that introduces it:\n%s", brief)
+	}
+	if strings.Contains(brief, " in ") {
+		t.Errorf("the composed brief names a tracker for a ticket that carries no provider:\n%s", brief)
+	}
+}
+
+// TestATicketWithNoDescriptionComposesABriefThatSaysSo checks that an empty
+// description is a ticket rather than a brief with a heading and nothing under
+// it.
+func TestATicketWithNoDescriptionComposesABriefThatSaysSo(t *testing.T) {
+	ticket := ExternalTaskReference{
+		Reference: "ACME-2",
+		URL:       "https://app.shortcut.com/acme/story/2",
+		Snapshot: TicketSnapshot{
+			Title: "Rotate the signing key", Body: "   ", State: "open", TakenAt: origin,
+		},
+	}
+
+	_, brief := ticket.ComposeBrief()
+
+	if strings.Contains(brief, "## From the ticket") {
+		t.Errorf("the composed brief introduces a description the ticket does not have:\n%s", brief)
+	}
+	if !strings.Contains(brief, "no description") {
+		t.Errorf("the composed brief does not say the ticket has no description:\n%s", brief)
+	}
+}

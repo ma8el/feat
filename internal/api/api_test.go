@@ -59,6 +59,9 @@ type fakeService struct {
 	// assert on the request the daemon was given rather than on the one sent.
 	views  []TerminalView
 	inputs []TerminalInput
+	// tickets is what each project's tracker command printed, absent for a
+	// project that configures no tracker.
+	tickets map[domain.ProjectID]TicketList
 }
 
 func newFakeService() *fakeService {
@@ -85,7 +88,49 @@ func newFakeService() *fakeService {
 		},
 		unconfigured:  map[domain.ProjectID]bool{},
 		unregistrable: map[domain.ProjectID]bool{},
+		tickets: map[domain.ProjectID]TicketList{
+			storetest.ProjectID: ticketsFixture(),
+		},
 	}
+}
+
+// ticketsFixture is what a project's tracker command printed. Both a labelled
+// and an unlabelled ticket are here, so that the optional source is exercised in
+// the golden rather than only described.
+func ticketsFixture() TicketList {
+	return TicketList{
+		ReadAt: fixedTime,
+		Tickets: []Ticket{
+			{
+				Reference: "ACME-14",
+				Title:     "Reset links expire too quickly",
+				Body:      "The link stops working after five minutes.",
+				URL:       "https://app.shortcut.com/acme/story/14",
+				State:     "Ready for Dev",
+				Source:    "shortcut",
+			},
+			{
+				Reference: "#42",
+				Title:     "Export the daily report",
+				Body:      "",
+				URL:       "https://github.com/acme/planning/issues/42",
+				State:     "open",
+			},
+		},
+	}
+}
+
+// Tickets answers with what a project's tracker printed, so that the transport
+// can be tested without a tracker, an account, or a network.
+func (f *fakeService) Tickets(_ context.Context, id domain.ProjectID) (TicketList, error) {
+	if err := f.check(); err != nil {
+		return TicketList{}, err
+	}
+	list, ok := f.tickets[id]
+	if !ok {
+		return TicketList{}, fmt.Errorf("%w: project %s configures no tracker", ErrNotFound, id)
+	}
+	return list, nil
 }
 
 func (f *fakeService) check() error {
@@ -628,6 +673,7 @@ func TestResponseBodies(t *testing.T) {
 		{"tasks", "/v1/tasks"},
 		{"task", "/v1/tasks/" + storetest.TaskID.String()},
 		{"resources", "/v1/resources"},
+		{"tickets", "/v1/projects/" + storetest.ProjectID.String() + "/tickets"},
 	}
 
 	for _, test := range tests {
@@ -815,6 +861,14 @@ func TestErrorResponses(t *testing.T) {
 		},
 		{
 			"malformed attach task id", http.MethodPost, "/v1/tasks/not-a-uuid/attach-info",
+			http.StatusBadRequest, CodeInvalid,
+		},
+		{
+			"tickets of a project with no tracker", http.MethodGet, "/v1/projects/absent/tickets",
+			http.StatusNotFound, CodeNotFound,
+		},
+		{
+			"tickets under a malformed project id", http.MethodGet, "/v1/projects/Not%20An%20Id/tickets",
 			http.StatusBadRequest, CodeInvalid,
 		},
 		{"wrong method", http.MethodPost, "/v1/health", http.StatusMethodNotAllowed, CodeNotAllowed},
@@ -1027,14 +1081,16 @@ func TestDegradedHealthIsReportedNotFailed(t *testing.T) {
 // field the DTO forgets shows up as a zero value here.
 func TestTaskPayloadCarriesNoUnmappedField(t *testing.T) {
 	service := newFakeService()
-	// Two tasks, because two of a task's fields exclude each other: the reason
-	// it failed travels only with a failed task, and the fixture that has
-	// reached review cannot also be one.
-	service.tasks = append(service.tasks, storetest.Failed())
+	// Three tasks, because some of a task's fields exclude each other: the
+	// reason it failed travels only with a failed task, the fixture that has
+	// reached review cannot also be one, and a brief comes from one source, so
+	// a task imported from Markdown never also holds the ticket it was composed
+	// from.
+	service.tasks = append(service.tasks, storetest.Failed(), storetest.Published())
 	handler := NewHandler(Options{Service: service})
 
 	var payloads []any
-	for _, id := range []domain.TaskID{storetest.TaskID, storetest.FailedID} {
+	for _, id := range []domain.TaskID{storetest.TaskID, storetest.FailedID, storetest.PublishedID} {
 		response := request(t, handler, http.MethodGet, "/v1/tasks/"+id.String())
 
 		var task Task

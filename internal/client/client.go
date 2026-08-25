@@ -39,6 +39,13 @@ const (
 	// whose service has to be recreated took ten seconds and one hundredth of a
 	// second on the day the project's own Compose file changed.
 	agentTimeout = api.AgentTimeout + answerMargin
+	// ticketTimeout bounds a listing of a project's tickets, which is not a
+	// request the daemon answers out of what it already knows either: it runs
+	// somebody's command against somebody's tracker. Same shape as the two above
+	// and the same reason — the daemon's own budget plus a margin, so that a
+	// tracker which will not answer is reported by the daemon rather than by
+	// this client giving up on one that is still waiting.
+	ticketTimeout = api.TicketTimeout + answerMargin
 	// answerMargin is how much longer than the daemon's own budget a client waits
 	// for the answer, so that the daemon's diagnosis is what ends the request.
 	// The same margin the daemon allows a completion gate over its own.
@@ -68,6 +75,7 @@ type Client struct {
 	timeout        time.Duration
 	runtimeTimeout time.Duration
 	agentTimeout   time.Duration
+	ticketTimeout  time.Duration
 }
 
 // New returns a client for the daemon listening on the given socket.
@@ -77,6 +85,7 @@ func New(socket string) *Client {
 		timeout:        requestTimeout,
 		runtimeTimeout: runtimeTimeout,
 		agentTimeout:   agentTimeout,
+		ticketTimeout:  ticketTimeout,
 		http: &http.Client{
 			// No client timeout: the event stream is meant to stay open, and
 			// every other call bounds itself with a context instead.
@@ -121,6 +130,17 @@ func (c *Client) Projects(ctx context.Context) ([]api.Project, error) {
 // Project returns one project.
 func (c *Client) Project(ctx context.Context, id string) (api.Project, error) {
 	return fetch[api.Project](ctx, c, "/projects/"+url.PathEscape(id))
+}
+
+// Tickets runs a project's configured tracker command and returns the tickets
+// it printed.
+//
+// Only the project identifier is sent. Which tickets are the user's is the
+// command's decision and Feat passes it no filter, so there is no query for a
+// client to supply (ADR-071).
+func (c *Client) Tickets(ctx context.Context, id string) (api.TicketList, error) {
+	return fetchWithin[api.TicketList](ctx, c, c.ticketTimeout,
+		"/projects/"+url.PathEscape(id)+"/tickets")
 }
 
 // RegisterProject records a project from its configuration file.
@@ -296,15 +316,21 @@ func (c *Client) CancelDraft(ctx context.Context, id string) (api.Task, error) {
 
 // fetch performs one GET and decodes the response.
 func fetch[T any](ctx context.Context, c *Client, path string) (T, error) {
+	return fetchWithin[T](ctx, c, c.timeout, path)
+}
+
+// fetchWithin performs one GET that is allowed to take longer than an ordinary
+// request, because the daemon has more to do than answer it.
+func fetchWithin[T any](ctx context.Context, c *Client, within time.Duration, path string) (T, error) {
 	var payload T
 
 	caller := ctx
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	ctx, cancel := context.WithTimeout(ctx, within)
 	defer cancel()
 
 	response, err := c.get(ctx, path, nil)
 	if err != nil {
-		return payload, c.impatient(caller, c.timeout, err)
+		return payload, c.impatient(caller, within, err)
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, response.Body)

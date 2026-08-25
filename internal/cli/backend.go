@@ -54,6 +54,16 @@ func (b *backend) Tasks(ctx context.Context) ([]api.Task, error) {
 	return b.client.Tasks(ctx)
 }
 
+// Tickets runs the project's configured tracker command through the daemon.
+//
+// The daemon runs it rather than this process, because that is where every
+// credentialed provider call is made and where the answer becomes a task
+// (ADR-070). `feat doctor` is the exception and says why: it validates a
+// project's configuration before a daemon exists.
+func (b *backend) Tickets(ctx context.Context, project string) (api.TicketList, error) {
+	return b.client.Tickets(ctx, project)
+}
+
 func (b *backend) Events(ctx context.Context, handle func(api.Event) error) error {
 	return b.client.Events(ctx, handle)
 }

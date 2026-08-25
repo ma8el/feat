@@ -1,0 +1,16 @@
+[
+  {
+    "reference": "acme/api#57",
+    "title": "Rate limit the public search endpoint",
+    "body": "One client is sending 40 requests a second and the read replica is the thing that notices.\n\nA per-token bucket is enough; the numbers can come later.",
+    "url": "https://gitlab.example.com/acme/api/-/issues/57",
+    "state": "opened"
+  },
+  {
+    "reference": "acme/web#12",
+    "title": "The settings page loses unsaved changes on tab switch",
+    "body": "",
+    "url": "https://gitlab.example.com/acme/web/-/issues/12",
+    "state": "opened"
+  }
+]

@@ -100,6 +100,10 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 		"feat project add":   true,
 		"feat project list":  true,
 		"feat project show":  true,
+		// Listing tickets reaches the daemon, which runs the project's tracker
+		// command. Invoking it here would ask the running user's tracker for
+		// their tickets.
+		"feat project tickets": true,
 		// Initialising a project reads the running user's configuration
 		// directory, and with no terminal it refuses rather than asking
 		// questions into a pipe. Invoking it here would do neither usefully.

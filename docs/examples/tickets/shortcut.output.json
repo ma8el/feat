@@ -1,0 +1,16 @@
+[
+  {
+    "reference": "sc-4821",
+    "title": "Retry the nightly export before giving up",
+    "body": "The export gives up on the first timeout, which is usually the only one.\n\nThree attempts with a growing wait, and a line in the log for each.",
+    "url": "https://app.shortcut.com/acme/story/4821",
+    "state": "started"
+  },
+  {
+    "reference": "sc-4833",
+    "title": "Rotate the signing key",
+    "body": "",
+    "url": "https://app.shortcut.com/acme/story/4833",
+    "state": "unstarted"
+  }
+]

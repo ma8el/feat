@@ -315,6 +315,103 @@ func (v Verification) Total() int { return v.Passed + v.Failed + v.Other }
 type Source struct {
 	Kind      string `json:"kind"`
 	Reference string `json:"reference,omitempty"`
+	// Ticket is the ticket the brief was composed from, present exactly for a
+	// ticket source. It travels in both directions: a client composing a brief
+	// from a ticket sends what it read, and a task carries it back so that a
+	// caller can say which ticket the work came from.
+	Ticket *TicketReference `json:"ticket,omitempty"`
+}
+
+// Ticket is one of a project's tickets, in the shape Feat publishes as
+// schema/feat-tickets.schema.json.
+//
+// It is what the project's configured tracker command printed, validated and
+// carried unchanged. Feat parses no part of it: a reference is matched against
+// what the command emitted, and a state is the tracker's own word (ADR-071).
+type Ticket struct {
+	Reference string `json:"reference"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	URL       string `json:"url"`
+	State     string `json:"state"`
+	// Source is which tracker the ticket came from, empty for a project drawing
+	// on one. Where a merged command labels tickets with it, it becomes the
+	// provider on the task's ticket reference.
+	Source string `json:"source,omitempty"`
+}
+
+// TicketList is what a project's tracker printed, and when.
+//
+// The time is on the list rather than on each ticket because one run of the
+// command produced all of them, and it is what a snapshot taken from one of
+// them records as the moment Feat read it.
+type TicketList struct {
+	ReadAt  time.Time `json:"read_at"`
+	Tickets []Ticket  `json:"tickets"`
+}
+
+// TicketReference is the ticket a task's brief was composed from.
+//
+// It is provider-neutral because the tracker is a configured command rather
+// than an adapter per service, and it is a snapshot rather than a live read: a
+// ticket that changes never silently alters the context an agent is already
+// working from (ADR-071, FR-TASK-005).
+type TicketReference struct {
+	// Provider is which tracker the ticket came from, and is what the published
+	// shape's optional source fills.
+	Provider  string `json:"provider,omitempty"`
+	Reference string `json:"reference"`
+	URL       string `json:"url"`
+	// Snapshot is the ticket as it was when Feat read it.
+	Snapshot TicketSnapshot `json:"snapshot"`
+	// ChangeAvailable reports that the tracker has since shown something
+	// different from the snapshot.
+	ChangeAvailable bool `json:"change_available,omitempty"`
+}
+
+// NewTicketReference records one of a project's tickets as the reference a task
+// composed from it would carry.
+//
+// The read time comes from the list rather than from each ticket, because one
+// run of the tracker command produced all of them, and it is what versions the
+// snapshot: the published shape carries no revision of the tracker's own
+// (ADR-071).
+func NewTicketReference(ticket Ticket, readAt time.Time) TicketReference {
+	return TicketReference{
+		// A merged command labels each ticket with the tracker it came from,
+		// and that label is what the task records as the provider.
+		Provider:  ticket.Source,
+		Reference: ticket.Reference,
+		URL:       ticket.URL,
+		Snapshot: TicketSnapshot{
+			Title:   ticket.Title,
+			Body:    ticket.Body,
+			State:   ticket.State,
+			TakenAt: readAt,
+		},
+	}
+}
+
+// ComposeBrief renders the task title and brief a task from this ticket starts
+// with.
+//
+// It delegates to the domain, so that what the user confirms is decided in one
+// place rather than by whichever client composed it. A client that showed the
+// user one document and recorded another would make the confirmation a
+// formality (ADR-070).
+func (t TicketReference) ComposeBrief() (title, brief string) {
+	return TicketFrom(&t).ComposeBrief()
+}
+
+// TicketSnapshot is the ticket as it was when Feat read it.
+type TicketSnapshot struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	State string `json:"state"`
+	// TakenAt is when the tracker command that printed it ran, which is what
+	// versions a snapshot: the published shape carries no revision of the
+	// tracker's own.
+	TakenAt time.Time `json:"taken_at"`
 }
 
 // TaskRepository binds a task to one repository of its project.
@@ -653,6 +750,20 @@ const RuntimeTimeout = 15 * time.Minute
 // built already.
 const AgentTimeout = 3 * time.Minute
 
+// TicketTimeout bounds one listing of a project's tickets, from the request
+// arriving to the answer being written.
+//
+// It belongs to the endpoint's contract for the reason RuntimeTimeout does: both
+// ends have to hold the same number, or a client gives up on a daemon that is
+// still waiting for somebody's tracker and the user is told nothing about which
+// of the two was slow.
+//
+// Seconds rather than minutes, because the work is one request against a service
+// the user is already authenticated to. A command that has not answered in this
+// long is stuck rather than slow, and saying so is better than a picker that
+// never opens.
+const TicketTimeout = 30 * time.Second
+
 // DestroyRuntime is the body of POST /v1/tasks/{task_id}/runtime/destroy.
 //
 // It carries the user's confirmation, for the reason a launch carries the
@@ -988,6 +1099,50 @@ func newProject(project *domain.Project) Project {
 	}
 }
 
+// newTicketReference renders the ticket a task was composed from, and nothing
+// for a task written by hand.
+func newTicketReference(ticket *domain.ExternalTaskReference) *TicketReference {
+	if ticket == nil {
+		return nil
+	}
+	return &TicketReference{
+		Provider:  ticket.Provider,
+		Reference: ticket.Reference,
+		URL:       ticket.URL,
+		Snapshot: TicketSnapshot{
+			Title:   ticket.Snapshot.Title,
+			Body:    ticket.Snapshot.Body,
+			State:   ticket.Snapshot.State,
+			TakenAt: ticket.Snapshot.TakenAt.UTC(),
+		},
+		ChangeAvailable: ticket.ChangeAvailable,
+	}
+}
+
+// TicketFrom reads a ticket reference a caller sent back.
+//
+// It is the inverse of newTicketReference and lives here so that both
+// directions of one shape are read in one place. Whether the values make a
+// consistent record is the domain's to say, and it says it when the task is
+// created.
+func TicketFrom(ticket *TicketReference) *domain.ExternalTaskReference {
+	if ticket == nil {
+		return nil
+	}
+	return &domain.ExternalTaskReference{
+		Provider:  ticket.Provider,
+		Reference: ticket.Reference,
+		URL:       ticket.URL,
+		Snapshot: domain.TicketSnapshot{
+			Title:   ticket.Snapshot.Title,
+			Body:    ticket.Snapshot.Body,
+			State:   ticket.Snapshot.State,
+			TakenAt: ticket.Snapshot.TakenAt,
+		},
+		ChangeAvailable: ticket.ChangeAvailable,
+	}
+}
+
 // newProjects maps a list of projects, always as a list rather than null, so a
 // client can iterate the response without a nil check.
 func newProjects(projects []*domain.Project) []Project {
@@ -1164,6 +1319,7 @@ func newTask(task *domain.Task, verification *Verification) Task {
 		Source: Source{
 			Kind:      string(task.Source.Kind),
 			Reference: task.Source.Reference,
+			Ticket:    newTicketReference(task.Source.Ticket),
 		},
 		Workflow:     string(task.Workflow),
 		Attention:    string(task.Attention),
