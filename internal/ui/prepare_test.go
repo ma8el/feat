@@ -88,6 +88,22 @@ type fakeBackend struct {
 	reviewStatus api.ReviewStatus
 	reviewErr    error
 
+	// publicationCalls records every plan, publicationRequests every apply, and
+	// publicationEdits every time the draft was opened. Their most important
+	// assertion is what stays empty: opening the screen sends nothing, and a
+	// publication reaches the daemon only after the user has read the draft.
+	publicationCalls    []string
+	publicationRequests []api.PublishRequest
+	publicationEdits    int
+	publicationStatus   api.PublicationStatus
+	publicationDone     api.PublicationStatus
+	publicationErr      error
+	publicationApplyErr error
+	// approved is what the fake editor returns, and editorErr is a document that
+	// could not be read back.
+	approved  []api.ApprovedPublication
+	editorErr error
+
 	// cleanupCalls records every plan request and cleanupSelections every
 	// execution, so a test can assert that opening the screen removed nothing
 	// and that what reached the daemon is what the user selected.
@@ -332,6 +348,55 @@ func (f *fakeBackend) Review(_ context.Context, id string, action api.ReviewActi
 	}
 	return f.reviewStatus, nil
 }
+
+// PlanPublication records the request and answers with whatever the test
+// arranged.
+func (f *fakeBackend) PlanPublication(_ context.Context, id string) (api.PublicationStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.publicationCalls = append(f.publicationCalls, id)
+
+	if f.publicationErr != nil {
+		return api.PublicationStatus{}, f.publicationErr
+	}
+	return f.publicationStatus, nil
+}
+
+// ApplyPublication records what reached the daemon, which is the assertion that
+// matters: what is sent is what the user approved.
+func (f *fakeBackend) ApplyPublication(
+	_ context.Context, _ string, request api.PublishRequest,
+) (api.PublicationStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.publicationRequests = append(f.publicationRequests, request)
+
+	if f.publicationApplyErr != nil {
+		return api.PublicationStatus{}, f.publicationApplyErr
+	}
+	return f.publicationDone, nil
+}
+
+// EditPublication stands in for the editor, returning what the test arranged as
+// though the user had typed it.
+func (f *fakeBackend) EditPublication(_ api.PublicationStatus) (PublicationEditor, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.publicationEdits++
+	return fakePublicationEditor{approved: f.approved, err: f.editorErr}, nil
+}
+
+// fakePublicationEditor is a draft that has already been through an editor.
+type fakePublicationEditor struct {
+	approved []api.ApprovedPublication
+	err      error
+}
+
+func (fakePublicationEditor) Command() tea.ExecCommand { return noopCommand{} }
+func (e fakePublicationEditor) Read() ([]api.ApprovedPublication, error) {
+	return e.approved, e.err
+}
+func (fakePublicationEditor) Close() {}
 
 // CleanupPlan records the request and answers with whatever the test arranged.
 func (f *fakeBackend) CleanupPlan(_ context.Context, id string) (api.CleanupPlan, error) {

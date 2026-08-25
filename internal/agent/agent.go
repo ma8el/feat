@@ -120,6 +120,10 @@ type PrepareRequest struct {
 	// Gate says whether a completion gate will answer this task's review
 	// requests.
 	Gate Gate
+	// Publication says what publishing this task would cover, so that an
+	// adapter asks the agent for a draft only where there is somewhere to
+	// publish.
+	Publication Publication
 	// Resume is the provider's own identifier for a session to continue, empty
 	// for an ordinary launch.
 	//
@@ -156,6 +160,23 @@ type Gate struct {
 	// run. It names the checks so that an agent knows what it is waiting for.
 	Describe string
 }
+
+// Publication describes what publishing this task's work would cover.
+//
+// It is neutral on purpose, and it carries repositories rather than forges: an
+// adapter asks the agent for words, and which forge those words are bound for
+// is the daemon's to know. A task whose project configures no forge gets an
+// empty value, and the agent is never told about a document it has nowhere to
+// send (ADR-070).
+type Publication struct {
+	// Repositories are the identifiers of the repositories a publication would
+	// open a merge request for, in the order the task binds them. An empty list
+	// means this task publishes nowhere.
+	Repositories []string
+}
+
+// Configured reports whether a publication has anywhere to go.
+func (p Publication) Configured() bool { return len(p.Repositories) > 0 }
 
 // Workspace tells an adapter how the agent will see its own filesystem.
 //

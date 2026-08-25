@@ -1625,3 +1625,218 @@ func (i TerminalInput) Validate() error {
 	}
 	return nil
 }
+
+// PublicationAction is one thing a user asks of a task's publication.
+//
+// There are two and they are plan and apply, for the reason cleanup's two are:
+// what is sent has to be what the user read, and a publication reaches somebody
+// else's server, where nothing Feat creates can be reliably un-created
+// (ADR-073).
+type PublicationAction string
+
+// The publication actions.
+const (
+	// PublicationPlan composes what publishing this task would do and records
+	// nothing. It is a POST because it reads the task's worktrees and the
+	// agent's draft to answer.
+	PublicationPlan PublicationAction = "plan"
+	// PublicationApply carries the approved words back and publishes. It
+	// records the plan, then applies one repository at a time, recording each
+	// result before the next begins.
+	PublicationApply PublicationAction = "apply"
+)
+
+// Valid reports whether the action is one Feat performs.
+func (a PublicationAction) Valid() bool {
+	return a == PublicationPlan || a == PublicationApply
+}
+
+// PublicationDraft is what publishing one repository would do, before anything
+// is sent.
+//
+// It is the agent's words together with what Feat already knows: the remote,
+// the base branch, and the commit. The user reads it, edits it, and only then
+// does any of it reach a forge (ADR-070).
+type PublicationDraft struct {
+	RepositoryID string `json:"repository_id"`
+	// Forge is the forge this repository's configuration declares.
+	Forge string `json:"forge"`
+	// Remote is the remote the branch would be pushed to, Branch is the task
+	// branch, and BaseBranch is what the request would ask to merge into.
+	Remote     string `json:"remote"`
+	Branch     string `json:"branch"`
+	BaseBranch string `json:"base_branch"`
+	// Commit is the repository's current head, which is what would be pushed.
+	Commit string `json:"commit"`
+	// Title and Body are the agent's draft, empty where it wrote none.
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	// DraftCommit is the commit the agent's draft describes, empty where there
+	// is no draft for this repository.
+	DraftCommit string `json:"draft_commit,omitempty"`
+	// Stale reports that the draft describes a commit that is no longer
+	// current, which is refused rather than published. It is deliberately not
+	// the same thing as Published below: one says the words are out of date and
+	// the other says the work is already on the forge (ADR-070, ADR-073).
+	Stale bool `json:"stale"`
+	// Published names the merge request already opened for this repository. A
+	// re-publication skips it as already published.
+	Published *MergeRequest `json:"published,omitempty"`
+	// Skipped names what the push will not run in this repository: a configured
+	// core.hooksPath, or a pre-push hook. It is empty when there is nothing to
+	// report.
+	Skipped []string `json:"skipped,omitempty"`
+}
+
+// MergeRequest is a request Feat opened on a forge. GitHub calls it a pull
+// request; there is one shape either way.
+type MergeRequest struct {
+	Reference string `json:"reference"`
+	URL       string `json:"url"`
+}
+
+// EditorCommand is how the client opens a document in the user's editor.
+//
+// It is the project's configured editor command with its own flags kept and the
+// path it opens left off: a review command names a repository to open and a
+// publication names a draft, and the argument that said which is the one the
+// client fills in. An empty program means the project configures none, and the
+// client falls back to the editor its own environment names (FR-REV-003).
+type EditorCommand struct {
+	Program   string   `json:"program"`
+	Arguments []string `json:"arguments"`
+}
+
+// PublicationRepository is one repository's part of a recorded publication.
+type PublicationRepository struct {
+	RepositoryID string `json:"repository_id"`
+	Forge        string `json:"forge"`
+	Remote       string `json:"remote"`
+	BaseBranch   string `json:"base_branch"`
+	// Commit is the commit the approved text described and the push carried.
+	Commit string `json:"commit"`
+	// State is planned, published, or failed. A planned entry is one this
+	// publication had not attempted when it stopped, which is what makes an
+	// interrupted publication recoverable rather than mysterious.
+	State string `json:"state"`
+	// Request is the merge request that was opened, present exactly while the
+	// state is published.
+	Request *MergeRequest `json:"request,omitempty"`
+	// Failure is why this repository did not publish, in the words of whatever
+	// refused.
+	Failure     string     `json:"failure,omitempty"`
+	AttemptedAt *time.Time `json:"attempted_at"`
+}
+
+// Publication is a task's recorded publication on the wire.
+type Publication struct {
+	Repositories []PublicationRepository `json:"repositories"`
+	PlannedAt    *time.Time              `json:"planned_at"`
+	UpdatedAt    *time.Time              `json:"updated_at"`
+}
+
+// PublicationStatus is the response of every publication action.
+type PublicationStatus struct {
+	// Task is the task as it is now recorded.
+	Task Task `json:"task"`
+	// Drafts are what publishing would do, one per publishable repository. They
+	// are present on a plan and empty on an apply, which reports what happened
+	// rather than what would.
+	Drafts []PublicationDraft `json:"drafts"`
+	// Publication is what the task has recorded, which after an apply is what
+	// exists on the forges and what was not attempted.
+	Publication *Publication `json:"publication"`
+	// Editor is how to open the draft for editing.
+	Editor EditorCommand `json:"editor"`
+	// Notes are what a user should know: a repository that cannot be published
+	// and why, a hook the push will not run, or a draft the agent never wrote.
+	Notes []string `json:"notes"`
+}
+
+// ApprovedPublication is one repository's publication, as the user approved it.
+//
+// The words are what was displayed, sent back verbatim: what is displayed is
+// what is sent, so the daemon composes the request from this rather than from
+// the agent's message. The commit is what the approval was composed against,
+// and a repository whose head has moved since is refused rather than published
+// (ADR-070, ADR-031).
+type ApprovedPublication struct {
+	RepositoryID string `json:"repository_id"`
+	Title        string `json:"title"`
+	Body         string `json:"body"`
+	Commit       string `json:"commit"`
+}
+
+// PublishRequest is the body of POST
+// /v1/tasks/{task_id}/publication/apply.
+type PublishRequest struct {
+	Repositories []ApprovedPublication `json:"repositories"`
+}
+
+// PublicationResult is what the daemon reports after a publication action.
+type PublicationResult struct {
+	// Task is the task as it is now recorded.
+	Task *domain.Task
+	// Drafts are what publishing would do, on a plan.
+	Drafts []PublicationDraft
+	// Editor is how to open the draft for editing.
+	Editor EditorCommand
+	// Notes are what could not be done, in terms a user can act on.
+	Notes []string
+}
+
+// NewPublicationStatus renders what a publication action produced.
+//
+// The recorded publication is read off the task rather than assembled here,
+// because the task is where it lives: a second copy beside it would be a second
+// answer to what a task published (ADR-073).
+func NewPublicationStatus(result PublicationResult) PublicationStatus {
+	status := PublicationStatus{
+		Task:        newTask(result.Task, nil),
+		Drafts:      result.Drafts,
+		Publication: newPublication(result.Task),
+		Editor:      result.Editor,
+		Notes:       result.Notes,
+	}
+	if status.Drafts == nil {
+		status.Drafts = []PublicationDraft{}
+	}
+	if status.Notes == nil {
+		status.Notes = []string{}
+	}
+	if status.Editor.Arguments == nil {
+		status.Editor.Arguments = []string{}
+	}
+	return status
+}
+
+// newPublication maps a task's recorded publication onto the wire, or nothing
+// when the task has never published.
+func newPublication(task *domain.Task) *Publication {
+	if task == nil || task.Publication == nil {
+		return nil
+	}
+
+	repositories := make([]PublicationRepository, 0, len(task.Publication.Repositories))
+	for _, entry := range task.Publication.Repositories {
+		row := PublicationRepository{
+			RepositoryID: entry.RepositoryID.String(),
+			Forge:        string(entry.Forge),
+			Remote:       entry.Remote,
+			BaseBranch:   entry.BaseBranch,
+			Commit:       entry.Commit,
+			State:        string(entry.State),
+			Failure:      entry.Failure,
+			AttemptedAt:  moment(entry.AttemptedAt),
+		}
+		if entry.Request != nil {
+			row.Request = &MergeRequest{Reference: entry.Request.Reference, URL: entry.Request.URL}
+		}
+		repositories = append(repositories, row)
+	}
+	return &Publication{
+		Repositories: repositories,
+		PlannedAt:    moment(task.Publication.PlannedAt),
+		UpdatedAt:    moment(task.Publication.UpdatedAt),
+	}
+}

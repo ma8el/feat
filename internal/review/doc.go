@@ -7,7 +7,7 @@
 // which validates it. A `review-stays-a-policy` depguard rule makes that
 // mechanical.
 //
-// The two things it owns are the two that are worth having in one place:
+// The three things it owns are the ones worth having in one place:
 //
 //   - an expanded command may run only in one of its own task's recorded
 //     worktrees, and only when nothing in it was left unexpanded. That rule is
@@ -16,15 +16,23 @@
 //   - a gate's results are attributed to the provider because the gate ran the
 //     command itself, and a check that could not be started or that exceeded
 //     its bound is inconclusive rather than failed. A task never reaches
-//     ready_for_review on the strength of a check nobody managed to run.
+//     ready_for_review on the strength of a check nobody managed to run;
+//   - an approved publication may be sent only from one of its own task's
+//     worktrees, and only carrying words a merge request can hold. It sits
+//     beside the viewer commands because it is the same kind of decision about
+//     the same kind of value, and it differs in what happens afterwards: a
+//     viewer command is run and forgotten, and a publication has a result to
+//     record (ADR-070).
 //
 // What it does not own: the change summaries, which internal/git computes
 // because they are Git's own answers about a worktree; the decision to approve,
-// which is a state change and therefore the daemon's; and the running of the
+// which is a state change and therefore the daemon's; the running of the
 // external commands, which the client does because they take over the caller's
-// terminal.
+// terminal; the push and the merge request, which are internal/git's and
+// internal/forge's; and the recording of what a publication produced, because
+// the daemon is the only writer of persistent state.
 //
 // The TUI does not render source diffs in v0.
 //
-// See ADR-036.
+// See ADR-036, ADR-070, and ADR-073.
 package review

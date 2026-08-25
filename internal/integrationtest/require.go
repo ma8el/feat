@@ -39,6 +39,25 @@ const (
 	// them says so.
 	Claude Tool = "claude"
 
+	// Gh is the GitHub command line the forge adapter drives. It is demandable
+	// on the same terms as Glab below, and for the same reason.
+	Gh Tool = "gh"
+
+	// Glab is the GitLab command line the forge adapter drives.
+	//
+	// It is demandable and demanded by nothing by default, like Claude and
+	// Notify: what the test behind it does is read `glab mr create --help` and
+	// check that the flags this build passes are still there. That needs glab
+	// installed and needs nothing else — no account, no network, no project —
+	// so a maintainer with one can make the check mandatory, and a machine
+	// without one is not made to install it to run the tier.
+	//
+	// It exists because there is no glab on the machine the adapter was written
+	// on, and docs/06-technical-architecture.md requires a provider CLI's flags
+	// to be verified against the installed version rather than assumed. This is
+	// where that verification runs.
+	Glab Tool = "glab"
+
 	// Notify is this platform's own desktop notifier. It is demandable and,
 	// like Claude, demanded by nothing by default: no CI runner has a desktop,
 	// and on a platform Feat has no notifier for the tests behind it can never
@@ -54,7 +73,7 @@ const (
 // A value outside this list is a failure rather than an unknown-and-ignored
 // name: "FEAT_INTEGRATION_REQUIRE=dockr" that quietly demanded nothing would be
 // the same silent green this package exists to remove.
-var Tools = []Tool{Git, Docker, Tmux, Claude, Notify}
+var Tools = []Tool{Git, Docker, Tmux, Claude, Gh, Glab, Notify}
 
 // Enabled reports whether this run is opted in to the integration tier.
 func Enabled() bool {

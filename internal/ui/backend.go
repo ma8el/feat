@@ -69,6 +69,21 @@ type Backend interface {
 	// shows. Approving never stops or destroys anything; the offer to stop a
 	// runtime is made in words (FR-REV-004).
 	Review(ctx context.Context, id string, action api.ReviewAction) (api.ReviewStatus, error)
+	// PlanPublication composes what publishing a task would do and sends
+	// nothing. It is safe to reach with one key press for the reason CleanupPlan
+	// is: what publishing would do is a question, and only what the user
+	// approves is ever acted on.
+	PlanPublication(ctx context.Context, id string) (api.PublicationStatus, error)
+	// ApplyPublication opens one merge request per approved repository, carrying
+	// the words the user read.
+	ApplyPublication(ctx context.Context, id string, request api.PublishRequest) (api.PublicationStatus, error)
+	// EditPublication writes the draft of a plan to a file of its own and
+	// returns it on its way to the user's editor.
+	//
+	// The document is written here rather than in the dashboard for the reason
+	// every terminal-yielding command is built here: the process belongs to an
+	// adapter, and so does the file it opens (ADR-031).
+	EditPublication(plan api.PublicationStatus) (PublicationEditor, error)
 	// CleanupPlan resolves what a task owns and removes nothing, which is what
 	// makes it safe to reach with one key press.
 	CleanupPlan(ctx context.Context, id string) (api.CleanupPlan, error)
@@ -140,4 +155,22 @@ type Daemon struct {
 	Version string
 	// Socket is where it is listening.
 	Socket string
+}
+
+// PublicationEditor is one publication draft on its way through the user's
+// editor and back.
+//
+// It is an interface rather than a path because the dashboard reaches no
+// filesystem of its own: what it does is run the command, read what came back,
+// and let go. What the user had open is what is sent, which is the whole reason
+// the draft goes through an editor at all (ADR-070).
+type PublicationEditor interface {
+	// Command opens the draft. It takes over this terminal until the editor
+	// exits.
+	Command() tea.ExecCommand
+	// Read returns what the user approved, in the words they left in the file.
+	Read() ([]api.ApprovedPublication, error)
+	// Close removes the document. It holds the description of somebody's change
+	// and belongs nowhere durable.
+	Close()
 }

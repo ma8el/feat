@@ -758,3 +758,106 @@ func TestRealComparisonAgainstTheRecordedBase(t *testing.T) {
 		t.Errorf("the worktree status after comparing is %q, want the untracked file alone", status)
 	}
 }
+
+// TestRealPushCarriesTheCommitAndRunsNoHook is the proof a fake runner cannot
+// give.
+//
+// A fake pins the argument vector and the environment; only Git can say that the
+// refspec puts that commit on the remote and that `core.hooksPath` really stops a
+// `pre-push` hook from running. The second half is the one that matters: it is
+// the difference between approving a publication and running whatever the agent
+// left in a directory the user's own checkout shares (ADR-050, ADR-070).
+func TestRealPushCarriesTheCommitAndRunsNoHook(t *testing.T) {
+	requireGit(t)
+
+	fixture := realProject(t)
+	adapter := Host()
+	ctx := context.Background()
+
+	plan, err := adapter.Plan(ctx, fixture.req)
+	if err != nil {
+		t.Fatalf("planning the task: %v", err)
+	}
+	if _, err := adapter.Apply(ctx, plan, JournalFunc(
+		func(context.Context, Created) error { return nil },
+	)); err != nil {
+		t.Fatalf("creating the task's worktrees: %v", err)
+	}
+	worktree := filepath.Join(fixture.root, testProject.String(), testTask.String(), "api")
+
+	write(t, worktree, "limit.go", "package api\n")
+	git(t, worktree, "add", "limit.go")
+	git(t, worktree, "commit", "-m", "add a rate limit")
+	head := git(t, worktree, "rev-parse", "HEAD")
+
+	// A hook that fails, in the directory the task's worktree shares with the
+	// user's own checkout. If Feat's push ran it, the push would fail.
+	hooks := git(t, worktree, "rev-parse", "--git-path", "hooks")
+	if !filepath.IsAbs(hooks) {
+		hooks = filepath.Join(worktree, hooks)
+	}
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatalf("creating %s: %v", hooks, err)
+	}
+	marker := filepath.Join(fixture.dir, "the-hook-ran")
+	writeExecutable(t, filepath.Join(hooks, "pre-push"),
+		"#!/bin/sh\ntouch "+marker+"\nexit 1\n")
+
+	branch := fixture.req.Repositories[0].Branch
+	report, err := adapter.Push(ctx, PushRequest{
+		Worktree: worktree,
+		Remote:   "origin",
+		Branch:   branch,
+		Commit:   head,
+	})
+	if err != nil {
+		t.Fatalf("pushing: %v", err)
+	}
+
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the agent's pre-push hook ran during a user-approved publication")
+	}
+	if len(report.Skipped) != 1 || !strings.Contains(report.Skipped[0], "pre-push") {
+		t.Errorf("the report is %v, want the hook it did not run", report.Skipped)
+	}
+
+	// The commit is on the remote, under the branch the plan named.
+	bare := fixture.origin["api"]
+	if onRemote := git(t, bare, "rev-parse", "refs/heads/"+branch); onRemote != head {
+		t.Errorf("the remote's %s is %s, want the commit the publication planned, %s",
+			branch, onRemote, head)
+	}
+	// And the remote-tracking ref followed it, which is what a cleanup plan
+	// counts unpushed commits against.
+	if tracking := git(t, worktree, "rev-parse",
+		"refs/remotes/origin/"+branch); tracking != head {
+		t.Errorf("the remote-tracking ref is %s, want %s", tracking, head)
+	}
+}
+
+// TestRealSuppressedHooksSaysNothingWhereThereIsNothing keeps the report from
+// becoming noise.
+//
+// A fresh clone has Git's own samples in .git/hooks and no hooks at all. A check
+// with nothing to report reports nothing (ADR-028).
+func TestRealSuppressedHooksSaysNothingWhereThereIsNothing(t *testing.T) {
+	requireGit(t)
+
+	fixture := realProject(t)
+	skipped, err := Host().SuppressedHooks(context.Background(), fixture.api)
+	if err != nil {
+		t.Fatalf("reporting the hooks a push would skip: %v", err)
+	}
+	if len(skipped) != 0 {
+		t.Errorf("a repository with only Git's own samples reported %v", skipped)
+	}
+}
+
+// writeExecutable creates a file Git will run as a hook.
+func writeExecutable(t *testing.T, path, body string) {
+	t.Helper()
+
+	if err := os.WriteFile(path, []byte(body), 0o700); err != nil { // #nosec G306 -- a hook must be executable
+		t.Fatalf("writing %s: %v", path, err)
+	}
+}

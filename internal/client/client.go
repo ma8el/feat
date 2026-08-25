@@ -226,6 +226,33 @@ func (c *Client) Review(ctx context.Context, id string, action api.ReviewAction)
 	return send[api.ReviewStatus](ctx, c, path, struct{}{})
 }
 
+// PlanPublication composes what publishing a task would do, recording nothing.
+//
+// It reads every one of the task's worktrees and the agent's own draft, so it
+// waits the runtime budget rather than an ordinary one, for the reason a review
+// comparison does.
+func (c *Client) PlanPublication(ctx context.Context, id string) (api.PublicationStatus, error) {
+	path := "/tasks/" + url.PathEscape(id) + "/publication/" + string(api.PublicationPlan)
+	return sendWithin[api.PublicationStatus](ctx, c, c.runtimeTimeout, path, struct{}{})
+}
+
+// ApplyPublication publishes the repositories the user approved.
+//
+// The body carries the words that were displayed, verbatim: what is sent is
+// what the user read, so the daemon composes each merge request from this
+// rather than from the agent's message (ADR-070).
+//
+// It waits the runtime budget because it crosses a network once per repository:
+// a push and a merge request each, one repository at a time, and a client that
+// gave up half way would leave the user reading a partial record with no
+// account of the rest.
+func (c *Client) ApplyPublication(
+	ctx context.Context, id string, request api.PublishRequest,
+) (api.PublicationStatus, error) {
+	path := "/tasks/" + url.PathEscape(id) + "/publication/" + string(api.PublicationApply)
+	return sendWithin[api.PublicationStatus](ctx, c, c.runtimeTimeout, path, request)
+}
+
 // RuntimeLogs returns the command that opens the task's normal Compose logs.
 //
 // The caller runs it with its own terminal, and checks it first: the daemon is

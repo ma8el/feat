@@ -58,6 +58,7 @@ feat project tickets <project>
 feat task list
 feat task attach <task>
 feat task review <task>
+feat task publish <task>
 feat task resume <task>
 feat task stop <task>
 feat task cleanup <task>
@@ -116,6 +117,17 @@ approval offers to stop a task's services rather than stopping them. Destroying
 asks for confirmation, retains every volume, and never touches a resource the
 project declares external. See ADR-034.
 
+`feat task publish <task>` opens one merge request per changed repository, from
+this machine and with the authentication the user already has here. The agent
+holds no provider credential and publishes nothing: it drafts a title and a
+description per repository, and what the user reads and edits in their own editor
+is what is sent. It shows what publishing would do, opens that draft, asks once,
+and then pushes and opens one repository at a time, recording every result before
+the next. Nothing is undone: a failure on the third of five leaves the first two
+open, still attempts the last two, and publishing again skips whatever already
+has a merge request. It needs a terminal, because reading the draft is the whole
+of the control. See ADR-070 and ADR-073.
+
 `feat task cleanup <task>` prints the exact inventory of what a task owns and removes
 only what is selected. Each class is a separate choice, dirty or unmerged work
 needs a second confirmation naming what would be lost, and volumes are retained
@@ -128,5 +140,5 @@ a terminal the inventory is printed and nothing is removed. See ADR-037.
 
 - **v0.1 dogfood:** the multi-repository reference project, Claude Code in a non-root devcontainer, manual Compose lifecycle, macOS, local prompt/Markdown tasks.
 - **v0.2 public preview:** generalized configuration, host-native execution, macOS and Linux, public documentation and release packaging.
-- Ticket ingestion, automated runtime phases, provider publication workflows, stable hostnames, additional agents, and remote control are roadmap work unless explicitly pulled forward.
+- Ticket ingestion, automated runtime phases, stable hostnames, additional agents, and remote control are roadmap work unless explicitly pulled forward. Publication was pulled forward, ahead of the public preview, because a dogfood task cannot finish without it; the tracker follows it. See ADR-072.
 
