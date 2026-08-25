@@ -167,7 +167,7 @@ func printPublicationPlan(out io.Writer, plan api.PublicationStatus) {
 		printf(out, "\n")
 		rows.render(out, "")
 	}
-	printPublicationRecord(out, plan.Publication)
+	printPublicationRecord(out, plan.Task.Publication)
 	for _, note := range plan.Notes {
 		printf(out, "\nnote: %s\n", note)
 	}
@@ -184,7 +184,7 @@ func printPublicationApproval(out io.Writer, approved []api.ApprovedPublication)
 
 // printPublicationResult renders what a publication produced.
 func printPublicationResult(out io.Writer, status api.PublicationStatus) {
-	printPublicationRecord(out, status.Publication)
+	printPublicationRecord(out, status.Task.Publication)
 	for _, note := range status.Notes {
 		printf(out, "\nnote: %s\n", note)
 	}

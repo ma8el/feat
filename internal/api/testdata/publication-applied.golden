@@ -62,39 +62,39 @@
     },
     "runtime": null,
     "verification": null,
+    "publication": {
+      "repositories": [
+        {
+          "repository_id": "core",
+          "forge": "gitlab",
+          "remote": "origin",
+          "base_branch": "main",
+          "commit": "0011223344556677889900aabbccddeeff001122",
+          "state": "published",
+          "request": {
+            "reference": "!128",
+            "url": "https://forge.example.com/example/core/-/merge_requests/128"
+          },
+          "attempted_at": "2026-08-04T10:07:00Z"
+        },
+        {
+          "repository_id": "schema",
+          "forge": "github",
+          "remote": "origin",
+          "base_branch": "main",
+          "commit": "aabbccddeeff00112233445566778899aabbccdd",
+          "state": "failed",
+          "failure": "HTTP 403: Resource not accessible by personal access token (https://api.github.com/repos/example/schema/pulls)",
+          "attempted_at": "2026-08-04T10:08:00Z"
+        }
+      ],
+      "planned_at": "2026-08-04T10:06:00Z",
+      "updated_at": "2026-08-04T10:08:00Z"
+    },
     "created_at": "2026-08-04T09:30:00Z",
     "updated_at": "2026-08-04T10:08:00Z"
   },
   "drafts": [],
-  "publication": {
-    "repositories": [
-      {
-        "repository_id": "core",
-        "forge": "gitlab",
-        "remote": "origin",
-        "base_branch": "main",
-        "commit": "0011223344556677889900aabbccddeeff001122",
-        "state": "published",
-        "request": {
-          "reference": "!128",
-          "url": "https://forge.example.com/example/core/-/merge_requests/128"
-        },
-        "attempted_at": "2026-08-04T10:07:00Z"
-      },
-      {
-        "repository_id": "schema",
-        "forge": "github",
-        "remote": "origin",
-        "base_branch": "main",
-        "commit": "aabbccddeeff00112233445566778899aabbccdd",
-        "state": "failed",
-        "failure": "HTTP 403: Resource not accessible by personal access token (https://api.github.com/repos/example/schema/pulls)",
-        "attempted_at": "2026-08-04T10:08:00Z"
-      }
-    ],
-    "planned_at": "2026-08-04T10:06:00Z",
-    "updated_at": "2026-08-04T10:08:00Z"
-  },
   "editor": {
     "program": "",
     "arguments": []

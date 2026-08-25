@@ -384,7 +384,7 @@ func (m Model) publicationTitle(draft api.PublicationDraft) string {
 // publicationRecord renders what the task has recorded, which after an
 // interruption is also what was never attempted.
 func (m Model) publicationRecord() string {
-	publication := m.publication.status.Publication
+	publication := m.publication.status.Task.Publication
 	if publication == nil || len(publication.Repositories) == 0 {
 		return ""
 	}
@@ -392,15 +392,7 @@ func (m Model) publicationRecord() string {
 	var out strings.Builder
 	out.WriteString("\n" + mutedStyle.Render("  recorded") + "\n")
 	for _, entry := range publication.Repositories {
-		line := "      " + entry.RepositoryID + "  " + entry.State
-		switch {
-		case entry.Request != nil:
-			line += "  " + entry.Request.URL
-		case entry.Failure != "":
-			line += "  " + publicationLine(entry.Failure)
-		case entry.State == "planned":
-			line += "  " + "not attempted"
-		}
+		line := "      " + entry.RepositoryID + "  " + publicationEntryState(entry)
 		if entry.State == "failed" {
 			out.WriteString(failureStyle.Render(line) + "\n")
 			continue
@@ -408,6 +400,26 @@ func (m Model) publicationRecord() string {
 		out.WriteString(mutedStyle.Render(line) + "\n")
 	}
 	return out.String()
+}
+
+// publicationEntryState renders what one recorded repository amounts to.
+//
+// It is shared with the task panel, which shows the same record in its own
+// layout: a screen and a panel disagreeing about what "planned" meant would be
+// two answers to what a task published, and there is one record (ADR-073).
+func publicationEntryState(entry api.PublicationRepository) string {
+	switch {
+	case entry.Request != nil:
+		return entry.State + "  " + entry.Request.URL
+	case entry.Failure != "":
+		return entry.State + "  " + publicationLine(entry.Failure)
+	case entry.State == "planned":
+		// Recorded before anything was attempted and never reached, which is
+		// what an interrupted publication leaves behind: publishing again
+		// finishes exactly these.
+		return entry.State + "  not attempted"
+	}
+	return entry.State
 }
 
 // publicationNotes renders what a user should know.

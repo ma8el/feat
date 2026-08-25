@@ -276,8 +276,17 @@ type Task struct {
 	// when it has reported none. It is the agent's claim rather than a result
 	// anything enforced, which is why the source is part of it.
 	Verification *Verification `json:"verification"`
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
+	// Publication is what the task has recorded about publishing — one entry per
+	// repository the last publication planned, with what came of it — or null
+	// for a task that has never published.
+	//
+	// It travels with the task because it is the task's, and because the
+	// alternative is composing a plan to read it: what publishing would do now
+	// is a question with a lock and a walk of every repository behind it, and
+	// what a task published is a fact that was written down (ADR-073).
+	Publication *Publication `json:"publication"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
 }
 
 // TaskFailure is why a task is in `failed`, in the words of whatever failed.
@@ -1328,6 +1337,7 @@ func newTask(task *domain.Task, verification *Verification) Task {
 		Session:      newSession(task.Session),
 		Runtime:      newRuntime(task.Runtime),
 		Verification: verification,
+		Publication:  newPublication(task),
 		CreatedAt:    task.CreatedAt,
 		UpdatedAt:    task.UpdatedAt,
 	}
@@ -1768,9 +1778,6 @@ type PublicationStatus struct {
 	// are present on a plan and empty on an apply, which reports what happened
 	// rather than what would.
 	Drafts []PublicationDraft `json:"drafts"`
-	// Publication is what the task has recorded, which after an apply is what
-	// exists on the forges and what was not attempted.
-	Publication *Publication `json:"publication"`
 	// Editor is how to open the draft for editing.
 	Editor EditorCommand `json:"editor"`
 	// Notes are what a user should know: a repository that cannot be published
@@ -1837,16 +1844,18 @@ type PublicationResult struct {
 
 // NewPublicationStatus renders what a publication action produced.
 //
-// The recorded publication is read off the task rather than assembled here,
-// because the task is where it lives: a second copy beside it would be a second
-// answer to what a task published (ADR-073).
+// The recorded publication is the task's own field rather than one beside it,
+// because the task is where it lives and a copy in this response would be a
+// second answer to what a task published (ADR-073). It travels with every task
+// for the same reason: a client that has the task has the record, and asking
+// what a publication would do now is a different and far more expensive
+// question.
 func NewPublicationStatus(result PublicationResult) PublicationStatus {
 	status := PublicationStatus{
-		Task:        newTask(result.Task, nil),
-		Drafts:      result.Drafts,
-		Publication: newPublication(result.Task),
-		Editor:      result.Editor,
-		Notes:       result.Notes,
+		Task:   newTask(result.Task, nil),
+		Drafts: result.Drafts,
+		Editor: result.Editor,
+		Notes:  result.Notes,
 	}
 	if status.Drafts == nil {
 		status.Drafts = []PublicationDraft{}

@@ -253,7 +253,7 @@ func TestAScreenWithNothingLeftToPublishOffersNoEditor(t *testing.T) {
 func TestTheRecordIsShownIncludingWhatWasNotAttempted(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
-	model.publication.status.Publication = &api.Publication{Repositories: []api.PublicationRepository{
+	model.publication.status.Task.Publication = &api.Publication{Repositories: []api.PublicationRepository{
 		{RepositoryID: "core", State: "published", Request: &api.MergeRequest{
 			Reference: "!1", URL: "https://gitlab.example.com/app/core/-/merge_requests/1"}},
 		{RepositoryID: "schema", State: "failed", Failure: "GitLab: protected branch"},
@@ -281,14 +281,13 @@ func TestTheRecordIsShownIncludingWhatWasNotAttempted(t *testing.T) {
 func TestLookingAgainAfterAPublicationShowsTheNewPlan(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
-	// One repository published and one failed, which is what a user comes back
-	// to this screen for.
-	backend.publicationDone = api.PublicationStatus{
-		Task: model.publication.status.Task,
-		Publication: &api.Publication{Repositories: []api.PublicationRepository{
-			{RepositoryID: "core", State: "failed", Failure: "GitLab: protected branch"},
-		}},
-	}
+	// A repository that failed, which is what a user comes back to this screen
+	// for. The record travels on the task, where it lives.
+	finished := model.publication.status.Task
+	finished.Publication = &api.Publication{Repositories: []api.PublicationRepository{
+		{RepositoryID: "core", State: "failed", Failure: "GitLab: protected branch"},
+	}}
+	backend.publicationDone = api.PublicationStatus{Task: finished}
 	published := press(t, press(t, readDraft(t, model, backend), "enter"), "y")
 	if !published.publication.done {
 		t.Fatal("the screen does not know a publication ran")

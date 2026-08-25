@@ -172,6 +172,7 @@
       "summary": "Added the export job and its retry policy.",
       "reported_at": "2026-08-04T10:00:00Z"
     },
+    "publication": null,
     "created_at": "2026-08-04T09:30:00Z",
     "updated_at": "2026-08-04T10:00:00Z"
   },

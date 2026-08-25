@@ -47,6 +47,39 @@ func TestPublicationResponseBodies(t *testing.T) {
 	}
 }
 
+// TestATaskCarriesWhatItPublished is why the record travels with the task.
+//
+// What a task published is a fact that was written down. What publishing would
+// do now is a question with a per-task lock and a walk of every repository
+// behind it, and a client that had to ask it to answer the first would be paying
+// for a plan to read a record. It is on the task rather than beside it, so there
+// is one answer to what a task published (ADR-073).
+func TestATaskCarriesWhatItPublished(t *testing.T) {
+	carried := newTask(storetest.Published(), nil)
+
+	if carried.Publication == nil {
+		t.Fatal("a task that published carries nothing about it")
+	}
+	if len(carried.Publication.Repositories) != 2 {
+		t.Fatalf("the record names %d repositories, want the two the plan covered",
+			len(carried.Publication.Repositories))
+	}
+
+	published, failed := carried.Publication.Repositories[0], carried.Publication.Repositories[1]
+	if published.State != "published" || published.Request == nil || published.Request.URL == "" {
+		t.Errorf("the published repository reads %+v", published)
+	}
+	if failed.State != "failed" || !strings.Contains(failed.Failure, "403") {
+		t.Errorf("the failed repository reads %+v, want the forge's own refusal", failed)
+	}
+
+	// And a task that never published says nothing, rather than an empty record
+	// that would read as a publication with no repositories in it.
+	if quiet := newTask(storetest.Task(), nil); quiet.Publication != nil {
+		t.Errorf("a task that never published carries %+v", quiet.Publication)
+	}
+}
+
 // TestAnUnknownPublicationActionIsNotAnInstruction keeps the vocabulary closed,
 // as the review and runtime vocabularies are.
 func TestAnUnknownPublicationActionIsNotAnInstruction(t *testing.T) {

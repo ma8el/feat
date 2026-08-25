@@ -211,6 +211,48 @@ func TestTheLatestDraftIsReadableAfterItWasApplied(t *testing.T) {
 	}
 }
 
+// TestTwoDraftsWrittenInOneSecondResolveTheWayDeliveryDoes pins the tiebreak.
+//
+// Modification times are not always finer than a second — several filesystems
+// keep exactly one — so two drafts a hook wrote in quick succession can carry
+// the same one. Delivery breaks that tie by file name and applies them in that
+// order, so the last one it applied is the last name. A read-back that broke it
+// the other way would compose a publication from the draft that was superseded,
+// while the task's history said the newer one had arrived.
+func TestTwoDraftsWrittenInOneSecondResolveTheWayDeliveryDoes(t *testing.T) {
+	workspace, moment := newWorkspace(t)
+
+	superseded := "3a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
+	final := "4a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
+	write(t, workspace, "draft-a.json", draftMessage("a", draftPayload("api", superseded)))
+	write(t, workspace, "draft-b.json", draftMessage("b", draftPayload("api", final)))
+	for _, name := range []string{"draft-a.json", "draft-b.json"} {
+		touch(t, filepath.Join(workspace.OutboxDir(), name), moment.at)
+	}
+
+	// Delivery's order, which is what the read-back has to agree with.
+	messages, _, err := workspace.Pending()
+	if err != nil {
+		t.Fatalf("reading the outbox: %v", err)
+	}
+	if len(messages) != 2 || messages[1].ID != "b" {
+		t.Fatalf("delivery applied %+v, want draft-b last", messages)
+	}
+
+	message, found, err := workspace.Latest(control.TypePublicationDraft)
+	if err != nil || !found {
+		t.Fatalf("reading the latest draft: %v, %v", found, err)
+	}
+	draft, err := control.DecodePublicationDraft(message)
+	if err != nil {
+		t.Fatalf("decoding the latest draft: %v", err)
+	}
+	if entry, _ := draft.Repository("api"); entry.Commit != final {
+		t.Errorf("the read-back describes %s, want the draft delivery applied last, %s",
+			entry.Commit, final)
+	}
+}
+
 // TestLatestIgnoresEverythingThatIsNotTheTypeAsked checks that a read-back is
 // about one type and judges nothing else.
 //

@@ -195,6 +195,8 @@ func (m Model) taskPanel() string {
 		out.WriteString(reviewChecks(checks))
 	}
 
+	out.WriteString(publicationBlock(task))
+
 	if task.Session != nil {
 		out.WriteString("\n" + headingStyle.Render("terminal") + "\n")
 		// Named rather than run together. These are three different kinds of
@@ -217,6 +219,34 @@ func (m Model) taskPanel() string {
 	out.WriteString("\n" + headingStyle.Render("brief") + "\n")
 	out.WriteString(indent(task.Brief, "  ") + "\n")
 
+	return out.String()
+}
+
+// publicationBlock is what this task has published, or tried to.
+//
+// It is here rather than only on the publication screen because the record
+// outlives the screen: nothing is rolled back, so what a publication leaves is a
+// merge request per repository, a failure, or an entry it never reached, and a
+// user who closed the screen should not have to compose a fresh plan — a lock, a
+// walk of every repository, and a read of the agent's outbox — to be told a fact
+// that was written down (ADR-073).
+//
+// A task that has never published has no section at all, which is the rule the
+// panel follows throughout: a check with nothing to report reports nothing.
+func publicationBlock(task api.Task) string {
+	if task.Publication == nil || len(task.Publication.Repositories) == 0 {
+		return ""
+	}
+
+	var out strings.Builder
+	out.WriteString("\n" + headingStyle.Render("publication") + "\n")
+	for _, entry := range task.Publication.Repositories {
+		state := publicationEntryState(entry)
+		if entry.State == "failed" {
+			state = failureStyle.Render(state)
+		}
+		out.WriteString(field(entry.RepositoryID, state))
+	}
 	return out.String()
 }
 

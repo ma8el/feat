@@ -520,6 +520,13 @@ func completeEnd(file *os.File) (int64, error) {
 // reported. Delivery has already judged every one of them once and told the
 // agent; a second judgement made while composing a publication would refuse the
 // publication for a message that has nothing to do with it.
+//
+// The entries are ordered from the listing and then opened one at a time until
+// one answers, rather than all opened to find out which was newest. What that
+// costs is what an outbox holds: every message the task has ever sent, none of
+// them removed before cleanup, each up to MaxMessageBytes — and a publication
+// asks this twice, once to compose the plan and once to check what came back,
+// with the task's lock held both times.
 func (w *Workspace) Latest(kind MessageType) (Message, bool, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -535,18 +542,8 @@ func (w *Workspace) Latest(kind MessageType) (Message, bool, error) {
 		return Message{}, false, fmt.Errorf("reading the control outbox %s: %w", w.OutboxDir(), err)
 	}
 
-	var (
-		latest   Message
-		found    bool
-		modified time.Time
-		name     string
-	)
-	for _, entry := range entries {
-		skip, err := checkEntry(entry)
-		if skip || err != nil {
-			continue
-		}
-		data, err := w.readMessage(entry.Name())
+	for _, listed := range newestFirst(entries) {
+		data, err := w.readMessage(listed.name)
 		if err != nil {
 			continue
 		}
@@ -554,22 +551,51 @@ func (w *Workspace) Latest(kind MessageType) (Message, bool, error) {
 		if err := json.Unmarshal(data, &message); err != nil {
 			continue
 		}
-		message.file = entry.Name()
+		message.file = listed.name
 		if err := message.Validate(w.task); err != nil || message.Type != kind {
+			continue
+		}
+		return message, true, nil
+	}
+	return Message{}, false, nil
+}
+
+// listedEntry is one outbox entry as the listing describes it.
+type listedEntry struct {
+	name     string
+	modified time.Time
+}
+
+// newestFirst orders the entries a read-back may consider, newest first.
+//
+// The order is the one Pending applies messages in — modification time, with the
+// file name as the tiebreak — read from the other end: the last message of a
+// type the agent wrote is the one that describes its work. Deciding it from what
+// the listing already knows is what lets the read stop at the first entry that
+// answers. The envelope's own timestamp is not used, for Pending's reason: a
+// hook writes it with whatever resolution its shell has.
+func newestFirst(entries []os.DirEntry) []listedEntry {
+	listed := make([]listedEntry, 0, len(entries))
+	for _, entry := range entries {
+		skip, err := checkEntry(entry)
+		if skip || err != nil {
 			continue
 		}
 		info, err := entry.Info()
 		if err != nil {
+			// Listed and then gone, or unreadable. It is skipped here rather
+			// than opened and skipped later: an entry nothing can say the age of
+			// cannot be the newest of anything.
 			continue
 		}
-		// Newest by modification time, with the file name as the tiebreak, which
-		// is the order Pending applies them in: the last draft the agent wrote
-		// is the one that describes its work.
-		if found && (info.ModTime().Before(modified) ||
-			(info.ModTime().Equal(modified) && entry.Name() < name)) {
-			continue
-		}
-		latest, found, modified, name = message, true, info.ModTime(), entry.Name()
+		listed = append(listed, listedEntry{name: entry.Name(), modified: info.ModTime()})
 	}
-	return latest, found, nil
+
+	sort.SliceStable(listed, func(i, j int) bool {
+		if !listed[i].modified.Equal(listed[j].modified) {
+			return listed[i].modified.After(listed[j].modified)
+		}
+		return listed[i].name > listed[j].name
+	})
+	return listed
 }
