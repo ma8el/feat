@@ -358,6 +358,16 @@ func TestAnInconsistentPublicationDoesNotValidate(t *testing.T) {
 			p.Repositories[0].State = PublicationPublished
 			p.Repositories[0].AttemptedAt = origin
 		},
+		"published with a merge request nothing can name": func(p *Publication) {
+			p.Repositories[0].State = PublicationPublished
+			p.Repositories[0].Request = &MergeRequest{URL: "https://forge.example.com/1"}
+			p.Repositories[0].AttemptedAt = origin
+		},
+		"published with a merge request nothing can read": func(p *Publication) {
+			p.Repositories[0].State = PublicationPublished
+			p.Repositories[0].Request = &MergeRequest{Reference: "!1"}
+			p.Repositories[0].AttemptedAt = origin
+		},
 		"failed with no reason": func(p *Publication) {
 			p.Repositories[0].State = PublicationFailed
 			p.Repositories[0].AttemptedAt = origin

@@ -422,9 +422,12 @@ func (r RepositoryPublication) Validate(task TaskID) error {
 				"must be unset while the repository has not been attempted")
 		}
 	case PublicationPublished:
-		if r.Request == nil || r.Request.URL == "" {
+		// Both halves, and for the same reason RecordPublished asks for both:
+		// the URL is where the user reads the request, and the reference is
+		// what anything else has to name it by.
+		if r.Request == nil || r.Request.URL == "" || r.Request.Reference == "" {
 			return publicationProblem(task, field+".request",
-				"must name the merge request the publication opened")
+				"must name the merge request the publication opened, by reference and URL")
 		}
 		if r.Failure != "" {
 			return publicationProblem(task, field+".failure",
