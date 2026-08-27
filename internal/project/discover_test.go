@@ -64,17 +64,57 @@ volumes:
   api-venv:
 `
 
-// repositoryWith writes a repository's Compose files and returns its root.
+// repositoryWith writes a repository's Compose files and returns its root. A
+// name may carry a directory, which is made.
 func repositoryWith(t *testing.T, files map[string]string) string {
 	t.Helper()
 
 	root := t.TempDir()
 	for name, body := range files {
-		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("making the directory of %s: %v", name, err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatalf("writing %s: %v", name, err)
 		}
 	}
 	return root
+}
+
+// TestTheSubdirectoriesAreSearchedInOrder covers the two places beside a
+// checkout that nothing else did.
+//
+// Where a file was found is not part of what discovery returns, so the order is
+// the only thing separating a checkout's own Compose files from the ones under
+// `.devcontainer` and `docker` — and a caller that needs to tell them apart has
+// nothing else to go on.
+func TestTheSubdirectoriesAreSearchedInOrder(t *testing.T) {
+	root := repositoryWith(t, map[string]string{
+		"docker-compose.yml":                 "services: {}\n",
+		".devcontainer/docker-compose.yml":   "services: {}\n",
+		".devcontainer/compose.override.yml": "services: {}\n",
+		"docker/docker-compose.yml":          "services: {}\n",
+	})
+
+	found := project.ComposeFiles(root)
+	names := make([]string, 0, len(found))
+	for _, file := range found {
+		names = append(names, filepath.Join(filepath.Base(filepath.Dir(file)), filepath.Base(file)))
+	}
+
+	// The checkout's own first, then the container definition, then the docker
+	// directory: the order the places are searched in, and the order a caller
+	// that wants one of them has to tell them apart by.
+	want := []string{
+		filepath.Join(filepath.Base(root), "docker-compose.yml"),
+		".devcontainer/docker-compose.yml",
+		".devcontainer/compose.override.yml",
+		"docker/docker-compose.yml",
+	}
+	if !slices.Equal(names, want) {
+		t.Errorf("discovery found %v, want %v", names, want)
+	}
 }
 
 // TestOverlaysAreFoundBesideTheirBaseFile is the defect a real run found.
