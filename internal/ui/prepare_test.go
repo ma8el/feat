@@ -559,7 +559,15 @@ func (h fakeHost) Inspect(_ context.Context, path string) (wizard.Checkout, erro
 	return wizard.Checkout{Root: path, Remote: "origin", DefaultBranch: "main"}, nil
 }
 
-func (h fakeHost) ComposeFiles(string) []string       { return nil }
+// ComposeFiles answers with a base and an override, which is the case where the
+// flow derives more than one value and can propose only one of them.
+func (h fakeHost) ComposeFiles(string) []string {
+	return []string{
+		filepath.Join(h.root, "repo", "compose.yaml"),
+		filepath.Join(h.root, "repo", "compose.override.yaml"),
+	}
+}
+
 func (h fakeHost) ComposeServices(...string) []string { return nil }
 func (h fakeHost) Compose(string, ...string) wizard.Composition {
 	return wizard.Composition{}

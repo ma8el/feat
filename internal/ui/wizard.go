@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -110,6 +111,11 @@ func newWizard(backend Backend) wizardModel {
 	field := textinput.New()
 	field.Prompt = ""
 	field.CharLimit = 500
+	// On for every question, and given nothing to complete on most of them. The
+	// alternative is a flag that has to be turned off again, and a question left
+	// holding the last one's candidates is a Tab that answers with a value from a
+	// different part of the file.
+	field.ShowSuggestions = true
 
 	return wizardModel{backend: backend, input: field}
 }
@@ -212,8 +218,13 @@ func (w wizardModel) advance() (wizardModel, tea.Cmd) {
 	// in the field meant typing appended to it, so an identifier proposed from
 	// the working directory became that directory's name with the answer stuck
 	// on the end.
+	//
+	// Tab is how it gets into the field deliberately, along with whatever else
+	// the flow found: what the user wants half the time is this value with three
+	// characters changed, and that used to mean typing all of it (ADR-077).
 	w.input.SetValue("")
 	w.input.Placeholder = question.Proposed
+	w.input.SetSuggestions(question.Candidates)
 	if question.Kind == wizard.KindText {
 		w.input.Focus()
 	} else {
@@ -277,6 +288,13 @@ func (w wizardModel) askingKey(key tea.KeyMsg) (wizardModel, tea.Cmd) {
 
 	case "enter":
 		return w.answer()
+
+	case "tab":
+		// Only where the field holds a candidate already or holds nothing at all;
+		// anything else is a prefix, and the widget completes those itself.
+		if taken, ok := w.take(); ok {
+			return taken, nil
+		}
 	}
 
 	if w.question.Kind == wizard.KindText {
@@ -299,6 +317,36 @@ func (w wizardModel) askingKey(key tea.KeyMsg) (wizardModel, tea.Cmd) {
 		}
 	}
 	return w, nil
+}
+
+// take puts a candidate in the field, and reports whether it had one to put
+// there.
+//
+// The widget completes what has been typed, which leaves the empty field — and
+// the empty field is where the proposal is, so the answers this is worth most on
+// were the ones it could not help with: an absolute path a user wants to change
+// the end of had to be typed from the first character. So an empty field takes
+// the proposal, a field holding one candidate exactly steps to the next, and
+// everything between is the widget's own prefix completion.
+//
+// What Enter means is untouched at every step of that. The proposal is still
+// what an empty field sends, an optional question is still finished by leaving
+// it empty, and what is in the field is still what is sent — Tab moves a value
+// into the field and never past it (ADR-077).
+func (w wizardModel) take() (wizardModel, bool) {
+	if w.question.Kind != wizard.KindText || len(w.question.Candidates) == 0 {
+		return w, false
+	}
+	value := w.input.Value()
+	at := slices.Index(w.question.Candidates, value)
+	if value != "" && at < 0 {
+		return w, false
+	}
+	// An empty field is at -1, so the first Tab takes the proposal and each one
+	// after it steps along the list and around it.
+	w.input.SetValue(w.question.Candidates[(at+1)%len(w.question.Candidates)])
+	w.input.CursorEnd()
+	return w, true
 }
 
 // answer hands what the user gave to the flow.

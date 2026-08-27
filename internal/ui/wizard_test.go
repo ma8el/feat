@@ -127,6 +127,156 @@ func TestTypingReplacesTheProposal(t *testing.T) {
 	}
 }
 
+// TestTabPutsTheProposalWhereItCanBeEdited is the affordance the placeholder
+// never had (ADR-077).
+//
+// A proposal is a value Enter takes whole. What a user wants half the time is
+// that value with a few characters changed — a path, mostly — and until Tab put
+// it in the field, changing it meant reading it off the screen and typing all of
+// it back in.
+func TestTabPutsTheProposalWhereItCanBeEdited(t *testing.T) {
+	model := wizardScreen(t, newFakeBackend())
+
+	model = pressKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	if got := model.wizard.input.Value(); got != "repo" {
+		t.Fatalf("tab left the field holding %q, want the proposal", got)
+	}
+	// In the field rather than accepted: it is the answer being written, so
+	// typing continues it instead of replacing it, and Enter is still what sends
+	// it.
+	if got := question(t, model); got != "project.id" {
+		t.Fatalf("tab answered the question and moved to %s", got)
+	}
+	if view := content(model); !strings.Contains(view, "tab") {
+		t.Errorf("the keys do not say that this question can be completed:\n%s", view)
+	}
+
+	model = answerWizard(t, model, "-2")
+	if got := model.wizard.flow.ID(); got != "repo-2" {
+		t.Errorf("the project is %q, want the proposal as it was edited", got)
+	}
+}
+
+// TestTabStepsThroughEveryCandidate is what the completion is for beyond the one
+// proposal: the flow derives lists, and a question has one proposal.
+//
+// The repository here has a base Compose file and an override beside it. The
+// first is proposed and the second was, until now, a path to be retyped.
+func TestTabStepsThroughEveryCandidate(t *testing.T) {
+	// Seven answers reach the application section; it proposes "no", so its
+	// cursor is moved before it is answered.
+	model := enter(t, wizardScreen(t, newFakeBackend()), 7)
+	if got := question(t, model); got != "runtime.wanted" {
+		t.Fatalf("seven answers reached %s, want the application services", got)
+	}
+	model = enter(t, press(t, model, "k"), 2)
+
+	if got := question(t, model); got != "runtime.compose" {
+		t.Fatalf("the question is %s, want the repository's Compose files", got)
+	}
+	candidates := model.wizard.question.Candidates
+	if len(candidates) != 2 {
+		t.Fatalf("the question offers %v, want both files beside the repository", candidates)
+	}
+
+	// A prefix is completed where it was typed: both files are under one
+	// directory, so a single character reaches them both and tab takes the
+	// first of them.
+	model = pressKey(t, press(t, model, "/"), tea.KeyMsg{Type: tea.KeyTab})
+	if got := model.wizard.input.Value(); got != candidates[0] {
+		t.Fatalf("completing a typed prefix left the field holding %q, want %q", got, candidates[0])
+	}
+
+	// From a candidate, tab steps along the list and around it, so that nothing
+	// the flow found is unreachable and the key never runs out.
+	for i, want := range []string{candidates[1], candidates[0], candidates[1]} {
+		model = pressKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+		if got := model.wizard.input.Value(); got != want {
+			t.Fatalf("tab %d left the field holding %q, want %q", i+1, got, want)
+		}
+	}
+
+	// And what is in the field is what is answered, whichever key put it there:
+	// the second file reaches the configuration, which is the one a user could
+	// previously only retype.
+	model = enter(t, model, 1)
+	if got := question(t, model); got != "runtime.compose" {
+		t.Fatalf("answering the completed file moved to %s, want the rest of the loop", got)
+	}
+
+	// The repeat offers what is left rather than starting empty, because that is
+	// where a second file is added from. It proposes nothing, so Enter still
+	// finishes the loop and only Tab reaches the file.
+	if got := model.wizard.question.Candidates; len(got) != 1 || got[0] != candidates[0] {
+		t.Errorf("the repeat offers %v, want the file that has not been answered", got)
+	}
+	if model.wizard.question.Proposed != "" {
+		t.Errorf("the repeat proposes %q, so Enter cannot mean 'no more'", model.wizard.question.Proposed)
+	}
+	view := content(model)
+	if !strings.Contains(view, "tab") {
+		t.Errorf("the keys do not say that the rest of the files are here:\n%s", view)
+	}
+	// The field is empty here, so what is left is on the screen in words: the
+	// completion cannot draw itself into a field nobody has typed in, and this is
+	// the question where a second file is either added or forgotten.
+	if !strings.Contains(view, "press tab to use one of them") {
+		t.Errorf("the repeat does not say what is left to add:\n%s", view)
+	}
+
+	model = enter(t, model, 1)             // blank finishes the file loop
+	model = answerWizard(t, model, "dev")  // the service this repository manages
+	model = answerWizard(t, model, "/app") // where that service expects its source
+	model = enter(t, model, 3)             // reachable, environment file, verification
+	if model.wizard.step != wizardReviewing {
+		t.Fatalf("the step is %v, want the composed configuration", model.wizard.step)
+	}
+	if got := string(model.wizard.review.Text); !strings.Contains(got, "- compose.override.yaml") {
+		t.Errorf("the file that was completed is not the one recorded:\n%s", got)
+	}
+}
+
+// TestTypingAlongACompletionDoesNotResizeTheDialog is the cost of drawing a
+// completion, paid where it showed.
+//
+// The widget pads its line out from the typed value alone and writes the
+// completion after the padding, and this dialog is as wide as its widest line —
+// so the box jumped to its full allowance on the first character of a path and
+// crept back a cell per keystroke afterwards, while typing something no
+// candidate matches left it perfectly still.
+func TestTypingAlongACompletionDoesNotResizeTheDialog(t *testing.T) {
+	// Wide enough that the box is not clamped: a box already at its allowance
+	// cannot move, and the test would pass having proved nothing.
+	model := sized(enter(t, wizardScreen(t, newFakeBackend()), 7), 240, 44)
+	model = enter(t, press(t, model, "k"), 2)
+	if got := question(t, model); got != "runtime.compose" {
+		t.Fatalf("the question is %s, want the repository's Compose files", got)
+	}
+
+	before, _ := blockSize(model.dialogView())
+	allowed, _ := model.dialogLimits()
+	if before >= allowed {
+		t.Fatalf("the dialog is clamped at %d cells, so typing could not move it anyway", allowed)
+	}
+
+	candidate := model.wizard.question.Candidates[0]
+	for _, letter := range candidate[:8] {
+		model = press(t, model, string(letter))
+		if after, _ := blockSize(model.dialogView()); after != before {
+			t.Fatalf("typing %q moved the dialog from %d cells to %d",
+				model.wizard.input.Value(), before, after)
+		}
+	}
+	// And there is a completion behind what was typed, or the width had nothing
+	// to be moved by and this proved nothing. It is asserted on the field rather
+	// than on the screen because the paths a temporary directory hands out are
+	// longer than the field, so the drawn one is cut at the edge — which is the
+	// same cut this test is about.
+	if got := model.wizard.input.CurrentSuggestion(); got != candidate {
+		t.Errorf("the field is completing %q, want the candidate its prefix matches", got)
+	}
+}
+
 // TestARefusedAnswerIsShownWhereItWasTyped checks that the dialog keeps the
 // question rather than failing out of it.
 func TestARefusedAnswerIsShownWhereItWasTyped(t *testing.T) {

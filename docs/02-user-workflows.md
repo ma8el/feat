@@ -18,15 +18,17 @@ Flow:
 1. The user runs `feat project init` in one of the project's checkouts, or
    presses `p` in the dashboard, which asks the same questions as a dialog over
    the task list. Both drive one flow, so the questions and what they accept are
-   the same; the dialog adds a cursor on the closed questions and `esc` to step
-   back out of an answer.
+   the same; the dialog adds a cursor on the closed questions, `esc` to step
+   back out of an answer, and `tab` to complete one.
 2. Feat asks which repositories take part and how each takes part by default,
    where the agent runs, which provider CLI it uses, whether a task runs
    application services, and what verifies the work.
 3. Feat answers from the host what the host can answer: whether a path is a Git
    repository, its working-tree root, its remote, its default branch, the
    Compose files beside it, and the services those files declare. Each is shown
-   as a proposal, and pressing Enter accepts it.
+   as a proposal, and pressing Enter accepts it. In the dashboard, `tab` puts a
+   proposal in the field to be edited rather than retyped, and steps through
+   whatever else was found beside it (ADR-077).
 4. Feat validates the composed configuration, displays the whole file, and
    writes nothing until the user confirms. An existing configuration is never
    overwritten.

@@ -284,6 +284,62 @@ func TestProjectInitConfiguresADevcontainerFromWhatItFinds(t *testing.T) {
 	}
 }
 
+// TestProjectInitSaysWhatElseItFoundBesideTheProposal is the sentence that was
+// written and never printed (ADR-077).
+//
+// A repository brings a base Compose file and the overlays that layer over it.
+// The flow proposes the first and says what else it found, and the conversation
+// dropped the second half on the way out: the notes were read from the flow's
+// own state, and a note the question itself had added was not there.
+func TestProjectInitSaysWhatElseItFoundBesideTheProposal(t *testing.T) {
+	m := prepareWizard(t)
+
+	// An overlay beside the base file, which is how a repository that has a
+	// development configuration is laid out.
+	overlay := filepath.Join(m.repository("api"), "compose.override.yaml")
+	if err := os.WriteFile(overlay, []byte("services:\n  dev:\n    image: golang\n"), 0o600); err != nil {
+		t.Fatalf("writing an overlay: %v", err)
+	}
+
+	code, stdout, stderr := m.converse(t, answers(
+		"app",               // project identifier
+		"",                  // display name: app
+		m.repository("api"), // path of the checkout
+		"api",               // repository identifier
+		"",                  // default access: read_write
+		"n",                 // no second repository
+		"",                  // execution mode: host
+		"y",                 // the project runs application services
+		"y",                 // api brings Compose files
+		"",                  // Compose file: the proposal, which is the base file
+		"",                  // no more Compose files
+		"",                  // services: dev worker, which the files define
+		"/srv/api",          // where those services expect the source
+		"",                  // reachable: none of them publishes a port
+		"",                  // no environment file
+		"",                  // no verification command
+		"n",                 // do not write it
+	), "project", "init")
+
+	if code != ExitOK {
+		t.Fatalf("exit code %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "others found beside it: "+overlay) {
+		t.Errorf("the conversation does not name the other file it found:\n%s", stdout)
+	}
+	// And again where the file would be added, which is the question after the
+	// one that named it: a prompt about finishing, with a bracket-less field,
+	// otherwise reads as a loop that has nothing left in it.
+	if !strings.Contains(stdout, "others found beside it: "+overlay) {
+		t.Errorf("the repeat does not say what is left to add:\n%s", stdout)
+	}
+	// And what the previous answer established still reaches the same place,
+	// which is what the notes were doing before this one joined them.
+	if !strings.Contains(stdout, "remote origin, default branch main") {
+		t.Errorf("the conversation no longer reports what Git answered:\n%s", stdout)
+	}
+}
+
 // TestProjectInitResolvesBasesLocallyWithoutARemote checks the one value the
 // wizard decides on the user's behalf, and that it says so.
 func TestProjectInitResolvesBasesLocallyWithoutARemote(t *testing.T) {

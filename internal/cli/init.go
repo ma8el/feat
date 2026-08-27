@@ -148,6 +148,14 @@ func (c *conversation) run(ctx context.Context) error {
 // the alternative is a command that fails at the end of a conversation over
 // something the user could have corrected when they typed it.
 func (c *conversation) put(ctx context.Context, question wizard.Question) error {
+	// What the last answer established, and what this question found out about
+	// what it is proposing, said under the answer they follow and before the
+	// question they are the context for. They are read off the question, as the
+	// dialog reads them, so that a sentence the flow writes reaches both askers
+	// or neither.
+	for _, note := range question.Notes {
+		c.say("    %s\n", note)
+	}
 	c.announce(question)
 
 	for {
@@ -158,11 +166,6 @@ func (c *conversation) put(ctx context.Context, question wizard.Question) error 
 		if err := c.wizard.Answer(ctx, answer); err != nil {
 			c.say("    %v\n", err)
 			continue
-		}
-		// What the answer established is said before the next question, which is
-		// what it will be asked in light of.
-		for _, note := range c.wizard.Notes() {
-			c.say("    %s\n", note)
 		}
 		return nil
 	}

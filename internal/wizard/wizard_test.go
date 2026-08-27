@@ -3,6 +3,7 @@ package wizard
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,7 +12,11 @@ import (
 )
 
 // fakeHost answers for a machine with two checkouts on it: one with an ordinary
-// remote and a Compose file beside it, and one with no remote at all.
+// remote and two Compose files beside it, and one with no remote at all.
+//
+// Two files rather than one, because a repository that brings a base and an
+// override is the ordinary case and is the one where the flow derives more than
+// it can propose.
 //
 // It answers by path, because that is what the proposals are derived from: a
 // host that answered the same thing everywhere could not tell a repository that
@@ -38,7 +43,10 @@ func (h *fakeHost) Inspect(_ context.Context, path string) (Checkout, error) {
 
 func (h *fakeHost) ComposeFiles(dir string) []string {
 	if dir == filepath.Join(h.root, "api") {
-		return []string{filepath.Join(dir, "compose.yaml")}
+		return []string{
+			filepath.Join(dir, "compose.yaml"),
+			filepath.Join(dir, "compose.override.yaml"),
+		}
 	}
 	return nil
 }
@@ -459,7 +467,7 @@ func TestTheApplicationIsAnsweredOneRepositoryAtATime(t *testing.T) {
 // So a loop proposes only its first, and Enter after that means what the prompt
 // says it means.
 func TestBlankFinishesAFileLoop(t *testing.T) {
-	flow, _ := start(t, "app")
+	flow, host := start(t, "app")
 	answers(t, flow,
 		"",    // display name
 		"",    // the checkout: the working directory, which is the api repository
@@ -487,6 +495,18 @@ func TestBlankFinishesAFileLoop(t *testing.T) {
 	if !next.Optional {
 		t.Error("the loop's continuation is not optional, so it cannot be finished")
 	}
+	// The rest of the files are still offered here, which is where the second one
+	// is added from. They are offered and not proposed: that separation is what
+	// lets one key mean "no more" and another mean "the next file" (ADR-077).
+	remaining := host.ComposeFiles(filepath.Join(host.root, "api"))[1:]
+	if !slices.Equal(next.Candidates, remaining) {
+		t.Errorf("the repeat offers %v, want the files not answered yet: %v", next.Candidates, remaining)
+	}
+	// And it says so, because the field is empty here and an empty field on a
+	// question about finishing reads as a loop with nothing left in it.
+	if !strings.Contains(strings.Join(next.Notes, " "), remaining[0]) {
+		t.Errorf("the repeat does not say what is left to add: %v", next.Notes)
+	}
 
 	answer(t, flow, "")
 	services, _ := flow.Step()
@@ -503,6 +523,78 @@ func TestBlankFinishesAFileLoop(t *testing.T) {
 	}
 	if got := strings.Count(string(review.Text), "compose.yaml"); got != 1 {
 		t.Errorf("%d Compose files were recorded, want the one that was answered:\n%s", got, review.Text)
+	}
+}
+
+// TestTheProposalIsTheHeadOfTheCandidates is what keeps the two askers the same
+// conversation once one of them can complete an answer (ADR-077).
+//
+// A list whose first entry was not the value an empty answer takes would be two
+// answers to one question: the dashboard's Tab would offer one value and the
+// conversation's brackets another, and the same question would mean different
+// things depending on where it was asked.
+func TestTheProposalIsTheHeadOfTheCandidates(t *testing.T) {
+	flow, _ := start(t, "")
+
+	for _, value := range []string{
+		"app", "Example", "", "", "", "n", "", "n", "go test ./...", "",
+	} {
+		question, ok := flow.Step()
+		if !ok {
+			t.Fatalf("answering %q, but every question has been answered", value)
+		}
+		switch {
+		case question.Kind != KindText:
+			// A closed question is a list with a cursor on it, and nothing is
+			// typed into one.
+			if len(question.Candidates) > 0 {
+				t.Errorf("%s is answered from %v and offers completions %v",
+					question.ID, question.Options, question.Candidates)
+			}
+		case question.Proposed == "":
+			// A question may offer without proposing — that is the loop, where an
+			// empty answer means "no more" — so there is nothing to check here.
+		case len(question.Candidates) == 0 || question.Candidates[0] != question.Proposed:
+			t.Errorf("%s proposes %q and offers %v", question.ID, question.Proposed, question.Candidates)
+		}
+		answer(t, flow, value)
+	}
+}
+
+// TestTheFilesBesideARepositoryAreOfferedAndNotOnlyNamed is the derivation that
+// had nowhere to go.
+//
+// The flow finds every Compose file beside a repository, proposes the first, and
+// has until now reported the rest as a sentence — so a user who wanted the
+// second one read its path off the screen and typed it back in. It is still a
+// sentence, for the asker that can only print one, and it is now also a list the
+// dashboard can complete from.
+func TestTheFilesBesideARepositoryAreOfferedAndNotOnlyNamed(t *testing.T) {
+	flow, host := start(t, "app")
+	answers(t, flow,
+		"",    // display name
+		"",    // the checkout: the working directory, which is the api repository
+		"api", // repository identifier
+		"",    // default access: read_write
+		"n",   // no second repository
+		"",    // execution mode: host
+		"y",   // the project runs application services
+		"y",   // api brings Compose files
+	)
+
+	compose, _ := flow.Step()
+	if compose.ID != "runtime.compose" {
+		t.Fatalf("the question is %s, want the repository's Compose files", compose.ID)
+	}
+	found := host.ComposeFiles(filepath.Join(host.root, "api"))
+	if !slices.Equal(compose.Candidates, found) {
+		t.Errorf("the question offers %v, want every file found beside the repository: %v",
+			compose.Candidates, found)
+	}
+	// And the sentence is still there. An asker that cannot complete has to be
+	// told what was found, and it is the same asker the user reads back later.
+	if !strings.Contains(strings.Join(compose.Notes, " "), filepath.Base(found[1])) {
+		t.Errorf("the other file is no longer named: %v", compose.Notes)
 	}
 }
 

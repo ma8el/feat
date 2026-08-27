@@ -68,7 +68,9 @@ type Question struct {
 	Detail []string
 	// Notes are what the previous answer established: what Git said about a
 	// checkout, which services a Compose file declares, what Feat assumed. They
-	// belong to this question because they are what it is asked in light of.
+	// belong to this question because they are what it is asked in light of, and
+	// a question that found something out about its own proposals adds to them
+	// for the same reason.
 	Notes []string
 	// Prompt is the question itself, without punctuation or decoration.
 	Prompt string
@@ -76,6 +78,16 @@ type Question struct {
 	// brackets or as a placeholder, and either way Enter takes it. A question
 	// with no proposal and no Optional must be answered.
 	Proposed string
+	// Candidates are the values an asker may offer as completions of a text
+	// answer, and Step assembles them: the proposal first, then whatever else the
+	// flow found beside it. A closed question has none — its answers are Options,
+	// and nothing is typed into one.
+	//
+	// They are offered, never required. What is answered is what the user gives,
+	// an empty answer still takes Proposed, and an asker with no way to complete
+	// ignores the list — which is what keeps the two askers the same
+	// conversation (ADR-077).
+	Candidates []string
 	// Kind is how the answer is given.
 	Kind Kind
 	// Options are the acceptable answers of a KindChoice question.
@@ -241,22 +253,19 @@ func (w *Wizard) ID() string { return w.draft.ID }
 // Complete reports that every question has been answered.
 func (w *Wizard) Complete() bool { return w.stage == stageComplete }
 
-// Notes are what the last accepted answer established: what Git said about a
-// checkout, which services a Compose file declares, what Feat assumed where it
-// found nothing.
-//
-// They are also carried on the next question, which is the one they are the
-// context for. An asker that draws a question at a time reads them there; one
-// that prints a conversation reads them here, as soon as they are true.
-func (w *Wizard) Notes() []string { return w.notes }
-
 // Step returns the question to ask now, and whether there is one.
 func (w *Wizard) Step() (Question, bool) {
 	if w.stage == stageComplete {
 		return Question{}, false
 	}
 	question := w.question()
-	question.Notes = w.notes
+	// What the last answer established, then what the question itself found: the
+	// order the two became true in. This assigned rather than appended, so a
+	// question that had something to say about its own proposals said it to
+	// nobody — the other Compose files beside a repository were derived, written
+	// into a note, and dropped here on the way out.
+	question.Notes = append(append([]string(nil), w.notes...), question.Notes...)
+	question.Candidates = candidates(question)
 	return question, true
 }
 
@@ -326,7 +335,8 @@ func (w *Wizard) commit(apply func() error) error {
 	return nil
 }
 
-// question is the current question without the notes, which Step attaches.
+// question is the current question without the notes and without the proposal's
+// place at the head of the candidates, both of which Step attaches.
 func (w *Wizard) question() Question {
 	switch w.stage {
 	case stageID:
@@ -525,15 +535,38 @@ func (w *Wizard) question() Question {
 			ID: "runtime.compose", Section: SectionServices, Kind: KindText,
 			Prompt: "Compose file for " + w.draft.Repositories[w.contributor].ID,
 		}
+		// Every file beside the repository that has not been answered yet, at both
+		// ends of the loop: all of them at the first question, and what is left of
+		// them at each repeat.
+		found := w.unansweredContributions()
+		question.Candidates = found
+
+		others := found
 		if len(w.files) == 0 {
-			question.Proposed = w.proposedContribution()
-			if remaining := w.remainingContributions(); len(remaining) > 0 {
-				question.Notes = append(question.Notes,
-					"others found beside it: "+strings.Join(remaining, ", "))
+			if len(others) > 0 {
+				question.Proposed, others = others[0], others[1:]
 			}
-			return question
+		} else {
+			// The repeat offers what is left and proposes none of it. The proposal
+			// is what an empty answer takes, and an empty answer here means "no
+			// more": they were two meanings for one key, and finishing lost — a
+			// user pressing Enter at "blank to finish [/some/path]" added the
+			// bracketed file instead, twice, and ended up with an application's
+			// files defining the container their agent runs in. Tab is where the
+			// rest of the files went, so the two no longer share a key (ADR-077).
+			question.Prompt, question.Optional = question.Prompt+" (blank to finish)", true
 		}
-		question.Prompt, question.Optional = question.Prompt+" (blank to finish)", true
+		// The files that are not in the field, named in the same words wherever
+		// the loop is, because they are the same thing in both places. Saying it
+		// only once left the repeat as a prompt about finishing over an empty
+		// field, which reads as a loop with nothing left in it — and the reason
+		// this loop repeats is that Compose merges a base with the overrides
+		// beside it. Which key reaches them is the asker's to say and not this
+		// sentence's: one of them has no such key.
+		if len(others) > 0 {
+			question.Notes = append(question.Notes,
+				"others found beside it: "+strings.Join(others, ", "))
+		}
 		return question
 
 	case stageRuntimeServices:
@@ -1012,35 +1045,22 @@ func (w *Wizard) declaredServices() []string {
 	return []string{"services defined there: " + strings.Join(services, ", ")}
 }
 
-// proposedContribution is the first Compose file found beside the repository
-// being asked about.
+// unansweredContributions are the Compose files found beside the repository
+// being asked about that this loop has not been given yet.
 //
-// It never proposes another repository's file: what a repository brings is its
-// own. It proposes only the first, because a proposal is what an empty answer
-// takes and the same key has to mean "no more" once there is one — see
-// remainingContributions for what happens to the rest.
-func (w *Wizard) proposedContribution() string {
-	if found := w.host.ComposeFiles(w.draft.Repositories[w.contributor].HostPath); len(found) > 0 {
-		return found[0]
+// It never offers another repository's file: what a repository brings is its
+// own. It drops the ones already answered because the loop asks the same
+// question again after each of them, and a list that offered a file the user has
+// just given would be proposing a duplicate as the way to finish.
+func (w *Wizard) unansweredContributions() []string {
+	var found []string
+	for _, path := range w.host.ComposeFiles(w.draft.Repositories[w.contributor].HostPath) {
+		if containsString(w.files, path) {
+			continue
+		}
+		found = append(found, path)
 	}
-	return ""
-}
-
-// remainingContributions are the other Compose files beside the repository,
-// named rather than proposed.
-//
-// A loop cannot both propose the next file and finish on an empty answer: they
-// are two meanings for one key, and the one that lost was finishing — a user
-// pressing Enter at "blank to finish" added the bracketed file instead, twice,
-// and ended up with an application's files defining their agent's container.
-// So the first is proposed, the rest are reported, and Enter means what the
-// prompt says it means.
-func (w *Wizard) remainingContributions() []string {
-	found := w.host.ComposeFiles(w.draft.Repositories[w.contributor].HostPath)
-	if len(found) < 2 {
-		return nil
-	}
-	return found[1:]
+	return found
 }
 
 // unconfigured reports a project that already has a configuration.
@@ -1102,6 +1122,34 @@ func describe(checkout Checkout) []string {
 			checkout.Remote, checkout.DefaultBranch))
 	}
 	return notes
+}
+
+// candidates are the values an asker may complete a text answer to.
+//
+// The proposal is the head of them, because it is the value an empty answer
+// takes: a list whose first entry was something else would be two answers to one
+// question, and the two askers would stop being the same conversation. The rest
+// are what the flow found beside it — the lists it derives and has until now had
+// nowhere to put, because a proposal is one value and a question has one of them
+// (ADR-077).
+func candidates(question Question) []string {
+	if question.Kind != KindText {
+		return nil
+	}
+	found := make([]string, 0, len(question.Candidates)+1)
+	if question.Proposed != "" {
+		found = append(found, question.Proposed)
+	}
+	for _, candidate := range question.Candidates {
+		if candidate == "" || containsString(found, candidate) {
+			continue
+		}
+		found = append(found, candidate)
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	return found
 }
 
 // oneOf rejects an answer a closed question does not offer.
