@@ -21,8 +21,10 @@ Flow:
    the same; the dialog adds a cursor on the closed questions, `esc` to step
    back out of an answer, and `tab` to complete one.
 2. Feat asks which repositories take part and how each takes part by default,
-   where the agent runs, which provider CLI it uses, whether a task runs
-   application services, and what verifies the work.
+   where the agent runs, which provider CLI it uses, and whether a task runs
+   application services. It does not ask what verifies the work: `checks:` is
+   written by hand into the file it produces, and `feat project init` says so
+   once, where the file has just been written (ADR-078).
 3. Feat answers from the host what the host can answer: whether a path is a Git
    repository, its working-tree root, its remote, its default branch, the
    Compose files beside it, and the services those files declare. Each is shown

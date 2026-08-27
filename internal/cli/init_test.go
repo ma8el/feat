@@ -149,8 +149,6 @@ func TestProjectInitWritesAConfigurationThatLoads(t *testing.T) {
 		"n",                 // no second repository
 		"",                  // execution mode: host
 		"",                  // no application services
-		"go test ./...",     // verification command
-		"",                  // check name
 		"",                  // write it
 		"n",                 // do not run diagnostics
 	), "project", "init")
@@ -186,12 +184,14 @@ func TestProjectInitWritesAConfigurationThatLoads(t *testing.T) {
 		t.Errorf("remote is %q, want %q", repository.Remote, "origin")
 	}
 
-	checks := cfg.Checks["api"]
-	if len(checks) != 1 {
-		t.Fatalf("%d checks for api, want 1", len(checks))
+	// No verification, because nothing asked about it. A gate is written by
+	// hand into the file this just produced, and the conversation says so once
+	// (ADR-078).
+	if len(cfg.Checks) != 0 {
+		t.Errorf("the wizard configured checks nobody was asked about: %v", cfg.Checks)
 	}
-	if got := strings.Join(checks[0].Command, " "); got != "go test ./..." {
-		t.Errorf("the check runs %q", got)
+	if !strings.Contains(stdout, "Add a `checks:` block") {
+		t.Errorf("the conversation does not say how a gate is configured:\n%s", stdout)
 	}
 	if !strings.Contains(stdout, "wrote "+filepath.Join(m.layout.ProjectConfigDir(), "app.yaml")) {
 		t.Errorf("the wizard does not say what it wrote:\n%s", stdout)
@@ -201,7 +201,7 @@ func TestProjectInitWritesAConfigurationThatLoads(t *testing.T) {
 	// text, so the headings are the only thing that says which part of the file
 	// is being answered.
 	for _, heading := range []string{
-		"Repositories", "Where the agent runs", "Application services", "Verification",
+		"Repositories", "Where the agent runs", "Application services",
 	} {
 		if !strings.Contains(stdout, "\n"+heading+"\n") {
 			t.Errorf("the conversation does not announce %q:\n%s", heading, stdout)
@@ -241,7 +241,6 @@ func TestProjectInitConfiguresADevcontainerFromWhatItFinds(t *testing.T) {
 		"",          // give Claude a volume
 		"",          // volume name: feat-claude
 		"n",         // no application services
-		"",          // no verification command
 		"",          // write it
 		"n",         // do not run diagnostics
 	), "project", "init")
@@ -323,7 +322,6 @@ func TestProjectInitSaysWhatElseItFoundBesideTheProposal(t *testing.T) {
 		"/srv/api",          // where those services expect the source
 		"",                  // reachable: none of them publishes a port
 		"",                  // no environment file
-		"",                  // no verification command
 		"n",                 // do not write it
 	), "project", "init")
 
@@ -355,7 +353,6 @@ func TestProjectInitResolvesBasesLocallyWithoutARemote(t *testing.T) {
 		"app", "", m.repository("store"), "store", "", "n",
 		"", // host
 		"n",
-		"",  // no check
 		"",  // write it
 		"n", // no diagnostics
 	), "project", "init")
@@ -389,7 +386,7 @@ func TestProjectInitAsksAgainRatherThanFailingAtTheEnd(t *testing.T) {
 		"",                  // display name
 		missing,             // rejected: not a Git repository
 		m.repository("api"), // accepted
-		"api", "", "n", "", "", "n", "", "", "", "n",
+		"api", "", "n", "", "", "", "n",
 	), "project", "init")
 
 	if code != ExitOK {
@@ -410,7 +407,7 @@ func TestProjectInitWritesNothingUntilItIsConfirmed(t *testing.T) {
 	m := prepareWizard(t)
 
 	code, stdout, stderr := m.converse(t, answers(
-		"app", "", m.repository("api"), "api", "", "n", "", "", "n", "",
+		"app", "", m.repository("api"), "api", "", "n", "", "",
 		"n", // do not write it
 	), "project", "init")
 
@@ -431,7 +428,7 @@ func TestProjectInitDryRunWritesNothing(t *testing.T) {
 	m := prepareWizard(t)
 
 	code, stdout, stderr := m.converse(t, answers(
-		"app", "", m.repository("api"), "api", "", "n", "", "", "n", "",
+		"app", "", m.repository("api"), "api", "", "n", "", "",
 	), "project", "init", "--dry-run")
 
 	if code != ExitOK {
@@ -522,7 +519,7 @@ func TestProjectInitChecksTheProjectAgainstTheMachine(t *testing.T) {
 	m := prepareWizard(t)
 
 	code, stdout, stderr := m.converse(t, answers(
-		"app", "", m.repository("api"), "api", "", "n", "", "", "n", "",
+		"app", "", m.repository("api"), "api", "", "n", "", "",
 		"",  // write it
 		"y", // check it against this machine
 	), "project", "init")
@@ -547,7 +544,7 @@ func TestProjectInitRegistersWithARunningDaemon(t *testing.T) {
 	m.serve(t)
 
 	code, stdout, stderr := m.converse(t, answers(
-		"app", "", m.repository("api"), "api", "", "n", "", "", "n", "",
+		"app", "", m.repository("api"), "api", "", "n", "", "",
 		"",  // write it
 		"n", // do not diagnose
 		"y", // register it
@@ -596,7 +593,6 @@ func TestTheBackendBuildsTheWizardTheDashboardAsks(t *testing.T) {
 		"n",                 // no second repository
 		"",                  // execution mode: host
 		"n",                 // no application services
-		"",                  // no verification command
 	} {
 		if err := flow.Answer(context.Background(), answer); err != nil {
 			t.Fatalf("answering %q: %v", answer, err)

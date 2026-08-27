@@ -19,9 +19,9 @@ import (
 const initLong = `Write a project's configuration by answering questions.
 
 A project is one YAML file. This asks what has to be decided — which
-repositories take part, where the agent runs, what verifies the work — and fills
-in everything Feat has a default for, so the file it produces states your
-decisions and nothing else.
+repositories take part, where the agent runs, whether a task runs application
+services — and fills in everything Feat has a default for, so the file it
+produces states your decisions and nothing else.
 
 What it can find out, it finds out rather than asking: whether a directory is a
 Git repository, which remote and default branch it has, which Compose files are
@@ -257,6 +257,14 @@ func (c *conversation) finish(ctx context.Context) error {
 		return err
 	}
 	c.say("\nwrote %s\n", file)
+	// Said where the file has just been written, and said once. The wizard asks
+	// nothing about verification, so this is the only place a user learns the
+	// feature exists — and it is opt-in rather than hidden precisely because the
+	// gates worth having are the ones somebody opened the file for (ADR-078).
+	c.say("\nNo verification checks are configured. Add a `checks:` block to that file\n")
+	c.say("for a gate that has to pass before work is reviewed; " +
+		"docs/examples/project.yaml\n")
+	c.say("has a worked example, and `feat doctor` validates what you write.\n")
 
 	if err := c.diagnose(ctx); err != nil {
 		return err

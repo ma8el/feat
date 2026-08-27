@@ -227,7 +227,7 @@ func TestTabStepsThroughEveryCandidate(t *testing.T) {
 	model = enter(t, model, 1)             // blank finishes the file loop
 	model = answerWizard(t, model, "dev")  // the service this repository manages
 	model = answerWizard(t, model, "/app") // where that service expects its source
-	model = enter(t, model, 3)             // reachable, environment file, verification
+	model = enter(t, model, 2)             // reachable and the environment file
 	if model.wizard.step != wizardReviewing {
 		t.Fatalf("the step is %v, want the composed configuration", model.wizard.step)
 	}
@@ -323,7 +323,7 @@ func TestSteppingBackReachesTheAnswerBefore(t *testing.T) {
 func atReview(t *testing.T, width int) Model {
 	t.Helper()
 
-	model := enter(t, sized(wizardScreen(t, newFakeBackend()), width, 44), 9)
+	model := enter(t, sized(wizardScreen(t, newFakeBackend()), width, 44), 8)
 	if model.wizard.step != wizardReviewing {
 		t.Fatalf("after every question the step is %v, want the review", model.wizard.step)
 	}
@@ -409,7 +409,7 @@ func TestScrollingTheFileDoesNotResizeTheDialog(t *testing.T) {
 // implements it: the whole file is displayed, and writing it is a separate act.
 func TestNothingIsWrittenBeforeTheFileIsConfirmed(t *testing.T) {
 	backend := newFakeBackend()
-	model := enter(t, wizardScreen(t, backend), 9)
+	model := enter(t, wizardScreen(t, backend), 8)
 
 	if model.wizard.step != wizardReviewing {
 		t.Fatalf("after every question the step is %v, want the review", model.wizard.step)
@@ -485,7 +485,7 @@ func TestTheWrittenProjectIsCheckedAgainstTheMachine(t *testing.T) {
 		Host: []api.Finding{{Check: "git", Severity: api.SeverityOK, Summary: "git version 2.52.0"}},
 	}
 
-	model := enter(t, wizardScreen(t, backend), 10)
+	model := enter(t, wizardScreen(t, backend), 9)
 	if model.wizard.step != wizardChecking {
 		t.Fatalf("the step is %v, want the check", model.wizard.step)
 	}
@@ -524,7 +524,7 @@ func TestTheWrittenProjectIsCheckedAgainstTheMachine(t *testing.T) {
 // path, from a dashboard with no project to one with a registered project.
 func TestRegisteringIsOfferedAndAnswered(t *testing.T) {
 	backend := newFakeBackend()
-	model := enter(t, wizardScreen(t, backend), 11)
+	model := enter(t, wizardScreen(t, backend), 10)
 
 	if model.wizard.step != wizardRegistering {
 		t.Fatalf("the step is %v, want the registration offer", model.wizard.step)
@@ -540,6 +540,12 @@ func TestRegisteringIsOfferedAndAnswered(t *testing.T) {
 	}
 	if !strings.Contains(view, "registered repo") {
 		t.Errorf("the last screen does not say what was registered:\n%s", view)
+	}
+	// And says nothing about verification. The dialog's last screen is what
+	// happened, and a line advertising a feature nobody asked about is the
+	// prompt this removal is about, one size quieter (ADR-078).
+	if strings.Contains(view, "checks:") {
+		t.Errorf("the last screen advertises a feature nothing asked about:\n%s", view)
 	}
 
 	// Closing returns to the dashboard, which reads state again because a
@@ -557,7 +563,7 @@ func TestAFailedRegistrationStillReportsTheFile(t *testing.T) {
 	backend := newFakeBackend()
 	backend.registerErr = errors.New("the daemon is not running")
 
-	model := enter(t, wizardScreen(t, backend), 12)
+	model := enter(t, wizardScreen(t, backend), 11)
 
 	view := content(model)
 	if !strings.Contains(view, "repo.yaml") {
@@ -576,7 +582,7 @@ func TestAFailedRegistrationStillReportsTheFile(t *testing.T) {
 func TestTheWizardCanBeLeftAtAnyQuestion(t *testing.T) {
 	backend := newFakeBackend()
 
-	for _, answered := range []int{0, 3, 9} {
+	for _, answered := range []int{0, 3, 8} {
 		model := enter(t, wizardScreen(t, backend), answered)
 		model = pressKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlC})
 

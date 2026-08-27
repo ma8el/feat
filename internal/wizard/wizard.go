@@ -43,14 +43,17 @@ const (
 	SectionAgent Section = "agent"
 	// SectionServices is the application runtime.
 	SectionServices Section = "services"
-	// SectionChecks is what verifies the work.
-	SectionChecks Section = "checks"
 )
 
 // Sections are the sections in the order they are asked, for an asker that
 // wants to show the whole path rather than the step.
+//
+// Verification is not among them. `checks:` is still configuration, still
+// validated by `feat doctor`, and still documented in the example file — it is
+// no longer a question, because a gate configured in passing is a gate that
+// fails on the machine it was configured from (ADR-078).
 func Sections() []Section {
-	return []Section{SectionProject, SectionRepositories, SectionAgent, SectionServices, SectionChecks}
+	return []Section{SectionProject, SectionRepositories, SectionAgent, SectionServices}
 }
 
 // Question is one thing to ask, and everything needed to ask it.
@@ -176,8 +179,6 @@ type state struct {
 	files    []string
 	envFiles []string
 	services []string
-	// command is the verification command, split into its argument vector.
-	command []string
 }
 
 // stage is where the flow is. The order below is the order questions are asked
@@ -212,9 +213,6 @@ const (
 	stageRuntimeMount
 	stageRuntimeReachable
 	stageRuntimeEnvFile
-	stageCheckCommand
-	stageCheckName
-	stageCheckExecution
 	// stageComplete is every question answered, and the file not yet written.
 	stageComplete
 )
@@ -617,32 +615,6 @@ func (w *Wizard) question() Question {
 		}
 		return question
 
-	case stageCheckCommand:
-		return Question{
-			ID: "check.command", Section: SectionChecks, Kind: KindText,
-			Heading: "Verification",
-			Detail: []string{
-				"A command that has to pass before work is reviewed. A check that fails",
-				"returns to the agent's own loop, so this is what tells the agent it is",
-				"not finished yet.",
-			},
-			Prompt:   "Command that verifies " + w.draft.Primary + ", or blank for none",
-			Optional: true,
-		}
-
-	case stageCheckName:
-		return Question{
-			ID: "check.name", Section: SectionChecks, Kind: KindText,
-			Prompt: "Name for this check", Proposed: config.Slug(strings.Join(w.command, " ")),
-		}
-
-	case stageCheckExecution:
-		return Question{
-			ID: "check.execution", Section: SectionChecks, Kind: KindChoice,
-			Prompt:   "Where does it run?",
-			Options:  []string{config.ExecutionAgent, config.ExecutionHost},
-			Proposed: config.ExecutionAgent,
-		}
 	}
 	return Question{}
 }
@@ -808,7 +780,7 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 	case stageRuntimeEnvFile:
 		if answer == "" {
 			w.draft.Runtime = &config.DraftRuntime{EnvFiles: w.envFiles}
-			w.stage = stageCheckCommand
+			w.stage = stageComplete
 			break
 		}
 		path, err := w.host.Absolute(answer)
@@ -818,40 +790,6 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 		w.envFiles = append(w.envFiles, path)
 		w.notes = w.existence(path)
 
-	case stageCheckCommand:
-		vector := strings.Fields(answer)
-		if len(vector) == 0 {
-			w.stage = stageComplete
-			break
-		}
-		w.command = vector
-		// Splitting on spaces is all this does, and the file is shown before it
-		// is written, so a command that needed quoting is visible as the wrong
-		// argument vector rather than discovered when a gate runs it.
-		w.notes = []string{fmt.Sprintf(
-			"the command runs as %s, and is split on spaces; edit the file for anything else",
-			strings.Join(vector, " "))}
-		w.stage = stageCheckName
-
-	case stageCheckName:
-		if err := domain.RepositoryID(answer).Validate(); err != nil {
-			return err
-		}
-		w.draft.Checks = append(w.draft.Checks, config.DraftCheck{
-			Repository: w.draft.Primary,
-			ID:         answer,
-			Command:    w.command,
-			Execution:  config.ExecutionAgent,
-		})
-		if w.draft.Execution.Mode != config.ModeDevcontainer {
-			w.stage = stageComplete
-			break
-		}
-		w.stage = stageCheckExecution
-
-	case stageCheckExecution:
-		w.draft.Checks[len(w.draft.Checks)-1].Execution = answer
-		w.stage = stageComplete
 	}
 	return nil
 }
@@ -885,7 +823,7 @@ func (w *Wizard) confirmed(yes bool) error {
 
 	case stageRuntimeWanted:
 		if !yes {
-			w.stage = stageCheckCommand
+			w.stage = stageComplete
 			return nil
 		}
 		w.contributor = -1
@@ -1281,7 +1219,6 @@ func (s state) clone() state {
 	copied.files = append([]string(nil), s.files...)
 	copied.envFiles = append([]string(nil), s.envFiles...)
 	copied.services = append([]string(nil), s.services...)
-	copied.command = append([]string(nil), s.command...)
 	return copied
 }
 

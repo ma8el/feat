@@ -148,8 +148,6 @@ func TestTheFlowComposesAConfigurationFromWhatItIsTold(t *testing.T) {
 		"n",       // no second repository
 		"",        // execution mode: host
 		"n",       // no application services
-		"go test ./...",
-		"", // check name: go-test
 	)
 
 	if !flow.Complete() {
@@ -174,12 +172,46 @@ func TestTheFlowComposesAConfigurationFromWhatItIsTold(t *testing.T) {
 		// Both were read from the checkout rather than asked for, which is what
 		// the wizard exists to do.
 		"default_branch: main", "remote: origin",
-		// The check, as the argument vector it was split into rather than as the
-		// line it was typed as.
-		"id: go-test", "- ./...",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the configuration does not contain %q:\n%s", want, text)
+		}
+	}
+	// And nothing about verification. The questions do not ask, so the file does
+	// not state one, and a project acquires a gate by being opened in an editor
+	// (ADR-078).
+	if strings.Contains(text, "checks:") {
+		t.Errorf("the wizard wrote a checks block nobody was asked about:\n%s", text)
+	}
+}
+
+// TestVerificationIsNotAsked is the removal, at the flow that used to ask.
+//
+// Three questions became none, and the section they belonged to is gone from the
+// path an asker draws. What did not change is anything else about `checks:`: the
+// configuration model, the schema, the example file, and `feat doctor` all still
+// have it, so a hand-written gate works exactly as it did (ADR-078).
+func TestVerificationIsNotAsked(t *testing.T) {
+	for _, section := range Sections() {
+		if section == "checks" {
+			t.Errorf("the sections still name verification: %v", Sections())
+		}
+	}
+
+	// Every question of a whole run, in both execution modes, and none of them is
+	// about a command.
+	for _, mode := range []string{config.ModeHost, config.ModeDevcontainer} {
+		flow, host := start(t, "app")
+		answers(t, flow, "", "", "api", "", "n", mode)
+		if mode == config.ModeDevcontainer {
+			answers(t, flow,
+				filepath.Join(host.root, "api", "compose.yaml"), "", "dev", "developer", "/srv/api", "n")
+		}
+		answers(t, flow, "n") // no application services, which used to be followed by the checks
+
+		if !flow.Complete() {
+			question, _ := flow.Step()
+			t.Fatalf("%s mode is still asking %s (%q)", mode, question.ID, question.Prompt)
 		}
 	}
 }
@@ -201,7 +233,7 @@ func TestARepositoryWithNoRemoteDecidesTheBasePolicy(t *testing.T) {
 		t.Errorf("the notes do not say why: %v", question.Notes)
 	}
 
-	answers(t, flow, "", "", "n", "")
+	answers(t, flow, "", "")
 	review, err := flow.Review()
 	if err != nil {
 		t.Fatalf("the answers do not compose a configuration: %v", err)
@@ -266,7 +298,7 @@ func TestSteppingBackUndoesTheAnswer(t *testing.T) {
 
 	// Answering it the other way now composes a project with one repository,
 	// with nothing of the second left in it.
-	answers(t, flow, "n", "", "", "n", "")
+	answers(t, flow, "n", "", "")
 	review, err := flow.Review()
 	if err != nil {
 		t.Fatalf("the answers do not compose a configuration: %v", err)
@@ -347,7 +379,7 @@ func TestTheDevcontainerQuestionsFollowTheMode(t *testing.T) {
 	if err := flow.Answer(context.Background(), "root"); err == nil {
 		t.Error("the agent was allowed to run as root in the devcontainer")
 	}
-	answers(t, flow, "developer", "/srv/api", "y", "feat-claude", "n", "")
+	answers(t, flow, "developer", "/srv/api", "y", "feat-claude", "n")
 
 	if !flow.Complete() {
 		question, _ := flow.Step()
@@ -427,7 +459,6 @@ func TestTheApplicationIsAnsweredOneRepositoryAtATime(t *testing.T) {
 	answers(t, flow,
 		"", // reachable: the proposal
 		"", // no environment file
-		"", // no check
 	)
 
 	if !flow.Complete() {
@@ -516,7 +547,7 @@ func TestBlankFinishesAFileLoop(t *testing.T) {
 
 	// The one file answered is the one recorded — not it plus whatever was in
 	// the brackets when Enter was pressed.
-	answers(t, flow, "dev worker", "", "", "", "")
+	answers(t, flow, "dev worker", "", "", "")
 	review, err := flow.Review()
 	if err != nil {
 		t.Fatalf("the answers do not compose a configuration: %v", err)
@@ -537,7 +568,7 @@ func TestTheProposalIsTheHeadOfTheCandidates(t *testing.T) {
 	flow, _ := start(t, "")
 
 	for _, value := range []string{
-		"app", "Example", "", "", "", "n", "", "n", "go test ./...", "",
+		"app", "Example", "", "", "", "n", "", "n",
 	} {
 		question, ok := flow.Step()
 		if !ok {
@@ -665,7 +696,7 @@ func TestARepeatedFileQuestionAsksForAnOverride(t *testing.T) {
 func TestAProjectThatIsAlreadyConfiguredIsRefused(t *testing.T) {
 	flow, host := start(t, "")
 	answer(t, flow, "app")
-	answers(t, flow, "", "", "api", "", "n", "", "", "n", "")
+	answers(t, flow, "", "", "api", "", "n", "", "")
 
 	if _, err := flow.Write(); err != nil {
 		t.Fatalf("writing the configuration: %v", err)
@@ -688,7 +719,7 @@ func TestAProjectThatIsAlreadyConfiguredIsRefused(t *testing.T) {
 // of the protection an existing configuration has.
 func TestWritingNeverReplacesAFile(t *testing.T) {
 	flow, _ := start(t, "")
-	answers(t, flow, "app", "", "", "api", "", "n", "", "", "n", "")
+	answers(t, flow, "app", "", "", "api", "", "n", "", "")
 
 	file, err := flow.Write()
 	if err != nil {
