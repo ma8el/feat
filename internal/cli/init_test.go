@@ -149,8 +149,6 @@ func TestProjectInitWritesAConfigurationThatLoads(t *testing.T) {
 		"n",                 // no second repository
 		"",                  // execution mode: host
 		"",                  // no application services
-		"go test ./...",     // verification command
-		"",                  // check name
 		"",                  // write it
 		"n",                 // do not run diagnostics
 	), "project", "init")
@@ -186,12 +184,14 @@ func TestProjectInitWritesAConfigurationThatLoads(t *testing.T) {
 		t.Errorf("remote is %q, want %q", repository.Remote, "origin")
 	}
 
-	checks := cfg.Checks["api"]
-	if len(checks) != 1 {
-		t.Fatalf("%d checks for api, want 1", len(checks))
+	// No verification, because nothing asked about it. A gate is written by
+	// hand into the file this just produced, and the conversation says so once
+	// (ADR-078).
+	if len(cfg.Checks) != 0 {
+		t.Errorf("the wizard configured checks nobody was asked about: %v", cfg.Checks)
 	}
-	if got := strings.Join(checks[0].Command, " "); got != "go test ./..." {
-		t.Errorf("the check runs %q", got)
+	if !strings.Contains(stdout, "Add a `checks:` block") {
+		t.Errorf("the conversation does not say how a gate is configured:\n%s", stdout)
 	}
 	if !strings.Contains(stdout, "wrote "+filepath.Join(m.layout.ProjectConfigDir(), "app.yaml")) {
 		t.Errorf("the wizard does not say what it wrote:\n%s", stdout)
@@ -201,7 +201,7 @@ func TestProjectInitWritesAConfigurationThatLoads(t *testing.T) {
 	// text, so the headings are the only thing that says which part of the file
 	// is being answered.
 	for _, heading := range []string{
-		"Repositories", "Where the agent runs", "Application services", "Verification",
+		"Repositories", "Where the agent runs", "Application services",
 	} {
 		if !strings.Contains(stdout, "\n"+heading+"\n") {
 			t.Errorf("the conversation does not announce %q:\n%s", heading, stdout)
@@ -241,7 +241,6 @@ func TestProjectInitConfiguresADevcontainerFromWhatItFinds(t *testing.T) {
 		"",          // give Claude a volume
 		"",          // volume name: feat-claude
 		"n",         // no application services
-		"",          // no verification command
 		"",          // write it
 		"n",         // do not run diagnostics
 	), "project", "init")
@@ -282,6 +281,67 @@ func TestProjectInitConfiguresADevcontainerFromWhatItFinds(t *testing.T) {
 	if !strings.Contains(stdout, "services defined there: dev, worker") {
 		t.Errorf("the wizard does not report the services it found:\n%s", stdout)
 	}
+	// And the loop names what it is asking for the second time. It used to ask
+	// for "Compose file" twice, with "(blank to finish)" appended the second
+	// time and nothing saying what a further file would be.
+	if !strings.Contains(stdout, "Compose override file (blank to finish)") {
+		t.Errorf("the repeated Compose question does not say what it asks for:\n%s", stdout)
+	}
+}
+
+// TestProjectInitSaysWhatElseItFoundBesideTheProposal is the sentence that was
+// written and never printed (ADR-077).
+//
+// A repository brings a base Compose file and the overlays that layer over it.
+// The flow proposes the first and says what else it found, and the conversation
+// dropped the second half on the way out: the notes were read from the flow's
+// own state, and a note the question itself had added was not there.
+func TestProjectInitSaysWhatElseItFoundBesideTheProposal(t *testing.T) {
+	m := prepareWizard(t)
+
+	// An overlay beside the base file, which is how a repository that has a
+	// development configuration is laid out.
+	overlay := filepath.Join(m.repository("api"), "compose.override.yaml")
+	if err := os.WriteFile(overlay, []byte("services:\n  dev:\n    image: golang\n"), 0o600); err != nil {
+		t.Fatalf("writing an overlay: %v", err)
+	}
+
+	code, stdout, stderr := m.converse(t, answers(
+		"app",               // project identifier
+		"",                  // display name: app
+		m.repository("api"), // path of the checkout
+		"api",               // repository identifier
+		"",                  // default access: read_write
+		"n",                 // no second repository
+		"",                  // execution mode: host
+		"y",                 // the project runs application services
+		"y",                 // api brings Compose files
+		"",                  // Compose file: the proposal, which is the base file
+		"",                  // no more Compose files
+		"",                  // services: dev worker, which the files define
+		"/srv/api",          // where those services expect the source
+		"",                  // reachable: none of them publishes a port
+		"",                  // no environment file
+		"n",                 // do not write it
+	), "project", "init")
+
+	if code != ExitOK {
+		t.Fatalf("exit code %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "others found beside it: "+overlay) {
+		t.Errorf("the conversation does not name the other file it found:\n%s", stdout)
+	}
+	// And again where the file would be added, which is the question after the
+	// one that named it: a prompt about finishing, with a bracket-less field,
+	// otherwise reads as a loop that has nothing left in it.
+	if !strings.Contains(stdout, "others found beside it: "+overlay) {
+		t.Errorf("the repeat does not say what is left to add:\n%s", stdout)
+	}
+	// And what the previous answer established still reaches the same place,
+	// which is what the notes were doing before this one joined them.
+	if !strings.Contains(stdout, "remote origin, default branch main") {
+		t.Errorf("the conversation no longer reports what Git answered:\n%s", stdout)
+	}
 }
 
 // TestProjectInitResolvesBasesLocallyWithoutARemote checks the one value the
@@ -293,7 +353,6 @@ func TestProjectInitResolvesBasesLocallyWithoutARemote(t *testing.T) {
 		"app", "", m.repository("store"), "store", "", "n",
 		"", // host
 		"n",
-		"",  // no check
 		"",  // write it
 		"n", // no diagnostics
 	), "project", "init")
@@ -327,7 +386,7 @@ func TestProjectInitAsksAgainRatherThanFailingAtTheEnd(t *testing.T) {
 		"",                  // display name
 		missing,             // rejected: not a Git repository
 		m.repository("api"), // accepted
-		"api", "", "n", "", "", "n", "", "", "", "n",
+		"api", "", "n", "", "", "", "n",
 	), "project", "init")
 
 	if code != ExitOK {
@@ -348,7 +407,7 @@ func TestProjectInitWritesNothingUntilItIsConfirmed(t *testing.T) {
 	m := prepareWizard(t)
 
 	code, stdout, stderr := m.converse(t, answers(
-		"app", "", m.repository("api"), "api", "", "n", "", "", "n", "",
+		"app", "", m.repository("api"), "api", "", "n", "", "",
 		"n", // do not write it
 	), "project", "init")
 
@@ -369,7 +428,7 @@ func TestProjectInitDryRunWritesNothing(t *testing.T) {
 	m := prepareWizard(t)
 
 	code, stdout, stderr := m.converse(t, answers(
-		"app", "", m.repository("api"), "api", "", "n", "", "", "n", "",
+		"app", "", m.repository("api"), "api", "", "n", "", "",
 	), "project", "init", "--dry-run")
 
 	if code != ExitOK {
@@ -460,7 +519,7 @@ func TestProjectInitChecksTheProjectAgainstTheMachine(t *testing.T) {
 	m := prepareWizard(t)
 
 	code, stdout, stderr := m.converse(t, answers(
-		"app", "", m.repository("api"), "api", "", "n", "", "", "n", "",
+		"app", "", m.repository("api"), "api", "", "n", "", "",
 		"",  // write it
 		"y", // check it against this machine
 	), "project", "init")
@@ -485,7 +544,7 @@ func TestProjectInitRegistersWithARunningDaemon(t *testing.T) {
 	m.serve(t)
 
 	code, stdout, stderr := m.converse(t, answers(
-		"app", "", m.repository("api"), "api", "", "n", "", "", "n", "",
+		"app", "", m.repository("api"), "api", "", "n", "", "",
 		"",  // write it
 		"n", // do not diagnose
 		"y", // register it
@@ -534,7 +593,6 @@ func TestTheBackendBuildsTheWizardTheDashboardAsks(t *testing.T) {
 		"n",                 // no second repository
 		"",                  // execution mode: host
 		"n",                 // no application services
-		"",                  // no verification command
 	} {
 		if err := flow.Answer(context.Background(), answer); err != nil {
 			t.Fatalf("answering %q: %v", answer, err)

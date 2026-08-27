@@ -99,13 +99,56 @@ func (w wizardModel) questionView() string {
 
 	out.WriteString(w.question.Prompt + "\n")
 	if w.question.Kind == wizard.KindText {
-		out.WriteString("  " + w.input.View() + "\n")
-		if w.question.Optional {
-			out.WriteString("\n" + mutedStyle.Render("  an empty answer is an answer here") + "\n")
+		out.WriteString("  " + w.field() + "\n")
+		if lines := w.below(); len(lines) > 0 {
+			out.WriteString("\n")
+			for _, line := range lines {
+				out.WriteString(mutedStyle.Render("  "+line) + "\n")
+			}
 		}
 		return out.String()
 	}
 	return out.String() + w.optionsView()
+}
+
+// field is the answer being typed, drawn in the width the field was given.
+//
+// The widget pads its line out to that width from the typed value alone and
+// then writes the completion after the padding, so a suggestion made the line as
+// wide as the field plus the whole of what it was suggesting. This dialog sizes
+// itself to its widest line: the box jumped to its full allowance on the first
+// character of a path and crept back a cell per keystroke afterwards, while
+// typing something no candidate matches left it perfectly still.
+//
+// One more cell than the field's width, because the cursor sits after the value
+// and that is what the widget draws in every other state too — so the line is
+// the same width whether it holds a placeholder, a value, or a value with a
+// completion behind it. The completion is shown as far as there is room for it,
+// which is all the field ever promised for a value that is too long as well.
+func (w wizardModel) field() string {
+	if w.input.Width <= 0 {
+		return w.input.View()
+	}
+	return ansi.Truncate(w.input.View(), w.input.Width+1, "")
+}
+
+// below is what has to be said about a field that looks emptier than it is.
+//
+// The key is named only where nothing in the field shows what it would give. A
+// question that proposes something has that value under the cursor already and
+// the hints carry the rest; a question that offers files and proposes none of
+// them — the loop, where an empty answer means "no more" — is a blank field
+// whose contents are one key away, and the flow's own sentence must not name a
+// key, because the conversation has no such key to name (ADR-077).
+func (w wizardModel) below() []string {
+	var lines []string
+	if w.question.Proposed == "" && len(w.question.Candidates) > 0 {
+		lines = append(lines, "press tab to use one of them")
+	}
+	if w.question.Optional {
+		lines = append(lines, "an empty answer is an answer here")
+	}
+	return lines
 }
 
 // optionsView draws the answers a closed question offers.
@@ -261,11 +304,15 @@ func (w wizardModel) hints() string {
 	}
 
 	if w.question.Kind == wizard.KindText {
-		return keyHints(
-			keyHint("enter", "continue"),
-			keyHint("esc", "back"),
-			keyHint("ctrl+c", "cancel"),
-		)
+		hints := []string{keyHint("enter", "continue")}
+		if len(w.question.Candidates) > 0 {
+			// Said only where there is something to complete, because a key that
+			// does nothing on most questions is worse than one nobody was told
+			// about: the hint is how a user learns that this question has more
+			// than the one value in it.
+			hints = append(hints, keyHint("tab", "complete"))
+		}
+		return keyHints(append(hints, keyHint("esc", "back"), keyHint("ctrl+c", "cancel"))...)
 	}
 	return keyHints(
 		keyHint("↑↓", "select"),

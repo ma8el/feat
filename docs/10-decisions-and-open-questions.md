@@ -3589,6 +3589,12 @@ whole apparatus produces a workflow state, one notification, and the agent's own
 summary in the review record — and the agent's summary is the only part nothing
 else supplies.
 
+ADR-078 supplies the other half of the evidence, and could not have before it.
+The wizard no longer asks about checks, so a project that configures them is one
+somebody opened the file for — which turns "how many projects configure a gate"
+from a measurement of the wizard's defaults into a measurement of what people
+want. That is the population this question's narrow form is about.
+
 The evidence to decide on is the measurement slice 13 already owes: how often the
 agent requested review unprompted, how often the user had to ask for it, how
 often an idle notification was already the moment they would have reviewed, and
@@ -6016,6 +6022,196 @@ fix. [02-user-workflows.md](02-user-workflows.md) records that the draft is read
 on the screen and edited in the editor. The screen's tests render through
 `View()` at both sizes, which is what the omission this ADR is about would have
 had to survive.
+
+### ADR-077 — A proposal is a value the user can take into the field and edit, and what the flow derived beside it is offered rather than only named
+
+Status: accepted  
+Recorded: 2026-08-27, from walking the wizard question by question on the reference project
+
+The maintainer, at the question asking which Compose service the agent runs in,
+looking at the service the flow had derived correctly and twice over: not sure if
+this is a placeholder. Enter would have taken it. Nothing on the screen said so.
+
+Evidence:
+
+1. One visual device carried two opposite meanings. ADR-063 made a proposal a
+   placeholder — Enter takes it, typing replaces it — while the preparation
+   dialog uses a placeholder for a genuine hint, "what the task is, in a few
+   words", which is not a value any key accepts. A user cannot tell the two
+   apart, and the one that mattered was the one they hesitated over.
+2. A proposal could be taken whole or retyped whole, with nothing in between.
+   Six of the flow's questions take a path — the checkout, the agent's Compose
+   files, the agent's mount point, a repository's Compose files, where its
+   services expect its source, and an environment file — and three of those are
+   loops. Wanting a proposed absolute path with its last segment changed meant
+   reading it off the screen and typing all of it back in.
+3. The derivation was never the missing part. `ComposeFiles` finds every Compose
+   file beside a repository and `proposedContribution` takes the first;
+   `ComposeServices` finds every service and `suggestService` picks one;
+   `Composition.Services` and `.Reachable` are joined into a string. Feat had
+   worked the answers out and had one slot to put them in.
+4. One of those lists was not merely unproposed, it was unsaid. The Compose
+   question writes the other files it found into its own notes, and `Step`
+   assigned the flow's notes over the top of them — so "others found beside it"
+   has never reached either asker, in any run, at any point. A list with nowhere
+   to go stops being maintained as a list, which is what makes this the cheapest
+   moment to give it one.
+5. The widget has shipped this since it entered `go.mod` and it was switched
+   off. `bubbles@v0.21.0` has `ShowSuggestions`, `SetSuggestions`, Tab bound to
+   accept, `down`/`ctrl+n` to step, and dim rendering of the completion. What
+   this cost was a field that defaults to false.
+
+Decisions:
+
+- `Question` gains `Candidates`: the values an asker may complete a text answer
+  to. `Step` assembles them — the proposal first, then whatever the question
+  found beside it — so a question with a proposal always has at least one.
+- The proposal is the head of that list, always. A list whose first entry was
+  something else would be two answers to one question: the dashboard's Tab would
+  offer one value and the conversation's brackets another, and the same question
+  would mean different things depending on where it was asked.
+- Candidates are offered and never required. An empty answer still takes
+  `Proposed`, an optional question is still finished by leaving it empty, and an
+  asker with no way to complete ignores the list. `feat project init` keeps its
+  brackets and is unchanged.
+- Tab moves a value into the field and never past it. An empty field takes the
+  proposal, a field holding one candidate exactly steps to the next and around
+  the list, and everything between the two is the widget's own prefix
+  completion. What is in the field is what Enter sends, whichever key put it
+  there — so completing is editing an answer, not giving one.
+- Closed questions have no candidates. Their answers are `Options`, they are
+  drawn as a list with a cursor, and nothing is typed into one.
+- A question's own notes are appended to the flow's rather than assigned over
+  them, in the order the two became true: what the last answer established, then
+  what this question found out about what it is proposing. Both askers read them
+  off the question, so the flow no longer has a second way to hand the same
+  sentences over and a note that reaches one asker reaches both.
+- The runtime Compose question offers every file it found beside the repository
+  that has not been answered yet, at both ends of its loop, and still says so in
+  a sentence. The sentence is for the asker that can only print, and it is the
+  one a user reads back in their scrollback afterwards.
+- The repeat of that loop offers without proposing, and this is what the
+  completion is for. A loop could not both propose the next file and finish on an
+  empty answer — two meanings for one key, and finishing lost: a user pressing
+  Enter at "blank to finish [/some/path]" added the bracketed file instead,
+  twice, and ended up with an application's Compose files defining the container
+  their agent runs in. The rest of the files now reach the user through Tab, so
+  Enter is left meaning what the prompt says it means and the collision stops
+  existing rather than being worked around.
+- What is left to add is named at the repeat as well as at the question before
+  it, in the same sentence, because it is the same thing in both places: the
+  files found beside this repository that are not in the field. A completion
+  cannot draw itself into a field nobody has typed in, so a prompt about
+  finishing over an empty field reads as a loop with nothing left in it — and the
+  reason this loop repeats is that Compose merges a base with the overrides
+  beside it. The sentence is the flow's, so it reaches the conversation too,
+  where the repeat had nothing to go on at all.
+- The sentence names no key, and the dashboard says the key itself, under the
+  field, where nothing in the field shows what Tab would give. A flow that named
+  a key would be wrong in the conversation, which has none; a question that
+  proposes something already has that value under the cursor and needs no
+  sentence about it.
+
+Consequence: `internal/wizard` gains one field and one function that assembles
+it, and loses `Notes`, whose one caller now reads them off the question;
+`internal/ui/wizard.go` turns the widget's completion on, sets the suggestions
+per question, and adds one key; the key hints say `tab` on the questions that
+have something to complete. The field is drawn in the width it was given, which
+it was not: the widget pads its line from the typed value and writes the
+completion after the padding, so this dialog — which is as wide as its widest
+line — jumped to its full allowance on the first character of a path and crept
+back a cell per keystroke afterwards. This amends ADR-063's "a proposal is
+a placeholder, never the field's contents" — it is still never the field's
+contents until the user asks for it to be, which is the part that decision was
+protecting. What this does not do is derive anything new: the agent section's
+Compose file, service, user, and mount questions still propose too little, and
+each of them is its own change. This is what those changes now have somewhere to
+put.
+
+### ADR-078 — The wizard stops asking about verification, and `checks:` stays exactly as it is
+
+Status: accepted  
+Recorded: 2026-08-27, from the recorded history of 45 tasks across three projects
+
+`feat project init` walked every user into configuring a gate, three questions
+before the end, at the one moment they know least about the machine the gate will
+run on. The measurements below are from `~/.local/share/feat/projects/*/tasks/*/`
+on the author's machine: 45 tasks with recorded history, across `feat`,
+`jobharbor`, and `jobharbor-dev`.
+
+Evidence:
+
+1. Re-running host-side what the agent already ran has never caught anything.
+   `feat`'s unit suite as a gate: **0 failures in 18 runs**.
+2. The gate that earned its place earned it for one reason. `feat`'s integration
+   suite failed **3 of 18**: one genuine defect the agent structurally could not
+   have found — the daemon passed `FEAT_DAEMON_SPAWNED` into the environment its
+   own checks ran in, so a test that starts a daemon failed — and two that were
+   the gate's own environment rather than the work, a `TempDir` cleanup denied on
+   Feat's 0700 control directory and a fixture the run could not open. The only
+   thing a host-side gate does that the agent cannot is run what the agent has no
+   Docker for.
+3. The failures that cost the most were not failures. `jobharbor`'s test command
+   failed **4 out of 4**, at least twice because Feat's own gate could not find
+   `pytest`: the virtual environment built, thirty packages installed, and the
+   development dependency group never did. Each of those bounced a finished task
+   back to an agent that had done nothing wrong.
+4. The agent never overclaimed, so the gate was not catching a liar. Where its
+   self-report said everything passed, it had also written "integration-docker-tmux
+   skipped — no Docker in this sandbox". It reported what it could not run, and
+   the gate then failed on exactly that.
+5. The harm has a mechanism, and the mechanism is the prompt. `jobharbor`'s false
+   failures came from a command configured in passing, mid-wizard, into an
+   environment that could not run it. If the only way to get a gate is to open
+   the file deliberately, the people who get gates are the people who want one.
+6. The hand-written path is already complete, so removing the questions costs
+   only the questions. `docs/examples/project.yaml` documents `checks:` with a
+   worked example, `schema/feat-project.schema.json` gives editor completion, and
+   `feat doctor` validates hand-written checks independently of the wizard.
+7. The product without them already exists and works. Four of the six projects
+   configured on that machine declare no checks, and their recorded lifecycles
+   are `preparing | working | review_requested | archived` — never `verifying`,
+   never `verification_failed`. With no checks the helper never waits, the system
+   prompt never mentions a gate, and the daemon returns before the `verifying`
+   transition.
+
+Decisions:
+
+- The three verification questions are removed, and with them the section they
+  formed. `internal/wizard` no longer writes a `checks:` block, and the path an
+  asker draws has four sections rather than five.
+- Everything else about checks stays: the configuration model, the JSON schema,
+  the worked example, `feat doctor`'s validation, the gate itself, and the
+  workflow states it drives. This removes a prompt, not a feature.
+- `feat project init` names the file and the block once, where the file has just
+  been written. Opt-in is not the same as hidden, and the conversation is where a
+  user would otherwise have learned the feature exists; a scrollback carries a
+  sentence at no cost to anything else on it.
+- The dashboard's dialog says nothing about it. Its last screen is a short fixed
+  panel about what just happened, and a line there advertising a feature nobody
+  asked about is the same prompt this removes, one size quieter. The file it
+  wrote carries its own header naming `docs/examples/project.yaml` and the
+  schema, so a user who opens the file to add a gate finds the way in where the
+  gate goes.
+- What this does not decide is whether checks are eventually deleted. It is
+  deliberately left open, and it sets up the measurement that would settle it:
+  checks were quasi-default, so "people configure them" said nothing. Once they
+  are opt-in, the opt-in rate is evidence — if nobody hand-writes a block over
+  the coming months, deleting the feature becomes cheap and properly backed, and
+  if `feat`'s own integration suite keeps earning its place, that is evidence
+  too. See OQ-013.
+- A full removal, if it ever comes, has to settle one thing this does not:
+  `ready_for_review` is reachable in practice only by passing a gate, so a
+  project with no checks goes `review_requested` → approved or archived and
+  never touches it. Deleting checks outright would have to collapse the two
+  states or land review requests in `ready_for_review` directly.
+
+Consequence: this amends ADR-062, which recorded verification as one of the six
+things the wizard asks about; five remain, and the file it writes is still a file
+the previous build would read. `internal/wizard` loses three stages and the
+argument vector they accumulated, `internal/cli/init.go` gains the sentence
+pointing at the file, and [02-user-workflows.md](02-user-workflows.md) records
+that the wizard does not ask.
 
 ## Decision change process
 

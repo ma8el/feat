@@ -3,6 +3,7 @@ package wizard
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,7 +12,11 @@ import (
 )
 
 // fakeHost answers for a machine with two checkouts on it: one with an ordinary
-// remote and a Compose file beside it, and one with no remote at all.
+// remote and two Compose files beside it, and one with no remote at all.
+//
+// Two files rather than one, because a repository that brings a base and an
+// override is the ordinary case and is the one where the flow derives more than
+// it can propose.
 //
 // It answers by path, because that is what the proposals are derived from: a
 // host that answered the same thing everywhere could not tell a repository that
@@ -38,7 +43,10 @@ func (h *fakeHost) Inspect(_ context.Context, path string) (Checkout, error) {
 
 func (h *fakeHost) ComposeFiles(dir string) []string {
 	if dir == filepath.Join(h.root, "api") {
-		return []string{filepath.Join(dir, "compose.yaml")}
+		return []string{
+			filepath.Join(dir, "compose.yaml"),
+			filepath.Join(dir, "compose.override.yaml"),
+		}
 	}
 	return nil
 }
@@ -140,8 +148,6 @@ func TestTheFlowComposesAConfigurationFromWhatItIsTold(t *testing.T) {
 		"n",       // no second repository
 		"",        // execution mode: host
 		"n",       // no application services
-		"go test ./...",
-		"", // check name: go-test
 	)
 
 	if !flow.Complete() {
@@ -166,12 +172,46 @@ func TestTheFlowComposesAConfigurationFromWhatItIsTold(t *testing.T) {
 		// Both were read from the checkout rather than asked for, which is what
 		// the wizard exists to do.
 		"default_branch: main", "remote: origin",
-		// The check, as the argument vector it was split into rather than as the
-		// line it was typed as.
-		"id: go-test", "- ./...",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the configuration does not contain %q:\n%s", want, text)
+		}
+	}
+	// And nothing about verification. The questions do not ask, so the file does
+	// not state one, and a project acquires a gate by being opened in an editor
+	// (ADR-078).
+	if strings.Contains(text, "checks:") {
+		t.Errorf("the wizard wrote a checks block nobody was asked about:\n%s", text)
+	}
+}
+
+// TestVerificationIsNotAsked is the removal, at the flow that used to ask.
+//
+// Three questions became none, and the section they belonged to is gone from the
+// path an asker draws. What did not change is anything else about `checks:`: the
+// configuration model, the schema, the example file, and `feat doctor` all still
+// have it, so a hand-written gate works exactly as it did (ADR-078).
+func TestVerificationIsNotAsked(t *testing.T) {
+	for _, section := range Sections() {
+		if section == "checks" {
+			t.Errorf("the sections still name verification: %v", Sections())
+		}
+	}
+
+	// Every question of a whole run, in both execution modes, and none of them is
+	// about a command.
+	for _, mode := range []string{config.ModeHost, config.ModeDevcontainer} {
+		flow, host := start(t, "app")
+		answers(t, flow, "", "", "api", "", "n", mode)
+		if mode == config.ModeDevcontainer {
+			answers(t, flow,
+				filepath.Join(host.root, "api", "compose.yaml"), "", "dev", "developer", "/srv/api", "n")
+		}
+		answers(t, flow, "n") // no application services, which used to be followed by the checks
+
+		if !flow.Complete() {
+			question, _ := flow.Step()
+			t.Fatalf("%s mode is still asking %s (%q)", mode, question.ID, question.Prompt)
 		}
 	}
 }
@@ -193,7 +233,7 @@ func TestARepositoryWithNoRemoteDecidesTheBasePolicy(t *testing.T) {
 		t.Errorf("the notes do not say why: %v", question.Notes)
 	}
 
-	answers(t, flow, "", "", "n", "")
+	answers(t, flow, "", "")
 	review, err := flow.Review()
 	if err != nil {
 		t.Fatalf("the answers do not compose a configuration: %v", err)
@@ -258,7 +298,7 @@ func TestSteppingBackUndoesTheAnswer(t *testing.T) {
 
 	// Answering it the other way now composes a project with one repository,
 	// with nothing of the second left in it.
-	answers(t, flow, "n", "", "", "n", "")
+	answers(t, flow, "n", "", "")
 	review, err := flow.Review()
 	if err != nil {
 		t.Fatalf("the answers do not compose a configuration: %v", err)
@@ -339,7 +379,7 @@ func TestTheDevcontainerQuestionsFollowTheMode(t *testing.T) {
 	if err := flow.Answer(context.Background(), "root"); err == nil {
 		t.Error("the agent was allowed to run as root in the devcontainer")
 	}
-	answers(t, flow, "developer", "/srv/api", "y", "feat-claude", "n", "")
+	answers(t, flow, "developer", "/srv/api", "y", "feat-claude", "n")
 
 	if !flow.Complete() {
 		question, _ := flow.Step()
@@ -419,7 +459,6 @@ func TestTheApplicationIsAnsweredOneRepositoryAtATime(t *testing.T) {
 	answers(t, flow,
 		"", // reachable: the proposal
 		"", // no environment file
-		"", // no check
 	)
 
 	if !flow.Complete() {
@@ -459,7 +498,7 @@ func TestTheApplicationIsAnsweredOneRepositoryAtATime(t *testing.T) {
 // So a loop proposes only its first, and Enter after that means what the prompt
 // says it means.
 func TestBlankFinishesAFileLoop(t *testing.T) {
-	flow, _ := start(t, "app")
+	flow, host := start(t, "app")
 	answers(t, flow,
 		"",    // display name
 		"",    // the checkout: the working directory, which is the api repository
@@ -487,6 +526,18 @@ func TestBlankFinishesAFileLoop(t *testing.T) {
 	if !next.Optional {
 		t.Error("the loop's continuation is not optional, so it cannot be finished")
 	}
+	// The rest of the files are still offered here, which is where the second one
+	// is added from. They are offered and not proposed: that separation is what
+	// lets one key mean "no more" and another mean "the next file" (ADR-077).
+	remaining := host.ComposeFiles(filepath.Join(host.root, "api"))[1:]
+	if !slices.Equal(next.Candidates, remaining) {
+		t.Errorf("the repeat offers %v, want the files not answered yet: %v", next.Candidates, remaining)
+	}
+	// And it says so, because the field is empty here and an empty field on a
+	// question about finishing reads as a loop with nothing left in it.
+	if !strings.Contains(strings.Join(next.Notes, " "), remaining[0]) {
+		t.Errorf("the repeat does not say what is left to add: %v", next.Notes)
+	}
 
 	answer(t, flow, "")
 	services, _ := flow.Step()
@@ -496,7 +547,7 @@ func TestBlankFinishesAFileLoop(t *testing.T) {
 
 	// The one file answered is the one recorded — not it plus whatever was in
 	// the brackets when Enter was pressed.
-	answers(t, flow, "dev worker", "", "", "", "")
+	answers(t, flow, "dev worker", "", "", "")
 	review, err := flow.Review()
 	if err != nil {
 		t.Fatalf("the answers do not compose a configuration: %v", err)
@@ -506,12 +557,146 @@ func TestBlankFinishesAFileLoop(t *testing.T) {
 	}
 }
 
+// TestTheProposalIsTheHeadOfTheCandidates is what keeps the two askers the same
+// conversation once one of them can complete an answer (ADR-077).
+//
+// A list whose first entry was not the value an empty answer takes would be two
+// answers to one question: the dashboard's Tab would offer one value and the
+// conversation's brackets another, and the same question would mean different
+// things depending on where it was asked.
+func TestTheProposalIsTheHeadOfTheCandidates(t *testing.T) {
+	flow, _ := start(t, "")
+
+	for _, value := range []string{
+		"app", "Example", "", "", "", "n", "", "n",
+	} {
+		question, ok := flow.Step()
+		if !ok {
+			t.Fatalf("answering %q, but every question has been answered", value)
+		}
+		switch {
+		case question.Kind != KindText:
+			// A closed question is a list with a cursor on it, and nothing is
+			// typed into one.
+			if len(question.Candidates) > 0 {
+				t.Errorf("%s is answered from %v and offers completions %v",
+					question.ID, question.Options, question.Candidates)
+			}
+		case question.Proposed == "":
+			// A question may offer without proposing — that is the loop, where an
+			// empty answer means "no more" — so there is nothing to check here.
+		case len(question.Candidates) == 0 || question.Candidates[0] != question.Proposed:
+			t.Errorf("%s proposes %q and offers %v", question.ID, question.Proposed, question.Candidates)
+		}
+		answer(t, flow, value)
+	}
+}
+
+// TestTheFilesBesideARepositoryAreOfferedAndNotOnlyNamed is the derivation that
+// had nowhere to go.
+//
+// The flow finds every Compose file beside a repository, proposes the first, and
+// has until now reported the rest as a sentence — so a user who wanted the
+// second one read its path off the screen and typed it back in. It is still a
+// sentence, for the asker that can only print one, and it is now also a list the
+// dashboard can complete from.
+func TestTheFilesBesideARepositoryAreOfferedAndNotOnlyNamed(t *testing.T) {
+	flow, host := start(t, "app")
+	answers(t, flow,
+		"",    // display name
+		"",    // the checkout: the working directory, which is the api repository
+		"api", // repository identifier
+		"",    // default access: read_write
+		"n",   // no second repository
+		"",    // execution mode: host
+		"y",   // the project runs application services
+		"y",   // api brings Compose files
+	)
+
+	compose, _ := flow.Step()
+	if compose.ID != "runtime.compose" {
+		t.Fatalf("the question is %s, want the repository's Compose files", compose.ID)
+	}
+	found := host.ComposeFiles(filepath.Join(host.root, "api"))
+	if !slices.Equal(compose.Candidates, found) {
+		t.Errorf("the question offers %v, want every file found beside the repository: %v",
+			compose.Candidates, found)
+	}
+	// And the sentence is still there. An asker that cannot complete has to be
+	// told what was found, and it is the same asker the user reads back later.
+	if !strings.Contains(strings.Join(compose.Notes, " "), filepath.Base(found[1])) {
+		t.Errorf("the other file is no longer named: %v", compose.Notes)
+	}
+}
+
+// TestARepeatedFileQuestionAsksForAnOverride is the question that arrived with
+// nothing to go on.
+//
+// Both loops asked for the next file with the same words as the first and
+// "(blank to finish)" appended, so the repeat said what to do with it and never
+// what it was. A user who has given the one Compose file they know about has no
+// reason to think another exists; the prompt names it now, in Compose's own noun.
+func TestARepeatedFileQuestionAsksForAnOverride(t *testing.T) {
+	for _, loop := range []struct {
+		name    string
+		answers []string
+		id      string
+		repeat  string
+	}{
+		{
+			name:    "the agent's own container",
+			answers: []string{"", "", "api", "", "n", "devcontainer"},
+			id:      "agent.compose",
+			repeat:  "Compose override file (blank to finish)",
+		},
+		{
+			name:    "a repository's part of the application",
+			answers: []string{"", "", "api", "", "n", "", "y", "y"},
+			id:      "runtime.compose",
+			// Named, because this loop runs once per repository and the file
+			// belongs to whichever it is on.
+			repeat: "Compose override file for api (blank to finish)",
+		},
+	} {
+		t.Run(loop.name, func(t *testing.T) {
+			flow, host := start(t, "app")
+			answers(t, flow, loop.answers...)
+
+			opening, _ := flow.Step()
+			if opening.ID != loop.id {
+				t.Fatalf("the question is %s, want %s", opening.ID, loop.id)
+			}
+			answer(t, flow, filepath.Join(host.root, "api", "compose.yaml"))
+
+			repeat, _ := flow.Step()
+			if repeat.ID != loop.id {
+				t.Fatalf("one file moved the loop to %s", repeat.ID)
+			}
+			if repeat.Prompt != loop.repeat {
+				t.Errorf("the repeat asks %q, want %q", repeat.Prompt, loop.repeat)
+			}
+			if opening.Prompt == repeat.Prompt {
+				t.Error("the repeat asks for the same thing as the question before it")
+			}
+
+			// And it keeps asking for one. Compose takes as many as a project
+			// keeps, so the third question is the second one again rather than a
+			// question about a third kind of file.
+			answer(t, flow, filepath.Join(host.root, "api", "compose.override.yaml"))
+			again, _ := flow.Step()
+			if again.ID != loop.id || again.Prompt != loop.repeat {
+				t.Errorf("the third question is %s asking %q", again.ID, again.Prompt)
+			}
+		})
+	}
+}
+
 // TestAProjectThatIsAlreadyConfiguredIsRefused is the file a user must not lose
 // to a command they ran twice.
 func TestAProjectThatIsAlreadyConfiguredIsRefused(t *testing.T) {
 	flow, host := start(t, "")
 	answer(t, flow, "app")
-	answers(t, flow, "", "", "api", "", "n", "", "", "n", "")
+	answers(t, flow, "", "", "api", "", "n", "", "")
 
 	if _, err := flow.Write(); err != nil {
 		t.Fatalf("writing the configuration: %v", err)
@@ -534,7 +719,7 @@ func TestAProjectThatIsAlreadyConfiguredIsRefused(t *testing.T) {
 // of the protection an existing configuration has.
 func TestWritingNeverReplacesAFile(t *testing.T) {
 	flow, _ := start(t, "")
-	answers(t, flow, "app", "", "", "api", "", "n", "", "", "n", "")
+	answers(t, flow, "app", "", "", "api", "", "n", "", "")
 
 	file, err := flow.Write()
 	if err != nil {
