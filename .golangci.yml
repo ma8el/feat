@@ -667,12 +667,13 @@ linters:
 
       # internal/config opens the configuration file it was asked for, whose
       # name is a project identifier the domain validated before it was joined
-      # into a path, and internal/project runs the diagnostic commands that are
-      # the package's whole purpose, always as argument vectors and never
-      # through a shell. gosec sees the variable and not the validation, so
-      # these two exemptions are recorded here rather than in //nolint
-      # comments, for the reason ADR-025 gives.
-      - path: internal/(config/parse|project/runner)\.go
+      # into a path — or, for the global settings, a constant joined into the
+      # configuration directory — and internal/project runs the diagnostic
+      # commands that are the package's whole purpose, always as argument
+      # vectors and never through a shell. gosec sees the variable and not the
+      # validation, so these exemptions are recorded here rather than in
+      # //nolint comments, for the reason ADR-025 gives.
+      - path: internal/(config/(parse|settings)|project/runner)\.go
         linters:
           - gosec
         text: G304|G204

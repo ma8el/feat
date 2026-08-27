@@ -6213,6 +6213,112 @@ argument vector they accumulated, `internal/cli/init.go` gains the sentence
 pointing at the file, and [02-user-workflows.md](02-user-workflows.md) records
 that the wizard does not ask.
 
+### ADR-079 — What is true of the machine is configured once, in a settings file with no per-project override
+
+Status: accepted  
+Recorded: 2026-08-27, from the six project configurations on the author's machine
+
+Three sections of project configuration were never about a project. Feat had no
+file to put them in, so they were written once per project and reconciled
+afterwards — in one case by a rule the code's own comment already called a
+mistake.
+
+Evidence:
+
+1. They are byte-identical wherever they appear. Of the six projects configured
+   on the author's machine, three define these sections — `feat`, `jobharbor`,
+   and `jobharbor-dev` — and all three define them identically, down to the
+   argument vectors: `git diff {base_commit}`, `nvim {repository_path}`,
+   `git status --short --branch`, `desktop: true`, both grace periods `5s`,
+   `suppress_while_attached: true`, `sample_interval: 2s`. The other three define
+   none of them and get the same values as defaults.
+2. `resources` was a correctness problem rather than a preference. Sampling
+   produces one figure for the whole machine, so `resourceInterval` listed every
+   registered project and called `config.Load` on each *inside the sampling
+   loop* — six YAML files read and parsed from disk every two seconds to decide
+   one number — and then reconciled the answers with "the most eager project
+   wins", a rule that existed only because the setting was in the wrong file. The
+   comment above it said so already: *an oddity of the configuration model rather
+   than a design*.
+3. `review` had already told us where it belongs. `review.editor` falls back to
+   `$EDITOR`, so the configuration model was reaching for a user-level source for
+   this value and had no user-level file to reach for — it reached into the
+   environment instead. The commands are the user's tools: an editor is a fact
+   about the person, not about the repository they are opening.
+4. `notifications` is about the machine and the person at it. `desktop` is
+   macOS-only in this build, and `suppress_while_attached` is a question about
+   whether somebody is looking at a terminal. Neither varies by project, and
+   neither did.
+5. The layer did not exist, which is the cost. `~/.config/feat/` held `projects/`
+   and one hand-placed Compose override; there was no global file of any kind. So
+   this *adds* a concept — a file, a schema, a command, and diagnostics — while
+   most of what is being decided around it removes them. The answer is still yes,
+   but it is not free and should not be recorded as if it were.
+6. It buys nothing for setup, and the case must not be made on setup. The wizard
+   asks about projects, repositories, agent, services and checks, and has never
+   asked about any of these three. Moving them saves nobody a question. The case
+   is evidence 2 and not writing twelve identical lines once per project.
+
+Decisions:
+
+- A settings file at `~/.config/feat/settings.yaml`, beside the `projects/`
+  directory rather than inside it, holding `review`, `notifications`, and
+  `resources`. `.yml` is accepted, and both present is an error rather than a
+  preference, for the reason a project configured by two files is.
+- It is **global, with no per-project override.** Precedence rules are
+  load-bearing and hard to remove once written, and nothing has asked for one.
+  Adding an override later on evidence is cheap; removing one that turned out to
+  be unused is not, because by then something depends on the order.
+- The file is optional and every value has a default, so absence is a state
+  rather than a failure: `LoadSettings` returns the defaults where a project's
+  loader would return `ErrNotFound`. A project Feat was asked about and cannot
+  find is a question with no answer; settings Feat was never told are settings it
+  has.
+- It carries its own `version`, separate from the project file's. Two files are
+  two compatibility surfaces, and one number would make every change to either a
+  version bump for both.
+- The command is `feat settings`, not `feat config`. `feat project show` already
+  prints project configuration, and two commands called "config" would blur
+  exactly the line this change draws. `~/.config/feat/` keeps its name, which is
+  XDG rather than a product noun.
+- `feat settings show` marks every value as `default`, `configured`, or — for the
+  editor alone — `from $EDITOR`. The file is optional and on most machines
+  absent, so a printed value a user cannot tell from a default is one they cannot
+  tell they set. The third marker is evidence 3 made visible.
+- **No migration code.** Parsing is already strict, so a project file still
+  carrying one of these sections fails to load as an unknown field rather than
+  being silently ignored — loud, free, and enough at one user. The message is
+  generic rather than naming the new home; a better one can be added later if it
+  ever costs anything.
+- `agent.claude.idle_grace_period` stays in project configuration. It is named
+  here because the notification comments pair the two grace periods, so the
+  question was asked and answered rather than left. It is provider-specific and
+  lives inside the provider's own section, which is where CLAUDE.md keeps
+  provider settings; the settings file has no provider section and gaining one
+  would undo the distinction it is drawing. None of the three arguments above
+  applies to it either: it is read once per idle transition rather than in a
+  loop, it is about how an agent is driven rather than about the machine, and
+  being identical in three configurations is what most defaults look like.
+  Instead the settings schema names it where the confusion is, on
+  `notifications.idle_grace_period`, and says which of the two is measured from
+  where.
+
+Landing order, so that this record is accurate at every point: the file, its
+schema, the loader, `feat settings show`, and `feat settings path` land first,
+and the three sections move one at a time after it — `resources` first, because
+it is the correctness fix, then `review` and `notifications` together with
+`feat doctor`'s review-command check. Each move deletes its section from the
+project configuration struct and schema, and each breaks the three configuration
+files that carry it today, by design.
+
+Consequence: this amends the configuration model, which had one file and now has
+two — see [07-configuration-model.md](07-configuration-model.md) § Global
+settings. `internal/config` gains `Settings` beside `Config`, sharing the section
+types and the review resolution and validation rather than copying them;
+`schema/feat-settings.schema.json` is published and held to the Go type by the
+same drift test that holds the project schema; and `feat --help` gains one
+command group.
+
 ## Decision change process
 
 During implementation:

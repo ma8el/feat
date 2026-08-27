@@ -108,8 +108,12 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 		// directory, and with no terminal it refuses rather than asking
 		// questions into a pipe. Invoking it here would do neither usefully.
 		"feat project init": true,
-		"feat implement":    true,
-		"feat task list":    true,
+		// The settings commands read the running user's configuration
+		// directory, exactly as the project ones do.
+		"feat settings show": true,
+		"feat settings path": true,
+		"feat implement":     true,
+		"feat task list":     true,
 		// Attaching yields this process's terminal to native tmux, under both
 		// the canonical name and the alias ADR-040 kept at the top level.
 		"feat task attach": true,

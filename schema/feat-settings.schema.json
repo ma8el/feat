@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ma8el/feat/schema/feat-settings.schema.json",
+  "title": "Feat global settings",
+  "description": "Feat's settings for one machine and one user, as authored in ~/.config/feat/settings.yaml. The file is optional and every value has a default, so a machine that has written none is fully configured. These settings are global: there is no per-project override. This schema is a draft for editor support; feat doctor performs the semantic validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "version": {
+      "description": "Settings schema version. This build understands 1 only. It is separate from the project file's version, because the two files are two compatibility surfaces.",
+      "const": 1
+    },
+    "review": { "$ref": "#/$defs/review" },
+    "notifications": { "$ref": "#/$defs/notifications" },
+    "resources": { "$ref": "#/$defs/resources" }
+  },
+
+  "$defs": {
+    "duration": {
+      "description": "A Go duration such as \"5s\", \"250ms\", or \"1m30s\".",
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$"
+    },
+
+    "command": {
+      "description": "An external command as an argument vector. The first element is the program and is never templated; later elements may contain {placeholders}.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "The program followed by its arguments.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "review": {
+      "description": "External commands review opens. Feat renders no diffs itself in v0. They are settings rather than project configuration because they are your tools rather than a fact about a project — which the editor default has always said, by falling back to $EDITOR. Command arguments may contain {project_id}, {task_id}, {task_key}, {repository_id}, {repository_path}, {base_commit}, and {branch}.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "diff": {
+          "description": "Compares a repository against its recorded base commit. Defaults to git diff {base_commit}.",
+          "$ref": "#/$defs/command"
+        },
+        "editor": {
+          "description": "Opens a repository for editing. Defaults to $EDITOR with {repository_path}.",
+          "$ref": "#/$defs/command"
+        },
+        "status": {
+          "description": "Shows a repository's Git status. Defaults to git status --short --branch.",
+          "$ref": "#/$defs/command"
+        }
+      }
+    },
+
+    "notifications": {
+      "description": "Attention notifications. They are settings rather than project configuration because they are about the person at the keyboard and the desktop they are using.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "desktop": {
+          "description": "Enable desktop notifications.",
+          "type": "boolean",
+          "default": true
+        },
+        "idle_grace_period": {
+          "description": "How long idle waits before it is worth reporting. It is measured from the idle transition, and agent.claude.idle_grace_period — which stays in project configuration, because it is the provider's — decides when an ended turn becomes idle in the first place.",
+          "$ref": "#/$defs/duration",
+          "default": "5s"
+        },
+        "suppress_while_attached": {
+          "description": "Suppress notifications for a task the user is already attached to.",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+
+    "resources": {
+      "description": "Resource sampling. It is a setting rather than project configuration because one sample measures the whole machine, whatever project asked for it.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sample_interval": {
+          "description": "How often whole-machine and per-task resources are sampled. Sampling is observational and never blocks task creation.",
+          "$ref": "#/$defs/duration",
+          "default": "2s"
+        }
+      }
+    }
+  }
+}

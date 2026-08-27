@@ -3,6 +3,7 @@ package config_test
 import (
 	"encoding/json"
 	"os"
+	gopath "path"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -16,6 +17,11 @@ import (
 const (
 	// schemaFile describes the project configuration file, for editor support.
 	schemaFile = "../../schema/feat-project.schema.json"
+	// settingsSchemaFile describes the global settings file. It is a second
+	// document rather than a section of the first, because the two files are
+	// two files: an editor asked about ~/.config/feat/settings.yaml has to be
+	// told what that one may contain (ADR-079).
+	settingsSchemaFile = "../../schema/feat-settings.schema.json"
 	// ticketSchemaFile describes what a project's tracker command prints. It is
 	// the other half of the tracker section in this package: the configuration
 	// says which command to run, and this says what its output has to be
@@ -100,6 +106,13 @@ func TestSchemaMatchesTheConfigurationStructs(t *testing.T) {
 	compareObject(t, root, root, reflect.TypeOf(config.Config{}), "")
 }
 
+// TestSettingsSchemaMatchesTheSettingsStruct is the same drift check for the
+// global settings file, which is the other document a user hand-edits.
+func TestSettingsSchemaMatchesTheSettingsStruct(t *testing.T) {
+	root := readSchema(t, settingsSchemaFile)
+	compareObject(t, root, root, reflect.TypeOf(config.Settings{}), "")
+}
+
 // compareObject checks one struct against one schema object.
 func compareObject(t *testing.T, root, node *schema, structType reflect.Type, path string) {
 	t.Helper()
@@ -111,14 +124,14 @@ func compareObject(t *testing.T, root, node *schema, structType reflect.Type, pa
 		if _, ok := described[name]; !ok {
 			t.Errorf("%s: the Go type has %q and the schema does not\n"+
 				"\tAdd it to %s, or the field will work but be reported as unknown by an editor.",
-				join(path), name, schemaFile)
+				join(path), name, document(root))
 		}
 	}
 	for name := range described {
 		if _, ok := fields[name]; !ok {
 			t.Errorf("%s: the schema has %q and the Go type does not\n"+
 				"\tRemove it from %s, or configuration an editor accepts will be rejected by Feat.",
-				join(path), name, schemaFile)
+				join(path), name, document(root))
 		}
 	}
 
@@ -218,10 +231,21 @@ func join(path string) string {
 	return path
 }
 
+// document names the schema file a drift message should point at.
+//
+// It is taken from the schema's own "$id", so that a message names the file the
+// reader has to edit rather than whichever one this test was first written for.
+func document(root *schema) string {
+	if root.ID == "" {
+		return schemaFile
+	}
+	return "schema/" + gopath.Base(root.ID)
+}
+
 // TestSchemaDescribesEveryField keeps the schemas useful in an editor, where the
 // description is the whole point of publishing one.
 func TestSchemaDescribesEveryField(t *testing.T) {
-	for _, file := range []string{schemaFile, ticketSchemaFile} {
+	for _, file := range []string{schemaFile, settingsSchemaFile, ticketSchemaFile} {
 		t.Run(filepath.Base(file), func(t *testing.T) {
 			root := readSchema(t, file)
 

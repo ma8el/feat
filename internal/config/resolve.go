@@ -270,21 +270,30 @@ func (c *Config) resolveTracker() {
 }
 
 func (c *Config) resolveReview(opts Options) error {
-	if c.Review.Diff.Empty() {
-		c.Review.Diff.Command = defaultDiffCommand()
+	resolveReviewSection(opts, &c.Review)
+	return nil
+}
+
+// resolveReviewSection fills the review commands Feat has a default for.
+//
+// It is a function on the section rather than a method on either document that
+// holds one, because both do: the settings file is where the section lives, and
+// a project's copy is still read until it is moved (ADR-079).
+func resolveReviewSection(opts Options, review *ReviewSection) {
+	if review.Diff.Empty() {
+		review.Diff.Command = defaultDiffCommand()
 	}
-	if c.Review.Status.Empty() {
-		c.Review.Status.Command = defaultStatusCommand()
+	if review.Status.Empty() {
+		review.Status.Command = defaultStatusCommand()
 	}
-	if c.Review.Editor.Empty() {
+	if review.Editor.Empty() {
 		// FR-REV-003 defaults the editor to $EDITOR. An unset $EDITOR leaves
 		// the command empty rather than guessing an editor: diagnostics report
-		// it, and a project that never opens an editor is still valid.
+		// it, and a machine that never opens an editor is still configured.
 		if editor := opts.Env.Getenv("EDITOR"); editor != "" {
-			c.Review.Editor.Command = []string{editor, "{repository_path}"}
+			review.Editor.Command = []string{editor, "{repository_path}"}
 		}
 	}
-	return nil
 }
 
 // resolveIntervals parses the durations, which are held as strings so that a
@@ -307,22 +316,35 @@ func (c *Config) resolveIntervals() error {
 		{"notifications.idle_grace_period", c.Notifications.IdleGracePeriod, &c.Notifications.idleGracePeriod},
 		{"resources.sample_interval", c.Resources.SampleInterval, &c.Resources.sampleInterval},
 	} {
-		parsed, err := time.ParseDuration(field.value)
+		parsed, err := parseInterval(field.path, field.value)
 		if err != nil {
-			return c.problem(&fieldError{
-				path:   field.path,
-				reason: fmt.Sprintf("must be a duration such as %q, but is %q", defaultIdleGracePeriod, field.value),
-			})
-		}
-		if parsed < 0 {
-			return c.problem(&fieldError{
-				path:   field.path,
-				reason: fmt.Sprintf("must not be negative, but is %q", field.value),
-			})
+			return c.problem(err)
 		}
 		*field.target = parsed
 	}
 	return nil
+}
+
+// parseInterval reads one duration field, reporting a malformed or negative
+// value against the field it was written in.
+//
+// It is shared with the settings file, which holds two of the three durations
+// this build parses and reports them the same way.
+func parseInterval(path, value string) (time.Duration, error) {
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, &fieldError{
+			path:   path,
+			reason: fmt.Sprintf("must be a duration such as %q, but is %q", defaultIdleGracePeriod, value),
+		}
+	}
+	if parsed < 0 {
+		return 0, &fieldError{
+			path:   path,
+			reason: fmt.Sprintf("must not be negative, but is %q", value),
+		}
+	}
+	return parsed, nil
 }
 
 // expand resolves a leading "~" and requires the result to be absolute.
@@ -409,12 +431,19 @@ func (e *fieldError) Error() string { return e.path + ": " + e.reason }
 
 // problem wraps a resolution failure with the file it came from, so that it
 // reads like every other configuration error and can be shown in place.
-func (c *Config) problem(err error) error {
+func (c *Config) problem(err error) error { return asProblem(c.path, c.source, err) }
+
+// asProblem wraps a resolution failure with the file it came from.
+//
+// It takes the file and its bytes rather than a document, because both
+// documents this package resolves — a project's and the machine's settings —
+// report a bad field the same way, in place and against its own path.
+func asProblem(file string, source []byte, err error) error {
 	var field *fieldError
 	if errors.As(err, &field) {
 		return &Error{
-			File:     c.path,
-			source:   c.source,
+			File:     file,
+			source:   source,
 			Problems: []Problem{{Path: field.path, Reason: field.reason}},
 		}
 	}

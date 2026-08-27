@@ -27,6 +27,44 @@ The file may be written by hand or composed by `feat project init`, which asks f
 
 v0.1 is local-only. A later optional `.feat.yaml` may hold shareable repository conventions, but absolute machine paths and credential references remain local.
 
+## Global settings
+
+Not everything Feat is told is a fact about a project. A second file holds what
+is true of the machine and the person using it:
+
+```text
+~/.config/feat/settings.yaml
+```
+
+It sits beside the `projects/` directory rather than inside it, because it has
+no project to be named after. `.yml` is accepted; settings written by both
+extensions is an error rather than a preference, for the reason a project
+configured twice is one.
+
+The file is **optional and global**. Every value in it has a documented default,
+so a machine that has never written one is fully configured, and there is no
+per-project override: precedence rules are load-bearing and hard to remove once
+written, and nothing has yet asked for one. An override can be added later, on
+evidence that somebody wants it. See ADR-079.
+
+It carries its own `version`, separate from the project file's, because the two
+files are two compatibility surfaces and a change to one has no reason to
+invalidate the other. Its schema is published at `schema/feat-settings.schema.json`
+and held to the implementation by the same drift test that holds the project
+schema.
+
+`feat settings show` prints the resolved settings with every default filled in
+and each value marked with where it came from — `default`, `configured`, or, for
+the editor alone, `from $EDITOR`. That last marker is the reason the review
+commands belong here: the default has always reached for a user-level source and
+until now had no user-level file to reach for. `feat settings path` prints where
+the file belongs, whether or not it exists.
+
+The command is `settings` rather than `config` deliberately. `feat project show`
+already prints project configuration, and two commands called "config" would
+blur exactly the line this file draws. `~/.config/feat/` keeps its name, which is
+XDG rather than a product noun.
+
 ## Illustrative schema
 
 The exact Go structs may still evolve, but the semantics below are accepted.

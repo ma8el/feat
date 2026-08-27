@@ -21,6 +21,9 @@ feat runtime logs <task>
 feat runtime start <task>
 feat runtime status <task>
 feat runtime stop <task>
+feat settings
+feat settings path
+feat settings show
 feat task
 feat task attach <task>
 feat task cleanup <task>
