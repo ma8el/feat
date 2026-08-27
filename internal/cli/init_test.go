@@ -282,6 +282,12 @@ func TestProjectInitConfiguresADevcontainerFromWhatItFinds(t *testing.T) {
 	if !strings.Contains(stdout, "services defined there: dev, worker") {
 		t.Errorf("the wizard does not report the services it found:\n%s", stdout)
 	}
+	// And the loop names what it is asking for the second time. It used to ask
+	// for "Compose file" twice, with "(blank to finish)" appended the second
+	// time and nothing saying what a further file would be.
+	if !strings.Contains(stdout, "Compose override file (blank to finish)") {
+		t.Errorf("the repeated Compose question does not say what it asks for:\n%s", stdout)
+	}
 }
 
 // TestProjectInitSaysWhatElseItFoundBesideTheProposal is the sentence that was

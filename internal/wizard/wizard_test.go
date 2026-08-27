@@ -598,6 +598,68 @@ func TestTheFilesBesideARepositoryAreOfferedAndNotOnlyNamed(t *testing.T) {
 	}
 }
 
+// TestARepeatedFileQuestionAsksForAnOverride is the question that arrived with
+// nothing to go on.
+//
+// Both loops asked for the next file with the same words as the first and
+// "(blank to finish)" appended, so the repeat said what to do with it and never
+// what it was. A user who has given the one Compose file they know about has no
+// reason to think another exists; the prompt names it now, in Compose's own noun.
+func TestARepeatedFileQuestionAsksForAnOverride(t *testing.T) {
+	for _, loop := range []struct {
+		name    string
+		answers []string
+		id      string
+		repeat  string
+	}{
+		{
+			name:    "the agent's own container",
+			answers: []string{"", "", "api", "", "n", "devcontainer"},
+			id:      "agent.compose",
+			repeat:  "Compose override file (blank to finish)",
+		},
+		{
+			name:    "a repository's part of the application",
+			answers: []string{"", "", "api", "", "n", "", "y", "y"},
+			id:      "runtime.compose",
+			// Named, because this loop runs once per repository and the file
+			// belongs to whichever it is on.
+			repeat: "Compose override file for api (blank to finish)",
+		},
+	} {
+		t.Run(loop.name, func(t *testing.T) {
+			flow, host := start(t, "app")
+			answers(t, flow, loop.answers...)
+
+			opening, _ := flow.Step()
+			if opening.ID != loop.id {
+				t.Fatalf("the question is %s, want %s", opening.ID, loop.id)
+			}
+			answer(t, flow, filepath.Join(host.root, "api", "compose.yaml"))
+
+			repeat, _ := flow.Step()
+			if repeat.ID != loop.id {
+				t.Fatalf("one file moved the loop to %s", repeat.ID)
+			}
+			if repeat.Prompt != loop.repeat {
+				t.Errorf("the repeat asks %q, want %q", repeat.Prompt, loop.repeat)
+			}
+			if opening.Prompt == repeat.Prompt {
+				t.Error("the repeat asks for the same thing as the question before it")
+			}
+
+			// And it keeps asking for one. Compose takes as many as a project
+			// keeps, so the third question is the second one again rather than a
+			// question about a third kind of file.
+			answer(t, flow, filepath.Join(host.root, "api", "compose.override.yaml"))
+			again, _ := flow.Step()
+			if again.ID != loop.id || again.Prompt != loop.repeat {
+				t.Errorf("the third question is %s asking %q", again.ID, again.Prompt)
+			}
+		})
+	}
+}
+
 // TestAProjectThatIsAlreadyConfiguredIsRefused is the file a user must not lose
 // to a command they ran twice.
 func TestAProjectThatIsAlreadyConfiguredIsRefused(t *testing.T) {

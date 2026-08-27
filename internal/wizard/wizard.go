@@ -63,8 +63,10 @@ type Question struct {
 	Section Section
 	// Heading names the section, and is set only on the first question of one.
 	Heading string
-	// Detail explains the section, in the words the user needs before deciding.
-	// It is set with Heading and nowhere else.
+	// Detail explains what is being asked, in the words the user needs before
+	// deciding. It is set on the first question of a group rather than on every
+	// question of one: the section's own opening question, the first repository
+	// asked for a mount point, the first repeat of a file loop.
 	Detail []string
 	// Notes are what the previous answer established: what Git said about a
 	// checkout, which services a Compose file declares, what Feat assumed. They
@@ -450,7 +452,7 @@ func (w *Wizard) question() Question {
 		}
 		// Finishing is only offered once there is one, because the section is
 		// meaningless without it.
-		question.Prompt, question.Optional = "Compose file (blank to finish)", true
+		question.Prompt, question.Optional = overridePrompt(""), true
 		return question
 
 	case stageService:
@@ -554,7 +556,8 @@ func (w *Wizard) question() Question {
 			// bracketed file instead, twice, and ended up with an application's
 			// files defining the container their agent runs in. Tab is where the
 			// rest of the files went, so the two no longer share a key (ADR-077).
-			question.Prompt, question.Optional = question.Prompt+" (blank to finish)", true
+			question.Prompt = overridePrompt(w.draft.Repositories[w.contributor].ID)
+			question.Optional = true
 		}
 		// The files that are not in the field, named in the same words wherever
 		// the loop is, because they are the same thing in both places. Saying it
@@ -1122,6 +1125,25 @@ func describe(checkout Checkout) []string {
 			checkout.Remote, checkout.DefaultBranch))
 	}
 	return notes
+}
+
+// overridePrompt asks a file loop's second question and every one after it.
+//
+// Both loops asked for the next file with the same words as the first and
+// "(blank to finish)" on the end, so the repeat said what to do with it and
+// never what it was: a user who had given the one Compose file they knew about
+// had no reason to think another existed. Naming it does that in the place a
+// user reads at the moment of answering, and the noun is Compose's rather than
+// Feat's — `compose.override.yaml` is the file Compose itself picks up beside a
+// base, and overriding an earlier file is exactly what a later one does.
+//
+// A repository is named where there is one, because the application's loop runs
+// once per repository and the answer belongs to whichever it is on.
+func overridePrompt(repository string) string {
+	if repository == "" {
+		return "Compose override file (blank to finish)"
+	}
+	return "Compose override file for " + repository + " (blank to finish)"
 }
 
 // candidates are the values an asker may complete a text answer to.
