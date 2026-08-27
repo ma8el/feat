@@ -5703,6 +5703,320 @@ publication names what it had not yet attempted. `internal/daemon` owns the
 sequencing, as it owns preparation's; `internal/forge` sees one repository at a
 time and knows nothing about the others.
 
+### ADR-074 — What publication left to the implementation
+
+Status: accepted
+Recorded: 2026-08-24, from building ADR-070 and ADR-073
+
+ADR-070 says the agent writes a publication draft and the user reads and edits it
+before anything is sent. ADR-073 says a publication plans every repository,
+records the plan, and applies one at a time. Four questions were left between
+them, and each was answered by something already in the codebase rather than by a
+new mechanism.
+
+Evidence:
+
+1. There is nowhere in the domain to keep the draft's prose, and there should not
+   be. `Publication` holds the plan and the result — the forge, the remote, the
+   base branch, the commit, and the merge request — and deliberately not the
+   words: the words are what the user rewrites, and a stored copy would be a
+   second answer to what was sent. The one place they already live durably is the
+   outbox, which "stays an audit trail until slice 12 cleans it up" (ADR-032) and
+   is the account of what the agent sent.
+2. `Workspace.Pending` never returns a message twice, which is what stops one
+   message being applied twice, so reading a draft back is a different question
+   from delivering it.
+3. The review command vocabulary has no placeholder for "the document to open".
+   Every placeholder `internal/config` expands names something about a repository
+   (`internal/config/template.go`), and a draft is not one.
+4. There is no `glab` on the machine this was built on, and
+   [06-technical-architecture.md](06-technical-architecture.md) requires a
+   provider CLI's flags to be verified against the installed version rather than
+   assumed.
+
+Decisions:
+
+- The draft is read back out of the control workspace when the user asks to
+  publish, through the provider adapter that parsed it when it arrived.
+  `internal/control` gains `Workspace.Latest`, which reads the newest message of
+  one type whether or not it was applied and settles nothing. Two callers, one
+  parser: a message the poller applied to the task's history is the same message
+  a publication composes from, hours later and across a restart.
+- The publication endpoint is plan and apply, as cleanup's is, and the apply
+  carries the words verbatim. What is displayed is what is sent, so the daemon
+  composes each request from the approved text rather than from the agent's
+  message — reviewing one document and sending another would make the approval a
+  formality (ADR-070).
+- The configured editor command keeps its own flags and is given the draft to
+  open. The daemon returns the program and the arguments that are not the
+  repository placeholder, and the client appends the document it wrote. `code -w`
+  stays `code -w`, which matters: an editor that returns immediately is a draft
+  approved unread. Expanding `{repository_path}` to a draft file was rejected —
+  the vocabulary is closed and that placeholder means a worktree.
+- Staleness is checked twice against the same fact and refuses the whole request
+  before the plan is recorded. The approved commit must still be the repository's
+  head, and the agent's draft must describe that head where it drafted one at
+  all. A repository that has already published is exempt from both, because
+  re-publishing skips it as already published and asking whether its words are
+  current would turn that skip into a refusal — which is the confusion ADR-073
+  keeps the two reasons apart to avoid.
+- `internal/forge` gains a `forge-stays-an-adapter` `depguard` rule, mirroring
+  `agent-stays-an-adapter`. ADR-025 requires an ADR for a boundary rule, and this
+  is that record. It denies `internal/git` as well: pushing is Git's, and a forge
+  adapter never runs `git`.
+- `domain.EventPublicationChanged` is added, which is the one domain shape this
+  work needed. Every other lifecycle records what it did in the task's history,
+  and a publication — which creates something on somebody else's server, one
+  repository at a time, and does not roll back — is the one that most needs an
+  account of a run that stopped half way. It carries no from and no to: a task
+  has no publication state of its own to move between.
+- `glab`'s flags are verified by an opt-in test that reads `glab mr create
+  --help` wherever glab is installed, and `internal/integrationtest` gains `glab`
+  as a demandable tool. It is demanded by nothing by default, like `claude` and
+  `notify`: the check needs an installed glab and nothing else — no account, no
+  network, no project — so a maintainer with one can make it mandatory and nobody
+  is made to install it.
+
+  It has now run, against glab 1.114.0, which `gitlab.Verified` records. The five
+  flags are accepted, the project is resolved from the repository the command
+  runs in, and a title and description supplied together with `--yes` reach the
+  API without a prompt or an editor. Two things the flag list could not have
+  shown came out of it:
+
+  - glab writes a recovery file under the user's own configuration directory
+    when a creation fails, and its documented behaviour is to load the options
+    back out of that file when `--recover` is given. Feat must never take that
+    path — what is sent has to be the words the user just read, not the ones a
+    previous attempt left on disk — so the flag is never passed. A recovery file
+    whose contents had been replaced with nonsense was ignored and overwritten by
+    a run that did not pass it, so nothing loads it by default.
+  - a description of exactly `-` is glab's own shorthand for "open an editor",
+    and a daemon has no terminal to open one on. The installed version sent it
+    through as text, which is the behaviour that would hang if a later one
+    honoured its own documentation. The description is the one field where a
+    leading hyphen is ordinary prose — a Markdown list — so it cannot be refused
+    by the rule that keeps an option out of an argument vector, and the adapter
+    refuses that one value by name instead. It is refused rather than altered: a
+    description Feat quietly changed would be worse than one it declined to send.
+
+- `feat doctor` asks the host whether it can publish at all, once per forge the
+  project's repositories declare. ADR-070's consequence named two additions to
+  the diagnostics and this is a third, found by a user reading the first one and
+  asking why a forge needed a hook to be noticed. Nothing else asks:
+  `agent.capabilities.github_cli` and `gitlab_cli` describe the *agent's*
+  environment, are probed inside the container on a devcontainer project, and are
+  what ADR-070 expects to be `disabled` — so on the configuration that decision
+  recommends, no check touched the machine that actually runs `glab`. A project
+  could pass every check and then push a branch and fail to open the merge
+  request. It warns rather than fails, because a project may be configured before
+  anybody has logged in, and it says nothing for a project that declares no
+  forge.
+- A forge the configuration accepts and this build has no adapter for is reported
+  there too, rather than found out after a branch has been pushed.
+  `forge.Built` declares which forges are built and a guard test holds it and the
+  daemon's registry together, so the two cannot drift into doctor reporting a
+  project as publishable that a publication then refuses. Both of Phase 3's
+  forges are built now — the GitHub adapter followed within the same change,
+  because Feat's own repository is on GitHub and the GitLab-only build could not
+  publish its own development — so the refusal is currently the guard for the
+  next forge rather than a state a user can configure.
+- The pre-push report is `repositories.<id>.publication`. It was
+  `repositories.<id>.forge` — the configuration field that decides whether it
+  runs — which reads as a check on the forge declaration. That declaration is
+  validated when the configuration loads; this is about what a push will skip,
+  and a check name that names the wrong thing is a check that gets asked the
+  wrong question.
+
+What this does not decide is whether Feat should run a `pre-push` hook it can
+attribute to the user rather than to the agent. That is OQ-015, and it still
+needs somebody who has one.
+
+Consequence: `internal/control` gains `TypePublicationDraft`, the payload it
+validates, and `Workspace.Latest`; `internal/agent` gains `KindPublicationDraft`
+and the draft on its event; `internal/agent/claude` instructs the agent and
+parses what it wrote; `internal/git` gains `Push`, `PushEnvironment`, and
+`SuppressedHooks`; `internal/forge` and `internal/forge/gitlab` are new;
+`internal/review` gains `NewPublication` and the result a publication records;
+`internal/daemon` owns the sequencing; `internal/api`, `internal/client`,
+`internal/cli`, and `internal/ui` carry the surface. `feat doctor` gains the
+`pre-push` report, the host-native capability note ADR-070 asked for, and the
+host publication check above.
+[06-technical-architecture.md](06-technical-architecture.md) gains the two
+packages, the two routes, and the adapter's new obligation; [README.md](README.md)
+gains the command.
+
+### ADR-075 — The provider-CLI capabilities are removed, because the host holds the credential
+
+Status: accepted
+Recorded: 2026-08-25, from reviewing what `agent.capabilities` still does
+
+ADR-070 moved every credentialed provider call to the trusted host, and ADR-071
+did the same for ticket ingestion. `agent.capabilities.github_cli` and
+`gitlab_cli` were written before either, when container-side native CLI access
+was the first-class path, and they were left in place afterwards as "a path a
+project may configure". Reviewing them against what the binary now does found
+them to be a declaration Feat can no longer act on.
+
+Evidence:
+
+1. Nothing in Feat's own loop reads either field to decide anything. The two
+   consumers were a launch probe in the Claude adapter and two `feat doctor`
+   findings. Both only re-checked a setup the project made for itself: Feat never
+   installs `gh` or `glab` in the agent environment and never supplies it a
+   credential, so the fields declared someone else's arrangement.
+2. `required` is a gate on a state the security model says must not exist. The
+   agent environment is to hold no provider token
+   ([05-security-model.md](05-security-model.md)), so `gh auth status` succeeding
+   inside the container is the condition the recommended configuration is
+   arranged to prevent. A correctly configured project that set `required` would
+   fail every launch, and one that passed would be one with a durable token
+   reachable by any prompt injection.
+3. `feat doctor` already asks the question that matters, in the place that
+   matters. The publication check probes `gh`/`glab` on the host per forge the
+   repositories declare, in both execution modes, because that is where the push
+   and the merge request happen (ADR-074). The capability findings asked the same
+   tools about a different machine, and two findings naming the same executable
+   with opposite verdicts is a diagnostic that has to be explained rather than
+   read.
+4. Removing them is a clean break rather than a migration. `internal/config`
+   decodes with `yaml.Strict()`, so a file that still names either key fails to
+   load naming the key and the line it is on. Every configuration that has one is
+   on the author's machine, and the author is the only user (ADR-065).
+
+Decisions:
+
+- `agent.capabilities.github_cli` and `gitlab_cli` are removed from the
+  configuration, the JSON schema, the generated file `feat project init` writes,
+  and the wizard, which loses its provider-CLI question. `agent.capabilities`
+  keeps `docker`, `network`, and `git`.
+- No entry is added to `replaced` for either key. The mechanism exists so a break
+  is not diagnosed as a typo, and it earns that where a field was replaced and
+  the message can name the successor. Here there is none to name: the remedy is
+  to delete the line, which the strict decoder's own error already points at. The
+  configurations that carry the key are the author's six, edited once.
+- The Claude adapter's `Validate` asks only whether the agent executable runs. A
+  provider CLI in the agent environment stops no launch.
+- `feat doctor` reports nothing about `gh` or `glab` in the agent environment.
+  The host publication check is the only provider-CLI finding, which is what
+  makes it answerable.
+- What the fields permitted is not withdrawn, only undeclared. A project may
+  install `gh` or `glab` in its own image and mount its own credential;
+  [05-security-model.md](05-security-model.md) states the exposure that follows
+  and Feat neither prevents, checks, nor reports it.
+
+Consequence: `internal/agent` loses `CapabilityLevel` and the two `Environment`
+fields; `internal/agent/claude` loses `probeCLI`; `internal/project` loses
+`checkProviderCLI` and `providerCLIs`; `internal/config` loses
+`DraftCapabilities`, three constants, and the level validation.
+[02-user-workflows.md](02-user-workflows.md),
+[04-functional-specification.md](04-functional-specification.md) FR-PROJ-004,
+[05-security-model.md](05-security-model.md),
+[06-technical-architecture.md](06-technical-architecture.md),
+[07-configuration-model.md](07-configuration-model.md),
+[09-roadmap.md](09-roadmap.md), [README.md](README.md), and CLAUDE.md's product
+contract are updated in the same change.
+
+The two daemon and adapter tests that used a required provider CLI as their
+trigger keep their assertions and change what does the refusing: what they prove
+is that a task whose agent could never start creates no terminal and no session,
+which is FR-PROJ-004's rule and outlives the trigger.
+
+This does not touch `docker`, `network`, or `git`. That those three accept one
+value each, and that only `docker` is backed by a probe, is a separate question
+and is left open here rather than answered in passing.
+
+### ADR-076 — The publication draft is read on the screen that sends it
+
+Status: accepted
+Recorded: 2026-08-25, from opening the publication screen on a terminal of an
+ordinary size
+
+ADR-070 rests the whole of publication on one control: the agent's words can
+carry anything it read, so a person reads them before they are sent. ADR-074
+built the screen and the editor document that carry it. Opening that screen on a
+normal terminal found the control unbuilt.
+
+Evidence:
+
+1. The screen was not drawn. `dialogView` had a case for every overlay except
+   this one and fell through to its default, so at any size at or above 96×18 —
+   which is every terminal the three-region layout is for — `P` set the screen,
+   asked the daemon for a plan, and returned the frame that was already there.
+   The publication screen existed only in `stackedView`, the fallback for a
+   terminal too small for the layout. What a user saw after pressing it was the
+   unchanged dashboard, a footer reading "esc close", and the daemon's socket
+   path.
+2. Its tests could not see it either. Every one of them asserted against
+   `publicationBody()` — the function the missing case would have called —
+   rather than against `View()`. Cleanup's dialog is exercised through `View()`,
+   and cleanup's dialog works. A screen's rendering is not covered by testing
+   the string it would have rendered.
+3. Reading and editing were one act, and the wrong one was the gate. The screen
+   drew a title per repository; the description — the part that can carry
+   anything the agent read — existed only inside the editor. So `e` was
+   mandatory, undiscoverable from what the screen said, and what it satisfied
+   was "the editor was opened". A user who quit the editor without scrolling
+   passed that gate. ADR-074 had already met this from the other end when it
+   kept `code -w` as `code -w`, because "an editor that returns immediately is a
+   draft approved unread"; the same argument applies to a person, and the screen
+   was relying on the editor to make it.
+
+Decisions:
+
+- The publication screen is a dialog, on the same terms as cleanup: drawn over
+  the task list it is about, carrying its own keys because the frame's footer
+  only says how to close an overlay. The narrow fallback keeps the stacked
+  screen it already had.
+- What would be sent is drawn in full — the title and the whole description, per
+  repository, scrolling under the window. Prose is folded to the measure rather
+  than truncated, and each of the agent's own lines is folded on its own, so
+  that a list stays a list: a description shown with its ends cut off is one
+  that was not read.
+- The gate becomes what has been displayed. `enter` is refused until every line
+  of the words that would be sent has been on the screen, or until they have
+  come back from the editor. Both are the same condition — the user has seen
+  them — and the editor satisfies it because that is where they were seen.
+- Reading is therefore sufficient to publish, and the editor becomes what it
+  should have been: how the words are rewritten, not how they are read. A draft
+  nobody edited is composed from the plan the screen drew, trimmed exactly as
+  the editor document's parser trims what comes back through it, so that an
+  unedited draft is the same request whichever client sent it.
+- What has been displayed is recorded where the window is known: the key
+  handler, the arrival of a plan, and a resize. A Bubble Tea `View` is pure and
+  cannot write back what it drew, which is the same reason the cleanup inventory
+  resolves its own region. The count never decreases while a plan stands and is
+  reset by the next one, because fresh words have not been read.
+- Feat's own record is not part of the gate. What must be read is what would be
+  sent; the account of what this task already published sits under it, and
+  nobody is made to scroll past a merge request that exists to open the ones
+  that do not.
+- The screen says the sequence in words at every step, rather than leaving it to
+  the key hints. A footer says which key; a sentence says why it is there and
+  what follows it, and this sequence is the part of the dashboard nobody has
+  memorised.
+- A repository the editor came back without is drawn as removed rather than
+  blank, and one that would be sent with no title is refused by name rather than
+  dropped. A publication quietly narrower than the screen it was approved from
+  is one the user believes covered every repository they read.
+- The key map's `A / C / P — approve/change/pending` becomes two entries. There
+  is no pending review action and there never was: the line named nothing before
+  `P` was bound and misnamed it afterwards. The task panel's own hints gain `P`,
+  which was the only key on that panel absent from the footer of the only screen
+  it works on.
+
+What does not change: publication stays host-side and user-approved (ADR-070),
+the configured editor command keeps its own flags and is given the draft to open
+(ADR-074), the daemon's plan-record-apply order is untouched (ADR-073), and
+`feat task publish` is the same command with the same document.
+
+Consequence: `internal/ui/publication.go` gains the document, the window, and the
+gate; `internal/ui/app.go` gains the dialog case and witnesses the window on a
+resize; `internal/ui/dialog.go` and `internal/ui/taskpanel.go` carry the key map
+fix. [02-user-workflows.md](02-user-workflows.md) records that the draft is read
+on the screen and edited in the editor. The screen's tests render through
+`View()` at both sizes, which is what the omission this ADR is about would have
+had to survive.
+
 ## Decision change process
 
 During implementation:

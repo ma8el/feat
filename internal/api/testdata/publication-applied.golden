@@ -1,0 +1,105 @@
+{
+  "task": {
+    "id": "7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c",
+    "key": "7f3a1c2e",
+    "project_id": "example",
+    "title": "Retry the nightly export",
+    "brief": "# Add a scheduled export job\n\nExport the daily report to the configured bucket.\n\n## Acceptance criteria\n\n- the job runs once per day\n- a failure is retried three times\n",
+    "source": {
+      "kind": "ticket",
+      "ticket": {
+        "provider": "tracker",
+        "reference": "PROJ-482",
+        "url": "https://tracker.example.com/stories/482",
+        "snapshot": {
+          "title": "Retry the nightly export",
+          "body": "The nightly export gives up on the first timeout.\n",
+          "state": "in progress",
+          "taken_at": "2026-08-04T09:30:00Z"
+        },
+        "change_available": true
+      }
+    },
+    "workflow": "approved",
+    "attention": "none",
+    "repositories": [
+      {
+        "repository_id": "core",
+        "access": "read_write",
+        "base_ref": "origin/main",
+        "base_commit": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+        "branch": "feat/3e5a7c91-retry-the-nightly-export",
+        "worktree_path": "/srv/state/worktrees/example/3e5a7c91/core",
+        "container_path": "/src/core",
+        "observation": null
+      },
+      {
+        "repository_id": "schema",
+        "access": "read_write",
+        "base_ref": "origin/main",
+        "base_commit": "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c",
+        "branch": "feat/3e5a7c91-retry-the-nightly-export",
+        "worktree_path": "/srv/state/worktrees/example/3e5a7c91/schema",
+        "container_path": "/src/schema",
+        "observation": null
+      }
+    ],
+    "session": {
+      "provider": "claude",
+      "execution_mode": "host",
+      "tmux": {
+        "socket": "/run/feat/tmux.sock",
+        "session": "$3",
+        "window": "@9",
+        "pane": "%14"
+      },
+      "process": "stopped",
+      "control_path": "/srv/state/control/example/3e5a7c91",
+      "execution": null,
+      "last_event_sequence": 9,
+      "created_at": "2026-08-04T09:35:00Z",
+      "last_activity_at": "2026-08-04T10:05:00Z"
+    },
+    "runtime": null,
+    "verification": null,
+    "publication": {
+      "repositories": [
+        {
+          "repository_id": "core",
+          "forge": "gitlab",
+          "remote": "origin",
+          "base_branch": "main",
+          "commit": "0011223344556677889900aabbccddeeff001122",
+          "state": "published",
+          "request": {
+            "reference": "!128",
+            "url": "https://forge.example.com/example/core/-/merge_requests/128"
+          },
+          "attempted_at": "2026-08-04T10:07:00Z"
+        },
+        {
+          "repository_id": "schema",
+          "forge": "github",
+          "remote": "origin",
+          "base_branch": "main",
+          "commit": "aabbccddeeff00112233445566778899aabbccdd",
+          "state": "failed",
+          "failure": "HTTP 403: Resource not accessible by personal access token (https://api.github.com/repos/example/schema/pulls)",
+          "attempted_at": "2026-08-04T10:08:00Z"
+        }
+      ],
+      "planned_at": "2026-08-04T10:06:00Z",
+      "updated_at": "2026-08-04T10:08:00Z"
+    },
+    "created_at": "2026-08-04T09:30:00Z",
+    "updated_at": "2026-08-04T10:08:00Z"
+  },
+  "drafts": [],
+  "editor": {
+    "program": "",
+    "arguments": []
+  },
+  "notes": [
+    "schema's branch is on the remote and its merge request is not: publishing again opens the request from it"
+  ]
+}

@@ -51,6 +51,10 @@ type Options struct {
 	Brief string
 	// Source records where an imported brief came from.
 	Source api.Source
+	// Ticket is the reference `feat implement --ticket` named. Preparation
+	// matches it against what the project's tracker command emitted, once the
+	// project is known.
+	Ticket string
 	// Now supplies the current time. A nil value uses the wall clock.
 	Now func() time.Time
 }
@@ -72,6 +76,13 @@ const (
 	screenWizard
 	screenRuntime
 	screenCleanup
+	// screenPublication is a task's work on its way to a forge: what publishing
+	// would do, the draft read and edited, and what came of sending it.
+	//
+	// It is an overlay rather than a tab for the reason cleanup is: it is a
+	// sequence that is answered before work continues, and what it does reaches
+	// somebody else's server and is not undone (ADR-073).
+	screenPublication
 	// screenDiagnosis is what `feat doctor` found, read on the dashboard. It is
 	// an overlay because it is about a project rather than the selected task, and
 	// because it is read and left rather than worked in (ADR-064).
@@ -99,7 +110,8 @@ const (
 // answered before work continues.
 func (s screen) mainRegion() bool {
 	switch s {
-	case screenPrepare, screenWizard, screenCleanup, screenDiagnosis, screenKeys, screenRecovery, screenDaemon:
+	case screenPrepare, screenWizard, screenCleanup, screenPublication, screenDiagnosis,
+		screenKeys, screenRecovery, screenDaemon:
 		return false
 	default:
 		return true
@@ -225,6 +237,12 @@ type Model struct {
 	// execution carries back.
 	cleanup cleanupModel
 
+	// publication is the publication screen's own state: what publishing would
+	// do, what came back from the editor, and what came of sending it. It holds
+	// the approved words rather than deriving them, because those words are what
+	// is sent: what the user read is what reaches the forge (ADR-070).
+	publication publicationModel
+
 	// activity is the loading indicator, animating exactly while waiting says a
 	// screen is waiting for the daemon. It is the dashboard's rather than any one
 	// screen's, so that starting and stopping it is one rule rather than a pair
@@ -311,10 +329,15 @@ func New(opts Options) Model {
 	streamCtx, stopStream := context.WithCancel(parent)
 
 	model := Model{
-		backend:    opts.Backend,
-		daemon:     opts.Daemon,
-		now:        now,
-		prepare:    newPrepare(opts.Backend, opts.Project, opts.Brief, opts.Source),
+		backend: opts.Backend,
+		daemon:  opts.Daemon,
+		now:     now,
+		prepare: newPrepare(opts.Backend, prepareStart{
+			project: opts.Project,
+			brief:   opts.Brief,
+			source:  opts.Source,
+			ticket:  opts.Ticket,
+		}),
 		activity:   newActivity(),
 		events:     make(chan api.Event, eventBuffer),
 		streamCtx:  streamCtx,
@@ -589,6 +612,8 @@ func (m Model) waiting() bool {
 		return m.prepare.busy
 	case screenCleanup:
 		return m.cleanup.working
+	case screenPublication:
+		return m.publication.working
 	case screenTask:
 		return m.review.observing || m.review.pending != ""
 	case screenRuntime:
@@ -604,6 +629,11 @@ func (m Model) apply(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = message.Width, message.Height
 		m.prepare.resize(m.preparationSize())
 		m.wizard.resize(m.preparationSize())
+		// A window that grew shows more of the publication draft than the last
+		// one did, and what has been shown is what may be published: the frame
+		// that follows this message is drawn at the new size, so this is where
+		// it is known (ADR-076).
+		m.publication = m.witnessPublication()
 		return m, nil
 
 	case tasksMsg:
@@ -721,6 +751,15 @@ func (m Model) apply(message tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cleanupDoneMsg:
 		return m.applyCleanupResult(message)
+
+	case publicationPlanMsg:
+		return m.applyPublicationPlan(message)
+
+	case publicationEditedMsg:
+		return m.applyPublicationEdited(message)
+
+	case publicationDoneMsg:
+		return m.applyPublicationDone(message)
 
 	case terminalFrameMsg:
 		return m.applyFrame(message)
@@ -1021,7 +1060,7 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// They are not answered while a dialog is open. An overlay is something that
 	// must be answered before work continues, and moving the tab or the task
 	// underneath it would change what the answer applies to.
-	if m.screen != screenCleanup {
+	if m.screen != screenCleanup && m.screen != screenPublication {
 		if updated, cmd, handled := m.frameKey(key); handled {
 			return updated, cmd
 		}
@@ -1035,6 +1074,9 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.screen == screenCleanup {
 		return m.cleanupKey(key)
+	}
+	if m.screen == screenPublication {
+		return m.publicationKey(key)
 	}
 	return m.dashboardKey(key)
 }
@@ -1624,6 +1666,8 @@ func (m Model) stackedView() string {
 		return m.runtimeView()
 	case screenCleanup:
 		return m.cleanupView()
+	case screenPublication:
+		return m.publicationView()
 	case screenKeys:
 		width, _ := m.frameSize()
 		return m.keyMap(width) + m.footer(keyHints(keyHint("esc", "close")))
@@ -1666,6 +1710,14 @@ func (m Model) dialogView() string {
 		// how to close a dialog and this says what this one can do.
 		return dialogBox("clean up "+m.cleanupTitle(),
 			m.cleanupBody()+"\n"+m.cleanupHints(), inner, tallest)
+	case screenPublication:
+		// The same shape as cleanup, and for the same reasons: a sequence that is
+		// answered rather than glanced at, drawn over the task list it is about,
+		// carrying its own keys because the frame's footer only says how to
+		// close an overlay. A screen that is drawn in the narrow fallback and
+		// nowhere else is a screen nobody sees (ADR-076).
+		return dialogBox(m.publicationTitle(),
+			m.publicationBody()+"\n"+m.publicationHints(), inner, tallest)
 	case screenKeys:
 		// The key map is given the same three quarters as every other dialog, and
 		// lays itself out inside them. A reference sheet is a good reason to want

@@ -73,8 +73,6 @@ agent:
     docker: denied
     network: unrestricted
     git: full
-    github_cli: optional
-    gitlab_cli: required
 
 runtime:
   provider: compose

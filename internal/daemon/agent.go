@@ -139,6 +139,13 @@ var effects = map[agent.EventKind]effect{
 	// A completion report records what the agent claims without asserting that
 	// the work is ready. An agent that wants review asks for it.
 	agent.KindCompletionReport: {cancels: true},
+
+	// A publication draft is words and nothing else. It sets no workflow state,
+	// no attention, and no process state: the agent is proposing what a merge
+	// request would say, and nothing reaches a forge until the user has read it
+	// and approved it (ADR-070). Like a review request, it is written in the
+	// middle of a turn the agent then carries on with, so it is activity.
+	agent.KindPublicationDraft: {cancels: true},
 }
 
 // applyAgentEvent records one normalized agent event against a task.
@@ -227,6 +234,15 @@ func (s *service) applyAgentEvent(ctx context.Context, task *domain.Task, event 
 		if err := s.recordReport(ctx, task, event); err != nil {
 			return err
 		}
+	}
+
+	if event.Kind == agent.KindPublicationDraft {
+		// Recorded here rather than through a state change, because there is no
+		// state to change: what happened is that the agent wrote something, and
+		// the history is where that is said. The summary names the repositories
+		// and never the prose — the draft itself is read on the screen that
+		// publishes it, which is the one place a user reads it before it is sent.
+		s.record(ctx, task, domain.Event{Type: domain.EventPublicationChanged, Detail: event.Summary})
 	}
 
 	if err := s.store.Tasks().Save(ctx, task); err != nil {

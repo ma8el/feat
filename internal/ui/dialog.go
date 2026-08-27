@@ -171,8 +171,15 @@ func keyMap(width int) string {
 		{"the task panel", [][2]string{
 			{"j / k", "select a repository"},
 			{"d / e", "diff and editor, there"},
-			{"A / C / P", "approve/change/pending"},
+			{"A / C", "approve or send back"},
 			{"V", "run configured checks"},
+			// Its own line rather than a third key beside approve and change,
+			// because it is not one of them: those record what the user thinks
+			// of the work, and this opens a screen that reaches a forge. The
+			// line it used to share named a "pending" action that does not
+			// exist, which is how P came to be documented as something else
+			// entirely (ADR-076).
+			{"P", "publish, read it first"},
 			{"pgup / pgdn", "scroll the panel"},
 			{"r", "compare again"},
 		}},

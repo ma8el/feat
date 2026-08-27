@@ -37,8 +37,6 @@ type Draft struct {
 	BasePolicy string
 	// Execution says where the agent runs.
 	Execution DraftExecution
-	// Capabilities declare what the agent environment may reach.
-	Capabilities DraftCapabilities
 	// Runtime configures the application services a task may run. A nil value
 	// writes no runtime section, which is a project with no application
 	// services.
@@ -97,19 +95,6 @@ type DraftExecution struct {
 	// value mounts nothing, leaving Claude's configuration to the project's own
 	// Compose files.
 	ClaudeConfigVolume string
-}
-
-// DraftCapabilities are the capabilities a drafted project declares.
-//
-// Only the two that vary are here. The other three accept one value each, and
-// rendering writes them with the sentence that says why, because a file that
-// states what the agent may reach is the file somebody deciding to run Feat on
-// their own work will read (docs/05-security-model.md).
-type DraftCapabilities struct {
-	// GitHubCLI is whether `gh` is disabled, optional, or required.
-	GitHubCLI string
-	// GitLabCLI is whether `glab` is disabled, optional, or required.
-	GitLabCLI string
 }
 
 // DraftRuntime is the application runtime of a drafted project.
@@ -288,19 +273,14 @@ func (d Draft) renderAgent(doc *document) {
 	doc.blank()
 	doc.key(1, "capabilities")
 	doc.comment(2,
-		"These three accept one value each. Feat has no mechanism that varies them,",
-		"so any other value would be a promise the binary does not keep: the agent",
-		"never receives Docker, Feat implements no network restriction and claims no",
+		"These accept one value each. Feat has no mechanism that varies them, so any",
+		"other value would be a promise the binary does not keep: the agent never",
+		"receives Docker, Feat implements no network restriction and claims no",
 		"data-loss prevention, and a Git worktree shares repository metadata with the",
 		"agent.")
 	doc.field(2, "docker", CapabilityDenied)
 	doc.field(2, "network", CapabilityUnrestricted)
 	doc.field(2, "git", CapabilityFull)
-	doc.comment(2,
-		"disabled, optional, or required. \"required\" fails a task launch when the",
-		"CLI is missing from the agent's environment.")
-	doc.field(2, "github_cli", orDisabled(d.Capabilities.GitHubCLI))
-	doc.field(2, "gitlab_cli", orDisabled(d.Capabilities.GitLabCLI))
 }
 
 func (d Draft) renderRuntime(doc *document) {
@@ -362,17 +342,6 @@ func (d Draft) checkedRepositories() []string {
 		order = append(order, check.Repository)
 	}
 	return order
-}
-
-// orDisabled fills in the capability level for a CLI nobody chose. It is
-// written down rather than left out, because the two provider CLIs are the
-// capabilities that do vary, and a file that names one and not the other reads
-// as though the other were undecided.
-func orDisabled(level string) string {
-	if level == "" {
-		return CLIDisabled
-	}
-	return level
 }
 
 // document builds a YAML document as text.

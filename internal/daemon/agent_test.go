@@ -121,13 +121,32 @@ func (t *testTimer) fire() {
 func selectDraftRepositories(t *testing.T, service *service, arranged *preparation) error {
 	t.Helper()
 
-	_, err := service.UpdateDraft(context.Background(), arranged.ref.Task, api.DraftUpdate{
-		Title: "Add a rate limit",
-		Brief: "Add a rate limit to the public API.",
-		Repositories: []api.DraftSelection{
-			{Repository: "api", Access: domain.TaskAccessReadWrite},
-			{Repository: "store", Access: domain.TaskAccessReadOnly},
-		},
+	// Every repository the project configures, at the access it declares, which
+	// is what the preparation screen proposes. Naming two of them here would
+	// mean a fixture with more could never be launched.
+	project, err := service.Project(context.Background(), arranged.ref.Project)
+	if err != nil {
+		return err
+	}
+	var selected []api.DraftSelection
+	for _, repository := range project.Repositories {
+		switch repository.DefaultAccess {
+		case domain.DefaultAccessReadOnly:
+			selected = append(selected, api.DraftSelection{
+				Repository: repository.ID, Access: domain.TaskAccessReadOnly,
+			})
+		case domain.DefaultAccessOmitted:
+		default:
+			selected = append(selected, api.DraftSelection{
+				Repository: repository.ID, Access: domain.TaskAccessReadWrite,
+			})
+		}
+	}
+
+	_, err = service.UpdateDraft(context.Background(), arranged.ref.Task, api.DraftUpdate{
+		Title:        "Add a rate limit",
+		Brief:        "Add a rate limit to the public API.",
+		Repositories: selected,
 	})
 	return err
 }
@@ -932,18 +951,17 @@ func TestNoEndOfTurnPathReachesAReviewState(t *testing.T) {
 	}
 }
 
-// TestMissingRequiredGitLabAuthenticationPreventsLaunch is FR-PROJ-004's rule
-// that a missing required provider CLI stops a launch.
-func TestMissingRequiredGitLabAuthenticationPreventsLaunch(t *testing.T) {
-	fixture := strings.Replace(hostFixture,
-		"  claude:\n    idle_grace_period: 5s\n",
-		"  claude:\n    idle_grace_period: 5s\n  capabilities:\n    gitlab_cli: required\n", 1)
+// TestAnAgentThatCouldNotStartPreventsLaunch is FR-PROJ-004's rule that a task
+// whose agent could never start is refused before anything is created.
+//
+// The trigger used to be a required provider CLI that was not authenticated.
+// That declaration is gone (ADR-075), and the property it was proving is not:
+// what matters is that a refused launch leaves no terminal and no session
+// behind, so the test keeps the assertions and changes what does the refusing.
+func TestAnAgentThatCouldNotStartPreventsLaunch(t *testing.T) {
+	runner := agenttest.New().Absent("claude", "--version")
 
-	runner := agenttest.New().
-		Succeed(claude.Verified()+" (Claude Code)", "claude", "--version").
-		Fail(1, "not logged in", "glab", "auth", "status")
-
-	arranged := arrangeTaskWith(t, newFakeGit(), fixture)
+	arranged := arrangeTaskWith(t, newFakeGit(), hostFixture)
 	server := tmuxtest.New()
 	instance, err := New(Options{
 		Layout:      arranged.service.layout,
@@ -972,9 +990,9 @@ func TestMissingRequiredGitLabAuthenticationPreventsLaunch(t *testing.T) {
 
 	_, err = service.LaunchDraft(context.Background(), task.ID, Fingerprint(task))
 	if err == nil {
-		t.Fatal("the launch succeeded with a required provider CLI unauthenticated")
+		t.Fatal("the launch succeeded with no agent executable")
 	}
-	for _, want := range []string{"glab", "glab auth login", "gitlab_cli"} {
+	for _, want := range []string{claude.Executable, "not installed"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("message = %q, want it to mention %q", err, want)
 		}

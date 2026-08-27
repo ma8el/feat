@@ -100,6 +100,10 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 		"feat project add":   true,
 		"feat project list":  true,
 		"feat project show":  true,
+		// Listing tickets reaches the daemon, which runs the project's tracker
+		// command. Invoking it here would ask the running user's tracker for
+		// their tickets.
+		"feat project tickets": true,
 		// Initialising a project reads the running user's configuration
 		// directory, and with no terminal it refuses rather than asking
 		// questions into a pipe. Invoking it here would do neither usefully.
@@ -133,6 +137,10 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 		// belonging to one of the running user's tasks.
 		"feat task resume": true,
 		"feat task stop":   true,
+		// Publishing reaches the daemon, pushes branches, and opens merge
+		// requests on somebody else's server. Invoking it here would be the one
+		// command in this list whose effect is not on this machine.
+		"feat task publish": true,
 	}
 
 	var walk func(cmd *cobra.Command)

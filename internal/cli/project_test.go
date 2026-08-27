@@ -81,8 +81,6 @@ agent:
     user: developer
     working_directory: /srv/api
     control_path: /feat
-  capabilities:
-    gitlab_cli: required
 
 runtime:
   env_files:

@@ -242,8 +242,8 @@ func (c ClaudeSection) IdleGrace() time.Duration { return c.idleGracePeriod }
 // CapabilitiesSection declares what the agent environment may reach.
 //
 // The capabilities are independent of one another on purpose: full Git access
-// and an authenticated provider CLI say nothing about Docker, and Feat must not
-// let one imply another (docs/05-security-model.md).
+// says nothing about Docker, and Feat must not let one imply another
+// (docs/05-security-model.md).
 type CapabilitiesSection struct {
 	// Docker is the agent's Docker access. Only "denied" is accepted: Feat has
 	// no mechanism that grants an agent Docker, so any other value would be a
@@ -256,10 +256,6 @@ type CapabilitiesSection struct {
 	// Git is the agent's Git access. Only "full" is accepted for the same
 	// reason.
 	Git string `yaml:"git"`
-	// GitHubCLI is whether `gh` is disabled, optional, or required.
-	GitHubCLI string `yaml:"github_cli"`
-	// GitLabCLI is whether `glab` is disabled, optional, or required.
-	GitLabCLI string `yaml:"gitlab_cli"`
 }
 
 // RuntimeSection configures the application services of a task.
@@ -637,14 +633,6 @@ const (
 	CapabilityUnrestricted = "unrestricted"
 	// CapabilityFull is the only accepted Git capability.
 	CapabilityFull = "full"
-
-	// CLIDisabled means Feat neither expects nor validates the provider CLI.
-	CLIDisabled = "disabled"
-	// CLIOptional means doctor reports availability but does not fail.
-	CLIOptional = "optional"
-	// CLIRequired means task launch fails when the CLI is absent or
-	// unauthenticated.
-	CLIRequired = "required"
 
 	// ExecutionAgent runs a check inside the agent's execution environment.
 	ExecutionAgent = "agent"

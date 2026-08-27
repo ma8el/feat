@@ -35,7 +35,7 @@ Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadma
 - Agent receives no Docker socket/host Docker CLI
 - Agent may have full Git access
 - Provider work is host-side by default; the agent drafts the words and the user approves them before anything is sent
-- `gh`/`glab` in the agent environment remains a configurable path, not the one publication is built on
+- `gh`/`glab` run on the trusted host; the agent environment has no provider-CLI declaration and Feat checks none there
 - Manual application runtime lifecycle in v0
 - External diff/editor commands; no built-in source diff viewer
 - Conservative explicit cleanup

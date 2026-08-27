@@ -108,8 +108,6 @@ agent:
     docker: denied
     network: unrestricted
     git: full
-    github_cli: optional
-    gitlab_cli: required
 
 runtime:
   provider: compose
@@ -201,21 +199,13 @@ that mounts the user's host `~/.claude` itself is making the explicit choice
 [05-security-model.md](05-security-model.md) permits, and Feat does not
 second-guess it.
 
-### Provider CLI capability
-
-Each provider capability supports:
-
-- `disabled`: Feat neither expects nor validates it.
-- `optional`: `doctor` reports availability/authentication but does not fail.
-- `required`: task launch fails validation when executable/authentication is absent.
-
-Validation occurs inside the same execution environment where Claude will run the command: on the host under host-native execution, and inside the container under devcontainer execution. A check this build cannot run is reported as skipped rather than passing, and says which condition it is waiting on (ADR-028, ADR-032).
-
 ### Capabilities Feat cannot vary
 
-`docker`, `network`, and `git` accept one value each — `denied`, `unrestricted`, and `full`. Feat has no mechanism that grants an agent Docker, restricts its network, or limits its Git access, so any other value would record a promise the binary does not keep. The declaration is still made, because the execution adapter checks the running container against it. See ADR-028.
+`docker`, `network`, and `git` are the whole section, and they accept one value each — `denied`, `unrestricted`, and `full`. Feat has no mechanism that grants an agent Docker, restricts its network, or limits its Git access, so any other value would record a promise the binary does not keep. The declaration is still made, because the execution adapter checks the running container against it. See ADR-028.
 
-Under host-native execution there is no container to check. The agent runs as the user and holds whatever the user holds — Docker, the network, Git, and any provider CLI already authenticated in that environment — so every capability level describes intent there rather than a condition Feat verified. `feat doctor` reports this when the daemon is running host-native, for the reason ADR-067 discloses a policy Feat cannot read: a level that was never checked must not read as one that passed.
+`github_cli` and `gitlab_cli` were here until ADR-075 and are not replaced. Publication and ticket ingestion run on the trusted host with the credential the user already has there, so the agent's environment is never asked for one, and Feat has nothing to declare about a `gh` or `glab` that a project installs in its own image. A file that still names either key fails to load as an unknown field, and the line is deleted.
+
+Under host-native execution there is no container to check. The agent runs as the user and holds whatever the user holds — Docker, the network, and Git — so every capability describes intent there rather than a condition Feat verified. `feat doctor` reports this when the daemon is running host-native, for the reason ADR-067 discloses a policy Feat cannot read: a level that was never checked must not read as one that passed.
 
 ### A runtime is composed of its repositories
 
@@ -484,6 +474,17 @@ bounded in size for the reason a control message is: it becomes a brief, and a
 brief is what the agent is told to do. A tracker that emits the wrong shape is
 then found when the user asks whether the project is configured rather than when
 they are trying to start work.
+
+The command runs on the trusted host as the user, in their home directory. There
+is no task when it runs, so there is no worktree to run it in, and an explicit
+directory is what makes `feat doctor` and the daemon ask the same question of the
+same machine rather than inheriting whichever directory each was started in.
+
+`docs/examples/tickets` holds a worked command per tracker — GitHub Issues,
+GitHub Projects, GitLab Issues, and Shortcut — each beside the document it
+printed, and the test suite validates every one of those documents with the code
+`feat doctor` uses, for the reason `docs/examples/project.yaml` is validated
+against the configuration schema.
 
 ### Notifications and resource sampling
 

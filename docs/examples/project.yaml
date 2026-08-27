@@ -151,10 +151,6 @@ agent:
     docker: denied
     network: unrestricted
     git: full
-    # disabled, optional, or required. "required" fails task launch when the
-    # CLI is missing from the agent's environment.
-    github_cli: optional
-    gitlab_cli: disabled
 
 # Omit this section entirely for a project with no application services. What
 # the application is made of is on the repositories that bring it, above; what

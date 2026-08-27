@@ -276,8 +276,17 @@ type Task struct {
 	// when it has reported none. It is the agent's claim rather than a result
 	// anything enforced, which is why the source is part of it.
 	Verification *Verification `json:"verification"`
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
+	// Publication is what the task has recorded about publishing — one entry per
+	// repository the last publication planned, with what came of it — or null
+	// for a task that has never published.
+	//
+	// It travels with the task because it is the task's, and because the
+	// alternative is composing a plan to read it: what publishing would do now
+	// is a question with a lock and a walk of every repository behind it, and
+	// what a task published is a fact that was written down (ADR-073).
+	Publication *Publication `json:"publication"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
 }
 
 // TaskFailure is why a task is in `failed`, in the words of whatever failed.
@@ -315,6 +324,103 @@ func (v Verification) Total() int { return v.Passed + v.Failed + v.Other }
 type Source struct {
 	Kind      string `json:"kind"`
 	Reference string `json:"reference,omitempty"`
+	// Ticket is the ticket the brief was composed from, present exactly for a
+	// ticket source. It travels in both directions: a client composing a brief
+	// from a ticket sends what it read, and a task carries it back so that a
+	// caller can say which ticket the work came from.
+	Ticket *TicketReference `json:"ticket,omitempty"`
+}
+
+// Ticket is one of a project's tickets, in the shape Feat publishes as
+// schema/feat-tickets.schema.json.
+//
+// It is what the project's configured tracker command printed, validated and
+// carried unchanged. Feat parses no part of it: a reference is matched against
+// what the command emitted, and a state is the tracker's own word (ADR-071).
+type Ticket struct {
+	Reference string `json:"reference"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	URL       string `json:"url"`
+	State     string `json:"state"`
+	// Source is which tracker the ticket came from, empty for a project drawing
+	// on one. Where a merged command labels tickets with it, it becomes the
+	// provider on the task's ticket reference.
+	Source string `json:"source,omitempty"`
+}
+
+// TicketList is what a project's tracker printed, and when.
+//
+// The time is on the list rather than on each ticket because one run of the
+// command produced all of them, and it is what a snapshot taken from one of
+// them records as the moment Feat read it.
+type TicketList struct {
+	ReadAt  time.Time `json:"read_at"`
+	Tickets []Ticket  `json:"tickets"`
+}
+
+// TicketReference is the ticket a task's brief was composed from.
+//
+// It is provider-neutral because the tracker is a configured command rather
+// than an adapter per service, and it is a snapshot rather than a live read: a
+// ticket that changes never silently alters the context an agent is already
+// working from (ADR-071, FR-TASK-005).
+type TicketReference struct {
+	// Provider is which tracker the ticket came from, and is what the published
+	// shape's optional source fills.
+	Provider  string `json:"provider,omitempty"`
+	Reference string `json:"reference"`
+	URL       string `json:"url"`
+	// Snapshot is the ticket as it was when Feat read it.
+	Snapshot TicketSnapshot `json:"snapshot"`
+	// ChangeAvailable reports that the tracker has since shown something
+	// different from the snapshot.
+	ChangeAvailable bool `json:"change_available,omitempty"`
+}
+
+// NewTicketReference records one of a project's tickets as the reference a task
+// composed from it would carry.
+//
+// The read time comes from the list rather than from each ticket, because one
+// run of the tracker command produced all of them, and it is what versions the
+// snapshot: the published shape carries no revision of the tracker's own
+// (ADR-071).
+func NewTicketReference(ticket Ticket, readAt time.Time) TicketReference {
+	return TicketReference{
+		// A merged command labels each ticket with the tracker it came from,
+		// and that label is what the task records as the provider.
+		Provider:  ticket.Source,
+		Reference: ticket.Reference,
+		URL:       ticket.URL,
+		Snapshot: TicketSnapshot{
+			Title:   ticket.Title,
+			Body:    ticket.Body,
+			State:   ticket.State,
+			TakenAt: readAt,
+		},
+	}
+}
+
+// ComposeBrief renders the task title and brief a task from this ticket starts
+// with.
+//
+// It delegates to the domain, so that what the user confirms is decided in one
+// place rather than by whichever client composed it. A client that showed the
+// user one document and recorded another would make the confirmation a
+// formality (ADR-070).
+func (t TicketReference) ComposeBrief() (title, brief string) {
+	return TicketFrom(&t).ComposeBrief()
+}
+
+// TicketSnapshot is the ticket as it was when Feat read it.
+type TicketSnapshot struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	State string `json:"state"`
+	// TakenAt is when the tracker command that printed it ran, which is what
+	// versions a snapshot: the published shape carries no revision of the
+	// tracker's own.
+	TakenAt time.Time `json:"taken_at"`
 }
 
 // TaskRepository binds a task to one repository of its project.
@@ -653,6 +759,20 @@ const RuntimeTimeout = 15 * time.Minute
 // built already.
 const AgentTimeout = 3 * time.Minute
 
+// TicketTimeout bounds one listing of a project's tickets, from the request
+// arriving to the answer being written.
+//
+// It belongs to the endpoint's contract for the reason RuntimeTimeout does: both
+// ends have to hold the same number, or a client gives up on a daemon that is
+// still waiting for somebody's tracker and the user is told nothing about which
+// of the two was slow.
+//
+// Seconds rather than minutes, because the work is one request against a service
+// the user is already authenticated to. A command that has not answered in this
+// long is stuck rather than slow, and saying so is better than a picker that
+// never opens.
+const TicketTimeout = 30 * time.Second
+
 // DestroyRuntime is the body of POST /v1/tasks/{task_id}/runtime/destroy.
 //
 // It carries the user's confirmation, for the reason a launch carries the
@@ -988,6 +1108,50 @@ func newProject(project *domain.Project) Project {
 	}
 }
 
+// newTicketReference renders the ticket a task was composed from, and nothing
+// for a task written by hand.
+func newTicketReference(ticket *domain.ExternalTaskReference) *TicketReference {
+	if ticket == nil {
+		return nil
+	}
+	return &TicketReference{
+		Provider:  ticket.Provider,
+		Reference: ticket.Reference,
+		URL:       ticket.URL,
+		Snapshot: TicketSnapshot{
+			Title:   ticket.Snapshot.Title,
+			Body:    ticket.Snapshot.Body,
+			State:   ticket.Snapshot.State,
+			TakenAt: ticket.Snapshot.TakenAt.UTC(),
+		},
+		ChangeAvailable: ticket.ChangeAvailable,
+	}
+}
+
+// TicketFrom reads a ticket reference a caller sent back.
+//
+// It is the inverse of newTicketReference and lives here so that both
+// directions of one shape are read in one place. Whether the values make a
+// consistent record is the domain's to say, and it says it when the task is
+// created.
+func TicketFrom(ticket *TicketReference) *domain.ExternalTaskReference {
+	if ticket == nil {
+		return nil
+	}
+	return &domain.ExternalTaskReference{
+		Provider:  ticket.Provider,
+		Reference: ticket.Reference,
+		URL:       ticket.URL,
+		Snapshot: domain.TicketSnapshot{
+			Title:   ticket.Snapshot.Title,
+			Body:    ticket.Snapshot.Body,
+			State:   ticket.Snapshot.State,
+			TakenAt: ticket.Snapshot.TakenAt,
+		},
+		ChangeAvailable: ticket.ChangeAvailable,
+	}
+}
+
 // newProjects maps a list of projects, always as a list rather than null, so a
 // client can iterate the response without a nil check.
 func newProjects(projects []*domain.Project) []Project {
@@ -1164,6 +1328,7 @@ func newTask(task *domain.Task, verification *Verification) Task {
 		Source: Source{
 			Kind:      string(task.Source.Kind),
 			Reference: task.Source.Reference,
+			Ticket:    newTicketReference(task.Source.Ticket),
 		},
 		Workflow:     string(task.Workflow),
 		Attention:    string(task.Attention),
@@ -1172,6 +1337,7 @@ func newTask(task *domain.Task, verification *Verification) Task {
 		Session:      newSession(task.Session),
 		Runtime:      newRuntime(task.Runtime),
 		Verification: verification,
+		Publication:  newPublication(task),
 		CreatedAt:    task.CreatedAt,
 		UpdatedAt:    task.UpdatedAt,
 	}
@@ -1468,4 +1634,268 @@ func (i TerminalInput) Validate() error {
 			ErrInvalid, len(i.Text), MaxTerminalText)
 	}
 	return nil
+}
+
+// PublicationAction is one thing a user asks of a task's publication.
+//
+// There are two and they are plan and apply, for the reason cleanup's two are:
+// what is sent has to be what the user read, and a publication reaches somebody
+// else's server, where nothing Feat creates can be reliably un-created
+// (ADR-073).
+type PublicationAction string
+
+// The publication actions.
+const (
+	// PublicationPlan composes what publishing this task would do and records
+	// nothing. It is a POST because it reads the task's worktrees and the
+	// agent's draft to answer.
+	PublicationPlan PublicationAction = "plan"
+	// PublicationApply carries the approved words back and publishes. It
+	// records the plan, then applies one repository at a time, recording each
+	// result before the next begins.
+	PublicationApply PublicationAction = "apply"
+)
+
+// Valid reports whether the action is one Feat performs.
+func (a PublicationAction) Valid() bool {
+	return a == PublicationPlan || a == PublicationApply
+}
+
+// PublicationDraft is what publishing one repository would do, before anything
+// is sent.
+//
+// It is the agent's words together with what Feat already knows: the remote,
+// the base branch, and the commit. The user reads it, edits it, and only then
+// does any of it reach a forge (ADR-070).
+type PublicationDraft struct {
+	RepositoryID string `json:"repository_id"`
+	// Forge is the forge this repository's configuration declares.
+	Forge string `json:"forge"`
+	// Remote is the remote the branch would be pushed to, Branch is the task
+	// branch, and BaseBranch is what the request would ask to merge into.
+	Remote     string `json:"remote"`
+	Branch     string `json:"branch"`
+	BaseBranch string `json:"base_branch"`
+	// Commit is the repository's current head, which is what would be pushed.
+	Commit string `json:"commit"`
+	// Title and Body are the agent's draft, empty where it wrote none.
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	// DraftCommit is the commit the agent's draft describes, empty where there
+	// is no draft for this repository.
+	DraftCommit string `json:"draft_commit,omitempty"`
+	// Stale reports that the draft describes a commit that is no longer
+	// current, which is refused rather than published. It is deliberately not
+	// the same thing as Published below: one says the words are out of date and
+	// the other says the work is already on the forge (ADR-070, ADR-073).
+	Stale bool `json:"stale"`
+	// Published names the merge request already opened for this repository. A
+	// re-publication skips it as already published.
+	Published *MergeRequest `json:"published,omitempty"`
+	// Skipped names what the push will not run in this repository: a configured
+	// core.hooksPath, or a pre-push hook. It is empty when there is nothing to
+	// report.
+	Skipped []string `json:"skipped,omitempty"`
+}
+
+// Offered reports whether this repository's words are the user's to approve.
+//
+// A repository that has already published is on the forge, and a stale draft is
+// refused rather than sent whatever words it carries — the refusal is about the
+// commit the agent described rather than about the prose, so rewriting it
+// changes nothing. Neither is something an edit can resolve, so both are named
+// in the plan and left out of the document (ADR-070, ADR-073).
+func (d PublicationDraft) Offered() bool { return d.Published == nil && !d.Stale }
+
+// OfferedDrafts returns the repositories a publication may still send.
+//
+// It lives beside the wire types because two clients ask it and have to answer
+// alike: a dashboard that offered what a terminal refused — or either of them
+// refusing a whole publication over one repository the daemon would have
+// accepted without — is the drift this removes.
+func OfferedDrafts(drafts []PublicationDraft) []PublicationDraft {
+	offered := make([]PublicationDraft, 0, len(drafts))
+	for _, draft := range drafts {
+		if draft.Offered() {
+			offered = append(offered, draft)
+		}
+	}
+	return offered
+}
+
+// MergeRequest is a request Feat opened on a forge. GitHub calls it a pull
+// request; there is one shape either way.
+type MergeRequest struct {
+	Reference string `json:"reference"`
+	URL       string `json:"url"`
+}
+
+// EditorCommand is how the client opens a document in the user's editor.
+//
+// It is the project's configured editor command with its own flags kept and the
+// path it opens left off: a review command names a repository to open and a
+// publication names a draft, and the argument that said which is the one the
+// client fills in. An empty program means the project configures none, and the
+// client falls back to the editor its own environment names (FR-REV-003).
+type EditorCommand struct {
+	Program   string   `json:"program"`
+	Arguments []string `json:"arguments"`
+}
+
+// PublicationRepository is one repository's part of a recorded publication.
+type PublicationRepository struct {
+	RepositoryID string `json:"repository_id"`
+	Forge        string `json:"forge"`
+	Remote       string `json:"remote"`
+	BaseBranch   string `json:"base_branch"`
+	// Commit is the commit the approved text described and the push carried.
+	Commit string `json:"commit"`
+	// State is planned, published, or failed. A planned entry is one this
+	// publication had not attempted when it stopped, which is what makes an
+	// interrupted publication recoverable rather than mysterious.
+	State string `json:"state"`
+	// Request is the merge request that was opened, present exactly while the
+	// state is published.
+	Request *MergeRequest `json:"request,omitempty"`
+	// Failure is why this repository did not publish, in the words of whatever
+	// refused.
+	Failure     string     `json:"failure,omitempty"`
+	AttemptedAt *time.Time `json:"attempted_at"`
+}
+
+// Publication is a task's recorded publication on the wire.
+type Publication struct {
+	Repositories []PublicationRepository `json:"repositories"`
+	PlannedAt    *time.Time              `json:"planned_at"`
+	UpdatedAt    *time.Time              `json:"updated_at"`
+}
+
+// PublicationStatus is the response of every publication action.
+type PublicationStatus struct {
+	// Task is the task as it is now recorded.
+	Task Task `json:"task"`
+	// Drafts are what publishing would do, one per publishable repository. They
+	// are present on a plan and empty on an apply, which reports what happened
+	// rather than what would.
+	Drafts []PublicationDraft `json:"drafts"`
+	// Editor is how to open the draft for editing.
+	Editor EditorCommand `json:"editor"`
+	// Notes are what a user should know: a repository that cannot be published
+	// and why, a hook the push will not run, or a draft the agent never wrote.
+	Notes []string `json:"notes"`
+}
+
+// ApprovedPublication is one repository's publication, as the user approved it.
+//
+// The words are what was displayed, sent back verbatim: what is displayed is
+// what is sent, so the daemon composes the request from this rather than from
+// the agent's message. The commit is what the approval was composed against,
+// and a repository whose head has moved since is refused rather than published
+// (ADR-070, ADR-031).
+type ApprovedPublication struct {
+	RepositoryID string `json:"repository_id"`
+	Title        string `json:"title"`
+	Body         string `json:"body"`
+	Commit       string `json:"commit"`
+}
+
+// StaleApprovals names the approved repositories whose draft describes a commit
+// that is no longer current.
+//
+// The question is asked of what the user approved rather than of the whole plan,
+// which is how the daemon asks it: one repository's stale draft leaves every
+// other repository publishable. A client that refused all of them for one would
+// leave a user waiting for the agent to write a fresh draft for a repository
+// they were not publishing, and no edit would get them out of it.
+func StaleApprovals(drafts []PublicationDraft, approved []ApprovedPublication) []string {
+	stale := make(map[string]bool, len(drafts))
+	for _, draft := range drafts {
+		if draft.Stale {
+			stale[draft.RepositoryID] = true
+		}
+	}
+
+	var names []string
+	for _, one := range approved {
+		if stale[one.RepositoryID] {
+			names = append(names, one.RepositoryID)
+		}
+	}
+	return names
+}
+
+// PublishRequest is the body of POST
+// /v1/tasks/{task_id}/publication/apply.
+type PublishRequest struct {
+	Repositories []ApprovedPublication `json:"repositories"`
+}
+
+// PublicationResult is what the daemon reports after a publication action.
+type PublicationResult struct {
+	// Task is the task as it is now recorded.
+	Task *domain.Task
+	// Drafts are what publishing would do, on a plan.
+	Drafts []PublicationDraft
+	// Editor is how to open the draft for editing.
+	Editor EditorCommand
+	// Notes are what could not be done, in terms a user can act on.
+	Notes []string
+}
+
+// NewPublicationStatus renders what a publication action produced.
+//
+// The recorded publication is the task's own field rather than one beside it,
+// because the task is where it lives and a copy in this response would be a
+// second answer to what a task published (ADR-073). It travels with every task
+// for the same reason: a client that has the task has the record, and asking
+// what a publication would do now is a different and far more expensive
+// question.
+func NewPublicationStatus(result PublicationResult) PublicationStatus {
+	status := PublicationStatus{
+		Task:   newTask(result.Task, nil),
+		Drafts: result.Drafts,
+		Editor: result.Editor,
+		Notes:  result.Notes,
+	}
+	if status.Drafts == nil {
+		status.Drafts = []PublicationDraft{}
+	}
+	if status.Notes == nil {
+		status.Notes = []string{}
+	}
+	if status.Editor.Arguments == nil {
+		status.Editor.Arguments = []string{}
+	}
+	return status
+}
+
+// newPublication maps a task's recorded publication onto the wire, or nothing
+// when the task has never published.
+func newPublication(task *domain.Task) *Publication {
+	if task == nil || task.Publication == nil {
+		return nil
+	}
+
+	repositories := make([]PublicationRepository, 0, len(task.Publication.Repositories))
+	for _, entry := range task.Publication.Repositories {
+		row := PublicationRepository{
+			RepositoryID: entry.RepositoryID.String(),
+			Forge:        string(entry.Forge),
+			Remote:       entry.Remote,
+			BaseBranch:   entry.BaseBranch,
+			Commit:       entry.Commit,
+			State:        string(entry.State),
+			Failure:      entry.Failure,
+			AttemptedAt:  moment(entry.AttemptedAt),
+		}
+		if entry.Request != nil {
+			row.Request = &MergeRequest{Reference: entry.Request.Reference, URL: entry.Request.URL}
+		}
+		repositories = append(repositories, row)
+	}
+	return &Publication{
+		Repositories: repositories,
+		PlannedAt:    moment(task.Publication.PlannedAt),
+		UpdatedAt:    moment(task.Publication.UpdatedAt),
+	}
 }

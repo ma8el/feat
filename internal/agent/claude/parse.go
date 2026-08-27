@@ -174,6 +174,36 @@ func parseReport(message control.Message, kind agent.EventKind) (agent.Event, bo
 	return event, true, nil
 }
 
+// parsePublicationDraft normalizes the agent's proposed merge requests.
+//
+// The payload is a document this protocol defines rather than one Claude
+// invented, so internal/control decodes and bounds it and this adapter turns
+// what came back into an event. That is the opposite of a provider event, whose
+// payload only this package can read, and it is why a second provider would
+// reach the same validation rather than write its own.
+//
+// The summary names the repositories and never the prose. A draft's title is
+// agent-authored text bound for somewhere durable, and the event log is not
+// where a user reads it before approving it (ADR-070).
+func parsePublicationDraft(message control.Message) (agent.Event, bool, error) {
+	draft, err := control.DecodePublicationDraft(message)
+	if err != nil {
+		return agent.Event{}, false, err
+	}
+
+	names := make([]string, 0, len(draft.Repositories))
+	for _, entry := range draft.Repositories {
+		names = append(names, entry.RepositoryID)
+	}
+	return agent.Event{
+		Kind:       agent.KindPublicationDraft,
+		OccurredAt: message.OccurredAt,
+		Summary: fmt.Sprintf("the agent drafted a merge request for %s",
+			strings.Join(names, ", ")),
+		Draft: &draft,
+	}, true, nil
+}
+
 // parseQuestion normalizes an agent-authored open question.
 func parseQuestion(message control.Message) (agent.Event, bool, error) {
 	body, err := decodeReport(message)

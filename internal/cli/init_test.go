@@ -148,7 +148,6 @@ func TestProjectInitWritesAConfigurationThatLoads(t *testing.T) {
 		"",                  // default access: read_write
 		"n",                 // no second repository
 		"",                  // execution mode: host
-		"",                  // provider CLI: none
 		"",                  // no application services
 		"go test ./...",     // verification command
 		"",                  // check name
@@ -198,12 +197,11 @@ func TestProjectInitWritesAConfigurationThatLoads(t *testing.T) {
 		t.Errorf("the wizard does not say what it wrote:\n%s", stdout)
 	}
 
-	// Every group of questions is announced. A section can hold more than one —
-	// where the agent runs and which provider CLI it expects are both about the
-	// agent — and a conversation is one column of text, so the headings are the
-	// only thing that says which part of the file is being answered.
+	// Every group of questions is announced. A conversation is one column of
+	// text, so the headings are the only thing that says which part of the file
+	// is being answered.
 	for _, heading := range []string{
-		"Repositories", "Where the agent runs", "Provider CLI", "Application services", "Verification",
+		"Repositories", "Where the agent runs", "Application services", "Verification",
 	} {
 		if !strings.Contains(stdout, "\n"+heading+"\n") {
 			t.Errorf("the conversation does not announce %q:\n%s", heading, stdout)
@@ -242,7 +240,6 @@ func TestProjectInitConfiguresADevcontainerFromWhatItFinds(t *testing.T) {
 		"",          // mount for store: /srv/store
 		"",          // give Claude a volume
 		"",          // volume name: feat-claude
-		"gh",        // provider CLI
 		"n",         // no application services
 		"",          // no verification command
 		"",          // write it
@@ -271,9 +268,6 @@ func TestProjectInitConfiguresADevcontainerFromWhatItFinds(t *testing.T) {
 	if cfg.Agent.Claude.ConfigVolume != "feat-claude" {
 		t.Errorf("agent.claude.config_volume is %q", cfg.Agent.Claude.ConfigVolume)
 	}
-	if cfg.Agent.Capabilities.GitHubCLI != config.CLIOptional {
-		t.Errorf("agent.capabilities.github_cli is %q, want %q", cfg.Agent.Capabilities.GitHubCLI, config.CLIOptional)
-	}
 
 	store, _ := cfg.Repository("store")
 	if store.Agent.ContainerPath != "/srv/store" {
@@ -298,7 +292,6 @@ func TestProjectInitResolvesBasesLocallyWithoutARemote(t *testing.T) {
 	code, stdout, stderr := m.converse(t, answers(
 		"app", "", m.repository("store"), "store", "", "n",
 		"", // host
-		"", // no provider CLI
 		"n",
 		"",  // no check
 		"",  // write it
@@ -540,7 +533,6 @@ func TestTheBackendBuildsTheWizardTheDashboardAsks(t *testing.T) {
 		"",                  // default access: read_write
 		"n",                 // no second repository
 		"",                  // execution mode: host
-		"",                  // provider CLI: none
 		"n",                 // no application services
 		"",                  // no verification command
 	} {

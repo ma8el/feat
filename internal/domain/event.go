@@ -100,6 +100,20 @@ const (
 	// see that it asked and that Feat said no, on the task it happened to,
 	// rather than by reading the log of a background process.
 	EventControlRefused EventType = "control_message_refused"
+	// EventPublicationChanged records that a publication planned, published, or
+	// failed for one of a task's repositories.
+	//
+	// It exists for the reason EventCleanedUp does, and for a stronger one. A
+	// publication creates a resource on somebody else's server, one repository
+	// at a time, and does not roll back: a partial one is a recorded state. The
+	// record on the task says what exists now, and this says what happened and
+	// when — including a publication that stopped half way, which is the case a
+	// user most needs an account of (ADR-073).
+	//
+	// It carries no from and no to. A publication is per repository and a task
+	// has no publication state of its own to move between; what this event has
+	// to say is in its detail.
+	EventPublicationChanged EventType = "task_publication_changed"
 	// EventCleanedUp records that a cleanup removed one class of the resources a
 	// task owned, or failed part way through removing it.
 	//
@@ -116,7 +130,7 @@ func (t EventType) Valid() bool {
 	case EventTaskCreated, EventTaskUpdated, EventWorkflowChanged, EventAttentionChanged,
 		EventRepositoryObserved, EventProcessChanged, EventRuntimeChanged,
 		EventReviewChanged, EventExecutionChanged, EventReconciled, EventNotificationSent,
-		EventControlRefused, EventCleanedUp:
+		EventControlRefused, EventPublicationChanged, EventCleanedUp:
 		return true
 	default:
 		return false

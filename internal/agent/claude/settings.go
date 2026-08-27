@@ -82,6 +82,7 @@ func (a Adapter) generate(req agent.PrepareRequest) (generated, error) {
 			outbox:      seen.outbox(),
 			inbox:       seen.inbox(),
 			gate:        req.Gate.Configured,
+			publication: req.Publication.Configured(),
 			acknowledge: seconds(req.Gate.Acknowledge),
 			verdict:     seconds(req.Gate.Verdict),
 		})), true,
@@ -247,6 +248,8 @@ func systemPrompt(req agent.PrepareRequest, seen agentPaths) string {
 		seen.report())
 	b.WriteString("{\"question\": \"...\"} when you are blocked on a decision only the user can make.\n\n")
 
+	b.WriteString(publicationPrompt(req, seen))
+
 	b.WriteString("Your repositories are Git worktrees. Each has its own working tree, index, and branch, ")
 	b.WriteString("and shares one Git directory with the user's own checkout and with every other task — ")
 	b.WriteString("including the stash, which Git keeps as a single stack per repository rather than per worktree. ")
@@ -264,5 +267,57 @@ func systemPrompt(req agent.PrepareRequest, seen agentPaths) string {
 		b.WriteString("This session runs directly on the user's host machine, not in the container the project configures. ")
 		b.WriteString("Treat the filesystem outside your task worktrees as the user's own.\n")
 	}
+	return b.String()
+}
+
+// publicationPrompt is what the agent is told about publishing, or nothing.
+//
+// It asks for words and never for an action. The agent cannot publish: Feat
+// makes every credentialed provider call on the trusted host, and what this
+// document produces is text the user reads and edits before anything is sent
+// (ADR-070). Saying so is part of the instruction, because an agent that
+// believed it had opened a merge request would report work it had not done.
+//
+// A project with no forge configured gets nothing here, for the same reason its
+// helper does not accept the type: a document with nowhere to go is a document
+// nobody reads.
+func publicationPrompt(req agent.PrepareRequest, seen agentPaths) string {
+	if !req.Publication.Configured() {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("When you request review, also write the merge request you propose for each repository ")
+	b.WriteString("you changed:\n\n")
+	fmt.Fprintf(&b, "  %s publication_draft\n\n", seen.report())
+	b.WriteString("It reads a JSON document on standard input:\n\n")
+	b.WriteString("  {\n")
+	b.WriteString("    \"repositories\": [\n")
+	b.WriteString("      {\n")
+	fmt.Fprintf(&b, "        \"repository\": %q,\n", req.Publication.Repositories[0])
+	b.WriteString("        \"title\": \"one line, as it will appear in the merge request list\",\n")
+	b.WriteString("        \"body\": \"a few sentences on what changed and why, in Markdown\",\n")
+	b.WriteString("        \"commit\": \"the full 40-character commit this describes\"\n")
+	b.WriteString("      }\n")
+	b.WriteString("    ]\n")
+	b.WriteString("  }\n\n")
+
+	fmt.Fprintf(&b, "The repositories that can be published are: %s. ",
+		strings.Join(req.Publication.Repositories, ", "))
+	b.WriteString("Write an entry only for the ones you actually changed, and get each commit from ")
+	b.WriteString("`git rev-parse HEAD` in that repository's own worktree, after your last commit there. ")
+	b.WriteString("A draft describing a commit that is no longer current is refused rather than published, ")
+	b.WriteString("so write it when you are finished rather than in the middle.\n\n")
+
+	b.WriteString("You are not publishing anything. Feat opens merge requests from the user's machine, ")
+	b.WriteString("with the user's own credentials, and only after the user has read your words and edited them. ")
+	b.WriteString("Do not run `git push`, `gh`, or `glab` yourself. Write the description for the person ")
+	b.WriteString("who will read the change, and do not claim anything you have not verified.\n\n")
+
+	b.WriteString("Keep it short. The reviewer has the diff and the commits; the description is what those ")
+	b.WriteString("do not say — why the change was made, and anything about it that would surprise someone ")
+	b.WriteString("reading the code. A few sentences, or a handful of bullets where the change really has ")
+	b.WriteString("separate parts. Do not restate the diff file by file, do not list the tests you ran ")
+	b.WriteString("— those go in the review request — and do not add headings a paragraph would carry.\n\n")
 	return b.String()
 }

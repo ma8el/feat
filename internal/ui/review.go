@@ -159,6 +159,13 @@ func (m Model) taskPanelKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "V":
 		return m.startReview(api.ReviewVerify)
 
+	case "P":
+		// Publication, which is the other half of the end of a task and is its
+		// own screen: it is a sequence — read the draft, edit it, approve it —
+		// and what it does reaches somebody else's server. Opening it composes
+		// what publishing would do and sends nothing (ADR-070, ADR-073).
+		return m.openPublication()
+
 	case "a":
 		return m.attach()
 

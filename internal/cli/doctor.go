@@ -23,6 +23,13 @@ inside a running container for one that configures a devcontainer. Feat starts
 nothing to answer them, so they are skipped until the project has a task
 running.
 
+A project that configures a tracker has its ticket command run here, because
+what it prints is the only thing there is to validate. That is the one check
+that reaches a network, and it still changes nothing: output that does not
+conform is reported as an error naming what was wrong, and a command that could
+not be run at all is a warning, because an expired credential is not something
+editing the configuration fixes.
+
 The exit code is 0 when nothing failed and 1 when something did. Warnings do not
 fail the run.`
 

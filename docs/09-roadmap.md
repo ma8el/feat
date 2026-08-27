@@ -139,13 +139,19 @@ than after it, because the dogfood machine cannot finish a task without it
 Order:
 
 1. GitLab, which the reference project uses.
-2. GitHub as the primary public integration.
+2. GitHub as the primary public integration — and the forge Feat's own repository
+   is on, so it is what publishes the work on Feat itself. Both are built.
 
 Capabilities:
 
 - publication from the trusted host: a task's branch pushed and one MR/PR opened
   per changed repository, composed from a title and body the agent drafted and
-  the user read and edited before anything was sent (ADR-070);
+  the user read and edited before anything was sent (ADR-070). **Built**, in this
+  phase's own order: `feat task publish`, the publication screen, `internal/forge`
+  with `internal/forge/gitlab` and `internal/forge/github`. A repository
+  configured for a forge this build has no adapter for is still refused by name
+  rather than attempted, and `feat doctor` says so at configuration time, which
+  is what the next forge added here will rely on;
 - task-level linking of related provider artifacts;
 - issue/ticket linking, which needs the provider-neutral ticket reference Phase 6
   puts on the task;
@@ -156,10 +162,10 @@ Host-side execution is the recommended mode and the one built first, because it
 is the only mode that needs no provider credential inside the agent environment
 (ADR-070). Committing stays the agent's, as it already is under full Git access;
 what moves to the host is everything that reaches a remote. Native `gh`/`glab`
-inside the agent environment remains a path a project may configure, and Feat
-validates the capability it was told about, but it is no longer what the loop is
-built on. This reverses the note first recorded here, which made container-side
-native CLI access first-class and host-side execution a possible second mode.
+inside the agent environment is something a project may still install for itself,
+and since ADR-075 Feat declares nothing about it and validates nothing there.
+This reverses the note first recorded here, which made container-side native CLI
+access first-class and host-side execution a possible second mode.
 
 One capability recorded here goes away with that reversal rather than being
 dropped. Discovering one MR/PR per changed repository was needed because the

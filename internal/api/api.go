@@ -40,6 +40,16 @@ type Service interface {
 	// It returns an error matching ErrNotFound when no configuration file
 	// exists, and one matching ErrInvalid when the file does not validate.
 	RegisterProject(ctx context.Context, id domain.ProjectID) (RegisteredProject, error)
+	// Tickets runs the project's configured tracker command and returns the
+	// tickets it printed, validated against the shape Feat publishes.
+	//
+	// It runs the command every time it is asked, because that is the only way
+	// to learn what the user's tickets are now: the command decides what they
+	// are and Feat passes it no filter, so there is nothing to re-filter and
+	// nothing worth caching in place of asking (ADR-071). A project that
+	// configures no tracker returns an error matching ErrNotFound, and output
+	// that does not conform one matching ErrInvalid.
+	Tickets(ctx context.Context, id domain.ProjectID) (TicketList, error)
 	// Tasks returns every task of every project, ordered by project and task.
 	Tasks(ctx context.Context) ([]*domain.Task, error)
 	// Task returns one task addressed by task identifier alone, resolving the
@@ -112,6 +122,21 @@ type Service interface {
 	// about the work, and the runtime the user was testing it in is theirs
 	// (FR-REV-004, ADR-034).
 	Review(ctx context.Context, id domain.TaskID, action ReviewAction) (ReviewResult, error)
+	// PublicationPlan composes what publishing a task would do — one merge
+	// request per changed repository, from the agent's draft together with the
+	// remote, the base branch, and the commit — and records nothing.
+	//
+	// It is the document the user reads and edits. Nothing reaches a forge on
+	// the strength of it (ADR-070).
+	PlanPublication(ctx context.Context, id domain.TaskID) (PublicationResult, error)
+	// Publish opens one merge request per approved repository.
+	//
+	// It records the whole plan before it attempts anything and each result
+	// before the next repository begins, so that an interrupted publication
+	// names what it had not yet attempted. Nothing is rolled back: a partial
+	// publication is a recorded state, because a merge request that was just
+	// opened cannot be un-created reliably (ADR-073).
+	ApplyPublication(ctx context.Context, id domain.TaskID, request PublishRequest) (PublicationResult, error)
 	// Reconciliation returns the most recent reconciliation pass without
 	// running one, and false when none has run.
 	Reconciliation() (Reconciliation, bool)
@@ -198,6 +223,11 @@ func NewHandler(opts Options) http.Handler {
 		http.MethodPost: server.registerProject,
 	}))
 	mux.Handle("/v1/projects/{project_id}", get(server.project))
+	// A project's tickets hang off the project because the tracker is
+	// configured there: a task is what a ticket seeds, and a task belongs to one
+	// project (ADR-071). It is a GET because it records nothing; what it does is
+	// run somebody's command and read what it printed.
+	mux.Handle("/v1/projects/{project_id}/tickets", get(server.tickets))
 	mux.Handle("/v1/resources", get(server.resources))
 	mux.Handle("/v1/tasks", get(server.tasks))
 	mux.Handle("/v1/tasks/{task_id}", get(server.task))
@@ -231,6 +261,13 @@ func NewHandler(opts Options) http.Handler {
 	// records what it observed.
 	mux.Handle("/v1/tasks/{task_id}/review/{action}", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.review,
+	}))
+	// Publication sits beside review because it is the other half of the end of
+	// a task, and its two actions are plan and apply for the reason cleanup's
+	// are: what is sent has to be what the user read. The apply is the only one
+	// carrying a body, and what it carries is the words the user approved.
+	mux.Handle("/v1/tasks/{task_id}/publication/{action}", route(map[string]http.HandlerFunc{
+		http.MethodPost: server.publication,
 	}))
 	// The two cleanup endpoints are plan and execute rather than one request,
 	// for the reason preparation is plan and launch: what is removed has to be
@@ -373,6 +410,31 @@ func (s *server) registerProject(w http.ResponseWriter, r *http.Request) {
 		Project: newProject(registered.Project),
 		Created: registered.Created,
 	})
+}
+
+// tickets lists what a project's tracker command printed.
+//
+// Nothing is sent but the project identifier. Which tickets are the user's is
+// the command's decision, and Feat passes it no filter, so there is no query
+// for a caller to supply and none for this handler to validate (ADR-071).
+func (s *server) tickets(w http.ResponseWriter, r *http.Request) {
+	id := domain.ProjectID(r.PathValue("project_id"))
+	if err := id.Validate(); err != nil {
+		s.fail(w, r, fmt.Errorf("%w: %w", ErrInvalid, err))
+		return
+	}
+
+	list, err := s.service.Tickets(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if list.Tickets == nil {
+		// Always a list rather than null, so a client can iterate the response
+		// without a nil check. A user with no tickets is an answer.
+		list.Tickets = []Ticket{}
+	}
+	writeJSON(w, http.StatusOK, list)
 }
 
 // resources returns the most recent resource sample.
@@ -767,6 +829,48 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, NewReviewStatus(result))
 }
 
+// publication plans or applies one task's publication.
+func (s *server) publication(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.taskID(w, r, "task_id")
+	if !ok {
+		return
+	}
+
+	action := PublicationAction(r.PathValue("action"))
+	if !action.Valid() {
+		writeJSON(w, http.StatusNotFound, errorEnvelope{Error: Error{
+			Code:    CodeNotFound,
+			Message: "no publication action " + strconv.Quote(string(action)) + "; the actions are plan and apply",
+		}})
+		return
+	}
+
+	var result PublicationResult
+	var err error
+	if action == PublicationPlan {
+		// A plan carries no body. It asks what publishing would do, and a
+		// request that could name a title would be a caller writing the words
+		// before anybody had read them.
+		if err := decodeEmptyBody(r); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		result, err = s.service.PlanPublication(r.Context(), id)
+	} else {
+		var request PublishRequest
+		if err := decodeBody(r, &request); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		result, err = s.service.ApplyPublication(r.Context(), id, request)
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, NewPublicationStatus(result))
+}
+
 // runtimeLogs returns the command that opens the task's normal Compose logs.
 func (s *server) runtimeLogs(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.taskID(w, r, "task_id")
@@ -810,6 +914,7 @@ func (s *server) createDraft(w http.ResponseWriter, r *http.Request) {
 		Source: domain.TaskSource{
 			Kind:      domain.SourceKind(request.Source.Kind),
 			Reference: request.Source.Reference,
+			Ticket:    TicketFrom(request.Source.Ticket),
 		},
 	})
 	if err != nil {

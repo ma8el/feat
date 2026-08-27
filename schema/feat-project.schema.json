@@ -278,7 +278,7 @@
     },
 
     "capabilities": {
-      "description": "What the agent's environment may reach. The capabilities are independent: full Git access and an authenticated provider CLI say nothing about Docker. Three of them accept one value each, because Feat has no mechanism that varies them, and recording another value would be a promise the binary does not keep.",
+      "description": "What the agent's environment may reach. The capabilities are independent: full Git access says nothing about Docker. Each accepts one value, because Feat has no mechanism that varies them, and recording another value would be a promise the binary does not keep.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -296,16 +296,6 @@
           "description": "A native Git worktree shares repository metadata with the agent, which Feat does not restrict.",
           "const": "full",
           "default": "full"
-        },
-        "github_cli": {
-          "description": "Whether gh is expected in the agent's environment. \"optional\" reports availability; \"required\" fails task launch when it is missing.",
-          "enum": ["disabled", "optional", "required"],
-          "default": "disabled"
-        },
-        "gitlab_cli": {
-          "description": "Whether glab is expected in the agent's environment.",
-          "enum": ["disabled", "optional", "required"],
-          "default": "disabled"
         }
       }
     },

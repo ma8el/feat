@@ -46,6 +46,19 @@ environment. A task may span several repositories.
 > task control workspace, and goes idle only after a grace period — idle never
 > means done, and only an explicit request from the agent reaches review.
 >
+> **A task's brief can come from a ticket.** A project points `tracker.command`
+> at a command of yours that prints your tickets as JSON — `docs/examples/tickets`
+> has a worked one for GitHub Issues, GitHub Projects, GitLab Issues, and
+> Shortcut — and Feat runs it on your machine, with your own authentication and
+> no filter of its own: which tickets are yours is the command's decision.
+> `feat doctor` runs it too and reports what does not conform, so a mapping that
+> is wrong is found when you ask whether the project is configured.
+> `feat project tickets` lists them, and `feat implement --ticket <reference>`
+> matches the reference against the ones the command printed. Selecting one
+> composes a brief you then read, edit, and confirm — what you approve is that
+> brief rather than the ticket it came from, and the agent's environment never
+> sees a tracker credential.
+>
 > A project configured for a devcontainer runs its agent inside one: Feat
 > starts the configured Compose service, mounts each task worktree at the
 > container path its repository configures, mounts the task's control workspace,
@@ -77,6 +90,14 @@ environment. A task may span several repositories.
 > **Review** compares every repository against the base commit it started from,
 > opens your own diff and editor commands, and runs a gate over the project's
 > configured checks before a task is called ready.
+>
+> **Publication** closes the task. Feat opens one merge request per changed
+> repository from your own machine, with your own credentials: the agent drafts
+> the title and description, you read and edit them in your editor, and what you
+> read is what is sent. It pushes and opens one repository at a time and records
+> every result before the next, so a publication that stopped half way says what
+> it never attempted, and publishing again skips what already has a merge
+> request.
 >
 > **Recovery and cleanup** close the loop. Feat compares what it recorded with
 > what the machine actually has, reports whatever is missing, orphaned,
@@ -238,6 +259,53 @@ never look alike.
 Approving records a decision and nothing else. Nothing is stopped, nothing is
 removed, and a task whose services are still running is offered the stop rather
 than given it.
+
+## Publishing the work
+
+```sh
+feat task publish <task>   # or press P on a task's panel in the dashboard
+```
+
+Feat opens one merge request per changed repository, from your machine, with the
+authentication you already have here. The agent never holds a provider credential
+and never opens a merge request: what it writes is a draft — a title and a
+description for each repository it changed, and the commit each one describes —
+and what you read and edit is what is sent.
+
+```yaml
+repositories:
+  api:
+    forge:
+      kind: gitlab   # or github; declared, not guessed from the remote
+```
+
+GitLab and GitHub are both supported, per repository: a task spanning a private
+repository on one and a public dependency on the other opens a merge request on
+each. Feat drives your own `glab` and `gh`, already authenticated on this
+machine.
+
+Publishing shows what it would do, opens the draft in your editor, and asks once.
+It then pushes each task branch and opens each merge request one repository at a
+time, recording every result before the next begins. Nothing is undone: if the
+third of five fails, the first two are open, the fourth and fifth are still
+attempted, and publishing again skips whatever already has a merge request rather
+than opening a second one. A draft describing a commit that is no longer current
+is refused rather than published — that is a different answer from "this already
+published", and the two never read alike.
+
+`feat doctor` checks that this machine can publish what the project declares:
+that the forge's command line is installed and authenticated here, and that Feat
+has an adapter for the forge at all. It asks the host in both execution modes,
+because that is where publication runs, and nothing asks the agent's own
+environment about `gh` or `glab` — the credential is here, not there.
+
+The push runs with hooks, the pager, and external diff commands disabled, because
+a task's worktrees share `.git/hooks` with your own checkout and the agent can
+write them: approving a publication should not be how you run what the agent left
+there. Where a repository has a `pre-push` hook or a configured `core.hooksPath`,
+Feat names it before you approve, and `feat doctor` says so at configuration
+time — so if that hook is what scans for secrets before anything leaves your
+machine, you can push by hand instead.
 
 ## Knowing when to look
 

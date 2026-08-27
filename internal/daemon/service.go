@@ -15,6 +15,7 @@ import (
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution/compose"
+	"github.com/ma8el/feat/internal/forge"
 	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/notify"
 	"github.com/ma8el/feat/internal/paths"
@@ -25,6 +26,7 @@ import (
 	"github.com/ma8el/feat/internal/runtime"
 	"github.com/ma8el/feat/internal/store"
 	"github.com/ma8el/feat/internal/tmux"
+	"github.com/ma8el/feat/internal/tracker"
 )
 
 // Build identifies the running binary. It is passed in rather than read from the
@@ -56,6 +58,17 @@ type service struct {
 	// checks runs a completion gate's host checks. A nil value runs them as
 	// processes on this host.
 	checks review.Runner
+	// tracker runs a project's configured ticket command. A nil value runs it on
+	// this host. It is separate from checks because the two are separate
+	// user-supplied commands with separate owners, and because a test may want a
+	// tracker that answers while a project's checks are unrunnable.
+	tracker tracker.Runner
+
+	// forges open merge requests, one adapter per forge a repository can
+	// declare. Every credentialed provider call is made through one of them, on
+	// this host, with the authentication the user already has: the agent
+	// environment receives no provider token (ADR-070).
+	forges map[domain.ForgeKind]forge.Adapter
 	// docker runs the container commands a devcontainer task needs. A nil value
 	// drives the real Docker CLI.
 	docker compose.Runner
@@ -110,6 +123,11 @@ type service struct {
 	// agentOverride replaces api.AgentTimeout as the budget for one launch,
 	// resume, or stop. Only a test sets it, for the reason above.
 	agentOverride time.Duration
+	// ticketOverride replaces api.TicketTimeout as the budget for one listing of
+	// a project's tickets. Only a test sets it, so that what a daemon does when
+	// a tracker command outlasts its budget can be observed without a test that
+	// takes as long as the budget.
+	ticketOverride time.Duration
 
 	// idle holds the pending end-of-turn transitions, one per task.
 	idle *idleTimers

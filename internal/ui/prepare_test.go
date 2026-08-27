@@ -88,6 +88,22 @@ type fakeBackend struct {
 	reviewStatus api.ReviewStatus
 	reviewErr    error
 
+	// publicationCalls records every plan, publicationRequests every apply, and
+	// publicationEdits every time the draft was opened. Their most important
+	// assertion is what stays empty: opening the screen sends nothing, and a
+	// publication reaches the daemon only after the user has read the draft.
+	publicationCalls    []string
+	publicationRequests []api.PublishRequest
+	publicationEdits    int
+	publicationStatus   api.PublicationStatus
+	publicationDone     api.PublicationStatus
+	publicationErr      error
+	publicationApplyErr error
+	// approved is what the fake editor returns, and editorErr is a document that
+	// could not be read back.
+	approved  []api.ApprovedPublication
+	editorErr error
+
 	// cleanupCalls records every plan request and cleanupSelections every
 	// execution, so a test can assert that opening the screen removed nothing
 	// and that what reached the daemon is what the user selected.
@@ -122,6 +138,14 @@ type fakeBackend struct {
 	tasksErr     error
 	daemonStarts int
 	daemonErr    error
+
+	// tickets is what each project's tracker command printed, and ticketCalls
+	// records every project whose tracker was asked. The counter is what makes
+	// "a network call follows a key the user pressed" checkable: it stays at
+	// zero until one is.
+	tickets     map[string]api.TicketList
+	ticketCalls []string
+	ticketErr   error
 
 	planErr   error
 	launchErr error
@@ -159,6 +183,23 @@ func (f *fakeBackend) Tasks(context.Context) ([]api.Task, error) {
 		return nil, f.tasksErr
 	}
 	return f.tasks, nil
+}
+
+// Tickets answers with what a project's tracker command printed, so that a
+// screen's behaviour can be checked without a tracker, an account, or a network.
+func (f *fakeBackend) Tickets(_ context.Context, project string) (api.TicketList, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.ticketCalls = append(f.ticketCalls, project)
+	if f.ticketErr != nil {
+		return api.TicketList{}, f.ticketErr
+	}
+	list, ok := f.tickets[project]
+	if !ok {
+		return api.TicketList{}, errors.New("project " + project + " configures no tracker")
+	}
+	return list, nil
 }
 
 // StartDaemon records that the dashboard asked for one, and stops failing the
@@ -307,6 +348,55 @@ func (f *fakeBackend) Review(_ context.Context, id string, action api.ReviewActi
 	}
 	return f.reviewStatus, nil
 }
+
+// PlanPublication records the request and answers with whatever the test
+// arranged.
+func (f *fakeBackend) PlanPublication(_ context.Context, id string) (api.PublicationStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.publicationCalls = append(f.publicationCalls, id)
+
+	if f.publicationErr != nil {
+		return api.PublicationStatus{}, f.publicationErr
+	}
+	return f.publicationStatus, nil
+}
+
+// ApplyPublication records what reached the daemon, which is the assertion that
+// matters: what is sent is what the user approved.
+func (f *fakeBackend) ApplyPublication(
+	_ context.Context, _ string, request api.PublishRequest,
+) (api.PublicationStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.publicationRequests = append(f.publicationRequests, request)
+
+	if f.publicationApplyErr != nil {
+		return api.PublicationStatus{}, f.publicationApplyErr
+	}
+	return f.publicationDone, nil
+}
+
+// EditPublication stands in for the editor, returning what the test arranged as
+// though the user had typed it.
+func (f *fakeBackend) EditPublication(_ api.PublicationStatus) (PublicationEditor, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.publicationEdits++
+	return fakePublicationEditor{approved: f.approved, err: f.editorErr}, nil
+}
+
+// fakePublicationEditor is a draft that has already been through an editor.
+type fakePublicationEditor struct {
+	approved []api.ApprovedPublication
+	err      error
+}
+
+func (fakePublicationEditor) Command() tea.ExecCommand { return noopCommand{} }
+func (e fakePublicationEditor) Read() ([]api.ApprovedPublication, error) {
+	return e.approved, e.err
+}
+func (fakePublicationEditor) Close() {}
 
 // CleanupPlan records the request and answers with whatever the test arranged.
 func (f *fakeBackend) CleanupPlan(_ context.Context, id string) (api.CleanupPlan, error) {
@@ -516,6 +606,15 @@ func settle(t *testing.T, model prepareModel, cmd tea.Cmd) prepareModel {
 		if message == nil {
 			return model
 		}
+		// A batch is a list of commands rather than a message: the runtime runs
+		// each and delivers what each produces, and a harness that handed the
+		// batch itself to Update would silently drop everything in it.
+		if batch, batched := message.(tea.BatchMsg); batched {
+			for _, next := range batch {
+				model = settle(t, model, next)
+			}
+			return model
+		}
 		// A prepared message ends preparation; the root model handles it.
 		if _, done := message.(preparedMsg); done {
 			return model
@@ -536,6 +635,8 @@ func key(name string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyCtrlS}
 	case "ctrl+e":
 		return tea.KeyMsg{Type: tea.KeyCtrlE}
+	case "ctrl+t":
+		return tea.KeyMsg{Type: tea.KeyCtrlT}
 	case "ctrl+c":
 		return tea.KeyMsg{Type: tea.KeyCtrlC}
 	case "tab":
@@ -553,7 +654,7 @@ func key(name string) tea.KeyMsg {
 func prepared(t *testing.T, backend *fakeBackend) prepareModel {
 	t.Helper()
 
-	model := newPrepare(backend, "example", "", api.Source{Kind: "prompt"})
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
 	model = settle(t, model, model.Init())
 	if model.step != stepBrief {
 		t.Fatalf("step = %d, want the brief with one project registered", model.step)
@@ -586,7 +687,7 @@ func TestAFirstRunIsPointedAtTheWizard(t *testing.T) {
 	backend := newFakeBackend()
 	backend.projects = nil
 
-	model := newPrepare(backend, "", "", api.Source{Kind: "prompt"})
+	model := newPrepare(backend, prepareStart{source: api.Source{Kind: "prompt"}})
 	model = settle(t, model, model.Init())
 
 	if model.err == nil {
@@ -681,7 +782,7 @@ func TestCancellingPreparationCreatesNothing(t *testing.T) {
 func TestAReadOnlyRepositoryCannotBeCycledToReadWrite(t *testing.T) {
 	backend := newFakeBackend()
 
-	model := newPrepare(backend, "example", "", api.Source{Kind: "prompt"})
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
 	model = settle(t, model, model.Init())
 	model.title.SetValue("Add a rate limit")
 	model.brief.SetValue("Add a rate limit to the public API.")
@@ -728,8 +829,11 @@ func TestAnImportedBriefSuppliesTheTitle(t *testing.T) {
 	backend := newFakeBackend()
 	brief := "# Retry failed exports\n\nRetry three times before giving up.\n"
 
-	model := newPrepare(backend, "example", brief,
-		api.Source{Kind: "markdown", Reference: "/srv/notes/task.md"})
+	model := newPrepare(backend, prepareStart{
+		project: "example",
+		brief:   brief,
+		source:  api.Source{Kind: "markdown", Reference: "/srv/notes/task.md"},
+	})
 
 	if got := model.title.Value(); got != "Retry failed exports" {
 		t.Errorf("title = %q, want the brief's first heading", got)
@@ -749,7 +853,7 @@ func TestAnImportedBriefSuppliesTheTitle(t *testing.T) {
 func TestPreparationNeedsARepository(t *testing.T) {
 	backend := newFakeBackend()
 
-	model := newPrepare(backend, "example", "", api.Source{Kind: "prompt"})
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
 	model = settle(t, model, model.Init())
 	model.title.SetValue("Add a rate limit")
 	model.brief.SetValue("Add a rate limit to the public API.")
@@ -782,7 +886,7 @@ func TestAFailedResolutionKeepsTheDraftEditable(t *testing.T) {
 	backend := newFakeBackend()
 	backend.planErr = errors.New("branch feat/2c4e6a80-core already exists in /srv/repositories/core")
 
-	model := newPrepare(backend, "example", "", api.Source{Kind: "prompt"})
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
 	model = settle(t, model, model.Init())
 	model.title.SetValue("Add a rate limit")
 	model.brief.SetValue("Add a rate limit to the public API.")
@@ -824,7 +928,7 @@ func TestEditingTheBriefHandsTheCurrentTextToTheEditor(t *testing.T) {
 	backend := newFakeBackend()
 	const draft = "a first draft\n\n- with a list\n"
 
-	model := newPrepare(backend, "example", "", api.Source{Kind: "prompt"})
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
 	model = settle(t, model, model.Init())
 	model.brief.SetValue(draft)
 	model.focus = 1
@@ -860,7 +964,7 @@ func TestEditingTheBriefHandsTheCurrentTextToTheEditor(t *testing.T) {
 func TestABriefIsRequiredBeforeSelectingRepositories(t *testing.T) {
 	backend := newFakeBackend()
 
-	model := newPrepare(backend, "example", "", api.Source{Kind: "prompt"})
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
 	model = settle(t, model, model.Init())
 	model.title.SetValue("Add a rate limit")
 
@@ -958,4 +1062,290 @@ func (f *fakeBackend) terminalViews() []api.TerminalView {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]api.TerminalView(nil), f.frames...)
+}
+
+// ticketList is what a project's tracker printed, with one ticket labelled by a
+// merged command and one that is not.
+func ticketList() api.TicketList {
+	return api.TicketList{
+		ReadAt: time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC),
+		Tickets: []api.Ticket{
+			{
+				Reference: "ACME-14",
+				Title:     "Reset links expire too quickly",
+				Body:      "The link stops working after five minutes.",
+				URL:       "https://app.shortcut.com/acme/story/14",
+				State:     "Ready for Dev",
+				Source:    "shortcut",
+			},
+			{
+				Reference: "#42",
+				Title:     "Export the daily report",
+				Body:      "Nightly, as CSV.",
+				URL:       "https://github.com/acme/planning/issues/42",
+				State:     "open",
+			},
+		},
+	}
+}
+
+// withTickets arranges a project whose tracker prints the list above.
+func withTickets(backend *fakeBackend) {
+	backend.tickets = map[string]api.TicketList{"example": ticketList()}
+}
+
+// TestTheTrackerIsAskedOnlyWhenTheUserAsks is ADR-031's rule applied to the
+// tracker: the command reaches somebody's service over a network, so nothing may
+// run it because a screen opened or a field was edited.
+func TestTheTrackerIsAskedOnlyWhenTheUserAsks(t *testing.T) {
+	backend := newFakeBackend()
+	withTickets(backend)
+
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
+	model = settle(t, model, model.Init())
+	model.title.SetValue("Add a rate limit")
+	model.brief.SetValue("Add a rate limit to the public API.")
+
+	if len(backend.ticketCalls) != 0 {
+		t.Fatalf("the tracker ran %v before anybody asked for it", backend.ticketCalls)
+	}
+
+	model = drive(t, model, key("ctrl+t"))
+	if model.step != stepTickets {
+		t.Fatalf("step = %d, want the ticket list: %v", model.step, model.err)
+	}
+	if len(backend.ticketCalls) != 1 || backend.ticketCalls[0] != "example" {
+		t.Errorf("the tracker was asked %v, want the chosen project once", backend.ticketCalls)
+	}
+}
+
+// TestSelectingATicketComposesTheBriefTheUserConfirms is ADR-070's inbound rule:
+// the ticket fills the same editable brief a typed prompt is written in, and it
+// is that document — not the ticket — that the confirmation displays and the
+// agent receives.
+func TestSelectingATicketComposesTheBriefTheUserConfirms(t *testing.T) {
+	backend := newFakeBackend()
+	withTickets(backend)
+
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
+	model = settle(t, model, model.Init())
+	model = drive(t, model, key("ctrl+t"), key("enter"))
+
+	if model.step != stepBrief {
+		t.Fatalf("step = %d, want the brief after selecting a ticket: %v", model.step, model.err)
+	}
+	brief := model.brief.Value()
+	for _, want := range []string{
+		"ACME-14", "Reset links expire too quickly", "Ready for Dev",
+		"https://app.shortcut.com/acme/story/14", "shortcut",
+		"The link stops working after five minutes.",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the composed brief does not carry %q:\n%s", want, brief)
+		}
+	}
+	if !strings.Contains(model.title.Value(), "ACME-14") {
+		t.Errorf("title = %q, and it does not name the ticket", model.title.Value())
+	}
+
+	// And the source records the ticket, which is what a merge request later
+	// names and what a ticket observed again is compared against.
+	if model.source.Kind != "ticket" || model.source.Ticket == nil {
+		t.Fatalf("source = %+v, want a ticket source carrying the ticket", model.source)
+	}
+	if model.source.Ticket.Provider != "shortcut" {
+		t.Errorf("provider = %q, and a merged command's label is what fills it",
+			model.source.Ticket.Provider)
+	}
+	if !model.source.Ticket.Snapshot.TakenAt.Equal(ticketList().ReadAt) {
+		t.Errorf("the snapshot says it was read at %s, want when the list was read at %s",
+			model.source.Ticket.Snapshot.TakenAt, ticketList().ReadAt)
+	}
+}
+
+// TestATicketBriefReachesTheDaemonThroughTheOrdinaryPath checks that a task
+// composed from a ticket is created by the same requests a typed prompt is, so
+// that the confirmation, the fingerprint, and every other invariant of
+// preparation apply to it unchanged.
+func TestATicketBriefReachesTheDaemonThroughTheOrdinaryPath(t *testing.T) {
+	backend := newFakeBackend()
+	withTickets(backend)
+
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
+	model = settle(t, model, model.Init())
+	model = drive(t, model, key("ctrl+t"), key("enter"), key("ctrl+s"), key("enter"))
+
+	if model.step != stepReview {
+		t.Fatalf("step = %d, want the review screen: %v", model.step, model.err)
+	}
+	if len(backend.created) != 1 {
+		t.Fatalf("%d drafts were created, want one", len(backend.created))
+	}
+
+	created := backend.created[0]
+	if created.Source.Kind != "ticket" || created.Source.Ticket == nil {
+		t.Fatalf("the draft's source is %+v, want the ticket it was composed from", created.Source)
+	}
+	if created.Source.Ticket.Reference != "ACME-14" {
+		t.Errorf("reference = %q", created.Source.Ticket.Reference)
+	}
+	// What was sent is what the screen displayed, which is the whole of the
+	// approval (ADR-070).
+	if created.Brief != model.brief.Value() {
+		t.Errorf("the brief sent is not the one on screen:\nsent:\n%s\nshown:\n%s",
+			created.Brief, model.brief.Value())
+	}
+	if strings.Contains(created.Brief, "\r") {
+		t.Error("the brief carries carriage returns")
+	}
+}
+
+// TestATicketReferenceIsMatchedAgainstWhatTheCommandEmitted is ADR-071's rule
+// that Feat never parses a reference: `--ticket` re-runs the command and matches
+// what it printed, so a tracker whose keys look like anything at all works.
+func TestATicketReferenceIsMatchedAgainstWhatTheCommandEmitted(t *testing.T) {
+	backend := newFakeBackend()
+	withTickets(backend)
+
+	model := newPrepare(backend, prepareStart{
+		project: "example", source: api.Source{Kind: "prompt"}, ticket: "#42",
+	})
+	model = settle(t, model, model.Init())
+
+	if model.err != nil {
+		t.Fatalf("preparing from a ticket: %v", model.err)
+	}
+	if model.step != stepBrief {
+		t.Fatalf("step = %d, want the brief with the ticket already composed", model.step)
+	}
+	if !strings.Contains(model.brief.Value(), "Export the daily report") {
+		t.Errorf("the brief is not the named ticket's:\n%s", model.brief.Value())
+	}
+	if model.source.Ticket == nil || model.source.Ticket.Reference != "#42" {
+		t.Errorf("source = %+v, want the ticket the reference named", model.source)
+	}
+	if model.source.Ticket.Provider != "" {
+		t.Errorf("provider = %q for a ticket the command did not label",
+			model.source.Ticket.Provider)
+	}
+}
+
+// TestATicketReferenceTheCommandDidNotEmitSaysWhatItDid checks the answer to a
+// reference that is not in the list. Which tickets are the user's is the
+// command's decision, so the answer names what it printed rather than claiming
+// the ticket does not exist.
+func TestATicketReferenceTheCommandDidNotEmitSaysWhatItDid(t *testing.T) {
+	backend := newFakeBackend()
+	withTickets(backend)
+
+	model := newPrepare(backend, prepareStart{
+		project: "example", source: api.Source{Kind: "prompt"}, ticket: "ACME-99",
+	})
+	model = settle(t, model, model.Init())
+
+	if model.err == nil {
+		t.Fatal("a reference the command did not print was accepted")
+	}
+	for _, want := range []string{"ACME-99", "ACME-14", "#42"} {
+		if !strings.Contains(model.err.Error(), want) {
+			t.Errorf("the failure does not say %q: %v", want, model.err)
+		}
+	}
+	// Preparation continues rather than ending: the brief is still there to be
+	// written by hand.
+	if model.step != stepBrief {
+		t.Errorf("step = %d, want the brief", model.step)
+	}
+	if model.source.Kind == "ticket" {
+		t.Error("the source says the task came from a ticket that was never found")
+	}
+}
+
+// TestAProjectWithNoTrackerSaysSoRatherThanShowingAnEmptyList checks that the
+// absence reaches the user as the daemon's own words.
+func TestAProjectWithNoTrackerSaysSoRatherThanShowingAnEmptyList(t *testing.T) {
+	backend := newFakeBackend()
+
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
+	model = settle(t, model, model.Init())
+	model = drive(t, model, key("ctrl+t"))
+
+	if model.step != stepBrief {
+		t.Fatalf("step = %d, want the brief", model.step)
+	}
+	if model.err == nil || !strings.Contains(model.err.Error(), "no tracker") {
+		t.Errorf("the failure does not say the project configures no tracker: %v", model.err)
+	}
+}
+
+// TestTheTicketListShowsWhatTheTrackerPrinted checks that the selection shows
+// the tracker's own words rather than a vocabulary of Feat's (ADR-071).
+func TestTheTicketListShowsWhatTheTrackerPrinted(t *testing.T) {
+	backend := newFakeBackend()
+	withTickets(backend)
+
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
+	model = settle(t, model, model.Init())
+	model = drive(t, model, key("ctrl+t"))
+
+	view := model.View(newActivity())
+	for _, want := range []string{"ACME-14", "Ready for Dev", "shortcut", "#42", "open"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the ticket list does not show %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestChoosingATicketAfterADraftWasRecordedStartsAgain checks the one way the
+// brief and the recorded source could come apart.
+//
+// A draft records where its brief came from when it is created, and updating one
+// replaces its title, brief, and repositories rather than that. So a user who
+// resolves a draft, steps back, and then chooses a ticket must get a new draft:
+// a task whose brief is the ticket's and whose source says otherwise is a record
+// nothing could act on (ADR-071).
+func TestChoosingATicketAfterADraftWasRecordedStartsAgain(t *testing.T) {
+	backend := newFakeBackend()
+	withTickets(backend)
+
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
+	model = settle(t, model, model.Init())
+	model.title.SetValue("Add a rate limit")
+	model.brief.SetValue("Add a rate limit to the public API.")
+
+	// Forward to the review screen, which is what records the draft, and back.
+	model = drive(t, model, key("ctrl+s"), key("enter"))
+	if len(backend.created) != 1 {
+		t.Fatalf("%d drafts were created, want the one the resolve recorded", len(backend.created))
+	}
+	recorded := backend.created[0]
+	model = drive(t, model, key("esc"), key("esc"))
+	if model.step != stepBrief {
+		t.Fatalf("step = %d, want the brief", model.step)
+	}
+
+	model = drive(t, model, key("ctrl+t"), key("enter"))
+
+	if len(backend.cancelled) != 1 {
+		t.Errorf("cancelled %v, want the one draft recorded before the ticket was chosen",
+			backend.cancelled)
+	}
+	if recorded.Source.Kind != "prompt" {
+		t.Errorf("the discarded draft's source was %q", recorded.Source.Kind)
+	}
+
+	// And the next resolve records a new draft, whose source is the ticket.
+	model = drive(t, model, key("ctrl+s"), key("enter"))
+	if len(backend.created) != 2 {
+		t.Fatalf("%d drafts were created, want a second one for the ticket", len(backend.created))
+	}
+	if source := backend.created[1].Source; source.Kind != "ticket" || source.Ticket == nil {
+		t.Errorf("the second draft's source is %+v, want the ticket", source)
+	}
+	// And nothing was cancelled twice. Choosing the ticket returns the model
+	// that has forgotten the draft it discarded, so the resolve after it has
+	// nothing left to cancel and creates rather than updates.
+	if len(backend.cancelled) != 1 {
+		t.Errorf("cancelled %v, want only the draft the ticket replaced", backend.cancelled)
+	}
 }

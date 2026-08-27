@@ -28,6 +28,12 @@ You choose the project, write the task brief, and select which repositories the
 task may read and write. Feat then fetches, resolves each repository's base
 commit, and proposes the branches and worktree paths it would create.
 
+The brief can come from a ticket. --ticket runs the project's configured tracker
+command and matches the reference it names against the ones that command printed;
+without it, the same list is one key press away while you are writing the brief.
+Either way Feat composes a brief from the ticket into the field you are editing,
+and what you confirm is that composed brief rather than the ticket it came from.
+
 Nothing is created until you confirm that proposal, and confirming creates
 exactly what was displayed: a draft that changed in between is refused rather
 than launched.`
@@ -46,6 +52,17 @@ func newImplementCommand(env *environment) *cobra.Command {
 			project, err := cmd.Flags().GetString("project")
 			if err != nil {
 				return err
+			}
+			ticket, err := cmd.Flags().GetString("ticket")
+			if err != nil {
+				return err
+			}
+			if ticket != "" && file != "" {
+				// A brief comes from one source. Composing from a ticket over a
+				// document the user chose to import would silently discard one
+				// of the two things they asked for.
+				return errors.New(
+					"a task brief comes from one source: pass --file or --ticket, not both")
 			}
 			if project != "" {
 				// Validated here so that a malformed identifier is a usage
@@ -89,11 +106,15 @@ func newImplementCommand(env *environment) *cobra.Command {
 				Prepare: true,
 				Brief:   brief,
 				Source:  source,
+				Ticket:  ticket,
 			})
 		},
 	}
 	cmd.Flags().String("file", "", "read the task brief from a Markdown file")
 	cmd.Flags().String("project", "", "prepare the task in this project")
+	// The reference is the tracker's own, exactly as its command printed it.
+	// Feat parses no part of one: it re-runs the command and matches (ADR-071).
+	cmd.Flags().String("ticket", "", "compose the brief from this ticket of the project's tracker")
 	return cmd
 }
 

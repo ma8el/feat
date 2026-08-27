@@ -1,0 +1,20 @@
+{
+  "read_at": "2026-08-07T09:44:22Z",
+  "tickets": [
+    {
+      "reference": "ACME-14",
+      "title": "Reset links expire too quickly",
+      "body": "The link stops working after five minutes.",
+      "url": "https://app.shortcut.com/acme/story/14",
+      "state": "Ready for Dev",
+      "source": "shortcut"
+    },
+    {
+      "reference": "#42",
+      "title": "Export the daily report",
+      "body": "",
+      "url": "https://github.com/acme/planning/issues/42",
+      "state": "open"
+    }
+  ]
+}

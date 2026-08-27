@@ -178,12 +178,6 @@ func (c *Config) resolveAgent(opts Options) error {
 	if capabilities.Git == "" {
 		capabilities.Git = CapabilityFull
 	}
-	if capabilities.GitHubCLI == "" {
-		capabilities.GitHubCLI = CLIDisabled
-	}
-	if capabilities.GitLabCLI == "" {
-		capabilities.GitLabCLI = CLIDisabled
-	}
 
 	execution := &c.Agent.Execution
 	if execution.Devcontainer() {

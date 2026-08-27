@@ -74,6 +74,7 @@ func newTaskCommand(env *environment, attach, review *cobra.Command) *cobra.Comm
 		newTaskListCommand(env),
 		attach,
 		review,
+		newPublishCommand(env),
 		newResumeCommand(env),
 		newStopCommand(env),
 		newCleanupCommand(env),

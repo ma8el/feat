@@ -49,13 +49,16 @@ feat
 feat implement
 feat implement --file task.md
 feat implement --project <project>
+feat implement --ticket <reference>
 feat project init [<project>]
 feat project add <project>
 feat project list
 feat project show <project>
+feat project tickets <project>
 feat task list
 feat task attach <task>
 feat task review <task>
+feat task publish <task>
 feat task resume <task>
 feat task stop <task>
 feat task cleanup <task>
@@ -71,6 +74,8 @@ feat daemon run
 ```
 
 `feat` without arguments opens the dashboard. `feat implement` opens task preparation and creates nothing until the user confirms the final task brief and repository selection. Confirming creates exactly what was displayed: a draft that changed since the plan was shown is refused rather than launched, and `--project` preselects the project without removing the confirmation. See ADR-031.
+
+`feat project tickets` runs the project's configured tracker command and lists what it printed. `feat implement --ticket` runs the same command and matches the reference it was given against the ones that command emitted; Feat parses no part of a reference, and passes the command no filter. Selecting a ticket — by that flag, or from the same list offered while the brief is being written — composes a brief from it into the field a typed prompt is written in, so the confirmation, the fingerprint, and every other invariant of preparation apply unchanged. What the confirmation displays is that composed brief rather than the ticket it came from. See ADR-070 and ADR-071.
 
 `feat project add` takes the project's identifier, which is also its configuration file's name; the daemon reads the file from the configuration directory rather than from a path a caller supplies. See ADR-028.
 
@@ -112,6 +117,17 @@ approval offers to stop a task's services rather than stopping them. Destroying
 asks for confirmation, retains every volume, and never touches a resource the
 project declares external. See ADR-034.
 
+`feat task publish <task>` opens one merge request per changed repository, from
+this machine and with the authentication the user already has here. The agent
+holds no provider credential and publishes nothing: it drafts a title and a
+description per repository, and what the user reads and edits in their own editor
+is what is sent. It shows what publishing would do, opens that draft, asks once,
+and then pushes and opens one repository at a time, recording every result before
+the next. Nothing is undone: a failure on the third of five leaves the first two
+open, still attempts the last two, and publishing again skips whatever already
+has a merge request. It needs a terminal, because reading the draft is the whole
+of the control. See ADR-070 and ADR-073.
+
 `feat task cleanup <task>` prints the exact inventory of what a task owns and removes
 only what is selected. Each class is a separate choice, dirty or unmerged work
 needs a second confirmation naming what would be lost, and volumes are retained
@@ -124,5 +140,5 @@ a terminal the inventory is printed and nothing is removed. See ADR-037.
 
 - **v0.1 dogfood:** the multi-repository reference project, Claude Code in a non-root devcontainer, manual Compose lifecycle, macOS, local prompt/Markdown tasks.
 - **v0.2 public preview:** generalized configuration, host-native execution, macOS and Linux, public documentation and release packaging.
-- Ticket ingestion, automated runtime phases, provider publication workflows, stable hostnames, additional agents, and remote control are roadmap work unless explicitly pulled forward.
+- Ticket ingestion, automated runtime phases, stable hostnames, additional agents, and remote control are roadmap work unless explicitly pulled forward. Publication was pulled forward, ahead of the public preview, because a dogfood task cannot finish without it; the tracker follows it. See ADR-072.
 

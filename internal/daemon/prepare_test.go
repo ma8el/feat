@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -92,12 +93,26 @@ type fakeGit struct {
 	// dirty makes every worktree report uncommitted changes, which is what a
 	// cleanup has to warn about before it removes one.
 	dirty bool
+	// ahead is how many commits a task worktree has beyond its recorded base,
+	// which is what makes a repository worth publishing.
+	ahead int
 	// branches are the refs the fake has, so a deletion can report whether
 	// there was anything to delete.
 	branches map[string]bool
 	// failRemove makes removing a worktree fail once its path ends in this
 	// repository identifier.
 	failRemove string
+	// hooksPath answers `config --get core.hooksPath`, empty when it is unset.
+	hooksPath string
+	// pushed records the refspecs pushed, by remote, so a test can assert what
+	// reached a remote and in which order.
+	pushed []string
+	// environments records the extra environment of each call, so a test can
+	// assert what a push ran under as well as what it ran.
+	environments [][]string
+	// failPush makes a push fail once the worktree it runs in ends in this
+	// repository identifier.
+	failPush string
 }
 
 func newFakeGit() *fakeGit {
@@ -126,9 +141,35 @@ func (f *fakeGit) vectors() []string {
 	return rendered
 }
 
-func (f *fakeGit) Run(_ context.Context, dir string, args ...string) (string, error) {
+func (f *fakeGit) Run(ctx context.Context, dir string, args ...string) (string, error) {
+	return f.RunWith(ctx, dir, nil, args...)
+}
+
+// pushes returns the refspecs pushed so far, in order.
+func (f *fakeGit) pushes() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.pushed...)
+}
+
+// pushEnvironments returns the extra environment of every push, in order.
+func (f *fakeGit) pushEnvironments() [][]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var found [][]string
+	for i, call := range f.calls {
+		if len(call) > 0 && call[0] == "push" && i < len(f.environments) {
+			found = append(found, f.environments[i])
+		}
+	}
+	return found
+}
+
+func (f *fakeGit) RunWith(_ context.Context, dir string, env []string, args ...string) (string, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, append([]string(nil), args...))
+	f.environments = append(f.environments, append([]string(nil), env...))
 	f.mu.Unlock()
 
 	// A real command cannot run in a directory that is not there, and neither
@@ -145,6 +186,35 @@ func (f *fakeGit) Run(_ context.Context, dir string, args ...string) (string, er
 	switch {
 	case args[0] == "rev-parse" && args[1] == "--git-dir":
 		return ".git", nil
+
+	case args[0] == "rev-parse" && args[1] == "--git-path":
+		// Where a push looks for the hooks it is not going to run. The directory
+		// does not exist in a fake, which answers the ordinary case: a
+		// repository with no pre-push hook.
+		return filepath.Join(dir, ".git", "hooks"), nil
+
+	case args[0] == "config":
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.hooksPath == "" {
+			return "", &git.ExitError{Args: args, Dir: dir, Code: 1}
+		}
+		return f.hooksPath, nil
+
+	case args[0] == "push":
+		f.mu.Lock()
+		failing := f.failPush != "" && filepath.Base(dir) == f.failPush
+		if !failing {
+			f.pushed = append(f.pushed, args[len(args)-1])
+		}
+		f.mu.Unlock()
+		if failing {
+			return "", &git.ExitError{
+				Args: args, Dir: dir, Code: 1,
+				Stderr: "remote: GitLab: You are not allowed to push code to this project.",
+			}
+		}
+		return "", nil
 
 	case args[0] == "rev-parse" && strings.HasPrefix(args[len(args)-1], "HEAD"):
 		// What a task worktree has checked out. A fake with none answers the
@@ -274,7 +344,9 @@ func (f *fakeGit) Run(_ context.Context, dir string, args ...string) (string, er
 		return "", nil
 
 	case args[0] == "rev-list":
-		return "0", nil
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return strconv.Itoa(f.ahead), nil
 
 	case args[0] == "merge-base":
 		return "", &git.ExitError{Args: args, Dir: dir, Code: 1}
@@ -311,7 +383,7 @@ func arrangeTaskWith(t *testing.T, fake *fakeGit, body string) *preparation {
 	// The checkouts the configuration names have to exist, because the fake
 	// answers for the directories it is asked about rather than for any
 	// directory.
-	for _, name := range []string{"api", "store"} {
+	for _, name := range fixtureRepositories(t, body) {
 		// With a .git directory, because a task worktree is only a repository
 		// while the main checkout's Git directory is reachable — which is what a
 		// containerised task has to mount (ADR-033).
@@ -356,6 +428,63 @@ func arrangeTaskWith(t *testing.T, fake *fakeGit, body string) *preparation {
 		state:   layout.State,
 		home:    env.Home,
 		env:     env,
+	}
+}
+
+// fixtureRepositories reads the repository identifiers out of a fixture.
+//
+// It is read from the document rather than passed in, so that a fixture with
+// three repositories cannot be arranged with the checkouts of a fixture with
+// two — which is a failure that surfaces as Git refusing a directory rather
+// than as a test saying what is wrong.
+//
+// The document is read by the package that reads it in production rather than
+// scanned for indented lines. A fixture that quotes an identifier, indents by
+// four spaces, or puts a comment between two entries is the same configuration
+// to Feat, and a helper that answered one of those with the wrong names would
+// arrange the wrong checkouts and leave Git to be blamed for it. The file name
+// is empty because there is none: the only rule it decides is that a document's
+// project identifier matches what it is stored as, and this is not stored.
+func fixtureRepositories(t *testing.T, body string) []string {
+	t.Helper()
+
+	cfg, err := config.Parse("", []byte(body))
+	if err != nil {
+		t.Fatalf("reading the repositories out of the fixture: %v", err)
+	}
+	return cfg.RepositoryIDs()
+}
+
+// TestAReformattedFixtureArrangesTheSameCheckouts is why the fixture is parsed
+// rather than scanned.
+//
+// Four-space indentation, a quoted identifier, and a comment between two entries
+// are the same configuration to Feat. A reader that answered any of them with
+// the wrong names would arrange checkouts for repositories the fixture does not
+// have, and the test that then failed would be a Git error about a directory
+// rather than anything about the fixture.
+func TestAReformattedFixtureArrangesTheSameCheckouts(t *testing.T) {
+	reformatted := `version: 1
+
+project:
+    id: app
+    name: Example Application
+    primary_repository: api
+
+repositories:
+    # The one the agent may write to.
+    "api":
+        host_path: ~/repos/app/api
+        default_access: read_write
+
+    store:
+        host_path: ~/repos/app/store
+        default_access: read_only
+`
+
+	names := fixtureRepositories(t, reformatted)
+	if len(names) != 2 || names[0] != "api" || names[1] != "store" {
+		t.Errorf("the fixture reader answered %v, want both repositories", names)
 	}
 }
 

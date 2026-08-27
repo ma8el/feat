@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/ma8el/feat/internal/config"
+	"github.com/ma8el/feat/internal/tracker"
 )
 
 // Severity classifies one diagnostic finding.
@@ -73,6 +74,11 @@ type Options struct {
 	Resolve config.Options
 	// Runner runs host commands. A nil value uses the real host.
 	Runner Runner
+	// Tracker runs a project's configured ticket command. A nil value runs it
+	// on this host; a test supplies its own, because whether a project is
+	// configured should not depend on the tester holding an account with
+	// somebody's tracker.
+	Tracker tracker.Runner
 	// Projects limits the run to these project identifiers. Empty means every
 	// configured project.
 	Projects []string
@@ -189,7 +195,12 @@ func diagnoseProject(ctx context.Context, opts Options, id string) Diagnosis {
 		report.Findings = append(report.Findings, registrationFinding(id, opts.Registered(id)))
 	}
 
-	checks := &checker{runner: opts.Runner, config: cfg}
+	checks := &checker{
+		runner:  opts.Runner,
+		tracker: opts.Tracker,
+		config:  cfg,
+		home:    opts.Resolve.Env.Home,
+	}
 	report.Findings = append(report.Findings, checks.run(ctx)...)
 	return report
 }

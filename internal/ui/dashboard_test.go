@@ -87,6 +87,51 @@ func TestVerificationIsShownAsAClaimRatherThanAResult(t *testing.T) {
 	}
 }
 
+// TestThePanelShowsWhatTheTaskPublished is what a user closing the publication
+// screen keeps.
+//
+// Nothing is rolled back, so a publication leaves a merge request per
+// repository, a failure, or an entry it never reached — and re-opening the
+// publication screen to be told so would compose a fresh plan, which is a lock,
+// a walk of every repository, and a read of the agent's outbox. The record is
+// the task's, and the panel draws it (ADR-073).
+func TestThePanelShowsWhatTheTaskPublished(t *testing.T) {
+	published := liveTask()
+	published.Publication = &api.Publication{Repositories: []api.PublicationRepository{
+		{RepositoryID: "core", State: "published", Request: &api.MergeRequest{
+			Reference: "!128", URL: "https://forge.example.com/example/core/-/merge_requests/128"}},
+		{RepositoryID: "schema", State: "failed", Failure: "GitLab: protected branch"},
+		{RepositoryID: "docs", State: "planned"},
+	}}
+
+	model := dashboard(newFakeBackend(), published)
+	model.selected = published.ID
+	model.screen = screenTask
+	panel := model.taskPanel()
+
+	for _, want := range []string{
+		"publication",
+		"merge_requests/128",
+		"GitLab: protected branch",
+		// The one an interrupted publication leaves, which is the entry a user
+		// acts on: publishing again finishes exactly these.
+		"not attempted",
+	} {
+		if !strings.Contains(panel, want) {
+			t.Errorf("the task panel does not show %q:\n%s", want, panel)
+		}
+	}
+
+	// A task that never published has no section at all, rather than a heading
+	// over nothing.
+	quiet := dashboard(newFakeBackend(), liveTask())
+	quiet.selected = liveTask().ID
+	quiet.screen = screenTask
+	if strings.Contains(quiet.taskPanel(), "publication") {
+		t.Errorf("a task that never published has a publication section:\n%s", quiet.taskPanel())
+	}
+}
+
 func pendingDraft() api.Task {
 	return api.Task{
 		ID: "2c4e6a80-1b3d-4f52-8a7c-9e0d1f2a3b4c", Key: "2c4e6a80",

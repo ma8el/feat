@@ -18,6 +18,9 @@ import (
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/execution/compose"
+	"github.com/ma8el/feat/internal/forge"
+	"github.com/ma8el/feat/internal/forge/github"
+	"github.com/ma8el/feat/internal/forge/gitlab"
 	"github.com/ma8el/feat/internal/git"
 	"github.com/ma8el/feat/internal/notify"
 	"github.com/ma8el/feat/internal/paths"
@@ -27,6 +30,7 @@ import (
 	"github.com/ma8el/feat/internal/store"
 	"github.com/ma8el/feat/internal/store/fs"
 	"github.com/ma8el/feat/internal/tmux"
+	"github.com/ma8el/feat/internal/tracker"
 )
 
 // Server timeouts.
@@ -65,11 +69,20 @@ type Options struct {
 	// probes inside its own container instead, through the execution
 	// environment. A nil value probes this host.
 	Agent agent.Runner
+	// Forges open merge requests. A nil map uses the adapters this build has,
+	// driving the real forge CLIs on this host; a test supplies its own, because
+	// whether a publication records what it opened should not depend on the
+	// tester having an authenticated account on somebody's GitLab.
+	Forges map[domain.ForgeKind]forge.Adapter
 	// Checks runs the configured checks a completion gate executes on the
 	// trusted host. A nil value runs them as processes here; a test supplies its
 	// own, because whether a gate reports what it ran should not depend on which
 	// tools the tester happens to have installed.
 	Checks review.Runner
+	// Tracker runs a project's configured ticket command on the trusted host. A
+	// nil value runs it here; a test supplies its own, because which tickets are
+	// somebody's is decided by a command Feat does not ship.
+	Tracker tracker.Runner
 	// Docker runs the container commands that create and observe a task's
 	// devcontainer. A nil value drives the real Docker CLI; a test supplies its
 	// own so that a container that refuses to start, or turns out to run as
@@ -215,6 +228,8 @@ func New(opts Options) (*Daemon, error) {
 			agent:         claude.New(),
 			runner:        probe,
 			checks:        opts.Checks,
+			tracker:       opts.Tracker,
+			forges:        forges(opts),
 			docker:        opts.Docker,
 			runtimeDocker: opts.RuntimeDocker,
 
@@ -463,4 +478,23 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	return instance.Serve(ctx)
+}
+
+// forges are the forge adapters a daemon publishes through.
+//
+// Both the roadmap's Phase 3 forges are here, in the order it adds them: GitLab
+// is what the reference project's application repositories use, and GitHub is
+// the primary public integration and the one Feat's own repository is on. A
+// repository configured for a forge with no adapter is refused by name when it
+// is published rather than at startup, so a project with one such repository
+// still works for all the others — and `feat doctor` says so before a task
+// reaches that point (ADR-074).
+func forges(opts Options) map[domain.ForgeKind]forge.Adapter {
+	if opts.Forges != nil {
+		return opts.Forges
+	}
+	return map[domain.ForgeKind]forge.Adapter{
+		domain.ForgeGitLab: gitlab.New(nil),
+		domain.ForgeGitHub: github.New(nil),
+	}
 }

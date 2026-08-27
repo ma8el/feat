@@ -6,12 +6,13 @@ feat daemon start [--log-level]
 feat daemon status
 feat daemon stop
 feat doctor
-feat implement [--file] [--project]
+feat implement [--file] [--project] [--ticket]
 feat project
 feat project add <project>
 feat project init [<project>] [--dry-run]
 feat project list
 feat project show <project>
+feat project tickets <project>
 feat review <task>
 feat runtime
 feat runtime create <task>
@@ -24,6 +25,7 @@ feat task
 feat task attach <task>
 feat task cleanup <task>
 feat task list
+feat task publish <task>
 feat task resume <task>
 feat task review <task>
 feat task stop <task>

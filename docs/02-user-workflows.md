@@ -47,7 +47,7 @@ Writing the file by hand is the same workflow without the first five steps: copy
 Either way:
 
 1. `feat doctor` validates paths and required executables on the host.
-2. For devcontainer execution, Feat validates the configured service, non-root user, Claude executable, required mounts, and optional `gh`/`glab` availability inside the environment.
+2. For devcontainer execution, Feat validates the configured service, non-root user, Claude executable, and required mounts inside the environment. `gh`/`glab` are validated on the host instead, where publication runs (ADR-075).
 3. Feat resolves and prints the effective configuration without printing secret values.
 4. The user registers the project.
 
@@ -89,7 +89,7 @@ Where a ticket lives is the command's business rather than Feat's. Issues attach
 Flow:
 
 1. Feat lists matching tickets.
-2. The user selects one or several tickets.
+2. The user selects one. A task carries one ticket, because the reference on the task is what a merge request names and what a change is compared against, and neither has an answer for several (ADR-071).
 3. Feat snapshots what the ticket schema carries: a reference, a title, a body, a URL, and a state. Anything richer belongs in the brief, which is Markdown and holds whatever the user wants (ADR-071).
 4. Whether comments reach the body is the configured command's decision rather than Feat's. Selection by Feat would need a path that fetches comments itself, and none is scheduled.
 5. The snapshot is placed in the task control workspace and does not mutate while the agent is working.
@@ -185,12 +185,12 @@ Target versions may start services based on configured phases or an agent-writte
 
 ## 9. Publish changes
 
-Publishing is scheduled before the public preview (ADR-072). Every credentialed call is made by the daemon on the trusted host, and the agent environment receives no provider token (ADR-070).
+Publishing was scheduled before the public preview (ADR-072) and is built. Every credentialed call is made by the daemon on the trusted host, and the agent environment receives no provider token (ADR-070). It is `feat task publish <task>`, and `P` on a task's panel in the dashboard.
 
 1. The agent writes a publication draft — a title and a body per repository — into the control workspace when it requests review, which is while it still knows what it did. The draft asks for nothing and needs no capability.
-2. The user reads it and edits it through the configured editor command. What was displayed is what is sent.
+2. The user reads it on the publication screen, which draws the title and the whole description that would be sent, and may rewrite it through the configured editor command. Nothing is sent before every line of it has been displayed — in Feat, or in the editor it was opened in. What was displayed is what is sent (ADR-076).
 3. A draft describing a commit that is no longer current is refused rather than published, as a stale launch plan is refused (ADR-031).
-4. On approval Feat pushes each changed repository's task branch and opens one PR/MR per repository, composing the final request from the agent's prose and what Feat already knows: the base branch, the task, and the ticket the task came from.
+4. On approval Feat pushes each changed repository's task branch and opens one PR/MR per repository, composing the final request from the agent's prose and what Feat already knows: the remote, the base branch, the task's own branch, and — added to the draft the user reads rather than to the request, so it can be deleted — the ticket the task came from.
 5. The push runs with hooks and the external pager and diff commands disabled, and the approval step names any `pre-push` hook it is skipping.
 6. Repositories are published one at a time, each result recorded before the next begins. A failure on one does not abort the others, nothing is rolled back, and re-publishing skips a repository that already has a recorded request (ADR-073).
 7. Merge remains outside Feat.

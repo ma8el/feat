@@ -1,0 +1,16 @@
+[
+  {
+    "reference": "api#204",
+    "title": "Move the nightly export off the primary",
+    "body": "It runs at 02:00 and holds a read lock long enough to be noticed by the first European traffic.",
+    "url": "https://github.com/acme/api/issues/204",
+    "state": "Ready"
+  },
+  {
+    "reference": "web#89",
+    "title": "Show which environment the dashboard is pointed at",
+    "body": "",
+    "url": "https://github.com/acme/web/issues/89",
+    "state": "Ready"
+  }
+]

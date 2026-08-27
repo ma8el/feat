@@ -27,9 +27,9 @@ func diagnosisReport() api.Diagnosis {
 					Action:  "name a service the Compose files define",
 				},
 				{
-					Check: "capabilities.github_cli", Severity: api.SeverityWarning,
+					Check: "publication.github", Severity: api.SeverityWarning,
 					Summary: "gh is not authenticated",
-					Action:  "run gh auth login in the agent environment",
+					Action:  "run gh auth login on this host",
 				},
 				{
 					Check: "runtime.services", Severity: api.SeveritySkipped,

@@ -336,8 +336,6 @@ func checkEnums(t *testing.T, root *schema, cfg *config.Config) {
 		{"$defs.capabilities.properties.docker", cfg.Agent.Capabilities.Docker},
 		{"$defs.capabilities.properties.network", cfg.Agent.Capabilities.Network},
 		{"$defs.capabilities.properties.git", cfg.Agent.Capabilities.Git},
-		{"$defs.capabilities.properties.github_cli", cfg.Agent.Capabilities.GitHubCLI},
-		{"$defs.capabilities.properties.gitlab_cli", cfg.Agent.Capabilities.GitLabCLI},
 	} {
 		if check.value == "" {
 			// Absent in the file, so a default applies and the schema records

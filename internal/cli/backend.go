@@ -54,6 +54,16 @@ func (b *backend) Tasks(ctx context.Context) ([]api.Task, error) {
 	return b.client.Tasks(ctx)
 }
 
+// Tickets runs the project's configured tracker command through the daemon.
+//
+// The daemon runs it rather than this process, because that is where every
+// credentialed provider call is made and where the answer becomes a task
+// (ADR-070). `feat doctor` is the exception and says why: it validates a
+// project's configuration before a daemon exists.
+func (b *backend) Tickets(ctx context.Context, project string) (api.TicketList, error) {
+	return b.client.Tickets(ctx, project)
+}
+
 func (b *backend) Events(ctx context.Context, handle func(api.Event) error) error {
 	return b.client.Events(ctx, handle)
 }
@@ -236,6 +246,43 @@ func (b *backend) EditorCommand(path string) (tea.ExecCommand, error) {
 	command := exec.Command(fields[0], append(fields[1:], path)...)
 	return execCommand{command}, nil
 }
+
+// PlanPublication composes what publishing a task would do, sending nothing.
+func (b *backend) PlanPublication(ctx context.Context, id string) (api.PublicationStatus, error) {
+	return b.client.PlanPublication(ctx, id)
+}
+
+// ApplyPublication opens one merge request per approved repository.
+func (b *backend) ApplyPublication(
+	ctx context.Context, id string, request api.PublishRequest,
+) (api.PublicationStatus, error) {
+	return b.client.ApplyPublication(ctx, id, request)
+}
+
+// EditPublication writes the draft of a plan and returns it on its way to the
+// editor.
+//
+// It is the document `feat task publish` writes, through the same constructor:
+// the file, the parser, and the read-back are shared, and what differs is that
+// the dashboard has to release the terminal before the editor runs and is told
+// afterwards. Closing it is the caller's, which for the dashboard is the
+// callback Bubble Tea runs when the editor exits.
+func (b *backend) EditPublication(plan api.PublicationStatus) (ui.PublicationEditor, error) {
+	draft, err := newPublicationDraft(plan, b.env)
+	if err != nil {
+		return nil, err
+	}
+	return draft, nil
+}
+
+var _ ui.PublicationEditor = (*publicationDraft)(nil)
+
+// Command opens the draft in the user's editor.
+//
+// It is the one part of a publication draft that is Bubble Tea's, so it lives
+// here beside the other commands the dashboard runs with the terminal released,
+// rather than with the document the rest of the type is about (ADR-031).
+func (d *publicationDraft) Command() tea.ExecCommand { return execCommand{d.command} }
 
 // NewWizard builds the project wizard the dashboard asks its questions from.
 //

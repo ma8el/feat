@@ -25,6 +25,8 @@ func (p prepareModel) View(indicator activity) string {
 		out.WriteString(p.repositoryView())
 	case stepReview:
 		out.WriteString(p.reviewView())
+	case stepTickets:
+		out.WriteString(p.ticketView())
 	}
 
 	out.WriteString("\n")
@@ -47,9 +49,16 @@ func (p prepareModel) View(indicator activity) string {
 // trail shows where the user is, and that nothing exists until the last step.
 func (p prepareModel) trail() string {
 	steps := []string{"project", "brief", "repositories", "review"}
+	// The ticket list is a way of filling the brief rather than a stage of its
+	// own, and it returns to the brief, so that is where the trail says the user
+	// is.
+	current := p.step
+	if current == stepTickets {
+		current = stepBrief
+	}
 	rendered := make([]string, 0, len(steps))
 	for i, name := range steps {
-		if step(i) == p.step {
+		if step(i) == current {
 			rendered = append(rendered, selectedStyle.Render(name))
 			continue
 		}
@@ -93,6 +102,42 @@ func (p prepareModel) briefView() string {
 	out.WriteString("\n")
 	out.WriteString(indentPlain(p.brief.View(), "  ") + "\n\n")
 	out.WriteString(mutedStyle.Render("  the agent receives this brief exactly as written") + "\n")
+	return out.String()
+}
+
+// ticketView is the project's tickets offered as a selection.
+//
+// It shows what the tracker printed and nothing Feat inferred: the state is the
+// tracker's own word, and the reference is the tracker's own identifier
+// (ADR-071). Selecting one composes a brief from it, which is the document the
+// user then reads, edits, and confirms.
+func (p prepareModel) ticketView() string {
+	var out strings.Builder
+	out.WriteString(mutedStyle.Render("which ticket is this task for?") + "\n\n")
+
+	rows := make([][]string, 0, len(p.tickets))
+	for i, ticket := range p.tickets {
+		marker, reference := "  ", ticket.Reference
+		if i == p.cursor {
+			marker = selectedStyle.Render("▸ ")
+			reference = selectedStyle.Render(ticket.Reference)
+		}
+		rows = append(rows, []string{
+			marker + reference,
+			ticket.Title,
+			mutedStyle.Render(ticket.State),
+			mutedStyle.Render(ticket.Source),
+		})
+	}
+	out.WriteString(renderTable([]column{
+		{title: "  TICKET", width: 16},
+		{title: "TITLE", width: 52},
+		{title: "STATE", width: 18},
+		{title: "TRACKER"},
+	}, rows))
+
+	out.WriteString("\n\n" + mutedStyle.Render(
+		"  selecting one writes a brief from it, which you read and edit before anything is created") + "\n")
 	return out.String()
 }
 
@@ -231,6 +276,7 @@ func (p prepareModel) hints() string {
 		return keyHints(
 			keyHint("tab", "title/brief"),
 			keyHint("ctrl+e", "edit in $EDITOR"),
+			keyHint("ctrl+t", "from a ticket"),
 			keyHint("ctrl+s", "continue"),
 			keyHint("esc", "back"),
 			keyHint("ctrl+c", "cancel"),
@@ -248,6 +294,13 @@ func (p prepareModel) hints() string {
 			keyHint("enter", "confirm and launch"),
 			keyHint("esc", "back"),
 			keyHint("x", "discard draft"),
+		)
+	case stepTickets:
+		return keyHints(
+			keyHint("↑↓", "select"),
+			keyHint("enter", "write a brief from it"),
+			keyHint("esc", "back"),
+			keyHint("ctrl+c", "cancel"),
 		)
 	}
 	return ""
