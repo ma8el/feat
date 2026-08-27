@@ -296,7 +296,7 @@ func publicationPrompt(req agent.PrepareRequest, seen agentPaths) string {
 	b.WriteString("      {\n")
 	fmt.Fprintf(&b, "        \"repository\": %q,\n", req.Publication.Repositories[0])
 	b.WriteString("        \"title\": \"one line, as it will appear in the merge request list\",\n")
-	b.WriteString("        \"body\": \"what changed and why, in Markdown\",\n")
+	b.WriteString("        \"body\": \"a few sentences on what changed and why, in Markdown\",\n")
 	b.WriteString("        \"commit\": \"the full 40-character commit this describes\"\n")
 	b.WriteString("      }\n")
 	b.WriteString("    ]\n")
@@ -313,5 +313,11 @@ func publicationPrompt(req agent.PrepareRequest, seen agentPaths) string {
 	b.WriteString("with the user's own credentials, and only after the user has read your words and edited them. ")
 	b.WriteString("Do not run `git push`, `gh`, or `glab` yourself. Write the description for the person ")
 	b.WriteString("who will read the change, and do not claim anything you have not verified.\n\n")
+
+	b.WriteString("Keep it short. The reviewer has the diff and the commits; the description is what those ")
+	b.WriteString("do not say — why the change was made, and anything about it that would surprise someone ")
+	b.WriteString("reading the code. A few sentences, or a handful of bullets where the change really has ")
+	b.WriteString("separate parts. Do not restate the diff file by file, do not list the tests you ran ")
+	b.WriteString("— those go in the review request — and do not add headings a paragraph would carry.\n\n")
 	return b.String()
 }
