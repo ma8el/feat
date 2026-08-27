@@ -18,8 +18,7 @@ code `feat doctor` uses, so an example cannot drift from what Feat accepts.
 
 ## Using one
 
-Copy the script somewhere on your path, edit the two or three values at the top
-that name your own board, and point the project at it:
+Copy the script somewhere on your path and point the project at it:
 
 ```yaml
 tracker:
