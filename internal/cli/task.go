@@ -37,9 +37,14 @@ what every command that takes a task accepts.`
 // It is repeated rather than stated once somewhere else, because the command a
 // user is reading is where they need it: the defect this answers was a user
 // reading `feat attach <task>` with nowhere to get the argument from.
-const taskArgument = `<task> is a task's short key as ` + "`feat task list`" + ` prints it, its full
-identifier, or any prefix of that identifier. A prefix that matches more than
-one task is reported rather than resolved to one of them.`
+//
+// One line, because it is appended to fourteen commands and was most of what the
+// shortest of them said — `feat runtime start` was eight words about starting
+// services and thirty-five about task identifiers. What it lost is the rule that
+// an ambiguous prefix is refused rather than guessed at, which the refusal itself
+// states better: it names every task the reference matched, which a sentence here
+// could only describe.
+const taskArgument = `<task> is a short key, a full identifier, or a prefix of one.`
 
 // withTaskArgument appends that sentence to a command's help.
 func withTaskArgument(long string) string {
