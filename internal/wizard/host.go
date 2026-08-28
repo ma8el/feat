@@ -22,11 +22,15 @@ type Host interface {
 	ComposeFiles(dir string) []string
 	// ComposeServices returns the services the given Compose files declare.
 	ComposeServices(files ...string) []string
-	// Compose reads what one repository's own Compose files propose, with the
-	// repository's checkout as the directory their relative paths resolve
-	// against. It reads structure and never a value: no environment entry, no
-	// build argument, and no environment file.
-	Compose(root string, files ...string) Composition
+	// Compose reads what Compose files propose about one repository. The project
+	// directory is what their relative paths resolve against, which is the
+	// directory Compose itself will be given; the repository is the checkout
+	// being asked about. The two are one directory for a repository's own
+	// application files, and two for the agent's own container: those files live
+	// wherever the user keeps them and are asked about every repository in turn.
+	// It reads structure and never a value: no environment entry, no build
+	// argument, and no environment file.
+	Compose(projectDir, repository string, files ...string) Composition
 	// Exists reports whether a path is there now. A file that is not is worth
 	// saying and is not worth refusing: a Compose file that is generated, or
 	// that lives on a branch not checked out right now, is still the right

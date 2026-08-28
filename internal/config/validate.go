@@ -156,7 +156,7 @@ type mount struct {
 func checkOverlaps(found *problems, kind string, mounts []mount) {
 	for i, outer := range mounts {
 		for _, inner := range mounts[i+1:] {
-			if !overlaps(outer.path, inner.path) {
+			if !PathsOverlap(outer.path, inner.path) {
 				continue
 			}
 			found.add(fmt.Sprintf("repositories.%s.%s.container_path", inner.id, kind), fmt.Sprintf(
@@ -336,7 +336,7 @@ func (c *Config) validateWorktreeRoot(found *problems, p probe) {
 		if host == "" {
 			continue
 		}
-		if overlaps(filepath.ToSlash(host), filepath.ToSlash(resolved)) {
+		if PathsOverlap(filepath.ToSlash(host), filepath.ToSlash(resolved)) {
 			found.add(field, fmt.Sprintf(
 				"expands to %q, which overlaps the checkout of repository %s at %q: task worktrees must live outside the repositories they come from",
 				resolved, id, host))
@@ -402,7 +402,7 @@ func (c *Config) validateClaudeConfigPath(found *problems) {
 		return
 	}
 
-	if control := c.Agent.Execution.ControlPath; control != "" && overlaps(control, claude.ConfigPath) {
+	if control := c.Agent.Execution.ControlPath; control != "" && PathsOverlap(control, claude.ConfigPath) {
 		found.add("agent.claude.config_path", fmt.Sprintf(
 			"is %q, which overlaps the control workspace at %q: Claude's configuration and the task control workspace must be separate",
 			claude.ConfigPath, control))
@@ -410,7 +410,7 @@ func (c *Config) validateClaudeConfigPath(found *problems) {
 	}
 	for _, id := range c.RepositoryIDs() {
 		container := c.Repositories[id].Agent.ContainerPath
-		if container != "" && overlaps(container, claude.ConfigPath) {
+		if container != "" && PathsOverlap(container, claude.ConfigPath) {
 			found.add("agent.claude.config_path", fmt.Sprintf(
 				"is %q, which overlaps the mount of repository %s at %q: Claude's configuration must not be mounted inside a repository",
 				claude.ConfigPath, id, container))
@@ -498,7 +498,7 @@ func (c *Config) validateExecution(found *problems) {
 	}
 	for _, id := range c.RepositoryIDs() {
 		container := c.Repositories[id].Agent.ContainerPath
-		if container != "" && overlaps(container, execution.ControlPath) {
+		if container != "" && PathsOverlap(container, execution.ControlPath) {
 			found.add("agent.execution.control_path", fmt.Sprintf(
 				"is %q, which overlaps the mount of repository %s at %q: the control workspace must be separate from every repository",
 				execution.ControlPath, id, container))
@@ -878,8 +878,13 @@ func (c *Config) probe() probe {
 	return probe{projectID: id, repositoryID: repository}
 }
 
-// overlaps reports whether one path is the other, or is inside it.
-func overlaps(a, b string) bool {
+// PathsOverlap reports whether one path is the other, or is inside it.
+//
+// It is exported because the questions that compose a configuration have to
+// refuse what loading one refuses, in the words of the question rather than at
+// the end of the conversation. Two implementations of the same rule would drift,
+// and the one a user meets first would be the one that was wrong.
+func PathsOverlap(a, b string) bool {
 	a = strings.TrimSuffix(a, "/")
 	b = strings.TrimSuffix(b, "/")
 	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")

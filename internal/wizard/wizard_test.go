@@ -26,6 +26,17 @@ type fakeHost struct {
 	// inspected counts the directories Git was asked about, which is what makes
 	// "it derives rather than asks" checkable.
 	inspected int
+	// composed records what the Compose reader was asked, because the agent's
+	// own files and a repository's application files are read by the same call
+	// and what separates them is which two directories it is given.
+	composed []composeCall
+}
+
+// composeCall is one reading: the directory the paths in those files resolve
+// against, and the repository being asked about.
+type composeCall struct {
+	projectDir string
+	repository string
 }
 
 func (h *fakeHost) Inspect(_ context.Context, path string) (Checkout, error) {
@@ -58,11 +69,32 @@ func (h *fakeHost) ComposeServices(files ...string) []string {
 	return []string{"dev", "worker"}
 }
 
-// Compose answers what the api checkout's own Compose file says about itself:
-// two services, one of which mounts the repository at /srv and publishes a
-// port, and one built from the repository itself.
-func (h *fakeHost) Compose(root string, files ...string) Composition {
-	if len(files) == 0 || root != filepath.Join(h.root, "api") {
+// Compose answers what one set of Compose files says about one repository.
+//
+// There are two sets on this machine and they answer differently, which is the
+// arrangement rather than an awkward fixture: each repository answers two mount
+// questions, and where the agent's own container holds a checkout is a
+// different question from where an application's services expect its source.
+//
+// The api checkout's own files declare two services, one mounting it at /srv
+// and publishing a port and one built from it. The devcontainer kept in a
+// directory of its own mounts api at /opt/api and says nothing Feat can read
+// about the store checkout — an interpolated source is a value Feat must not
+// resolve, so it is named rather than derived from.
+func (h *fakeHost) Compose(projectDir, repository string, files ...string) Composition {
+	h.composed = append(h.composed, composeCall{projectDir: projectDir, repository: repository})
+	if len(files) == 0 {
+		return Composition{}
+	}
+
+	if projectDir == filepath.Join(h.root, "devcontainer") {
+		if repository != filepath.Join(h.root, "api") {
+			return Composition{Undecided: []string{files[0] + ": service dev: a volume"}}
+		}
+		return Composition{Services: []string{"dev"}, ContainerPath: "/opt/api"}
+	}
+
+	if repository != filepath.Join(h.root, "api") {
 		return Composition{}
 	}
 	return Composition{
@@ -390,6 +422,161 @@ func TestTheDevcontainerQuestionsFollowTheMode(t *testing.T) {
 		t.Fatalf("the answers do not compose a configuration: %v", err)
 	}
 	for _, want := range []string{"mode: devcontainer", "service: dev", "user: developer", "/srv/api"} {
+		if !strings.Contains(string(review.Text), want) {
+			t.Errorf("the configuration does not contain %q:\n%s", want, review.Text)
+		}
+	}
+}
+
+// TestTheAgentsMountIsProposedFromItsOwnComposeFiles points the agent section at
+// the reader the runtime section already uses on the same kind of file.
+//
+// The agent's files are read against their own first file's directory, which is
+// the project directory the daemon passes Compose when it starts the agent, and
+// they are asked about each repository in turn: one container holds every
+// repository a task takes, and a file can name a different path for each. Where
+// they name one, that is the mount point; where they name none, Feat keeps a
+// path of its own, because Feat generates this mount itself and is entitled to
+// choose where it goes.
+func TestTheAgentsMountIsProposedFromItsOwnComposeFiles(t *testing.T) {
+	flow, host := start(t, "app")
+
+	// The agent's Compose files are beside neither repository, which is the
+	// arrangement the two directories exist for: a devcontainer kept in a
+	// repository of its own resolves its own relative paths against itself while
+	// answering about repositories somewhere else.
+	agentFile := filepath.Join(host.root, "devcontainer", "compose.yaml")
+	answers(t, flow,
+		"",             // display name
+		"",             // the checkout: the working directory, which is the api repository
+		"api",          // repository identifier
+		"",             // default access: read_write
+		"y",            // a second repository
+		"store",        // its checkout
+		"store",        // its identifier
+		"",             // default access: selectable
+		"n",            // no third repository
+		"",             // the repository a task works in: api
+		"devcontainer", // execution mode
+		agentFile,
+		"",          // no more Compose files
+		"dev",       // the service the agent runs in
+		"developer", // the user it runs as
+	)
+
+	mount, _ := flow.Step()
+	if mount.ID != "agent.mount" {
+		t.Fatalf("the question after the container user is %s", mount.ID)
+	}
+	if mount.Proposed != "/opt/api" {
+		t.Errorf("the mount for api is proposed as %q, want the path the agent's own files mount "+
+			"it at rather than the one its application's files do", mount.Proposed)
+	}
+	// Read against the files' own directory and asked about the repository. The
+	// daemon gives Compose exactly that project directory, so reading them any
+	// other way would answer a different question from the one Compose is asked.
+	want := composeCall{
+		projectDir: filepath.Dir(agentFile),
+		repository: filepath.Join(host.root, "api"),
+	}
+	if got := host.composed[len(host.composed)-1]; got != want {
+		t.Errorf("the agent's files were read as %+v, want %+v", got, want)
+	}
+	answer(t, flow, "")
+
+	// The repository those files say nothing about keeps Feat's own default, and
+	// the entry that could not be read is named: a default a user cannot tell
+	// from a derivation is a value that appeared out of nowhere.
+	second, _ := flow.Step()
+	if second.ID != "agent.mount" || second.Proposed != "/srv/store" {
+		t.Fatalf("the mount for store is %s proposing %q, want the default /srv/store",
+			second.ID, second.Proposed)
+	}
+	if !strings.Contains(strings.Join(second.Notes, " "), "interpolate") {
+		t.Errorf("the entry left unread is not named beside the default it caused: %v", second.Notes)
+	}
+	answers(t, flow,
+		"",  // the default
+		"n", // no configuration volume for Claude
+		"n", // no application services
+	)
+
+	review, err := flow.Review()
+	if err != nil {
+		t.Fatalf("the answers do not compose a configuration: %v", err)
+	}
+	for _, want := range []string{"container_path: /opt/api\n", "container_path: /srv/store\n"} {
+		if !strings.Contains(string(review.Text), want) {
+			t.Errorf("the configuration does not contain %q:\n%s", want, review.Text)
+		}
+	}
+}
+
+// TestAMountInsideAnotherRepositorysMountIsRefusedWhereItIsGiven is the failure
+// the derived proposal made reachable.
+//
+// Two proposals of "/srv/<id>" are always siblings, so before the mount could be
+// read out of the Compose files, the wizard could not compose an overlapping
+// pair. A path the files state can be the parent of the next repository's
+// default — and configuration refuses two repositories mounted inside one
+// another when the composed file is loaded back, which is after the last
+// question. Meeting it there ends the conversation and takes every answer with
+// it, so it is met here instead.
+func TestAMountInsideAnotherRepositorysMountIsRefusedWhereItIsGiven(t *testing.T) {
+	flow, host := start(t, "app")
+	answers(t, flow,
+		"",             // display name
+		"",             // the checkout: the working directory, which is the api repository
+		"api",          // repository identifier
+		"",             // default access: read_write
+		"y",            // a second repository
+		"store",        // its checkout
+		"store",        // its identifier
+		"",             // default access: selectable
+		"n",            // no third repository
+		"",             // the repository a task works in: api
+		"devcontainer", // execution mode
+		filepath.Join(host.root, "devcontainer", "compose.yaml"),
+		"",          // no more Compose files
+		"dev",       // the service the agent runs in
+		"developer", // the user it runs as
+		"/srv",      // api, mounted where the second repository's default would go
+	)
+
+	// The default for the second repository is inside the first one's mount, so
+	// the answer the field already holds is the one refused.
+	question, _ := flow.Step()
+	if question.ID != "agent.mount" || question.Proposed != "/srv/store" {
+		t.Fatalf("the question is %s proposing %q, want the default for the second repository",
+			question.ID, question.Proposed)
+	}
+	err := flow.Answer(context.Background(), "")
+	if err == nil {
+		t.Fatal("a mount inside another repository's mount was accepted")
+	}
+	for _, want := range []string{"/srv/store", "/srv", "api"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q: %v", want, err)
+		}
+	}
+
+	// And the conversation is where it was, with the same question waiting, which
+	// is the whole point of asking it here.
+	again, ok := flow.Step()
+	if !ok || again.ID != "agent.mount" {
+		t.Fatalf("a refused mount moved the flow to %s", again.ID)
+	}
+	answers(t, flow,
+		"/opt/store", // somewhere else entirely
+		"n",          // no configuration volume for Claude
+		"n",          // no application services
+	)
+
+	review, err := flow.Review()
+	if err != nil {
+		t.Fatalf("the corrected answers do not compose a configuration: %v", err)
+	}
+	for _, want := range []string{"container_path: /srv\n", "container_path: /opt/store\n"} {
 		if !strings.Contains(string(review.Text), want) {
 			t.Errorf("the configuration does not contain %q:\n%s", want, review.Text)
 		}

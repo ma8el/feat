@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
+
+	"github.com/ma8el/feat/internal/paths"
 )
 
 // Checkout is what an ordinary Git checkout can say about itself.
@@ -280,10 +282,39 @@ func serviceNames(file string) []string {
 type Composition struct {
 	// Services are what the files declare, in name order.
 	Services []ComposeService
+	// Mounts are the paths inside the repository that a bind mount names one at
+	// a time, rather than mounting the repository itself — which is what
+	// SourceTargets holds.
+	//
+	// They are the mounts a task cannot take for granted. A task works in a
+	// worktree, and a worktree holds only what Git tracks, so a mount naming an
+	// ignored `.env` or a `node_modules` built in place names something that
+	// will not be there. What to do about that is the caller's: a file a build
+	// step creates is a legitimate absence, so this is read to report and never
+	// to refuse (internal/runtime/compose/explain.go).
+	Mounts []MountedPath
+	// UnreadMounts names the bind mounts left unread because they interpolate.
+	//
+	// They are in Undecided as well, and they are separately here because they
+	// are what a report about mounts cannot speak for: one that listed what it
+	// checked and stayed silent about what it could not read would claim a
+	// coverage it does not have.
+	UnreadMounts []string
 	// Undecided names the entries left unread because they interpolate. It is
 	// what turns "Feat proposed nothing" into "Feat could not tell, and here is
 	// where to look".
 	Undecided []string
+}
+
+// MountedPath is one path inside the repository that a bind mount names.
+type MountedPath struct {
+	// Path is the absolute host path the mount's source resolves to, resolved
+	// the way Compose will resolve it.
+	Path string
+	// Where is the file and the service that wrote the entry, in the words the
+	// unread entries are named in: a reader sent to look at one has the same
+	// problem either way.
+	Where string
 }
 
 // ComposeService is one service, as much of it as Feat reads.
@@ -396,18 +427,44 @@ func (c Composition) Names() []string {
 	return names
 }
 
-// ComposeComposition reads the given Compose files structurally.
+// ComposeReader reads Compose files structurally, for one repository.
 //
-// The root is the repository's checkout, which is what a relative path inside
-// these files resolves against: it is the `project_directory` Feat gives this
-// repository's include entry, so reading them any other way would answer a
-// different question from the one Compose will be asked.
+// The three fields are what a path inside those files needs to mean what it
+// will mean to Compose. Reading them any other way answers a different question
+// from the one Compose is going to be asked, which is the only way this can be
+// wrong while looking right.
+type ComposeReader struct {
+	// Env is what a leading "~" expands against.
+	//
+	// Compose expands one — measured against Docker Compose v2.40, which renders
+	// `~/.claude` as the user's home directory — so a reader that did not would
+	// place such a path somewhere it will never be. Only the current user's home
+	// is expandable, because that is all paths.Expand resolves: a "~other" is
+	// left unread rather than guessed at.
+	Env paths.Environment
+	// ProjectDir is what a relative path resolves against: the
+	// `project_directory` Compose will be given.
+	ProjectDir string
+	// Repository is the checkout being asked about, whose own mounts and build
+	// contexts are the ones worth reporting.
+	//
+	// It is separate from ProjectDir because the two are one directory only by
+	// coincidence. A repository's application files are given that repository's
+	// checkout as their project directory, so the coincidence holds there and a
+	// caller sets both to it. The agent's own Compose files are given the
+	// directory of the first of them and are asked about each configured
+	// repository in turn, so there the two differ and a reader that assumed one
+	// would answer about the wrong repository.
+	Repository string
+}
+
+// Read reads the given Compose files.
 //
 // It is best effort and returns no error, for the reason ComposeServices does:
 // a file that does not parse, uses a feature this does not model, or is not
 // there yet is a file with nothing to propose from, and the caller asks its
 // question without a proposal.
-func ComposeComposition(root string, files ...string) Composition {
+func (r ComposeReader) Read(files ...string) Composition {
 	var composition Composition
 	index := make(map[string]int)
 
@@ -425,15 +482,16 @@ func ComposeComposition(root string, files ...string) Composition {
 			}
 			// Later files merge over earlier ones, exactly as Compose merges
 			// them: the dev overlay adds the mount the base image baked in.
-			composition.mergeService(position, root, file, document.Services[name])
+			r.mergeService(&composition, position, file, document.Services[name])
 		}
 	}
 	sort.Strings(composition.Undecided)
+	sort.Strings(composition.UnreadMounts)
 	return composition
 }
 
 // mergeService folds one file's entry for a service into what is known of it.
-func (c *Composition) mergeService(position int, root, file string, raw yaml.RawMessage) {
+func (r ComposeReader) mergeService(c *Composition, position int, file string, raw yaml.RawMessage) {
 	var entry composeServiceDocument
 	if err := yaml.Unmarshal(raw, &entry); err != nil {
 		return
@@ -446,21 +504,45 @@ func (c *Composition) mergeService(position int, root, file string, raw yaml.Raw
 		if !ok {
 			if interpolated(volume) {
 				c.Undecided = append(c.Undecided, where+": a volume")
+				c.unread(where + ": a volume interpolates, so it was not read")
 			}
 			continue
 		}
-		if !isRepositoryRoot(root, source) {
+		resolved, ok := r.absolutePath(source)
+		if !ok {
+			// A path this could not resolve is not a path it may place. The only
+			// way to reach this is a "~" that is not the current user's home,
+			// which paths.Expand refuses rather than guesses at, or a machine
+			// whose home directory cannot be established at all.
+			c.unread(where + ": a volume names a path outside this user's home, so it was not read")
 			continue
 		}
-		if !contains(service.SourceTargets, target) {
-			service.SourceTargets = append(service.SourceTargets, target)
+		if resolved == filepath.Clean(r.Repository) {
+			if !contains(service.SourceTargets, target) {
+				service.SourceTargets = append(service.SourceTargets, target)
+			}
+			continue
+		}
+		// Everything else that comes out of the repository. A mount of one file
+		// or one directory inside it is not a candidate for the container path —
+		// a whole worktree mounted at one target would not replace it — but it
+		// is a path the mount needs to be there, and that is a different
+		// question from the one the container path answers.
+		if within(r.Repository, resolved) {
+			c.mounted(MountedPath{Path: resolved, Where: where})
 		}
 	}
 
 	switch context, read, undecided := buildContext(entry.Build); {
 	case read:
-		service.BuildContext = absolutePath(root, context)
-		service.BuildsFromSource = within(root, service.BuildContext)
+		// A context this cannot resolve leaves the service with none, which is
+		// the conservative half of the answer: an unread context is not
+		// redirected at a task's worktree, and a service Feat says nothing about
+		// builds exactly as its own files say it does.
+		if resolved, ok := r.absolutePath(context); ok {
+			service.BuildContext = resolved
+			service.BuildsFromSource = within(r.Repository, resolved)
+		}
 	case undecided:
 		c.Undecided = append(c.Undecided, where+": its build context")
 	}
@@ -479,6 +561,35 @@ func (c *Composition) mergeService(position int, root, file string, raw yaml.Raw
 			service.Ports = append(service.Ports, publication)
 		}
 	}
+}
+
+// unread records one bind mount this could not read, once.
+//
+// Once per service and file, however many of that service's volumes were
+// unreadable for the same reason: they are named by where they were written, so
+// a service with three interpolated sources would otherwise disclose the same
+// sentence three times. The sentence carries its own reason, because "not read"
+// and "not read because it interpolates" are different claims and a reader sent
+// to look at the entry needs the second one.
+func (c *Composition) unread(entry string) {
+	if !contains(c.UnreadMounts, entry) {
+		c.UnreadMounts = append(c.UnreadMounts, entry)
+	}
+}
+
+// mounted records one path a bind mount needs, once.
+//
+// By path rather than by entry: Compose files that layer over one another repeat
+// a service's volumes, and the same path bound by a base and by the overlay
+// beside it is one path a worktree either holds or does not. The first place it
+// was written is the one named, because that is where a reader starts looking.
+func (c *Composition) mounted(one MountedPath) {
+	for _, existing := range c.Mounts {
+		if existing.Path == one.Path {
+			return
+		}
+	}
+	c.Mounts = append(c.Mounts, one)
 }
 
 // containsPublication reports whether a service already declares a publication.
@@ -704,33 +815,39 @@ func interpolated(raw yaml.RawMessage) bool {
 	return strings.Contains(string(raw), "${")
 }
 
-// isRepositoryRoot reports whether a path written in a Compose file names the
-// repository itself.
-//
-// Exactly the repository, for a bind source: a mount of a subdirectory is a
-// partial mount that a whole worktree mounted at one container path would not
-// replace, so it is not a candidate for the repository's runtime container path.
-// A build context is the other question and is answered by within.
-func isRepositoryRoot(root, value string) bool {
-	if root == "" || value == "" {
-		return false
-	}
-	return absolutePath(root, value) == filepath.Clean(root)
-}
-
 // absolutePath resolves a path written in a Compose file the way Compose will
-// resolve it.
+// resolve it, and reports whether it could.
 //
-// A relative path resolves against the repository's checkout rather than against
-// the file's own directory, because that is the `project_directory` Feat gives
-// this repository's include entry. An absolute path is taken as it stands, and a
-// "~" is not expanded: Compose does not expand one either, so a path starting
-// with one names a directory called "~".
-func absolutePath(root, value string) string {
-	if filepath.IsAbs(value) {
-		return filepath.Clean(value)
+// Three forms, and each is resolved the way Compose resolves it. A leading "~"
+// expands against the user's home directory: Compose does expand one — measured
+// against Docker Compose v2.40, which renders `~/.claude` as the home directory
+// — so a reader that joined it to the project directory would put the home
+// directory inside the repository, which is exactly how the mount Feat's own
+// devcontainer recommends came to be reported as a path a task's worktree would
+// not hold. An absolute path is taken as it stands. Everything else resolves
+// against the project directory rather than against the file's own directory,
+// because that is the `project_directory` Compose is given.
+//
+// It fails for a "~other", which paths.Expand refuses rather than resolves —
+// configuration reaching into another user's home is far more likely to be a
+// mistake than an intention — and on a machine whose home directory cannot be
+// established. A caller must not place a path this could not resolve: the whole
+// value of resolving one is that it means what Compose will mean by it.
+func (r ComposeReader) absolutePath(value string) (string, bool) {
+	switch {
+	case value == "":
+		return "", false
+	case strings.HasPrefix(value, "~"):
+		expanded, err := r.Env.Expand(value)
+		if err != nil {
+			return "", false
+		}
+		return filepath.Clean(expanded), true
+	case filepath.IsAbs(value):
+		return filepath.Clean(value), true
+	default:
+		return filepath.Clean(filepath.Join(r.ProjectDir, value)), true
 	}
-	return filepath.Clean(filepath.Join(root, value))
 }
 
 // within reports whether a resolved path is the repository or lies inside it.
@@ -739,12 +856,12 @@ func absolutePath(root, value string) string {
 // holds several is that repository's code as surely as its root is, and the
 // task's worktree holds the same subdirectory. A context above the checkout, or
 // beside it, is not.
-func within(root, resolved string) bool {
-	if root == "" || resolved == "" {
+func within(repository, resolved string) bool {
+	if repository == "" || resolved == "" {
 		return false
 	}
-	root = filepath.Clean(root)
-	return resolved == root || strings.HasPrefix(resolved, root+string(filepath.Separator))
+	repository = filepath.Clean(repository)
+	return resolved == repository || strings.HasPrefix(resolved, repository+string(filepath.Separator))
 }
 
 // sortedNames returns a service mapping's keys in order, so that a proposal is

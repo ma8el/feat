@@ -808,6 +808,136 @@ func TestOnlyServiceNamesAreReadFromCompose(t *testing.T) {
 	}
 }
 
+// composeFile replaces one of the fixture's Compose files with a real document.
+//
+// The fixture writes a comment where a Compose file goes, because most checks
+// only need the path to resolve. A check that reads the file needs one with
+// something in it.
+func (w *world) composeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+// TestAMountAWorktreeCannotSatisfyIsReported is the pre-flight the container
+// runtime's own error message arrives too late to be.
+//
+// A task works in a worktree, and a worktree holds only what Git tracks. A
+// devcontainer that binds an ignored `.env` out of a repository is naming
+// something that will not be there, and the shape that hurts most never reaches
+// a Docker error at all: the bind succeeds, an empty file is created, and the
+// application misbehaves with nothing naming the cause.
+//
+// So it is reported here, where the user asked whether the project is
+// configured — and reported rather than refused, because a file a build step
+// creates is a legitimate absence and Feat cannot tell one from the other.
+func TestAMountAWorktreeCannotSatisfyIsReported(t *testing.T) {
+	w := arrange(t)
+	api := filepath.Join(w.home, "repos", "app", "api")
+
+	// The agent's own Compose files, which live in a repository of their own and
+	// reach into another one. Four entries, and only one of them is this check's
+	// business: the repository itself is the container path question, the tracked
+	// file is a mount a worktree satisfies, and the interpolated source is one
+	// Feat must not resolve.
+	w.composeFile(t, filepath.Join(w.home, "repos", "app", "infra", "docker-compose.yml"),
+		`services:
+  dev:
+    image: alpine
+    volumes:
+      - ../api:/srv/api
+      - ../api/.env:/srv/api/.env
+      - ../api/docker-compose.yml:/srv/api/docker-compose.yml:ro
+      - ${TOOLS}/bin:/usr/local/bin
+`)
+	// Git tracks the Compose file and not the ignored environment file, which is
+	// the whole difference between a mount a worktree can satisfy and one it
+	// cannot.
+	w.runner.failing["git ls-files --error-unmatch -- .env"] = true
+
+	report := w.diagnose(t)
+	findings := w.only(t, report).Findings
+	if report.Failed() {
+		t.Errorf("a mount a worktree cannot satisfy failed the diagnosis, and it reports rather "+
+			"than refuses:%s", render(findings))
+	}
+
+	var reported []project.Finding
+	for _, found := range findings {
+		if found.Check == "repositories.api.agent.mounts" {
+			reported = append(reported, found)
+		}
+	}
+	if len(reported) != 1 {
+		t.Fatalf("%d mounts were reported, want the one Git does not track:%s",
+			len(reported), render(findings))
+	}
+	if reported[0].Severity != project.SeverityWarning {
+		t.Errorf("an untracked mount is %q, want warning", reported[0].Severity)
+	}
+	if !strings.Contains(reported[0].Summary, filepath.Join(api, ".env")) {
+		t.Errorf("the finding does not name the path: %q", reported[0].Summary)
+	}
+	if !strings.Contains(reported[0].Action, "worktree") {
+		t.Errorf("the action does not say why it will not be there: %q", reported[0].Action)
+	}
+
+	// And the entry Feat could not read is reported as unchecked rather than
+	// passed over, once for the files rather than once per repository: a report
+	// that listed only what it checked would read as a report on everything.
+	var unread []project.Finding
+	for _, found := range findings {
+		if found.Check == "agent.execution.compose_files.mounts" {
+			unread = append(unread, found)
+		}
+	}
+	if len(unread) != 1 {
+		t.Fatalf("%d unread mounts were reported, want the one that interpolates:%s",
+			len(unread), render(findings))
+	}
+	if unread[0].Severity != project.SeveritySkipped {
+		t.Errorf("an entry that interpolates is %q, want it reported as not checked", unread[0].Severity)
+	}
+}
+
+// TestARepositorysOwnMountsAreCheckedAgainstItsWorktree is the same question
+// asked of the application's files.
+//
+// A repository's own services get the task's worktree too, so a mount of
+// something inside the checkout is exactly as unsatisfiable there. The
+// repository itself is not among them: that mount is the container path, and
+// Feat's generated override replaces it.
+func TestARepositorysOwnMountsAreCheckedAgainstItsWorktree(t *testing.T) {
+	w := arrange(t)
+	api := filepath.Join(w.home, "repos", "app", "api")
+
+	w.composeFile(t, filepath.Join(api, "docker-compose.yml"), `services:
+  app:
+    image: alpine
+    volumes:
+      - ./:/app
+      - ./node_modules:/app/node_modules
+`)
+	w.runner.failing["git ls-files --error-unmatch -- node_modules"] = true
+
+	findings := w.only(t, w.diagnose(t)).Findings
+
+	var reported []project.Finding
+	for _, found := range findings {
+		if found.Check == "repositories.api.runtime.mounts" {
+			reported = append(reported, found)
+		}
+	}
+	if len(reported) != 1 {
+		t.Fatalf("%d mounts were reported, want the directory Git does not track:%s",
+			len(reported), render(findings))
+	}
+	if !strings.Contains(reported[0].Summary, filepath.Join(api, "node_modules")) {
+		t.Errorf("the finding does not name the path: %q", reported[0].Summary)
+	}
+}
+
 // TestRepositoryAndContainerPathsAreReported covers the rule that repository and
 // container-path mappings are printed accurately, at the level that produces
 // them for `feat doctor`.

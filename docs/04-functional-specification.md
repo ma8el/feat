@@ -26,6 +26,7 @@ A project MUST identify a primary editable repository/workspace used as the defa
 - tmux availability;
 - Docker Compose availability when configured;
 - configured Compose files and service names;
+- bind mounts naming a path inside a repository that Git does not track, because a task works in a worktree and a worktree holds only what Git tracks. This reports and does not refuse: a path a build step creates is a legitimate absence. An entry Feat could not read, because it interpolates, MUST be reported as unchecked rather than passed over (ADR-081);
 - agent executable and user identity in the selected execution environment;
 - `gh` or `glab` installation/authentication on the trusted host, per forge the project's repositories declare, because that is where publication runs (ADR-075);
 - review commands.
@@ -46,8 +47,9 @@ authored by hand.
 
 It MUST derive what the host can answer — whether a directory is a Git
 repository, its working-tree root, its remote, its default branch, the Compose
-files beside it, and the services those files declare — rather than asking for
-it, and it MUST show each proposal as a proposal.
+files beside it, the services those files declare, and where those files say a
+repository is mounted — rather than asking for it, and it MUST show each proposal
+as a proposal.
 
 It MUST validate the configuration it composed before offering it, display the
 whole file, and write nothing until the user confirms. It MUST NOT overwrite an

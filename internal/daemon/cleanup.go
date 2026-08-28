@@ -905,7 +905,7 @@ func (s *service) runtimeAdapterFor(task *domain.Task) (runtime.Runtime, error) 
 		return nil, ErrRuntimeUnconfigured
 	}
 
-	spec, err := s.runtimeSpec(cfg, task, readComposition(cfg))
+	spec, err := s.runtimeSpec(cfg, task, readComposition(s.env, cfg))
 	if err != nil {
 		return nil, err
 	}
