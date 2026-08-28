@@ -98,7 +98,9 @@ Agent adapters use hooks and explicit control messages whenever the provider sup
 
 ### Explicit capabilities
 
-Docker access, network access, Git-provider CLI access, host execution, devcontainer execution, and runtime actions are separate capabilities. Enabling one does not silently enable another.
+Docker access, host execution, devcontainer execution, and runtime actions are separate capabilities. Enabling one does not silently enable another.
+
+A capability is something Feat can withhold. Network access, Git access, and a provider CLI in the agent's environment are not: Feat restricts none of them, so it declares nothing about them and [05-security-model.md](05-security-model.md) states the exposure directly rather than a setting implying Feat controls it.
 
 ### Conservative destruction
 

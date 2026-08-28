@@ -299,7 +299,7 @@ Service health is separate from container running state. Without configured heal
 9. Fetching remotes must not mutate the user's ordinary checkout.
 10. tmux identifiers are execution references, not task identity.
 11. Docker capability belongs only to the trusted host runtime adapter.
-12. Git-provider capability is independent and may be enabled inside the agent environment.
+12. Provider credentials belong to the trusted host. No capability places one inside the agent environment, and none is declared there.
 13. A Stop/end-of-turn signal alone cannot produce semantic completion.
 14. Destructive cleanup requires exact task-owned targets and confirmation according to resource risk.
 

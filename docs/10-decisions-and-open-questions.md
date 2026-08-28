@@ -6551,6 +6551,31 @@ was never a restatement of these fields — the fields were a restatement of it.
 That is the whole argument, so the disclosure it carries is now load-bearing
 rather than duplicated, which FR-GIT-006 says out loud.
 
+Amended immediately after, from sweeping the rest of the documentation for the
+same claim. Removing a field is not finished when the field is gone: eight
+sentences across six documents still described these capabilities as things a
+project configures, and both this ADR and ADR-075 had left them. `docs/01`
+listed network and provider-CLI access among the capabilities that do not imply
+one another; `docs/03` invariant 12 said provider capability "may be enabled
+inside the agent environment", which ADR-070 had already reversed; `docs/08`
+said Feat validates the configured provider-CLI capability; `docs/09` called
+full Git and provider CLI "capabilities a project grants deliberately";
+`docs/README.md` called provider capabilities explicit project configuration;
+and CLAUDE.md said full Git and provider CLI access "are allowed only when
+configured", contradicting its own product contract four lines above it. And
+`docs/07` listed "enabled capabilities" among the contents of a task's launch
+snapshot, which records none and needs none: a snapshot freezes what could change
+under a running task, and this cannot.
+
+The specification files are corrected to say what Feat does: these are exposures
+it neither varies nor checks, and a capability is something Feat can withhold.
+CLAUDE.md's two lines are deleted rather than rewritten, which is the better
+answer for that file: it holds rules to work by, and a rule about a permission
+that cannot vary is not one. The Docker boundary it existed to protect is stated
+on its own three lines above, where it never depended on the comparison. The
+lesson is worth the paragraph — a decision that deletes a configuration surface
+has to grep for the surface, not only for its readers.
+
 ## Decision change process
 
 During implementation:

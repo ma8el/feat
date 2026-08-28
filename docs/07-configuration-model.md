@@ -639,8 +639,9 @@ For every confirmed task, the daemon resolves configuration into an immutable la
 - exact Compose file list;
 - exact runtime project name;
 - agent command specification;
-- review command specifications;
-- enabled capabilities.
+- review command specifications.
+
+No capability is recorded, and none is missing. A snapshot exists to freeze what could otherwise change under a running task, and `agent.capabilities.docker` is `denied` for every project and every task — there is nothing for a snapshot to hold apart from the constant, and the launch checks it enforces read the container rather than the record (ADR-080).
 
 Later edits to project YAML do not silently mutate an active task. The user may explicitly reconcile or recreate it.
 

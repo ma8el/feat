@@ -64,8 +64,9 @@ and the second pass over the wizard, each of which says so where it appears:
 - **A contribution and security policy**, including the known security
   limitations: what a standard container does and does not protect against, that
   Feat claims no hostile-kernel isolation and no network data-loss prevention,
-  and that full Git and provider CLI access are capabilities a project grants
-  deliberately ([05-security-model.md](05-security-model.md)). The reader of
+  and that full Git access, along with a provider CLI a project installs in its
+  own image, is an exposure Feat neither varies nor checks
+  ([05-security-model.md](05-security-model.md)). The reader of
   "what this does not protect against" is somebody deciding whether to run Feat
   on their own work, which is a person this milestone introduces and the dogfood
   milestone does not have.

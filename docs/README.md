@@ -39,7 +39,7 @@ The long-term destination is ticket-to-PR/MR execution. The initial wedge is nar
 - Native agent interfaces remain intact; Feat attaches to them instead of recreating them.
 - Agent execution and application runtime are separate concepts.
 - A coding agent never receives Docker access merely because Feat manages Docker on the host.
-- Runtime, provider, and ticket capabilities are explicit project configuration.
+- Runtime, publication, and ticket work is explicit project configuration, and each names host-side work rather than a capability the agent holds.
 - Destructive cleanup is never implicit.
 
 ## v0 command shape
