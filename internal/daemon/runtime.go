@@ -14,6 +14,7 @@ import (
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/notify"
+	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
 	"github.com/ma8el/feat/internal/runtime"
 	"github.com/ma8el/feat/internal/runtime/compose"
@@ -309,7 +310,7 @@ func (s *service) runtimeTask(ctx context.Context, id domain.TaskID) (*domain.Ta
 func (s *service) runtimeFor(
 	ctx context.Context, cfg *config.Config, task *domain.Task, action api.RuntimeAction,
 ) (runtime.Runtime, *domain.RuntimeEnvironment, error) {
-	documents := readComposition(cfg)
+	documents := readComposition(s.env, cfg)
 	spec, err := s.runtimeSpec(cfg, task, documents)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: %w", api.ErrInvalid, err)
@@ -907,14 +908,19 @@ type composeDocuments map[string]project.Composition
 // checkout is both arguments — here the directory paths resolve against and the
 // repository being asked about are the same directory. It resolves no
 // interpolation and opens no environment file (ADR-065).
-func readComposition(cfg *config.Config) composeDocuments {
+func readComposition(env paths.Environment, cfg *config.Config) composeDocuments {
 	documents := make(composeDocuments)
 	for _, contribution := range cfg.RuntimeComposition() {
 		if len(contribution.ComposeFiles) == 0 {
 			continue
 		}
-		documents[contribution.RepositoryID] = project.ComposeComposition(
-			contribution.Directory, contribution.Directory, contribution.ComposeFiles...)
+		documents[contribution.RepositoryID] = project.ComposeReader{
+			// The environment configuration was resolved against, which is the
+			// user whose home directory a "~" in those files names.
+			Env:        env,
+			ProjectDir: contribution.Directory,
+			Repository: contribution.Directory,
+		}.Read(contribution.ComposeFiles...)
 	}
 	return documents
 }
@@ -1123,7 +1129,7 @@ func (s *service) observeRuntime(ctx context.Context, task *domain.Task) (domain
 		return "", ErrRuntimeUnconfigured
 	}
 
-	spec, err := s.runtimeSpec(cfg, task, readComposition(cfg))
+	spec, err := s.runtimeSpec(cfg, task, readComposition(s.env, cfg))
 	if err != nil {
 		return "", err
 	}

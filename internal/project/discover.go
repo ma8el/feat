@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
+
+	"github.com/ma8el/feat/internal/paths"
 )
 
 // Checkout is what an ordinary Git checkout can say about itself.
@@ -425,27 +427,44 @@ func (c Composition) Names() []string {
 	return names
 }
 
-// ComposeComposition reads the given Compose files structurally.
+// ComposeReader reads Compose files structurally, for one repository.
 //
-// The project directory is what a relative path inside these files resolves
-// against: it is the `project_directory` Compose will be given, so reading them
-// any other way would answer a different question from the one Compose will be
-// asked. The repository is the checkout being asked about, whose own mounts and
-// build contexts are the ones worth reporting.
-//
-// They are two parameters because they are one directory only by coincidence.
-// A repository's application files are given that repository's checkout as
-// their project directory, so the coincidence holds there and the caller passes
-// it twice. The agent's own Compose files are given the directory of the first
-// of them and are asked about each configured repository in turn, so there the
-// two are different directories and a reader that assumed one would answer
-// about the wrong repository.
+// The three fields are what a path inside those files needs to mean what it
+// will mean to Compose. Reading them any other way answers a different question
+// from the one Compose is going to be asked, which is the only way this can be
+// wrong while looking right.
+type ComposeReader struct {
+	// Env is what a leading "~" expands against.
+	//
+	// Compose expands one — measured against Docker Compose v2.40, which renders
+	// `~/.claude` as the user's home directory — so a reader that did not would
+	// place such a path somewhere it will never be. Only the current user's home
+	// is expandable, because that is all paths.Expand resolves: a "~other" is
+	// left unread rather than guessed at.
+	Env paths.Environment
+	// ProjectDir is what a relative path resolves against: the
+	// `project_directory` Compose will be given.
+	ProjectDir string
+	// Repository is the checkout being asked about, whose own mounts and build
+	// contexts are the ones worth reporting.
+	//
+	// It is separate from ProjectDir because the two are one directory only by
+	// coincidence. A repository's application files are given that repository's
+	// checkout as their project directory, so the coincidence holds there and a
+	// caller sets both to it. The agent's own Compose files are given the
+	// directory of the first of them and are asked about each configured
+	// repository in turn, so there the two differ and a reader that assumed one
+	// would answer about the wrong repository.
+	Repository string
+}
+
+// Read reads the given Compose files.
 //
 // It is best effort and returns no error, for the reason ComposeServices does:
 // a file that does not parse, uses a feature this does not model, or is not
 // there yet is a file with nothing to propose from, and the caller asks its
 // question without a proposal.
-func ComposeComposition(projectDir, repository string, files ...string) Composition {
+func (r ComposeReader) Read(files ...string) Composition {
 	var composition Composition
 	index := make(map[string]int)
 
@@ -463,7 +482,7 @@ func ComposeComposition(projectDir, repository string, files ...string) Composit
 			}
 			// Later files merge over earlier ones, exactly as Compose merges
 			// them: the dev overlay adds the mount the base image baked in.
-			composition.mergeService(position, projectDir, repository, file, document.Services[name])
+			r.mergeService(&composition, position, file, document.Services[name])
 		}
 	}
 	sort.Strings(composition.Undecided)
@@ -472,7 +491,7 @@ func ComposeComposition(projectDir, repository string, files ...string) Composit
 }
 
 // mergeService folds one file's entry for a service into what is known of it.
-func (c *Composition) mergeService(position int, projectDir, repository, file string, raw yaml.RawMessage) {
+func (r ComposeReader) mergeService(c *Composition, position int, file string, raw yaml.RawMessage) {
 	var entry composeServiceDocument
 	if err := yaml.Unmarshal(raw, &entry); err != nil {
 		return
@@ -484,30 +503,24 @@ func (c *Composition) mergeService(position int, projectDir, repository, file st
 		source, target, ok := bindMount(volume)
 		if !ok {
 			if interpolated(volume) {
-				// Once per service and file for the mount report, however many of
-				// that service's volumes interpolate: they are named by where
-				// they were written, so a service with three of them would
-				// otherwise disclose the same sentence three times.
 				c.Undecided = append(c.Undecided, where+": a volume")
-				if !contains(c.UnreadMounts, where+": a volume") {
-					c.UnreadMounts = append(c.UnreadMounts, where+": a volume")
-				}
+				c.unread(where + ": a volume interpolates, so it was not read")
 			}
 			continue
 		}
-		if isRepositoryRoot(projectDir, repository, source) {
+		resolved, ok := r.absolutePath(source)
+		if !ok {
+			// A path this could not resolve is not a path it may place. The only
+			// way to reach this is a "~" that is not the current user's home,
+			// which paths.Expand refuses rather than guesses at, or a machine
+			// whose home directory cannot be established at all.
+			c.unread(where + ": a volume names a path outside this user's home, so it was not read")
+			continue
+		}
+		if resolved == filepath.Clean(r.Repository) {
 			if !contains(service.SourceTargets, target) {
 				service.SourceTargets = append(service.SourceTargets, target)
 			}
-			continue
-		}
-		if homeRelative(source) {
-			// Not a path this resolved, so not a path it can place. Compose
-			// expands a leading "~" against the user's home directory and
-			// absolutePath does not, so joining one to the project directory
-			// would put the home directory inside the repository: that is how
-			// `~/.claude:/home/dev/.claude` — the mount Feat's own devcontainer
-			// recommends — was reported as a path a worktree would not hold.
 			continue
 		}
 		// Everything else that comes out of the repository. A mount of one file
@@ -515,15 +528,21 @@ func (c *Composition) mergeService(position int, projectDir, repository, file st
 		// a whole worktree mounted at one target would not replace it — but it
 		// is a path the mount needs to be there, and that is a different
 		// question from the one the container path answers.
-		if resolved := absolutePath(projectDir, source); within(repository, resolved) {
+		if within(r.Repository, resolved) {
 			c.mounted(MountedPath{Path: resolved, Where: where})
 		}
 	}
 
 	switch context, read, undecided := buildContext(entry.Build); {
 	case read:
-		service.BuildContext = absolutePath(projectDir, context)
-		service.BuildsFromSource = within(repository, service.BuildContext)
+		// A context this cannot resolve leaves the service with none, which is
+		// the conservative half of the answer: an unread context is not
+		// redirected at a task's worktree, and a service Feat says nothing about
+		// builds exactly as its own files say it does.
+		if resolved, ok := r.absolutePath(context); ok {
+			service.BuildContext = resolved
+			service.BuildsFromSource = within(r.Repository, resolved)
+		}
 	case undecided:
 		c.Undecided = append(c.Undecided, where+": its build context")
 	}
@@ -541,6 +560,20 @@ func (c *Composition) mergeService(position int, projectDir, repository, file st
 		if !containsPublication(service.Ports, publication) {
 			service.Ports = append(service.Ports, publication)
 		}
+	}
+}
+
+// unread records one bind mount this could not read, once.
+//
+// Once per service and file, however many of that service's volumes were
+// unreadable for the same reason: they are named by where they were written, so
+// a service with three interpolated sources would otherwise disclose the same
+// sentence three times. The sentence carries its own reason, because "not read"
+// and "not read because it interpolates" are different claims and a reader sent
+// to look at the entry needs the second one.
+func (c *Composition) unread(entry string) {
+	if !contains(c.UnreadMounts, entry) {
+		c.UnreadMounts = append(c.UnreadMounts, entry)
 	}
 }
 
@@ -782,52 +815,40 @@ func interpolated(raw yaml.RawMessage) bool {
 	return strings.Contains(string(raw), "${")
 }
 
-// isRepositoryRoot reports whether a path written in a Compose file names the
-// repository itself.
-//
-// The path is resolved against the project directory, the way Compose will
-// resolve it, and compared to the repository, which is what the caller is
-// asking about. The two directories are the same one for a repository's own
-// files and are not for the agent's.
-//
-// Exactly the repository, for a bind source: a mount of a subdirectory is a
-// partial mount that a whole worktree mounted at one container path would not
-// replace, so it is not a candidate for the repository's runtime container path.
-// A build context is the other question and is answered by within.
-func isRepositoryRoot(projectDir, repository, value string) bool {
-	if repository == "" || value == "" {
-		return false
-	}
-	return absolutePath(projectDir, value) == filepath.Clean(repository)
-}
-
 // absolutePath resolves a path written in a Compose file the way Compose will
-// resolve it.
+// resolve it, and reports whether it could.
 //
-// A relative path resolves against the project directory rather than against the
-// file's own directory, because that is the `project_directory` Compose is
-// given. An absolute path is taken as it stands.
-//
-// A leading "~" is not expanded here, and Compose does expand one — measured
+// Three forms, and each is resolved the way Compose resolves it. A leading "~"
+// expands against the user's home directory: Compose does expand one — measured
 // against Docker Compose v2.40, which renders `~/.claude` as the home directory
-// (ADR-081). So this answers a different question for such a path than Compose
-// will, and a caller must not place one: homeRelative is what says so, and
-// nothing that resolves a source is given a "~" to resolve.
-func absolutePath(projectDir, value string) string {
-	if filepath.IsAbs(value) {
-		return filepath.Clean(value)
-	}
-	return filepath.Clean(filepath.Join(projectDir, value))
-}
-
-// homeRelative reports a bind source Compose resolves against the user's home
-// directory rather than against the project directory.
+// — so a reader that joined it to the project directory would put the home
+// directory inside the repository, which is exactly how the mount Feat's own
+// devcontainer recommends came to be reported as a path a task's worktree would
+// not hold. An absolute path is taken as it stands. Everything else resolves
+// against the project directory rather than against the file's own directory,
+// because that is the `project_directory` Compose is given.
 //
-// Feat expands no "~" anywhere, for the same reason it resolves no "${...}":
-// both are values it would have to supply from outside the file. Everything
-// else a bind source can be — absolute, or relative to the project directory —
-// resolves the way Compose resolves it.
-func homeRelative(source string) bool { return strings.HasPrefix(source, "~") }
+// It fails for a "~other", which paths.Expand refuses rather than resolves —
+// configuration reaching into another user's home is far more likely to be a
+// mistake than an intention — and on a machine whose home directory cannot be
+// established. A caller must not place a path this could not resolve: the whole
+// value of resolving one is that it means what Compose will mean by it.
+func (r ComposeReader) absolutePath(value string) (string, bool) {
+	switch {
+	case value == "":
+		return "", false
+	case strings.HasPrefix(value, "~"):
+		expanded, err := r.Env.Expand(value)
+		if err != nil {
+			return "", false
+		}
+		return filepath.Clean(expanded), true
+	case filepath.IsAbs(value):
+		return filepath.Clean(value), true
+	default:
+		return filepath.Clean(filepath.Join(r.ProjectDir, value)), true
+	}
+}
 
 // within reports whether a resolved path is the repository or lies inside it.
 //

@@ -205,6 +205,7 @@ func diagnoseProject(ctx context.Context, opts Options, id string) Diagnosis {
 		tracker: opts.Tracker,
 		config:  cfg,
 		home:    opts.Resolve.Env.Home,
+		env:     opts.Resolve.Env,
 	}
 	report.Findings = append(report.Findings, checks.run(ctx)...)
 	return report

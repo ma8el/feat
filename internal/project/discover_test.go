@@ -7,8 +7,23 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
 )
+
+// reading builds a reader for a repository, with a home directory that is not
+// the one this test process happens to run under.
+//
+// A "~" is resolved rather than left alone, because Compose resolves one, so a
+// test that borrowed the real home would answer differently on every machine and
+// would touch a directory it does not own.
+func reading(projectDir, repository string) project.ComposeReader {
+	return project.ComposeReader{
+		Env:        paths.Environment{Home: filepath.Join(filepath.Dir(repository), "home")},
+		ProjectDir: projectDir,
+		Repository: repository,
+	}
+}
 
 // composeFixture is one repository's own Compose files, with everything the
 // structural read has to answer and everything it must not touch.
@@ -159,7 +174,7 @@ func TestAComposeFileIsReadForWhatItProposesAndNothingElse(t *testing.T) {
 		"docker-compose.yml":     composeFixture,
 		"docker-compose.dev.yml": composeOverlayFixture,
 	})
-	composition := project.ComposeComposition(root, root,
+	composition := reading(root, root).Read(
 		filepath.Join(root, "docker-compose.yml"),
 		filepath.Join(root, "docker-compose.dev.yml"))
 
@@ -250,7 +265,7 @@ func TestEveryFormOfPublishedPortIsRead(t *testing.T) {
     ports:
       - "9010-9012:84-86"
 `})
-	composition := project.ComposeComposition(root, root, filepath.Join(root, "compose.yaml"))
+	composition := reading(root, root).Read(filepath.Join(root, "compose.yaml"))
 
 	for name, want := range map[string]project.Publication{
 		"short":          {ContainerPort: 80, Protocol: "tcp"},
@@ -287,7 +302,7 @@ func TestNoValueFromAComposeFileReachesAProposal(t *testing.T) {
 		"docker-compose.yml":     composeFixture,
 		"docker-compose.dev.yml": composeOverlayFixture,
 	})
-	composition := project.ComposeComposition(root, root,
+	composition := reading(root, root).Read(
 		filepath.Join(root, "docker-compose.yml"),
 		filepath.Join(root, "docker-compose.dev.yml"))
 
@@ -321,7 +336,7 @@ func TestServicesThatDisagreeProposeNothing(t *testing.T) {
     volumes:
       - .:/srv/worker
 `})
-	composition := project.ComposeComposition(root, root, filepath.Join(root, "compose.yaml"))
+	composition := reading(root, root).Read(filepath.Join(root, "compose.yaml"))
 
 	if target, agreed := composition.SourceTarget([]string{"api", "worker"}); agreed {
 		t.Errorf("two services mounting the repository at two paths proposed %q", target)
@@ -355,7 +370,7 @@ func TestARelativePathIsReadAgainstTheRepository(t *testing.T) {
 		t.Fatalf("writing the fixture: %v", err)
 	}
 
-	composition := project.ComposeComposition(root, root, file)
+	composition := reading(root, root).Read(file)
 	api, known := composition.Service("api")
 	if !known {
 		t.Fatal("the service in a Compose file one directory down was not read")
@@ -393,7 +408,7 @@ func TestABuildContextIsReadBesideAnInterpolatedArgument(t *testing.T) {
     build:
       context: ${SOMEWHERE}
 `})
-	composition := project.ComposeComposition(root, root, filepath.Join(root, "docker-compose.yml"))
+	composition := reading(root, root).Read(filepath.Join(root, "docker-compose.yml"))
 
 	site, known := composition.Service("site")
 	if !known {
@@ -436,7 +451,7 @@ func TestABuildContextInsideTheRepositoryIsTheRepositorys(t *testing.T) {
   vendored:
     build: ../elsewhere
 `})
-	composition := project.ComposeComposition(root, root, filepath.Join(root, "compose.yaml"))
+	composition := reading(root, root).Read(filepath.Join(root, "compose.yaml"))
 
 	web, _ := composition.Service("web")
 	if !web.BuildsFromSource || web.BuildContext != filepath.Join(root, "site") {
@@ -483,7 +498,7 @@ func TestTheMountsIntoARepositoryAreCollected(t *testing.T) {
 		t.Fatalf("writing the fixture: %v", err)
 	}
 
-	composition := project.ComposeComposition(devcontainer, repository, file)
+	composition := reading(devcontainer, repository).Read(file)
 
 	var paths []string
 	for _, mount := range composition.Mounts {
@@ -492,10 +507,9 @@ func TestTheMountsIntoARepositoryAreCollected(t *testing.T) {
 	// The two that come out of the repository, and nothing else. The repository
 	// itself is the container path question and is answered by SourceTargets; the
 	// Dockerfile beside the Compose file and the named volume are not this
-	// repository's at all; and the home-relative source is one this does not
-	// resolve, so it is not one this may place. Joining a "~" to the project
-	// directory put the user's home inside the repository and reported the mount
-	// Feat's own devcontainer recommends as a path a worktree would not hold.
+	// repository's at all; and the home-relative source resolves against the home
+	// directory, which is where Compose resolves it and is nowhere near this
+	// repository.
 	want := []string{filepath.Join(repository, ".env"), filepath.Join(repository, "node_modules")}
 	if !slices.Equal(paths, want) {
 		t.Errorf("the paths a mount needs are %v, want %v", paths, want)
@@ -513,8 +527,82 @@ func TestTheMountsIntoARepositoryAreCollected(t *testing.T) {
 
 	// The interpolated entry is named as unread rather than passed over: a report
 	// on mounts that stayed silent about it would claim it had read them all.
-	if !slices.Equal(composition.UnreadMounts, []string{file + ": service dev: a volume"}) {
+	if !slices.Equal(composition.UnreadMounts,
+		[]string{file + ": service dev: a volume interpolates, so it was not read"}) {
 		t.Errorf("the entry that interpolates is reported as %v", composition.UnreadMounts)
+	}
+}
+
+// TestATildeIsResolvedTheWayComposeResolvesIt is the spelling that used to
+// answer a different question from the one Compose is asked.
+//
+// Docker Compose expands a leading "~" against the user's home directory —
+// measured against v2.40 — so a repository mounted as `~/repos/api` is the same
+// mount as one written absolutely, and a devcontainer's `~/.claude` is the home
+// directory rather than something inside the repository. Feat joined both to the
+// project directory, which made the first invisible and the second look like a
+// path a task's worktree would have to hold.
+func TestATildeIsResolvedTheWayComposeResolvesIt(t *testing.T) {
+	home := t.TempDir()
+	repository := filepath.Join(home, "repos", "api")
+	devcontainer := filepath.Join(home, "repos", "devcontainer")
+	for _, dir := range []string{repository, devcontainer} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("creating %s: %v", dir, err)
+		}
+	}
+	file := filepath.Join(devcontainer, "compose.yaml")
+	if err := os.WriteFile(file, []byte(`services:
+  dev:
+    build: ~/repos/api
+    volumes:
+      - ~/repos/api:/srv/api
+      - ~/repos/api/.env:/srv/api/.env
+      - ~/.agent-config:/var/agent/config
+      - ~other/repos/api:/srv/theirs
+`), 0o600); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+
+	composition := project.ComposeReader{
+		Env:        paths.Environment{Home: home},
+		ProjectDir: devcontainer,
+		Repository: repository,
+	}.Read(file)
+
+	// The repository, mounted where the file says it is. This is the whole point:
+	// the container path is derivable from a file written this way, and was not.
+	dev, known := composition.Service("dev")
+	if !known {
+		t.Fatal("the service was not read at all")
+	}
+	if !slices.Equal(dev.SourceTargets, []string{"/srv/api"}) {
+		t.Errorf("the repository's own mount is %v, want [/srv/api]", dev.SourceTargets)
+	}
+	// A build context written the same way resolves the same way. Joined to the
+	// project directory it became <devcontainer>/~/repos/api — a path that exists
+	// nowhere, and one a task's build would have been redirected at.
+	if dev.BuildContext != repository || !dev.BuildsFromSource {
+		t.Errorf("the build context is %q, built from source %t, want the repository",
+			dev.BuildContext, dev.BuildsFromSource)
+	}
+
+	// The file inside the repository is a path the mount needs; the home
+	// directory is not this repository's business at all.
+	var paths []string
+	for _, mount := range composition.Mounts {
+		paths = append(paths, mount.Path)
+	}
+	if !slices.Equal(paths, []string{filepath.Join(repository, ".env")}) {
+		t.Errorf("the paths a mount needs are %v, want only the file inside the repository", paths)
+	}
+
+	// And another user's home is refused rather than resolved, so the mount that
+	// names one is reported as unread: a report that passed over it silently would
+	// claim to have checked a mount nobody looked at.
+	unread := strings.Join(composition.UnreadMounts, "; ")
+	if !strings.Contains(unread, "not read") || !strings.Contains(unread, file) {
+		t.Errorf("the mount naming another user's home is reported as %q", unread)
 	}
 }
 
@@ -530,7 +618,7 @@ func TestAFileThatCannotBeReadProposesNothing(t *testing.T) {
 		filepath.Join(root, "compose.yaml"),
 		filepath.Join(root, "does-not-exist.yaml"),
 	} {
-		if composition := project.ComposeComposition(root, root, file); len(composition.Services) != 0 {
+		if composition := reading(root, root).Read(file); len(composition.Services) != 0 {
 			t.Errorf("%s proposed %v", file, composition.Names())
 		}
 	}

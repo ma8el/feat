@@ -16,6 +16,7 @@ import (
 	"github.com/ma8el/feat/internal/forge"
 	"github.com/ma8el/feat/internal/forge/github"
 	"github.com/ma8el/feat/internal/forge/gitlab"
+	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/tracker"
 )
 
@@ -38,7 +39,11 @@ type checker struct {
 	// home is where a tracker command runs. There is no task yet, so there is
 	// no worktree to run it in, and an explicit directory is what makes `feat
 	// doctor` and the daemon ask the same question of the same machine.
-	home     string
+	home string
+	// env is the environment a Compose file's paths are read against. It is the
+	// same one configuration was resolved with, so a "~" written in a project's
+	// Compose file and a "~" written in its YAML name one directory.
+	env      paths.Environment
 	findings []Finding
 }
 
@@ -503,8 +508,11 @@ func (c *checker) checkRuntime(ctx context.Context) {
 		// The same reading the agent's files get, against this repository's own
 		// checkout: it is both the directory these paths resolve against and the
 		// repository they are being asked about.
-		composition := ComposeComposition(
-			contribution.Directory, repository.HostPath, contribution.ComposeFiles...)
+		composition := ComposeReader{
+			Env:        c.env,
+			ProjectDir: contribution.Directory,
+			Repository: repository.HostPath,
+		}.Read(contribution.ComposeFiles...)
 		c.checkMounts(ctx, field+".mounts", repository, composition.Mounts)
 		c.reportUnreadMounts(field+".mounts", composition.UnreadMounts)
 	}
@@ -535,7 +543,9 @@ func (c *checker) checkAgentMounts(ctx context.Context) {
 		if !known || domain.DefaultAccess(repository.DefaultAccess) == domain.DefaultAccessOmitted {
 			continue
 		}
-		composition := ComposeComposition(directory, repository.HostPath, execution.ComposeFiles...)
+		composition := ComposeReader{
+			Env: c.env, ProjectDir: directory, Repository: repository.HostPath,
+		}.Read(execution.ComposeFiles...)
 		c.checkMounts(ctx, "repositories."+id+".agent.mounts", repository, composition.Mounts)
 		for _, entry := range composition.UnreadMounts {
 			if !contains(unread, entry) {
@@ -598,14 +608,19 @@ func (c *checker) checkMounts(
 // reportUnreadMounts says which bind mounts the mount check could not speak for.
 //
 // They are reported as not checked rather than passed over, because the two are
-// not the same claim: Feat resolves no "${...}" anywhere, so an interpolated
-// source is a mount it has not looked at, and a report that listed only what it
-// checked would read as a report on everything.
+// not the same claim: a source Feat did not read is a mount it has not looked
+// at, and a report that listed only what it checked would read as a report on
+// everything.
+//
+// Each entry carries its own reason and is printed as it was written, because
+// there is more than one way to be unreadable — a "${...}" Feat resolves
+// nowhere, and a "~" naming a home that is not this user's — and a diagnostic
+// that supplied one reason for both would state the wrong one half the time.
 func (c *checker) reportUnreadMounts(check string, entries []string) {
 	for _, entry := range entries {
-		c.skip(check, entry+" interpolates, so it was not read",
-			"read that entry yourself: Feat resolves no \"${...}\", so it cannot say whether that "+
-				"mount names a path a worktree holds")
+		c.skip(check, entry,
+			"read that entry yourself: Feat did not resolve it, so it cannot say whether that "+
+				"mount names a path a task's worktree holds")
 	}
 }
 

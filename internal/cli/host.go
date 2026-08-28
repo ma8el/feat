@@ -50,7 +50,13 @@ func (h *machineHost) ComposeServices(files ...string) []string {
 // proposal's whole job is to be put back to the user in the terms of the
 // question, and the flow names no adapter of its own.
 func (h *machineHost) Compose(projectDir, repository string, files ...string) wizard.Composition {
-	composition := project.ComposeComposition(projectDir, repository, files...)
+	composition := project.ComposeReader{
+		// The user's own environment, because a "~" in a Compose file means this
+		// machine's home directory to Compose and has to mean the same here.
+		Env:        h.process,
+		ProjectDir: projectDir,
+		Repository: repository,
+	}.Read(files...)
 	services := composition.Names()
 
 	proposed := wizard.Composition{

@@ -6717,21 +6717,55 @@ Two things this leaves behind, both worth stating rather than discovering later:
    `~/.claude:/home/dev/.claude`, the mount Feat's own devcontainer recommends,
    as a path a task's worktree would not hold.
 
-   The immediate fix is that a home-relative source is not placed at all: Feat
-   expands no "~" for the same reason it resolves no "${...}", so such a source
-   is one it has not resolved and may not locate. The comment is corrected to
-   state the measurement rather than the assumption.
+   The first fix was to skip such a source, and it was the wrong shape: it made
+   the symptom go away by declining to answer. **The reader now expands a "~" the
+   way Compose does**, through `paths.Expand`, which is the same expansion the
+   configuration loader already applies to the paths in a project's YAML — so a
+   "~" written in a Compose file and a "~" written beside it in `feat`'s own
+   configuration name one directory.
 
-   **What this leaves open is worth more than the bug.** Expanding "~" the way
-   Compose does would let `isRepositoryRoot` recognise a repository mounted as
-   `~/repos/app:/workspace/app` — which today it does not, so Feat's generated
-   override does not replace that mount with the task's worktree and those
-   services run the user's ordinary checkout. That is the failure ADR-065
-   evidence 1 exists for, reached through a spelling. It is not fixed here
-   because it changes what the runtime override does rather than what a
-   diagnostic says, and it wants its own decision about where Feat gets a home
-   directory from and what a "~" means for a Compose file written on another
-   machine.
+   Three consequences, in ascending order of how much they matter:
+
+   - `~/.claude` resolves to the home directory, which is nowhere near the
+     repository, so the false positive is gone on the merits rather than by rule.
+   - A repository mounted as `~/repos/api:/srv/api` is recognised as the
+     repository, so its container path is derivable. It was invisible before.
+   - **A build context written `~/repos/api` was actively wrong, and is the one
+     defect here rather than a missed proposal.** Joined to the project
+     directory it became `<project_dir>/~/repos/api`, which — because a
+     repository's own files are read with that repository as the project
+     directory — passes the inside-the-repository test. So `BuildsFromSource`
+     was true, and `runtimeBuilds` redirected the build at
+     `<worktree>/~/repos/api`, a directory that exists nowhere and that
+     `redirectBuild` does not check for. A task's launch would have failed on a
+     path produced entirely by a spelling.
+
+   **Two corrections to what this ADR said before.** The first version of this
+   item claimed that without expansion "Feat's generated override does not
+   replace that mount with the task's worktree and those services run the user's
+   ordinary checkout". That is wrong about the mechanism: `runtimeMounts` builds
+   the override's mounts from the **configured** `runtime.container_path`, and
+   nothing outside the wizard and `feat doctor` reads `SourceTargets` at all. A
+   "~"-written repository mount cost a *proposal*, which the user then typed by
+   hand. The build context above is the part that acted on a resolved path, and
+   it is where the real failure was.
+
+   It also framed the decision around how rarely a "~" appears locally — four
+   sources across fifteen Compose files, all of them `~/.claude`. That
+   measurement supports "there is no local instance to test against" and nothing
+   more; frequency on one machine is not evidence about what people write, and
+   the argument that settles it is simpler: the reader's whole contract is to
+   answer the question Compose will be asked, and on this spelling it answered a
+   different one. Unlike reading `devcontainer.json`, expanding a "~" creates no
+   obligation — nobody reads it as Feat implementing a specification, any more
+   than reading a mount target out of a Compose file does.
+
+   A "~other" is refused rather than resolved, following `paths.Expand`, which
+   declines to reach into another user's home. Such a mount is reported as unread
+   in the mount check, for the reason an interpolated one is: a report that
+   passed over it silently would claim to have checked a mount nobody looked at.
+   A machine whose home directory cannot be established resolves no "~" at all
+   and reports each one the same way.
 
 ## Decision change process
 
