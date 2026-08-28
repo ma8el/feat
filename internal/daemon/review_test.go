@@ -18,7 +18,7 @@ import (
 	"github.com/ma8el/feat/internal/runtime/compose/runtimetest"
 )
 
-// reviewFixture is a host-mode project with review commands and two checks.
+// reviewFixture is a host-mode project with two checks.
 //
 // The two repositories carry different bases, which is what makes "each
 // repository against its own recorded base" a claim a test can distinguish from
@@ -47,14 +47,6 @@ agent:
     mode: host
   claude:
     idle_grace_period: 5s
-
-review:
-  diff:
-    command: ["git", "diff", "{base_commit}"]
-  editor:
-    command: ["nvim", "{repository_path}"]
-  status:
-    command: ["git", "status", "--short", "--branch"]
 
 checks:
   api:
@@ -162,12 +154,27 @@ type reviewSession struct {
 	checks *fakeChecks
 }
 
+// reviewSettings are the commands review opens. They are the machine's rather
+// than the project's, so they are written beside the project file rather than
+// in it (ADR-079). What they expand against is still per task.
+const reviewSettings = `version: 1
+
+review:
+  diff:
+    command: ["git", "diff", "{base_commit}"]
+  editor:
+    command: ["nvim", "{repository_path}"]
+  status:
+    command: ["git", "status", "--short", "--branch"]
+`
+
 func launchForReview(t *testing.T, adjust func(*Options)) *reviewSession {
 	t.Helper()
 
 	checks := newFakeChecks()
 	live := launchWith(t, reviewFixture, installed(), false, func(options *Options) {
 		options.Checks = checks
+		writeSettings(t, options.Layout, reviewSettings)
 		if adjust != nil {
 			adjust(options)
 		}

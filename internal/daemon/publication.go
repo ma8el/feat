@@ -44,7 +44,7 @@ func (s *service) PlanPublication(ctx context.Context, id domain.TaskID) (api.Pu
 	return api.PublicationResult{
 		Task:   task,
 		Drafts: drafts,
-		Editor: publicationEditor(cfg),
+		Editor: publicationEditor(s.settings.Review),
 		Notes:  append(notes, composeNotes...),
 	}, nil
 }
@@ -107,7 +107,7 @@ func (s *service) ApplyPublication(
 	})
 
 	notes := s.applyPublication(ctx, task, approved)
-	return api.PublicationResult{Task: task, Editor: publicationEditor(cfg), Notes: notes}, nil
+	return api.PublicationResult{Task: task, Editor: publicationEditor(s.settings.Review), Notes: notes}, nil
 }
 
 // approvedPublication is one repository's checked publication together with the
@@ -652,18 +652,18 @@ func (s *service) publicationDraft(ctx context.Context, task *domain.Task) (cont
 
 // publicationEditor is how the client opens the draft.
 //
-// It is the project's configured editor command with the argument naming what to
+// It is the machine's configured editor command with the argument naming what to
 // open left off, because what this opens is a draft rather than a repository:
 // the command names an editor and its flags, and the client appends the document
 // it wrote. An unconfigured editor leaves the program empty, and the client falls
 // back to what its own environment names — which is the daemon's whole reason for
 // not resolving it here (FR-REV-003).
-func publicationEditor(cfg *config.Config) api.EditorCommand {
-	if cfg.Review.Editor.Empty() {
+func publicationEditor(review config.ReviewSection) api.EditorCommand {
+	if review.Editor.Empty() {
 		return api.EditorCommand{Arguments: []string{}}
 	}
 
-	command := cfg.Review.Editor.Command
+	command := review.Editor.Command
 	arguments := make([]string, 0, len(command)-1)
 	for _, argument := range command[1:] {
 		if strings.Contains(argument, "{") {

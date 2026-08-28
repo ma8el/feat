@@ -6303,17 +6303,37 @@ Decisions:
   `notifications.idle_grace_period`, and says which of the two is measured from
   where.
 
-Landing order, so that this record is accurate at every point: the file, its
-schema, the loader, `feat settings show`, and `feat settings path` land first,
-and the three sections move one at a time after it. Each move deletes its section
-from the project configuration struct and schema, and each breaks the three
-configuration files that carry it today, by design.
+All three sections have moved. Each move deleted its section from the project
+configuration struct and from the published project schema, and each broke the
+three configuration files that carried it, by design.
 
-- **`resources` — moved.** `resourceInterval` no longer lists the projects, no
-  longer loads their configuration, and no longer has a conflict rule to apply.
-  It reads nothing at all: the interval is a number already in memory.
-- **`review` and `notifications` — not yet**, together with `feat doctor`'s
-  review-command check.
+- **`resources`.** `resourceInterval` no longer lists the projects, no longer
+  loads their configuration, and no longer has a conflict rule to apply. It reads
+  nothing at all: the interval is a number already in memory.
+- **`notifications`.** `notifyPolicy` no longer takes a task, because there is no
+  longer a project to ask. Its fallback went with it: a configuration that could
+  not be read used to mean the default policy for that one notification, and the
+  same fallback now happens once, at startup, for the machine.
+- **`review`.** The commands are expanded per task exactly as before — the
+  worktree, the base commit and the branch are still the task's — and only where
+  the vector itself comes from has changed. `feat doctor`'s check that the
+  configured programs exist followed them, from the project section to the host
+  section: whether `nvim` is installed is one question with one answer, and asking
+  it once per configured project reported the same three findings six times over.
+
+`feat doctor` also gained a `settings` finding, which is the diagnosis the file
+had nowhere to be reported from before. It is a host finding for the same reason:
+one file, no override. A settings file that does not parse is an error and stops
+nothing else — the defaults apply, in a running daemon as well as here, so the
+rest of the diagnosis is still about the machine Feat will actually use.
+
+One duration did not move, and the two are now separated by a file rather than by
+a paragraph. `agent.claude.idle_grace_period` decides when an ended turn counts as
+idle, which is provider-specific and a fact about how the agent is driven;
+`notifications.idle_grace_period` decides how long idle must last before somebody
+is interrupted, which is a fact about the somebody. Naming them alike was always
+the confusion, and the settings schema now names the project's one where the
+confusion is.
 
 Settings are resolved **once, when the daemon starts**, and this is the one place
 the settings file deliberately behaves unlike project configuration, which is

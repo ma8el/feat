@@ -149,12 +149,25 @@ func arrange(t *testing.T) *world {
 		runner:    runner,
 		opts: project.Options{
 			ConfigDir: configDir,
+			// The settings file sits beside the projects directory, not inside
+			// it: it is not one project's answer to anything (ADR-079).
+			SettingsDir: filepath.Dir(configDir),
 			Resolve: config.Options{
 				Env:      env,
 				StateDir: filepath.Join(home, ".local", "share", "feat"),
 			},
 			Runner: runner,
 		},
+	}
+}
+
+// settings writes the machine's settings file, which is a sibling of the
+// projects directory rather than a file inside it.
+func (w *world) settings(t *testing.T, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(filepath.Dir(w.configDir), "settings.yaml"),
+		[]byte(body), 0o600); err != nil {
+		t.Fatalf("writing the settings file: %v", err)
 	}
 }
 
@@ -315,6 +328,11 @@ func TestMissingFilesAndServicesProduceActionableDiagnostics(t *testing.T) {
 		check    string
 		severity project.Severity
 		contains string
+		// host marks a finding about this machine rather than about the project.
+		// The review commands are the machine's, so whether an editor is
+		// installed is asked once rather than once per configured project
+		// (ADR-079).
+		host bool
 	}{
 		"repository is not there": {
 			arrange: func(t *testing.T, w *world) {
@@ -376,6 +394,15 @@ func TestMissingFilesAndServicesProduceActionableDiagnostics(t *testing.T) {
 				w.runner.missing["nvim"] = true
 			},
 			check: "review.editor.command", severity: project.SeverityWarning, contains: "nvim",
+			host: true,
+		},
+		"the settings file does not parse": {
+			arrange: func(t *testing.T, w *world) {
+				t.Helper()
+				w.settings(t, "version: 1\n\nresources:\n  sample_intervals: 2s\n")
+			},
+			check: "settings", severity: project.SeverityError, contains: "sample_intervals",
+			host: true,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -383,7 +410,11 @@ func TestMissingFilesAndServicesProduceActionableDiagnostics(t *testing.T) {
 			testCase.arrange(t, w)
 
 			report := w.diagnose(t)
-			found := finding(t, w.only(t, report).Findings, testCase.check)
+			findings := w.only(t, report).Findings
+			if testCase.host {
+				findings = report.Host
+			}
+			found := finding(t, findings, testCase.check)
 
 			if found.Severity != testCase.severity {
 				t.Errorf("%s is %q, want %q", testCase.check, found.Severity, testCase.severity)

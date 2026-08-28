@@ -78,13 +78,7 @@ func (c *Config) Resolve(opts Options) error {
 	if err := c.resolveRuntime(opts); err != nil {
 		return err
 	}
-	if err := c.resolveReview(opts); err != nil {
-		return err
-	}
 	c.resolveTracker()
-	if err := c.resolveIntervals(); err != nil {
-		return err
-	}
 
 	c.resolved = true
 	return nil
@@ -205,6 +199,20 @@ func (c *Config) resolveAgent(opts Options) error {
 		return c.problem(err)
 	}
 	execution.ComposeFiles = files
+
+	// Held as a string and parsed here, so that a malformed duration is reported
+	// against its own field rather than by the YAML decoder, which cannot name
+	// the field a custom scalar type failed in.
+	//
+	// It is the one duration a project still configures. The other two moved to
+	// the machine's settings, and this one did not: it is provider-specific — it
+	// decides when Claude's ended turn counts as idle — and how an agent is driven
+	// is a fact about the project rather than about the machine (ADR-079).
+	grace, err := parseInterval("agent.claude.idle_grace_period", c.Agent.Claude.IdleGracePeriod)
+	if err != nil {
+		return c.problem(err)
+	}
+	c.Agent.Claude.idleGracePeriod = grace
 	return nil
 }
 
@@ -269,11 +277,6 @@ func (c *Config) resolveTracker() {
 	}
 }
 
-func (c *Config) resolveReview(opts Options) error {
-	resolveReviewSection(opts, &c.Review)
-	return nil
-}
-
 // resolveReviewSection fills the review commands Feat has a default for.
 //
 // It is a function on the section rather than a method on either document that
@@ -286,46 +289,29 @@ func resolveReviewSection(opts Options, review *ReviewSection) {
 	if review.Status.Empty() {
 		review.Status.Command = defaultStatusCommand()
 	}
-	if review.Editor.Empty() {
-		// FR-REV-003 defaults the editor to $EDITOR. An unset $EDITOR leaves
-		// the command empty rather than guessing an editor: diagnostics report
-		// it, and a machine that never opens an editor is still configured.
+	// FR-REV-003 defaults the editor to $EDITOR. An unset $EDITOR leaves the
+	// command empty rather than guessing an editor: diagnostics report it, and a
+	// machine that never opens an editor is still configured.
+	//
+	// An environment with no reader reads no variables, rather than falling
+	// through to the process's own. Resolution has no hidden inputs — that is
+	// what Options is for — and settings resolve on paths a project's
+	// configuration never took, so this must not be the one place a value
+	// arrives from outside them.
+	if review.Editor.Empty() && opts.Env.Getenv != nil {
 		if editor := opts.Env.Getenv("EDITOR"); editor != "" {
 			review.Editor.Command = []string{editor, "{repository_path}"}
 		}
 	}
 }
 
-// resolveIntervals parses the durations, which are held as strings so that a
-// malformed one is reported against its field rather than by the YAML decoder,
-// which cannot name the field a custom scalar type failed in.
-func (c *Config) resolveIntervals() error {
-	if c.Notifications.IdleGracePeriod == "" {
-		c.Notifications.IdleGracePeriod = defaultIdleGracePeriod
-	}
-
-	for _, field := range []struct {
-		path   string
-		value  string
-		target *time.Duration
-	}{
-		{"agent.claude.idle_grace_period", c.Agent.Claude.IdleGracePeriod, &c.Agent.Claude.idleGracePeriod},
-		{"notifications.idle_grace_period", c.Notifications.IdleGracePeriod, &c.Notifications.idleGracePeriod},
-	} {
-		parsed, err := parseInterval(field.path, field.value)
-		if err != nil {
-			return c.problem(err)
-		}
-		*field.target = parsed
-	}
-	return nil
-}
-
 // parseInterval reads one duration field, reporting a malformed or negative
 // value against the field it was written in.
 //
-// It is shared with the settings file, which holds two of the three durations
-// this build parses and reports them the same way.
+// The durations are held as strings so that this is possible at all: a custom
+// scalar type would fail inside the YAML decoder, which cannot name the field it
+// was decoding. It is shared by the two documents that hold one — a project's
+// provider grace, and the machine's two settings.
 func parseInterval(path, value string) (time.Duration, error) {
 	parsed, err := time.ParseDuration(value)
 	if err != nil {

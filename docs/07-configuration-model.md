@@ -30,7 +30,8 @@ v0.1 is local-only. A later optional `.feat.yaml` may hold shareable repository 
 ## Global settings
 
 Not everything Feat is told is a fact about a project. A second file holds what
-is true of the machine and the person using it:
+is true of the machine and the person using it — the external commands review
+opens, how notifications behave, and how often resources are sampled:
 
 ```text
 ~/.config/feat/settings.yaml
@@ -169,14 +170,6 @@ runtime:
   port_range: "21000-21999"
   bind_address: "127.0.0.1"
 
-review:
-  diff:
-    command: ["git", "diff", "{base_commit}"]
-  editor:
-    command: ["nvim", "{repository_path}"]
-  status:
-    command: ["git", "status", "--short", "--branch"]
-
 checks:
   dashboard:
     - id: test
@@ -186,17 +179,26 @@ checks:
 tracker:
   kind: command
   command: ["tickets-for-me"]
+```
+
+And the settings file beside it, holding what is true of the machine rather than
+of any project:
+
+```yaml
+version: 1
+
+review:
+  diff:
+    command: ["git", "diff", "{base_commit}"]
+  editor:
+    command: ["nvim", "{repository_path}"]
+  status:
+    command: ["git", "status", "--short", "--branch"]
 
 notifications:
   desktop: true
   idle_grace_period: 5s
   suppress_while_attached: true
-```
-
-And the settings file beside it:
-
-```yaml
-version: 1
 
 resources:
   sample_interval: 2s
@@ -547,17 +549,21 @@ against the configuration schema.
 Two grace periods exist and they are measured from different moments, which is
 what tells them apart.
 
-`agent.claude.idle_grace_period` decides when an ended turn becomes `idle`: a
-turn that ends and immediately continues is not a session waiting for anybody.
+They also live in different files now, which is the plainest statement of the
+difference there has been. `agent.claude.idle_grace_period` decides when an ended
+turn becomes `idle`: a turn that ends and immediately continues is not a session
+waiting for anybody. That is a fact about how the agent is driven, so it stays in
+the project's configuration, and it is provider-specific besides.
 `notifications.idle_grace_period` decides how long a task must have *been* idle
-before Feat interrupts the user about it, measured from that idle transition. So
-the dashboard reports idle after the first period and a desktop notification
-arrives after both, and a project that wants to be told only about a long silence
-raises the second one alone.
+before Feat interrupts the user about it, measured from that idle transition —
+which is a fact about the user, so it is one of the machine's settings. So the
+dashboard reports idle after the first period and a desktop notification arrives
+after both, and somebody who wants to be told only about a long silence raises the
+second one alone.
 
 Measuring both from the end of the turn was the other reading and is rejected: a
 notification grace shorter than the provider's would expire before the task was
-idle, and no notification would ever be delivered. See ADR-035.
+idle, and no notification would ever be delivered. See ADR-035 and ADR-079.
 
 `notifications.desktop` turns desktop delivery off without touching the
 dashboard's own attention badges, which are rendered from task state.

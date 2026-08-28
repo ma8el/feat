@@ -37,7 +37,6 @@ func (c *Config) Validate() error {
 	c.validateGit(found)
 	c.validateAgent(found)
 	c.validateRuntime(found)
-	c.validateReview(found)
 	c.validateChecks(found)
 	c.validateTracker(found)
 
@@ -751,14 +750,11 @@ func expectation(names []string) string {
 		" of this repository expect their source"
 }
 
-func (c *Config) validateReview(found *problems) { validateReviewSection(found, c.Review) }
-
 // validateReviewSection checks the review commands.
 //
-// It is a function on the section rather than a method on either document that
-// holds one, for the reason resolveReviewSection is: the settings file is where
-// the section lives, and a project's copy is still read until it is moved
-// (ADR-079).
+// The placeholders are the same vocabulary a check command may use, because both
+// run for one repository of one task: the commands moved to the machine's
+// settings, and what they are expanded against did not (ADR-079).
 func validateReviewSection(found *problems, review ReviewSection) {
 	for _, command := range []struct {
 		path  string

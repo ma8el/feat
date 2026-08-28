@@ -82,21 +82,8 @@ runtime:
     - ~/repos/app/api/.env
   project_name_template: "feat-{project_id}-{task_id}"
 
-review:
-  diff:
-    command: ["git", "diff", "{base_commit}"]
-  editor:
-    command: ["nvim", "{repository_path}"]
-  status:
-    command: ["git", "status", "--short", "--branch"]
-
 checks:
   api:
     - id: test
       command: ["pytest"]
       execution: agent
-
-notifications:
-  desktop: true
-  idle_grace_period: 5s
-  suppress_while_attached: true

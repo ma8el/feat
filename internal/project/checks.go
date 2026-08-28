@@ -66,7 +66,6 @@ func (c *checker) run(ctx context.Context) []Finding {
 	c.checkWorktreeRoot()
 	c.checkExecution(ctx)
 	c.checkRuntime(ctx)
-	c.checkReviewCommands()
 	c.checkPublication(ctx)
 	c.checkChecks(ctx)
 	c.checkTracker(ctx)
@@ -591,14 +590,19 @@ func (c *checker) checkComposeService(
 }
 
 // checkReviewCommands checks that the configured external commands exist.
-func (c *checker) checkReviewCommands() {
+//
+// It is a host check rather than a project one, because the commands are the
+// machine's: whether `nvim` is installed is one question with one answer, and
+// asking it once per configured project reported the same three findings six
+// times over (ADR-079).
+func (c *checker) checkReviewCommands(review config.ReviewSection) {
 	for _, command := range []struct {
 		check string
 		value config.Command
 	}{
-		{"review.diff.command", c.config.Review.Diff},
-		{"review.editor.command", c.config.Review.Editor},
-		{"review.status.command", c.config.Review.Status},
+		{"review.diff.command", review.Diff},
+		{"review.editor.command", review.Editor},
+		{"review.status.command", review.Status},
 	} {
 		if command.value.Empty() {
 			c.warn(command.check, "no command is configured",
@@ -1019,6 +1023,7 @@ func (c *checker) checkCapabilities() {
 // where no project uses a container would be a diagnostic about nothing.
 func diagnoseHost(ctx context.Context, opts Options, projects []Diagnosis) []Finding {
 	host := &checker{runner: opts.Runner}
+	host.checkSettings(opts)
 
 	host.version(ctx, gitExecutable, "git", []string{"--version"}, SeverityError,
 		"install Git; Feat drives it for every branch, worktree, and diff")
@@ -1033,6 +1038,35 @@ func diagnoseHost(ctx context.Context, opts Options, projects []Diagnosis) []Fin
 	host.version(ctx, dockerExecutable, "docker compose", []string{"compose", "version"}, severity, action)
 
 	return host.findings
+}
+
+// checkSettings reads the machine's settings and checks what they name.
+//
+// It is here rather than under each project because that is what these settings
+// are: one file for the machine, with no per-project override (ADR-079). A file
+// that cannot be read is an error and stops nothing else — the defaults apply,
+// including in a running daemon, so the rest of the diagnosis is still worth
+// having and is still about the machine Feat will actually use.
+func (c *checker) checkSettings(opts Options) {
+	settings, err := config.LoadSettings(opts.SettingsDir, opts.Resolve)
+	if err != nil {
+		c.fail("settings", configSummary(err),
+			"fix the settings file; until it is fixed, and the daemon restarted, the defaults apply")
+		// Nothing to check the commands of. What the defaults would be is not
+		// reported as though it were configuration: this says what is wrong, and
+		// `feat settings show` says what Feat would use.
+		return
+	}
+
+	if settings.Path() == "" {
+		// Not a problem, and the normal state of a machine. The path is named
+		// because this is the one place a reader of `feat doctor` would learn
+		// where the file goes.
+		c.ok("settings", "none at "+config.SettingsFile(opts.SettingsDir)+"; the defaults apply")
+	} else {
+		c.ok("settings", settings.Path()+" is valid")
+	}
+	c.checkReviewCommands(settings.Review)
 }
 
 // version reports an executable's presence and version.

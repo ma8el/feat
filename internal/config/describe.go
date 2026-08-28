@@ -49,11 +49,10 @@ func (c *Config) Describe() []Section {
 	if c.HasRuntime() {
 		sections = append(sections, c.describeRuntime())
 	}
-	sections = append(sections, c.describeReview())
 	if len(c.Checks) > 0 {
 		sections = append(sections, c.describeChecks())
 	}
-	return append(sections, c.describeNotifications())
+	return sections
 }
 
 // Mounts returns the repository-to-container path mapping.
@@ -259,14 +258,6 @@ func (c *Config) describeRuntime() Section {
 	return Section{Title: "runtime", Fields: fields}
 }
 
-func (c *Config) describeReview() Section {
-	return Section{Title: "review", Fields: []Field{
-		{Name: "diff.command", Value: renderCommand(c.Review.Diff)},
-		{Name: "editor.command", Value: renderCommand(c.Review.Editor), Note: editorNote(c.Review.Editor)},
-		{Name: "status.command", Value: renderCommand(c.Review.Status)},
-	}}
-}
-
 func (c *Config) describeChecks() Section {
 	section := Section{Title: "checks"}
 	for _, repository := range sortedKeys(c.Checks) {
@@ -282,14 +273,6 @@ func (c *Config) describeChecks() Section {
 		}
 	}
 	return section
-}
-
-func (c *Config) describeNotifications() Section {
-	return Section{Title: "notifications", Fields: []Field{
-		{Name: "desktop", Value: yesNo(c.Notifications.DesktopEnabled())},
-		{Name: "idle_grace_period", Value: c.Notifications.IdleGracePeriod},
-		{Name: "suppress_while_attached", Value: yesNo(c.Notifications.SuppressedWhileAttached())},
-	}}
 }
 
 func renderCommand(command Command) string {

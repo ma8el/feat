@@ -70,6 +70,11 @@ type Diagnosis struct {
 type Options struct {
 	// ConfigDir is the directory holding project configuration.
 	ConfigDir string
+	// SettingsDir is the directory holding the machine's settings file, which is
+	// the parent of ConfigDir in a real layout. It is separate rather than
+	// derived, so that a test can point the two somewhere unrelated and so that
+	// this package never reconstructs a path internal/paths owns.
+	SettingsDir string
 	// Resolve supplies the environment configuration is resolved against.
 	Resolve config.Options
 	// Runner runs host commands. A nil value uses the real host.

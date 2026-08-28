@@ -86,14 +86,6 @@ runtime:
     - ~/repos/app/api/.env
   project_name_template: "feat-{project_id}-{task_id}"
 
-review:
-  diff:
-    command: ["git", "diff", "{base_commit}"]
-  editor:
-    command: ["nvim", "{repository_path}"]
-  status:
-    command: ["git", "status", "--short", "--branch"]
-
 checks:
   api:
     - id: test
@@ -106,8 +98,3 @@ tracker:
   # schema/feat-tickets.schema.json. Feat passes no filter of its own: which
   # tickets are the user's is the command's decision.
   command: ["tickets-for-me"]
-
-notifications:
-  desktop: true
-  idle_grace_period: 5s
-  suppress_while_attached: true

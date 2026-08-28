@@ -142,7 +142,7 @@ func (s *service) reviewResult(
 		return api.ReviewResult{}, err
 	}
 
-	commands, commandNotes := s.reviewCommands(cfg, task)
+	commands, commandNotes := s.reviewCommands(task)
 	return api.ReviewResult{
 		Task:     task,
 		Review:   record,
@@ -168,15 +168,20 @@ func (s *service) loadReview(ctx context.Context, task *domain.Task) (*domain.Re
 	return record, nil
 }
 
-// reviewCommands expands the project's configured diff, editor, and status
-// commands for every repository the task holds.
+// reviewCommands expands the configured diff, editor, and status commands for
+// every repository the task holds.
+//
+// The commands are the machine's rather than the project's: they are the user's
+// own tools, and one person opens a diff the same way whichever project it
+// belongs to (ADR-079). What is still per task is everything they are expanded
+// against — the worktree, the base commit, the branch.
 //
 // Expansion happens here because the placeholder vocabulary belongs to
 // internal/config, which validates it (ADR-029); whether the result may run is
 // internal/review's, which is where the escape rule is checked. A command that is refused becomes a note rather than a failure: the
 // other repositories' commands are still usable, and a user who cannot open a
 // diff is better served by being told why than by an empty screen.
-func (s *service) reviewCommands(cfg *config.Config, task *domain.Task) ([]api.ReviewCommand, []string) {
+func (s *service) reviewCommands(task *domain.Task) ([]api.ReviewCommand, []string) {
 	worktrees := make([]string, 0, len(task.Repositories))
 	for _, binding := range task.Repositories {
 		if binding.WorktreePath != "" {
@@ -192,9 +197,9 @@ func (s *service) reviewCommands(cfg *config.Config, task *domain.Task) ([]api.R
 			kind  review.Kind
 			value config.Command
 		}{
-			{review.KindDiff, cfg.Review.Diff},
-			{review.KindEditor, cfg.Review.Editor},
-			{review.KindStatus, cfg.Review.Status},
+			{review.KindDiff, s.settings.Review.Diff},
+			{review.KindEditor, s.settings.Review.Editor},
+			{review.KindStatus, s.settings.Review.Status},
 		} {
 			if configured.value.Empty() {
 				// An unconfigured editor is the documented case: it defaults to

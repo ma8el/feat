@@ -65,6 +65,12 @@ git:
 agent:
   execution:
     mode: host
+`
+
+// publishSettings names the editor a publication draft is opened in. It is the
+// machine's rather than the project's, so it is written beside the project file
+// rather than in it (ADR-079).
+const publishSettings = `version: 1
 
 review:
   editor:
@@ -156,6 +162,7 @@ func launchPublishing(t *testing.T) *publication {
 	live := launchWith(t, publishFixture, installed(), false, func(options *Options) {
 		options.Git = fake
 		options.Forges = map[domain.ForgeKind]forge.Adapter{domain.ForgeGitLab: forges}
+		writeSettings(t, options.Layout, publishSettings)
 	})
 	live.fake = fake
 	return &publication{session: live, forge: forges}
@@ -902,6 +909,7 @@ func TestARepositoryThePlanDoesNotOfferIsRefusedRatherThanPushed(t *testing.T) {
 	live := launchWith(t, publishFixture, installed(), false, func(options *Options) {
 		options.Git = fake
 		options.Forges = map[domain.ForgeKind]forge.Adapter{domain.ForgeGitLab: forges}
+		writeSettings(t, options.Layout, publishSettings)
 	})
 	live.fake = fake
 

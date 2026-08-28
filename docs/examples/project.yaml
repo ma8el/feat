@@ -199,18 +199,6 @@ runtime:
   # neither knows nor asks what is behind the name: the connection string lives
   # in an env_file it never opens.
 
-review:
-  # The first element is the program and is never templated. Arguments may use
-  # {repository_path}, {base_commit}, {branch}, {project_id}, {repository_id},
-  # {task_id}, and {task_key}.
-  diff:
-    command: ["git", "diff", "{base_commit}"]
-  # Defaults to $EDITOR with {repository_path}.
-  editor:
-    command: ["nvim", "{repository_path}"]
-  status:
-    command: ["git", "status", "--short", "--branch"]
-
 # Verification commands, per repository.
 checks:
   api:
@@ -218,18 +206,3 @@ checks:
       command: ["pytest"]
       # agent runs it in the agent's environment; host runs it on this machine.
       execution: agent
-
-notifications:
-  # Desktop notifications for the things worth interrupting you: an agent that
-  # has gone quiet, a review request, a failed check, a failed session, and
-  # failed application services. macOS only in this version; Linux arrives with
-  # v0.2. The dashboard's attention badges work either way.
-  desktop: true
-  # How long a task must have *been* idle before it is worth telling you. It is
-  # measured from the moment the task became idle, which is itself
-  # agent.claude.idle_grace_period after the agent's turn ended, so raising this
-  # alone means "only tell me about a long silence".
-  idle_grace_period: 5s
-  # Drop a notification about a task you are already watching. Feat asks tmux
-  # which window your client is on rather than remembering that you attached.
-  suppress_while_attached: true
