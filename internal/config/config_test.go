@@ -154,6 +154,42 @@ func TestUnknownFieldIsRejectedAtEveryDepth(t *testing.T) {
 	}
 }
 
+// TestARemovedCapabilityFailsNamingItself is the whole migration ADR-080 needs.
+//
+// No `replaced` entry was added for either key, on ADR-075's reasoning: that
+// mechanism earns its place where a field has a successor to name, and these
+// have none. What is left has to be enough on its own, so it is asserted rather
+// than assumed — a file carrying either key fails to load, and the message
+// names the key whose line is to be deleted.
+func TestARemovedCapabilityFailsNamingItself(t *testing.T) {
+	base := fixture(t, "app.yaml")
+
+	for _, removed := range []struct{ key, line string }{
+		{"network", "    network: unrestricted"},
+		{"git", "    git: full"},
+	} {
+		t.Run(removed.key, func(t *testing.T) {
+			const anchor = "    docker: denied"
+			body := strings.Replace(base, anchor, anchor+"\n"+removed.line, 1)
+			if body == base {
+				t.Fatalf("the fixture no longer contains %q", anchor)
+			}
+			dir := write(t, "app.yaml", body)
+			opts, _ := testOptions(t, nil)
+
+			_, err := config.Load(dir, "app", opts)
+			invalid := configError(t, err)
+			if !strings.Contains(invalid.Error(), "unknown field") {
+				t.Errorf("expected an unknown-field error, got:\n%s", invalid)
+			}
+			if !strings.Contains(invalid.Error(), removed.key) {
+				t.Errorf("the error does not name %q, so it does not say which line to delete:\n%s",
+					removed.key, invalid)
+			}
+		})
+	}
+}
+
 // TestDuplicateKeyIsRejected covers the other way a hand-edited file silently
 // loses a value: writing the same key twice keeps the last one.
 func TestDuplicateKeyIsRejected(t *testing.T) {
@@ -258,7 +294,6 @@ func TestDefaultsAreFilledIn(t *testing.T) {
 		{"branch template", loaded.Git.BranchTemplate, "feat/{task_key}-{slug}"},
 		{"agent provider", loaded.Agent.Provider, config.ProviderClaude},
 		{"docker capability", loaded.Agent.Capabilities.Docker, config.CapabilityDenied},
-		{"network capability", loaded.Agent.Capabilities.Network, config.CapabilityUnrestricted},
 	} {
 		if field.got != field.want {
 			t.Errorf("%s = %q, want %q", field.name, field.got, field.want)

@@ -69,7 +69,6 @@ func (c *checker) run(ctx context.Context) []Finding {
 	c.checkPublication(ctx)
 	c.checkChecks(ctx)
 	c.checkTracker(ctx)
-	c.checkCapabilities()
 	return c.findings
 }
 
@@ -981,7 +980,7 @@ func listOf(values []string, conjunction string) string {
 // inside for a token to be kept out of. An agent launched here runs as the user
 // and inherits the user's environment, so it reaches whatever `gh` or `glab`
 // authentication that user has and can call a provider's API besides, whatever
-// the levels below say.
+// the level below says.
 //
 // It warns rather than fails, because host execution is a supported mode and
 // this is what it is rather than something wrong with it. Saying it out loud is
@@ -993,28 +992,19 @@ func listOf(values []string, conjunction string) string {
 // in a container, and a product behaviour here — rather than whether it happens.
 func (c *checker) checkHostCapabilities() {
 	c.warn("agent.capabilities",
-		"agent.execution.mode is host, so the capability levels below describe intent rather than "+
+		"agent.execution.mode is host, so the capability level below describes intent rather than "+
 			"enforcement: the agent runs as the user the daemon runs as and inherits that user's "+
 			"environment, including any gh or glab authentication in it",
 		"run the agent in a devcontainer if a capability has to be a boundary rather than a declaration")
 }
 
-// checkCapabilities reports the declared capabilities.
-//
-// They are validated by internal/config and enforced by the execution adapter.
-// Reporting them here is what makes the security profile of a project visible
-// in one place, next to the mounts it grants.
-//
-// Docker is not among them. What `denied` means depends on where the agent runs
-// and, in a container, on what that container turns out to be, so it is reported
-// beside the rest of the checks on the agent's own environment.
-func (c *checker) checkCapabilities() {
-	capabilities := c.config.Agent.Capabilities
-	c.ok("agent.capabilities.network",
-		capabilities.Network+": Feat does not provide network data-loss prevention")
-	c.ok("agent.capabilities.git",
-		capabilities.Git+": a native worktree shares repository metadata with the agent")
-}
+// There is no check that reports the declared capabilities as a group. There
+// used to be, and it reported `network` and `git` — two fields with one legal
+// value each that Feat never read anywhere else, so the finding restated the
+// configuration file rather than diagnosing the machine (ADR-080). Docker is
+// what is left, and it is reported where its answer depends on something a
+// diagnostic can go and ask: checkHostDockerCapability for an agent that runs
+// as the user, checkContainerDockerCapability for one that runs in a container.
 
 // diagnoseHost checks the tools Feat drives on this machine.
 //

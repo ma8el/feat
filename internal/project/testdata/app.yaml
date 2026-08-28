@@ -71,8 +71,6 @@ agent:
 
   capabilities:
     docker: denied
-    network: unrestricted
-    git: full
 
 runtime:
   provider: compose

@@ -33,7 +33,6 @@ Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadma
 - Devcontainer execution for dogfood; host-native by public v0
 - Docker Compose CLI on the trusted host
 - Agent receives no Docker socket/host Docker CLI
-- Agent may have full Git access
 - Provider work is host-side by default; the agent drafts the words and the user approves them before anything is sent
 - `gh`/`glab` run on the trusted host; the agent environment has no provider-CLI declaration and Feat checks none there
 - Manual application runtime lifecycle in v0
@@ -72,7 +71,6 @@ Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadma
 - A runtime request is inert until host validation and user approval.
 - Make credentialed provider calls on the trusted host; the agent environment receives no provider token.
 - Agent-authored text bound for a durable destination is read by the user before it is sent, and what was displayed is what is sent. The same holds inbound: what the user approves is the composed brief, not the ticket it came from.
-- Full Git and provider CLI access are allowed only when configured; do not conflate them with Docker access.
 - Resolve exact task-owned resources before cleanup.
 - Retain volumes by default and require explicit confirmation for dirty/unmerged work.
 - Do not claim standard containers provide hostile-kernel isolation or network DLP.

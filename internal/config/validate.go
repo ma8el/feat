@@ -507,31 +507,20 @@ func (c *Config) validateExecution(found *problems) {
 	}
 }
 
-// validateCapabilities checks the declared capabilities against what Feat can
+// validateCapabilities checks the declared capability against what Feat can
 // actually deliver.
 //
-// Three of them accept one value each. That is deliberate: Feat has no
-// mechanism that grants an agent Docker, restricts its network, or limits its
-// Git access, so accepting another value would record a promise the binary does
-// not keep. The declaration is still worth making, because the running
-// container is checked against it (docs/05-security-model.md).
+// It accepts one value. That is deliberate: Feat has no mechanism that grants
+// an agent Docker, so accepting another value would record a promise the binary
+// does not keep. The declaration is still worth making, because the running
+// container is checked against it (docs/05-security-model.md) — which is what
+// `network` and `git` never had, and why they were removed rather than kept
+// beside it (ADR-080).
 func (c *Config) validateCapabilities(found *problems) {
-	capabilities := c.Agent.Capabilities
-
-	if capabilities.Docker != CapabilityDenied {
+	if docker := c.Agent.Capabilities.Docker; docker != CapabilityDenied {
 		found.add("agent.capabilities.docker", fmt.Sprintf(
 			"is %q, and %q is the only value Feat supports: the agent never receives a Docker socket or a Docker CLI that reaches the host, and only the trusted host runs Docker Compose",
-			capabilities.Docker, CapabilityDenied))
-	}
-	if capabilities.Network != CapabilityUnrestricted {
-		found.add("agent.capabilities.network", fmt.Sprintf(
-			"is %q, and %q is the only value Feat supports: Feat does not implement network restriction and does not claim data-loss prevention",
-			capabilities.Network, CapabilityUnrestricted))
-	}
-	if capabilities.Git != CapabilityFull {
-		found.add("agent.capabilities.git", fmt.Sprintf(
-			"is %q, and %q is the only value Feat supports: a native Git worktree shares repository metadata with the agent, which Feat does not restrict",
-			capabilities.Git, CapabilityFull))
+			docker, CapabilityDenied))
 	}
 }
 

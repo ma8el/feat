@@ -69,7 +69,7 @@ Excluded:
 - automatic commit;
 - automatic push/PR/MR workflow owned by Feat.
 
-Claude may use authenticated `glab`/`gh` directly when the user prompts it; Feat only validates the configured capability in v0.1.
+Claude may use authenticated `glab`/`gh` directly when the user prompts it. Feat validated a configured capability for this in v0.1 and no longer does: the declaration described a setup the project made for itself, and it is removed (ADR-075).
 
 These exclusions record what v0.1 shipped. Feat-owned publication arrives after this milestone and does not contradict them: it is host-side and user-approved rather than automatic, and the agent holds no provider credential (ADR-070).
 

@@ -146,11 +146,13 @@ agent:
     idle_grace_period: 5s
 
   capabilities:
-    # These three accept one value each. Feat has no mechanism that varies
-    # them, so any other value would be a promise the binary does not keep.
+    # Docker is the whole section. It accepts one value: Feat has no mechanism
+    # that grants an agent Docker, so any other value would be a promise the
+    # binary does not keep. It is declared because a launch checks the
+    # container against it, and `feat doctor` asks a running one the same
+    # question. network and git were here until ADR-080; what they described is
+    # in docs/05-security-model.md, which is where it held all along.
     docker: denied
-    network: unrestricted
-    git: full
 
 # Omit this section entirely for a project with no application services. What
 # the application is made of is on the repositories that bring it, above; what

@@ -181,8 +181,6 @@ agent:
 
   capabilities:
     docker: denied
-    network: unrestricted
-    git: full
 
 runtime:
   provider: compose
@@ -281,13 +279,15 @@ that mounts the user's host `~/.claude` itself is making the explicit choice
 [05-security-model.md](05-security-model.md) permits, and Feat does not
 second-guess it.
 
-### Capabilities Feat cannot vary
+### The one capability Feat checks
 
-`docker`, `network`, and `git` are the whole section, and they accept one value each — `denied`, `unrestricted`, and `full`. Feat has no mechanism that grants an agent Docker, restricts its network, or limits its Git access, so any other value would record a promise the binary does not keep. The declaration is still made, because the execution adapter checks the running container against it. See ADR-028.
+`docker` is the whole section, and it accepts one value — `denied`. Feat has no mechanism that grants an agent Docker, so any other value would record a promise the binary does not keep. The declaration is still made, because Feat checks the agent's container against it: a launch refuses a container that carries a client speaking a container runtime's API, points one at a daemon through the environment, mounts a daemon socket, runs with host networking, or is privileged. `feat doctor` asks a running container the half of that a diagnostic can answer without a task's own specification.
 
-`github_cli` and `gitlab_cli` were here until ADR-075 and are not replaced. Publication and ticket ingestion run on the trusted host with the credential the user already has there, so the agent's environment is never asked for one, and Feat has nothing to declare about a `gh` or `glab` that a project installs in its own image. A file that still names either key fails to load as an unknown field, and the line is deleted.
+That is the test a capability has to pass to be here. `network` and `git` were beside it until ADR-080, accepting `unrestricted` and `full`, and neither was ever read: Feat implements no network restriction and no Git restriction, so there was nothing for either to gate and no container state either one could be checked against. They were prose in a configuration file, and the prose belongs in [05-security-model.md](05-security-model.md), which states both — a native Git worktree shares repository metadata with the agent, and the devcontainer provides no network data-loss prevention — where they hold whatever a project writes.
 
-Under host-native execution there is no container to check. The agent runs as the user and holds whatever the user holds — Docker, the network, and Git — so every capability describes intent there rather than a condition Feat verified. `feat doctor` reports this when the daemon is running host-native, for the reason ADR-067 discloses a policy Feat cannot read: a level that was never checked must not read as one that passed.
+`github_cli` and `gitlab_cli` were here until ADR-075 and are not replaced either. Publication and ticket ingestion run on the trusted host with the credential the user already has there, so the agent's environment is never asked for one, and Feat has nothing to declare about a `gh` or `glab` that a project installs in its own image. A file that still names any of the four keys fails to load as an unknown field, and the line is deleted.
+
+Under host-native execution there is no container to check. The agent runs as the user and holds whatever the user holds — Docker included — so the capability describes intent there rather than a condition Feat verified. `feat doctor` reports this when the daemon is running host-native, for the reason ADR-067 discloses a policy Feat cannot read: a level that was never checked must not read as one that passed.
 
 ### A runtime is composed of its repositories
 
@@ -639,8 +639,9 @@ For every confirmed task, the daemon resolves configuration into an immutable la
 - exact Compose file list;
 - exact runtime project name;
 - agent command specification;
-- review command specifications;
-- enabled capabilities.
+- review command specifications.
+
+No capability is recorded, and none is missing. A snapshot exists to freeze what could otherwise change under a running task, and `agent.capabilities.docker` is `denied` for every project and every task — there is nothing for a snapshot to hold apart from the constant, and the launch checks it enforces read the container rather than the record (ADR-080).
 
 Later edits to project YAML do not silently mutate an active task. The user may explicitly reconcile or recreate it.
 

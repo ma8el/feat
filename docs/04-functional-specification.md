@@ -125,7 +125,7 @@ Every selected read-only source repository SHOULD receive a reproducible task wo
 
 ### FR-GIT-006 — Full Git in agent
 
-The devcontainer execution mode MUST permit full Git access when configured. Documentation MUST disclose that native Git worktrees share repository metadata and therefore do not isolate Git refs from the agent.
+The devcontainer execution mode MUST permit full Git access. There is no configuration that withholds it: `agent.capabilities.git` declared the permission until ADR-080 and never gated anything, because Feat implements no Git restriction to gate with. Documentation MUST disclose that native Git worktrees share repository metadata and therefore do not isolate Git refs from the agent — a disclosure the removal makes load-bearing rather than supplementary, since it is now the only place the exposure is stated.
 
 ### FR-GIT-007 — Optional commits
 

@@ -199,10 +199,6 @@ func (c *Config) describeAgent() Section {
 			Note: "idle never means complete"},
 		Field{Name: "capabilities.docker", Value: c.Agent.Capabilities.Docker,
 			Note: dockerNote(execution.Mode)},
-		Field{Name: "capabilities.network", Value: c.Agent.Capabilities.Network,
-			Note: "Feat does not provide network data-loss prevention"},
-		Field{Name: "capabilities.git", Value: c.Agent.Capabilities.Git,
-			Note: "a native worktree shares repository metadata with the agent"},
 	)
 	return Section{Title: "agent", Fields: fields}
 }

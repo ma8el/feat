@@ -358,8 +358,6 @@ func checkEnums(t *testing.T, root *schema, cfg *config.Config) {
 		{"$defs.agent.properties.provider", cfg.Agent.Provider},
 		{"$defs.execution.properties.mode", cfg.Agent.Execution.Mode},
 		{"$defs.capabilities.properties.docker", cfg.Agent.Capabilities.Docker},
-		{"$defs.capabilities.properties.network", cfg.Agent.Capabilities.Network},
-		{"$defs.capabilities.properties.git", cfg.Agent.Capabilities.Git},
 	} {
 		if check.value == "" {
 			// Absent in the file, so a default applies and the schema records
