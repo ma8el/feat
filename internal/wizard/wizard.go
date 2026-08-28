@@ -470,8 +470,22 @@ func (w *Wizard) question() Question {
 		repository := w.draft.Repositories[w.mount]
 		question := Question{
 			ID: "agent.mount", Section: SectionAgent, Kind: KindText,
-			Prompt:   "Mount point for " + repository.ID,
+			Prompt: "Mount point for " + repository.ID,
+			// Feat generates this mount itself, so a path of its own is a
+			// legitimate answer where the files state none — unlike the runtime
+			// path, which has to match where somebody else's services expect the
+			// code. It is only an invention when the files do say where this
+			// repository goes and are not asked.
 			Proposed: "/srv/" + repository.ID,
+		}
+		if composition := w.agentComposition(repository.HostPath); composition.ContainerPath != "" {
+			question.Proposed = composition.ContainerPath
+		} else if len(composition.Undecided) > 0 {
+			// Why the default is the default. An entry Feat left unread is not an
+			// entry that said nothing, and a user who cannot tell the two apart
+			// has no way to know whether their own file already answered this.
+			question.Notes = append(question.Notes,
+				"not read, because they interpolate: "+strings.Join(composition.Undecided, "; "))
 		}
 		if w.firstMount() {
 			question.Detail = []string{
@@ -876,9 +890,14 @@ func (w *Wizard) keepContribution() {
 }
 
 // readComposition reads what the answered Compose files propose.
+//
+// A repository's application files are read against that repository's own
+// checkout, which is both the directory their relative paths resolve against
+// and the repository being asked about: Feat gives this repository's include
+// entry that same directory, so the two are one here.
 func (w *Wizard) readComposition() {
 	repository := w.draft.Repositories[w.contributor]
-	w.composition = w.host.Compose(repository.HostPath, w.files...)
+	w.composition = w.host.Compose(repository.HostPath, repository.HostPath, w.files...)
 
 	if len(w.composition.Services) > 0 {
 		w.notes = append(w.notes, "services defined there: "+strings.Join(w.composition.Services, ", "))
@@ -890,6 +909,29 @@ func (w *Wizard) readComposition() {
 		w.notes = append(w.notes,
 			"not read, because they interpolate: "+strings.Join(w.composition.Undecided, "; "))
 	}
+}
+
+// agentComposition reads what the agent's own Compose files say about one
+// repository.
+//
+// Two directories rather than one, because here they are two. The paths in
+// those files resolve against the first file's own directory, which is what the
+// daemon passes Compose as the project directory when it starts the agent
+// (ADR-033), so reading them any other way would answer a different question
+// from the one Compose will be asked. What is asked about is a repository, and
+// each is asked separately: the agent's container holds every repository a task
+// takes, and one file can name a different path for each of them.
+//
+// It reads the files again for each question rather than keeping what it read.
+// The answers before this one can be stepped back into and given differently,
+// and a proposal derived from a file the user has since replaced is worse than
+// one derived twice.
+func (w *Wizard) agentComposition(hostPath string) Composition {
+	files := w.draft.Execution.ComposeFiles
+	if len(files) == 0 || hostPath == "" {
+		return Composition{}
+	}
+	return w.host.Compose(filepath.Dir(files[0]), hostPath, files...)
 }
 
 // provenance says which of the named services build this repository into their

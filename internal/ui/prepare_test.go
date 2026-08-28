@@ -569,7 +569,7 @@ func (h fakeHost) ComposeFiles(string) []string {
 }
 
 func (h fakeHost) ComposeServices(...string) []string { return nil }
-func (h fakeHost) Compose(string, ...string) wizard.Composition {
+func (h fakeHost) Compose(string, string, ...string) wizard.Composition {
 	return wizard.Composition{}
 }
 func (h fakeHost) Exists(string) bool       { return true }
