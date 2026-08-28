@@ -235,21 +235,19 @@ func (c ClaudeSection) IdleGrace() time.Duration { return c.idleGracePeriod }
 
 // CapabilitiesSection declares what the agent environment may reach.
 //
-// The capabilities are independent of one another on purpose: full Git access
-// says nothing about Docker, and Feat must not let one imply another
+// Docker is what is left of it (ADR-080). A capability belongs here when Feat
+// stands between what a project declares and what the agent's environment turns
+// out to be; `network` and `git` did not, and the exposure they described is
+// stated where it holds regardless of any declaration
 // (docs/05-security-model.md).
 type CapabilitiesSection struct {
 	// Docker is the agent's Docker access. Only "denied" is accepted: Feat has
 	// no mechanism that grants an agent Docker, so any other value would be a
-	// promise the binary does not keep.
+	// promise the binary does not keep. Unlike the two capabilities removed with
+	// it, the declaration is checked: a launch refuses a container that carries
+	// a client speaking a container runtime's API, and `feat doctor` asks a
+	// running one the same question.
 	Docker string `yaml:"docker"`
-	// Network is the agent's outbound network access. Only "unrestricted" is
-	// accepted, because Feat implements no network restriction and does not
-	// claim data-loss prevention.
-	Network string `yaml:"network"`
-	// Git is the agent's Git access. Only "full" is accepted for the same
-	// reason.
-	Git string `yaml:"git"`
 }
 
 // RuntimeSection configures the application services of a task.
@@ -634,10 +632,6 @@ const (
 
 	// CapabilityDenied is the only accepted Docker capability.
 	CapabilityDenied = "denied"
-	// CapabilityUnrestricted is the only accepted network capability.
-	CapabilityUnrestricted = "unrestricted"
-	// CapabilityFull is the only accepted Git capability.
-	CapabilityFull = "full"
 
 	// ExecutionAgent runs a check inside the agent's execution environment.
 	ExecutionAgent = "agent"

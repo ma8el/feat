@@ -40,9 +40,9 @@
 //   - configuration may reference secret file paths but never contains copied
 //     secret values: this package records the path of an environment file and
 //     never opens it, so resolved output has nothing to redact;
-//   - capabilities are explicit and independent: Git access never implies
-//     Docker access, and the capabilities Feat cannot actually vary accept only
-//     the value Feat delivers.
+//   - the one declared capability accepts only the value Feat delivers, and it
+//     is declared because a launch and a diagnostic check the agent's container
+//     against it (ADR-080).
 //
 // See ADR-028 in docs/10-decisions-and-open-questions.md.
 package config

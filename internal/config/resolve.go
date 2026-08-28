@@ -163,15 +163,8 @@ func (c *Config) resolveAgent(opts Options) error {
 		c.Agent.Claude.IdleGracePeriod = defaultIdleGracePeriod
 	}
 
-	capabilities := &c.Agent.Capabilities
-	if capabilities.Docker == "" {
-		capabilities.Docker = CapabilityDenied
-	}
-	if capabilities.Network == "" {
-		capabilities.Network = CapabilityUnrestricted
-	}
-	if capabilities.Git == "" {
-		capabilities.Git = CapabilityFull
+	if c.Agent.Capabilities.Docker == "" {
+		c.Agent.Capabilities.Docker = CapabilityDenied
 	}
 
 	execution := &c.Agent.Execution

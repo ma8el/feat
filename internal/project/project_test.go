@@ -677,6 +677,28 @@ func TestNoProviderCLICheckAsksTheAgentEnvironment(t *testing.T) {
 	}
 }
 
+// TestNoCapabilityFindingRestatesTheConfigurationFile is the absence ADR-080
+// leaves behind. `feat doctor` reported `network` and `git` as passing checks,
+// which read as two more things it had verified: nothing was asked of the
+// machine, because there was nothing either field could gate. Docker is the one
+// that survives, and it survives by being answerable.
+func TestNoCapabilityFindingRestatesTheConfigurationFile(t *testing.T) {
+	w := arrange(t)
+	hostMode(t, w)
+
+	report := w.only(t, w.diagnose(t))
+	for _, check := range []string{"agent.capabilities.network", "agent.capabilities.git"} {
+		for _, found := range report.Findings {
+			if found.Check == check {
+				t.Errorf("%s is still reported: %q", check, found.Summary)
+			}
+		}
+	}
+	// And the one that stayed is still there: a test that only proves two
+	// findings are gone would pass on a doctor that lost the section entirely.
+	finding(t, report.Findings, "agent.capabilities.docker")
+}
+
 func TestAnUnverifiedAgentVersionWarnsRatherThanFails(t *testing.T) {
 	w := arrange(t)
 	hostMode(t, w)

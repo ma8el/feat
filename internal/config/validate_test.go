@@ -126,10 +126,6 @@ func TestValidationRejectsUnsafeConfiguration(t *testing.T) {
 			old: "    docker: denied", new: "    docker: allowed",
 			path: "agent.capabilities.docker", contains: "never receives a Docker socket",
 		},
-		"network capability is restricted": {
-			old: "    network: unrestricted", new: "    network: allowlist",
-			path: "agent.capabilities.network", contains: "does not implement network restriction",
-		},
 		"runtime start policy is automatic": {
 			old: "  start_policy: manual", new: "  start_policy: automatic",
 			path: "runtime.start_policy", contains: "explicit user action",

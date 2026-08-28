@@ -273,14 +273,11 @@ func (d Draft) renderAgent(doc *document) {
 	doc.blank()
 	doc.key(1, "capabilities")
 	doc.comment(2,
-		"These accept one value each. Feat has no mechanism that varies them, so any",
-		"other value would be a promise the binary does not keep: the agent never",
-		"receives Docker, Feat implements no network restriction and claims no",
-		"data-loss prevention, and a Git worktree shares repository metadata with the",
-		"agent.")
+		"This accepts one value. Feat has no mechanism that grants an agent Docker, so",
+		"any other value would be a promise the binary does not keep. It is written",
+		"because a launch checks the container against it, and `feat doctor` asks a",
+		"running one the same question.")
 	doc.field(2, "docker", CapabilityDenied)
-	doc.field(2, "network", CapabilityUnrestricted)
-	doc.field(2, "git", CapabilityFull)
 }
 
 func (d Draft) renderRuntime(doc *document) {

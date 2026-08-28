@@ -125,10 +125,17 @@ func TestADraftWritesWhatWasDecidedAndNothingElse(t *testing.T) {
 	for _, present := range []string{
 		"version: 1", "id: app", "primary_repository: api",
 		"host_path: /checkouts/api", "default_access: read_write", "mode: host",
-		"docker: denied", "network: unrestricted", "git: full",
+		"docker: denied",
 	} {
 		if !strings.Contains(host, present) {
 			t.Errorf("a host-mode project does not write %q:\n%s", present, host)
+		}
+	}
+	// ADR-080 removed both, so a draft that still wrote either would render a
+	// file the strict decoder rejects on the next line it reads.
+	for _, removed := range []string{"network:", "git: full"} {
+		if strings.Contains(host, removed) {
+			t.Errorf("the draft writes the removed capability %q:\n%s", removed, host)
 		}
 	}
 }

@@ -261,7 +261,7 @@
     },
 
     "capabilities": {
-      "description": "What the agent's environment may reach. The capabilities are independent: full Git access says nothing about Docker. Each accepts one value, because Feat has no mechanism that varies them, and recording another value would be a promise the binary does not keep.",
+      "description": "What the agent's environment may reach. Docker is what is declared, because it is the one Feat checks the agent's container against. It accepts one value: Feat has no mechanism that grants an agent Docker, and recording another value would be a promise the binary does not keep. The network and git capabilities were here until ADR-080 and are not replaced; docs/05-security-model.md states the exposure they described.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -269,16 +269,6 @@
           "description": "The agent never receives a Docker socket or a Docker CLI that reaches the host; only the trusted host runs Docker Compose.",
           "const": "denied",
           "default": "denied"
-        },
-        "network": {
-          "description": "Feat does not implement network restriction and does not claim data-loss prevention.",
-          "const": "unrestricted",
-          "default": "unrestricted"
-        },
-        "git": {
-          "description": "A native Git worktree shares repository metadata with the agent, which Feat does not restrict.",
-          "const": "full",
-          "default": "full"
         }
       }
     },
