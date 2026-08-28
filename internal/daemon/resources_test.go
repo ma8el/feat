@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
+	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/resources"
 )
 
@@ -241,28 +244,77 @@ func TestTheSamplingIntervalIsFlooredByTheLastSample(t *testing.T) {
 		options.ResourceInterval = -1
 	})
 
-	ctx := context.Background()
-	if got := live.service.resourceInterval(ctx, 0); got < minimumResourceInterval {
+	if got := live.service.resourceInterval(0); got < minimumResourceInterval {
 		t.Errorf("the sampling interval is %s, below the floor of %s", got, minimumResourceInterval)
 	}
-	if got, slow := live.service.resourceInterval(ctx, 9*time.Second), 9*time.Second; got != slow {
+	if got, slow := live.service.resourceInterval(9*time.Second), 9*time.Second; got != slow {
 		t.Errorf("after a sample taking %s the next one waits %s, want %s", slow, got, slow)
 	}
 }
 
-// TestAProjectsConfiguredIntervalIsRead checks that the configured interval is
-// actually read.
-func TestAProjectsConfiguredIntervalIsRead(t *testing.T) {
-	fixture := hostFixture + `
+// writeSettings puts a global settings file where the daemon will look for it.
+func writeSettings(t *testing.T, layout paths.Layout, body string) {
+	t.Helper()
+	if err := os.MkdirAll(layout.Config, 0o700); err != nil {
+		t.Fatalf("creating the configuration directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(layout.Config, "settings.yaml"), []byte(body), 0o600); err != nil {
+		t.Fatalf("writing the settings file: %v", err)
+	}
+}
+
+// TestTheConfiguredSamplingIntervalIsRead checks that the interval comes from
+// the machine's settings.
+//
+// It used to come from the projects: the sampler listed every registered one and
+// parsed each one's YAML on every tick, then took the shortest answer. It is now
+// one number, resolved when the daemon started, and this asserts about a daemon
+// that has already started — which is the whole of the reading (ADR-079).
+func TestTheConfiguredSamplingIntervalIsRead(t *testing.T) {
+	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
+		options.ResourceInterval = -1
+		writeSettings(t, options.Layout, `version: 1
+
 resources:
   sample_interval: 30s
-`
-	live := launchWith(t, fixture, installed(), true, func(options *Options) {
+`)
+	})
+
+	if got := live.service.resourceInterval(0); got != 30*time.Second {
+		t.Errorf("the sampling interval is %s, want the configured 30s", got)
+	}
+}
+
+// TestTheSamplingIntervalDefaultsWithoutSettings covers the machine that has
+// written no settings file, which is every machine until somebody does.
+func TestTheSamplingIntervalDefaultsWithoutSettings(t *testing.T) {
+	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
 		options.ResourceInterval = -1
 	})
 
-	if got := live.service.resourceInterval(context.Background(), 0); got != 30*time.Second {
-		t.Errorf("the sampling interval is %s, want the configured 30s", got)
+	if got, want := live.service.resourceInterval(0), defaultResourceInterval; got != want {
+		t.Errorf("with no settings file the interval is %s, want the documented default %s", got, want)
+	}
+}
+
+// TestUnreadableSettingsDoNotStopTheDaemon covers the failure a hand-edited file
+// produces.
+//
+// An optional file with a typo in it must not stop a control plane from
+// starting. The defaults apply until it is fixed, the daemon says so once in its
+// log, and `feat settings show` is where the typo itself is diagnosed.
+func TestUnreadableSettingsDoNotStopTheDaemon(t *testing.T) {
+	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
+		options.ResourceInterval = -1
+		writeSettings(t, options.Layout, `version: 1
+
+resources:
+  sample_intervals: 30s
+`)
+	})
+
+	if got, want := live.service.resourceInterval(0), defaultResourceInterval; got != want {
+		t.Errorf("with unreadable settings the interval is %s, want the documented default %s", got, want)
 	}
 }
 

@@ -303,9 +303,6 @@ func (c *Config) resolveIntervals() error {
 	if c.Notifications.IdleGracePeriod == "" {
 		c.Notifications.IdleGracePeriod = defaultIdleGracePeriod
 	}
-	if c.Resources.SampleInterval == "" {
-		c.Resources.SampleInterval = defaultSampleInterval
-	}
 
 	for _, field := range []struct {
 		path   string
@@ -314,7 +311,6 @@ func (c *Config) resolveIntervals() error {
 	}{
 		{"agent.claude.idle_grace_period", c.Agent.Claude.IdleGracePeriod, &c.Agent.Claude.idleGracePeriod},
 		{"notifications.idle_grace_period", c.Notifications.IdleGracePeriod, &c.Notifications.idleGracePeriod},
-		{"resources.sample_interval", c.Resources.SampleInterval, &c.Resources.sampleInterval},
 	} {
 		parsed, err := parseInterval(field.path, field.value)
 		if err != nil {

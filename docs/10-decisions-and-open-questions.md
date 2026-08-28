@@ -6305,11 +6305,32 @@ Decisions:
 
 Landing order, so that this record is accurate at every point: the file, its
 schema, the loader, `feat settings show`, and `feat settings path` land first,
-and the three sections move one at a time after it — `resources` first, because
-it is the correctness fix, then `review` and `notifications` together with
-`feat doctor`'s review-command check. Each move deletes its section from the
-project configuration struct and schema, and each breaks the three configuration
-files that carry it today, by design.
+and the three sections move one at a time after it. Each move deletes its section
+from the project configuration struct and schema, and each breaks the three
+configuration files that carry it today, by design.
+
+- **`resources` — moved.** `resourceInterval` no longer lists the projects, no
+  longer loads their configuration, and no longer has a conflict rule to apply.
+  It reads nothing at all: the interval is a number already in memory.
+- **`review` and `notifications` — not yet**, together with `feat doctor`'s
+  review-command check.
+
+Settings are resolved **once, when the daemon starts**, and this is the one place
+the settings file deliberately behaves unlike project configuration, which is
+re-read on every operation. The difference is what the two are about: a project
+file describes work in progress and is edited while Feat is running, and these
+are the machine's own dispositions — how often it is sampled, whether it may
+interrupt you, which editor is yours — which change about as often as the machine
+does. Reading them per use was built first and rejected on what it looked like:
+the sampler parsing a file every two seconds to be told the same number is the
+same shape of problem that put the section in the wrong file to begin with, one
+sixth the size. So changing a setting takes a daemon restart, which is a small
+price paid rarely, and it is stated where somebody meets it rather than left to
+be discovered by editing a value and watching nothing happen: `feat settings
+show` says that a running daemon read these at startup. A file that cannot be
+read costs the defaults rather than the daemon — an optional file with a typo in
+it must not stop a control plane from starting — and it is logged once at
+startup, beside the other thing this daemon asks once and remembers.
 
 Consequence: this amends the configuration model, which had one file and now has
 two — see [07-configuration-model.md](07-configuration-model.md) § Global

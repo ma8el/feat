@@ -111,6 +111,3 @@ notifications:
   desktop: true
   idle_grace_period: 5s
   suppress_while_attached: true
-
-resources:
-  sample_interval: 2s

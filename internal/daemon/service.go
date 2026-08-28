@@ -107,6 +107,12 @@ type service struct {
 	// observer samples the machine and the tasks. Sampling is observational and
 	// never blocks a request.
 	observer *resources.Observer
+	// settings are the machine's own, resolved once when this daemon started and
+	// never nil. They are what a project's configuration is not: dispositions of
+	// the machine and the person at it, which change about as often as the
+	// machine does, so changing one takes a restart and `feat settings show`
+	// says so (ADR-079).
+	settings *config.Settings
 	// sample is the most recent sample, which the local API serves. It is
 	// deliberately not persisted: derived samples are not part of stored state.
 	sampleMu sync.Mutex

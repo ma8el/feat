@@ -211,9 +211,6 @@ func TestCompleteConfigurationResolves(t *testing.T) {
 	if got, want := loaded.Agent.Claude.IdleGrace(), 5*time.Second; got != want {
 		t.Errorf("idle grace = %v, want %v", got, want)
 	}
-	if got, want := loaded.Resources.Sample(), 2*time.Second; got != want {
-		t.Errorf("sample interval = %v, want %v", got, want)
-	}
 	if !loaded.HasRuntime() {
 		t.Error("the configuration declares a runtime, but HasRuntime reports none")
 	}

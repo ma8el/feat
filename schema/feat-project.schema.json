@@ -33,8 +33,7 @@
       }
     },
     "tracker": { "$ref": "#/$defs/tracker" },
-    "notifications": { "$ref": "#/$defs/notifications" },
-    "resources": { "$ref": "#/$defs/resources" }
+    "notifications": { "$ref": "#/$defs/notifications" }
   },
 
   "$defs": {
@@ -424,18 +423,6 @@
           "description": "Suppress notifications for a task the user is already attached to.",
           "type": "boolean",
           "default": true
-        }
-      }
-    },
-
-    "resources": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "sample_interval": {
-          "description": "How often whole-machine and per-task resources are sampled. Sampling is observational and never blocks task creation.",
-          "$ref": "#/$defs/duration",
-          "default": "2s"
         }
       }
     }

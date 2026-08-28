@@ -47,7 +47,9 @@ the settings file sets. The editor may also be marked ` + "`from $EDITOR`" + `, 
 where it comes from when nothing configures it.
 
 It reads the file directly and asks no daemon anything, so it works before one is
-running.`,
+running — and so what it prints is what a daemon would adopt if it started now,
+which is not necessarily what a daemon already running adopted. Settings are read
+once at startup; restart the daemon after changing one.`,
 		Args: checkArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			layout, options, err := env.project()
@@ -72,7 +74,13 @@ running.`,
 					printf(out, "  %-26s %s\n", field.Name, field.Value)
 				}
 			}
+			// The second line is where the cost of resolving these once is paid.
+			// A daemon holds them from the moment it started, so this command can
+			// print a value the running daemon is not using — and editing a
+			// setting and watching nothing happen is exactly the confusion a
+			// sentence here costs nothing to prevent (ADR-079).
 			printf(out, "\nthese settings are global: they apply to every project on this machine\n")
+			printf(out, "a running daemon reads them once, at startup: restart it after changing one\n")
 			return nil
 		},
 	}

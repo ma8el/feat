@@ -307,6 +307,30 @@ func TestSettingsFixtureLoads(t *testing.T) {
 	}
 }
 
+// TestAProjectFileNoLongerCarriesTheMovedSections is the break ADR-079 chose to
+// take rather than write a migration for.
+//
+// Strict decoding is what makes that choice safe: a project file still carrying
+// a section that has moved fails to load, naming the field, rather than being
+// silently ignored — which is the failure a migration would have existed to
+// prevent. The message is generic rather than naming the new home, which is
+// enough at one user.
+func TestAProjectFileNoLongerCarriesTheMovedSections(t *testing.T) {
+	dir := write(t, "app.yaml", fixture(t, "app.yaml")+`
+resources:
+  sample_interval: 2s
+`)
+	opts, _ := testOptions(t, nil)
+
+	_, err := config.Load(dir, "app", opts)
+	if err == nil {
+		t.Fatal("a project file carrying resources: was accepted")
+	}
+	if !strings.Contains(err.Error(), "resources") {
+		t.Errorf("the error does not name the section it rejected: %v", err)
+	}
+}
+
 // TestSettingsFilePathIsBesideTheProjectsDirectory pins where the file belongs,
 // which is what `feat settings path` prints and what a user is told to write.
 func TestSettingsFilePathIsBesideTheProjectsDirectory(t *testing.T) {

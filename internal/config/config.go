@@ -53,8 +53,6 @@ type Config struct {
 	Tracker *TrackerSection `yaml:"tracker"`
 	// Notifications configures attention notifications.
 	Notifications NotificationsSection `yaml:"notifications"`
-	// Resources configures resource sampling.
-	Resources ResourcesSection `yaml:"resources"`
 
 	// path is the file the configuration was read from. It is not a field of
 	// the file itself.
@@ -441,6 +439,9 @@ func (n NotificationsSection) SuppressedWhileAttached() bool {
 func (n NotificationsSection) IdleGrace() time.Duration { return n.idleGracePeriod }
 
 // ResourcesSection configures resource sampling.
+//
+// It belongs to the machine's settings rather than to a project: one sample
+// measures the whole machine, whatever project asked for it (ADR-079).
 type ResourcesSection struct {
 	// SampleInterval is how often whole-machine and per-task resources are
 	// sampled. Sampling is observational and never blocks task creation.

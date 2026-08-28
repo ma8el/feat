@@ -44,6 +44,9 @@ func TestSettingsShowRunsWithoutAFileOrADaemon(t *testing.T) {
 		// reading as a value somebody configured.
 		"from $EDITOR",
 		"global",
+		// The restart requirement is stated where somebody meets it, rather than
+		// left to be found by editing a value and watching nothing happen.
+		"restart it after changing one",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("the output does not contain %q:\n%s", want, stdout)

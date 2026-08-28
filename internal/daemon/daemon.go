@@ -197,6 +197,11 @@ func New(opts Options) (*Daemon, error) {
 			slog.String("variable", config.EnvHostAgent))
 	}
 
+	settings, err := startupSettings(opts.Layout, env, logger)
+	if err != nil {
+		return nil, err
+	}
+
 	notifier := opts.Notifier
 	if notifier == nil {
 		notifier = notify.Host()
@@ -242,6 +247,7 @@ func New(opts Options) (*Daemon, error) {
 			notifier:      notifier,
 			undeliverable: undeliverable,
 			observer:      resourceObserver(opts),
+			settings:      settings,
 
 			resourceOverride: opts.ResourceInterval,
 			idle:             newIdleTimers(opts.Timer),
@@ -255,6 +261,42 @@ func New(opts Options) (*Daemon, error) {
 			pollNow:          make(chan struct{}, 1),
 		},
 	}, nil
+}
+
+// startupSettings resolves the machine's settings, once, for the whole of this
+// daemon's life.
+//
+// Read once rather than per use, which is the opposite of how project
+// configuration is read, and the difference is what the two are about. A project
+// file describes work in progress and is edited while Feat is running; these are
+// the machine's own dispositions — how often it is sampled, whether it may
+// interrupt you, which editor is yours — and they change about as often as the
+// machine does. Reading them per use meant the sampler parsing a file every two
+// seconds to be told the same number, which is the shape of problem that put
+// this section in the wrong file to begin with (ADR-079).
+//
+// The cost is that changing one takes a daemon restart. It is stated where
+// somebody meets it — `feat settings show` says so — rather than left to be
+// discovered by editing a value and watching nothing happen.
+//
+// A file that cannot be read costs the defaults rather than the daemon: an
+// optional file with a typo in it must not stop a control plane from starting,
+// and `feat settings show` is where the typo is diagnosed. It is logged at
+// startup, beside the other thing this daemon asks once and remembers.
+func startupSettings(layout paths.Layout, env paths.Environment, logger *slog.Logger) (*config.Settings, error) {
+	options := config.Options{Env: env, StateDir: layout.State}
+
+	settings, err := config.LoadSettings(layout.Config, options)
+	if err == nil {
+		if settings.Path() != "" {
+			logger.Info("settings read", slog.String("file", settings.Path()))
+		}
+		return settings, nil
+	}
+
+	logger.Warn("the settings file could not be read, so the defaults apply until it is fixed and this "+
+		"daemon is restarted", slog.String("directory", layout.Config), slog.Any("error", err))
+	return config.DefaultSettings(options)
 }
 
 // truthy reads an opt-in environment variable.

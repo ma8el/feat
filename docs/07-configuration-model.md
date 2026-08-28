@@ -60,6 +60,18 @@ commands belong here: the default has always reached for a user-level source and
 until now had no user-level file to reach for. `feat settings path` prints where
 the file belongs, whether or not it exists.
 
+**The daemon reads this file once, when it starts.** That is the opposite of how
+project configuration is read — every operation re-reads a project's YAML, so an
+edit takes effect at the next one — and the difference is what the two files are
+about. A project file describes work in progress and is edited while Feat is
+running; these are the machine's own dispositions, and they change about as often
+as the machine does. Reading them per use meant the resource sampler parsing a
+file every two seconds to be told the same number. So changing a setting takes a
+daemon restart, and `feat settings show` says so rather than leaving it to be
+discovered. A file that cannot be read costs the defaults rather than the daemon:
+an optional file with a typo in it must not stop a control plane from starting,
+and the failure is logged once at startup.
+
 The command is `settings` rather than `config` deliberately. `feat project show`
 already prints project configuration, and two commands called "config" would
 blur exactly the line this file draws. `~/.config/feat/` keeps its name, which is
@@ -179,6 +191,12 @@ notifications:
   desktop: true
   idle_grace_period: 5s
   suppress_while_attached: true
+```
+
+And the settings file beside it:
+
+```yaml
+version: 1
 
 resources:
   sample_interval: 2s
@@ -548,11 +566,17 @@ user is already looking at, which Feat asks tmux per window rather than
 remembering that somebody once attached.
 
 `resources.sample_interval` is how often the machine and each task's containers
-and processes are observed. It is per-project configuration for a machine-wide
-measurement, so the shortest interval any registered project asks for is what the
-machine is asked for, floored at one second and at however long the previous
-sample took — asking the container runtime what it is using takes between one and
-two seconds whatever it is asked. Sampling never blocks a request or a task.
+and processes are observed. It is a **global setting** rather than project
+configuration, because one sample measures the whole machine whatever project
+asked for it: it is read from `~/.config/feat/settings.yaml`, floored at one
+second and at however long the previous sample took — asking the container
+runtime what it is using takes between one and two seconds whatever it is asked.
+Sampling never blocks a request or a task.
+
+It used to be per project, which meant the sampler listed every registered
+project and parsed each one's YAML on every tick, then reconciled the answers
+with "the most eager project wins" — a rule that existed only because the setting
+was in the wrong file. See ADR-079.
 
 ### Configuration Feat derives
 

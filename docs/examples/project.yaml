@@ -233,10 +233,3 @@ notifications:
   # Drop a notification about a task you are already watching. Feat asks tmux
   # which window your client is on rather than remembering that you attached.
   suppress_while_attached: true
-
-resources:
-  # How often the machine, and each task's containers and processes, are
-  # observed. Sampling is observational: it never refuses a task and never slows
-  # a request. Asking the container runtime what it is using takes a second or
-  # two, so a shorter interval than that is treated as "as often as possible".
-  sample_interval: 2s

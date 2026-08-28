@@ -289,7 +289,6 @@ func (c *Config) describeNotifications() Section {
 		{Name: "desktop", Value: yesNo(c.Notifications.DesktopEnabled())},
 		{Name: "idle_grace_period", Value: c.Notifications.IdleGracePeriod},
 		{Name: "suppress_while_attached", Value: yesNo(c.Notifications.SuppressedWhileAttached())},
-		{Name: "resources.sample_interval", Value: c.Resources.SampleInterval},
 	}}
 }
 
