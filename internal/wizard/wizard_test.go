@@ -512,6 +512,77 @@ func TestTheAgentsMountIsProposedFromItsOwnComposeFiles(t *testing.T) {
 	}
 }
 
+// TestAMountInsideAnotherRepositorysMountIsRefusedWhereItIsGiven is the failure
+// the derived proposal made reachable.
+//
+// Two proposals of "/srv/<id>" are always siblings, so before the mount could be
+// read out of the Compose files, the wizard could not compose an overlapping
+// pair. A path the files state can be the parent of the next repository's
+// default — and configuration refuses two repositories mounted inside one
+// another when the composed file is loaded back, which is after the last
+// question. Meeting it there ends the conversation and takes every answer with
+// it, so it is met here instead.
+func TestAMountInsideAnotherRepositorysMountIsRefusedWhereItIsGiven(t *testing.T) {
+	flow, host := start(t, "app")
+	answers(t, flow,
+		"",             // display name
+		"",             // the checkout: the working directory, which is the api repository
+		"api",          // repository identifier
+		"",             // default access: read_write
+		"y",            // a second repository
+		"store",        // its checkout
+		"store",        // its identifier
+		"",             // default access: selectable
+		"n",            // no third repository
+		"",             // the repository a task works in: api
+		"devcontainer", // execution mode
+		filepath.Join(host.root, "devcontainer", "compose.yaml"),
+		"",          // no more Compose files
+		"dev",       // the service the agent runs in
+		"developer", // the user it runs as
+		"/srv",      // api, mounted where the second repository's default would go
+	)
+
+	// The default for the second repository is inside the first one's mount, so
+	// the answer the field already holds is the one refused.
+	question, _ := flow.Step()
+	if question.ID != "agent.mount" || question.Proposed != "/srv/store" {
+		t.Fatalf("the question is %s proposing %q, want the default for the second repository",
+			question.ID, question.Proposed)
+	}
+	err := flow.Answer(context.Background(), "")
+	if err == nil {
+		t.Fatal("a mount inside another repository's mount was accepted")
+	}
+	for _, want := range []string{"/srv/store", "/srv", "api"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q: %v", want, err)
+		}
+	}
+
+	// And the conversation is where it was, with the same question waiting, which
+	// is the whole point of asking it here.
+	again, ok := flow.Step()
+	if !ok || again.ID != "agent.mount" {
+		t.Fatalf("a refused mount moved the flow to %s", again.ID)
+	}
+	answers(t, flow,
+		"/opt/store", // somewhere else entirely
+		"n",          // no configuration volume for Claude
+		"n",          // no application services
+	)
+
+	review, err := flow.Review()
+	if err != nil {
+		t.Fatalf("the corrected answers do not compose a configuration: %v", err)
+	}
+	for _, want := range []string{"container_path: /srv\n", "container_path: /opt/store\n"} {
+		if !strings.Contains(string(review.Text), want) {
+			t.Errorf("the configuration does not contain %q:\n%s", want, review.Text)
+		}
+	}
+}
+
 // TestTheApplicationIsAnsweredOneRepositoryAtATime is the shape ADR-065 gives
 // the runtime, as a conversation.
 //

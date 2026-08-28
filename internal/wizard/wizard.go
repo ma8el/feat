@@ -740,6 +740,9 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 		if err := containerPath(answer); err != nil {
 			return err
 		}
+		if err := w.unoccupied(answer); err != nil {
+			return err
+		}
 		w.draft.Repositories[w.mount].AgentContainerPath = answer
 		w.nextMount()
 
@@ -982,6 +985,35 @@ func (w *Wizard) nextMount() {
 		return
 	}
 	w.stage = stageClaudeVolume
+}
+
+// unoccupied rejects a mount point that overlaps one another repository already
+// has.
+//
+// Configuration refuses two repositories mounted inside one another: it does not
+// fail at Compose, it produces a container where one repository shadows part of
+// another, which is far harder to recognise later than a refusal now. That check
+// runs when the composed file is loaded back, which is after the last question —
+// so a conversation that met it there ended, taking every answer with it. This
+// asks the same question of the answer being given, in the words of the question
+// that can still be answered differently, and the rule itself is
+// config.PathsOverlap so that the two cannot drift apart.
+//
+// It became reachable when this stopped being a made-up value: two proposals of
+// "/srv/<id>" are always siblings, and a path read out of the agent's own
+// Compose files can be the parent of the next repository's default.
+func (w *Wizard) unoccupied(answer string) error {
+	for i, repository := range w.draft.Repositories {
+		if i == w.mount || repository.AgentContainerPath == "" {
+			continue
+		}
+		if config.PathsOverlap(answer, repository.AgentContainerPath) {
+			return fmt.Errorf(
+				"%s overlaps %s, where %s is mounted: two repositories cannot be mounted inside one another",
+				answer, repository.AgentContainerPath, repository.ID)
+		}
+	}
+	return nil
 }
 
 // firstMount reports whether the mount under the cursor is the first one asked

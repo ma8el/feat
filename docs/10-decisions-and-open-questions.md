@@ -6682,9 +6682,23 @@ Two things this leaves behind, both worth stating rather than discovering later:
    `feat project init` ends the conversation and loses every answer. Two defaults
    could never overlap, so this is reachable only now, and only in a devcontainer
    project with two or more repositories whose files name a path around `/srv`.
-   The fix is an answer-time rejection in the mount question, where the user can
-   correct it, which would also close the same hole for a hand-typed answer. Not
-   done here.
+
+   **Fixed on request, immediately after, and the fix is the rejection rather
+   than a cleverer proposal.** The mount question refuses an answer that overlaps
+   a container path another repository already has, names both repositories, and
+   asks again — which is the stance `feat project init` already takes on every
+   other refusable answer, "because the alternative is a command that fails at
+   the end of a conversation over something the user could have corrected when
+   they typed it". The rule is `config.PathsOverlap`, exported for this and used
+   by both, because two implementations of one rule drift and the one a user
+   meets first would be the wrong one. The proposal is left alone: a second
+   invented fallback, `/srv/<id>-2` or the like, would put a name nobody chose
+   into a configuration file to avoid a message that is easy to read.
+
+   Nothing is added for the runtime container paths, which are not overlap-
+   checked at all and should not be: a repository's worktree is mounted into its
+   own services, so two repositories expecting their source at `/app` are two
+   containers agreeing rather than a collision.
 2. **The end-to-end value of the proposal is unverified.** Neither project on
    this machine can show it: one devcontainer mounts no repository source, and the
    other writes its sources through `${...}`, so they land in `Undecided` and Feat
