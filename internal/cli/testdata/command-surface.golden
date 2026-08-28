@@ -22,6 +22,8 @@ feat runtime start <task>
 feat runtime status <task>
 feat runtime stop <task>
 feat settings
+feat settings edit
+feat settings init
 feat settings path
 feat settings show
 feat task

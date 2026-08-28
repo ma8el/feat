@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -62,6 +63,30 @@ func TestSettingsAreDefaultedWhenNoFileExists(t *testing.T) {
 	}
 	if got := strings.Join(settings.Review.Editor.Command, " "); got != "hx {repository_path}" {
 		t.Errorf("review.editor.command = %q, and $EDITOR is what it falls back to", got)
+	}
+}
+
+// TestTheEditorVariableIsACommandRatherThanAProgram covers a $EDITOR that
+// carries flags, which is an ordinary value of it.
+//
+// It is split on whitespace: `code -w` names a program and a flag, and keeping
+// it whole would make the entire string an executable to look up. The client
+// already split it on its own fallback path, and one product answering the same
+// question two ways was the defect.
+func TestTheEditorVariableIsACommandRatherThanAProgram(t *testing.T) {
+	opts, _ := testOptions(t, map[string]string{"EDITOR": "code -w"})
+
+	settings, err := config.DefaultSettings(opts)
+	if err != nil {
+		t.Fatalf("DefaultSettings: %v", err)
+	}
+
+	want := []string{"code", "-w", "{repository_path}"}
+	if !reflect.DeepEqual(settings.Review.Editor.Command, want) {
+		t.Errorf("review.editor.command = %v, want %v", settings.Review.Editor.Command, want)
+	}
+	if got := settings.Review.DocumentEditor(); !reflect.DeepEqual(got, []string{"code", "-w"}) {
+		t.Errorf("DocumentEditor = %v, want the program and its flag", got)
 	}
 }
 
@@ -328,6 +353,91 @@ resources:
 	}
 	if !strings.Contains(err.Error(), "resources") {
 		t.Errorf("the error does not name the section it rejected: %v", err)
+	}
+}
+
+// TestTheTemplateIsAllDefaults is the property that makes the template safe to
+// write on somebody's machine.
+//
+// Only the version is live. Everything `feat settings init` writes is commented
+// out, so a machine that ran it is configured exactly as one that did not — a
+// default written down is a value that stops following Feat when Feat's own
+// changes, and this whole file is defaults (ADR-062, ADR-079).
+func TestTheTemplateIsAllDefaults(t *testing.T) {
+	dir := writeSettings(t, "settings.yaml", config.SettingsTemplate)
+	opts, _ := testOptions(t, map[string]string{"EDITOR": "hx"})
+
+	written, err := config.LoadSettings(dir, opts)
+	if err != nil {
+		t.Fatalf("the template does not load: %v", err)
+	}
+	untouched, err := config.DefaultSettings(opts)
+	if err != nil {
+		t.Fatalf("DefaultSettings: %v", err)
+	}
+
+	if !reflect.DeepEqual(render(written.Describe()), render(untouched.Describe())) {
+		t.Errorf("the template resolves differently from a machine that has no file:\n%s\nwant:\n%s",
+			render(written.Describe()), render(untouched.Describe()))
+	}
+	// And said out loud, since the marker is what a user reads: nothing in a
+	// freshly written file is reported as something they chose.
+	for _, section := range written.Describe() {
+		for _, field := range section.Fields {
+			if field.Note == "configured" {
+				t.Errorf("%s.%s is marked as configured in a file where every value is commented out",
+					section.Title, field.Name)
+			}
+		}
+	}
+}
+
+// TestTheDocumentedExampleIsTheTemplate keeps the two copies of this file from
+// drifting, the way the published schema is kept in step with the Go types.
+func TestTheDocumentedExampleIsTheTemplate(t *testing.T) {
+	const example = "../../docs/examples/settings.yaml"
+
+	body, err := os.ReadFile(example)
+	if err != nil {
+		t.Fatalf("reading %s: %v", example, err)
+	}
+	if string(body) != config.SettingsTemplate {
+		t.Errorf("%s differs from config.SettingsTemplate.\n"+
+			"\tThe file `feat settings init` writes and the documented example are one text. "+
+			"Copy the template into the example, or change the template.", example)
+	}
+}
+
+// TestTheDocumentEditorKeepsFlagsAndDropsThePlaceholder covers what opens a
+// document that is not a repository — a publication draft, or the settings file
+// itself.
+func TestTheDocumentEditorKeepsFlagsAndDropsThePlaceholder(t *testing.T) {
+	dir := writeSettings(t, "settings.yaml", `version: 1
+
+review:
+  editor:
+    command: ["code", "-w", "{repository_path}"]
+`)
+	opts, _ := testOptions(t, nil)
+
+	settings, err := config.LoadSettings(dir, opts)
+	if err != nil {
+		t.Fatalf("LoadSettings: %v", err)
+	}
+
+	got := settings.Review.DocumentEditor()
+	if !reflect.DeepEqual(got, []string{"code", "-w"}) {
+		t.Errorf("DocumentEditor = %v, want the program and its flags without the repository", got)
+	}
+
+	// An editor nobody configured leaves the caller to its own environment,
+	// which is where $EDITOR is and where the daemon cannot look.
+	bare, err := config.DefaultSettings(opts)
+	if err != nil {
+		t.Fatalf("DefaultSettings: %v", err)
+	}
+	if got := bare.Review.DocumentEditor(); len(got) != 0 {
+		t.Errorf("DocumentEditor = %v with no editor configured and $EDITOR unset, want none", got)
 	}
 }
 

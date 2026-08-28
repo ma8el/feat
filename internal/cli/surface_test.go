@@ -109,9 +109,13 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 		// questions into a pipe. Invoking it here would do neither usefully.
 		"feat project init": true,
 		// The settings commands read the running user's configuration
-		// directory, exactly as the project ones do.
+		// directory, exactly as the project ones do. `init` and `edit` write to
+		// it and `edit` starts an editor, so invoking either here would leave a
+		// file behind and open a terminal editor in the test process.
 		"feat settings show": true,
 		"feat settings path": true,
+		"feat settings init": true,
+		"feat settings edit": true,
 		"feat implement":     true,
 		"feat task list":     true,
 		// Attaching yields this process's terminal to native tmux, under both

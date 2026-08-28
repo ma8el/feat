@@ -61,6 +61,20 @@ commands belong here: the default has always reached for a user-level source and
 until now had no user-level file to reach for. `feat settings path` prints where
 the file belongs, whether or not it exists.
 
+`feat settings init` writes it, with every value shown, commented out, and
+explained; `docs/examples/settings.yaml` is that same text, and a test holds the
+two together. Only the `version` is live, so running it changes nothing — a
+default written down is a value that stops following Feat when Feat's own
+changes, and this whole file is defaults. An existing file is never overwritten
+and there is no force flag, which is the rule `feat project init` follows for the
+file it writes. `feat settings edit` opens it in the editor
+`review.editor.command` names or in `$EDITOR`, writing the commented default
+first when there is no file, and reads the result back rather than trusting that
+a clean exit means a valid file.
+
+`$EDITOR` is split on whitespace, because it holds a command rather than a
+program: `code -w` is an ordinary value of it.
+
 **The daemon reads this file once, when it starts.** That is the opposite of how
 project configuration is read — every operation re-reads a project's YAML, so an
 edit takes effect at the next one — and the difference is what the two files are

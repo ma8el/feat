@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -298,9 +299,17 @@ func resolveReviewSection(opts Options, review *ReviewSection) {
 	// what Options is for — and settings resolve on paths a project's
 	// configuration never took, so this must not be the one place a value
 	// arrives from outside them.
+	//
+	// $EDITOR is split on whitespace, because it holds a command rather than a
+	// program: `code -w` and `emacsclient -nw` are ordinary values of it, and a
+	// single element would make the whole string the name of an executable to
+	// look up. That is what the client already did on its own fallback path, and
+	// two answers to one question in one product was the defect — an editor
+	// whose path contains a space is the cost, and it is the one every tool that
+	// reads this variable pays.
 	if review.Editor.Empty() && opts.Env.Getenv != nil {
-		if editor := opts.Env.Getenv("EDITOR"); editor != "" {
-			review.Editor.Command = []string{editor, "{repository_path}"}
+		if fields := strings.Fields(opts.Env.Getenv("EDITOR")); len(fields) > 0 {
+			review.Editor.Command = append(fields, "{repository_path}")
 		}
 	}
 }

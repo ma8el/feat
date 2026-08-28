@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/goccy/go-yaml"
@@ -191,6 +192,120 @@ func ParseSettings(file string, data []byte) (*Settings, error) {
 // Path returns the file the settings were read from. It is empty when there is
 // no file, which is not a failure: it is a machine running on the defaults.
 func (s *Settings) Path() string { return s.path }
+
+// SettingsTemplate is the file `feat settings init` writes, and the documented
+// example in docs/examples/settings.yaml. A test holds the two together.
+//
+// Every value is commented out and only the version is live. That is the same
+// rule `feat project init` follows and it matters more here, not less: a default
+// written down is a value that stops following Feat when Feat's own changes, and
+// this whole file is defaults. What it is for is being read and edited, so it
+// shows each value where it goes rather than leaving the user to find it in a
+// schema — and `feat settings show` will say every one of them is a default
+// until a line is uncommented, which is the truth (ADR-062, ADR-079).
+const SettingsTemplate = `# Feat's settings for this machine and this user.
+#
+# Everything here is global: it applies to every project, and there is no
+# per-project override. What belongs to one project — its repositories, its
+# agent, its services, its checks — is in
+# ~/.config/feat/projects/<project-id>.yaml instead.
+#
+# This file is optional and every value below has a default, so a machine that
+# has written none is fully configured. That is why they are all commented out:
+# a default written down is a value that stops following Feat when Feat's own
+# changes. Uncomment what you want to change, and leave the rest to Feat.
+#
+#   feat settings show    prints what Feat will act on, with the defaults filled
+#                         in and each value marked as yours or as a default
+#   feat settings path    prints where this file belongs
+#   feat settings edit    opens it
+#
+# A running daemon reads this once, when it starts. Restart it after changing
+# something here.
+#
+# Editors that understand JSON Schema can be pointed at
+# schema/feat-settings.schema.json in the Feat repository.
+
+version: 1
+
+# The external commands review opens. Feat renders no diffs itself.
+#
+# They are settings rather than project configuration because they are your own
+# tools: one person opens a diff the same way whichever repository it is in.
+# review.editor has always said so by falling back to $EDITOR.
+#
+# The first element is the program and is never templated. Arguments may use
+# {repository_path}, {base_commit}, {branch}, {project_id}, {repository_id},
+# {task_id}, and {task_key}, and each expands into one argument.
+#review:
+#  diff:
+#    command: ["git", "diff", "{base_commit}"]
+#  # Defaults to $EDITOR with {repository_path}.
+#  editor:
+#    command: ["nvim", "{repository_path}"]
+#  status:
+#    command: ["git", "status", "--short", "--branch"]
+
+# Being interrupted, which is about you and the machine you are at rather than
+# about any project.
+#notifications:
+#  # Desktop notifications for the things worth interrupting you: an agent that
+#  # has gone quiet, a review request, a failed check, a failed session, and
+#  # failed application services. macOS only in this version; Linux arrives with
+#  # v0.2. The dashboard's attention badges work either way.
+#  desktop: true
+#  # How long a task must have *been* idle before it is worth telling you,
+#  # measured from the moment it became idle. That moment is itself
+#  # agent.claude.idle_grace_period after the agent's turn ended — which stays in
+#  # project configuration, because when an ended turn counts as idle is a fact
+#  # about how the agent is driven. Raising this one alone means "only tell me
+#  # about a long silence".
+#  idle_grace_period: 5s
+#  # Drop a notification about a task you are already watching. Feat asks tmux
+#  # which window your client is on rather than remembering that you attached.
+#  suppress_while_attached: true
+
+# Watching what the machine is doing.
+#resources:
+#  # How often the machine, and each task's containers and processes, are
+#  # observed. One sample measures the whole machine, whatever project asked for
+#  # it, which is why this is a setting rather than a project's to decide.
+#  # Sampling is observational: it never refuses a task and never slows a
+#  # request. Asking the container runtime what it is using takes a second or
+#  # two, so a shorter interval than that is treated as "as often as possible".
+#  sample_interval: 2s
+`
+
+// DocumentEditor returns the editor command for opening one document that is
+// not a repository, with the argument that would have named one left off.
+//
+// The configured command names an editor, its flags, and the thing it opens. A
+// publication draft and this settings file are both the third of those without
+// being the first two's subject, so the flags are kept — ` + "`nvim --clean`" + ` has to
+// stay ` + "`nvim --clean`" + `, or the editor behaves differently from everywhere else —
+// and a placeholder argument is dropped rather than expanded, because every
+// placeholder in this command is about a repository and none of them is this
+// document.
+//
+// It returns nothing when no editor is configured, which is the documented case:
+// the editor falls back to $EDITOR, and the process that can see one is the
+// client's rather than the daemon's (FR-REV-003).
+func (r ReviewSection) DocumentEditor() []string {
+	if r.Editor.Empty() {
+		return nil
+	}
+	command := r.Editor.Command
+
+	vector := make([]string, 0, len(command))
+	vector = append(vector, command[0])
+	for _, argument := range command[1:] {
+		if strings.Contains(argument, "{") {
+			continue
+		}
+		vector = append(vector, argument)
+	}
+	return vector
+}
 
 // Resolve fills the defaults and records which values it had to fill.
 //

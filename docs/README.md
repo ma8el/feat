@@ -57,6 +57,8 @@ feat project show <project>
 feat project tickets <project>
 feat settings show
 feat settings path
+feat settings init
+feat settings edit
 feat task list
 feat task attach <task>
 feat task review <task>
@@ -81,7 +83,7 @@ feat daemon run
 
 `feat project add` takes the project's identifier, which is also its configuration file's name; the daemon reads the file from the configuration directory rather than from a path a caller supplies. See ADR-028.
 
-`feat settings` inspects what Feat is told once for this machine and this user, rather than once per project: how often resources are sampled, how notifications behave, and which external commands review opens. It is deliberately not called `feat config` — `feat project show` already prints project configuration, and two commands called "config" would blur exactly the line this file draws. The settings file is optional, every value has a default, and there is no per-project override. See ADR-079.
+`feat settings` inspects what Feat is told once for this machine and this user, rather than once per project: how often resources are sampled, how notifications behave, and which external commands review opens. It is deliberately not called `feat config` — `feat project show` already prints project configuration, and two commands called "config" would blur exactly the line this file draws. The settings file is optional, every value has a default, and there is no per-project override. `feat settings init` writes it with every value shown, commented out, and explained — `docs/examples/settings.yaml` is the same text — and `feat settings edit` opens it. A running daemon reads it once, at startup. See ADR-079.
 
 `feat project init` writes that file by asking about the project rather than
 requiring it to be authored by hand. It derives from the host what the host can

@@ -251,7 +251,7 @@ func newPublicationDraft(plan api.PublicationStatus, env *environment) (*publica
 		return nil, fmt.Errorf("writing the publication draft: %w", err)
 	}
 
-	command, err := publicationEditor(plan.Editor, env, draft.path)
+	command, err := documentEditor(plan.Editor, env, draft.path)
 	if err != nil {
 		draft.Close()
 		return nil, err
@@ -294,14 +294,17 @@ func editPublication(
 	return draft.Read()
 }
 
-// publicationEditor builds the editor process.
+// documentEditor builds the process that opens one document.
 //
-// The project's configured editor keeps its own flags — `code -w` has to stay
-// `code -w`, or the editor returns before the user has typed anything — and the
-// document is appended as the thing to open. A project that configures none
-// falls back to this process's own environment, which is where $EDITOR is and
-// where the daemon cannot look (FR-REV-003).
-func publicationEditor(configured api.EditorCommand, env *environment, path string) (*exec.Cmd, error) {
+// The configured editor keeps its own flags — `code -w` has to stay `code -w`,
+// or the editor returns before the user has typed anything — and the document is
+// appended as the thing to open. A machine that configures none falls back to
+// this process's own environment, which is where $EDITOR is and where the daemon
+// cannot look (FR-REV-003).
+//
+// It is shared by the publication draft and the settings file, which are the two
+// documents Feat asks somebody to edit.
+func documentEditor(configured api.EditorCommand, env *environment, path string) (*exec.Cmd, error) {
 	program, arguments := configured.Program, configured.Arguments
 	if strings.TrimSpace(program) == "" {
 		fields := strings.Fields(environmentEditor(env))
@@ -314,9 +317,9 @@ func publicationEditor(configured api.EditorCommand, env *environment, path stri
 		return nil, fmt.Errorf("the editor %q would be read as an option", program)
 	}
 
-	// #nosec G204 -- the program is the project's own configuration or the
+	// #nosec G204 -- the program is the machine's own configuration or the
 	// user's own $EDITOR, every argument is one vector element, and the file is
-	// one this process just created; nothing reaches a shell.
+	// one this process just created or already owns; nothing reaches a shell.
 	return exec.Command(program, append(append([]string(nil), arguments...), path)...), nil
 }
 

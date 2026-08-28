@@ -6352,13 +6352,34 @@ read costs the defaults rather than the daemon — an optional file with a typo 
 it must not stop a control plane from starting — and it is logged once at
 startup, beside the other thing this daemon asks once and remembers.
 
+`feat settings init` writes the file and `feat settings edit` opens it. What
+`init` writes has every value shown, commented out and explained, and only the
+`version` live — so running it changes nothing, which is the same rule ADR-062
+gave the wizard and it matters more here rather than less, because this whole
+file is defaults. It never overwrites and takes no force flag, for the reason the
+wizard does not: this is a file the user authored. `edit` writes that default
+first when there is none, so what opens is the file with every value in it rather
+than an empty buffer; it opens a file that does not parse, because that is the
+file somebody runs it to fix, falling back to `$EDITOR` rather than to a command
+it could not read; and it reads the result back, because an editor that exited
+cleanly says nothing about what is now in the file. `docs/examples/settings.yaml`
+is the same text as the template, held there by a test.
+
+One defect fell out of it and is fixed in the same change. `$EDITOR` was split on
+whitespace by the client and taken whole by `internal/config`, so the same
+variable named a program in one place and a command in the other: `code -w`
+worked for a publication draft and would have been looked up as an executable
+called `code -w` here. It is now split in both, which is what every tool that
+reads this variable does, and the cost — an editor whose path contains a space —
+is the one they all pay.
+
 Consequence: this amends the configuration model, which had one file and now has
 two — see [07-configuration-model.md](07-configuration-model.md) § Global
 settings. `internal/config` gains `Settings` beside `Config`, sharing the section
 types and the review resolution and validation rather than copying them;
 `schema/feat-settings.schema.json` is published and held to the Go type by the
 same drift test that holds the project schema; and `feat --help` gains one
-command group.
+command group of four.
 
 ## Decision change process
 

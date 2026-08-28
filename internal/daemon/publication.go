@@ -652,30 +652,18 @@ func (s *service) publicationDraft(ctx context.Context, task *domain.Task) (cont
 
 // publicationEditor is how the client opens the draft.
 //
-// It is the machine's configured editor command with the argument naming what to
-// open left off, because what this opens is a draft rather than a repository:
-// the command names an editor and its flags, and the client appends the document
-// it wrote. An unconfigured editor leaves the program empty, and the client falls
-// back to what its own environment names — which is the daemon's whole reason for
-// not resolving it here (FR-REV-003).
+// It is the machine's configured editor with the argument that would have named
+// a repository left off, which is the same thing `feat settings edit` needs of
+// the same command — so the rule lives on the section rather than here. An
+// unconfigured editor leaves the program empty, and the client falls back to
+// what its own environment names, which is the daemon's whole reason for not
+// resolving it here (FR-REV-003).
 func publicationEditor(review config.ReviewSection) api.EditorCommand {
-	if review.Editor.Empty() {
+	vector := review.DocumentEditor()
+	if len(vector) == 0 {
 		return api.EditorCommand{Arguments: []string{}}
 	}
-
-	command := review.Editor.Command
-	arguments := make([]string, 0, len(command)-1)
-	for _, argument := range command[1:] {
-		if strings.Contains(argument, "{") {
-			// The slot that names what to open. Every placeholder in this
-			// command is about a repository, and none of them is this document,
-			// so the argument is dropped rather than expanded into something it
-			// does not mean.
-			continue
-		}
-		arguments = append(arguments, argument)
-	}
-	return api.EditorCommand{Program: command[0], Arguments: arguments}
+	return api.EditorCommand{Program: vector[0], Arguments: vector[1:]}
 }
 
 // publicationWorktrees lists every worktree path the task recorded.

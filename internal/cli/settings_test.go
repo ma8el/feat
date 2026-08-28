@@ -84,6 +84,230 @@ resources:
 	}
 }
 
+// TestSettingsInitWritesAFileThatChangesNothing is the property that makes
+// running it safe.
+//
+// Every value in what it writes is commented out, so a machine that ran `init`
+// is configured exactly as one that did not, and `feat settings show` says so of
+// each value. A file full of live defaults would be a file that stops following
+// Feat when Feat's own change.
+func TestSettingsInitWritesAFileThatChangesNothing(t *testing.T) {
+	machine := prepare(t)
+	expected := filepath.Join(machine.layout.Config, "settings.yaml")
+
+	code, stdout, stderr := machine.run(t, "settings", "init")
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr:\n%s", code, stderr)
+	}
+	if !strings.Contains(stdout, expected) || !strings.Contains(stdout, "commented out") {
+		t.Errorf("the output does not say what it wrote:\n%s", stdout)
+	}
+
+	written, err := os.ReadFile(expected)
+	if err != nil {
+		t.Fatalf("reading what init wrote: %v", err)
+	}
+	if info, err := os.Stat(expected); err != nil {
+		t.Fatalf("stat: %v", err)
+	} else if info.Mode().Perm() != 0o600 {
+		t.Errorf("the settings file is mode %o, want 0600", info.Mode().Perm())
+	}
+
+	// The one live line, and nothing else.
+	for _, line := range strings.Split(string(written), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || trimmed == "version: 1" {
+			continue
+		}
+		t.Errorf("the written file has a live value: %q", line)
+	}
+
+	_, shown, _ := machine.run(t, "settings", "show")
+	if strings.Contains(shown, "(configured)") {
+		t.Errorf("a value is marked as configured after `init`, which set nothing:\n%s", shown)
+	}
+}
+
+// TestSettingsInitNeverOverwrites covers the one thing this command must not do.
+//
+// There is no force flag: the settings file is authored by hand, and losing it
+// to a mistyped command is not a trade Feat makes — the same rule the project
+// wizard follows.
+func TestSettingsInitNeverOverwrites(t *testing.T) {
+	machine := prepare(t)
+	existing := machine.settings(t, "version: 1\n\nresources:\n  sample_interval: 42s\n")
+
+	code, _, stderr := machine.run(t, "settings", "init")
+	if code == 0 {
+		t.Fatal("`settings init` overwrote an existing file")
+	}
+	if !strings.Contains(stderr, existing) {
+		t.Errorf("the error does not name the file it refused to touch:\n%s", stderr)
+	}
+
+	body, err := os.ReadFile(existing)
+	if err != nil {
+		t.Fatalf("reading the settings file: %v", err)
+	}
+	if !strings.Contains(string(body), "42s") {
+		t.Errorf("the existing file was changed: %s", body)
+	}
+}
+
+// TestSettingsInitRefusesBesideTheOtherExtension keeps `init` from writing the
+// second file that loading would then refuse to choose between.
+func TestSettingsInitRefusesBesideTheOtherExtension(t *testing.T) {
+	machine := prepare(t)
+	other := filepath.Join(machine.layout.Config, "settings.yml")
+	if err := os.WriteFile(other, []byte("version: 1\n"), 0o600); err != nil {
+		t.Fatalf("writing the settings file: %v", err)
+	}
+
+	code, _, stderr := machine.run(t, "settings", "init")
+	if code == 0 {
+		t.Fatal("`settings init` wrote a second settings file")
+	}
+	if !strings.Contains(stderr, other) {
+		t.Errorf("the error does not name the file already there:\n%s", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(machine.layout.Config, "settings.yaml")); !os.IsNotExist(err) {
+		t.Errorf("a second settings file was written; err = %v", err)
+	}
+}
+
+// editor points the machine's $EDITOR at a command that runs to completion
+// without a terminal, so that `settings edit` can be driven by a test.
+//
+// `cp <source>` with the settings path appended is an editor that replaces the
+// file, which is what makes "the editor ran" something a test can observe rather
+// than assume.
+func (m *machine) editor(t *testing.T, command string) {
+	t.Helper()
+	m.env.Getenv = func(key string) string {
+		if key == "EDITOR" {
+			return command
+		}
+		return ""
+	}
+}
+
+// sourceFile writes a file for the fake editor above to copy into place.
+func (m *machine) sourceFile(t *testing.T, name, body string) string {
+	t.Helper()
+	path := filepath.Join(m.home, name)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+	return path
+}
+
+// TestSettingsEditCreatesTheFileItOpens covers a machine that has never written
+// one: what opens is the commented default rather than an empty buffer.
+func TestSettingsEditCreatesTheFileItOpens(t *testing.T) {
+	machine := prepare(t)
+	machine.editor(t, "true")
+	expected := filepath.Join(machine.layout.Config, "settings.yaml")
+
+	code, stdout, stderr := machine.run(t, "settings", "edit")
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr:\n%s", code, stderr)
+	}
+
+	body, err := os.ReadFile(expected)
+	if err != nil {
+		t.Fatalf("`settings edit` did not create the file it opened: %v", err)
+	}
+	if !strings.Contains(string(body), "version: 1") {
+		t.Errorf("the created file is not the template:\n%s", body)
+	}
+	for _, want := range []string{expected, "commented out", "is valid", "restart it"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("the output does not contain %q:\n%s", want, stdout)
+		}
+	}
+}
+
+// TestSettingsEditOpensAFileThatDoesNotParse is the case the command most has to
+// get right.
+//
+// A file with a typo in it is the one somebody runs this to fix, so the editor
+// must open it rather than the command refusing on the way in. It cannot take
+// the editor from a file it could not read either, so it falls back to $EDITOR.
+func TestSettingsEditOpensAFileThatDoesNotParse(t *testing.T) {
+	machine := prepare(t)
+	broken := machine.settings(t, "version: 1\n\nresources:\n  sample_intervals: 10s\n")
+	fixed := machine.sourceFile(t, "fixed.yaml", "version: 1\n\nresources:\n  sample_interval: 30s\n")
+	machine.editor(t, "cp "+fixed)
+
+	code, stdout, stderr := machine.run(t, "settings", "edit")
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr:\n%s", code, stderr)
+	}
+
+	body, err := os.ReadFile(broken)
+	if err != nil {
+		t.Fatalf("reading the settings file: %v", err)
+	}
+	if !strings.Contains(string(body), "sample_interval: 30s") {
+		t.Errorf("the editor did not run on the broken file:\n%s", body)
+	}
+	if !strings.Contains(stdout, "is valid") {
+		t.Errorf("the output does not report what the editor left:\n%s", stdout)
+	}
+}
+
+// TestSettingsEditReportsWhatTheEditorLeft checks the read-back.
+//
+// An editor that exited cleanly says nothing about what is now in the file, and
+// finding out here beats finding out from the next daemon that fails to start.
+func TestSettingsEditReportsWhatTheEditorLeft(t *testing.T) {
+	machine := prepare(t)
+	machine.settings(t, "version: 1\n")
+	broken := machine.sourceFile(t, "broken.yaml", "version: 1\n\nnotifications:\n  desktops: true\n")
+	machine.editor(t, "cp "+broken)
+
+	code, _, stderr := machine.run(t, "settings", "edit")
+	if code == 0 {
+		t.Fatal("`settings edit` accepted a file the editor left broken")
+	}
+	if !strings.Contains(stderr, "desktops") {
+		t.Errorf("the error does not name what is wrong with what was saved:\n%s", stderr)
+	}
+}
+
+// TestSettingsEditKeepsTheConfiguredEditorsFlags covers the same rule the
+// publication draft depends on: `code -w` has to stay `code -w`, and the
+// argument that would have named a repository is dropped.
+func TestSettingsEditKeepsTheConfiguredEditorsFlags(t *testing.T) {
+	machine := prepare(t)
+	fixed := machine.sourceFile(t, "fixed.yaml", "version: 1\n\nresources:\n  sample_interval: 7s\n")
+	settings := machine.settings(t, `version: 1
+
+review:
+  editor:
+    command: ["cp", "`+fixed+`", "{repository_path}"]
+`)
+	// $EDITOR would open a terminal editor; the configured command must be what
+	// runs, so this is set to something that would fail loudly if it were used.
+	machine.editor(t, "false")
+
+	code, stdout, stderr := machine.run(t, "settings", "edit")
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr:\n%s", code, stderr)
+	}
+
+	body, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatalf("reading the settings file: %v", err)
+	}
+	if !strings.Contains(string(body), "sample_interval: 7s") {
+		t.Errorf("the configured editor did not run:\n%s", body)
+	}
+	if !strings.Contains(stdout, "is valid") {
+		t.Errorf("the output does not report what the editor left:\n%s", stdout)
+	}
+}
+
 // settingsRow returns the printed row for one field name, so that a test asserts
 // about a value and its marker together rather than about column widths.
 func settingsRow(out, name string) string {
