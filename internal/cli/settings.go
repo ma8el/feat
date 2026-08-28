@@ -10,6 +10,8 @@ import (
 
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/config"
+	"github.com/ma8el/feat/internal/daemon"
+	"github.com/ma8el/feat/internal/paths"
 )
 
 const settingsLong = `Inspect the settings Feat applies to this machine and this user.
@@ -189,10 +191,64 @@ command a file Feat could not read was going to name.`,
 				return configFailure(err)
 			}
 			printf(out, "%s is valid\n", settings.Path())
-			printf(out, "a running daemon reads it once, at startup: restart it to apply this\n")
+			// The file was just written, so a running daemon is certainly behind
+			// it. Said the same way `feat settings show` says it, rather than as
+			// a rule to remember: it is the same question, asked a moment later.
+			printSettingsPendingRestart(out, layout, settings)
 			return nil
 		},
 	}
+}
+
+// printSettingsPendingRestart says that a running daemon has not read the file
+// this command just read, and says nothing otherwise.
+//
+// It exists because settings are resolved once, when the daemon starts, so these
+// commands can print values a running daemon is not working from — and editing a
+// setting and watching nothing happen is the confusion one line prevents
+// (ADR-079).
+//
+// One line, and only where there is something to do about it. Saying that a
+// restart is *not* needed is a sentence a reader can act on in no way, and a
+// check with nothing to report reports nothing (ADR-028). So a machine with no
+// daemon is silent — nothing is holding an older copy, and whatever starts next
+// reads the file as it is — and so is a daemon that started after the last
+// write.
+//
+// The comparison is of times rather than of what the daemon read, because times
+// are what it can know: the endpoint record carries when the daemon took
+// ownership and the file carries when it was last written. Neither needs the
+// daemon to be asked anything, so this works on the same terms as the rest of
+// the command.
+//
+// A missing file is not compared. There is nothing to stat, and a file deleted
+// while a daemon was running would leave that daemon holding what it read with
+// nothing here able to see it, so this says nothing rather than claiming
+// agreement.
+func printSettingsPendingRestart(out io.Writer, layout paths.Layout, settings *config.Settings) {
+	if settings.Path() == "" {
+		return
+	}
+	info, err := os.Stat(settings.Path())
+	if err != nil {
+		// The file was read a moment ago, so this is a race or a permission
+		// change rather than the ordinary case, and it is not this line's to
+		// report: the command that could not read the file says so itself.
+		return
+	}
+
+	// Asked after the file, because it dials the socket and the stat above
+	// answers most calls on its own.
+	status := daemon.Inspect(layout)
+	if !status.Running() || !status.HasEndpoint {
+		return
+	}
+	if !info.ModTime().After(status.Endpoint.StartedAt) {
+		return
+	}
+
+	printf(out, "the settings have changed since the daemon started: "+
+		"run `feat daemon stop` and `feat daemon start` to apply them\n")
 }
 
 // editorCommand splits a vector into the shape documentEditor takes.
@@ -242,13 +298,8 @@ once at startup; restart the daemon after changing one.`,
 					printf(out, "  %-26s %s\n", field.Name, field.Value)
 				}
 			}
-			// The second line is where the cost of resolving these once is paid.
-			// A daemon holds them from the moment it started, so this command can
-			// print a value the running daemon is not using — and editing a
-			// setting and watching nothing happen is exactly the confusion a
-			// sentence here costs nothing to prevent (ADR-079).
 			printf(out, "\nthese settings are global: they apply to every project on this machine\n")
-			printf(out, "a running daemon reads them once, at startup: restart it after changing one\n")
+			printSettingsPendingRestart(out, layout, settings)
 			return nil
 		},
 	}

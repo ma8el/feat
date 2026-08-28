@@ -44,9 +44,6 @@ func TestSettingsShowRunsWithoutAFileOrADaemon(t *testing.T) {
 		// reading as a value somebody configured.
 		"from $EDITOR",
 		"global",
-		// The restart requirement is stated where somebody meets it, rather than
-		// left to be found by editing a value and watching nothing happen.
-		"restart it after changing one",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("the output does not contain %q:\n%s", want, stdout)
@@ -54,6 +51,11 @@ func TestSettingsShowRunsWithoutAFileOrADaemon(t *testing.T) {
 	}
 	if strings.Contains(stdout, "configured") {
 		t.Errorf("a value was marked as configured, and there is no file:\n%s", stdout)
+	}
+	// Nothing is holding an older copy, so there is nothing to act on and
+	// nothing to say.
+	if strings.Contains(stdout, "feat daemon stop") {
+		t.Errorf("a restart was asked for with no daemon running:\n%s", stdout)
 	}
 }
 
@@ -220,7 +222,7 @@ func TestSettingsEditCreatesTheFileItOpens(t *testing.T) {
 	if !strings.Contains(string(body), "version: 1") {
 		t.Errorf("the created file is not the template:\n%s", body)
 	}
-	for _, want := range []string{expected, "commented out", "is valid", "restart it"} {
+	for _, want := range []string{expected, "commented out", "is valid"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("the output does not contain %q:\n%s", want, stdout)
 		}
@@ -305,6 +307,62 @@ review:
 	}
 	if !strings.Contains(stdout, "is valid") {
 		t.Errorf("the output does not report what the editor left:\n%s", stdout)
+	}
+}
+
+// TestSettingsShowAsksForARestartOnlyWhenOneIsNeeded is what the resolve-once
+// rule costs, paid where somebody meets it.
+//
+// A daemon holds settings from the moment it started, so this command can print
+// a file the daemon is not working from. Both states are asserted, and the
+// silent one is the point of the pair: a line saying a restart is *not* needed
+// is a line nobody can act on (ADR-028, ADR-079).
+func TestSettingsShowAsksForARestartOnlyWhenOneIsNeeded(t *testing.T) {
+	machine := prepare(t)
+	machine.settings(t, "version: 1\n\nresources:\n  sample_interval: 10s\n")
+	machine.serve(t)
+
+	_, stdout, _ := machine.run(t, "settings", "show")
+	if strings.Contains(stdout, "feat daemon stop") {
+		t.Errorf("a restart was asked for while the daemon is working from this file:\n%s", stdout)
+	}
+
+	// And now the file is newer than the daemon, which is the state anybody who
+	// edits a setting is in.
+	machine.settings(t, "version: 1\n\nresources:\n  sample_interval: 20s\n")
+
+	_, stdout, _ = machine.run(t, "settings", "show")
+	if !strings.Contains(stdout, "the settings have changed since the daemon started") ||
+		!strings.Contains(stdout, "feat daemon start") {
+		t.Errorf("a file written after the daemon started is not reported as pending:\n%s", stdout)
+	}
+}
+
+// TestSettingsEditAsksForARestartAfterItChangedSomething is the same question a
+// moment later, and the moment somebody is most likely to need the answer.
+func TestSettingsEditAsksForARestartAfterItChangedSomething(t *testing.T) {
+	machine := prepare(t)
+	machine.settings(t, "version: 1\n")
+	machine.serve(t)
+
+	// An editor that leaves the file as it found it asks for nothing, because
+	// the daemon is still working from what is there.
+	machine.editor(t, "true")
+	_, stdout, _ := machine.run(t, "settings", "edit")
+	if strings.Contains(stdout, "feat daemon stop") {
+		t.Errorf("a restart was asked for after an editor that changed nothing:\n%s", stdout)
+	}
+
+	// One that saves something does.
+	changed := machine.sourceFile(t, "changed.yaml", "version: 1\n\nresources:\n  sample_interval: 30s\n")
+	machine.editor(t, "cp "+changed)
+
+	code, stdout, stderr := machine.run(t, "settings", "edit")
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr:\n%s", code, stderr)
+	}
+	if !strings.Contains(stdout, "the settings have changed since the daemon started") {
+		t.Errorf("a saved change is not reported as pending:\n%s", stdout)
 	}
 }
 

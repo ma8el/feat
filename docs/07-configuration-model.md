@@ -82,10 +82,19 @@ about. A project file describes work in progress and is edited while Feat is
 running; these are the machine's own dispositions, and they change about as often
 as the machine does. Reading them per use meant the resource sampler parsing a
 file every two seconds to be told the same number. So changing a setting takes a
-daemon restart, and `feat settings show` says so rather than leaving it to be
-discovered. A file that cannot be read costs the defaults rather than the daemon:
-an optional file with a typo in it must not stop a control plane from starting,
-and the failure is logged once at startup.
+daemon restart. A file that cannot be read costs the defaults rather than the
+daemon: an optional file with a typo in it must not stop a control plane from
+starting, and the failure is logged once at startup.
+
+Every command reads the file as it is now; only the daemon holds a snapshot. So
+`feat settings show` and `feat settings edit` can print values a running daemon
+is not working from, and both say so — once, and only when there is something to
+do about it: *the settings have changed since the daemon started*. A machine with
+no daemon says nothing, and neither does a daemon that started after the file was
+last written, because a line reporting that no restart is needed is a line nobody
+can act on. Neither asks the daemon anything — the endpoint record carries when
+it took ownership and the file carries when it was written — so the answer costs
+a stat and works on the same terms as the rest of the command.
 
 The command is `settings` rather than `config` deliberately. `feat project show`
 already prints project configuration, and two commands called "config" would

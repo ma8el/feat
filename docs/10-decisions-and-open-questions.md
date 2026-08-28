@@ -6345,12 +6345,50 @@ does. Reading them per use was built first and rejected on what it looked like:
 the sampler parsing a file every two seconds to be told the same number is the
 same shape of problem that put the section in the wrong file to begin with, one
 sixth the size. So changing a setting takes a daemon restart, which is a small
-price paid rarely, and it is stated where somebody meets it rather than left to
-be discovered by editing a value and watching nothing happen: `feat settings
-show` says that a running daemon read these at startup. A file that cannot be
-read costs the defaults rather than the daemon — an optional file with a typo in
-it must not stop a control plane from starting — and it is logged once at
-startup, beside the other thing this daemon asks once and remembers.
+price paid rarely. A file that cannot be read costs the defaults rather than the
+daemon — an optional file with a typo in it must not stop a control plane from
+starting — and it is logged once at startup, beside the other thing this daemon
+asks once and remembers.
+
+**Only the daemon holds a snapshot. Every command reads the file as it is now,**
+and that asymmetry is the part worth stating, because it is the part that
+surprises: a maintainer who had removed the configured editor expected the old
+one to survive until a restart, and it did not, because `feat settings edit` is
+not the daemon. Making the client honour a daemon's copy instead would be worse
+in three ways — it would need a daemon running to know which editor to open, it
+would make `feat settings show` print stale values on the one command somebody
+runs to check what they just wrote, and it would leave a machine with no daemon
+with no configured editor at all. All three work today with no daemon,
+deliberately.
+
+Stating the rule was not enough, and that is the evidence: a footer naming the
+daemon's behaviour, printed by a command that had just re-read the file, reads as
+"Feat reads settings once". So `feat settings show` and `feat settings edit` say
+it as a fact about this machine now rather than as a rule — *the settings have
+changed since the daemon started* — answered from the endpoint record's ownership
+time and the file's own modification time, so it costs one stat, asks the daemon
+nothing, and works on the same terms as the rest of the command.
+
+It is one line and it appears only where there is something to do about it. The
+first version also reported the other states — no daemon, and a daemon already
+working from this file — and they were cut on the reading that a sentence nobody
+can act on is noise, which is the rule diagnostics already follow: a check with
+nothing to report reports nothing (ADR-028). A machine with no settings file is
+not compared either: there is nothing to stat, and a file deleted while a daemon
+ran would leave that daemon holding what it read with nothing here able to see
+it, so the output says nothing rather than claiming agreement.
+
+An on-demand `feat settings reload` was proposed and is deliberately not built.
+The measured evidence is that these values are never edited — evidence 1 above —
+so it would be machinery for a case that does not arise; it would need the held
+settings made race-safe and a new local-API endpoint, which is most of what
+reading per use gave away for free, so it re-litigates the decision above rather
+than extending it; and by the criterion this project uses to size features, it is
+a convenience over two commands in a shell the user is already in rather than
+something that stops information being carried by hand. What made the restart
+requirement feel expensive was not knowing whether one was needed, and that is
+what the paragraph above fixes. Reconsider it on evidence that somebody edits
+these often enough to notice.
 
 `feat settings init` writes the file and `feat settings edit` opens it. What
 `init` writes has every value shown, commented out and explained, and only the
