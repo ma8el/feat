@@ -159,7 +159,7 @@ func TestAComposeFileIsReadForWhatItProposesAndNothingElse(t *testing.T) {
 		"docker-compose.yml":     composeFixture,
 		"docker-compose.dev.yml": composeOverlayFixture,
 	})
-	composition := project.ComposeComposition(root,
+	composition := project.ComposeComposition(root, root,
 		filepath.Join(root, "docker-compose.yml"),
 		filepath.Join(root, "docker-compose.dev.yml"))
 
@@ -250,7 +250,7 @@ func TestEveryFormOfPublishedPortIsRead(t *testing.T) {
     ports:
       - "9010-9012:84-86"
 `})
-	composition := project.ComposeComposition(root, filepath.Join(root, "compose.yaml"))
+	composition := project.ComposeComposition(root, root, filepath.Join(root, "compose.yaml"))
 
 	for name, want := range map[string]project.Publication{
 		"short":          {ContainerPort: 80, Protocol: "tcp"},
@@ -287,7 +287,7 @@ func TestNoValueFromAComposeFileReachesAProposal(t *testing.T) {
 		"docker-compose.yml":     composeFixture,
 		"docker-compose.dev.yml": composeOverlayFixture,
 	})
-	composition := project.ComposeComposition(root,
+	composition := project.ComposeComposition(root, root,
 		filepath.Join(root, "docker-compose.yml"),
 		filepath.Join(root, "docker-compose.dev.yml"))
 
@@ -321,7 +321,7 @@ func TestServicesThatDisagreeProposeNothing(t *testing.T) {
     volumes:
       - .:/srv/worker
 `})
-	composition := project.ComposeComposition(root, filepath.Join(root, "compose.yaml"))
+	composition := project.ComposeComposition(root, root, filepath.Join(root, "compose.yaml"))
 
 	if target, agreed := composition.SourceTarget([]string{"api", "worker"}); agreed {
 		t.Errorf("two services mounting the repository at two paths proposed %q", target)
@@ -355,7 +355,7 @@ func TestARelativePathIsReadAgainstTheRepository(t *testing.T) {
 		t.Fatalf("writing the fixture: %v", err)
 	}
 
-	composition := project.ComposeComposition(root, file)
+	composition := project.ComposeComposition(root, root, file)
 	api, known := composition.Service("api")
 	if !known {
 		t.Fatal("the service in a Compose file one directory down was not read")
@@ -393,7 +393,7 @@ func TestABuildContextIsReadBesideAnInterpolatedArgument(t *testing.T) {
     build:
       context: ${SOMEWHERE}
 `})
-	composition := project.ComposeComposition(root, filepath.Join(root, "docker-compose.yml"))
+	composition := project.ComposeComposition(root, root, filepath.Join(root, "docker-compose.yml"))
 
 	site, known := composition.Service("site")
 	if !known {
@@ -436,7 +436,7 @@ func TestABuildContextInsideTheRepositoryIsTheRepositorys(t *testing.T) {
   vendored:
     build: ../elsewhere
 `})
-	composition := project.ComposeComposition(root, filepath.Join(root, "compose.yaml"))
+	composition := project.ComposeComposition(root, root, filepath.Join(root, "compose.yaml"))
 
 	web, _ := composition.Service("web")
 	if !web.BuildsFromSource || web.BuildContext != filepath.Join(root, "site") {
@@ -462,7 +462,7 @@ func TestAFileThatCannotBeReadProposesNothing(t *testing.T) {
 		filepath.Join(root, "compose.yaml"),
 		filepath.Join(root, "does-not-exist.yaml"),
 	} {
-		if composition := project.ComposeComposition(root, file); len(composition.Services) != 0 {
+		if composition := project.ComposeComposition(root, root, file); len(composition.Services) != 0 {
 			t.Errorf("%s proposed %v", file, composition.Names())
 		}
 	}

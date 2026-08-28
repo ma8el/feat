@@ -398,16 +398,25 @@ func (c Composition) Names() []string {
 
 // ComposeComposition reads the given Compose files structurally.
 //
-// The root is the repository's checkout, which is what a relative path inside
-// these files resolves against: it is the `project_directory` Feat gives this
-// repository's include entry, so reading them any other way would answer a
-// different question from the one Compose will be asked.
+// The project directory is what a relative path inside these files resolves
+// against: it is the `project_directory` Compose will be given, so reading them
+// any other way would answer a different question from the one Compose will be
+// asked. The repository is the checkout being asked about, whose own mounts and
+// build contexts are the ones worth reporting.
+//
+// They are two parameters because they are one directory only by coincidence.
+// A repository's application files are given that repository's checkout as
+// their project directory, so the coincidence holds there and the caller passes
+// it twice. The agent's own Compose files are given the directory of the first
+// of them and are asked about each configured repository in turn, so there the
+// two are different directories and a reader that assumed one would answer
+// about the wrong repository.
 //
 // It is best effort and returns no error, for the reason ComposeServices does:
 // a file that does not parse, uses a feature this does not model, or is not
 // there yet is a file with nothing to propose from, and the caller asks its
 // question without a proposal.
-func ComposeComposition(root string, files ...string) Composition {
+func ComposeComposition(projectDir, repository string, files ...string) Composition {
 	var composition Composition
 	index := make(map[string]int)
 
@@ -425,7 +434,7 @@ func ComposeComposition(root string, files ...string) Composition {
 			}
 			// Later files merge over earlier ones, exactly as Compose merges
 			// them: the dev overlay adds the mount the base image baked in.
-			composition.mergeService(position, root, file, document.Services[name])
+			composition.mergeService(position, projectDir, repository, file, document.Services[name])
 		}
 	}
 	sort.Strings(composition.Undecided)
@@ -433,7 +442,7 @@ func ComposeComposition(root string, files ...string) Composition {
 }
 
 // mergeService folds one file's entry for a service into what is known of it.
-func (c *Composition) mergeService(position int, root, file string, raw yaml.RawMessage) {
+func (c *Composition) mergeService(position int, projectDir, repository, file string, raw yaml.RawMessage) {
 	var entry composeServiceDocument
 	if err := yaml.Unmarshal(raw, &entry); err != nil {
 		return
@@ -449,7 +458,7 @@ func (c *Composition) mergeService(position int, root, file string, raw yaml.Raw
 			}
 			continue
 		}
-		if !isRepositoryRoot(root, source) {
+		if !isRepositoryRoot(projectDir, repository, source) {
 			continue
 		}
 		if !contains(service.SourceTargets, target) {
@@ -459,8 +468,8 @@ func (c *Composition) mergeService(position int, root, file string, raw yaml.Raw
 
 	switch context, read, undecided := buildContext(entry.Build); {
 	case read:
-		service.BuildContext = absolutePath(root, context)
-		service.BuildsFromSource = within(root, service.BuildContext)
+		service.BuildContext = absolutePath(projectDir, context)
+		service.BuildsFromSource = within(repository, service.BuildContext)
 	case undecided:
 		c.Undecided = append(c.Undecided, where+": its build context")
 	}
@@ -707,30 +716,35 @@ func interpolated(raw yaml.RawMessage) bool {
 // isRepositoryRoot reports whether a path written in a Compose file names the
 // repository itself.
 //
+// The path is resolved against the project directory, the way Compose will
+// resolve it, and compared to the repository, which is what the caller is
+// asking about. The two directories are the same one for a repository's own
+// files and are not for the agent's.
+//
 // Exactly the repository, for a bind source: a mount of a subdirectory is a
 // partial mount that a whole worktree mounted at one container path would not
 // replace, so it is not a candidate for the repository's runtime container path.
 // A build context is the other question and is answered by within.
-func isRepositoryRoot(root, value string) bool {
-	if root == "" || value == "" {
+func isRepositoryRoot(projectDir, repository, value string) bool {
+	if repository == "" || value == "" {
 		return false
 	}
-	return absolutePath(root, value) == filepath.Clean(root)
+	return absolutePath(projectDir, value) == filepath.Clean(repository)
 }
 
 // absolutePath resolves a path written in a Compose file the way Compose will
 // resolve it.
 //
-// A relative path resolves against the repository's checkout rather than against
-// the file's own directory, because that is the `project_directory` Feat gives
-// this repository's include entry. An absolute path is taken as it stands, and a
-// "~" is not expanded: Compose does not expand one either, so a path starting
-// with one names a directory called "~".
-func absolutePath(root, value string) string {
+// A relative path resolves against the project directory rather than against the
+// file's own directory, because that is the `project_directory` Compose is
+// given. An absolute path is taken as it stands, and a "~" is not expanded:
+// Compose does not expand one either, so a path starting with one names a
+// directory called "~".
+func absolutePath(projectDir, value string) string {
 	if filepath.IsAbs(value) {
 		return filepath.Clean(value)
 	}
-	return filepath.Clean(filepath.Join(root, value))
+	return filepath.Clean(filepath.Join(projectDir, value))
 }
 
 // within reports whether a resolved path is the repository or lies inside it.
@@ -739,12 +753,12 @@ func absolutePath(root, value string) string {
 // holds several is that repository's code as surely as its root is, and the
 // task's worktree holds the same subdirectory. A context above the checkout, or
 // beside it, is not.
-func within(root, resolved string) bool {
-	if root == "" || resolved == "" {
+func within(repository, resolved string) bool {
+	if repository == "" || resolved == "" {
 		return false
 	}
-	root = filepath.Clean(root)
-	return resolved == root || strings.HasPrefix(resolved, root+string(filepath.Separator))
+	repository = filepath.Clean(repository)
+	return resolved == repository || strings.HasPrefix(resolved, repository+string(filepath.Separator))
 }
 
 // sortedNames returns a service mapping's keys in order, so that a proposal is

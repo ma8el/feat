@@ -903,7 +903,9 @@ type composeDocuments map[string]project.Composition
 //
 // Structurally, against each repository's own checkout, which is the project
 // directory its include entry carries: a relative path in those files means
-// what it would mean to a user standing in that repository. It resolves no
+// what it would mean to a user standing in that repository. That is why the
+// checkout is both arguments — here the directory paths resolve against and the
+// repository being asked about are the same directory. It resolves no
 // interpolation and opens no environment file (ADR-065).
 func readComposition(cfg *config.Config) composeDocuments {
 	documents := make(composeDocuments)
@@ -912,7 +914,7 @@ func readComposition(cfg *config.Config) composeDocuments {
 			continue
 		}
 		documents[contribution.RepositoryID] = project.ComposeComposition(
-			contribution.Directory, contribution.ComposeFiles...)
+			contribution.Directory, contribution.Directory, contribution.ComposeFiles...)
 	}
 	return documents
 }

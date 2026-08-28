@@ -50,7 +50,7 @@ func (h *machineHost) ComposeServices(files ...string) []string {
 // proposal's whole job is to be put back to the user in the terms of the
 // question, and the flow names no adapter of its own.
 func (h *machineHost) Compose(root string, files ...string) wizard.Composition {
-	composition := project.ComposeComposition(root, files...)
+	composition := project.ComposeComposition(root, root, files...)
 	services := composition.Names()
 
 	proposed := wizard.Composition{
