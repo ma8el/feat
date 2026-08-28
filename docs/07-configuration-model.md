@@ -89,7 +89,8 @@ starting, and the failure is logged once at startup.
 Every command reads the file as it is now; only the daemon holds a snapshot. So
 `feat settings show` and `feat settings edit` can print values a running daemon
 is not working from, and both say so — once, and only when there is something to
-do about it: *the settings have changed since the daemon started*. A machine with
+do about it: *the settings have changed since the daemon started*, naming
+`feat daemon restart`, which stops the running daemon and starts a new one. A machine with
 no daemon says nothing, and neither does a daemon that started after the file was
 last written, because a line reporting that no restart is needed is a line nobody
 can act on. Neither asks the daemon anything — the endpoint record carries when

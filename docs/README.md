@@ -73,7 +73,7 @@ feat runtime status <task>
 feat runtime logs <task>
 feat runtime destroy <task> [--yes]
 feat doctor
-feat daemon start|stop|status
+feat daemon start|stop|restart|status
 feat daemon run
 ```
 
@@ -139,6 +139,8 @@ only what is selected. Each class is a separate choice, dirty or unmerged work
 needs a second confirmation naming what would be lost, and volumes are retained
 unless chosen. There is deliberately no flag that answers every question; outside
 a terminal the inventory is printed and nothing is removed. See ADR-037.
+
+`feat daemon restart` stops the running daemon and starts a new one, and starts one when nothing is running rather than failing. It is safe as one command because stopping already waits for the socket to stop answering and the process to exit, so the new daemon never races the old one. It is how a changed settings file takes effect, since settings are read once at startup, but it is the daemon's own verb rather than the settings': a new build is the same command. See ADR-079.
 
 `feat daemon run` is the foreground daemon that `feat daemon start` spawns, and the command a later launchd/systemd unit invokes. It is hidden from help because `feat daemon start` is the user-facing entry point; see ADR-027.
 

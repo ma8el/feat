@@ -1,6 +1,7 @@
 feat
 feat attach <task>
 feat daemon
+feat daemon restart [--log-level]
 feat daemon run [--log-level]
 feat daemon start [--log-level]
 feat daemon status

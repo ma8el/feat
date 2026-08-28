@@ -248,7 +248,7 @@ func printSettingsPendingRestart(out io.Writer, layout paths.Layout, settings *c
 	}
 
 	printf(out, "the settings have changed since the daemon started: "+
-		"run `feat daemon stop` and `feat daemon start` to apply them\n")
+		"run `feat daemon restart` to apply them\n")
 }
 
 // editorCommand splits a vector into the shape documentEditor takes.

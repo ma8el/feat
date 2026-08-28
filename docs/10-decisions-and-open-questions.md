@@ -6378,6 +6378,18 @@ not compared either: there is nothing to stat, and a file deleted while a daemon
 ran would leave that daemon holding what it read with nothing here able to see
 it, so the output says nothing rather than claiming agreement.
 
+`feat daemon restart` was added instead of a settings-specific reload, and is
+what the line above names. It is the two existing commands in one, and it is safe
+as one because stopping already waits: `Stop` returns when the socket has stopped
+answering and the process has exited, so the new daemon never races the old one
+for the runtime directory. It starts a daemon when none was running rather than
+inheriting `stop`'s refusal, which is what makes it the command to reach for
+without checking first, and it says so when the new one fails to start, because
+the old one is already gone by then. It is deliberately the daemon's own verb
+rather than the settings': a new build or a daemon somebody wants reconciled from
+scratch is the same command, and its cost — an interrupted check run returned to
+its review request, an unsent idle notification — is the same whatever the reason.
+
 An on-demand `feat settings reload` was proposed and is deliberately not built.
 The measured evidence is that these values are never edited — evidence 1 above —
 so it would be machinery for a case that does not arise; it would need the held
@@ -6386,9 +6398,11 @@ reading per use gave away for free, so it re-litigates the decision above rather
 than extending it; and by the criterion this project uses to size features, it is
 a convenience over two commands in a shell the user is already in rather than
 something that stops information being carried by hand. What made the restart
-requirement feel expensive was not knowing whether one was needed, and that is
-what the paragraph above fixes. Reconsider it on evidence that somebody edits
-these often enough to notice.
+requirement feel expensive was not knowing whether one was needed and having to
+type two commands when it was; the line above answers the first and
+`feat daemon restart` answers the second, without a held value having to become
+race-safe. Reconsider a reload on evidence that somebody edits these often enough
+for a restart's cost to matter.
 
 `feat settings init` writes the file and `feat settings edit` opens it. What
 `init` writes has every value shown, commented out and explained, and only the

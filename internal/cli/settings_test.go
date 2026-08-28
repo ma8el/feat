@@ -54,7 +54,7 @@ func TestSettingsShowRunsWithoutAFileOrADaemon(t *testing.T) {
 	}
 	// Nothing is holding an older copy, so there is nothing to act on and
 	// nothing to say.
-	if strings.Contains(stdout, "feat daemon stop") {
+	if strings.Contains(stdout, "feat daemon restart") {
 		t.Errorf("a restart was asked for with no daemon running:\n%s", stdout)
 	}
 }
@@ -323,7 +323,7 @@ func TestSettingsShowAsksForARestartOnlyWhenOneIsNeeded(t *testing.T) {
 	machine.serve(t)
 
 	_, stdout, _ := machine.run(t, "settings", "show")
-	if strings.Contains(stdout, "feat daemon stop") {
+	if strings.Contains(stdout, "feat daemon restart") {
 		t.Errorf("a restart was asked for while the daemon is working from this file:\n%s", stdout)
 	}
 
@@ -333,7 +333,7 @@ func TestSettingsShowAsksForARestartOnlyWhenOneIsNeeded(t *testing.T) {
 
 	_, stdout, _ = machine.run(t, "settings", "show")
 	if !strings.Contains(stdout, "the settings have changed since the daemon started") ||
-		!strings.Contains(stdout, "feat daemon start") {
+		!strings.Contains(stdout, "feat daemon restart") {
 		t.Errorf("a file written after the daemon started is not reported as pending:\n%s", stdout)
 	}
 }
@@ -349,7 +349,7 @@ func TestSettingsEditAsksForARestartAfterItChangedSomething(t *testing.T) {
 	// the daemon is still working from what is there.
 	machine.editor(t, "true")
 	_, stdout, _ := machine.run(t, "settings", "edit")
-	if strings.Contains(stdout, "feat daemon stop") {
+	if strings.Contains(stdout, "feat daemon restart") {
 		t.Errorf("a restart was asked for after an editor that changed nothing:\n%s", stdout)
 	}
 
