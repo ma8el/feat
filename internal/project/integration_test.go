@@ -424,6 +424,70 @@ func dropRuntimeSection(t *testing.T, w *world) {
 	}
 }
 
+// TestRealWorktreeMountsAreAskedOfGit runs the mount pre-flight against a real
+// repository with a real `.gitignore`.
+//
+// The unit tests decide what Git says about a path. This one asks it, which is
+// the only way to find out that `ls-files --error-unmatch` is still how a
+// repository is asked whether it tracks something, that an ignored file answers
+// the way the check assumes, and that the pathspec survives the symbolic links
+// between a temporary directory and where it really is.
+func TestRealWorktreeMountsAreAskedOfGit(t *testing.T) {
+	requireRealTools(t)
+	if _, err := exec.LookPath("git"); err != nil {
+		integrationtest.Unavailable(t, integrationtest.Git, "git is not installed")
+	}
+
+	w := arrange(t)
+	w.opts.Runner = project.HostRunner{}
+	// The runtime section needs Docker; the agent's own files are enough to ask
+	// this question, and they are the half the evidence for it came from.
+	dropRuntimeSection(t, w)
+
+	api := filepath.Join(w.home, "repos", "app", "api")
+	if err := os.WriteFile(filepath.Join(api, ".gitignore"), []byte(".env\n"), 0o600); err != nil {
+		t.Fatalf("writing the ignore file: %v", err)
+	}
+	git(t, api, "init", "--initial-branch=main")
+	git(t, api, "config", "user.email", "doctor@example.invalid")
+	git(t, api, "config", "user.name", "Doctor")
+	git(t, api, "add", ".gitignore", "docker-compose.yml")
+	git(t, api, "commit", "--message", "initial")
+
+	// The agent's own Compose files bind two paths out of that repository: one
+	// the commit above tracks, and the ignored one beside it that the fixture
+	// wrote and Git has never heard of.
+	w.composeFile(t, filepath.Join(w.home, "repos", "app", "infra", "docker-compose.yml"),
+		`services:
+  dev:
+    image: alpine
+    volumes:
+      - ../api:/srv/api
+      - ../api/.env:/srv/api/.env
+      - ../api/docker-compose.yml:/srv/api/docker-compose.yml:ro
+`)
+
+	findings := w.only(t, diagnose(t, w)).Findings
+
+	var reported []project.Finding
+	for _, found := range findings {
+		if found.Check == "repositories.api.agent.mounts" {
+			reported = append(reported, found)
+		}
+	}
+	if len(reported) != 1 {
+		t.Fatalf("real Git reported %d mounts, want the ignored one:%s", len(reported), render(findings))
+	}
+	if !strings.Contains(reported[0].Summary, filepath.Join(api, ".env")) {
+		t.Errorf("the finding does not name the ignored path: %q", reported[0].Summary)
+	}
+	// The file that mount is written in is named, so the tracked one is
+	// recognised by its path in the repository rather than by its base name.
+	if strings.Contains(reported[0].Summary, filepath.Join(api, "docker-compose.yml")) {
+		t.Errorf("a tracked file was reported as one a worktree will not hold: %q", reported[0].Summary)
+	}
+}
+
 // TestRealTrackerCommandIsRunAndValidated runs a project's tracker command as a
 // real process and checks what diagnostics make of it.
 //

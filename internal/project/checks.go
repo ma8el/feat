@@ -273,6 +273,7 @@ func (c *checker) checkExecution(ctx context.Context) {
 	files := c.checkComposeFiles("agent.execution.compose_files", execution.ComposeFiles)
 	if files {
 		c.checkComposeService(ctx, "agent.execution.service", "", execution.ComposeFiles, execution.Service)
+		c.checkAgentMounts(ctx)
 	}
 	c.checkAgentEnvironment(ctx)
 }
@@ -494,6 +495,117 @@ func (c *checker) checkRuntime(ctx context.Context) {
 			c.checkComposeService(ctx, fmt.Sprintf("%s.services[%d]", field, i),
 				contribution.Directory, contribution.ComposeFiles, service)
 		}
+
+		repository, known := c.config.Repository(contribution.RepositoryID)
+		if !known {
+			continue
+		}
+		// The same reading the agent's files get, against this repository's own
+		// checkout: it is both the directory these paths resolve against and the
+		// repository they are being asked about.
+		composition := ComposeComposition(
+			contribution.Directory, repository.HostPath, contribution.ComposeFiles...)
+		c.checkMounts(ctx, field+".mounts", repository, composition.Mounts)
+		c.reportUnreadMounts(field+".mounts", composition.UnreadMounts)
+	}
+}
+
+// checkAgentMounts reports what the agent's own Compose files bind out of each
+// repository.
+//
+// The files are read once per repository, because they are asked a question
+// about a repository: a devcontainer holds every repository a task takes, and a
+// mount naming something inside one of them says nothing about the others.
+// Their project directory is the first configured file's own directory, which
+// is what the daemon gives Compose when it starts the agent (ADR-033), so a
+// relative source resolves here exactly as it will resolve there.
+//
+// A repository omitted from tasks by default is not asked. It gets no worktree,
+// so there is no substitution for a mount of it to survive.
+func (c *checker) checkAgentMounts(ctx context.Context) {
+	execution := c.config.Agent.Execution
+	if len(execution.ComposeFiles) == 0 {
+		return
+	}
+	directory := filepath.Dir(execution.ComposeFiles[0])
+
+	var unread []string
+	for _, id := range c.config.RepositoryIDs() {
+		repository, known := c.config.Repository(id)
+		if !known || domain.DefaultAccess(repository.DefaultAccess) == domain.DefaultAccessOmitted {
+			continue
+		}
+		composition := ComposeComposition(directory, repository.HostPath, execution.ComposeFiles...)
+		c.checkMounts(ctx, "repositories."+id+".agent.mounts", repository, composition.Mounts)
+		for _, entry := range composition.UnreadMounts {
+			if !contains(unread, entry) {
+				unread = append(unread, entry)
+			}
+		}
+	}
+	// Said once for the files rather than once per repository: an entry that
+	// interpolates was not read at all, whichever repository it was being asked
+	// about, and three repositories would report the same unread entry three
+	// times.
+	c.reportUnreadMounts("agent.execution.compose_files.mounts", unread)
+}
+
+// checkMounts reports the bind mounts of one repository that a task's worktree
+// will not be able to satisfy.
+//
+// A task works in a worktree, and a worktree holds only what Git tracks: an
+// ignored `.env`, a `node_modules` built in place, or a file a colleague has and
+// nobody committed is not there. Feat already explains this class once the
+// container runtime has failed over it (internal/runtime/compose/explain.go),
+// and one shape of it never reaches a runtime error at all — a mount over a file
+// that is simply created empty, which is a running application misbehaving with
+// nothing anywhere naming the cause.
+//
+// It reports and refuses nothing, for the reason that explanation does: a file a
+// build step creates, or one that arrives with a `postCreateCommand`, is a
+// legitimate absence, and Feat cannot tell it from the one that will hurt.
+func (c *checker) checkMounts(
+	ctx context.Context, check string, repository config.Repository, mounts []MountedPath,
+) {
+	if len(mounts) == 0 {
+		return
+	}
+	// A repository Git cannot answer about has already been reported by
+	// checkRepositories, and asking it once per mount would report every one of
+	// them as untracked on the strength of that same single failure.
+	if _, err := c.runner.Run(ctx, repository.HostPath, gitExecutable, "rev-parse", "--git-dir"); err != nil {
+		return
+	}
+
+	for _, mount := range mounts {
+		// Asked as the repository sees it: a pathspec relative to the checkout
+		// Git is being run in, rather than an absolute path that would have to
+		// survive whatever symbolic links stand between the two.
+		relative, err := filepath.Rel(repository.HostPath, mount.Path)
+		if err != nil || relative == "" || relative == "." || strings.HasPrefix(relative, "..") {
+			continue
+		}
+		if _, err := c.runner.Run(ctx, repository.HostPath, gitExecutable,
+			"ls-files", "--error-unmatch", "--", relative); err == nil {
+			continue
+		}
+		c.warn(check, fmt.Sprintf("%s binds %s, and Git does not track it", mount.Where, mount.Path),
+			"a task works in a worktree, which holds only what Git tracks, so that path will not be "+
+				"there: commit it, have the container create it, or drop the mount")
+	}
+}
+
+// reportUnreadMounts says which bind mounts the mount check could not speak for.
+//
+// They are reported as not checked rather than passed over, because the two are
+// not the same claim: Feat resolves no "${...}" anywhere, so an interpolated
+// source is a mount it has not looked at, and a report that listed only what it
+// checked would read as a report on everything.
+func (c *checker) reportUnreadMounts(check string, entries []string) {
+	for _, entry := range entries {
+		c.skip(check, entry+" interpolates, so it was not read",
+			"read that entry yourself: Feat resolves no \"${...}\", so it cannot say whether that "+
+				"mount names a path a worktree holds")
 	}
 }
 

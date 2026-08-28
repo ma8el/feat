@@ -450,6 +450,74 @@ func TestABuildContextInsideTheRepositoryIsTheRepositorys(t *testing.T) {
 	}
 }
 
+// TestTheMountsIntoARepositoryAreCollected covers what the reader used to
+// discard.
+//
+// Everything that is not the repository root was dropped, because it is not a
+// candidate for the container path. It is still a path the mount needs: a task
+// works in a worktree and a worktree holds only what Git tracks, so a bind of an
+// ignored file is a bind of something that will not be there. Whether it is
+// tracked is Git's answer and `feat doctor`'s question; this reads the paths.
+func TestTheMountsIntoARepositoryAreCollected(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "api")
+	devcontainer := filepath.Join(root, "devcontainer")
+	for _, dir := range []string{repository, devcontainer} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("creating %s: %v", dir, err)
+		}
+	}
+	file := filepath.Join(devcontainer, "compose.yaml")
+	if err := os.WriteFile(file, []byte(`services:
+  dev:
+    image: alpine
+    volumes:
+      - ../api:/srv/api
+      - ../api/.env:/srv/api/.env
+      - ../api/node_modules:/srv/api/node_modules
+      - ./Dockerfile:/src/Dockerfile:ro
+      - agent-config:/var/agent/config
+      - ~/.config/agent:/var/agent/user
+      - ${TOOLS}/bin:/usr/local/bin
+`), 0o600); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+
+	composition := project.ComposeComposition(devcontainer, repository, file)
+
+	var paths []string
+	for _, mount := range composition.Mounts {
+		paths = append(paths, mount.Path)
+	}
+	// The two that come out of the repository, and nothing else. The repository
+	// itself is the container path question and is answered by SourceTargets; the
+	// Dockerfile beside the Compose file and the named volume are not this
+	// repository's at all; and the home-relative source is one this does not
+	// resolve, so it is not one this may place. Joining a "~" to the project
+	// directory put the user's home inside the repository and reported the mount
+	// Feat's own devcontainer recommends as a path a worktree would not hold.
+	want := []string{filepath.Join(repository, ".env"), filepath.Join(repository, "node_modules")}
+	if !slices.Equal(paths, want) {
+		t.Errorf("the paths a mount needs are %v, want %v", paths, want)
+	}
+	if dev, _ := composition.Service("dev"); !slices.Equal(dev.SourceTargets, []string{"/srv/api"}) {
+		t.Errorf("the repository's own mount is %v, want [/srv/api]", dev.SourceTargets)
+	}
+	// And each is attributed, because a reader sent to look at one has to know
+	// which file and which service wrote it.
+	for _, mount := range composition.Mounts {
+		if !strings.Contains(mount.Where, file) || !strings.Contains(mount.Where, "dev") {
+			t.Errorf("the mount of %s is attributed to %q", mount.Path, mount.Where)
+		}
+	}
+
+	// The interpolated entry is named as unread rather than passed over: a report
+	// on mounts that stayed silent about it would claim it had read them all.
+	if !slices.Equal(composition.UnreadMounts, []string{file + ": service dev: a volume"}) {
+		t.Errorf("the entry that interpolates is reported as %v", composition.UnreadMounts)
+	}
+}
+
 // TestAFileThatCannotBeReadProposesNothing keeps discovery best effort.
 //
 // A file that does not parse, uses a feature this does not model, or is not
