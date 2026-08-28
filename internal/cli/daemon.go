@@ -106,7 +106,10 @@ func newDaemonStopCommand(env *environment) *cobra.Command {
 
 Shutdown is graceful: in-flight requests finish and event streams are closed.
 Tasks, worktrees, containers, and tmux sessions are left exactly as they are;
-stopping the daemon is not a cleanup.`,
+stopping the daemon is not a cleanup.
+
+A task whose configured checks were running loses that run: it returns to its
+review request, and reconciliation says so when a daemon starts again.`,
 		Args: checkArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			layout, err := env.resolve()
@@ -132,26 +135,9 @@ func newDaemonRestartCommand(env *environment) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "restart",
 		Short: "Stop the local daemon and start it again",
-		Long: `Stop the running daemon, wait until it is gone, and start a new one.
-
-It is the two commands in one, and it is safe as one because stopping already
-waits: ` + "`feat daemon stop`" + ` returns when the socket has stopped answering and the
-process has exited, so the new daemon never races the old one for the runtime
-directory.
-
-Restarting when nothing is running starts a daemon, rather than failing. That
-makes it the command to reach for when you do not know or do not care.
-
-It is how a changed settings file takes effect, because settings are read once at
-startup — but it is the daemon's own verb rather than the settings', and a new
-build or a daemon you want reconciled from scratch are the same command.
-
-What a restart costs: tasks, worktrees, branches, containers, volumes, and tmux
-sessions are untouched, and the daemon reconciles what it finds when it comes
-back. A task whose configured checks were running loses that run — it returns to
-its review request, and reconciliation reports it with the action to run them
-again — and a task that was waiting out its notification grace period is not
-notified about that silence.`,
+		Long: `Stop the running daemon and start a new one: ` + "`feat daemon stop`" + ` followed by
+` + "`feat daemon start`" + `, with the behaviour of each unchanged. When nothing is
+running, it starts one rather than failing.`,
 		Args: checkArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			layout, err := env.resolve()

@@ -14,19 +14,14 @@ import (
 	"github.com/ma8el/feat/internal/paths"
 )
 
-const settingsLong = `Inspect the settings Feat applies to this machine and this user.
+const settingsLong = `Feat's settings for this machine and this user, in ~/.config/feat/settings.yaml.
 
-Some of what Feat is told is not a fact about a project: how often the machine's
-resources are sampled produces one number for the whole machine, notifications
-are about the person at the keyboard, and the review commands are that person's
-own tools. Those live in one file in the configuration directory, beside the
-per-project files rather than inside them.
+The file is optional and every value has a default, so a machine that has never
+written one is fully configured. There is no per-project override. A running
+daemon reads it once, when it starts.
 
-The file is optional, and every value in it has a default, so a machine that has
-never written one is fully configured. It is global: there is no per-project
-override.
-
-This is not ` + "`feat project show`" + `, which prints one project's configuration.`
+For the options and what they do, run ` + "`feat settings init`" + ` to write a commented
+file, or see docs/examples/settings.yaml.`
 
 func newSettingsCommand(env *environment) *cobra.Command {
 	cmd := &cobra.Command{
@@ -57,12 +52,10 @@ func newSettingsInitCommand(env *environment) *cobra.Command {
 		Short: "Write a commented settings file",
 		Long: `Write a settings file with every value shown, commented out, and explained.
 
-Only the version is live: everything else is a default, and a default written
-down is a value that stops following Feat when Feat's own changes. Uncomment what
-you want to change.
+Only the version is live, so writing it changes nothing. Uncomment what you want
+to change.
 
-An existing file is never overwritten. There is no force flag: this is a file you
-authored, and losing it to a mistyped command is not a trade this makes.`,
+An existing file is never overwritten.`,
 		Args: checkArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			layout, err := env.resolve()
@@ -138,16 +131,10 @@ func newSettingsEditCommand(env *environment) *cobra.Command {
 		Short: "Open the settings file in your editor",
 		Long: `Open the settings file in the editor review.editor.command names, or in $EDITOR.
 
-A machine with no settings file gets the commented default written first, so that
-what opens is the file with every value in it rather than an empty buffer.
+A machine with no settings file gets the commented default written first, so what
+opens is the file with every value in it rather than an empty buffer.
 
-The editor keeps its own flags — ` + "`code -w`" + ` has to stay ` + "`code -w`" + ` — and the
-argument that would have named a repository is dropped, because what this opens
-is the settings file.
-
-Settings that do not parse are still opened. A file with a typo in it is the one
-you most need to edit, so the editor falls back to $EDITOR rather than to the
-command a file Feat could not read was going to name.`,
+A file that does not parse is still opened, in $EDITOR.`,
 		Args: checkArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			layout, options, err := env.project()
@@ -263,17 +250,11 @@ func newSettingsShowCommand(env *environment) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show",
 		Short: "Show the resolved global settings",
-		Long: `Print the settings Feat will act on, with every default filled in and each
-value marked with where it came from.
+		Long: `Print the settings Feat will act on, with every default filled in.
 
-A value marked ` + "`default`" + ` is one Feat chose; a value marked ` + "`configured`" + ` is one
-the settings file sets. The editor may also be marked ` + "`from $EDITOR`" + `, which is
-where it comes from when nothing configures it.
-
-It reads the file directly and asks no daemon anything, so it works before one is
-running — and so what it prints is what a daemon would adopt if it started now,
-which is not necessarily what a daemon already running adopted. Settings are read
-once at startup; restart the daemon after changing one.`,
+Each value is marked with where it came from: ` + "`default`" + ` is one Feat chose,
+` + "`configured`" + ` is one the file sets, and ` + "`from $EDITOR`" + ` is the editor when nothing
+else names one.`,
 		Args: checkArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			layout, options, err := env.project()
@@ -325,12 +306,10 @@ func newSettingsPathCommand(env *environment) *cobra.Command {
 	return &cobra.Command{
 		Use:   "path",
 		Short: "Print where the global settings file belongs",
-		Long: `Print the path of the settings file.
+		Long: `Print the path of the settings file, whether or not one is there.
 
-The path is printed whether or not the file exists, because the two questions a
-caller has are where to write one and whether one is there, and a command that
-printed nothing for a missing file could answer only the second. Whether it
-exists is said on standard error, so the path alone is what a pipe receives.`,
+The path goes to standard output and any note about it to standard error, so
+` + "`$(feat settings path)`" + ` is the path alone.`,
 		Args: checkArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			layout, err := env.resolve()
