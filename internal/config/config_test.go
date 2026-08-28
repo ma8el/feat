@@ -211,9 +211,6 @@ func TestCompleteConfigurationResolves(t *testing.T) {
 	if got, want := loaded.Agent.Claude.IdleGrace(), 5*time.Second; got != want {
 		t.Errorf("idle grace = %v, want %v", got, want)
 	}
-	if got, want := loaded.Resources.Sample(), 2*time.Second; got != want {
-		t.Errorf("sample interval = %v, want %v", got, want)
-	}
 	if !loaded.HasRuntime() {
 		t.Error("the configuration declares a runtime, but HasRuntime reports none")
 	}
@@ -273,28 +270,6 @@ func TestDefaultsAreFilledIn(t *testing.T) {
 	}
 	if want := filepath.Join(home, ".local", "share", "feat", "worktrees", "{project_id}", "{task_id}"); loaded.Git.WorktreeRoot != want {
 		t.Errorf("worktree_root = %q, want %q", loaded.Git.WorktreeRoot, want)
-	}
-	// FR-REV-003: the editor command defaults to $EDITOR.
-	if got, want := strings.Join(loaded.Review.Editor.Command, " "), "nvim {repository_path}"; got != want {
-		t.Errorf("editor command = %q, want %q", got, want)
-	}
-	if got, want := strings.Join(loaded.Review.Diff.Command, " "), "git diff {base_commit}"; got != want {
-		t.Errorf("diff command = %q, want %q", got, want)
-	}
-}
-
-// TestEditorIsAbsentWithoutEditorVariable checks that an unset $EDITOR leaves
-// the command empty instead of guessing an editor, and does not fail loading.
-func TestEditorIsAbsentWithoutEditorVariable(t *testing.T) {
-	dir := write(t, "minimal.yaml", fixture(t, "minimal.yaml"))
-	opts, _ := testOptions(t, nil)
-
-	loaded, err := config.Load(dir, "minimal", opts)
-	if err != nil {
-		t.Fatalf("an unset $EDITOR must not stop a project from loading: %v", err)
-	}
-	if !loaded.Review.Editor.Empty() {
-		t.Errorf("editor command = %v, want none", loaded.Review.Editor.Command)
 	}
 }
 

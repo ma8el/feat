@@ -505,7 +505,7 @@ func TestBothClientsGetTheSameDraftFile(t *testing.T) {
 // `code -w` has to stay `code -w`, or the editor returns before the user has
 // typed anything and the draft is approved unread.
 func TestTheEditorKeepsItsConfiguredFlags(t *testing.T) {
-	command, err := publicationEditor(
+	command, err := documentEditor(
 		api.EditorCommand{Program: "code", Arguments: []string{"-w"}},
 		&environment{}, "/tmp/publication.md")
 	if err != nil {
@@ -527,7 +527,7 @@ func TestAnUnconfiguredEditorFallsBackToTheEnvironment(t *testing.T) {
 		Getenv: func(name string) string { return map[string]string{"VISUAL": "emacsclient -f"}[name] },
 	}}
 
-	command, err := publicationEditor(api.EditorCommand{}, env, "/tmp/publication.md")
+	command, err := documentEditor(api.EditorCommand{}, env, "/tmp/publication.md")
 	if err != nil {
 		t.Fatalf("building the editor command: %v", err)
 	}
@@ -539,7 +539,7 @@ func TestAnUnconfiguredEditorFallsBackToTheEnvironment(t *testing.T) {
 // TestAnEditorThatWouldBeReadAsAnOptionIsRefused keeps a configured value from
 // becoming a flag of the process that runs it.
 func TestAnEditorThatWouldBeReadAsAnOptionIsRefused(t *testing.T) {
-	_, err := publicationEditor(api.EditorCommand{Program: "--wait"}, &environment{}, "/tmp/x.md")
+	_, err := documentEditor(api.EditorCommand{Program: "--wait"}, &environment{}, "/tmp/x.md")
 	if err == nil || !strings.Contains(err.Error(), "read as an option") {
 		t.Errorf("an editor that is an option answered %v", err)
 	}

@@ -406,9 +406,9 @@ func dropRuntimeSection(t *testing.T, w *world) {
 	}
 	text := string(body)
 	start := strings.Index(text, "\nruntime:\n")
-	end := strings.Index(text, "\nreview:\n")
+	end := strings.Index(text, "\nchecks:\n")
 	if start < 0 || end < 0 || end < start {
-		t.Fatal("the fixture no longer has a runtime section followed by a review section")
+		t.Fatal("the fixture no longer has a runtime section followed by a checks section")
 	}
 	text = text[:start] + text[end:]
 

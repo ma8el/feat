@@ -142,14 +142,6 @@ func TestValidationRejectsUnsafeConfiguration(t *testing.T) {
 			old: `  project_name_template: "feat-{project_id}-{task_id}"`, new: `  project_name_template: "Feat/{task_id}"`,
 			path: "runtime.project_name_template", contains: "Docker Compose rejects",
 		},
-		"review command uses an unknown placeholder": {
-			old: `    command: ["git", "diff", "{base_commit}"]`, new: `    command: ["git", "diff", "{base}"]`,
-			path: "review.diff.command[2]", contains: "does not expand",
-		},
-		"review program is a placeholder": {
-			old: `    command: ["nvim", "{repository_path}"]`, new: `    command: ["{editor}", "{repository_path}"]`,
-			path: "review.editor.command", contains: "program to run is fixed",
-		},
 		"check names an unknown repository": {
 			old: "checks:\n  api:", new: "checks:\n  absent:",
 			path: "checks.absent", contains: "not one of this project's repositories",
@@ -213,7 +205,6 @@ func TestTheTrackerAndTheForgeAreEachOptional(t *testing.T) {
   # schema/feat-tickets.schema.json. Feat passes no filter of its own: which
   # tickets are the user's is the command's decision.
   command: ["tickets-for-me"]
-
 `
 	const forge = `    forge:
       kind: gitlab

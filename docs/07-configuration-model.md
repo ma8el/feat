@@ -27,6 +27,81 @@ The file may be written by hand or composed by `feat project init`, which asks f
 
 v0.1 is local-only. A later optional `.feat.yaml` may hold shareable repository conventions, but absolute machine paths and credential references remain local.
 
+## Global settings
+
+Not everything Feat is told is a fact about a project. A second file holds what
+is true of the machine and the person using it — the external commands review
+opens, how notifications behave, and how often resources are sampled:
+
+```text
+~/.config/feat/settings.yaml
+```
+
+It sits beside the `projects/` directory rather than inside it, because it has
+no project to be named after. `.yml` is accepted; settings written by both
+extensions is an error rather than a preference, for the reason a project
+configured twice is one.
+
+The file is **optional and global**. Every value in it has a documented default,
+so a machine that has never written one is fully configured, and there is no
+per-project override: precedence rules are load-bearing and hard to remove once
+written, and nothing has yet asked for one. An override can be added later, on
+evidence that somebody wants it. See ADR-079.
+
+It carries its own `version`, separate from the project file's, because the two
+files are two compatibility surfaces and a change to one has no reason to
+invalidate the other. Its schema is published at `schema/feat-settings.schema.json`
+and held to the implementation by the same drift test that holds the project
+schema.
+
+`feat settings show` prints the resolved settings with every default filled in
+and each value marked with where it came from — `default`, `configured`, or, for
+the editor alone, `from $EDITOR`. That last marker is the reason the review
+commands belong here: the default has always reached for a user-level source and
+until now had no user-level file to reach for. `feat settings path` prints where
+the file belongs, whether or not it exists.
+
+`feat settings init` writes it, with every value shown, commented out, and
+explained; `docs/examples/settings.yaml` is that same text, and a test holds the
+two together. Only the `version` is live, so running it changes nothing — a
+default written down is a value that stops following Feat when Feat's own
+changes, and this whole file is defaults. An existing file is never overwritten
+and there is no force flag, which is the rule `feat project init` follows for the
+file it writes. `feat settings edit` opens it in the editor
+`review.editor.command` names or in `$EDITOR`, writing the commented default
+first when there is no file, and reads the result back rather than trusting that
+a clean exit means a valid file.
+
+`$EDITOR` is split on whitespace, because it holds a command rather than a
+program: `code -w` is an ordinary value of it.
+
+**The daemon reads this file once, when it starts.** That is the opposite of how
+project configuration is read — every operation re-reads a project's YAML, so an
+edit takes effect at the next one — and the difference is what the two files are
+about. A project file describes work in progress and is edited while Feat is
+running; these are the machine's own dispositions, and they change about as often
+as the machine does. Reading them per use meant the resource sampler parsing a
+file every two seconds to be told the same number. So changing a setting takes a
+daemon restart. A file that cannot be read costs the defaults rather than the
+daemon: an optional file with a typo in it must not stop a control plane from
+starting, and the failure is logged once at startup.
+
+Every command reads the file as it is now; only the daemon holds a snapshot. So
+`feat settings show` and `feat settings edit` can print values a running daemon
+is not working from, and both say so — once, and only when there is something to
+do about it: *the settings have changed since the daemon started*, naming
+`feat daemon restart`, which stops the running daemon and starts a new one. A machine with
+no daemon says nothing, and neither does a daemon that started after the file was
+last written, because a line reporting that no restart is needed is a line nobody
+can act on. Neither asks the daemon anything — the endpoint record carries when
+it took ownership and the file carries when it was written — so the answer costs
+a stat and works on the same terms as the rest of the command.
+
+The command is `settings` rather than `config` deliberately. `feat project show`
+already prints project configuration, and two commands called "config" would
+blur exactly the line this file draws. `~/.config/feat/` keeps its name, which is
+XDG rather than a product noun.
+
 ## Illustrative schema
 
 The exact Go structs may still evolve, but the semantics below are accepted.
@@ -119,14 +194,6 @@ runtime:
   port_range: "21000-21999"
   bind_address: "127.0.0.1"
 
-review:
-  diff:
-    command: ["git", "diff", "{base_commit}"]
-  editor:
-    command: ["nvim", "{repository_path}"]
-  status:
-    command: ["git", "status", "--short", "--branch"]
-
 checks:
   dashboard:
     - id: test
@@ -136,6 +203,21 @@ checks:
 tracker:
   kind: command
   command: ["tickets-for-me"]
+```
+
+And the settings file beside it, holding what is true of the machine rather than
+of any project:
+
+```yaml
+version: 1
+
+review:
+  diff:
+    command: ["git", "diff", "{base_commit}"]
+  editor:
+    command: ["nvim", "{repository_path}"]
+  status:
+    command: ["git", "status", "--short", "--branch"]
 
 notifications:
   desktop: true
@@ -491,17 +573,21 @@ against the configuration schema.
 Two grace periods exist and they are measured from different moments, which is
 what tells them apart.
 
-`agent.claude.idle_grace_period` decides when an ended turn becomes `idle`: a
-turn that ends and immediately continues is not a session waiting for anybody.
+They also live in different files now, which is the plainest statement of the
+difference there has been. `agent.claude.idle_grace_period` decides when an ended
+turn becomes `idle`: a turn that ends and immediately continues is not a session
+waiting for anybody. That is a fact about how the agent is driven, so it stays in
+the project's configuration, and it is provider-specific besides.
 `notifications.idle_grace_period` decides how long a task must have *been* idle
-before Feat interrupts the user about it, measured from that idle transition. So
-the dashboard reports idle after the first period and a desktop notification
-arrives after both, and a project that wants to be told only about a long silence
-raises the second one alone.
+before Feat interrupts the user about it, measured from that idle transition —
+which is a fact about the user, so it is one of the machine's settings. So the
+dashboard reports idle after the first period and a desktop notification arrives
+after both, and somebody who wants to be told only about a long silence raises the
+second one alone.
 
 Measuring both from the end of the turn was the other reading and is rejected: a
 notification grace shorter than the provider's would expire before the task was
-idle, and no notification would ever be delivered. See ADR-035.
+idle, and no notification would ever be delivered. See ADR-035 and ADR-079.
 
 `notifications.desktop` turns desktop delivery off without touching the
 dashboard's own attention badges, which are rendered from task state.
@@ -510,11 +596,17 @@ user is already looking at, which Feat asks tmux per window rather than
 remembering that somebody once attached.
 
 `resources.sample_interval` is how often the machine and each task's containers
-and processes are observed. It is per-project configuration for a machine-wide
-measurement, so the shortest interval any registered project asks for is what the
-machine is asked for, floored at one second and at however long the previous
-sample took — asking the container runtime what it is using takes between one and
-two seconds whatever it is asked. Sampling never blocks a request or a task.
+and processes are observed. It is a **global setting** rather than project
+configuration, because one sample measures the whole machine whatever project
+asked for it: it is read from `~/.config/feat/settings.yaml`, floored at one
+second and at however long the previous sample took — asking the container
+runtime what it is using takes between one and two seconds whatever it is asked.
+Sampling never blocks a request or a task.
+
+It used to be per project, which meant the sampler listed every registered
+project and parsed each one's YAML on every tick, then reconciled the answers
+with "the most eager project wins" — a rule that existed only because the setting
+was in the wrong file. See ADR-079.
 
 ### Configuration Feat derives
 

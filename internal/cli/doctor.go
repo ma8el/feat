@@ -46,9 +46,10 @@ func newDoctorCommand(env *environment) *cobra.Command {
 			}
 
 			report, err := project.Diagnose(cmd.Context(), project.Options{
-				ConfigDir: layout.ProjectConfigDir(),
-				Resolve:   options,
-				Runner:    env.runner,
+				ConfigDir:   layout.ProjectConfigDir(),
+				SettingsDir: layout.Config,
+				Resolve:     options,
+				Runner:      env.runner,
 				// Registration is reported when a daemon can be asked. Starting
 				// one to answer a diagnostic question would make a command that
 				// changes nothing change something.

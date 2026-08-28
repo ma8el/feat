@@ -113,12 +113,55 @@ func TestBinaryLifecycle(t *testing.T) {
 		t.Errorf("a second start did not report the running daemon:\n%s", output)
 	}
 
+	// Restarting replaces the process, which is the whole of what it promises:
+	// a restart that reported success while leaving the old daemon running is
+	// exactly the state a changed settings file would then not reach. It is
+	// asserted here rather than in internal/cli because it spawns, and a client
+	// starts the binary it was built as — which in a test process is the test.
+	before, err := ReadEndpoint(layout)
+	if err != nil {
+		t.Fatalf("reading the endpoint before the restart: %v", err)
+	}
+	output, code = run(t, "daemon", "restart")
+	if code != 0 {
+		t.Fatalf("restart: exit %d\n%s", code, output)
+	}
+	if !strings.Contains(output, "daemon stopped") || !strings.Contains(output, "daemon started") {
+		t.Errorf("restart does not report both halves:\n%s", output)
+	}
+	after, err := ReadEndpoint(layout)
+	if err != nil {
+		t.Fatalf("reading the endpoint after the restart: %v", err)
+	}
+	if after.PID == before.PID {
+		t.Errorf("the daemon after the restart is pid %d, the same process as before", after.PID)
+	}
+	if !Answering(layout.Socket) {
+		t.Error("nothing answers on the socket after a restart")
+	}
+
 	output, code = run(t, "daemon", "stop")
 	if code != 0 {
 		t.Fatalf("stop: exit %d\n%s", code, output)
 	}
 	if Answering(layout.Socket) {
 		t.Error("the daemon still answers after stop")
+	}
+
+	// And a restart with nothing to stop starts one anyway, which is what makes
+	// it the command to reach for without checking first.
+	output, code = run(t, "daemon", "restart")
+	if code != 0 {
+		t.Fatalf("restart with no daemon: exit %d\n%s", code, output)
+	}
+	if !strings.Contains(output, "no daemon was running") {
+		t.Errorf("a restart with nothing to stop does not say so:\n%s", output)
+	}
+	if !Answering(layout.Socket) {
+		t.Error("a restart with nothing to stop did not start a daemon")
+	}
+	if output, code := run(t, "daemon", "stop"); code != 0 {
+		t.Fatalf("stopping the restarted daemon: exit %d\n%s", code, output)
 	}
 	for _, path := range []string{layout.Socket, layout.EndpointFile()} {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {

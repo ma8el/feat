@@ -37,7 +37,6 @@ func (c *Config) Validate() error {
 	c.validateGit(found)
 	c.validateAgent(found)
 	c.validateRuntime(found)
-	c.validateReview(found)
 	c.validateChecks(found)
 	c.validateTracker(found)
 
@@ -751,21 +750,25 @@ func expectation(names []string) string {
 		" of this repository expect their source"
 }
 
-func (c *Config) validateReview(found *problems) {
+// validateReviewSection checks the review commands.
+//
+// The placeholders are the same vocabulary a check command may use, because both
+// run for one repository of one task: the commands moved to the machine's
+// settings, and what they are expanded against did not (ADR-079).
+func validateReviewSection(found *problems, review ReviewSection) {
 	for _, command := range []struct {
-		path    string
-		value   Command
-		purpose string
+		path  string
+		value Command
 	}{
-		{"review.diff.command", c.Review.Diff, "compare a repository against its recorded base commit"},
-		{"review.editor.command", c.Review.Editor, "open a repository for editing"},
-		{"review.status.command", c.Review.Status, "show a repository's Git status"},
+		{"review.diff.command", review.Diff},
+		{"review.editor.command", review.Editor},
+		{"review.status.command", review.Status},
 	} {
 		if command.value.Empty() {
 			// An unset editor is the one command that may be missing: it
 			// defaults to $EDITOR, which the daemon's environment may not have.
-			// Diagnostics report it; a project that never opens an editor is
-			// still a valid project.
+			// Diagnostics report it; a machine that never opens an editor is
+			// still correctly configured.
 			continue
 		}
 		checkCommand(found, command.path, command.value.Command, commandPlaceholders)

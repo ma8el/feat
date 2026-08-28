@@ -307,14 +307,20 @@ func TestStartupCatchUpDoesNotNotify(t *testing.T) {
 	}
 }
 
-// TestADisabledDesktopIsNotNotifiedTo checks that the project's own setting is
-// read.
-func TestADisabledDesktopIsNotNotifiedTo(t *testing.T) {
-	fixture := hostFixture + `
+// disabledDesktop is the settings file of a user who does not want to be
+// interrupted at all.
+const disabledDesktop = `version: 1
+
 notifications:
   desktop: false
 `
-	live := launch(t, fixture, installed(), true).watchable()
+
+// TestADisabledDesktopIsNotNotifiedTo checks that the user's own setting is
+// read.
+func TestADisabledDesktopIsNotNotifiedTo(t *testing.T) {
+	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
+		writeSettings(t, options.Layout, disabledDesktop)
+	}).watchable()
 	live.start(t)
 	live.emit(t, control.TypeReviewRequested, `{"summary":"Ready for review."}`)
 
@@ -326,11 +332,13 @@ notifications:
 // TestSuppressionCanBeTurnedOff checks the other half of the same setting: a
 // user who wants to be told even while watching is told.
 func TestSuppressionCanBeTurnedOff(t *testing.T) {
-	fixture := hostFixture + `
+	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
+		writeSettings(t, options.Layout, `version: 1
+
 notifications:
   suppress_while_attached: false
-`
-	live := launch(t, fixture, installed(), true).watchable()
+`)
+	}).watchable()
 	live.start(t)
 	live.watch(t, 1)
 	live.emit(t, control.TypeReviewRequested, `{"summary":"Ready for review."}`)
@@ -397,11 +405,6 @@ func TestFailedApplicationServicesAreNotifiedAbout(t *testing.T) {
 // maintainer was left with when a task reached ready_for_review in silence.
 // Four of these five used to be a silent return.
 func TestEveryDroppedNotificationSaysWhichPolicyDroppedIt(t *testing.T) {
-	const disabled = hostFixture + `
-notifications:
-  desktop: false
-`
-
 	tests := []struct {
 		name   string
 		reason string
@@ -432,10 +435,12 @@ notifications:
 			},
 		},
 		{
-			name:   "the project turned them off",
+			name:   "the settings turned them off",
 			reason: dropDisabled,
 			drop: func(t *testing.T) (*session, *syncBuffer) {
-				live, logs := launchLogged(t, disabled, nil)
+				live, logs := launchLogged(t, hostFixture, func(o *Options) {
+					writeSettings(t, o.Layout, disabledDesktop)
+				})
 				live.watchable().start(t)
 				live.emit(t, control.TypeReviewRequested, `{"summary":"ready"}`)
 				return live, logs

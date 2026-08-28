@@ -7,17 +7,19 @@ import (
 	"time"
 
 	"github.com/ma8el/feat/internal/api"
-	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/resources"
 	runtimecompose "github.com/ma8el/feat/internal/runtime/compose"
 )
 
 // defaultResourceInterval is how often the machine and the tasks are sampled
-// when no project configures an interval.
+// when the settings cannot be read.
 //
-// It matches the dashboard's own refresh, so a screen that re-reads every two
-// seconds is reading a figure that is at most one sample old.
+// It matches the documented default of resources.sample_interval and the
+// dashboard's own refresh, so a screen that re-reads every two seconds is
+// reading a figure that is at most one sample old. Loading fills that default in
+// for a machine that has written no settings, so this value is reached only when
+// the file itself is unreadable.
 const defaultResourceInterval = 2 * time.Second
 
 // minimumResourceInterval bounds how eager a project may ask Feat to be.
@@ -191,43 +193,35 @@ func (s *service) resourceTargets(ctx context.Context) ([]resources.Target, erro
 
 // resourceInterval is how long to wait before the next sample.
 //
-// It is the shortest interval any registered project asks for, floored so that a
-// container runtime which takes longer to answer than the interval cannot make
-// samples pile up behind each other. The interval being per-project
-// configuration for a machine-wide measurement is an oddity of the configuration
-// model rather than a design: the most eager project wins, which is the reading
-// that never makes one project's setting weaken another's (ADR-035).
-func (s *service) resourceInterval(ctx context.Context, took time.Duration) time.Duration {
-	interval := defaultResourceInterval
-	floor := minimumResourceInterval
-
-	switch {
-	case s.resourceOverride > 0:
+// It is the interval the machine's settings ask for, floored so that a container
+// runtime which takes longer to answer than the interval cannot make samples
+// pile up behind each other.
+//
+// It reads nothing. The settings were resolved when the daemon started, so this
+// is one number already in memory. It used to be per-project configuration for a
+// machine-wide measurement, which meant listing every registered project and
+// parsing each one's YAML on every tick — six files every two seconds to decide
+// one figure — and then reconciling the answers with a rule, the most eager
+// project wins, that existed only because the setting was in the wrong file. The
+// comment here said as much: an oddity of the configuration model rather than a
+// design. Moving the section removed the loop, the rule, and the disk traffic
+// together (ADR-079).
+func (s *service) resourceInterval(took time.Duration) time.Duration {
+	var interval, floor time.Duration
+	if s.resourceOverride > 0 {
 		// A test asked for a specific cadence, and the floor that protects a real
 		// Docker from being asked faster than it can answer would defeat the point
 		// of asking for one.
 		interval, floor = s.resourceOverride, s.resourceOverride
-	default:
-		// The default applies only when nothing is registered. Every registered
-		// project has a configured interval, because loading fills the documented
-		// default into one that says nothing, so the shortest of them is what the
-		// machine is asked for.
-		configured := time.Duration(0)
-		projects, err := s.store.Projects().List(ctx)
-		if err == nil {
-			for _, project := range projects {
-				cfg, err := config.Load(s.layout.ProjectConfigDir(), project.ID.String(), s.configOptions())
-				if err != nil {
-					continue
-				}
-				if asked := cfg.Resources.Sample(); asked > 0 && (configured == 0 || asked < configured) {
-					configured = asked
-				}
-			}
-		}
-		if configured > 0 {
-			interval = configured
-		}
+	} else {
+		interval, floor = s.settings.Resources.Sample(), minimumResourceInterval
+	}
+	if interval <= 0 {
+		// Loading fills the documented default in, so this is reached only by a
+		// service assembled without settings, which no path here does. It is a
+		// floor against a zero rather than a policy: a zero interval is a sampler
+		// that never stops sampling.
+		interval = defaultResourceInterval
 	}
 
 	if interval < floor {
@@ -277,7 +271,7 @@ func (s *service) watchResources(ctx context.Context) {
 	for {
 		started := s.now()
 		s.sampleResources(ctx)
-		wait := s.resourceInterval(ctx, s.now().Sub(started))
+		wait := s.resourceInterval(s.now().Sub(started))
 
 		timer := time.NewTimer(wait)
 		select {

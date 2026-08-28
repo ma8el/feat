@@ -44,6 +44,7 @@ network listener.`,
 	cmd.AddCommand(
 		newDaemonStartCommand(env),
 		newDaemonStopCommand(env),
+		newDaemonRestartCommand(env),
 		newDaemonStatusCommand(env),
 		newDaemonRunCommand(env),
 	)
@@ -105,7 +106,10 @@ func newDaemonStopCommand(env *environment) *cobra.Command {
 
 Shutdown is graceful: in-flight requests finish and event streams are closed.
 Tasks, worktrees, containers, and tmux sessions are left exactly as they are;
-stopping the daemon is not a cleanup.`,
+stopping the daemon is not a cleanup.
+
+A task whose configured checks were running loses that run: it returns to its
+review request, and reconciliation says so when a daemon starts again.`,
 		Args: checkArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			layout, err := env.resolve()
@@ -125,6 +129,57 @@ stopping the daemon is not a cleanup.`,
 			return nil
 		},
 	}
+}
+
+func newDaemonRestartCommand(env *environment) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "restart",
+		Short: "Stop the local daemon and start it again",
+		Long: `Stop the running daemon and start a new one: ` + "`feat daemon stop`" + ` followed by
+` + "`feat daemon start`" + `, with the behaviour of each unchanged. When nothing is
+running, it starts one rather than failing.`,
+		Args: checkArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			layout, err := env.resolve()
+			if err != nil {
+				return err
+			}
+			level, err := logLevel(cmd)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+
+			// A daemon that is not running is not an obstacle to starting one.
+			// Anything else is: a record this could not read is a question about
+			// ownership, and spawning a second daemon is not the answer to it.
+			switch stopped, err := daemon.Stop(cmd.Context(), layout, 0); {
+			case err == nil:
+				printf(out, "daemon stopped: pid %d\n", stopped.PID)
+			case errors.Is(err, daemon.ErrNotRunning):
+				printf(out, "no daemon was running\n")
+			default:
+				return err
+			}
+
+			endpoint, err := daemon.Spawn(cmd.Context(), layout, daemon.SpawnOptions{
+				Args: foregroundCommand(level.String()),
+			})
+			if err != nil {
+				// The old one is already gone, so this left the machine without a
+				// daemon. Said plainly: the user asked for a restart and has to
+				// know they now have none.
+				return fmt.Errorf("the daemon was stopped and the new one did not start, "+
+					"so none is running now: %w", err)
+			}
+
+			printf(out, "daemon started: pid %d on %s\n", endpoint.PID, endpoint.Socket)
+			printf(out, "log: %s\n", layout.LogFile())
+			return nil
+		},
+	}
+	addLogLevelFlag(cmd)
+	return cmd
 }
 
 func newDaemonStatusCommand(env *environment) *cobra.Command {

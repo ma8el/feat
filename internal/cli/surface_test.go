@@ -90,16 +90,17 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 	// running user's configuration directory. Leaving one of them out of this
 	// list would make this test run it.
 	implemented := map[string]bool{
-		"feat":               true,
-		"feat version":       true,
-		"feat daemon start":  true,
-		"feat daemon stop":   true,
-		"feat daemon status": true,
-		"feat daemon run":    true,
-		"feat doctor":        true,
-		"feat project add":   true,
-		"feat project list":  true,
-		"feat project show":  true,
+		"feat":                true,
+		"feat version":        true,
+		"feat daemon start":   true,
+		"feat daemon stop":    true,
+		"feat daemon restart": true,
+		"feat daemon status":  true,
+		"feat daemon run":     true,
+		"feat doctor":         true,
+		"feat project add":    true,
+		"feat project list":   true,
+		"feat project show":   true,
 		// Listing tickets reaches the daemon, which runs the project's tracker
 		// command. Invoking it here would ask the running user's tracker for
 		// their tickets.
@@ -108,8 +109,16 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 		// directory, and with no terminal it refuses rather than asking
 		// questions into a pipe. Invoking it here would do neither usefully.
 		"feat project init": true,
-		"feat implement":    true,
-		"feat task list":    true,
+		// The settings commands read the running user's configuration
+		// directory, exactly as the project ones do. `init` and `edit` write to
+		// it and `edit` starts an editor, so invoking either here would leave a
+		// file behind and open a terminal editor in the test process.
+		"feat settings show": true,
+		"feat settings path": true,
+		"feat settings init": true,
+		"feat settings edit": true,
+		"feat implement":     true,
+		"feat task list":     true,
 		// Attaching yields this process's terminal to native tmux, under both
 		// the canonical name and the alias ADR-040 kept at the top level.
 		"feat task attach": true,

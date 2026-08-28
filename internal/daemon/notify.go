@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/notify"
 )
@@ -19,9 +18,9 @@ import (
 // get a notification" a question the daemon's own log could not answer.
 const (
 	dropCatchingUp = "the daemon was still catching up on what happened while it was stopped"
-	dropDisabled   = "this project sets notifications.desktop to false"
+	dropDisabled   = "your settings set notifications.desktop to false"
 	dropWatched    = "you are attached to this task's terminal, " +
-		"and this project sets notifications.suppress_while_attached to true"
+		"and your settings set notifications.suppress_while_attached to true"
 	dropUncomposed = "this build has no notification text for that condition"
 )
 
@@ -56,7 +55,7 @@ func (s *service) notifyTask(ctx context.Context, task *domain.Task, condition n
 		return
 	}
 
-	policy := s.notifyPolicy(ctx, task)
+	policy := s.notifyPolicy()
 	if !policy.Desktop {
 		s.dropped(ctx, task, condition, dropDisabled)
 		return
@@ -110,23 +109,23 @@ func (s *service) dropped(
 		slog.String("reason", reason))
 }
 
-// notifyPolicy is what the task's project decided about being interrupted.
+// notifyPolicy is what the user decided about being interrupted.
 //
-// A configuration that cannot be read falls back to the default rather than to
-// silence. The project is registered, so the file existed once; a user whose YAML
-// is temporarily broken should still hear that their agent is waiting for them,
-// and `feat doctor` is where a broken file is diagnosed.
-func (s *service) notifyPolicy(ctx context.Context, task *domain.Task) notify.Policy {
-	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
-	if err != nil {
-		s.logger.WarnContext(ctx, "reading a project's notification settings",
-			slog.String("project", task.ProjectID.String()), slog.Any("error", err))
-		return notify.DefaultPolicy()
-	}
+// It is one answer for the machine rather than one per project, because being
+// interrupted is about the person at the keyboard and the desktop they are
+// using: whether a notification may be shown at all is macOS's question here,
+// and whether you are already looking at the task is tmux's. Neither varies by
+// which repository the work is in (ADR-079).
+//
+// It reads nothing. The settings were resolved when the daemon started, and a
+// file that could not be read left the defaults in place — so a user whose YAML
+// has a typo in it still hears that their agent is waiting for them, and
+// `feat doctor` is where the typo is diagnosed.
+func (s *service) notifyPolicy() notify.Policy {
 	return notify.Policy{
-		Desktop:               cfg.Notifications.DesktopEnabled(),
-		SuppressWhileAttached: cfg.Notifications.SuppressedWhileAttached(),
-		IdleGrace:             cfg.Notifications.IdleGrace(),
+		Desktop:               s.settings.Notifications.DesktopEnabled(),
+		SuppressWhileAttached: s.settings.Notifications.SuppressedWhileAttached(),
+		IdleGrace:             s.settings.Notifications.IdleGrace(),
 	}
 }
 
@@ -181,19 +180,23 @@ func (s *service) notifyIdle(ctx context.Context, id domain.TaskID, since time.T
 // armIdleNotice starts the period after which a task that stayed idle is worth
 // interrupting the user about.
 //
-// The two grace periods are measured from different moments on purpose. The
-// provider's own grace, agent.claude.idle_grace_period, decides when an ended
-// turn becomes idle, because a turn that ends and immediately continues is not a
-// session waiting for anybody. This one, notifications.idle_grace_period,
-// decides how long a task must have *been* idle before Feat interrupts somebody
-// about it, and it is measured from the idle transition.
+// The two grace periods are measured from different moments on purpose, and they
+// now live in different files, which is the clearest statement of the difference
+// there has been. The provider's own grace, agent.claude.idle_grace_period,
+// decides when an ended turn becomes idle, because a turn that ends and
+// immediately continues is not a session waiting for anybody — that is a fact
+// about how the agent is driven, so it stays in the project's own configuration.
+// This one, notifications.idle_grace_period, decides how long a task must have
+// *been* idle before Feat interrupts somebody about it, which is a fact about the
+// somebody, so it is the machine's (ADR-079). It is measured from the idle
+// transition.
 //
 // Measuring both from the end of the turn was the other candidate and was
 // rejected: a notification grace shorter than the provider's would then expire
 // before the task was idle and no notification would ever be delivered, which is
 // a configuration that silently turns off the thing it configures (ADR-035).
 func (s *service) armIdleNotice(ctx context.Context, task *domain.Task, idleSince time.Time) {
-	grace := s.notifyPolicy(ctx, task).Grace()
+	grace := s.notifyPolicy().Grace()
 
 	id := task.ID
 	s.idleNotice.arm(id, grace, func() {

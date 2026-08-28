@@ -43,18 +43,12 @@ type Config struct {
 	// Runtime configures the application services a task may run. It is absent
 	// for a project with no application runtime.
 	Runtime *RuntimeSection `yaml:"runtime"`
-	// Review configures the external commands review opens.
-	Review ReviewSection `yaml:"review"`
 	// Checks are per-repository verification commands, keyed by repository
 	// identifier.
 	Checks map[string][]Check `yaml:"checks"`
 	// Tracker configures where the project's tickets come from. It is absent
 	// for a project whose tasks are all written by hand.
 	Tracker *TrackerSection `yaml:"tracker"`
-	// Notifications configures attention notifications.
-	Notifications NotificationsSection `yaml:"notifications"`
-	// Resources configures resource sampling.
-	Resources ResourcesSection `yaml:"resources"`
 
 	// path is the file the configuration was read from. It is not a field of
 	// the file itself.
@@ -358,6 +352,10 @@ func ParsePortRange(value string) (PortRange, error) {
 }
 
 // ReviewSection configures the external commands review opens.
+//
+// It belongs to the machine's settings rather than to a project: these are the
+// user's own tools, which the editor default has always said out loud by falling
+// back to $EDITOR (ADR-079).
 type ReviewSection struct {
 	// Diff opens the change of one repository against its recorded base.
 	Diff Command `yaml:"diff"`
@@ -416,6 +414,10 @@ type TrackerSection struct {
 }
 
 // NotificationsSection configures attention notifications.
+//
+// It belongs to the machine's settings rather than to a project: being
+// interrupted is about the person at the keyboard and the desktop they are
+// using, neither of which varies by repository (ADR-079).
 type NotificationsSection struct {
 	// Desktop enables desktop notifications. Unset means true.
 	Desktop *bool `yaml:"desktop"`
@@ -441,6 +443,9 @@ func (n NotificationsSection) SuppressedWhileAttached() bool {
 func (n NotificationsSection) IdleGrace() time.Duration { return n.idleGracePeriod }
 
 // ResourcesSection configures resource sampling.
+//
+// It belongs to the machine's settings rather than to a project: one sample
+// measures the whole machine, whatever project asked for it (ADR-079).
 type ResourcesSection struct {
 	// SampleInterval is how often whole-machine and per-task resources are
 	// sampled. Sampling is observational and never blocks task creation.

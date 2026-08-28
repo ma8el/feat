@@ -55,6 +55,10 @@ feat project add <project>
 feat project list
 feat project show <project>
 feat project tickets <project>
+feat settings show
+feat settings path
+feat settings init
+feat settings edit
 feat task list
 feat task attach <task>
 feat task review <task>
@@ -69,7 +73,7 @@ feat runtime status <task>
 feat runtime logs <task>
 feat runtime destroy <task> [--yes]
 feat doctor
-feat daemon start|stop|status
+feat daemon start|stop|restart|status
 feat daemon run
 ```
 
@@ -78,6 +82,8 @@ feat daemon run
 `feat project tickets` runs the project's configured tracker command and lists what it printed. `feat implement --ticket` runs the same command and matches the reference it was given against the ones that command emitted; Feat parses no part of a reference, and passes the command no filter. Selecting a ticket — by that flag, or from the same list offered while the brief is being written — composes a brief from it into the field a typed prompt is written in, so the confirmation, the fingerprint, and every other invariant of preparation apply unchanged. What the confirmation displays is that composed brief rather than the ticket it came from. See ADR-070 and ADR-071.
 
 `feat project add` takes the project's identifier, which is also its configuration file's name; the daemon reads the file from the configuration directory rather than from a path a caller supplies. See ADR-028.
+
+`feat settings` inspects what Feat is told once for this machine and this user, rather than once per project: how often resources are sampled, how notifications behave, and which external commands review opens. It is deliberately not called `feat config` — `feat project show` already prints project configuration, and two commands called "config" would blur exactly the line this file draws. The settings file is optional, every value has a default, and there is no per-project override. `feat settings init` writes it with every value shown, commented out, and explained — `docs/examples/settings.yaml` is the same text — and `feat settings edit` opens it. A running daemon reads it once, at startup. See ADR-079.
 
 `feat project init` writes that file by asking about the project rather than
 requiring it to be authored by hand. It derives from the host what the host can
@@ -133,6 +139,8 @@ only what is selected. Each class is a separate choice, dirty or unmerged work
 needs a second confirmation naming what would be lost, and volumes are retained
 unless chosen. There is deliberately no flag that answers every question; outside
 a terminal the inventory is printed and nothing is removed. See ADR-037.
+
+`feat daemon restart` stops the running daemon and starts a new one, and starts one when nothing is running rather than failing. It is safe as one command because stopping already waits for the socket to stop answering and the process to exit, so the new daemon never races the old one. It is how a changed settings file takes effect, since settings are read once at startup, but it is the daemon's own verb rather than the settings': a new build is the same command. See ADR-079.
 
 `feat daemon run` is the foreground daemon that `feat daemon start` spawns, and the command a later launchd/systemd unit invokes. It is hidden from help because `feat daemon start` is the user-facing entry point; see ADR-027.
 

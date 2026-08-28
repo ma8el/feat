@@ -15,9 +15,7 @@ history rather than opening an empty one that looks the same. For a task that
 runs its agent in a container, this brings that container back up first.
 
 It is refused while there is still a live agent to attach to, because a second
-one in the same task would be two agents editing one worktree. Nothing reaches
-this on its own: reconciliation reports that a session can be resumed and never
-resumes one.`
+one in the same task would be two agents editing one worktree.`
 
 const stopLong = `Stop the container a task's agent runs in.
 
@@ -28,8 +26,6 @@ their own verbs under ` + "`feat runtime`" + `.
 
 It is the reversible half of a pair. Bring the task back with ` + "`feat task resume`" + `,
 which starts the same containers again and continues the same agent session.
-There is no command that starts the container without the session, because a
-container Feat cannot account for is worse than one that has to be resumed.
 
 A task whose agent runs on this machine rather than in a container is refused:
 Feat owns no process there to stop.`

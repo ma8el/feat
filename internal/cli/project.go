@@ -50,9 +50,6 @@ func newProjectAddCommand(env *environment) *cobra.Command {
 <config> is Feat's configuration directory — ~/.config/feat unless
 XDG_CONFIG_HOME says otherwise.
 
-The daemon reads the file itself, from the configuration directory it resolved,
-so the file that is validated is the file that will be read again later.
-
 Registering a project that is already registered is not an error: its
 configuration is re-read and the record updated, which is what to run after
 editing the file. Tasks that are already running keep the configuration they
@@ -185,9 +182,8 @@ func newProjectShowCommand(env *environment) *cobra.Command {
 		Long: `Print the configuration Feat will act on: paths expanded, defaults filled in,
 and every repository's place on the host and in the execution environment.
 
-It is the resolved configuration rather than the text of the file, because a
-default you cannot see is a default you cannot check. Files that may hold
-secrets are listed by path; their contents are never read.`,
+It is the resolved configuration rather than the text of the file. Files that may
+hold secrets are listed by path; their contents are never read.`,
 		Args: checkArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			layout, options, err := env.project()
