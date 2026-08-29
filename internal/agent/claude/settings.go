@@ -104,7 +104,7 @@ func (a Adapter) generate(req agent.PrepareRequest) (generated, error) {
 	return generated{
 		settingsPath:     seen.settings(),
 		instructionsPath: seen.instructions(),
-		initialPrompt:    initialPrompt(seen),
+		initialPrompt:    initialPrompt(seen, req.Task.PlanFirst),
 	}, nil
 }
 
@@ -150,6 +150,13 @@ type hookCommand struct {
 // It carries hooks and nothing else. A generated settings file that also set a
 // model, a permission mode, or a tool policy would be Feat quietly deciding how
 // somebody else's agent behaves.
+//
+// The rule is unchanged rather than excepted by plan mode. That mode is passed
+// as a flag on one launch, because the user pressed a key for it on the screen
+// two seconds earlier: it is a decision about one piece of work, and it leaves
+// the user's own defaultMode untouched for every task where they did not press
+// it. The command line is where a per-launch decision belongs; this file is for
+// standing ones, and Feat has none to write.
 func settingsDocument(seen agentPaths) ([]byte, error) {
 	hooks := make(map[string][]settingsHook, len(installedHooks))
 	for _, event := range installedHooks {
@@ -195,7 +202,17 @@ func seconds(d time.Duration) int {
 // argument vector, where every user on the machine can read it in ps output.
 // Naming the file also leaves the agent able to re-read it later in the session
 // (ADR-032).
-func initialPrompt(seen agentPaths) string {
+//
+// A task launched in plan mode is asked for a plan rather than for the work.
+// The flag alone would leave the session told to begin and unable to, which
+// reads as a session fighting its own instructions; saying it here costs a
+// clause and is the only difference. Every other launch gets the sentence it
+// has always had.
+func initialPrompt(seen agentPaths, planFirst bool) string {
+	if planFirst {
+		return "Your task brief is at " + seen.brief() +
+			". Read it, then plan how you will do it and wait for approval before you change anything."
+	}
 	return "Your task brief is at " + seen.brief() + ". Read it, then begin."
 }
 

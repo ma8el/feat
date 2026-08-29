@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,12 +24,34 @@ const (
 	testBrief   = "# Add a health endpoint\n\nReturn 200 from /health.\n"
 )
 
+// launch is the part of a PrepareRequest a test varies.
+//
+// It is a value rather than a list of arguments because the four are
+// independent and two of them are booleans, so a call site that swapped them
+// would compile.
+type launch struct {
+	// outsideBoundary runs the agent somewhere other than where the project
+	// configured it.
+	outsideBoundary bool
+	// gate is the completion gate the agent is told about.
+	gate agent.Gate
+	// planFirst asks the agent to plan before it acts.
+	planFirst bool
+	// resume is the provider session to continue, empty for an ordinary launch.
+	resume string
+}
+
 func prepared(t *testing.T, outsideBoundary bool) (agent.LaunchSpec, *control.Workspace) {
 	t.Helper()
-	return prepareWith(t, outsideBoundary, agent.Gate{})
+	return prepareLaunch(t, launch{outsideBoundary: outsideBoundary})
 }
 
 func prepareWith(t *testing.T, outsideBoundary bool, gate agent.Gate) (agent.LaunchSpec, *control.Workspace) {
+	t.Helper()
+	return prepareLaunch(t, launch{outsideBoundary: outsideBoundary, gate: gate})
+}
+
+func prepareLaunch(t *testing.T, options launch) (agent.LaunchSpec, *control.Workspace) {
 	t.Helper()
 
 	workspace, err := control.Open(t.TempDir(), testProject, testTask, control.Options{})
@@ -47,6 +70,9 @@ func prepareWith(t *testing.T, outsideBoundary bool, gate agent.Gate) (agent.Lau
 	if err := task.SetBrief(testBrief, time.Now()); err != nil {
 		t.Fatalf("setting the brief: %v", err)
 	}
+	if err := task.SetPlanFirst(options.planFirst, time.Now()); err != nil {
+		t.Fatalf("setting the plan-first mode: %v", err)
+	}
 
 	spec, err := claude.New().Prepare(context.Background(), agent.PrepareRequest{
 		Task: task,
@@ -54,9 +80,12 @@ func prepareWith(t *testing.T, outsideBoundary bool, gate agent.Gate) (agent.Lau
 			WorkingDirectory: "/srv/api",
 			ControlPath:      "/feat",
 		},
-		Control:     workspace,
-		Environment: agent.Environment{Mode: domain.ExecutionHost, OutsideConfiguredBoundary: outsideBoundary},
-		Gate:        gate,
+		Control: workspace,
+		Environment: agent.Environment{
+			Mode: domain.ExecutionHost, OutsideConfiguredBoundary: options.outsideBoundary,
+		},
+		Gate:   options.gate,
+		Resume: options.resume,
 	})
 	if err != nil {
 		t.Fatalf("preparing a launch: %v", err)
@@ -113,22 +142,109 @@ func TestClaudeLaunchesInTheTaskDirectoryWithTheFinalBrief(t *testing.T) {
 		t.Errorf("--add-dir = %q, want the control workspace", added)
 	}
 
-	// --add-dir takes a list, so a prompt directly after it is read as a second
-	// directory and the session starts with no task at all. The symptom is a
-	// session that runs perfectly and simply never does anything, which is worth
-	// a test rather than a careful reader.
-	for i, argument := range spec.Arguments {
-		if argument == "--add-dir" && i+2 >= len(spec.Arguments) {
-			t.Errorf("--add-dir is the last flag before the prompt, so the prompt would be read as a directory: %v",
-				spec.Arguments)
+	// The ordering rules hold for every vector this adapter can build, so a flag
+	// added between --add-dir and the prompt is checked here rather than only
+	// where it was introduced.
+	planning, _ := prepareLaunch(t, launch{planFirst: true})
+	for name, arguments := range map[string][]string{
+		"an ordinary launch":  spec.Arguments,
+		"a plan-first launch": planning.Arguments,
+	} {
+		// --add-dir takes a list, so a prompt directly after it is read as a
+		// second directory and the session starts with no task at all. The
+		// symptom is a session that runs perfectly and simply never does
+		// anything, which is worth a test rather than a careful reader.
+		for i, argument := range arguments {
+			if argument == "--add-dir" && i+2 >= len(arguments) {
+				t.Errorf("%s: --add-dir is the last flag before the prompt, "+
+					"so the prompt would be read as a directory: %v", name, arguments)
+			}
+		}
+		// Narrowing the setting sources would switch off the project's
+		// checked-in configuration, which docs/06 requires to keep applying.
+		for _, argument := range arguments {
+			if argument == "--setting-sources" {
+				t.Errorf("%s: the launch narrows --setting-sources; "+
+					"a project's own CLAUDE.md and settings must keep applying", name)
+			}
 		}
 	}
-	// Narrowing the setting sources would switch off the project's checked-in
-	// configuration, which docs/06 requires to keep applying.
-	for _, argument := range spec.Arguments {
-		if argument == "--setting-sources" {
-			t.Error("the launch narrows --setting-sources; a project's own CLAUDE.md and settings must keep applying")
-		}
+}
+
+// TestPlanModeTravelsWithTheInitialPromptAndNeverWithAResume is the whole of
+// the plan-first design, in the four vectors it can produce.
+//
+// Plan mode is a property of starting from the brief rather than of the task's
+// life, so the fork that already decides whether to send a prompt decides this
+// too. The case worth the test rather than a careful reader is the last one: a
+// resumed session re-entered in plan mode is indistinguishable from one that
+// resumed correctly — same terminal, same history, same everything — except
+// that the agent refuses to edit and re-plans work the user approved an hour
+// ago. ADR-037 recorded that shape for --resume itself.
+func TestPlanModeTravelsWithTheInitialPromptAndNeverWithAResume(t *testing.T) {
+	const session = "01J8Z5R2M9WQ6K3T4B7C8D9E0F"
+
+	// Written out rather than derived, so that a change to any of them is a
+	// change a reviewer reads rather than one that follows from the code under
+	// test.
+	generated := []string{
+		"--add-dir", "/feat",
+		"--settings", "/feat/agent/settings.json",
+		"--append-system-prompt-file", "/feat/agent/instructions.md",
+	}
+	begin := "Your task brief is at /feat/task.md. Read it, then begin."
+	plan := "Your task brief is at /feat/task.md. Read it, then plan how you will do it " +
+		"and wait for approval before you change anything."
+
+	for _, test := range []struct {
+		name    string
+		options launch
+		want    []string
+	}{
+		{
+			name:    "a fresh launch that asked to plan",
+			options: launch{planFirst: true},
+			want:    append(append([]string{}, generated...), "--permission-mode", "plan", plan),
+		},
+		{
+			name:    "a fresh launch that did not",
+			options: launch{},
+			want:    append(append([]string{}, generated...), begin),
+		},
+		{
+			name:    "a resume of a task that asked to plan",
+			options: launch{planFirst: true, resume: session},
+			want:    append(append([]string{}, generated...), "--resume", session),
+		},
+		{
+			name:    "a resume of a task that did not",
+			options: launch{resume: session},
+			want:    append(append([]string{}, generated...), "--resume", session),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			spec, _ := prepareLaunch(t, test.options)
+
+			if !slices.Equal(spec.Arguments, test.want) {
+				t.Errorf("arguments =\n %q\nwant\n %q", spec.Arguments, test.want)
+			}
+		})
+	}
+}
+
+// TestAResumeCarriesNoPermissionMode says the correctness item once more,
+// against the vector rather than against a table, so that a rewrite of the
+// table above cannot take it with it.
+func TestAResumeCarriesNoPermissionMode(t *testing.T) {
+	spec, _ := prepareLaunch(t, launch{planFirst: true, resume: "01J8Z5R2M9WQ6K3T4B7C8D9E0F"})
+
+	if slices.Contains(spec.Arguments, "--permission-mode") {
+		t.Errorf("a resumed session was re-entered in plan mode and would re-plan approved work: %q",
+			spec.Arguments)
+	}
+	last := spec.Arguments[len(spec.Arguments)-1]
+	if strings.Contains(last, "task.md") {
+		t.Errorf("a resumed session was sent the initial prompt again: %q", last)
 	}
 }
 

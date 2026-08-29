@@ -20,6 +20,14 @@ const Provider = "claude"
 // declared by agent.provider.
 const Executable = "claude"
 
+// planMode is Claude's own name for the permission mode that investigates and
+// proposes without editing.
+//
+// Read from the installed 2.1.236 rather than from memory: `--permission-mode
+// <mode>` takes exactly one value, out of acceptEdits, auto, bypassPermissions,
+// manual, dontAsk, and plan.
+const planMode = "plan"
+
 // Adapter implements agent.Adapter for Claude Code.
 //
 // Every Claude-specific decision lives in this package: the flags, the settings
@@ -104,7 +112,29 @@ func (a Adapter) Prepare(_ context.Context, req agent.PrepareRequest) (agent.Lau
 		// has had, and a prompt invented here would be Feat putting words in the
 		// user's mouth. The session comes back where it was, and what happens
 		// next is theirs (ADR-037).
+		//
+		// And no permission mode, for the same reason and with a worse symptom.
+		// Plan mode is a property of starting from the brief, not of the task's
+		// life: a resumed session re-entered in it looks exactly like one that
+		// resumed correctly — same terminal, same history — except that the agent
+		// now refuses to edit and re-plans work the user approved an hour ago.
 	} else {
+		// The mode is read off the task rather than taken as a field of its own
+		// on PrepareRequest: the task is already here, and a second copy of one
+		// fact is what domain.Task's own Attention comment refuses.
+		//
+		// It goes beside the prompt because it belongs to the same act. Every
+		// case follows from that one rule: a fresh launch plans, a resume does
+		// not, a session that never reported an identifier is a fresh launch and
+		// plans again because nothing was planned or done, and a retry of a
+		// launch that failed is a fresh launch for the same reason.
+		//
+		// --permission-mode takes exactly one value, so it is safe after the
+		// variadic --add-dir and it keeps --add-dir non-final, which the comment
+		// above requires.
+		if req.Task.PlanFirst {
+			arguments = append(arguments, "--permission-mode", planMode)
+		}
 		arguments = append(arguments, generated.initialPrompt)
 	}
 
