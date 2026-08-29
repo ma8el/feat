@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/ma8el/feat/internal/api"
 )
 
@@ -19,6 +21,8 @@ func (p prepareModel) View(indicator activity) string {
 	switch p.step {
 	case stepProject:
 		out.WriteString(p.projectView())
+	case stepSource:
+		out.WriteString(p.sourceView())
 	case stepBrief:
 		out.WriteString(p.briefView())
 	case stepRepositories:
@@ -27,6 +31,8 @@ func (p prepareModel) View(indicator activity) string {
 		out.WriteString(p.reviewView())
 	case stepTickets:
 		out.WriteString(p.ticketView())
+	case stepImport:
+		out.WriteString(p.importView())
 	}
 
 	out.WriteString("\n")
@@ -46,16 +52,22 @@ func (p prepareModel) View(indicator activity) string {
 	return out.String()
 }
 
+// trailStep is the step of the trail a screen belongs to.
+//
+// The ticket list and the file screen are each one answer to the source question
+// being worked out rather than a stage of their own, and each returns to that
+// step, so that is where the trail says the user is.
+func trailStep(current step) step {
+	if current == stepTickets || current == stepImport {
+		return stepSource
+	}
+	return current
+}
+
 // trail shows where the user is, and that nothing exists until the last step.
 func (p prepareModel) trail() string {
-	steps := []string{"project", "brief", "repositories", "review"}
-	// The ticket list is a way of filling the brief rather than a stage of its
-	// own, and it returns to the brief, so that is where the trail says the user
-	// is.
-	current := p.step
-	if current == stepTickets {
-		current = stepBrief
-	}
+	steps := []string{"project", "source", "brief", "repositories", "review"}
+	current := trailStep(p.step)
 	rendered := make([]string, 0, len(steps))
 	for i, name := range steps {
 		if step(i) == current {
@@ -81,6 +93,63 @@ func (p prepareModel) projectView() string {
 		out.WriteString(marker + name + "\n")
 	}
 	return out.String()
+}
+
+// sourceView asks where the brief comes from.
+//
+// The answers are drawn as a list with a cursor, like every other closed
+// question Feat asks, and each says what choosing it does rather than only what
+// it is called: the two that leave this screen run somebody's tracker or read a
+// file, and a user is entitled to know that before pressing Enter.
+func (p prepareModel) sourceView() string {
+	var out strings.Builder
+	out.WriteString(mutedStyle.Render("where does this task's brief come from?") + "\n\n")
+
+	for i, option := range sourceOptions {
+		marker, label := "  ", option.label
+		if i == p.cursor {
+			marker = selectedStyle.Render("▸ ")
+			label = selectedStyle.Render(option.label)
+		}
+		out.WriteString(marker + pad(label, 23) + mutedStyle.Render(option.note) + "\n")
+	}
+	return out.String()
+}
+
+// importView is the file whose text becomes the brief.
+//
+// It says that the file is read here, because that is the part a user cannot see
+// and the part that makes the rest of preparation apply to it: what is imported
+// is text in the same editable field, confirmed like any other brief (ADR-028,
+// ADR-070).
+func (p prepareModel) importView() string {
+	var out strings.Builder
+	out.WriteString(mutedStyle.Render("which file holds the brief?") + "\n\n")
+
+	out.WriteString("  " + mutedStyle.Render("path") + "  " + p.pathField() + "\n")
+	if len(p.candidates) > 0 {
+		// The key is named under the field because nothing in an empty field
+		// shows what tab would put there (ADR-077).
+		out.WriteString("        " + mutedStyle.Render("press tab to use one of them") + "\n")
+	}
+	out.WriteString("\n" + mutedStyle.Render(
+		"  the file is read here; its text becomes the brief you read and confirm") + "\n")
+	return out.String()
+}
+
+// pathField draws the field in the width it was given.
+//
+// The widget pads its line out to that width from the typed value alone and then
+// writes the completion after the padding, so a suggestion makes the line as wide
+// as the field plus the whole of what it is suggesting — which on this screen is
+// an absolute path, and would wrap. One more cell than the width, because the
+// cursor sits after the value; the wizard's field is drawn the same way and for
+// the same reason.
+func (p prepareModel) pathField() string {
+	if p.path.Width <= 0 {
+		return p.path.View()
+	}
+	return ansi.Truncate(p.path.View(), p.path.Width+1, "")
 }
 
 func (p prepareModel) briefView() string {
@@ -272,11 +341,17 @@ func (p prepareModel) hints() string {
 	switch p.step {
 	case stepProject:
 		return keyHints(keyHint("↑↓", "select"), keyHint("enter", "continue"), keyHint("ctrl+c", "cancel"))
+	case stepSource:
+		return keyHints(
+			keyHint("↑↓", "select"),
+			keyHint("enter", "continue"),
+			keyHint("esc", "back"),
+			keyHint("ctrl+c", "cancel"),
+		)
 	case stepBrief:
 		return keyHints(
 			keyHint("tab", "title/brief"),
 			keyHint("ctrl+e", "edit in $EDITOR"),
-			keyHint("ctrl+t", "from a ticket"),
 			keyHint("ctrl+s", "continue"),
 			keyHint("esc", "back"),
 			keyHint("ctrl+c", "cancel"),
@@ -299,6 +374,13 @@ func (p prepareModel) hints() string {
 		return keyHints(
 			keyHint("↑↓", "select"),
 			keyHint("enter", "write a brief from it"),
+			keyHint("esc", "back"),
+			keyHint("ctrl+c", "cancel"),
+		)
+	case stepImport:
+		return keyHints(
+			keyHint("tab", "complete"),
+			keyHint("enter", "import it"),
 			keyHint("esc", "back"),
 			keyHint("ctrl+c", "cancel"),
 		)

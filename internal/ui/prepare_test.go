@@ -6,12 +6,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/config"
@@ -658,16 +660,33 @@ func key(name string) tea.KeyMsg {
 	}
 }
 
-// prepared returns a preparation model that has reached the review screen.
-func prepared(t *testing.T, backend *fakeBackend) prepareModel {
+// writing opens preparation and answers the source question the way a user who
+// types their own brief does.
+//
+// The cursor opens on "write it here", so the answer is one Enter — which is
+// what keeps Enter-Enter the preparation this screen has always had.
+func writing(t *testing.T, backend *fakeBackend) prepareModel {
 	t.Helper()
 
 	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
 	model = settle(t, model, model.Init())
-	if model.step != stepBrief {
-		t.Fatalf("step = %d, want the brief with one project registered", model.step)
+	if model.step != stepSource {
+		t.Fatalf("step = %d, want the source question with one project registered: %v",
+			model.step, model.err)
 	}
 
+	model = drive(t, model, key("enter"))
+	if model.step != stepBrief {
+		t.Fatalf("step = %d, want the brief: %v", model.step, model.err)
+	}
+	return model
+}
+
+// prepared returns a preparation model that has reached the review screen.
+func prepared(t *testing.T, backend *fakeBackend) prepareModel {
+	t.Helper()
+
+	model := writing(t, backend)
 	model.title.SetValue("Add a rate limit")
 	model.brief.SetValue("Add a rate limit to the public API.")
 
@@ -790,8 +809,7 @@ func TestCancellingPreparationCreatesNothing(t *testing.T) {
 func TestAReadOnlyRepositoryCannotBeCycledToReadWrite(t *testing.T) {
 	backend := newFakeBackend()
 
-	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
-	model = settle(t, model, model.Init())
+	model := writing(t, backend)
 	model.title.SetValue("Add a rate limit")
 	model.brief.SetValue("Add a rate limit to the public API.")
 	model = drive(t, model, key("ctrl+s"))
@@ -861,8 +879,7 @@ func TestAnImportedBriefSuppliesTheTitle(t *testing.T) {
 func TestPreparationNeedsARepository(t *testing.T) {
 	backend := newFakeBackend()
 
-	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
-	model = settle(t, model, model.Init())
+	model := writing(t, backend)
 	model.title.SetValue("Add a rate limit")
 	model.brief.SetValue("Add a rate limit to the public API.")
 	model = drive(t, model, key("ctrl+s"))
@@ -894,8 +911,7 @@ func TestAFailedResolutionKeepsTheDraftEditable(t *testing.T) {
 	backend := newFakeBackend()
 	backend.planErr = errors.New("branch feat/2c4e6a80-core already exists in /srv/repositories/core")
 
-	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
-	model = settle(t, model, model.Init())
+	model := writing(t, backend)
 	model.title.SetValue("Add a rate limit")
 	model.brief.SetValue("Add a rate limit to the public API.")
 	model = drive(t, model, key("ctrl+s"), key("enter"))
@@ -936,8 +952,7 @@ func TestEditingTheBriefHandsTheCurrentTextToTheEditor(t *testing.T) {
 	backend := newFakeBackend()
 	const draft = "a first draft\n\n- with a list\n"
 
-	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
-	model = settle(t, model, model.Init())
+	model := writing(t, backend)
 	model.brief.SetValue(draft)
 	model.focus = 1
 
@@ -972,8 +987,7 @@ func TestEditingTheBriefHandsTheCurrentTextToTheEditor(t *testing.T) {
 func TestABriefIsRequiredBeforeSelectingRepositories(t *testing.T) {
 	backend := newFakeBackend()
 
-	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
-	model = settle(t, model, model.Init())
+	model := writing(t, backend)
 	model.title.SetValue("Add a rate limit")
 
 	model = drive(t, model, key("ctrl+s"))
@@ -1102,23 +1116,39 @@ func withTickets(backend *fakeBackend) {
 	backend.tickets = map[string]api.TicketList{"example": ticketList()}
 }
 
+// fromTicket answers the source question with the project's tracker, which is
+// what runs the command and opens the list.
+//
+// "from a ticket" is the second answer, so it is one press down from where the
+// cursor opens.
+func fromTicket(t *testing.T, backend *fakeBackend) prepareModel {
+	t.Helper()
+
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
+	model = settle(t, model, model.Init())
+	return drive(t, model, key("down"), key("enter"))
+}
+
 // TestTheTrackerIsAskedOnlyWhenTheUserAsks is ADR-031's rule applied to the
 // tracker: the command reaches somebody's service over a network, so nothing may
 // run it because a screen opened or a field was edited.
+//
+// The source step does not weaken that. Opening it runs nothing, because the
+// question is drawn from three constants; the command runs on the answer.
 func TestTheTrackerIsAskedOnlyWhenTheUserAsks(t *testing.T) {
 	backend := newFakeBackend()
 	withTickets(backend)
 
 	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
 	model = settle(t, model, model.Init())
-	model.title.SetValue("Add a rate limit")
-	model.brief.SetValue("Add a rate limit to the public API.")
-
+	if model.step != stepSource {
+		t.Fatalf("step = %d, want the source question: %v", model.step, model.err)
+	}
 	if len(backend.ticketCalls) != 0 {
 		t.Fatalf("the tracker ran %v before anybody asked for it", backend.ticketCalls)
 	}
 
-	model = drive(t, model, key("ctrl+t"))
+	model = drive(t, model, key("down"), key("enter"))
 	if model.step != stepTickets {
 		t.Fatalf("step = %d, want the ticket list: %v", model.step, model.err)
 	}
@@ -1135,9 +1165,8 @@ func TestSelectingATicketComposesTheBriefTheUserConfirms(t *testing.T) {
 	backend := newFakeBackend()
 	withTickets(backend)
 
-	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
-	model = settle(t, model, model.Init())
-	model = drive(t, model, key("ctrl+t"), key("enter"))
+	model := fromTicket(t, backend)
+	model = drive(t, model, key("enter"))
 
 	if model.step != stepBrief {
 		t.Fatalf("step = %d, want the brief after selecting a ticket: %v", model.step, model.err)
@@ -1179,9 +1208,8 @@ func TestATicketBriefReachesTheDaemonThroughTheOrdinaryPath(t *testing.T) {
 	backend := newFakeBackend()
 	withTickets(backend)
 
-	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
-	model = settle(t, model, model.Init())
-	model = drive(t, model, key("ctrl+t"), key("enter"), key("ctrl+s"), key("enter"))
+	model := fromTicket(t, backend)
+	model = drive(t, model, key("enter"), key("ctrl+s"), key("enter"))
 
 	if model.step != stepReview {
 		t.Fatalf("step = %d, want the review screen: %v", model.step, model.err)
@@ -1271,18 +1299,72 @@ func TestATicketReferenceTheCommandDidNotEmitSaysWhatItDid(t *testing.T) {
 
 // TestAProjectWithNoTrackerSaysSoRatherThanShowingAnEmptyList checks that the
 // absence reaches the user as the daemon's own words.
+//
+// The option is offered by a project that configures no tracker, because the
+// sentence that comes back is the most actionable one Feat has on the subject
+// and it costs one socket round trip and no network wait. Drawing the option as
+// unavailable would need tracker presence on api.Project, which is built from a
+// stored snapshot that does not carry it — a flag that would be stale the moment
+// a user configured one (ADR-083).
+//
+// The user stays on the source step, where the other two answers are.
 func TestAProjectWithNoTrackerSaysSoRatherThanShowingAnEmptyList(t *testing.T) {
 	backend := newFakeBackend()
 
-	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
-	model = settle(t, model, model.Init())
-	model = drive(t, model, key("ctrl+t"))
+	model := fromTicket(t, backend)
 
-	if model.step != stepBrief {
-		t.Fatalf("step = %d, want the brief", model.step)
+	if model.step != stepSource {
+		t.Fatalf("step = %d, want the source question", model.step)
 	}
 	if model.err == nil || !strings.Contains(model.err.Error(), "no tracker") {
 		t.Errorf("the failure does not say the project configures no tracker: %v", model.err)
+	}
+	// And the sentence is on the screen the user is standing on, with the
+	// answers they can still give.
+	view := ansi.Strip(model.View(newActivity()))
+	for _, want := range []string{"no tracker", "write it here", "from a Markdown file"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the source step does not show %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestAnEmptyTicketListReturnsToTheSourceStep checks the other answer a tracker
+// can give. Which tickets are the user's is the command's decision, and none is
+// one of them — so it is an answer to the source question rather than a failure,
+// and it leaves the user where the other answers are.
+func TestAnEmptyTicketListReturnsToTheSourceStep(t *testing.T) {
+	backend := newFakeBackend()
+	backend.tickets = map[string]api.TicketList{"example": {ReadAt: time.Now()}}
+
+	model := fromTicket(t, backend)
+
+	if model.step != stepSource {
+		t.Fatalf("step = %d, want the source question", model.step)
+	}
+	if model.err == nil || !strings.Contains(model.err.Error(), "no tickets") {
+		t.Errorf("error = %v, want one saying the tracker printed none", model.err)
+	}
+}
+
+// TestBackingOutOfTheTicketListReturnsToTheSourceStep checks that esc answers
+// the screen it is pressed on. There is one way into the list, so there is one
+// place to go back to and nothing has to remember which.
+func TestBackingOutOfTheTicketListReturnsToTheSourceStep(t *testing.T) {
+	backend := newFakeBackend()
+	withTickets(backend)
+
+	model := fromTicket(t, backend)
+	if model.step != stepTickets {
+		t.Fatalf("step = %d, want the ticket list: %v", model.step, model.err)
+	}
+
+	model = drive(t, model, key("esc"))
+	if model.step != stepSource {
+		t.Errorf("step = %d, want the source question", model.step)
+	}
+	if model.source.Kind != "prompt" {
+		t.Errorf("source = %q, want no source recorded for a ticket nobody took", model.source.Kind)
 	}
 }
 
@@ -1292,9 +1374,7 @@ func TestTheTicketListShowsWhatTheTrackerPrinted(t *testing.T) {
 	backend := newFakeBackend()
 	withTickets(backend)
 
-	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
-	model = settle(t, model, model.Init())
-	model = drive(t, model, key("ctrl+t"))
+	model := fromTicket(t, backend)
 
 	view := model.View(newActivity())
 	for _, want := range []string{"ACME-14", "Ready for Dev", "shortcut", "#42", "open"} {
@@ -1316,8 +1396,7 @@ func TestChoosingATicketAfterADraftWasRecordedStartsAgain(t *testing.T) {
 	backend := newFakeBackend()
 	withTickets(backend)
 
-	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
-	model = settle(t, model, model.Init())
+	model := writing(t, backend)
 	model.title.SetValue("Add a rate limit")
 	model.brief.SetValue("Add a rate limit to the public API.")
 
@@ -1327,12 +1406,12 @@ func TestChoosingATicketAfterADraftWasRecordedStartsAgain(t *testing.T) {
 		t.Fatalf("%d drafts were created, want the one the resolve recorded", len(backend.created))
 	}
 	recorded := backend.created[0]
-	model = drive(t, model, key("esc"), key("esc"))
-	if model.step != stepBrief {
-		t.Fatalf("step = %d, want the brief", model.step)
+	model = drive(t, model, key("esc"), key("esc"), key("esc"))
+	if model.step != stepSource {
+		t.Fatalf("step = %d, want the source question", model.step)
 	}
 
-	model = drive(t, model, key("ctrl+t"), key("enter"))
+	model = drive(t, model, key("down"), key("enter"), key("enter"))
 
 	if len(backend.cancelled) != 1 {
 		t.Errorf("cancelled %v, want the one draft recorded before the ticket was chosen",
@@ -1355,5 +1434,519 @@ func TestChoosingATicketAfterADraftWasRecordedStartsAgain(t *testing.T) {
 	// nothing left to cancel and creates rather than updates.
 	if len(backend.cancelled) != 1 {
 		t.Errorf("cancelled %v, want only the draft the ticket replaced", backend.cancelled)
+	}
+}
+
+// fromFile answers the source question with a Markdown file, which is the third
+// answer and two presses down from where the cursor opens.
+func fromFile(t *testing.T, backend *fakeBackend) prepareModel {
+	t.Helper()
+
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
+	model = settle(t, model, model.Init())
+	model = drive(t, model, key("down"), key("down"), key("enter"))
+	if model.step != stepImport {
+		t.Fatalf("step = %d, want the file screen: %v", model.step, model.err)
+	}
+	return model
+}
+
+// writeBrief puts a Markdown document on disk and returns its path.
+func writeBrief(t *testing.T, name, content string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestAFlagAnswersTheSourceQuestionAndSkipsTheStep is what makes the step a
+// question rather than an obstacle: --file and --ticket preselect the source
+// exactly as --project preselects the project, so neither flag's behaviour
+// changes and neither run sees a screen it has already answered (ADR-083).
+func TestAFlagAnswersTheSourceQuestionAndSkipsTheStep(t *testing.T) {
+	t.Run("--file", func(t *testing.T) {
+		backend := newFakeBackend()
+
+		model := newPrepare(backend, prepareStart{
+			project: "example",
+			brief:   "# Retry failed exports\n\nRetry three times.\n",
+			source:  api.Source{Kind: "markdown", Reference: "/srv/notes/task.md"},
+		})
+		model = settle(t, model, model.Init())
+
+		if model.step != stepBrief {
+			t.Fatalf("step = %d, want the brief, with the source already answered", model.step)
+		}
+		if model.source.Kind != "markdown" {
+			t.Errorf("source = %q, want the flag's own", model.source.Kind)
+		}
+	})
+
+	t.Run("--ticket", func(t *testing.T) {
+		backend := newFakeBackend()
+		withTickets(backend)
+
+		model := newPrepare(backend, prepareStart{
+			project: "example", source: api.Source{Kind: "prompt"}, ticket: "#42",
+		})
+		model = settle(t, model, model.Init())
+
+		if model.step != stepBrief {
+			t.Fatalf("step = %d, want the brief the ticket composed: %v", model.step, model.err)
+		}
+		if !strings.Contains(model.brief.Value(), "Export the daily report") {
+			t.Errorf("the brief is not the named ticket's:\n%s", model.brief.Value())
+		}
+	})
+}
+
+// TestEscFromABriefAFlagFilledLeavesPreparation checks the other half of a flag
+// being an answer. There is no answer of the user's own to return to, so esc
+// keeps the meaning it had before the step existed: the project step where there
+// is one to choose, and out of preparation otherwise.
+func TestEscFromABriefAFlagFilledLeavesPreparation(t *testing.T) {
+	backend := newFakeBackend()
+
+	model := newPrepare(backend, prepareStart{
+		project: "example",
+		brief:   "# Retry failed exports\n",
+		source:  api.Source{Kind: "markdown", Reference: "/srv/notes/task.md"},
+	})
+	model = settle(t, model, model.Init())
+
+	updated, cmd := model.Update(key("esc"))
+	if updated.step == stepSource {
+		t.Fatal("esc from a brief a flag filled went to a question the flag answered")
+	}
+	runTo[preparedMsg](t, cmd)
+}
+
+// TestEachAnswerReachesItsScreen walks the three answers.
+func TestEachAnswerReachesItsScreen(t *testing.T) {
+	for _, want := range []struct {
+		answer  string
+		presses []tea.Msg
+		step    step
+	}{
+		{"write it here", []tea.Msg{key("enter")}, stepBrief},
+		{"from a ticket", []tea.Msg{key("down"), key("enter")}, stepTickets},
+		{"from a Markdown file", []tea.Msg{key("down"), key("down"), key("enter")}, stepImport},
+	} {
+		t.Run(want.answer, func(t *testing.T) {
+			backend := newFakeBackend()
+			withTickets(backend)
+
+			model := newPrepare(backend, prepareStart{
+				project: "example", source: api.Source{Kind: "prompt"},
+			})
+			model = settle(t, model, model.Init())
+			model = drive(t, model, want.presses...)
+
+			if model.step != want.step {
+				t.Errorf("step = %d, want %d for %q: %v", model.step, want.step, want.answer, model.err)
+			}
+		})
+	}
+}
+
+// TestTheTrailSaysSourceWhileAnAnswerIsBeingWorkedOut checks that the ticket
+// list and the file screen are drawn as part of the step they belong to.
+// Choosing a ticket or a file is answering the source question rather than a
+// stage of preparation of its own.
+func TestTheTrailSaysSourceWhileAnAnswerIsBeingWorkedOut(t *testing.T) {
+	for _, current := range []step{stepTickets, stepImport} {
+		if got := trailStep(current); got != stepSource {
+			t.Errorf("the trail puts step %d at %d, want the source step", current, got)
+		}
+	}
+	for _, current := range []step{stepProject, stepSource, stepBrief, stepRepositories, stepReview} {
+		if got := trailStep(current); got != current {
+			t.Errorf("the trail puts step %d at %d, want itself", current, got)
+		}
+	}
+}
+
+// TestEveryAnswerResetsTheBrief is the rule the step is shaped by: every source
+// converges on the same editor, so the editor is where a brief is reviewed and
+// adjusted, and returning to this step can only mean starting over. A user who
+// wants to keep what they have never leaves the editor (ADR-083).
+//
+// The case that makes it a rule rather than a convenience is "write it here"
+// clearing a brief a ticket composed: there is no confirmation, and the source
+// recorded on the task goes back to being a prompt.
+func TestEveryAnswerResetsTheBrief(t *testing.T) {
+	backend := newFakeBackend()
+	withTickets(backend)
+
+	model := fromTicket(t, backend)
+	model = drive(t, model, key("enter"))
+	if model.source.Kind != "ticket" {
+		t.Fatalf("source = %q, want the ticket the brief was composed from", model.source.Kind)
+	}
+
+	// Back to the question, and answer it the other way.
+	model = drive(t, model, key("esc"))
+	if model.step != stepSource {
+		t.Fatalf("step = %d, want the source question", model.step)
+	}
+	model = drive(t, model, key("enter"))
+
+	if model.step != stepBrief {
+		t.Fatalf("step = %d, want the brief: %v", model.step, model.err)
+	}
+	if got := model.brief.Value(); got != "" {
+		t.Errorf("brief = %q, want the composed document cleared", got)
+	}
+	if got := model.title.Value(); got != "" {
+		t.Errorf("title = %q, want the ticket's title cleared", got)
+	}
+	if model.source.Kind != "prompt" || model.source.Ticket != nil {
+		t.Errorf("source = %+v, want a typed prompt with no ticket on it", model.source)
+	}
+}
+
+// TestChangingTheSourceAfterADraftWasRecordedStartsAgain is the correctness item
+// of the whole step, on the path that the ticket list never had.
+//
+// A draft records where its brief came from when it is created and nothing later
+// replaces that: updating one replaces its title, brief, and repositories. So a
+// draft recorded before the source changed has to go, or a task could be
+// launched whose brief came from a file and whose recorded source says "prompt"
+// — a record nothing can act on (ADR-071, ADR-083).
+func TestChangingTheSourceAfterADraftWasRecordedStartsAgain(t *testing.T) {
+	backend := newFakeBackend()
+	path := writeBrief(t, "imported.md", "# Rename the runtime\n\nEverywhere.\n")
+
+	model := writing(t, backend)
+	model.title.SetValue("Add a rate limit")
+	model.brief.SetValue("Add a rate limit to the public API.")
+
+	// Forward to the review screen, which records the draft, and back to the
+	// question.
+	model = drive(t, model, key("ctrl+s"), key("enter"))
+	if len(backend.created) != 1 {
+		t.Fatalf("%d drafts were created, want the one the resolve recorded", len(backend.created))
+	}
+	if backend.created[0].Source.Kind != "prompt" {
+		t.Fatalf("the first draft's source is %q, want the typed prompt", backend.created[0].Source.Kind)
+	}
+	model = drive(t, model, key("esc"), key("esc"), key("esc"))
+
+	// Import a file, which is a change of source the ticket path could never
+	// make.
+	model = drive(t, model, key("down"), key("down"), key("enter"))
+	model.path.SetValue(path)
+	model = drive(t, model, key("enter"))
+
+	if len(backend.cancelled) != 1 {
+		t.Errorf("cancelled %v, want the draft recorded before the source changed", backend.cancelled)
+	}
+
+	// And the next resolve records a new draft, whose source is the file.
+	model = drive(t, model, key("ctrl+s"), key("enter"))
+	if len(backend.created) != 2 {
+		t.Fatalf("%d drafts were created, want a second one for the imported brief", len(backend.created))
+	}
+	created := backend.created[1]
+	if created.Source.Kind != "markdown" || created.Source.Reference != path {
+		t.Errorf("the second draft's source is %+v, want the file it was imported from", created.Source)
+	}
+	if created.Brief != model.brief.Value() {
+		t.Errorf("the brief sent is not the one on screen:\nsent:\n%s\nshown:\n%s",
+			created.Brief, model.brief.Value())
+	}
+	if len(backend.cancelled) != 1 {
+		t.Errorf("cancelled %v, want only the draft the import replaced", backend.cancelled)
+	}
+}
+
+// TestWritingItHereAfterADraftWasRecordedStartsAgain is the same rule on the
+// answer that fills the brief with nothing. Any selection replaces the brief
+// wholesale, so any selection discards the draft that recorded the old one.
+func TestWritingItHereAfterADraftWasRecordedStartsAgain(t *testing.T) {
+	backend := newFakeBackend()
+
+	model := writing(t, backend)
+	model.title.SetValue("Add a rate limit")
+	model.brief.SetValue("Add a rate limit to the public API.")
+	model = drive(t, model, key("ctrl+s"), key("enter"))
+	if len(backend.created) != 1 {
+		t.Fatalf("%d drafts were created, want the one the resolve recorded", len(backend.created))
+	}
+
+	model = drive(t, model, key("esc"), key("esc"), key("esc"), key("enter"))
+
+	if len(backend.cancelled) != 1 {
+		t.Errorf("cancelled %v, want the draft the answer replaced", backend.cancelled)
+	}
+	if model.brief.Value() != "" {
+		t.Errorf("brief = %q, want it cleared", model.brief.Value())
+	}
+}
+
+// TestImportingAFileFillsTheBriefTheUserConfirms is ADR-070's inbound rule
+// applied to a document: a Markdown file is also text somebody else may have
+// written, so it goes into the same editable field a typed prompt is, and it is
+// that document the confirmation displays.
+//
+// The absolute path is recorded on the source, which is what lets the brief
+// screen say where its text came from.
+func TestImportingAFileFillsTheBriefTheUserConfirms(t *testing.T) {
+	backend := newFakeBackend()
+	const content = "# Rename the runtime\n\nEverywhere it is called something else.\n"
+	path := writeBrief(t, "rename-the-runtime.md", content)
+
+	model := fromFile(t, backend)
+	model.path.SetValue(path)
+	model = drive(t, model, key("enter"))
+
+	if model.step != stepBrief {
+		t.Fatalf("step = %d, want the brief the file filled: %v", model.step, model.err)
+	}
+	if model.brief.Value() != content {
+		t.Errorf("brief = %q, want the file's text unchanged", model.brief.Value())
+	}
+	if model.title.Value() != "Rename the runtime" {
+		t.Errorf("title = %q, want the document's first heading", model.title.Value())
+	}
+	if model.source.Kind != "markdown" || model.source.Reference != path {
+		t.Errorf("source = %+v, want the absolute path it was read from", model.source)
+	}
+	if view := ansi.Strip(model.View(newActivity())); !strings.Contains(view, "imported from rename-the-runtime.md") {
+		t.Errorf("the brief screen does not say where its text came from:\n%s", view)
+	}
+}
+
+// TestAnImportKeepsATitleThatIsAlreadyThere is the $EDITOR round trip's rule
+// rather than the import-at-start one: a title the user typed is theirs, and a
+// document guessed a title from does not overwrite it.
+func TestAnImportKeepsATitleThatIsAlreadyThere(t *testing.T) {
+	backend := newFakeBackend()
+	path := writeBrief(t, "notes.md", "# What the file calls itself\n\nBody.\n")
+
+	model := fromFile(t, backend)
+	model.title.SetValue("What I called it")
+	model.path.SetValue(path)
+	model = drive(t, model, key("enter"))
+
+	if model.title.Value() != "What I called it" {
+		t.Errorf("title = %q, want the one that was already there", model.title.Value())
+	}
+}
+
+// TestTheImportScreenRefusesWhatIsNotABrief keeps every refusal on the screen
+// the path was typed on, which is the screen the user can correct it on.
+//
+// A document with no text is refused here rather than at the repository step for
+// the same reason: the agent receives the brief exactly as written, and an empty
+// one is worth saying so about while the file is still on screen.
+func TestTheImportScreenRefusesWhatIsNotABrief(t *testing.T) {
+	oversized := writeBrief(t, "huge.md", strings.Repeat("x", 256<<10+1))
+
+	for _, refusal := range []struct {
+		name string
+		path func(t *testing.T) string
+		says string
+	}{
+		{"a directory", func(t *testing.T) string { return t.TempDir() }, "is a directory"},
+		{"over the limit", func(*testing.T) string { return oversized }, "the limit is"},
+		{"an empty file", func(t *testing.T) string { return writeBrief(t, "empty.md", "") }, "holds no text"},
+		{"whitespace only", func(t *testing.T) string { return writeBrief(t, "blank.md", "\n\n   \n") }, "holds no text"},
+		{"nothing at all", func(t *testing.T) string {
+			return filepath.Join(t.TempDir(), "missing.md")
+		}, "reading the task brief"},
+	} {
+		t.Run(refusal.name, func(t *testing.T) {
+			backend := newFakeBackend()
+
+			model := fromFile(t, backend)
+			model.path.SetValue(refusal.path(t))
+			model = drive(t, model, key("enter"))
+
+			if model.step != stepImport {
+				t.Fatalf("step = %d, want the screen the path was typed on", model.step)
+			}
+			if model.err == nil || !strings.Contains(model.err.Error(), refusal.says) {
+				t.Errorf("error = %v, want one saying %q", model.err, refusal.says)
+			}
+			if model.brief.Value() != "" {
+				t.Errorf("brief = %q, want nothing taken from a file that was refused", model.brief.Value())
+			}
+			if model.source.Kind != "prompt" {
+				t.Errorf("source = %q, want no file recorded", model.source.Kind)
+			}
+		})
+	}
+}
+
+// TestTheImportScreenCompletesFromTheProjectsCheckouts checks what tab offers.
+//
+// The project's own checkouts come first, because a brief written before the
+// task usually sits beside the code it is about, and a directory is marked as
+// one so that a completed path reads as somewhere to keep typing (ADR-077).
+func TestTheImportScreenCompletesFromTheProjectsCheckouts(t *testing.T) {
+	backend := newFakeBackend()
+	root := t.TempDir()
+	checkout := filepath.Join(root, "core")
+	if err := os.MkdirAll(filepath.Join(checkout, "docs"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(checkout, "task.md"), []byte("Do it."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend.projects[0].Repositories[0].HostPath = checkout
+
+	model := fromFile(t, backend)
+
+	// An empty field takes the first candidate, which is the project's own
+	// checkout, marked as the directory it is.
+	model = drive(t, model, key("tab"))
+	if got, want := model.path.Value(), checkout+string(os.PathSeparator); got != want {
+		t.Fatalf("tab put %q in the field, want the project's checkout %q", got, want)
+	}
+
+	// And what it names is then what is offered, so a completed directory is
+	// somewhere to keep typing.
+	for _, want := range []string{
+		filepath.Join(checkout, "task.md"),
+		filepath.Join(checkout, "docs") + string(os.PathSeparator),
+	} {
+		if !slices.Contains(model.candidates, want) {
+			t.Errorf("%q is not offered; the candidates are %v", want, model.candidates)
+		}
+	}
+}
+
+// TestTheBriefScreenNoLongerOffersTheTicketList checks that there is one door
+// into ticket selection rather than two.
+//
+// A second one, opened from inside the editor, would be a key that wipes the
+// document the user is standing in — which is the ambiguity the source step
+// exists to remove (ADR-083).
+func TestTheBriefScreenNoLongerOffersTheTicketList(t *testing.T) {
+	backend := newFakeBackend()
+	withTickets(backend)
+
+	model := writing(t, backend)
+	model.brief.SetValue("Add a rate limit to the public API.")
+	model.focus = 1
+
+	model = drive(t, model, key("ctrl+t"))
+
+	if model.step != stepBrief {
+		t.Errorf("step = %d, want to stay on the brief", model.step)
+	}
+	if len(backend.ticketCalls) != 0 {
+		t.Errorf("the tracker ran %v from the brief screen", backend.ticketCalls)
+	}
+	if view := ansi.Strip(model.View(newActivity())); strings.Contains(view, "ctrl+t") {
+		t.Errorf("the brief screen still offers ctrl+t:\n%s", view)
+	}
+}
+
+// TestEscFromTheBriefReturnsToTheSourceStep is the key's intended meaning rather
+// than an oversight: there is no forward path back to the editor that does not
+// pass through a selection, and every selection resets, so esc from the brief
+// destroys what is in it. It is specified with no guard, because a key whose
+// whole purpose is "start over" does not need to ask (ADR-083).
+func TestEscFromTheBriefReturnsToTheSourceStep(t *testing.T) {
+	backend := newFakeBackend()
+
+	model := writing(t, backend)
+	model.title.SetValue("Add a rate limit")
+	model.brief.SetValue("Add a rate limit to the public API.")
+
+	model = drive(t, model, key("esc"))
+	if model.step != stepSource {
+		t.Fatalf("step = %d, want the source question", model.step)
+	}
+
+	model = drive(t, model, key("enter"))
+	if model.brief.Value() != "" || model.title.Value() != "" {
+		t.Errorf("title = %q brief = %q, want both cleared by the answer",
+			model.title.Value(), model.brief.Value())
+	}
+}
+
+// TestEscFromTheSourceStepLeavesPreparationWithOneProject checks the step's own
+// esc, which is what the brief step's has always been: the project step where
+// there is a project to choose, and out of preparation otherwise.
+func TestEscFromTheSourceStepLeavesPreparationWithOneProject(t *testing.T) {
+	backend := newFakeBackend()
+
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
+	model = settle(t, model, model.Init())
+	if model.step != stepSource {
+		t.Fatalf("step = %d, want the source question", model.step)
+	}
+
+	_, cmd := model.Update(key("esc"))
+	runTo[preparedMsg](t, cmd)
+}
+
+// TestEscFromTheSourceStepReturnsToTheProjectStep is the same key where there is
+// more than one project registered.
+func TestEscFromTheSourceStepReturnsToTheProjectStep(t *testing.T) {
+	backend := newFakeBackend()
+	backend.projects = append(backend.projects, api.Project{ID: "other", Name: "Other"})
+
+	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
+	model = settle(t, model, model.Init())
+	model = drive(t, model, key("esc"))
+
+	if model.step != stepProject {
+		t.Errorf("step = %d, want the project step", model.step)
+	}
+}
+
+// TestBackingOutOfTheFileScreenReturnsToTheSourceStep is the ticket list's rule
+// on the other answer: one way in, one way back, and no field to remember which.
+func TestBackingOutOfTheFileScreenReturnsToTheSourceStep(t *testing.T) {
+	backend := newFakeBackend()
+
+	model := fromFile(t, backend)
+	model.path.SetValue("/srv/notes/task.md")
+
+	model = drive(t, model, key("esc"))
+	if model.step != stepSource {
+		t.Fatalf("step = %d, want the source question", model.step)
+	}
+	if model.source.Kind != "prompt" || model.source.Reference != "" {
+		t.Errorf("source = %+v, want no file recorded for one nobody imported", model.source)
+	}
+
+	// And the field does not carry the abandoned path back in.
+	model = drive(t, model, key("down"), key("down"), key("enter"))
+	if model.path.Value() != "" {
+		t.Errorf("path = %q, want the screen opened empty", model.path.Value())
+	}
+}
+
+// TestPreparingAgainOpensOnTheSourceQuestion checks what `n` in the dashboard
+// reaches. A fresh preparation carries no flags, so nothing has answered the
+// question, and the import and the ticket list are both one answer away — which
+// is the route neither had from the dashboard before.
+func TestPreparingAgainOpensOnTheSourceQuestion(t *testing.T) {
+	backend := newFakeBackend()
+
+	model := prepared(t, backend)
+	fresh := model.restart()
+	fresh = settle(t, fresh, fresh.Init())
+
+	if fresh.step != stepSource {
+		t.Fatalf("step = %d, want the source question: %v", fresh.step, fresh.err)
+	}
+	if fresh.brief.Value() != "" || fresh.title.Value() != "" {
+		t.Errorf("title = %q brief = %q, want the previous task's answers gone",
+			fresh.title.Value(), fresh.brief.Value())
+	}
+	view := ansi.Strip(fresh.View(newActivity()))
+	for _, want := range []string{"from a ticket", "from a Markdown file"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the dashboard's preparation does not offer %q:\n%s", want, view)
+		}
 	}
 }

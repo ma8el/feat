@@ -114,14 +114,22 @@ environment. A task may span several repositories.
 
 ```sh
 feat implement                       # or: feat implement --file task.md
+feat implement --ticket ACME-14      # or choose one from the list it offers
 feat implement --project myproject   # when several are registered
 ```
 
-Preparation asks what the task is, which repositories it may read and write,
-and then shows what Feat resolved: each repository's immutable base commit, the
-branch and worktree it would create, and anything it wants to warn you about.
-Nothing exists until you confirm that screen, and confirming creates exactly
-what it showed — a draft edited in between is refused rather than launched.
+Preparation asks where the brief comes from — typed here, composed from one of
+the project's tickets, or imported from a Markdown file you have already
+written — and `--file` and `--ticket` are answers to that question rather than
+the only way to give one: the same import and the same ticket list are on the
+step, so `n` in the dashboard reaches both. Whichever source filled it, the
+brief is one editable document, and it is that document you confirm.
+
+Preparation then asks which repositories the task may read and write, and shows
+what Feat resolved: each repository's immutable base commit, the branch and
+worktree it would create, and anything it wants to warn you about. Nothing
+exists until you confirm that screen, and confirming creates exactly what it
+showed — a draft edited in between is refused rather than launched.
 
 ```sh
 feat            # the dashboard: every task, across every project
