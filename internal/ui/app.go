@@ -55,6 +55,11 @@ type Options struct {
 	// matches it against what the project's tracker command emitted, once the
 	// project is known.
 	Ticket string
+	// PlanFirst presets the review step's start mode, from
+	// `feat implement --plan`. The step still appears and the toggle still
+	// moves: the flag answers the question rather than removing it, because
+	// nothing is created until the user confirms.
+	PlanFirst bool
 	// Now supplies the current time. A nil value uses the wall clock.
 	Now func() time.Time
 }
@@ -333,10 +338,11 @@ func New(opts Options) Model {
 		daemon:  opts.Daemon,
 		now:     now,
 		prepare: newPrepare(opts.Backend, prepareStart{
-			project: opts.Project,
-			brief:   opts.Brief,
-			source:  opts.Source,
-			ticket:  opts.Ticket,
+			project:   opts.Project,
+			brief:     opts.Brief,
+			source:    opts.Source,
+			ticket:    opts.Ticket,
+			planFirst: opts.PlanFirst,
 		}),
 		activity:   newActivity(),
 		events:     make(chan api.Event, eventBuffer),

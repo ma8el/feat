@@ -175,9 +175,9 @@ type (
 
 // prepareStart is what a caller opens preparation with.
 //
-// It is a value rather than a list of arguments because the four are all
-// optional and all strings, and a call site that swapped two of them would
-// compile.
+// It is a value rather than a list of arguments because every field is
+// optional and most of them are strings, so a call site that swapped two of
+// them would compile.
 type prepareStart struct {
 	// project preselects a project, from --project.
 	project string
@@ -187,6 +187,8 @@ type prepareStart struct {
 	source api.Source
 	// ticket is the reference --ticket named.
 	ticket string
+	// planFirst presets the review step's start mode, from --plan.
+	planFirst bool
 }
 
 func newPrepare(backend Backend, start prepareStart) prepareModel {
@@ -211,14 +213,15 @@ func newPrepare(backend Backend, start prepareStart) prepareModel {
 	body.SetHeight(10)
 
 	model := prepareModel{
-		backend:  backend,
-		project:  start.project,
-		title:    title,
-		brief:    body,
-		path:     path,
-		source:   start.source,
-		imported: start.brief,
-		ticket:   start.ticket,
+		backend:   backend,
+		project:   start.project,
+		title:     title,
+		brief:     body,
+		path:      path,
+		source:    start.source,
+		imported:  start.brief,
+		ticket:    start.ticket,
+		planFirst: start.planFirst,
 		// --file was read before this screen opened and --ticket is looked up as
 		// soon as the project is known. Either way the question has an answer.
 		preselected: start.brief != "" || start.ticket != "",
@@ -1214,6 +1217,13 @@ func (p prepareModel) reviewKey(key tea.KeyMsg) (prepareModel, tea.Cmd) {
 	switch key.String() {
 	case "enter", "ctrl+s":
 		return p.confirm()
+	case "p":
+		// No request. The value travels with the confirmation, so nothing on the
+		// daemon has to know it before then — and re-resolving to record it would
+		// put a fetch and a base resolution in every repository behind a key that
+		// changed nothing about where the task starts (ADR-031).
+		p.planFirst = !p.planFirst
+		return p, nil
 	case "x":
 		return p, p.abandon()
 	}

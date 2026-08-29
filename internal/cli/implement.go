@@ -30,6 +30,11 @@ it names against the ones that command printed. Feat composes a brief from the
 ticket into the field you are editing, and what you confirm is that composed
 brief rather than the ticket it came from.
 
+The review step also chooses how the session begins: straight into the work, or
+planning first and waiting for your approval before anything is edited. Press p
+to change it, or pass --plan to arrive with it already on. Either way the plan is
+approved in the task's own terminal, between you and the agent.
+
 Nothing is created until you confirm that proposal, and confirming creates
 exactly what was displayed: a draft that changed in between is refused rather
 than launched.`
@@ -50,6 +55,10 @@ func newImplementCommand(env *environment) *cobra.Command {
 				return err
 			}
 			ticket, err := cmd.Flags().GetString("ticket")
+			if err != nil {
+				return err
+			}
+			planFirst, err := cmd.Flags().GetBool("plan")
 			if err != nil {
 				return err
 			}
@@ -98,13 +107,14 @@ func newImplementCommand(env *environment) *cobra.Command {
 			defer caller.Close()
 
 			return ui.Run(cmd.Context(), ui.Options{
-				Backend: &backend{client: caller, env: env},
-				Daemon:  describeBackend(cmd, caller, layout),
-				Project: project,
-				Prepare: true,
-				Brief:   imported,
-				Source:  source,
-				Ticket:  ticket,
+				Backend:   &backend{client: caller, env: env},
+				Daemon:    describeBackend(cmd, caller, layout),
+				Project:   project,
+				Prepare:   true,
+				Brief:     imported,
+				Source:    source,
+				Ticket:    ticket,
+				PlanFirst: planFirst,
 			})
 		},
 	}
@@ -113,6 +123,10 @@ func newImplementCommand(env *environment) *cobra.Command {
 	// The reference is the tracker's own, exactly as its command printed it.
 	// Feat parses no part of one: it re-runs the command and matches (ADR-071).
 	cmd.Flags().String("ticket", "", "compose the brief from this ticket of the project's tracker")
+	// It presets the review step's toggle rather than deciding anything: the
+	// step still appears, the key still moves it, and nothing is created until
+	// the user confirms what is on the screen.
+	cmd.Flags().Bool("plan", false, "start the agent in plan mode, so it proposes a plan before it changes anything")
 	return cmd
 }
 

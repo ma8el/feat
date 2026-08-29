@@ -7,7 +7,7 @@ feat daemon start [--log-level]
 feat daemon status
 feat daemon stop
 feat doctor
-feat implement [--file] [--project] [--ticket]
+feat implement [--file] [--plan] [--project] [--ticket]
 feat project
 feat project add <project>
 feat project init [<project>] [--dry-run]

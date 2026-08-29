@@ -50,6 +50,7 @@ feat implement
 feat implement --file task.md
 feat implement --project <project>
 feat implement --ticket <reference>
+feat implement --plan
 feat project init [<project>]
 feat project add <project>
 feat project list
