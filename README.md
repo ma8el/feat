@@ -116,6 +116,7 @@ environment. A task may span several repositories.
 feat implement                       # or: feat implement --file task.md
 feat implement --ticket ACME-14      # or choose one from the list it offers
 feat implement --project myproject   # when several are registered
+feat implement --plan                # or press p on the review step
 ```
 
 Preparation asks where the brief comes from — typed here, composed from one of
@@ -130,6 +131,14 @@ what Feat resolved: each repository's immutable base commit, the branch and
 worktree it would create, and anything it wants to warn you about. Nothing
 exists until you confirm that screen, and confirming creates exactly what it
 showed — a draft edited in between is refused rather than launched.
+
+That screen also chooses how the session starts. The default is straight into
+the work; `p` — or `--plan` — asks the agent to investigate and propose a plan
+first, and to change nothing until you approve it. You read the plan in the
+task's own terminal and approve it there, which is where Claude already asks;
+the dashboard marks the task as needing you while it waits. Resuming a stopped
+session never re-enters plan mode, so work you have already approved is not
+planned again.
 
 ```sh
 feat            # the dashboard: every task, across every project
