@@ -40,10 +40,15 @@ type Field struct {
 
 // Describe renders the resolved configuration.
 //
-// It is what `feat project show` prints and what `feat doctor` reports against:
-// the values Feat will actually act on, after "~" expansion and after defaults
-// are filled, rather than the text of the file. A user checking whether their
-// configuration says what they meant needs the first, not the second.
+// It is what `feat project show` prints: the values Feat will actually act on,
+// after "~" expansion and after defaults are filled, rather than the text of
+// the file. A user checking whether their configuration says what they meant
+// needs the first, not the second.
+//
+// `feat doctor` prints none of it. That command reports its own findings and
+// the mapping from Mounts below, so a section added here reaches one command
+// and not both — which is worth knowing when the section is the only place a
+// value is shown at all.
 func (c *Config) Describe() []Section {
 	sections := []Section{c.describeProject(), c.describeRepositories(), c.describeGit(), c.describeAgent()}
 	if c.HasRuntime() {
