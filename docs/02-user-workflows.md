@@ -62,21 +62,24 @@ Entry points:
 ```text
 feat implement
 feat implement --file task.md
+feat implement --ticket ACME-14
+n                              # the same preparation, from the dashboard
 ```
 
 Flow:
 
 1. Feat opens a task draft.
-2. The user enters a prompt or imports Markdown.
-3. Feat asks which project repositories are part of the task and whether each is read-write, read-only, or omitted.
-4. Feat fetches configured remotes without mutating the user's normal checkout.
-5. Feat resolves the base commit for every selected repository.
-6. Feat proposes branch names, worktree paths, execution profile, and runtime profile.
-7. Feat displays an editable final task brief.
-8. Nothing is created until the user confirms.
-9. The daemon creates task state, branches, worktrees, control workspace, tmux target, and the configured agent environment.
-10. Claude Code starts with the accepted task brief.
-11. The dashboard returns immediately so another task can be prepared.
+2. Feat asks where the task's brief comes from: written here, composed from one of the project's tickets, or imported from a Markdown file. It is asked after the project, because two of the three answers need the project to mean anything, and it is asked once — `--file` and `--ticket` are answers to it, so a run that passes one skips the step (ADR-083).
+3. The user writes or edits the brief. Every source fills the same editable document, so a composed or imported brief is reviewed, adjusted, and confirmed exactly as a typed one is; returning to the source question replaces the brief rather than adding to it.
+4. Feat asks which project repositories are part of the task and whether each is read-write, read-only, or omitted.
+5. Feat fetches configured remotes without mutating the user's normal checkout.
+6. Feat resolves the base commit for every selected repository.
+7. Feat proposes branch names, worktree paths, execution profile, and runtime profile.
+8. Feat displays an editable final task brief.
+9. Nothing is created until the user confirms.
+10. The daemon creates task state, branches, worktrees, control workspace, tmux target, and the configured agent environment.
+11. Claude Code starts with the accepted task brief.
+12. The dashboard returns immediately so another task can be prepared.
 
 ## 3. Implement a ticket
 
@@ -92,7 +95,7 @@ Where a ticket lives is the command's business rather than Feat's. Issues attach
 
 Flow:
 
-1. Feat lists matching tickets.
+1. The user asks for the project's tickets, and Feat runs the project's configured command and lists what it printed. The list is one of the answers to preparation's source question — "from a ticket", which is where the dashboard reaches it — and `feat implement --ticket <reference>` is the same list matched against a reference the user already knows (ADR-083).
 2. The user selects one. A task carries one ticket, because the reference on the task is what a merge request names and what a change is compared against, and neither has an answer for several (ADR-071).
 3. Feat snapshots what the ticket schema carries: a reference, a title, a body, a URL, and a state. Anything richer belongs in the brief, which is Markdown and holds whatever the user wants (ADR-071).
 4. Whether comments reach the body is the configured command's decision rather than Feat's. Selection by Feat would need a path that fetches comments itself, and none is scheduled.

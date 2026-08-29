@@ -2,13 +2,11 @@ package cli
 
 import (
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ma8el/feat/internal/api"
+	"github.com/ma8el/feat/internal/brief"
 	"github.com/ma8el/feat/internal/client"
 	"github.com/ma8el/feat/internal/daemon"
 	"github.com/ma8el/feat/internal/domain"
@@ -16,23 +14,21 @@ import (
 	"github.com/ma8el/feat/internal/ui"
 )
 
-// maxBriefBytes bounds an imported brief on the client side.
-//
-// The daemon applies its own limit; reading a whole disk image into memory
-// before being told so is worth avoiding here as well.
-const maxBriefBytes = 256 << 10
-
 const implementLong = `Prepare and launch a task.
 
 You choose the project, write the task brief, and select which repositories the
 task may read and write. Feat then fetches, resolves each repository's base
 commit, and proposes the branches and worktree paths it would create.
 
-The brief can come from a ticket. --ticket runs the project's configured tracker
-command and matches the reference it names against the ones that command printed;
-without it, the same list is one key press away while you are writing the brief.
-Either way Feat composes a brief from the ticket into the field you are editing,
-and what you confirm is that composed brief rather than the ticket it came from.
+Where the brief comes from is a question preparation asks, after the project and
+before the brief itself: type it here, compose it from one of the project's
+tickets, or import a Markdown file you have already written. --ticket and --file
+are answers to that question, so a run that passes one skips it.
+
+--ticket runs the project's configured tracker command and matches the reference
+it names against the ones that command printed. Feat composes a brief from the
+ticket into the field you are editing, and what you confirm is that composed
+brief rather than the ticket it came from.
 
 Nothing is created until you confirm that proposal, and confirming creates
 exactly what was displayed: a draft that changed in between is refused rather
@@ -72,7 +68,9 @@ func newImplementCommand(env *environment) *cobra.Command {
 				}
 			}
 
-			brief, source, err := readBrief(file)
+			// Named for what it is rather than "brief", which is the package
+			// that read it.
+			imported, source, err := readBrief(file)
 			if err != nil {
 				return err
 			}
@@ -104,7 +102,7 @@ func newImplementCommand(env *environment) *cobra.Command {
 				Daemon:  describeBackend(cmd, caller, layout),
 				Project: project,
 				Prepare: true,
-				Brief:   brief,
+				Brief:   imported,
 				Source:  source,
 				Ticket:  ticket,
 			})
@@ -124,32 +122,21 @@ func newImplementCommand(env *environment) *cobra.Command {
 // caller-supplied filesystem path crosses the socket (ADR-028). What is sent is
 // the content, with the path recorded only so that the task can say where its
 // brief came from.
+//
+// The reading itself is internal/brief's, because the import screen applies the
+// same rule and internal/ui cannot import this package (ADR-083). What stays
+// here is the source the flag implies: the package that reads the file knows
+// nothing about the DTO, so each caller builds its own.
 func readBrief(file string) (string, api.Source, error) {
 	if file == "" {
 		return "", api.Source{Kind: string(domain.SourcePrompt)}, nil
 	}
 
-	path, err := filepath.Abs(file)
+	text, path, err := brief.Read(file)
 	if err != nil {
-		return "", api.Source{}, fmt.Errorf("resolving %s: %w", file, err)
+		return "", api.Source{}, err
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", api.Source{}, fmt.Errorf("reading the task brief: %w", err)
-	}
-	if info.IsDir() {
-		return "", api.Source{}, fmt.Errorf("%s is a directory, not a task brief", path)
-	}
-	if info.Size() > maxBriefBytes {
-		return "", api.Source{}, fmt.Errorf("the task brief %s is %d bytes, and the limit is %d",
-			path, info.Size(), maxBriefBytes)
-	}
-
-	content, err := os.ReadFile(path) // #nosec G304 -- the user named this file on their own command line
-	if err != nil {
-		return "", api.Source{}, fmt.Errorf("reading the task brief: %w", err)
-	}
-	return string(content), api.Source{Kind: string(domain.SourceMarkdown), Reference: path}, nil
+	return text, api.Source{Kind: string(domain.SourceMarkdown), Reference: path}, nil
 }
 
 // describeBackend reports which daemon the dashboard is talking to.
