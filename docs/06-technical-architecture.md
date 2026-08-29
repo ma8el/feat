@@ -76,6 +76,7 @@ internal/resources           host/task resource observation
 internal/notify              desktop/TUI notification policy
 internal/reconcile           startup discovery and repair proposals
 internal/ui                  Bubble Tea models and views
+internal/ui/ask              one wizard question, drawn and answered
 internal/version             build identity
 internal/guard               repository-wide invariant tests, no runtime code
 ```
@@ -123,7 +124,9 @@ and a path; the notification policy receives a resolved `Policy` and a `Subject`
 carrying a task's key, title, and project, and can reach nothing else. See
 ADR-035.
 
-`internal/wizard` holds the sequence of questions that composes a project configuration: which question comes next, what it proposes, and whether an answer is acceptable. It reaches nothing — what it needs to know about the machine it asks through a `Host` that `internal/cli` implements over `internal/project` — so both askers can drive it: `feat project init` as a line conversation, and the dashboard as a dialog. See ADR-063.
+`internal/wizard` holds the sequence of questions that composes a project configuration: which question comes next, what it proposes, and whether an answer is acceptable. It reaches nothing — what it needs to know about the machine it asks through a `Host` that `internal/cli` implements over `internal/project` — so both askers can drive it: `feat project init` at the command line, and the dashboard as a dialog. See ADR-063.
+
+`internal/ui/ask` holds the widget both of them draw a question with: a Bubble Tea sub-model over one `wizard.Question`, with the style tokens and palette it needs, which `internal/ui` reads back for the rest of the dashboard. The dependency runs one way, so the command draws a prompt without importing the package that draws the dashboard, and a question has one appearance rather than one per caller. `feat project init` runs it inline, one program per question, so the answered question stays in the scrollback. See ADR-084.
 
 `internal/config` and `internal/project` have one boundary drawn between them: `internal/config` decides whether a configuration is well formed and safe, and asks the host nothing; `internal/project` asks the host and reports what it found. A configuration therefore stays loadable on a machine where a repository is temporarily missing, which is the machine `feat doctor` is most useful on. See ADR-028.
 

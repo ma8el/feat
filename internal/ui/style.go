@@ -5,6 +5,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/ma8el/feat/internal/ui/ask"
 )
 
 // absent is what a field Feat cannot fill yet renders as.
@@ -18,19 +20,19 @@ const absent = "—"
 var (
 	headingStyle = lipgloss.NewStyle().Bold(true).Foreground(colourText)
 
-	mutedStyle = lipgloss.NewStyle().Foreground(colourMuted)
+	// The four the question widget draws with are defined beside it, in
+	// internal/ui/ask, and read back here for the rest of the dashboard. Two
+	// callers of one widget, each free to style it, is the drift that seam
+	// exists to make impossible (ADR-084).
+	mutedStyle = ask.MutedStyle
 
-	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(colourAccent)
+	selectedStyle = ask.SelectedStyle
 
-	attentionStyle = lipgloss.NewStyle().Bold(true).Foreground(colourAttention)
+	attentionStyle = ask.AttentionStyle
+
+	titleStyle = ask.TitleStyle
 
 	failureStyle = lipgloss.NewStyle().Bold(true).Foreground(colourFailure)
-
-	// titleStyle is a region's own heading — the rail's "tasks", the header of a
-	// card. It is the accent rather than the text colour, because a header that
-	// is only bold reads as the first line of the content under it, which is what
-	// the rule beneath it and this colour together stop it from doing.
-	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(colourAccent)
 
 	// focusedEntryStyle marks the task whose terminal is taking the keyboard.
 	// A background rather than a colour, because it has to be legible at a
@@ -189,12 +191,9 @@ func truncate(cell string, width int) string {
 	return ansi.Truncate(cell, width, "…")
 }
 
-// keyHint renders one key and what it does, for a footer.
-func keyHint(key, action string) string {
-	return selectedStyle.Render(key) + mutedStyle.Render(" "+action)
-}
+// keyHint renders one key and what it does, for a footer. It is the question
+// widget's, because the footer under a question is drawn by both askers.
+func keyHint(key, action string) string { return ask.KeyHint(key, action) }
 
 // keyHints joins footer hints.
-func keyHints(hints ...string) string {
-	return strings.Join(hints, mutedStyle.Render("   "))
-}
+func keyHints(hints ...string) string { return ask.KeyHints(hints...) }

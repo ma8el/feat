@@ -25,8 +25,8 @@ produces states your decisions and nothing else.
 
 What it can find out, it finds out rather than asking: whether a directory is a
 Git repository, which remote and default branch it has, which Compose files are
-beside it, and which services they define. What it proposes is shown in
-brackets, and pressing Enter accepts it.
+beside it, and which services they define. What it proposes is offered as the
+answer, and pressing Enter accepts it.
 
 The whole file is displayed before anything is written, and it has already been
 loaded and validated by then: what you are shown is a configuration Feat
@@ -69,8 +69,15 @@ func newProjectInitCommand(env *environment) *cobra.Command {
 				return err
 			}
 
+			current, err := env.current()
+			if err != nil {
+				return err
+			}
+			lines := prompter{in: bufio.NewReader(cmd.InOrStdin()), out: cmd.OutOrStdout()}
+			drawn := questionsCanBeDrawn(terminalReader(cmd.InOrStdin()), current.Getenv)
 			conversation := &conversation{
-				prompter: prompter{in: bufio.NewReader(cmd.InOrStdin()), out: cmd.OutOrStdout()},
+				prompter: lines,
+				asker:    pickAsker(drawn, cmd.InOrStdin(), cmd.OutOrStdout(), &lines),
 				wizard:   flow,
 				env:      env,
 				layout:   layout,
@@ -104,15 +111,20 @@ func (e *environment) wizard(id string) (*wizard.Wizard, error) {
 	})
 }
 
-// conversation is one run of `feat project init`: the shared questions, asked a
-// line at a time.
+// conversation is one run of `feat project init`: the shared questions, asked
+// one at a time down a terminal.
 //
 // It owns the presentation and nothing else. Which question comes next, what it
 // proposes, and whether an answer is acceptable are the wizard's; the headings,
-// the indentation, and the brackets around a proposal are this file's.
+// the indentation, the marker over a question stepped back to, and the offers
+// at the end are this file's. How a question is drawn and how its answer is
+// taken are the asker's (ADR-084).
 type conversation struct {
 	prompter
 
+	// asker is how a question is put and an answer taken: a widget with a
+	// cursor, or a prompt and a line (ADR-084).
+	asker  asker
 	wizard *wizard.Wizard
 	env    *environment
 	layout paths.Layout
@@ -121,7 +133,59 @@ type conversation struct {
 	// section is the last section a heading was printed for, so that each is
 	// announced once however many questions it turns out to hold.
 	section wizard.Section
+	// blank reports that the transcript ends in an empty line, which is what
+	// separate reads before adding one. It is tracked rather than observed
+	// because the widget writes its own line to the same stream and what it
+	// leaves there is not a byte this file can see.
+	blank bool
 }
+
+// say writes one line of the conversation.
+//
+// Every caller ends its text with a newline, so what is written leaves the
+// cursor at the start of a line and a blank line at the end of the transcript
+// is a newline with nothing before it since the last one.
+func (c *conversation) say(format string, args ...any) {
+	text := fmt.Sprintf(format, args...)
+	if text == "" {
+		return
+	}
+	c.blank = text == "\n" || strings.HasSuffix(text, "\n\n")
+	c.prompter.say("%s", text)
+}
+
+// separate opens a blank line, unless the transcript ends in one already.
+//
+// A conversation is a column of text with nothing but space to punctuate it,
+// and a second blank line is not twice the separator: it is a gap that reads as
+// something dropped.
+func (c *conversation) separate() {
+	if !c.blank {
+		c.say("\n")
+	}
+	c.blank = true
+}
+
+// rule opens a new part of the transcript.
+//
+// Once every question above it has been answered, what opens a part is a bare
+// line at the left margin in a column of indented lines that look much like it:
+// a section's heading, and the path of the file the answers composed. A blank
+// line was the only thing marking either, and a blank line is what the
+// transcript is already full of.
+func (c *conversation) rule() {
+	c.separate()
+	c.say("%s\n", strings.Repeat("─", ruleWidth))
+}
+
+// ruleWidth is how wide that rule is drawn.
+//
+// It measures the text it separates rather than the terminal. The flow wraps
+// its own detail to seventy-six columns and the conversation indents by two, so
+// this is the width of the widest paragraph a rule sits over — and a rule taken
+// from the terminal would be three times that on a wide screen while still
+// being a rule on a narrow one.
+const ruleWidth = 78
 
 // errAnswersEnded reports input that stopped before the conversation did.
 var errAnswersEnded = errors.New(
@@ -129,17 +193,43 @@ var errAnswersEnded = errors.New(
 
 func (c *conversation) run(ctx context.Context) error {
 	c.say("This writes one project's configuration by asking about it.\n")
-	c.say("Press Enter to accept the value in brackets. Nothing is written until you confirm.\n")
+	c.say("%s", c.asker.opening())
 
+	// Whether the question about to be asked is one the user stepped back to.
+	// It is the only thing the loop remembers about the last question, because
+	// everything else about it is already on the screen.
+	restored := false
 	for {
 		question, ok := c.wizard.Step()
 		if !ok {
 			return c.finish(ctx)
 		}
-		if err := c.put(ctx, question); err != nil {
+		if restored {
+			c.recall(question)
+		} else {
+			c.introduce(question)
+		}
+
+		back, err := c.put(ctx, question)
+		if err != nil {
 			return err
 		}
+		restored = back
 	}
+}
+
+// recall reopens a question the user stepped back to.
+//
+// It is printed below what is already there, under a marker naming what it
+// returned to, and nothing above it is erased or rewritten. Scrollback is the
+// property this command's shape exists to protect, and rewriting lines an
+// inline program has already emitted is the part of terminal handling that
+// breaks differently on every emulator — so the marker is what makes a
+// transcript holding two answers to one question read as a correction rather
+// than a contradiction (ADR-084).
+func (c *conversation) recall(question wizard.Question) {
+	c.separate()
+	c.say("%s↩ back to: %s\n", indentFor(question), question.Prompt)
 }
 
 // put asks one question until it is answered acceptably.
@@ -147,47 +237,64 @@ func (c *conversation) run(ctx context.Context) error {
 // A rejected answer is answered with the reason and the same question, because
 // the alternative is a command that fails at the end of a conversation over
 // something the user could have corrected when they typed it.
-func (c *conversation) put(ctx context.Context, question wizard.Question) error {
-	// What the last answer established, and what this question found out about
-	// what it is proposing, said under the answer they follow and before the
-	// question they are the context for. They are read off the question, as the
-	// dialog reads them, so that a sentence the flow writes reaches both askers
-	// or neither.
+func (c *conversation) put(ctx context.Context, question wizard.Question) (bool, error) {
+	for {
+		answer, err := c.read(ctx, question)
+		if err != nil {
+			return false, err
+		}
+		if answer.back {
+			if !c.wizard.Back() {
+				// The first question has nothing behind it, and neither has a
+				// run whose identifier was supplied on the command line.
+				c.say("    there is nothing behind this question\n")
+				continue
+			}
+			return true, nil
+		}
+		if err := c.wizard.Answer(ctx, answer.value); err != nil {
+			c.say("    %v\n", err)
+			continue
+		}
+		// The asker left the answered question behind, on a line of its own and
+		// with something on it. A step back leaves nothing, so the transcript
+		// there ends where it ended before the question was put.
+		c.blank = false
+		return false, nil
+	}
+}
+
+// introduce says what a question is asked in light of, before it is asked.
+//
+// What the last answer established, and what this question found out about what
+// it is proposing, said under the answer they follow and before the question
+// they are the context for. They are read off the question, as the dialog reads
+// them, so that a sentence the flow writes reaches both askers or neither.
+func (c *conversation) introduce(question wizard.Question) {
 	for _, note := range question.Notes {
 		c.say("    %s\n", note)
 	}
 	c.announce(question)
-
-	for {
-		answer, err := c.read(question)
-		if err != nil {
-			return err
-		}
-		if err := c.wizard.Answer(ctx, answer); err != nil {
-			c.say("    %v\n", err)
-			continue
-		}
-		return nil
-	}
 }
 
 // announce opens a section, or a group of questions inside one.
 //
-// The blank line and the heading are what separate the parts of the file from
-// each other on a terminal that has only one column to say it in: a section is
-// announced once however many questions it turns out to hold, and a group
-// inside one — a second repository, the mount points — is separated from what
-// came before it.
+// The rule, the blank line, and the heading are what separate the parts of the
+// file from each other on a terminal that has only one column to say it in: a
+// section is announced once however many questions it turns out to hold, and a
+// group inside one — a second repository, the mount points — is separated from
+// what came before it.
 func (c *conversation) announce(question wizard.Question) {
-	if question.Section != c.section || len(question.Detail) > 0 {
-		c.say("\n")
-	}
-	// Whenever there is one, rather than once per section: a section can hold
-	// more than one headed group — where the agent runs and which provider CLI
-	// it expects are both about the agent — and the flow sets a heading on the
-	// first question of a group for exactly that reason.
-	if question.Heading != "" {
+	// A heading whenever there is one, rather than once per section: a section
+	// can hold more than one headed group — where the agent runs and which
+	// provider CLI it expects are both about the agent — and the flow sets a
+	// heading on the first question of a group for exactly that reason.
+	switch {
+	case question.Heading != "":
+		c.rule()
 		c.say("%s\n", question.Heading)
+	case question.Section != c.section || len(question.Detail) > 0:
+		c.separate()
 	}
 	c.section = question.Section
 
@@ -195,43 +302,37 @@ func (c *conversation) announce(question wizard.Question) {
 		// A paragraph break is a blank line and not two spaces on an empty one,
 		// which is what indenting it would write.
 		if line == "" {
-			c.say("\n")
+			c.separate()
 			continue
 		}
 		c.say("  %s\n", line)
 	}
+	if len(question.Detail) > 0 {
+		// What is above this line explains what is being decided and what is
+		// below it is the deciding, which the dialog separates the same way. It
+		// matters more here: there, one question is on the screen at a time, and
+		// here the answers pile up under the paragraph until they look like more
+		// of it.
+		c.separate()
+	}
 }
 
-// read puts one question and returns the answer as typed.
+// read puts one question and returns what the user did with it.
 //
 // The project's own two questions are unindented and the rest are indented under
 // their section's heading, which is the shape the conversation has: the first
 // two are about the file itself, and everything after them is about a part of
-// it.
-func (c *conversation) read(question wizard.Question) (string, error) {
-	prompt := question.Prompt
-	if question.Section != wizard.SectionProject {
-		prompt = "  " + prompt
-	}
+// it. How the question is drawn and how the answer is taken are the asker's.
+func (c *conversation) read(ctx context.Context, question wizard.Question) (reply, error) {
+	return c.asker.question(ctx, question, indentFor(question))
+}
 
-	switch question.Kind {
-	case wizard.KindConfirm:
-		// The answer goes back as the word the flow asked for. The prompt is
-		// where "y" and "yes" are the same thing, and where a word that is
-		// neither is asked again.
-		yes, err := c.confirm(prompt, question.Proposed == "y")
-		if err != nil {
-			return "", err
-		}
-		if yes {
-			return "y", nil
-		}
-		return "n", nil
-	case wizard.KindChoice:
-		return c.ask(fmt.Sprintf("%s (%s)", prompt, strings.Join(question.Options, "/")), question.Proposed)
-	default:
-		return c.ask(prompt, question.Proposed)
+// indentFor is what a question's lines are printed under.
+func indentFor(question wizard.Question) string {
+	if question.Section == wizard.SectionProject {
+		return ""
 	}
+	return "  "
 }
 
 // finish renders the answers, validates them, and offers to write them.
@@ -243,13 +344,14 @@ func (c *conversation) finish(ctx context.Context) error {
 			configFailure(err))
 	}
 
-	c.say("\n%s\n\n%s\n", review.Path, review.Text)
+	c.rule()
+	c.say("%s\n\n%s\n", review.Path, review.Text)
 	if c.dryRun {
 		c.say("Nothing was written: this was a dry run.\n")
 		return nil
 	}
 
-	write, err := c.confirm("Write it?", true)
+	write, err := c.asker.offer(ctx, "Write it?", true)
 	if err != nil {
 		return err
 	}
@@ -286,7 +388,8 @@ func (c *conversation) finish(ctx context.Context) error {
 // installed, and whether a remote resolves are exactly the answers this file
 // now depends on.
 func (c *conversation) diagnose(ctx context.Context) error {
-	checkNow, err := c.confirm("\nCheck it against this machine now?", true)
+	c.say("\n")
+	checkNow, err := c.asker.offer(ctx, "Check it against this machine now?", true)
 	if err != nil || !checkNow {
 		return err
 	}
@@ -329,7 +432,8 @@ func (c *conversation) register(ctx context.Context) error {
 		return nil
 	}
 
-	now, err := c.confirm("\nRegister it with the running daemon now?", true)
+	c.say("\n")
+	now, err := c.asker.offer(ctx, "Register it with the running daemon now?", true)
 	if err != nil {
 		return err
 	}

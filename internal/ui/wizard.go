@@ -2,12 +2,11 @@ package ui
 
 import (
 	"context"
-	"slices"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/ma8el/feat/internal/ui/ask"
 	"github.com/ma8el/feat/internal/wizard"
 )
 
@@ -54,7 +53,10 @@ type wizardModel struct {
 	// waiting for the machine rather than for the user.
 	asked bool
 
-	input  textinput.Model
+	// input is the question widget: the field, the option list, and the keys
+	// that move them. It is the same one `feat project init` draws, so a
+	// question is rendered once and asked twice (ADR-084).
+	input  ask.Model
 	cursor int
 	// scroll is the first line of the review that is drawn. A configuration is
 	// longer than a dialog, and the user is being asked to confirm all of it.
@@ -108,16 +110,7 @@ type (
 )
 
 func newWizard(backend Backend) wizardModel {
-	field := textinput.New()
-	field.Prompt = ""
-	field.CharLimit = 500
-	// On for every question, and given nothing to complete on most of them. The
-	// alternative is a flag that has to be turned off again, and a question left
-	// holding the last one's candidates is a Tab that answers with a value from a
-	// different part of the file.
-	field.ShowSuggestions = true
-
-	return wizardModel{backend: backend, input: field}
+	return wizardModel{backend: backend, input: ask.New()}
 }
 
 // Init builds the flow, which is the one thing the dashboard cannot do itself.
@@ -132,7 +125,7 @@ func (w wizardModel) Init() tea.Cmd {
 func (w *wizardModel) resize(width, height int) {
 	w.width, w.height = width, height
 	if width > 4 {
-		w.input.Width = min(width-6, 100)
+		w.input.SetWidth(min(width-6, 100))
 	}
 }
 
@@ -212,24 +205,7 @@ func (w wizardModel) advance() (wizardModel, tea.Cmd) {
 	}
 
 	w.question, w.asked = question, true
-	w.cursor = choiceIndex(question)
-	// The proposal is a placeholder rather than the field's contents, which is
-	// what it is at a shell: Enter takes it, and typing replaces it. Putting it
-	// in the field meant typing appended to it, so an identifier proposed from
-	// the working directory became that directory's name with the answer stuck
-	// on the end.
-	//
-	// Tab is how it gets into the field deliberately, along with whatever else
-	// the flow found: what the user wants half the time is this value with three
-	// characters changed, and that used to mean typing all of it (ADR-077).
-	w.input.SetValue("")
-	w.input.Placeholder = question.Proposed
-	w.input.SetSuggestions(question.Candidates)
-	if question.Kind == wizard.KindText {
-		w.input.Focus()
-	} else {
-		w.input.Blur()
-	}
+	w.input = w.input.Ask(question)
 	return w, nil
 }
 
@@ -282,84 +258,19 @@ func (w wizardModel) askingKey(key tea.KeyMsg) (wizardModel, tea.Cmd) {
 		return w, nil
 	}
 
-	switch key.String() {
-	case "esc":
+	field, result, cmd := w.input.Update(key)
+	w.input = field
+	switch result.Outcome {
+	case ask.Answered:
+		return w.answer(result.Answer)
+	case ask.SteppedBack:
 		return w.back()
-
-	case "enter":
-		return w.answer()
-
-	case "tab":
-		// Only where the field holds a candidate already or holds nothing at all;
-		// anything else is a prefix, and the widget completes those itself.
-		if taken, ok := w.take(); ok {
-			return taken, nil
-		}
 	}
-
-	if w.question.Kind == wizard.KindText {
-		field, cmd := w.input.Update(key)
-		w.input = field
-		return w, cmd
-	}
-
-	// A closed question is a list, and the plain movement keys move it. Nothing
-	// is typed into one, so they cannot be anything else here.
-	options := w.options()
-	switch key.String() {
-	case "up", "k":
-		if w.cursor > 0 {
-			w.cursor--
-		}
-	case "down", "j":
-		if w.cursor < len(options)-1 {
-			w.cursor++
-		}
-	}
-	return w, nil
-}
-
-// take puts a candidate in the field, and reports whether it had one to put
-// there.
-//
-// The widget completes what has been typed, which leaves the empty field — and
-// the empty field is where the proposal is, so the answers this is worth most on
-// were the ones it could not help with: an absolute path a user wants to change
-// the end of had to be typed from the first character. So an empty field takes
-// the proposal, a field holding one candidate exactly steps to the next, and
-// everything between is the widget's own prefix completion.
-//
-// What Enter means is untouched at every step of that. The proposal is still
-// what an empty field sends, an optional question is still finished by leaving
-// it empty, and what is in the field is still what is sent — Tab moves a value
-// into the field and never past it (ADR-077).
-func (w wizardModel) take() (wizardModel, bool) {
-	if w.question.Kind != wizard.KindText || len(w.question.Candidates) == 0 {
-		return w, false
-	}
-	value := w.input.Value()
-	at := slices.Index(w.question.Candidates, value)
-	if value != "" && at < 0 {
-		return w, false
-	}
-	// An empty field is at -1, so the first Tab takes the proposal and each one
-	// after it steps along the list and around it.
-	w.input.SetValue(w.question.Candidates[(at+1)%len(w.question.Candidates)])
-	w.input.CursorEnd()
-	return w, true
+	return w, cmd
 }
 
 // answer hands what the user gave to the flow.
-func (w wizardModel) answer() (wizardModel, tea.Cmd) {
-	value := w.input.Value()
-	if w.question.Kind != wizard.KindText {
-		options := w.options()
-		if w.cursor < 0 || w.cursor >= len(options) {
-			return w, nil
-		}
-		value = options[w.cursor]
-	}
-
+func (w wizardModel) answer(value string) (wizardModel, tea.Cmd) {
 	flow := w.flow
 	w.busy, w.status, w.err = true, "", nil
 	return w, func() tea.Msg {
@@ -464,47 +375,6 @@ func (w wizardModel) registeringKey(key tea.KeyMsg) (wizardModel, tea.Cmd) {
 		}
 	}
 	return w, nil
-}
-
-// options are the answers a closed question offers, as the flow wants them
-// given. What the user reads is optionLabel below: a confirm question is
-// answered with a letter and is worth drawing as a word.
-func (w wizardModel) options() []string {
-	if w.question.Kind == wizard.KindConfirm {
-		return []string{"y", "n"}
-	}
-	return w.question.Options
-}
-
-// optionLabel is how one of them is drawn.
-func optionLabel(kind wizard.Kind, option string) string {
-	if kind != wizard.KindConfirm {
-		return option
-	}
-	if option == "y" {
-		return "yes"
-	}
-	return "no"
-}
-
-// choiceIndex is where the cursor starts on a closed question: on what the flow
-// proposes, so that Enter accepts it as it does everywhere else.
-func choiceIndex(question wizard.Question) int {
-	if question.Kind == wizard.KindText {
-		return 0
-	}
-	if question.Kind == wizard.KindConfirm {
-		if question.Proposed == "n" {
-			return 1
-		}
-		return 0
-	}
-	for i, option := range question.Options {
-		if option == question.Proposed {
-			return i
-		}
-	}
-	return 0
 }
 
 // closeWizard ends the dialog.
