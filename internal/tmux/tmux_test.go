@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -29,6 +30,9 @@ type fakeWindow struct {
 	session string
 	id      string
 	options map[string]string
+	// width and height are what resize-window has made this window, and are
+	// zero for a window nothing has sized.
+	width, height int
 }
 
 type fakePane struct {
@@ -98,6 +102,10 @@ func (f *fakeTmux) Run(_ context.Context, socket string, args ...string) (string
 		return "", f.respawnPane(args)
 	case "set-option":
 		return "", f.setOption(args)
+	case "set-window-option":
+		return "", f.setWindowOption(args)
+	case "resize-window":
+		return "", f.resizeWindow(args)
 	case "kill-session":
 		f.killSession(valueAfter(args, "-t"))
 		return "", nil
@@ -192,6 +200,41 @@ func (f *fakeTmux) setOption(args []string) error {
 	return nil
 }
 
+// setWindowOption records a window option tmux spells with its own command.
+//
+// Feat's metadata goes through set-option -w; window-size goes through this
+// one, which is how the real tmux names it. The fake keeps the two apart for
+// the same reason the adapter does.
+func (f *fakeTmux) setWindowOption(args []string) error {
+	index := indexOf(args, "-t")
+	if index < 0 || len(args) <= index+3 {
+		return fmt.Errorf("fake tmux: malformed set-window-option %q", args)
+	}
+	window, ok := f.windows[args[index+1]]
+	if !ok {
+		return fmt.Errorf("fake tmux: no window %q to set an option on", args[index+1])
+	}
+	window.options[args[index+2]] = args[index+3]
+	return nil
+}
+
+func (f *fakeTmux) resizeWindow(args []string) error {
+	window, ok := f.windows[valueAfter(args, "-t")]
+	if !ok {
+		return fmt.Errorf("fake tmux: no window %q to resize", valueAfter(args, "-t"))
+	}
+	width, err := strconv.Atoi(valueAfter(args, "-x"))
+	if err != nil {
+		return fmt.Errorf("fake tmux: resize-window width %q is not a number", valueAfter(args, "-x"))
+	}
+	height, err := strconv.Atoi(valueAfter(args, "-y"))
+	if err != nil {
+		return fmt.Errorf("fake tmux: resize-window height %q is not a number", valueAfter(args, "-y"))
+	}
+	window.width, window.height = width, height
+	return nil
+}
+
 func (f *fakeTmux) listSessions() string {
 	ids := sortedKeys(f.sessions)
 	lines := make([]string, 0, len(ids))
@@ -262,7 +305,7 @@ func TestTaskTerminalUsesDedicatedSocketAndStableMetadata(t *testing.T) {
 
 	terminal, err := backend.EnsureTask(context.Background(), testProject, testTask, CommandSpec{
 		Program: "/usr/bin/yes", Directory: "/work/primary",
-	})
+	}, Size{})
 	if err != nil {
 		t.Fatalf("EnsureTask: %v", err)
 	}
@@ -300,7 +343,7 @@ func TestTaskTerminalUsesDedicatedSocketAndStableMetadata(t *testing.T) {
 	before := countCommand(runner.calls, "new-session")
 	again, err := backend.EnsureTask(context.Background(), testProject, testTask, CommandSpec{
 		Program: "/bin/false", Directory: "/somewhere/else",
-	})
+	}, Size{})
 	if err != nil {
 		t.Fatalf("second EnsureTask: %v", err)
 	}
@@ -312,12 +355,91 @@ func TestTaskTerminalUsesDedicatedSocketAndStableMetadata(t *testing.T) {
 	}
 }
 
+// TestANewTaskWindowIsSizedBeforeItsProgramStarts pins the order, which is the
+// whole of the behaviour: a window sized after its program started is a program
+// that has already written its first screen at 80 columns, and those lines never
+// reflow.
+func TestANewTaskWindowIsSizedBeforeItsProgramStarts(t *testing.T) {
+	runner := newFakeTmux()
+	backend, _ := New("/runtime/feat/tmux.sock", runner)
+
+	terminal, err := backend.EnsureTask(context.Background(), testProject, testTask, CommandSpec{
+		Program: "/usr/bin/yes", Directory: "/work/primary",
+	}, Size{Width: 171, Height: 49})
+	if err != nil {
+		t.Fatalf("EnsureTask: %v", err)
+	}
+
+	window := runner.windows[terminal.Target.Window]
+	if window == nil || window.width != 171 || window.height != 49 {
+		t.Fatalf("window = %+v, want one sized 171x49", window)
+	}
+	// Pinned, because a window nobody is attached to is otherwise sized back to
+	// the server's default the moment tmux next thinks about it.
+	if got := window.options[sizeOption]; got != manualSize {
+		t.Errorf("%s = %q, want %q", sizeOption, got, manualSize)
+	}
+
+	sized, started := firstCall(runner.calls, "resize-window"), firstCall(runner.calls, "respawn-pane")
+	if sized < 0 || started < 0 {
+		t.Fatalf("resize-window at %d and respawn-pane at %d, want both", sized, started)
+	}
+	if sized > started {
+		t.Errorf("the window was sized at call %d and the program started at call %d, want the size first",
+			sized, started)
+	}
+}
+
+// TestATaskWindowIsLeftAloneWhenTheCallerHasNoSize keeps the fallback honest: a
+// daemon that has drawn no terminal yet knows nothing about the screen, and
+// guessing at one would be worse than tmux's own default.
+func TestATaskWindowIsLeftAloneWhenTheCallerHasNoSize(t *testing.T) {
+	runner := newFakeTmux()
+	backend, _ := New("/runtime/feat/tmux.sock", runner)
+
+	if _, err := backend.EnsureTask(context.Background(), testProject, testTask, CommandSpec{
+		Program: "/usr/bin/yes", Directory: "/work/primary",
+	}, Size{}); err != nil {
+		t.Fatalf("EnsureTask: %v", err)
+	}
+
+	for _, command := range []string{"resize-window", "set-window-option"} {
+		if got := countCommand(runner.calls, command); got != 0 {
+			t.Errorf("%s ran %d times for a caller with no size, want 0", command, got)
+		}
+	}
+}
+
+// TestAnExistingTaskWindowIsNotResized is the other half. Rediscovery returns a
+// terminal that already has a size and, in the resume case, may have a client
+// sitting in it: resizing there would reflow a running agent, and could resize
+// the terminal of the person watching it.
+func TestAnExistingTaskWindowIsNotResized(t *testing.T) {
+	runner := newFakeTmux()
+	backend, _ := New("/runtime/feat/tmux.sock", runner)
+	command := CommandSpec{Program: "/usr/bin/yes", Directory: "/work/primary"}
+
+	if _, err := backend.EnsureTask(context.Background(), testProject, testTask, command,
+		Size{Width: 171, Height: 49}); err != nil {
+		t.Fatalf("EnsureTask: %v", err)
+	}
+	before := countCommand(runner.calls, "resize-window")
+
+	if _, err := backend.EnsureTask(context.Background(), testProject, testTask, command,
+		Size{Width: 100, Height: 30}); err != nil {
+		t.Fatalf("second EnsureTask: %v", err)
+	}
+	if got := countCommand(runner.calls, "resize-window"); got != before {
+		t.Errorf("resize-window ran %d times after rediscovery, want %d", got, before)
+	}
+}
+
 func TestShellPaneOpensInTheProvidedPrimaryWorkspace(t *testing.T) {
 	runner := newFakeTmux()
 	backend, _ := New("/runtime/feat/tmux.sock", runner)
 	_, err := backend.EnsureTask(context.Background(), testProject, testTask, CommandSpec{
 		Program: "/usr/bin/yes", Directory: "/work/primary",
-	})
+	}, Size{})
 	if err != nil {
 		t.Fatalf("EnsureTask: %v", err)
 	}
@@ -360,7 +482,7 @@ func TestFailedMetadataApplicationRemovesOnlyTheNewObject(t *testing.T) {
 
 	_, err := backend.EnsureTask(context.Background(), testProject, testTask, CommandSpec{
 		Program: "/usr/bin/yes", Directory: "/work/primary",
-	})
+	}, Size{})
 	if err == nil {
 		t.Fatal("EnsureTask succeeded despite the injected metadata failure")
 	}
@@ -383,7 +505,7 @@ func TestACommandThatCannotBeStartedRemovesOnlyTheNewObject(t *testing.T) {
 
 	_, err := backend.EnsureTask(context.Background(), testProject, testTask, CommandSpec{
 		Program: "/usr/bin/yes", Directory: "/work/primary",
-	})
+	}, Size{})
 	if err == nil {
 		t.Fatal("EnsureTask succeeded despite the injected start failure")
 	}
@@ -446,7 +568,7 @@ func TestTheCommandEnvironmentReachesThePane(t *testing.T) {
 		Program:   "/usr/bin/claude",
 		Directory: "/work/primary",
 		Variables: map[string]string{"SECOND": "2", "FIRST": "1"},
-	}); err != nil {
+	}, Size{}); err != nil {
 		t.Fatalf("EnsureTask: %v", err)
 	}
 
@@ -494,6 +616,16 @@ func commandAfter(args []string) []string {
 		return nil
 	}
 	return args[index+2:]
+}
+
+// firstCall is where a command appears in the order they were issued, or -1.
+func firstCall(calls [][]string, command string) int {
+	for i, call := range calls {
+		if len(call) > 0 && call[0] == command {
+			return i
+		}
+	}
+	return -1
 }
 
 func countCommand(calls [][]string, command string) int {

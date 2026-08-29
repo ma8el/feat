@@ -256,6 +256,7 @@ func New(opts Options) (*Daemon, error) {
 			gate:             newGates(),
 			locks:            newTaskLocks(),
 			handovers:        newHandovers(),
+			viewport:         newViewport(),
 			workspaces:       make(map[domain.TaskID]*control.Workspace),
 			repeats:          newRepeats(),
 			pollNow:          make(chan struct{}, 1),

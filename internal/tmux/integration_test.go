@@ -91,7 +91,7 @@ func TestRealManagedServerIsIsolatedAndIdentitySurvivesUserChanges(t *testing.T)
 	}
 	terminal, err := backend.EnsureTask(ctx, testProject, testTask, CommandSpec{
 		Program: "/usr/bin/yes", Directory: server.dir,
-	})
+	}, Size{})
 	if err != nil {
 		t.Fatalf("EnsureTask: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestRealShellUsesPrimaryWorkspace(t *testing.T) {
 	backend, _ := New(server.socket, server.runner)
 	if _, err := backend.EnsureTask(context.Background(), testProject, testTask, CommandSpec{
 		Program: "/usr/bin/yes", Directory: primary,
-	}); err != nil {
+	}, Size{}); err != nil {
 		t.Fatalf("EnsureTask: %v", err)
 	}
 	terminal, err := backend.EnsureShell(context.Background(), testProject, testTask, CommandSpec{
@@ -195,7 +195,7 @@ func TestRealCommandThatExitsImmediatelyStaysObservable(t *testing.T) {
 
 	if _, err := backend.EnsureTask(ctx, testProject, testTask, CommandSpec{
 		Program: "/usr/bin/false", Directory: server.dir,
-	}); err != nil {
+	}, Size{}); err != nil {
 		t.Fatalf("EnsureTask with a command that exits immediately: %v", err)
 	}
 
@@ -216,6 +216,50 @@ func TestRealCommandThatExitsImmediatelyStaysObservable(t *testing.T) {
 	}
 	if shell.Shell == nil {
 		t.Fatal("shell pane did not survive its command")
+	}
+}
+
+// TestRealAgentStartsInTheSizeItWillBeDrawnAt proves the fix where it has to
+// hold: in the program's own idea of its terminal, at the moment it starts.
+//
+// Real tmux rather than a fake because that is the whole claim. A window sized
+// after its program started is a program that has already written its first
+// screen at 80 columns, and those lines never reflow — a resize signal arriving
+// later cannot repair what has been committed, and on one dogfood run it did not
+// arrive at all. stty is asked because it reads the pty rather than tmux's
+// bookkeeping, which is the only answer that matters.
+func TestRealAgentStartsInTheSizeItWillBeDrawnAt(t *testing.T) {
+	server := realTmux(t)
+	ctx := context.Background()
+	backend, err := New(server.socket, server.runner)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	terminal, err := backend.EnsureTask(ctx, testProject, testTask, CommandSpec{
+		Program:   "/bin/sh",
+		Arguments: []string{"-c", "stty size; sleep 30"},
+		Directory: server.dir,
+	}, Size{Width: 171, Height: 49})
+	if err != nil {
+		t.Fatalf("EnsureTask: %v", err)
+	}
+
+	var body string
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		frame, err := backend.CapturePane(ctx, terminal.Target.Pane)
+		if err != nil {
+			t.Fatalf("CapturePane: %v", err)
+		}
+		body = strings.TrimSpace(strings.Join(frame.Content, "\n"))
+		if body != "" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if body != "49 171" {
+		t.Errorf("the program was started in a %q terminal, want the 49 171 it will be drawn in", body)
 	}
 }
 
@@ -252,7 +296,7 @@ func TestRealDetachEndsTheNativeClient(t *testing.T) {
 	backend, _ := New(server.socket, server.runner)
 	terminal, err := backend.EnsureTask(context.Background(), testProject, testTask, CommandSpec{
 		Program: "/usr/bin/yes", Directory: server.dir,
-	})
+	}, Size{})
 	if err != nil {
 		t.Fatalf("EnsureTask: %v", err)
 	}
@@ -316,7 +360,7 @@ func TestRealAnAttachedClientGetsItsOwnSizeBack(t *testing.T) {
 
 	terminal, err := backend.EnsureTask(ctx, testProject, testTask, CommandSpec{
 		Program: "/bin/sh", Arguments: []string{"-c", "sleep 60"}, Directory: server.dir,
-	})
+	}, Size{})
 	if err != nil {
 		t.Fatalf("EnsureTask: %v", err)
 	}
@@ -454,13 +498,13 @@ func TestRealWindowClientsFollowTheUser(t *testing.T) {
 
 	watched, err := backend.EnsureTask(ctx, testProject, testTask, CommandSpec{
 		Program: "/bin/sh", Arguments: []string{"-c", "sleep 60"}, Directory: server.dir,
-	})
+	}, Size{})
 	if err != nil {
 		t.Fatalf("EnsureTask: %v", err)
 	}
 	other, err := backend.EnsureTask(ctx, testProject, otherTask, CommandSpec{
 		Program: "/bin/sh", Arguments: []string{"-c", "sleep 60"}, Directory: server.dir,
-	})
+	}, Size{})
 	if err != nil {
 		t.Fatalf("EnsureTask for a second task: %v", err)
 	}
@@ -570,7 +614,7 @@ func TestRealTerminalsWorkWithoutALocale(t *testing.T) {
 	}
 
 	terminal, err := adapter.EnsureTask(ctx, testProject, testTask,
-		CommandSpec{Program: "/bin/sh", Arguments: []string{"-c", "sleep 30"}, Directory: server.dir})
+		CommandSpec{Program: "/bin/sh", Arguments: []string{"-c", "sleep 30"}, Directory: server.dir}, Size{})
 	if err != nil {
 		t.Fatalf("creating a terminal without a locale: %v", err)
 	}
@@ -621,7 +665,7 @@ func TestRealPaneCaptureAndInputRoundTrip(t *testing.T) {
 	}
 	terminal, err := backend.EnsureTask(ctx, testProject, testTask, CommandSpec{
 		Program: "/bin/sh", Directory: server.dir,
-	})
+	}, Size{})
 	if err != nil {
 		t.Fatalf("EnsureTask: %v", err)
 	}
@@ -790,7 +834,7 @@ func TestRealAStoppedPaneKeepsTheScreenItStoppedOn(t *testing.T) {
 		Program:   "/bin/sh",
 		Arguments: []string{"-c", "printf '%s\\n'" + strings.Repeat(" '"+prompt+"'", 3)},
 		Directory: server.dir,
-	})
+	}, Size{})
 	if err != nil {
 		t.Fatalf("EnsureTask: %v", err)
 	}
