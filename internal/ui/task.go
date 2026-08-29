@@ -97,25 +97,6 @@ func agentState(task api.Task) string {
 	return task.Session.Process
 }
 
-// attentionState renders whether the user may need to intervene.
-//
-// The badge carries the same distinction the state does. Needing input is
-// something the provider reported; possibly waiting is what Feat says when it
-// cannot tell a finished turn from a question, and rendering the two alike would
-// claim a certainty nothing measured.
-func attentionState(task api.Task) string {
-	switch task.Attention {
-	case "none":
-		return absent
-	case "possibly_waiting":
-		return attentionStyle.Render(badgeMaybe) + " possibly waiting"
-	case "needs_input":
-		return attentionStyle.Render(badgeNeedsInput) + " needs input"
-	default:
-		return task.Attention
-	}
-}
-
 // changedFiles totals what Feat last observed across the task's repositories.
 //
 // A task none of whose repositories has been observed reports nothing rather

@@ -169,9 +169,10 @@ func TestTheTaskPanelSaysWhatItIsWaitingOn(t *testing.T) {
 
 	view := model.taskPanel()
 	for _, want := range []string{
-		// FR-UI-003's required content.
+		// FR-UI-003's required content, less the tmux target: the terminal tab
+		// shows that session rather than naming its ids (ADR-086).
 		"Export the daily report", "core", "origin/main", "1a2b3c4d5e6f",
-		"feat/7f3a1c2e-add-a-scheduled-export-job", "$0", "@3", "%7",
+		"feat/7f3a1c2e-add-a-scheduled-export-job",
 		// And the field that has nothing in it yet: this task's agent has
 		// reported no checks, so the panel says what would produce some rather
 		// than leaving the column blank.
@@ -188,17 +189,16 @@ func TestTheTaskPanelSaysWhatItIsWaitingOn(t *testing.T) {
 // says so, and says enough to be acted on.
 //
 // The identity is what a user needs to inspect or clean up the container
-// themselves; the user is the boundary the security model describes, and a
-// boundary nobody can see is one nobody can check.
+// themselves, and it is the one field of the environment section with a use the
+// tmux ids lacked: a name typed into a tool the user already has on the trusted
+// host. The rest of that section said the same thing on every task (ADR-086).
 func TestTheTaskPanelShowsWhereTheAgentRuns(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask())
 	model.selected = liveTask().ID
 	model.screen = screenTask
 
 	view := model.taskPanel()
-	for _, want := range []string{
-		"feat-agent-example-7f3a1c2e", "dev", "coder", "no Docker access", "container_name",
-	} {
+	for _, want := range []string{"claude in devcontainer", "feat-agent-example-7f3a1c2e"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the task panel does not show %q:\n%s", want, view)
 		}

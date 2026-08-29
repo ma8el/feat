@@ -137,27 +137,29 @@ func (m Model) taskPanel() string {
 	}
 
 	var out strings.Builder
-	out.WriteString(headingStyle.Render(task.Key+"  "+task.Title) + "\n")
-	out.WriteString(mutedStyle.Render(task.ProjectID+" · "+task.ID) + "\n\n")
+	out.WriteString(headingStyle.Render(task.Key+"  "+task.Title) + "\n\n")
 
 	// What the last reconciliation pass found about this task, before the fields
 	// it contradicts.
 	out.WriteString(m.recoveryBlock(m.recoveryFindings(task)))
 
+	// Six lines and what only they can say. Attention, agent state as a bare
+	// word, elapsed time and the task's identifiers were all four cells to the
+	// left in the rail, and the runtime's detail is a whole tab; a panel that
+	// repeated them was thirty-five lines before its brief began (ADR-086).
 	out.WriteString(field("workflow", task.Workflow))
 	out.WriteString(failureBlock(task))
-	out.WriteString(field("attention", attentionState(task)))
 	out.WriteString(field("agent", agentDetail(task)))
 	// The runtime field carries the offer to stop services after an approval,
-	// which is why the review section below does not repeat it.
+	// which is why the review lines below do not repeat it.
 	out.WriteString(field("runtime", runtimeDetail(task)))
-	out.WriteString(field("resources", m.resourceDetail(task)))
-	out.WriteString(field("elapsed", elapsed(task, m.now())))
-	out.WriteString(field("source", sourceDetail(task.Source)))
-
-	out.WriteString("\n" + headingStyle.Render("review") + "\n")
-	out.WriteString(field("decision", reviewDecision(task)))
 	out.WriteString(field("checks", m.checksField(task)))
+	out.WriteString(field("resources", m.resourceDetail(task)))
+
+	// What the review found, under the fields and without a heading. The heading
+	// stood over one field and a handful of sentences, and the field it named is
+	// a fact about the task like the six above it.
+	out.WriteString("\n" + field("decision", reviewDecision(task)))
 	if summary := m.review.status.Review.Summary; summary != "" {
 		out.WriteString(field("the agent says", summary))
 	}
@@ -197,24 +199,13 @@ func (m Model) taskPanel() string {
 
 	out.WriteString(publicationBlock(task))
 
-	if task.Session != nil {
-		out.WriteString("\n" + headingStyle.Render("terminal") + "\n")
-		// Named rather than run together. These are three different kinds of
-		// identifier and a reader who needs one — to run a tmux command against
-		// the task themselves — cannot tell them apart from their order.
-		out.WriteString(field("tmux", mutedStyle.Render("session ")+task.Session.Tmux.Session+
-			mutedStyle.Render("  window ")+task.Session.Tmux.Window+
-			mutedStyle.Render("  pane ")+task.Session.Tmux.Pane))
-		out.WriteString(field("socket", task.Session.Tmux.Socket))
-		if note := terminalNote(task); note != "" {
-			out.WriteString(mutedStyle.Render("  "+note) + "\n")
-		}
-	}
-
-	if task.Session != nil && task.Session.Execution != nil {
-		out.WriteString("\n" + headingStyle.Render("environment") + "\n")
-		out.WriteString(executionDetail(*task.Session.Execution))
-	}
+	// The tmux target is not here. The socket is one value across every session
+	// this machine has ever run, being the runtime path by construction, and the
+	// other three are object ids chosen because they are stable identity rather
+	// than something a reader recognises. The one real use is running a tmux
+	// command by hand, which `a` and `feat attach` serve — and in the one
+	// situation where going around Feat makes sense, the daemon being down, this
+	// panel is not on screen while `task.json` still holds them (ADR-086).
 
 	out.WriteString("\n" + headingStyle.Render("brief") + "\n")
 	out.WriteString(indent(task.Brief, "  ") + "\n")

@@ -299,7 +299,9 @@ Repositories, runtime state, and verification state are required of the selected
 
 ### FR-UI-003 — Task detail
 
-Task detail MUST expose the task brief, repository/base mapping, tmux target, runtime services, completion/check summary, and actions. It need not reproduce the last Claude response.
+The dashboard MUST expose, for the selected task and across its tabs, the task brief, repository/base mapping, tmux target, runtime services, completion/check summary, and actions. It need not reproduce the last Claude response.
+
+Across its tabs rather than on one panel, and shown rather than necessarily named: the tmux target is satisfied by the terminal tab drawing that session, runtime services by the runtime tab, and the brief by whichever tab holds it. A panel that also carried each of them was four of seven fields the task list already showed and about thirty-five lines before its brief began. This is the move FR-UI-002 made in ADR-041 and the overview table in ADR-043; see ADR-086.
 
 A failed task MUST show why it failed, beside the state that says it did. The
 reason is recorded on the task when it enters `failed` and is shown as it was
