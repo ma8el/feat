@@ -158,6 +158,27 @@ type LaunchDraft struct {
 	// changed since then produces a different fingerprint and the launch is
 	// refused, so what is created is what was displayed (ADR-031).
 	Fingerprint string `json:"fingerprint"`
+	// PlanFirst asks the task's agent to plan its work and wait for the user's
+	// approval before it changes anything.
+	//
+	// It travels with the confirmation rather than with the draft. The
+	// fingerprint defends against a value that can drift between the screen the
+	// user read and the key they pressed — a resolved base, a proposed branch —
+	// and a decision carried in the request that confirms cannot drift, so it is
+	// deliberately not part of the digest.
+	PlanFirst bool `json:"plan_first,omitempty"`
+}
+
+// Confirmation is what a user confirmed a draft with.
+//
+// It is a value rather than a bare fingerprint because confirming carries the
+// decisions the review screen collects as well as the identity of the plan it
+// displayed, and this is where the next one goes when there is one.
+type Confirmation struct {
+	// Fingerprint identifies the plan that was displayed.
+	Fingerprint string
+	// PlanFirst asks the task's agent to plan before it acts.
+	PlanFirst bool
 }
 
 // DraftRequest is what the daemon needs to record a new draft.

@@ -40,7 +40,14 @@ func (t *Tmux) Socket() string { return t.socket }
 // EnsureTask creates a project session and task window when their stable
 // metadata is not already present. Repeating the request returns the existing
 // target, regardless of names or indexes the user has changed.
-func (t *Tmux) EnsureTask(ctx context.Context, project domain.ProjectID, task domain.TaskID, command CommandSpec) (Terminal, error) {
+//
+// The size is the one a new window is given before its program starts, and is
+// the caller's best account of the region the terminal will be drawn into. It
+// is ignored when a terminal already exists: that window has a size, and a
+// program is running in it that would be told to reflow for no reason.
+func (t *Tmux) EnsureTask(
+	ctx context.Context, project domain.ProjectID, task domain.TaskID, command CommandSpec, size Size,
+) (Terminal, error) {
 	if err := project.Validate(); err != nil {
 		return Terminal{}, err
 	}
@@ -76,9 +83,9 @@ func (t *Tmux) EnsureTask(ctx context.Context, project domain.ProjectID, task do
 
 	var created domain.TmuxTarget
 	if session == "" {
-		created, err = t.createSession(ctx, project, task, command)
+		created, err = t.createSession(ctx, project, task, command, size)
 	} else {
-		created, err = t.createWindow(ctx, session, project, task, command)
+		created, err = t.createWindow(ctx, session, project, task, command, size)
 	}
 	if err != nil {
 		return Terminal{}, err
@@ -294,7 +301,9 @@ func (t *Tmux) RemoveTask(ctx context.Context, project domain.ProjectID, task do
 	return true, nil
 }
 
-func (t *Tmux) createSession(ctx context.Context, project domain.ProjectID, task domain.TaskID, command CommandSpec) (domain.TmuxTarget, error) {
+func (t *Tmux) createSession(
+	ctx context.Context, project domain.ProjectID, task domain.TaskID, command CommandSpec, size Size,
+) (domain.TmuxTarget, error) {
 	output, err := t.runner.Run(ctx, t.socket, "new-session", "-d", "-P", "-F", createFormat,
 		"-n", "task-"+task.Key().String(), "-c", command.Directory)
 	if err != nil {
@@ -314,13 +323,19 @@ func (t *Tmux) createSession(ctx context.Context, project domain.ProjectID, task
 	if err := t.tagSession(ctx, created.Session, project); err != nil {
 		return domain.TmuxTarget{}, errors.Join(err, t.kill(ctx, "kill-session", created.Session))
 	}
+	if err := t.sizeBeforeStart(ctx, created.Window, size); err != nil {
+		return domain.TmuxTarget{}, errors.Join(err, t.kill(ctx, "kill-session", created.Session))
+	}
 	if err := t.start(ctx, created.Pane, command); err != nil {
 		return domain.TmuxTarget{}, errors.Join(err, t.kill(ctx, "kill-session", created.Session))
 	}
 	return created, nil
 }
 
-func (t *Tmux) createWindow(ctx context.Context, session string, project domain.ProjectID, task domain.TaskID, command CommandSpec) (domain.TmuxTarget, error) {
+func (t *Tmux) createWindow(
+	ctx context.Context, session string, project domain.ProjectID, task domain.TaskID,
+	command CommandSpec, size Size,
+) (domain.TmuxTarget, error) {
 	output, err := t.runner.Run(ctx, t.socket, "new-window", "-d", "-P", "-F", createFormat,
 		"-t", session, "-n", "task-"+task.Key().String(), "-c", command.Directory)
 	if err != nil {
@@ -343,10 +358,46 @@ func (t *Tmux) createWindow(ctx context.Context, session string, project domain.
 	if err := t.tagWindow(ctx, created.Window, project, task); err != nil {
 		return domain.TmuxTarget{}, errors.Join(err, t.kill(ctx, "kill-window", created.Window))
 	}
+	if err := t.sizeBeforeStart(ctx, created.Window, size); err != nil {
+		return domain.TmuxTarget{}, errors.Join(err, t.kill(ctx, "kill-window", created.Window))
+	}
 	if err := t.start(ctx, created.Pane, command); err != nil {
 		return domain.TmuxTarget{}, errors.Join(err, t.kill(ctx, "kill-window", created.Window))
 	}
 	return created, nil
+}
+
+// sizeBeforeStart gives a window the size its program will be drawn at, while
+// there is still no program in it to care.
+//
+// tmux makes a window nobody is attached to 80x24, and Feat used to leave it
+// there until the dashboard drew that task for the first time. Everything the
+// agent printed in between — the provider's banner, its "do you trust this
+// folder" prompt, the first turn of work — was therefore written into a
+// 80-column terminal, and a terminal's committed lines do not reflow when it is
+// resized afterwards. They stay 80 columns wide in a region three times that
+// for as long as the task is kept.
+//
+// The later resize is also the only correction there was, which makes it a
+// single delivery of SIGWINCH that has to land while the agent happens to be
+// listening. Observed on this machine against tmux 3.7b: a task window read
+// 171x49 while the agent inside it was still drawing 80-cell rules, and a
+// resize to 170 and back to 171 straightened it at once. Sizing here means the
+// common case asks for no signal at all — the dashboard's first frame finds the
+// window already the size it wanted and changes nothing.
+//
+// Only a window Feat has this moment created is sized here. An existing one may
+// have a client attached, and resizing that window would resize the terminal
+// somebody is sitting in.
+//
+// new-window takes no -x/-y, so this is a resize rather than an argument, and
+// it is the same resize the renderer performs: it pins the window, and
+// ReleaseWindowSize is what takes the pin off again for a native attach.
+func (t *Tmux) sizeBeforeStart(ctx context.Context, window string, size Size) error {
+	if !size.Known() {
+		return nil
+	}
+	return t.resizeWindow(ctx, window, size.Width, size.Height)
 }
 
 // start replaces a tagged pane's holder shell with the caller's command.

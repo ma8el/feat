@@ -295,6 +295,7 @@ func (p prepareModel) reviewView() string {
 	out.WriteString("\n\n")
 
 	out.WriteString("  " + fieldStyle.Render("agent") + agentProfile(task) + "\n")
+	out.WriteString("  " + fieldStyle.Render("start") + startProfile(p.planFirst) + "\n")
 	out.WriteString("  " + fieldStyle.Render("runtime") +
 		"absent  " + mutedStyle.Render("(start application services yourself, once the task is running)") + "\n")
 
@@ -327,6 +328,31 @@ func agentProfile(task api.Task) string {
 	}
 	return "a Claude session in the primary worktree  " +
 		mutedStyle.Render("(host execution, with no container boundary around the agent)")
+}
+
+// startProfile describes how the session begins, and names the key that changes
+// it.
+//
+// Both states are spelled out rather than one of them being an unlabelled
+// default, because this line is a promise about what the agent will do to the
+// user's repositories in the next few seconds. A user who reads "straight into
+// the work" and meant to plan can see that they did not press the key.
+func startProfile(planFirst bool) string {
+	note := mutedStyle.Render("(p — " + startAction(planFirst) + ")")
+	if planFirst {
+		return "plan first, and wait for your approval  " + note
+	}
+	return "straight into the work  " + note
+}
+
+// startAction is what pressing p would do, which is the name of the other
+// state. The line above and the footer hint read it from here so that the two
+// cannot come to disagree about what the key does.
+func startAction(planFirst bool) string {
+	if planFirst {
+		return "start straight in"
+	}
+	return "plan first"
 }
 
 func (p prepareModel) hints() string {
@@ -365,8 +391,11 @@ func (p prepareModel) hints() string {
 			keyHint("ctrl+c", "cancel"),
 		)
 	case stepReview:
+		// The p hint is named for what pressing it would do rather than for the
+		// state it leaves, which is how every other hint on this screen reads.
 		return keyHints(
 			keyHint("enter", "confirm and launch"),
+			keyHint("p", startAction(p.planFirst)),
 			keyHint("esc", "back"),
 			keyHint("x", "discard draft"),
 		)

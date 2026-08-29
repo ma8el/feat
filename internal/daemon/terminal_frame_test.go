@@ -61,6 +61,46 @@ func TestAFrameIsSizedBeforeItIsCaptured(t *testing.T) {
 	}
 }
 
+// TestANewTaskWindowIsCreatedAtTheSizeTheDashboardDraws is the defect a dogfood
+// screenshot showed: an agent's whole first screen — the provider's banner, its
+// "do you trust this folder" prompt, the first turn of work — wrapped at 80
+// columns inside a region more than twice that wide, and staying there, because
+// a terminal's committed lines do not reflow when it is resized afterwards.
+//
+// The window was made at tmux's default and sized only when the dashboard first
+// drew it, which was already too late. The frame is the one place a client's
+// dimensions reach the daemon, so it is where the next task's window learns
+// them.
+func TestANewTaskWindowIsCreatedAtTheSizeTheDashboardDraws(t *testing.T) {
+	service, arranged, server := launched(t)
+
+	// The first task of a daemon that has drawn nothing gets tmux's own default,
+	// because there is nothing better to give it and a guess would be worse.
+	first, err := service.Task(context.Background(), arranged.ref.Task)
+	if err != nil {
+		t.Fatalf("reading the first task: %v", err)
+	}
+	if size, sized := server.PaneSize(first.Session.Tmux.Window); sized {
+		t.Errorf("the first window was sized to %v before any client had drawn one", size)
+	}
+
+	if _, err := service.TerminalFrame(context.Background(), arranged.ref.Task,
+		api.TerminalView{Width: 171, Height: 49}); err != nil {
+		t.Fatalf("TerminalFrame: %v", err)
+	}
+
+	second, err := service.PrepareTerminal(context.Background(),
+		alsoPrepared(t, service, "Add a health check"), placeholder(arranged.home))
+	if err != nil {
+		t.Fatalf("preparing the second terminal: %v", err)
+	}
+	size, sized := server.PaneSize(second.Session.Tmux.Window)
+	if !sized || size != [2]int{171, 49} {
+		t.Errorf("the second task's window is %v (sized: %t), want the 171x49 the dashboard draws",
+			size, sized)
+	}
+}
+
 // TestInputReachesTheTaskOwnPane checks that text and keys arrive in the order
 // that makes them mean what the user meant: the Enter has to follow what it
 // submits.

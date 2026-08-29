@@ -19,6 +19,13 @@ import "fmt"
 // --settings, --append-system-prompt-file, and the initial prompt argument.
 // --append-system-prompt-file is registered but not listed in the top-level
 // help, which is the one flag here worth re-checking when this range moves.
+//
+// --permission-mode was read later, from 2.1.236, along with the rest of that
+// list: every flag above is still present and --resume still takes an optional
+// value. The patch below is deliberately not moved for it, because the hook
+// payloads it records were read from 2.1.220 and nothing has re-read them.
+// `--permission-mode <mode>` takes exactly one value, out of acceptEdits, auto,
+// bypassPermissions, manual, dontAsk, and plan.
 const (
 	// VerifiedMajor and VerifiedMinor are the release line this adapter was
 	// checked against.

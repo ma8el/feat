@@ -34,10 +34,12 @@ type fakeBackend struct {
 	projects []api.Project
 	tasks    []api.Task
 
-	created   []api.CreateDraft
-	updated   []api.UpdateDraft
-	planned   int
-	launched  []string
+	created []api.CreateDraft
+	updated []api.UpdateDraft
+	planned int
+	// launched records every confirmation a screen sent, so a test can assert
+	// that what reached the daemon is what the review step displayed.
+	launched  []api.Confirmation
 	cancelled []string
 	attached  []string
 	shells    []string
@@ -292,16 +294,18 @@ func (f *fakeBackend) PlanDraft(_ context.Context, id string) (api.DraftPlan, er
 	}, nil
 }
 
-func (f *fakeBackend) LaunchDraft(_ context.Context, id, fingerprint string) (api.Task, error) {
+func (f *fakeBackend) LaunchDraft(
+	_ context.Context, id string, confirmation api.Confirmation,
+) (api.Task, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.launchErr != nil {
 		return api.Task{}, f.launchErr
 	}
-	if fingerprint != f.fingerprint {
+	if confirmation.Fingerprint != f.fingerprint {
 		return api.Task{}, errors.New("the draft changed after the plan you confirmed was displayed")
 	}
-	f.launched = append(f.launched, fingerprint)
+	f.launched = append(f.launched, confirmation)
 	return api.Task{ID: id, Key: "2c4e6a80", Title: "Add a rate limit", Workflow: "preparing"}, nil
 }
 
@@ -667,8 +671,16 @@ func key(name string) tea.KeyMsg {
 // what keeps Enter-Enter the preparation this screen has always had.
 func writing(t *testing.T, backend *fakeBackend) prepareModel {
 	t.Helper()
+	return writingFrom(t, backend, prepareStart{})
+}
 
-	model := newPrepare(backend, prepareStart{project: "example", source: api.Source{Kind: "prompt"}})
+// writingFrom is writing for a run that opened with flags, so that a test can
+// arrange one without a second copy of the walk to the brief.
+func writingFrom(t *testing.T, backend *fakeBackend, start prepareStart) prepareModel {
+	t.Helper()
+
+	start.project, start.source = "example", api.Source{Kind: "prompt"}
+	model := newPrepare(backend, start)
 	model = settle(t, model, model.Init())
 	if model.step != stepSource {
 		t.Fatalf("step = %d, want the source question with one project registered: %v",
@@ -685,8 +697,14 @@ func writing(t *testing.T, backend *fakeBackend) prepareModel {
 // prepared returns a preparation model that has reached the review screen.
 func prepared(t *testing.T, backend *fakeBackend) prepareModel {
 	t.Helper()
+	return preparedFrom(t, backend, prepareStart{})
+}
 
-	model := writing(t, backend)
+// preparedFrom is prepared for a run that opened with flags.
+func preparedFrom(t *testing.T, backend *fakeBackend, start prepareStart) prepareModel {
+	t.Helper()
+
+	model := writingFrom(t, backend, start)
 	model.title.SetValue("Add a rate limit")
 	model.brief.SetValue("Add a rate limit to the public API.")
 
@@ -773,8 +791,133 @@ func TestConfirmingCarriesTheDisplayedFingerprint(t *testing.T) {
 	if message.err != nil {
 		t.Fatalf("confirming failed: %v", message.err)
 	}
-	if len(backend.launched) != 1 || backend.launched[0] != backend.fingerprint {
+	if len(backend.launched) != 1 || backend.launched[0].Fingerprint != backend.fingerprint {
 		t.Errorf("launched with %v, want the fingerprint the review screen displayed", backend.launched)
+	}
+}
+
+// TestTheStartModeTogglesWithoutAskingTheDaemon checks the key and what it
+// costs.
+//
+// It costs nothing, which is why the value travels with the confirmation rather
+// than with the draft: recording it on the draft would mean an update and a
+// re-plan, and a re-plan is a fetch and a base resolution in every repository —
+// seconds of spinner for a value that cannot drift underneath the screen
+// (ADR-031).
+func TestTheStartModeTogglesWithoutAskingTheDaemon(t *testing.T) {
+	backend := newFakeBackend()
+	model := prepared(t, backend)
+
+	if model.planFirst {
+		t.Error("preparation opened asking the agent to plan first without being told to")
+	}
+	opened := model.View(newActivity())
+	if !strings.Contains(opened, "straight into the work") {
+		t.Errorf("the review screen does not name the start mode:\n%s", opened)
+	}
+	// The footer names the key too. A screen whose only mention of p is a note
+	// beside one line is one a user has to notice rather than read.
+	if !strings.Contains(opened, "plan first") {
+		t.Errorf("the review screen does not offer p anywhere:\n%s", opened)
+	}
+
+	model = drive(t, model, key("p"))
+	if !model.planFirst {
+		t.Fatal("p did not turn the start mode on")
+	}
+	view := model.View(newActivity())
+	if !strings.Contains(view, "plan first, and wait for your approval") {
+		t.Errorf("the review screen does not name the start mode it is in:\n%s", view)
+	}
+	if strings.Contains(view, "straight into the work") {
+		t.Errorf("the review screen still names the mode it left:\n%s", view)
+	}
+	if !strings.Contains(view, "start straight in") {
+		t.Errorf("the review screen does not offer the way back:\n%s", view)
+	}
+
+	model = drive(t, model, key("p"))
+	if model.planFirst {
+		t.Error("p did not turn the start mode off again")
+	}
+
+	// Neither press asked the daemon anything, and neither created a task.
+	if backend.planned != 1 {
+		t.Errorf("the draft was resolved %d times, want the one resolution the user asked for", backend.planned)
+	}
+	if len(backend.updated) != 1 {
+		t.Errorf("the draft was updated %d times, want the one the selection produced", len(backend.updated))
+	}
+	if len(backend.launched) != 0 {
+		t.Error("pressing p launched a task")
+	}
+}
+
+// TestConfirmingSendsTheDisplayedStartMode is ADR-031's rule applied to the one
+// value on this screen the user changes rather than reads.
+func TestConfirmingSendsTheDisplayedStartMode(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		presses []tea.Msg
+		want    bool
+	}{
+		{name: "left alone", want: false},
+		{name: "turned on", presses: []tea.Msg{key("p")}, want: true},
+		{name: "turned on and off again", presses: []tea.Msg{key("p"), key("p")}, want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newFakeBackend()
+			model := drive(t, prepared(t, backend), test.presses...)
+
+			// What the screen says, and then what confirming sends. The two are
+			// the assertion: a launch that disagreed with the line the user just
+			// read is the failure this test exists for.
+			view := model.View(newActivity())
+			if displayed := strings.Contains(view, "plan first, and wait for your approval"); displayed != test.want {
+				t.Errorf("the review screen shows plan-first = %t, want %t:\n%s", displayed, test.want, view)
+			}
+
+			_, cmd := model.Update(key("enter"))
+			if message := runTo[preparedMsg](t, cmd); message.err != nil {
+				t.Fatalf("confirming failed: %v", message.err)
+			}
+			if len(backend.launched) != 1 {
+				t.Fatalf("the draft was launched %d times, want once", len(backend.launched))
+			}
+			if backend.launched[0].PlanFirst != test.want {
+				t.Errorf("launched with plan-first = %t, want the %t the screen displayed",
+					backend.launched[0].PlanFirst, test.want)
+			}
+		})
+	}
+}
+
+// TestThePlanFlagPresetsTheStartMode checks that `feat implement --plan` arrives
+// with the toggle already on.
+//
+// It presets rather than decides: the review step still appears and the key
+// still moves it, because nothing is created until the user confirms what is on
+// the screen (FR-TASK-003).
+func TestThePlanFlagPresetsTheStartMode(t *testing.T) {
+	backend := newFakeBackend()
+	model := preparedFrom(t, backend, prepareStart{planFirst: true})
+
+	if !model.planFirst {
+		t.Fatal("--plan did not preset the start mode")
+	}
+	if view := model.View(newActivity()); !strings.Contains(view, "plan first, and wait for your approval") {
+		t.Errorf("the review screen does not show the mode --plan asked for:\n%s", view)
+	}
+
+	// And it is still the user's to change.
+	if model = drive(t, model, key("p")); model.planFirst {
+		t.Error("p could not turn off a mode the flag preset")
+	}
+
+	// A run with no flag opens on the other state.
+	plain := prepared(t, newFakeBackend())
+	if plain.planFirst {
+		t.Error("a run with no --plan opened with the start mode on")
 	}
 }
 

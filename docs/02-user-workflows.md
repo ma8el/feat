@@ -68,6 +68,7 @@ Entry points:
 feat implement
 feat implement --file task.md
 feat implement --ticket ACME-14
+feat implement --plan          # arrive at the review step with plan-first already on
 n                              # the same preparation, from the dashboard
 ```
 
@@ -79,11 +80,11 @@ Flow:
 4. Feat asks which project repositories are part of the task and whether each is read-write, read-only, or omitted.
 5. Feat fetches configured remotes without mutating the user's normal checkout.
 6. Feat resolves the base commit for every selected repository.
-7. Feat proposes branch names, worktree paths, execution profile, and runtime profile.
+7. Feat proposes branch names, worktree paths, execution profile, runtime profile, and how the session starts: straight into the work, or planning first and waiting for the user's approval. `p` moves it, and both states are named on the screen. It costs no request, because the value travels with the confirmation rather than with the draft (ADR-085).
 8. Feat displays an editable final task brief.
 9. Nothing is created until the user confirms.
 10. The daemon creates task state, branches, worktrees, control workspace, tmux target, and the configured agent environment.
-11. Claude Code starts with the accepted task brief.
+11. Claude Code starts with the accepted task brief — and, where the user asked for it, in plan mode, so it investigates and proposes a plan before it edits anything. The plan is read and approved in the task's own terminal, between the user and the agent; Feat flags the task as needing input while it waits, and does nothing else. Resuming the session later never re-enters plan mode (FR-AGENT-014).
 12. The dashboard returns immediately so another task can be prepared.
 
 ## 3. Implement a ticket

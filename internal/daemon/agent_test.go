@@ -241,7 +241,7 @@ func launchWith(
 	if err != nil {
 		t.Fatalf("loading the planned draft: %v", err)
 	}
-	if _, err := service.LaunchDraft(context.Background(), task.ID, Fingerprint(task)); err != nil {
+	if _, err := service.LaunchDraft(context.Background(), task.ID, api.Confirmation{Fingerprint: Fingerprint(task)}); err != nil {
 		t.Fatalf("launching the draft: %v", err)
 	}
 
@@ -988,7 +988,7 @@ func TestAnAgentThatCouldNotStartPreventsLaunch(t *testing.T) {
 		t.Fatalf("loading the planned draft: %v", err)
 	}
 
-	_, err = service.LaunchDraft(context.Background(), task.ID, Fingerprint(task))
+	_, err = service.LaunchDraft(context.Background(), task.ID, api.Confirmation{Fingerprint: Fingerprint(task)})
 	if err == nil {
 		t.Fatal("the launch succeeded with no agent executable")
 	}

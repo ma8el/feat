@@ -20,6 +20,15 @@ const (
 	roleShell       = "shell"
 )
 
+// Size is a terminal's dimensions in cells.
+//
+// The zero value means the caller has nothing to go on and tmux's own choice
+// stands, which for a window nobody is attached to is 80x24.
+type Size struct{ Width, Height int }
+
+// Known reports a size there is any point applying.
+func (s Size) Known() bool { return s.Width > 0 && s.Height > 0 }
+
 // CommandSpec is one process a tmux pane starts.
 //
 // It is already resolved for a host or devcontainer execution environment.

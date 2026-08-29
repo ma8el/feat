@@ -98,7 +98,11 @@ func (s *service) PrepareTask(ctx context.Context, ref store.TaskRef, selection 
 	if err != nil {
 		return nil, err
 	}
-	prepared, _, err := s.confirmDraft(ctx, ref, plan.Fingerprint)
+	// The confirmation is the plan that was just resolved and nothing else. This
+	// path creates no agent session, so there is no launch for a plan-first mode
+	// to apply to and recording one would be a claim about a session nobody
+	// started.
+	prepared, _, err := s.confirmDraft(ctx, ref, api.Confirmation{Fingerprint: plan.Fingerprint})
 	return prepared, err
 }
 

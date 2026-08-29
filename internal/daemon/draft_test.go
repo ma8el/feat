@@ -59,7 +59,7 @@ func (d *drafting) launched(t *testing.T, title ...string) *domain.Task {
 	d.selectRepositories(t, draft.ID)
 	displayed := d.resolve(t, draft.ID)
 
-	task, err := d.service.LaunchDraft(context.Background(), draft.ID, displayed.Fingerprint)
+	task, err := d.service.LaunchDraft(context.Background(), draft.ID, api.Confirmation{Fingerprint: displayed.Fingerprint})
 	if err != nil {
 		t.Fatalf("launching %q: %v", name, err)
 	}
@@ -281,7 +281,7 @@ func TestConfirmingLaunchesTheDisplayedSnapshot(t *testing.T) {
 	const moved = "aaaabbbbccccddddeeeeffff00001111aaaabbbb"
 	arranged.git.resolveTo(moved)
 
-	launched, err := arranged.service.LaunchDraft(context.Background(), draft.ID, displayed.Fingerprint)
+	launched, err := arranged.service.LaunchDraft(context.Background(), draft.ID, api.Confirmation{Fingerprint: displayed.Fingerprint})
 	if err != nil {
 		t.Fatalf("LaunchDraft: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestADraftThatChangedAfterTheDisplayedPlanIsRefused(t *testing.T) {
 	}
 
 	before := len(arranged.git.vectors())
-	_, err := arranged.service.LaunchDraft(context.Background(), draft.ID, displayed.Fingerprint)
+	_, err := arranged.service.LaunchDraft(context.Background(), draft.ID, api.Confirmation{Fingerprint: displayed.Fingerprint})
 	if err == nil {
 		t.Fatal("a draft that changed after its plan was displayed was launched anyway")
 	}
@@ -369,8 +369,96 @@ func TestADraftThatChangedAfterTheDisplayedPlanIsRefused(t *testing.T) {
 
 	// Reading the review screen again is what makes the confirmation valid.
 	current := arranged.resolve(t, draft.ID)
-	if _, err := arranged.service.LaunchDraft(context.Background(), draft.ID, current.Fingerprint); err != nil {
+	if _, err := arranged.service.LaunchDraft(context.Background(), draft.ID, api.Confirmation{Fingerprint: current.Fingerprint}); err != nil {
 		t.Fatalf("launching the draft the user has now read: %v", err)
+	}
+}
+
+// TestTheConfirmationRecordsThePlanFirstMode checks that the decision the
+// review screen collected survives the launch that consumes it.
+//
+// It is written down rather than passed straight through because it is applied
+// after the task has left draft: confirmation creates the worktrees, the session
+// is built afterwards, and a failure between the two leaves a failed task the
+// workflow resumes from. A retry reads this record, not the request that started
+// the first attempt (plan, record, then apply).
+func TestTheConfirmationRecordsThePlanFirstMode(t *testing.T) {
+	arranged := arrangeDrafting(t)
+
+	draft := arranged.draft(t, "Add a rate limit")
+	arranged.selectRepositories(t, draft.ID)
+	displayed := arranged.resolve(t, draft.ID)
+
+	launched, err := arranged.service.LaunchDraft(context.Background(), draft.ID,
+		api.Confirmation{Fingerprint: displayed.Fingerprint, PlanFirst: true})
+	if err != nil {
+		t.Fatalf("LaunchDraft: %v", err)
+	}
+	if !launched.PlanFirst {
+		t.Error("the launched task does not record the plan-first mode it was confirmed with")
+	}
+	if stored := arranged.reload(t, draft.ID); !stored.PlanFirst {
+		t.Error("the stored task does not record the plan-first mode it was confirmed with")
+	}
+}
+
+// TestALaunchThatAsksForNoPlanRecordsNothing keeps the absent form absent, so
+// that a snapshot this build writes stays readable by the build before it.
+func TestALaunchThatAsksForNoPlanRecordsNothing(t *testing.T) {
+	arranged := arrangeDrafting(t)
+
+	draft := arranged.draft(t, "Add a rate limit")
+	arranged.selectRepositories(t, draft.ID)
+	displayed := arranged.resolve(t, draft.ID)
+
+	launched, err := arranged.service.LaunchDraft(context.Background(), draft.ID,
+		api.Confirmation{Fingerprint: displayed.Fingerprint})
+	if err != nil {
+		t.Fatalf("LaunchDraft: %v", err)
+	}
+	if launched.PlanFirst {
+		t.Error("a task nobody asked to plan first was launched in plan-first mode")
+	}
+
+	snapshot, err := os.ReadFile(filepath.Join(arranged.layout.State, "projects", "app",
+		"tasks", draft.ID.String(), "task.json"))
+	if err != nil {
+		t.Fatalf("reading the task snapshot: %v", err)
+	}
+	if strings.Contains(string(snapshot), "plan_first") {
+		t.Errorf("the snapshot of a task nobody asked to plan first names the mode: %s", snapshot)
+	}
+}
+
+// TestThePlanFirstModeIsNotInTheFingerprint is the reason the mode travels with
+// the confirmation rather than with the draft.
+//
+// The fingerprint defends against values that can drift underneath the screen —
+// a fetch between the plan a user reads and the key they press moves a
+// remote-tracking ref (ADR-031). A decision carried in the request that confirms
+// cannot drift, and covering it would refuse a plan that was resolved before the
+// user made their mind up.
+func TestThePlanFirstModeIsNotInTheFingerprint(t *testing.T) {
+	arranged := arrangeDrafting(t)
+
+	draft := arranged.draft(t, "Add a rate limit")
+	arranged.selectRepositories(t, draft.ID)
+	displayed := arranged.resolve(t, draft.ID)
+
+	resolved := arranged.reload(t, draft.ID)
+	before := Fingerprint(resolved)
+	if err := resolved.SetPlanFirst(true, arranged.now); err != nil {
+		t.Fatalf("asking the draft to plan first: %v", err)
+	}
+	if after := Fingerprint(resolved); after != before {
+		t.Errorf("the digest changed with the plan-first mode:\n before: %s\n  after: %s", before, after)
+	}
+
+	// And the fingerprint the screen displayed still confirms the launch that
+	// asks for the mode.
+	if _, err := arranged.service.LaunchDraft(context.Background(), draft.ID,
+		api.Confirmation{Fingerprint: displayed.Fingerprint, PlanFirst: true}); err != nil {
+		t.Fatalf("launching with the fingerprint the review screen displayed: %v", err)
 	}
 }
 
@@ -425,7 +513,7 @@ func TestSeveralDraftsAndLiveTasksCoexist(t *testing.T) {
 		arranged.selectRepositories(t, draft.ID)
 		plan := arranged.resolve(t, draft.ID)
 
-		task, err := arranged.service.LaunchDraft(ctx, draft.ID, plan.Fingerprint)
+		task, err := arranged.service.LaunchDraft(ctx, draft.ID, api.Confirmation{Fingerprint: plan.Fingerprint})
 		if err != nil {
 			t.Fatalf("launching %q: %v", title, err)
 		}
@@ -549,7 +637,7 @@ func TestAnUnresolvedDraftCannotBeLaunched(t *testing.T) {
 	draft := arranged.draft(t, "Add a rate limit")
 	arranged.selectRepositories(t, draft.ID)
 
-	_, err := arranged.service.LaunchDraft(context.Background(), draft.ID, Fingerprint(arranged.reload(t, draft.ID)))
+	_, err := arranged.service.LaunchDraft(context.Background(), draft.ID, api.Confirmation{Fingerprint: Fingerprint(arranged.reload(t, draft.ID))})
 	if err == nil {
 		t.Fatal("an unresolved draft was launched")
 	}

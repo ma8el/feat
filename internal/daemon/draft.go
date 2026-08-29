@@ -226,17 +226,23 @@ func (s *service) planDraft(ctx context.Context, ref store.TaskRef) (api.Resolve
 
 // LaunchDraft confirms a draft and creates what was displayed.
 //
-// The fingerprint is the confirmation. A draft that was edited or resolved again
-// since the user read it produces a different one, and the launch is refused
-// rather than silently applied: between a displayed plan and a pressed key, a
-// fetch is enough to move a remote-tracking ref, and the task would then start
-// from a commit nobody was shown (ADR-031).
+// The confirmation carries the fingerprint of the plan the user read. A draft
+// that was edited or resolved again since then produces a different one, and the
+// launch is refused rather than silently applied: between a displayed plan and a
+// pressed key, a fetch is enough to move a remote-tracking ref, and the task
+// would then start from a commit nobody was shown (ADR-031).
+//
+// It also carries the decisions the review screen collects, which the
+// fingerprint deliberately does not cover: a value that arrives in the request
+// that confirms cannot have drifted since it was displayed.
 //
 // What follows is ADR-029's order, with the confirmation in front of it: the
 // plan is already recorded, so every path and branch that can exist afterwards
 // is written down before anything is created, and a failure part way through
 // leaves the task failed with a record naming a superset of what exists.
-func (s *service) LaunchDraft(ctx context.Context, id domain.TaskID, fingerprint string) (*domain.Task, error) {
+func (s *service) LaunchDraft(
+	ctx context.Context, id domain.TaskID, confirmation api.Confirmation,
+) (*domain.Task, error) {
 	// A launch that has to create a container is not a request that answers in
 	// an ordinary request's budget, and the day it does not is the day the
 	// project's own Compose file changed and the service has to be recreated.
@@ -249,7 +255,7 @@ func (s *service) LaunchDraft(ctx context.Context, id domain.TaskID, fingerprint
 		return nil, err
 	}
 
-	task, cfg, err := s.confirmDraft(ctx, ref, fingerprint)
+	task, cfg, err := s.confirmDraft(ctx, ref, confirmation)
 	if err != nil {
 		return task, err
 	}
@@ -273,7 +279,7 @@ func (s *service) LaunchDraft(ctx context.Context, id domain.TaskID, fingerprint
 // It is the half of a launch that PrepareTask also performs, so that the
 // ordering the recoverability criterion rests on has one implementation.
 func (s *service) confirmDraft(
-	ctx context.Context, ref store.TaskRef, fingerprint string,
+	ctx context.Context, ref store.TaskRef, confirmation api.Confirmation,
 ) (*domain.Task, *config.Config, error) {
 	task, cfg, err := s.loadDraft(ctx, ref)
 	if err != nil {
@@ -294,7 +300,7 @@ func (s *service) confirmDraft(
 				api.ErrInvalid, task.ID, binding.RepositoryID)
 		}
 	}
-	if current := Fingerprint(task); current != fingerprint {
+	if current := Fingerprint(task); current != confirmation.Fingerprint {
 		return nil, nil, fmt.Errorf(
 			"%w: task %s changed after the plan you confirmed was displayed; resolve the draft again and review it before confirming",
 			api.ErrInvalid, task.ID)
@@ -305,6 +311,15 @@ func (s *service) confirmDraft(
 		return nil, nil, fmt.Errorf("%w: %w", api.ErrInvalid, err)
 	}
 
+	// Written down before the task leaves draft, and therefore before anything
+	// is created. The mode is consumed later, when the session is built, and a
+	// launch that fails between the two leaves a failed task the workflow
+	// resumes from — so the retry reads a record rather than a request that is
+	// long gone (CLAUDE.md: plan, record, then apply). The transition below is
+	// what persists it, in the same write that leaves draft.
+	if err := task.SetPlanFirst(confirmation.PlanFirst, s.now()); err != nil {
+		return nil, nil, err
+	}
 	if err := s.transition(ctx, task, domain.WorkflowPreparing, "confirmed by the user"); err != nil {
 		return nil, nil, err
 	}
@@ -347,11 +362,18 @@ func (s *service) CancelDraft(ctx context.Context, id domain.TaskID) (*domain.Ta
 
 // Fingerprint identifies a task's frozen shape.
 //
-// It covers everything confirmation freezes: the brief the agent will receive,
-// and every repository's access, base, branch, and path. It is computed from the
-// recorded task rather than stored beside it, because two records of one fact
-// can disagree — the reason ADR-026 derives the task key from the task
-// identifier rather than storing both.
+// It covers everything confirmation freezes that could have drifted underneath
+// the screen: the brief the agent will receive, and every repository's access,
+// base, branch, and path. It is computed from the recorded task rather than
+// stored beside it, because two records of one fact can disagree — the reason
+// ADR-026 derives the task key from the task identifier rather than storing
+// both.
+//
+// A decision the confirmation itself carries is deliberately absent. The digest
+// exists because a fetch between a displayed plan and a pressed key can move a
+// ref; a value that arrives in the same request that confirms cannot move, so
+// covering it would defend against nothing and would refuse a plan resolved
+// before the user made up their mind.
 //
 // Fields are written with their lengths, so that no two different drafts can
 // produce the same input by moving a separator from one field into another.

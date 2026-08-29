@@ -173,6 +173,10 @@ type service struct {
 	// long as their work takes, and the terminal view is what a user watches
 	// while they run.
 	handovers *handovers
+	// viewport is the size the dashboard last drew a terminal at, which is the
+	// size a new task's window is created at. It sits beside handovers because
+	// both are what the render path knows and the rest of the daemon does not.
+	viewport *viewport
 	// report is the most recent reconciliation pass, which the local API serves
 	// and the dashboard shows. It is deliberately not persisted: it describes
 	// what was observed at one moment, and a stored copy would be read later as

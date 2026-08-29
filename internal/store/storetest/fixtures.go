@@ -152,6 +152,11 @@ func Task() *domain.Task {
 // the transition carried. The reason here is a real one, verbatim from a launch
 // refused by the mount rules, because a fixture with a tidy sentence in it would
 // not show what a panel has to render.
+//
+// It is also the fixture that carries the plan-first mode, because this is the
+// task the mode has to survive on: the value is recorded at confirmation and
+// read when the session is built, and a launch that failed between the two is
+// resumed by a retry that reads the record.
 func Failed() *domain.Task {
 	task, err := domain.NewTask(FailedID, ProjectID, "Add a rate limit",
 		domain.TaskSource{Kind: domain.SourcePrompt}, Origin)
@@ -166,6 +171,7 @@ func Failed() *domain.Task {
 		ContainerPath: "/src/core",
 	}, after(2)))
 	must(task.ResolveBase(PrimaryRepositoryID, "origin/main", PrimaryBaseCommit, after(3)))
+	must(task.SetPlanFirst(true, after(3)))
 
 	must(task.TransitionTo(domain.WorkflowPreparing, after(4)))
 	must(task.FailWith("task 5d9b0e14 cannot run its agent in service dev of feat-agent-example-5d9b0e14: "+

@@ -129,6 +129,12 @@ type prepareModel struct {
 	cursor    int
 	focus     int
 
+	// planFirst asks the task's agent to plan before it acts, and travels with
+	// the confirmation. It is local model state and never a request: a value the
+	// user just chose cannot drift underneath the screen, and a re-plan to record
+	// it would be a fetch and a base resolution in every repository.
+	planFirst bool
+
 	busy   bool
 	err    error
 	status string
@@ -169,9 +175,9 @@ type (
 
 // prepareStart is what a caller opens preparation with.
 //
-// It is a value rather than a list of arguments because the four are all
-// optional and all strings, and a call site that swapped two of them would
-// compile.
+// It is a value rather than a list of arguments because every field is
+// optional and most of them are strings, so a call site that swapped two of
+// them would compile.
 type prepareStart struct {
 	// project preselects a project, from --project.
 	project string
@@ -181,6 +187,8 @@ type prepareStart struct {
 	source api.Source
 	// ticket is the reference --ticket named.
 	ticket string
+	// planFirst presets the review step's start mode, from --plan.
+	planFirst bool
 }
 
 func newPrepare(backend Backend, start prepareStart) prepareModel {
@@ -205,14 +213,15 @@ func newPrepare(backend Backend, start prepareStart) prepareModel {
 	body.SetHeight(10)
 
 	model := prepareModel{
-		backend:  backend,
-		project:  start.project,
-		title:    title,
-		brief:    body,
-		path:     path,
-		source:   start.source,
-		imported: start.brief,
-		ticket:   start.ticket,
+		backend:   backend,
+		project:   start.project,
+		title:     title,
+		brief:     body,
+		path:      path,
+		source:    start.source,
+		imported:  start.brief,
+		ticket:    start.ticket,
+		planFirst: start.planFirst,
 		// --file was read before this screen opened and --ticket is looked up as
 		// soon as the project is known. Either way the question has an answer.
 		preselected: start.brief != "" || start.ticket != "",
@@ -1208,6 +1217,13 @@ func (p prepareModel) reviewKey(key tea.KeyMsg) (prepareModel, tea.Cmd) {
 	switch key.String() {
 	case "enter", "ctrl+s":
 		return p.confirm()
+	case "p":
+		// No request. The value travels with the confirmation, so nothing on the
+		// daemon has to know it before then — and re-resolving to record it would
+		// put a fetch and a base resolution in every repository behind a key that
+		// changed nothing about where the task starts (ADR-031).
+		p.planFirst = !p.planFirst
+		return p, nil
 	case "x":
 		return p, p.abandon()
 	}
@@ -1218,7 +1234,9 @@ func (p prepareModel) reviewKey(key tea.KeyMsg) (prepareModel, tea.Cmd) {
 //
 // The fingerprint of the plan on screen goes with the request. A draft that
 // changed since it was displayed produces a different one and the daemon
-// refuses, so what is created is what the user read (ADR-031).
+// refuses, so what is created is what the user read (ADR-031). The review step's
+// own answers go with it in the same request, so what was displayed is what is
+// sent.
 func (p prepareModel) confirm() (prepareModel, tea.Cmd) {
 	if p.plan == nil || p.draft == nil {
 		p.err = errors.New("resolve the draft before confirming it")
@@ -1228,9 +1246,10 @@ func (p prepareModel) confirm() (prepareModel, tea.Cmd) {
 	p.busy = true
 	p.status = "creating worktrees and the task terminal…"
 
-	backend, id, fingerprint := p.backend, p.draft.ID, p.plan.Fingerprint
+	backend, id := p.backend, p.draft.ID
+	confirmation := api.Confirmation{Fingerprint: p.plan.Fingerprint, PlanFirst: p.planFirst}
 	return p, func() tea.Msg {
-		task, err := backend.LaunchDraft(context.Background(), id, fingerprint)
+		task, err := backend.LaunchDraft(context.Background(), id, confirmation)
 		if err != nil {
 			return preparedMsg{err: err}
 		}

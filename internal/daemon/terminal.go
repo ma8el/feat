@@ -146,16 +146,23 @@ func (s *service) ensureTerminal(
 // when there is no terminal to restart, because a computer that rebooted took
 // the tmux server with it and a resume then has to make the terminal as well as
 // the session.
+//
+// A window this creates is made at the size the dashboard last drew a terminal
+// at, so that the agent's first output is wrapped at the width it will be read
+// at rather than at tmux's 80 columns (viewport, tmux.sizeBeforeStart). A
+// restart passes nothing: that window already exists, may have a client in it,
+// and is not Feat's to resize.
 func (s *service) ensureTmux(
 	ctx context.Context, task *domain.Task, plan launchPlan,
 ) (tmux.Terminal, error) {
+	size := s.viewport.size()
 	if !plan.restart {
-		return s.terminals.EnsureTask(ctx, task.ProjectID, task.ID, plan.command)
+		return s.terminals.EnsureTask(ctx, task.ProjectID, task.ID, plan.command, size)
 	}
 	if _, found, err := s.terminals.Find(ctx, task.ProjectID, task.ID); err == nil && found {
 		return s.terminals.Restart(ctx, task.ProjectID, task.ID, plan.command)
 	}
-	return s.terminals.EnsureTask(ctx, task.ProjectID, task.ID, plan.command)
+	return s.terminals.EnsureTask(ctx, task.ProjectID, task.ID, plan.command, size)
 }
 
 // OpenShell creates or finds the task's tagged shell pane.
@@ -286,6 +293,11 @@ func (s *service) TerminalFrame(ctx context.Context, id domain.TaskID, view api.
 	if err := view.Validate(); err != nil {
 		return api.TerminalFrame{}, err
 	}
+	// The one place a client's dimensions reach the daemon, and so the one place
+	// a task created later can learn them from. It is the region asked for rather
+	// than the window returned: a terminal a native client owns comes back at
+	// that client's size, and the next task's window belongs to this dashboard.
+	s.viewport.observe(tmux.Size{Width: view.Width, Height: view.Height})
 
 	// Held across the whole frame, and not only across the question it answers. A
 	// client that is handed this terminal while the render is deciding would

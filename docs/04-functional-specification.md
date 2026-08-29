@@ -187,6 +187,12 @@ A user MUST be able to stop the environment a task's agent runs in and to bring 
 
 Feat MUST NOT record an agent process as alive while the environment it runs in is observed not to be running. An environment that stopped without the user asking MUST be reported as a session failure, and what reconciliation recommends about such a task MUST be an action the product will accept (ADR-057).
 
+### FR-AGENT-014 — A launch-time agent mode applies to a launch, never to a resume
+
+A task MAY record a mode that changes how its agent session begins, chosen by the user before the task is created and frozen with the rest of the task's shape. Feat MUST apply such a mode to a launch that starts the agent from the task brief, and MUST NOT apply one to a session being resumed: a resumed session already holds the conversation the task has had, and re-entering it in a starting mode is indistinguishable from a correct resume while the agent re-does work the user has already approved (ADR-037, ADR-085). A launch that sends no initial prompt sends no launch-time mode either.
+
+An adapter whose provider cannot honour a recorded mode MUST fail the launch rather than start a session without it, because the user was shown a screen promising otherwise. Plan-first (ADR-085) is the first such mode.
+
 ## tmux execution
 
 ### FR-TMUX-001 — Dedicated server

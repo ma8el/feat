@@ -26,6 +26,17 @@ type Adapter interface {
 	// Prepare generates whatever the provider needs outside the repositories
 	// and returns how to launch it. It writes only into the host-only area of
 	// the control workspace it is given.
+	//
+	// A launch-time mode recorded on the task — Task.PlanFirst is the first —
+	// is applied to a launch and never to a resume. Re-applying one to a
+	// resumed session is a silent failure of the shape ADR-037 describes for
+	// Resume itself: the session comes back looking exactly right, and behaves
+	// as though the work the user already approved had never been agreed.
+	//
+	// An adapter whose provider has no such mode returns an error rather than
+	// launching a session that will not honour it. Feat has just shown the user
+	// a screen promising that it would, which is the same obligation ADR-037
+	// put on continuing a session.
 	Prepare(ctx context.Context, req PrepareRequest) (LaunchSpec, error)
 	// ParseEvent normalizes one provider-native control message. It reports
 	// false when the message carries a provider event this build does not act
@@ -90,7 +101,10 @@ func (o Output) Succeeded() bool { return o.ExitCode == 0 }
 // PrepareRequest is everything an adapter needs to generate a launch.
 type PrepareRequest struct {
 	// Task is the confirmed task. Its shape is frozen, so the brief here is the
-	// brief the user accepted.
+	// brief the user accepted, and so is every launch-time decision recorded
+	// beside it: an adapter reads Task.PlanFirst from here rather than being
+	// given a field of its own for it, because a second copy of one fact is a
+	// second source of truth for the same question.
 	Task *domain.Task
 	// Workspace says how the agent will see its own filesystem.
 	Workspace Workspace

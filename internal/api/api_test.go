@@ -55,6 +55,8 @@ type fakeService struct {
 	// selections records every cleanup selection the transport passed through,
 	// so a test can assert what reached the daemon rather than what was sent.
 	selections []CleanupSelection
+	// confirmation is what the last launch carried, for the same reason.
+	confirmation Confirmation
 	// views and inputs record what reached the terminal endpoints, so a test can
 	// assert on the request the daemon was given rather than on the one sent.
 	views  []TerminalView
@@ -648,14 +650,17 @@ func (f *fakeService) PlanDraft(ctx context.Context, id domain.TaskID) (Resolved
 	}, nil
 }
 
-func (f *fakeService) LaunchDraft(ctx context.Context, id domain.TaskID, fingerprint string) (*domain.Task, error) {
+func (f *fakeService) LaunchDraft(
+	ctx context.Context, id domain.TaskID, confirmation Confirmation,
+) (*domain.Task, error) {
 	draft, err := f.draft(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if fingerprint == "" {
+	if confirmation.Fingerprint == "" {
 		return nil, fmt.Errorf("%w: task %s changed after the plan you confirmed was displayed", ErrInvalid, id)
 	}
+	f.confirmation = confirmation
 	return draft, nil
 }
 
@@ -849,6 +854,44 @@ func TestLaunchingWithoutTheDisplayedPlanIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), "changed after the plan") {
 		t.Errorf("body = %s, want the reason the launch was refused", response.Body.String())
+	}
+}
+
+// TestLaunchCarriesThePlanFirstDecision checks that the confirmation reaching
+// the daemon is the one the body asked for.
+//
+// The mode is consumed once, at launch, so a transport that dropped it would
+// produce a task that started editing while the screen had promised a plan —
+// and nothing afterwards would say why.
+func TestLaunchCarriesThePlanFirstDecision(t *testing.T) {
+	const fingerprint = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0"
+
+	for _, test := range []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "asked for", body: `{"fingerprint":%q,"plan_first":true}`, want: true},
+		{name: "asked against", body: `{"fingerprint":%q,"plan_first":false}`, want: false},
+		{name: "not asked at all", body: `{"fingerprint":%q}`, want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service := newFakeService()
+			service.tasks = append(service.tasks, storetest.Draft())
+			handler := NewHandler(Options{Service: service})
+
+			response := requestBody(t, handler, http.MethodPost,
+				"/v1/task-drafts/"+storetest.DraftID.String()+"/launch",
+				fmt.Sprintf(test.body, fingerprint))
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200, body: %s", response.Code, response.Body.String())
+			}
+			want := Confirmation{Fingerprint: fingerprint, PlanFirst: test.want}
+			if service.confirmation != want {
+				t.Errorf("confirmation = %+v, want %+v", service.confirmation, want)
+			}
+		})
 	}
 }
 

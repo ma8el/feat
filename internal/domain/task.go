@@ -32,6 +32,15 @@ type Task struct {
 	Brief string
 	// Source records where the brief came from.
 	Source TaskSource
+	// PlanFirst asks the task's agent to plan its work and wait for the user's
+	// approval before it changes anything, rather than starting from the brief
+	// and editing.
+	//
+	// It is part of the shape a confirmation freezes, because it is consumed
+	// after the task has left draft: the launch that reads it can fail, and the
+	// retry that follows reads the record rather than the request that started
+	// the first attempt.
+	PlanFirst bool
 	// Workflow is the product-level state.
 	Workflow WorkflowState
 	// Attention records whether the user may need to intervene.
@@ -311,6 +320,18 @@ func (t *Task) SetBrief(brief string, now time.Time) error {
 		return err
 	}
 	t.Brief = brief
+	t.touch(now)
+	return nil
+}
+
+// SetPlanFirst records whether the task's agent is asked to plan before it
+// acts. Like the brief, it is part of a task's shape, so it is set while the
+// task is a draft and frozen with everything else the confirmation freezes.
+func (t *Task) SetPlanFirst(planFirst bool, now time.Time) error {
+	if err := t.requireDraft("plan-first mode"); err != nil {
+		return err
+	}
+	t.PlanFirst = planFirst
 	t.touch(now)
 	return nil
 }
@@ -714,7 +735,7 @@ func (t *Task) requireDraft(field string) error {
 	return &InvariantError{
 		Entity: "task",
 		ID:     t.ID.String(),
-		Rule:   "a task's title, brief, and repository selection are frozen when it leaves draft",
+		Rule:   "a task's title, brief, plan-first mode, and repository selection are frozen when it leaves draft",
 		Reason: "the task is " + string(t.Workflow) + " and its " + field + " can no longer change",
 	}
 }

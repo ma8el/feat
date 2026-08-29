@@ -215,6 +215,83 @@ func TestASnapshotWithoutAFailureIsNotACorruptOne(t *testing.T) {
 	}
 }
 
+// TestASnapshotWithoutAPlanFirstKeyIsNotAPlanningTask is the same compatibility
+// rule for the mode a task is launched in.
+//
+// It is worth its own test because the field is a boolean with no absent form:
+// a decoder that got it wrong would not fail, it would launch every task
+// written by an earlier build into plan mode, which is not what any of them was
+// confirmed as.
+func TestASnapshotWithoutAPlanFirstKeyIsNotAPlanningTask(t *testing.T) {
+	ctx := context.Background()
+	filestore := newStore(t)
+	tasks := filestore.Tasks()
+	fixture := storetest.Failed()
+
+	if !fixture.PlanFirst {
+		t.Fatal("the fixture no longer records a plan-first task, so this proves nothing")
+	}
+	if err := tasks.Save(ctx, fixture); err != nil {
+		t.Fatalf("saving the task: %v", err)
+	}
+	path := filepath.Join(filestore.Root(), projectsDir, storetest.ProjectID.String(),
+		tasksDir, storetest.FailedID.String(), taskFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the snapshot: %v", err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("decoding the snapshot: %v", err)
+	}
+	if document["plan_first"] != true {
+		t.Errorf("the snapshot records plan_first as %v, want it written for a plan-first task",
+			document["plan_first"])
+	}
+	delete(document, "plan_first")
+	rewritten, err := json.Marshal(document)
+	if err != nil {
+		t.Fatalf("encoding the snapshot: %v", err)
+	}
+	if err := os.WriteFile(path, rewritten, 0o600); err != nil {
+		t.Fatalf("writing the snapshot: %v", err)
+	}
+
+	loaded, err := tasks.Load(ctx, store.Ref(fixture))
+	if err != nil {
+		t.Fatalf("loading a snapshot with no plan-first key: %v", err)
+	}
+	if loaded.PlanFirst {
+		t.Error("a snapshot written before the mode existed came back asking its agent to plan first")
+	}
+}
+
+// TestAnOrdinaryTaskWritesNoPlanFirstKey keeps the absent form absent.
+//
+// The field is additive and omitted when false, which is what lets a build
+// before this one read a snapshot this one wrote.
+func TestAnOrdinaryTaskWritesNoPlanFirstKey(t *testing.T) {
+	ctx := context.Background()
+	filestore := newStore(t)
+	fixture := storetest.Task()
+
+	if err := filestore.Tasks().Save(ctx, fixture); err != nil {
+		t.Fatalf("saving the task: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(filestore.Root(), projectsDir, storetest.ProjectID.String(),
+		tasksDir, storetest.TaskID.String(), taskFile))
+	if err != nil {
+		t.Fatalf("reading the snapshot: %v", err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("decoding the snapshot: %v", err)
+	}
+	if _, written := document["plan_first"]; written {
+		t.Errorf("a task that was never asked to plan first wrote plan_first: %v", document["plan_first"])
+	}
+}
+
 // TestFixturesPopulateEveryPersistedField is what makes the round-trip tests
 // mean something: a field that no fixture sets would round-trip perfectly
 // without ever being written.

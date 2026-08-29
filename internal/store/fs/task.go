@@ -18,20 +18,25 @@ import (
 // escaped into a JSON string, and this document is the record of everything
 // else.
 type taskDocument struct {
-	SchemaVersion int                      `json:"schema_version"`
-	ID            string                   `json:"id"`
-	UpdatedAt     time.Time                `json:"updated_at"`
-	ProjectID     string                   `json:"project_id"`
-	Title         string                   `json:"title"`
-	Source        sourceDocument           `json:"source"`
-	Workflow      string                   `json:"workflow"`
-	Attention     string                   `json:"attention"`
-	Failure       *failureDocument         `json:"failure,omitempty"`
-	CreatedAt     time.Time                `json:"created_at"`
-	Repositories  []taskRepositoryDocument `json:"repositories,omitempty"`
-	Session       *sessionDocument         `json:"session,omitempty"`
-	Runtime       *runtimeDocument         `json:"runtime,omitempty"`
-	Publication   *publicationDocument     `json:"publication,omitempty"`
+	SchemaVersion int            `json:"schema_version"`
+	ID            string         `json:"id"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+	ProjectID     string         `json:"project_id"`
+	Title         string         `json:"title"`
+	Source        sourceDocument `json:"source"`
+	// PlanFirst is an added optional field at the same schema version, on the
+	// rule the failure and the ticket below follow: a snapshot written before
+	// this build has no key and decodes to false, which is how every task that
+	// was never asked to plan first was launched.
+	PlanFirst    bool                     `json:"plan_first,omitempty"`
+	Workflow     string                   `json:"workflow"`
+	Attention    string                   `json:"attention"`
+	Failure      *failureDocument         `json:"failure,omitempty"`
+	CreatedAt    time.Time                `json:"created_at"`
+	Repositories []taskRepositoryDocument `json:"repositories,omitempty"`
+	Session      *sessionDocument         `json:"session,omitempty"`
+	Runtime      *runtimeDocument         `json:"runtime,omitempty"`
+	Publication  *publicationDocument     `json:"publication,omitempty"`
 }
 
 type sourceDocument struct {
@@ -350,6 +355,7 @@ func encodeTask(task *domain.Task) taskDocument {
 			Reference: task.Source.Reference,
 			Ticket:    encodeTicket(task.Source.Ticket),
 		},
+		PlanFirst: task.PlanFirst,
 		Workflow:  string(task.Workflow),
 		Attention: string(task.Attention),
 		Failure:   encodeFailure(task.Failure),
@@ -567,6 +573,7 @@ func decodeTask(document taskDocument, brief string) *domain.Task {
 			Reference: document.Source.Reference,
 			Ticket:    decodeTicket(document.Source.Ticket),
 		},
+		PlanFirst: document.PlanFirst,
 		Workflow:  domain.WorkflowState(document.Workflow),
 		Attention: domain.AttentionState(document.Attention),
 		Failure:   decodeFailure(document.Failure),
