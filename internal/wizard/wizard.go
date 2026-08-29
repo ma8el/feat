@@ -606,11 +606,19 @@ func (w *Wizard) question() Question {
 		// only once left the repeat as a prompt about finishing over an empty
 		// field, which reads as a loop with nothing left in it — and the reason
 		// this loop repeats is that Compose merges a base with the overrides
-		// beside it. Which key reaches them is the asker's to say and not this
-		// sentence's: one of them has no such key.
+		// beside it.
 		if len(others) > 0 {
-			question.Notes = append(question.Notes,
-				"others found beside it: "+strings.Join(others, ", "))
+			note := "others found beside it: " + strings.Join(others, ", ")
+			if question.Proposed == "" {
+				// And the key that reaches them, where nothing in the field shows
+				// what it would give. ADR-077 left this clause to the asker because
+				// one of the two had no such key to name; both have one now, and a
+				// sentence each was a sentence that could drift (ADR-084). A
+				// question that proposes something has that value under the cursor
+				// already and needs no sentence about it.
+				note += "; press tab to use one of them"
+			}
+			question.Notes = append(question.Notes, note)
 		}
 		return question
 
