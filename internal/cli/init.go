@@ -74,9 +74,10 @@ func newProjectInitCommand(env *environment) *cobra.Command {
 				return err
 			}
 			lines := prompter{in: bufio.NewReader(cmd.InOrStdin()), out: cmd.OutOrStdout()}
+			drawn := questionsCanBeDrawn(terminalReader(cmd.InOrStdin()), current.Getenv)
 			conversation := &conversation{
 				prompter: lines,
-				asker:    pickAsker(cmd.InOrStdin(), cmd.OutOrStdout(), current.Getenv, &lines),
+				asker:    pickAsker(drawn, cmd.InOrStdin(), cmd.OutOrStdout(), &lines),
 				wizard:   flow,
 				env:      env,
 				layout:   layout,

@@ -35,74 +35,82 @@ func (m *wizardMachine) flow(t *testing.T) *wizard.Wizard {
 	return flow
 }
 
-// terminalFile opens a file term.IsTerminal accepts.
-//
-// A pseudo-terminal master is the cheapest one a test can have: it is a
-// terminal by the one test the selection rule applies, and it needs no child
-// process on the other end of it. It is opened rather than skipped past,
-// because /dev/ptmx is on both platforms Feat targets and a machine without one
-// is a machine the widget could never run on — a skip here would drop the only
-// proof that a terminal selects the widget at all.
-func terminalFile(t *testing.T) *os.File {
-	t.Helper()
-
-	file, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
-	if err != nil {
-		t.Fatalf("opening a pseudo-terminal to test the terminal clause with: %v", err)
-	}
-	t.Cleanup(func() { _ = file.Close() })
-	return file
-}
-
 // TestTheAskerIsChosenByTheReaderAndByTerm checks the rule at each of its two
 // clauses (ADR-084).
 //
-// The reader is the command's rather than the process's, because a scripted
-// conversation replaces exactly that one — and TERM is what gives the line
-// asker a user who is not a test.
+// The terminal is passed in rather than borrowed. A test cannot make one
+// portably — the master side of a pseudo-terminal answers isatty on Linux and
+// not on macOS, which is a fact about Darwin's ptys and not about this rule —
+// and what the rule is about is which asker the two facts choose.
 func TestTheAskerIsChosenByTheReaderAndByTerm(t *testing.T) {
-	terminal := terminalFile(t)
-
-	xterm := func(key string) string {
-		if key == "TERM" {
-			return "xterm-256color"
-		}
-		return ""
-	}
-	dumb := func(key string) string {
-		if key == "TERM" {
-			return "dumb"
-		}
-		return ""
-	}
-	empty := func(string) string { return "" }
-
 	for _, want := range []struct {
-		name   string
-		reader io.Reader
-		getenv func(string) string
-		widget bool
+		name     string
+		terminal bool
+		term     string
+		drawn    bool
 	}{
-		{name: "a terminal and a terminal that draws", reader: terminal, getenv: xterm, widget: true},
-		{name: "a script on a drawing terminal", reader: strings.NewReader("app\n"), getenv: xterm},
-		{name: "a terminal that says it is dumb", reader: terminal, getenv: dumb},
-		{name: "a terminal that has not said what it is", reader: terminal, getenv: empty},
+		{name: "a terminal, and one that draws", terminal: true, term: "xterm-256color", drawn: true},
+		{name: "a script on a drawing terminal", term: "xterm-256color"},
+		{name: "a terminal that says it is dumb", terminal: true, term: "dumb"},
+		{name: "a terminal that has not said what it is", terminal: true},
 	} {
 		t.Run(want.name, func(t *testing.T) {
-			var out bytes.Buffer
-			lines := prompter{in: bufio.NewReader(want.reader), out: &out}
+			getenv := func(key string) string {
+				if key == "TERM" {
+					return want.term
+				}
+				return ""
+			}
+			drawn := questionsCanBeDrawn(want.terminal, getenv)
+			if drawn != want.drawn {
+				t.Fatalf("the questions are drawn: %v, want %v", drawn, want.drawn)
+			}
 
-			chosen := pickAsker(want.reader, &out, want.getenv, &lines)
-			_, drawn := chosen.(widgetAsker)
-			if drawn != want.widget {
-				t.Fatalf("the asker is %T, want the widget to be %v", chosen, want.widget)
+			var out bytes.Buffer
+			lines := prompter{in: bufio.NewReader(strings.NewReader("")), out: &out}
+			chosen := pickAsker(drawn, strings.NewReader(""), &out, &lines)
+			if _, widget := chosen.(widgetAsker); widget != want.drawn {
+				t.Fatalf("the asker is %T, want the widget to be %v", chosen, want.drawn)
 			}
 			// And the sentence about how an answer is given follows the asker
-			// that gives it, because brackets are one asker's device.
-			if got := strings.Contains(chosen.opening(), "brackets"); got == want.widget {
-				t.Errorf("the opening sentence is %q for the widget=%v asker", chosen.opening(), want.widget)
+			// that takes it, because brackets are one asker's device.
+			if got := strings.Contains(chosen.opening(), "brackets"); got == want.drawn {
+				t.Errorf("the opening sentence is %q for the widget=%v asker", chosen.opening(), want.drawn)
 			}
 		})
+	}
+}
+
+// TestTheReaderAskedAboutIsTheOneTheCommandHolds is the other half of the input
+// clause, and the half that can be wrong.
+//
+// Whether a reader is a terminal is a question only an *os.File can be asked,
+// so what matters is that the command holds one in a real run and holds the
+// test's script in a scripted one. A reader wrapping the process's stdin would
+// answer no to the type question and leave the widget unreachable however good
+// the terminal was.
+func TestTheReaderAskedAboutIsTheOneTheCommandHolds(t *testing.T) {
+	if got := NewRootCommand(Options{}).InOrStdin(); got != os.Stdin {
+		t.Errorf("a real run reads its answers from %T, which is not the process's own stdin", got)
+	}
+
+	script := strings.NewReader("app\n")
+	if got := NewRootCommand(Options{Input: script}).InOrStdin(); got != script {
+		t.Errorf("a scripted run reads its answers from %T, which is not the script", got)
+	}
+	if terminalReader(script) {
+		t.Error("a scripted conversation was taken for a terminal")
+	}
+
+	// A file is the first question and not the last: a pipe is an *os.File and
+	// nobody presses a key into one.
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("opening a pipe: %v", err)
+	}
+	t.Cleanup(func() { _ = reader.Close(); _ = writer.Close() })
+	if terminalReader(reader) {
+		t.Error("a pipe was taken for a terminal")
 	}
 }
 

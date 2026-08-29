@@ -48,15 +48,28 @@ type asker interface {
 	opening() string
 }
 
-// pickAsker chooses how this run's questions are put.
+// questionsCanBeDrawn is the rule: the widget whenever the command's input is a
+// terminal and TERM is neither dumb nor empty, and the line conversation
+// otherwise (ADR-084).
 //
-// The rich asker whenever the command's input is a terminal and TERM is neither
-// dumb nor empty. The reader is the command's rather than the process's because
-// that is what a scripted conversation replaces, and the TERM clause is what
-// gives the line asker a user who is not a test: an Emacs shell buffer, a
-// stripped CI terminal, anything that mangles raw mode (ADR-084).
-func pickAsker(in io.Reader, out io.Writer, getenv func(string) string, lines *prompter) asker {
-	if !terminalReader(in) || !drawableTerminal(getenv) {
+// The TERM clause is what gives the line asker a user who is not a test. `feat
+// project init` already refuses unless both process streams are terminals, so
+// there is no such thing as a real run with a redirected stdin; without this
+// clause the line conversation would run for the command's own scripted tests
+// and for nobody else. With it, it runs for an Emacs shell buffer, a stripped
+// CI terminal, and anything else that mangles raw mode.
+//
+// Whether the input is a terminal is passed in rather than asked here, so that
+// the rule can be checked at both of its clauses without one: a terminal is a
+// thing a test can only borrow, and what it borrows differs by platform — the
+// master side of a pseudo-terminal answers isatty on Linux and not on macOS.
+func questionsCanBeDrawn(terminal bool, getenv func(string) string) bool {
+	return terminal && drawableTerminal(getenv)
+}
+
+// pickAsker chooses how this run's questions are put.
+func pickAsker(drawn bool, in io.Reader, out io.Writer, lines *prompter) asker {
+	if !drawn {
 		return lineAsker{prompter: lines}
 	}
 	return widgetAsker{in: in, out: out}
@@ -65,6 +78,10 @@ func pickAsker(in io.Reader, out io.Writer, getenv func(string) string, lines *p
 // terminalReader reports whether what the command reads answers from is a
 // terminal. A widget takes its answer a key at a time, and a key press is
 // something only a terminal has.
+//
+// The reader is the command's rather than the process's because that is what a
+// scripted conversation replaces: cobra hands the whole tree whatever a test
+// supplied, and hands a real run the process's own stdin.
 func terminalReader(in io.Reader) bool {
 	file, ok := in.(*os.File)
 	return ok && term.IsTerminal(int(file.Fd()))
