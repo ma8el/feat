@@ -4,9 +4,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/goccy/go-yaml"
 
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/paths"
@@ -345,6 +348,87 @@ func TestDocumentedExampleIsValid(t *testing.T) {
 			t.Errorf("the example sets %s to %q, and the default is %q", field.name, field.got, field.want)
 		}
 	}
+
+	// Valid is not the whole of what this file has to be. Every configuration
+	// `feat project init` writes points its reader here for the fields it left
+	// out, so a section added to the interface and not to the example is one a
+	// user following Feat's own instructions cannot discover. `tracker` and
+	// `forge` each accumulated exactly that way, because every assertion above
+	// is about a field the example already has.
+	requireExampleUsesEverySchemaProperty(t, body)
+}
+
+// requireExampleUsesEverySchemaProperty fails when the published schema has a
+// property the documented example does not use.
+//
+// It walks the two levels a section is added at — the document's own properties
+// and one repository's — and asks the parsed example for each name, so that a
+// property counts where the example configures it rather than where a comment
+// happens to mention it.
+//
+// A property that legitimately cannot appear in the example belongs here by
+// name, with the reason it cannot, rather than in a walk relaxed until it
+// passes: an assertion that cannot fail is what left two sections undocumented.
+// There is no such property today, which is why there is no list of them.
+func requireExampleUsesEverySchemaProperty(t *testing.T, body []byte) {
+	t.Helper()
+
+	root := loadSchema(t)
+
+	var document map[string]any
+	if err := yaml.Unmarshal(body, &document); err != nil {
+		t.Fatalf("parsing the documented example: %v", err)
+	}
+
+	for _, name := range propertyNames(root.Properties) {
+		if _, ok := document[name]; !ok {
+			t.Errorf("the schema has %q and the documented example does not use it\n"+
+				"\tAdd it to docs/examples/project.yaml, which is the file `feat project init` "+
+				"tells a user to copy and the one every generated file names as the reference; "+
+				"or exempt it here by name, with the reason it cannot appear.", name)
+		}
+	}
+
+	repositories, ok := document["repositories"].(map[string]any)
+	if !ok {
+		t.Fatal("the documented example declares no repositories")
+	}
+	// One repository, not every repository: the example shows a published
+	// repository, one that runs no service, and one that is read-only, and each
+	// of those is a repository some property is absent from on purpose.
+	used := make(map[string]bool)
+	for _, value := range repositories {
+		repository, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		for name := range repository {
+			used[name] = true
+		}
+	}
+
+	shape := additional(t, root, root.Properties["repositories"])
+	if shape == nil {
+		t.Fatal("the schema describes no shape for a repository")
+	}
+	for _, name := range propertyNames(shape.Properties) {
+		if !used[name] {
+			t.Errorf("the schema has repositories.<id>.%s and no repository in the documented example uses it\n"+
+				"\tAdd it to one repository in docs/examples/project.yaml, or exempt it here by "+
+				"name, with the reason it cannot appear.", name)
+		}
+	}
+}
+
+// propertyNames returns a schema object's property names in a stable order, so
+// that two failing runs report them the same way.
+func propertyNames(properties map[string]*schema) []string {
+	sorted := make([]string, 0, len(properties))
+	for name := range properties {
+		sorted = append(sorted, name)
+	}
+	sort.Strings(sorted)
+	return sorted
 }
 
 func equal(got, want []string) bool {
