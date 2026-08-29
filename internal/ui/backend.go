@@ -56,8 +56,8 @@ type Backend interface {
 	// worktree paths, creating nothing.
 	PlanDraft(ctx context.Context, id string) (api.DraftPlan, error)
 	// LaunchDraft confirms a draft, carrying the fingerprint of the plan the
-	// user was shown.
-	LaunchDraft(ctx context.Context, id, fingerprint string) (api.Task, error)
+	// user was shown and the decisions they made on the review step.
+	LaunchDraft(ctx context.Context, id string, confirmation api.Confirmation) (api.Task, error)
 	// CancelDraft abandons a draft.
 	CancelDraft(ctx context.Context, id string) (api.Task, error)
 

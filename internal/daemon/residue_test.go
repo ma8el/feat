@@ -30,7 +30,7 @@ func abandonedLaunch(t *testing.T) (*drafting, *domain.Task) {
 	draft := arranged.draft(t, "Add a rate limit")
 	arranged.selectRepositories(t, draft.ID)
 	displayed := arranged.resolve(t, draft.ID)
-	if _, err := arranged.service.LaunchDraft(context.Background(), draft.ID, displayed.Fingerprint); err == nil {
+	if _, err := arranged.service.LaunchDraft(context.Background(), draft.ID, api.Confirmation{Fingerprint: displayed.Fingerprint}); err == nil {
 		t.Fatal("the launch succeeded, so it left nothing behind to find")
 	}
 

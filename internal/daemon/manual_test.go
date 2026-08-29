@@ -398,7 +398,7 @@ func manualLaunch(t *testing.T, service *service, project string, selected []Sel
 		t.Fatalf("planning the draft: %v", err)
 	}
 
-	task, err := service.LaunchDraft(ctx, draft.ID, plan.Fingerprint)
+	task, err := service.LaunchDraft(ctx, draft.ID, api.Confirmation{Fingerprint: plan.Fingerprint})
 	if err != nil {
 		fmt.Printf("task %d (%s) could not launch:\n  %v\n", n, draft.Key(), err)
 		return nil

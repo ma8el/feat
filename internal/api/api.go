@@ -79,9 +79,10 @@ type Service interface {
 	// branches and worktree paths the task would receive, creating nothing. The
 	// fingerprint it returns is what launching carries back.
 	PlanDraft(ctx context.Context, id domain.TaskID) (ResolvedDraft, error)
-	// LaunchDraft confirms a draft and creates what the fingerprint describes.
-	// A draft that changed since the plan was displayed is refused.
-	LaunchDraft(ctx context.Context, id domain.TaskID, fingerprint string) (*domain.Task, error)
+	// LaunchDraft confirms a draft and creates what the confirmation's
+	// fingerprint describes. A draft that changed since the plan was displayed
+	// is refused.
+	LaunchDraft(ctx context.Context, id domain.TaskID, confirmation Confirmation) (*domain.Task, error)
 	// CancelDraft abandons a draft, archiving the record.
 	CancelDraft(ctx context.Context, id domain.TaskID) (*domain.Task, error)
 	// TerminalFrame returns one rendered view of a task's pane, after setting
@@ -1002,7 +1003,13 @@ func (s *server) launchDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := s.service.LaunchDraft(r.Context(), id, request.Fingerprint)
+	// The body and the value the daemon takes hold the same fields, because
+	// every one of them is a decision the user made on the review screen and
+	// there is nothing here to resolve or validate into a different vocabulary.
+	// A field added to one and not the other stops compiling on this line, which
+	// is where a caller would rather find out than in a launch that quietly
+	// dropped it.
+	task, err := s.service.LaunchDraft(r.Context(), id, Confirmation(request))
 	if err != nil {
 		s.fail(w, r, err)
 		return

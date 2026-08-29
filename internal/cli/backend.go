@@ -109,8 +109,8 @@ func (b *backend) PlanDraft(ctx context.Context, id string) (api.DraftPlan, erro
 	return b.client.PlanDraft(ctx, id)
 }
 
-func (b *backend) LaunchDraft(ctx context.Context, id, fingerprint string) (api.Task, error) {
-	return b.client.LaunchDraft(ctx, id, fingerprint)
+func (b *backend) LaunchDraft(ctx context.Context, id string, confirmation api.Confirmation) (api.Task, error) {
+	return b.client.LaunchDraft(ctx, id, confirmation)
 }
 
 func (b *backend) CancelDraft(ctx context.Context, id string) (api.Task, error) {

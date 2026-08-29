@@ -325,15 +325,19 @@ func (c *Client) PlanDraft(ctx context.Context, id string) (api.DraftPlan, error
 }
 
 // LaunchDraft confirms a draft, carrying the fingerprint of the plan that was
-// displayed so that what is created is what the user saw.
+// displayed so that what is created is what the user saw, together with the
+// decisions the review screen collected.
 //
 // It waits on the agent budget for the reason Resume does, and it is the request
 // that found the rule: a launch whose service had to be recreated because the
 // project's own Compose file had changed took 10.018 seconds against a ten-second
 // ceiling, and the client cancelled a launch the daemon was still serving.
-func (c *Client) LaunchDraft(ctx context.Context, id, fingerprint string) (api.Task, error) {
+func (c *Client) LaunchDraft(ctx context.Context, id string, confirmation api.Confirmation) (api.Task, error) {
+	// The confirmation is sent whole, for the reason the handler converts it
+	// back whole: every field of it is one of the user's answers, so a client
+	// that copied some of them across would be deciding which ones travel.
 	return sendWithin[api.Task](ctx, c, c.agentTimeout, "/task-drafts/"+url.PathEscape(id)+"/launch",
-		api.LaunchDraft{Fingerprint: fingerprint})
+		api.LaunchDraft(confirmation))
 }
 
 // CancelDraft abandons a draft.

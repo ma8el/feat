@@ -34,10 +34,12 @@ type fakeBackend struct {
 	projects []api.Project
 	tasks    []api.Task
 
-	created   []api.CreateDraft
-	updated   []api.UpdateDraft
-	planned   int
-	launched  []string
+	created []api.CreateDraft
+	updated []api.UpdateDraft
+	planned int
+	// launched records every confirmation a screen sent, so a test can assert
+	// that what reached the daemon is what the review step displayed.
+	launched  []api.Confirmation
 	cancelled []string
 	attached  []string
 	shells    []string
@@ -292,16 +294,18 @@ func (f *fakeBackend) PlanDraft(_ context.Context, id string) (api.DraftPlan, er
 	}, nil
 }
 
-func (f *fakeBackend) LaunchDraft(_ context.Context, id, fingerprint string) (api.Task, error) {
+func (f *fakeBackend) LaunchDraft(
+	_ context.Context, id string, confirmation api.Confirmation,
+) (api.Task, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.launchErr != nil {
 		return api.Task{}, f.launchErr
 	}
-	if fingerprint != f.fingerprint {
+	if confirmation.Fingerprint != f.fingerprint {
 		return api.Task{}, errors.New("the draft changed after the plan you confirmed was displayed")
 	}
-	f.launched = append(f.launched, fingerprint)
+	f.launched = append(f.launched, confirmation)
 	return api.Task{ID: id, Key: "2c4e6a80", Title: "Add a rate limit", Workflow: "preparing"}, nil
 }
 
@@ -773,7 +777,7 @@ func TestConfirmingCarriesTheDisplayedFingerprint(t *testing.T) {
 	if message.err != nil {
 		t.Fatalf("confirming failed: %v", message.err)
 	}
-	if len(backend.launched) != 1 || backend.launched[0] != backend.fingerprint {
+	if len(backend.launched) != 1 || backend.launched[0].Fingerprint != backend.fingerprint {
 		t.Errorf("launched with %v, want the fingerprint the review screen displayed", backend.launched)
 	}
 }

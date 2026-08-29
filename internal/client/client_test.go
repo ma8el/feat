@@ -428,13 +428,50 @@ func TestEveryAgentEnvironmentRequestOutwaitsAnOrdinaryOne(t *testing.T) {
 	caller.agentTimeout = 10 * work
 
 	for name, request := range map[string]func() error{
-		"launch": func() error { _, err := caller.LaunchDraft(context.Background(), id, "fingerprint"); return err },
+		"launch": func() error {
+			_, err := caller.LaunchDraft(context.Background(), id, api.Confirmation{Fingerprint: "fingerprint"})
+			return err
+		},
 		"resume": func() error { _, err := caller.Resume(context.Background(), id); return err },
 		"stop":   func() error { _, err := caller.Stop(context.Background(), id); return err },
 	} {
 		if err := request(); err != nil {
 			t.Errorf("a %s the daemon was still working on was abandoned: %v", name, err)
 		}
+	}
+}
+
+// TestLaunchSendsTheWholeConfirmation keeps the client from dropping a decision
+// the user made on the review screen.
+//
+// The confirmation is read once, by the launch it accompanies, so a value lost
+// here is a task that starts differently from the way the screen said it would
+// and nothing later that could tell the user why.
+func TestLaunchSendsTheWholeConfirmation(t *testing.T) {
+	const id = "12345678-1234-4234-8234-123456789abc"
+
+	var sent string
+	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		sent = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"id":%q}`, id)
+	}))
+
+	if _, err := caller.LaunchDraft(context.Background(), id,
+		api.Confirmation{Fingerprint: "abc", PlanFirst: true}); err != nil {
+		t.Fatalf("LaunchDraft: %v", err)
+	}
+	if !strings.Contains(sent, `"fingerprint":"abc"`) || !strings.Contains(sent, `"plan_first":true`) {
+		t.Errorf("request body = %s, want the fingerprint and the plan-first decision", sent)
+	}
+
+	if _, err := caller.LaunchDraft(context.Background(), id,
+		api.Confirmation{Fingerprint: "abc"}); err != nil {
+		t.Fatalf("LaunchDraft: %v", err)
+	}
+	if strings.Contains(sent, "plan_first") {
+		t.Errorf("request body = %s, want no plan-first key when it was not asked for", sent)
 	}
 }
 

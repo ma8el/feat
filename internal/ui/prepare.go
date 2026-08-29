@@ -129,6 +129,12 @@ type prepareModel struct {
 	cursor    int
 	focus     int
 
+	// planFirst asks the task's agent to plan before it acts, and travels with
+	// the confirmation. It is local model state and never a request: a value the
+	// user just chose cannot drift underneath the screen, and a re-plan to record
+	// it would be a fetch and a base resolution in every repository.
+	planFirst bool
+
 	busy   bool
 	err    error
 	status string
@@ -1218,7 +1224,9 @@ func (p prepareModel) reviewKey(key tea.KeyMsg) (prepareModel, tea.Cmd) {
 //
 // The fingerprint of the plan on screen goes with the request. A draft that
 // changed since it was displayed produces a different one and the daemon
-// refuses, so what is created is what the user read (ADR-031).
+// refuses, so what is created is what the user read (ADR-031). The review step's
+// own answers go with it in the same request, so what was displayed is what is
+// sent.
 func (p prepareModel) confirm() (prepareModel, tea.Cmd) {
 	if p.plan == nil || p.draft == nil {
 		p.err = errors.New("resolve the draft before confirming it")
@@ -1228,9 +1236,10 @@ func (p prepareModel) confirm() (prepareModel, tea.Cmd) {
 	p.busy = true
 	p.status = "creating worktrees and the task terminal…"
 
-	backend, id, fingerprint := p.backend, p.draft.ID, p.plan.Fingerprint
+	backend, id := p.backend, p.draft.ID
+	confirmation := api.Confirmation{Fingerprint: p.plan.Fingerprint, PlanFirst: p.planFirst}
 	return p, func() tea.Msg {
-		task, err := backend.LaunchDraft(context.Background(), id, fingerprint)
+		task, err := backend.LaunchDraft(context.Background(), id, confirmation)
 		if err != nil {
 			return preparedMsg{err: err}
 		}

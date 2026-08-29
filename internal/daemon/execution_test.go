@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/control"
 	"github.com/ma8el/feat/internal/domain"
@@ -294,7 +295,7 @@ func TestTheExecutionEnvironmentIsRecordedBeforeItExists(t *testing.T) {
 		}
 	})
 
-	task, err := arranged.service.LaunchDraft(context.Background(), draft.ID, displayed.Fingerprint)
+	task, err := arranged.service.LaunchDraft(context.Background(), draft.ID, api.Confirmation{Fingerprint: displayed.Fingerprint})
 	if err != nil {
 		t.Fatalf("LaunchDraft: %v", err)
 	}
@@ -380,7 +381,7 @@ func TestALaunchRefusedByTheContainerIsExplainable(t *testing.T) {
 			arranged.selectRepositories(t, draft.ID)
 			displayed := arranged.resolve(t, draft.ID)
 
-			_, err := arranged.service.LaunchDraft(context.Background(), draft.ID, displayed.Fingerprint)
+			_, err := arranged.service.LaunchDraft(context.Background(), draft.ID, api.Confirmation{Fingerprint: displayed.Fingerprint})
 			if err == nil {
 				t.Fatal("the launch succeeded")
 			}
@@ -483,7 +484,7 @@ func TestAnAgentIsNeverStartedInARefusedContainer(t *testing.T) {
 	arranged.selectRepositories(t, draft.ID)
 	displayed := arranged.resolve(t, draft.ID)
 
-	if _, err := arranged.service.LaunchDraft(context.Background(), draft.ID, displayed.Fingerprint); err == nil {
+	if _, err := arranged.service.LaunchDraft(context.Background(), draft.ID, api.Confirmation{Fingerprint: displayed.Fingerprint}); err == nil {
 		t.Fatal("a root container was accepted")
 	}
 	for _, call := range arranged.docker.Calls() {

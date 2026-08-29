@@ -181,8 +181,9 @@ func TestShapeFreezesWhenTheTaskLeavesDraft(t *testing.T) {
 	task := confirmedTask(t)
 
 	changes := map[string]func() error{
-		"title": func() error { return task.SetTitle("Another title", origin) },
-		"brief": func() error { return task.SetBrief("Another brief", origin) },
+		"title":      func() error { return task.SetTitle("Another title", origin) },
+		"brief":      func() error { return task.SetBrief("Another brief", origin) },
+		"plan first": func() error { return task.SetPlanFirst(true, origin) },
 		"bind": func() error {
 			return task.Bind(TaskRepository{RepositoryID: testSecondary, Access: TaskAccessReadOnly}, origin)
 		},
@@ -205,6 +206,47 @@ func TestShapeFreezesWhenTheTaskLeavesDraft(t *testing.T) {
 	}
 	if len(task.Repositories) != 1 {
 		t.Errorf("the repository selection changed to %d entries", len(task.Repositories))
+	}
+}
+
+// TestPlanFirstIsSetOnADraftAndSurvivesConfirmation checks the half of the rule
+// above that the frozen-shape test cannot: the mode is set while the task is a
+// draft, and it is still there once the task has left one.
+//
+// It matters because the value is written at confirmation and read later, when
+// the session is built. A launch can fail between the two, and the retry that
+// follows reads this record rather than the request that started the first
+// attempt.
+func TestPlanFirstIsSetOnADraftAndSurvivesConfirmation(t *testing.T) {
+	task := draftTask(t)
+	if task.PlanFirst {
+		t.Error("a new draft asks its agent to plan first without being told to")
+	}
+
+	if err := task.SetPlanFirst(true, origin); err != nil {
+		t.Fatalf("asking a draft to plan first: %v", err)
+	}
+	if !task.PlanFirst {
+		t.Fatal("the draft did not record the plan-first mode")
+	}
+	if err := task.SetPlanFirst(false, origin); err != nil {
+		t.Fatalf("taking the plan-first mode off a draft: %v", err)
+	}
+	if task.PlanFirst {
+		t.Error("the draft kept a plan-first mode the user turned off")
+	}
+
+	if err := task.SetPlanFirst(true, origin); err != nil {
+		t.Fatalf("asking a draft to plan first: %v", err)
+	}
+	setBrief(t, task)
+	bindPrimary(t, task)
+	resolvePrimary(t, task)
+	if err := task.TransitionTo(WorkflowPreparing, origin); err != nil {
+		t.Fatalf("confirming the draft: %v", err)
+	}
+	if !task.PlanFirst {
+		t.Error("the confirmed task lost the plan-first mode it was confirmed with")
 	}
 }
 
