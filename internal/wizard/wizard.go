@@ -70,6 +70,16 @@ type Question struct {
 	// deciding. It is set on the first question of a group rather than on every
 	// question of one: the section's own opening question, the first repository
 	// asked for a mount point, the first repeat of a file loop.
+	//
+	// An empty line is a paragraph break, and every asker draws it as one blank
+	// line and nothing else — no indent, no bullet, no styling. It is what
+	// separates a warning from the sentence saying what the field is.
+	//
+	// The mount questions are the exception, and are the only one: both carry
+	// the rule Compose merges by on every question of their group, because that
+	// field's failure is silent and the second repository is where the sentence
+	// is needed most. It is an exception on recorded grounds rather than a
+	// precedent for the next block of prose (ADR-082).
 	Detail []string
 	// Notes are what the previous answer established: what Git said about a
 	// checkout, which services a Compose file declares, what Feat assumed. They
@@ -480,6 +490,11 @@ func (w *Wizard) question() Question {
 		}
 		if composition := w.agentComposition(repository.HostPath); composition.ContainerPath != "" {
 			question.Proposed = composition.ContainerPath
+			// Where the proposal came from, said in the one case that used to say
+			// nothing. A transcription is safe to accept and an invention is only
+			// safe where the files mount this repository nowhere, and until this
+			// note the two arrived looking identical (ADR-082).
+			question.Notes = append(question.Notes, readFrom(w.draft.Execution.ComposeFiles))
 		} else if len(composition.Undecided) > 0 {
 			// Why the default is the default. An entry Feat left unread is not an
 			// entry that said nothing, and a user who cannot tell the two apart
@@ -489,10 +504,25 @@ func (w *Wizard) question() Question {
 		}
 		if w.firstMount() {
 			question.Detail = []string{
-				"Where each repository's task worktrees are mounted in the agent's own",
-				"container. Where the application's services expect that repository's source",
-				"is a different question with a different answer, asked further down.",
+				"Where each repository's task worktrees are mounted in the devcontainer.",
+				"",
+				"WARNING: Feat generates an override using this path as the worktree's",
+				"source. In case your devcontainer's Compose files already mount the",
+				"repository code itself, you have to choose the exact same mount point here,",
+				"so that it gets overridden by Compose. Otherwise the worktree and the",
+				"repository will be mounted simultaneously.",
 			}
+			return question
+		}
+		// Repeated rather than said once, which the type's own convention does not
+		// do. The warning is what makes an answer right, and the second repository
+		// is where it is needed most: under the convention that question is nothing
+		// but "Mount point for <id>" (ADR-082).
+		question.Detail = []string{
+			"WARNING: still the devcontainer, and still an override. Where these Compose",
+			"files already mount this repository's code itself, choose the exact same",
+			"mount point, so that it gets overridden by Compose. Otherwise the worktree",
+			"and the repository will be mounted simultaneously.",
 		}
 		return question
 
@@ -605,6 +635,37 @@ func (w *Wizard) question() Question {
 			// run their task, and a project whose agent is host-native has services
 			// all the same (ADR-065 evidence 1 and 6).
 			question.Prompt += ", or blank if they do not"
+		} else {
+			// The same finding as the agent mount's, for the same reason: this is
+			// the strongest thing the flow learns about its own proposals, and it
+			// was the one proposal that arrived without saying where it came from
+			// (ADR-082).
+			question.Notes = append(question.Notes, readFrom(w.contribution.ComposeFiles))
+		}
+		if w.firstRuntimeMount() {
+			// The field with no safety net gets an explanation at all, which is the
+			// inversion ADR-082 corrects: the agent's path, whose failure a launch
+			// refuses, had a detail block and this one had none. It is the same
+			// warning in the same words, and it ends where the two fields differ —
+			// nothing here refuses a mismatch.
+			question.Detail = []string{
+				"Where this repository's own services expect its source.",
+				"",
+				"WARNING: Feat generates an override using this path as the worktree's",
+				"source. In case your application's Compose files already mount the",
+				"repository code itself, you have to choose the exact same mount point here,",
+				"so that it gets overridden by Compose. Otherwise the worktree and the",
+				"ordinary checkout will be mounted simultaneously, your services will go on",
+				"reading the checkout, and there will be no error anywhere.",
+			}
+			return question
+		}
+		question.Detail = []string{
+			"WARNING: still an override, and still these services' own mount point. In",
+			"case their Compose files already mount this repository's code itself, choose",
+			"the exact same mount point, so that it gets overridden by Compose. Otherwise",
+			"the worktree and the ordinary checkout will be mounted simultaneously, with",
+			"no error anywhere.",
 		}
 		return question
 
@@ -1017,7 +1078,7 @@ func (w *Wizard) unoccupied(answer string) error {
 }
 
 // firstMount reports whether the mount under the cursor is the first one asked
-// for, which is the one the explanation belongs to.
+// for, which is the one the fullest explanation belongs to.
 func (w *Wizard) firstMount() bool {
 	for i := range w.draft.Repositories[:w.mount] {
 		if domain.DefaultAccess(w.draft.Repositories[i].DefaultAccess) != domain.DefaultAccessOmitted {
@@ -1025,6 +1086,33 @@ func (w *Wizard) firstMount() bool {
 		}
 	}
 	return true
+}
+
+// firstRuntimeMount reports whether the repository under the cursor is the
+// first one asked where its own services expect its source.
+//
+// Not the first repository: a repository that brings no Compose files is never
+// asked, so the group starts at the first that does. A contribution is recorded
+// on its repository once that repository's questions are done, which is what
+// makes an earlier one visible from here.
+func (w *Wizard) firstRuntimeMount() bool {
+	for i := range w.draft.Repositories[:w.contributor] {
+		if w.draft.Repositories[i].Runtime != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// readFrom names the files a proposal was read out of.
+//
+// It is the note the flow owed its strongest finding. A path Feat transcribed
+// out of the user's own Compose files and a path Feat made up are two proposals
+// a user has to treat differently — accepting the first is always right, and
+// accepting the second where the files did say something is the mismatch this
+// field fails silently on — and they arrived on identical questions (ADR-082).
+func readFrom(files []string) string {
+	return "read from " + strings.Join(files, ", ")
 }
 
 // addFile records one Compose file, saying so when it is not there yet.
