@@ -192,6 +192,12 @@ func (c *conversation) announce(question wizard.Question) {
 	c.section = question.Section
 
 	for _, line := range question.Detail {
+		// A paragraph break is a blank line and not two spaces on an empty one,
+		// which is what indenting it would write.
+		if line == "" {
+			c.say("\n")
+			continue
+		}
 		c.say("  %s\n", line)
 	}
 }

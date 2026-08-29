@@ -82,6 +82,12 @@ func (w wizardModel) questionView() string {
 		out.WriteString(titleStyle.Render(w.question.Heading) + "\n")
 	}
 	for _, line := range w.question.Detail {
+		// A paragraph break is a blank line, and styling an empty string writes
+		// the colour around nothing.
+		if line == "" {
+			out.WriteString("\n")
+			continue
+		}
 		out.WriteString(mutedStyle.Render(line) + "\n")
 	}
 	if len(w.question.Detail) > 0 {

@@ -928,3 +928,180 @@ func mustReview(t *testing.T, flow *Wizard) Review {
 	}
 	return review
 }
+
+// TestEveryMountQuestionSaysWhatMakesAnAnswerCorrect is the guidance both
+// container paths were decided without.
+//
+// One rule decides both: Compose merges a service's volumes on the target, and
+// Feat's generated override is merged last, so an answer matching a target the
+// project's own files already mount at replaces that mount and an answer
+// matching nothing adds a second one beside it. It is now on every mount
+// question of both groups rather than on the first of each — the departure
+// ADR-082 records — because the failure is silent and the sentence separating
+// the agent's container from the application's services is needed most at the
+// second repository, which under the convention is asked nothing but "Mount
+// point for store".
+func TestEveryMountQuestionSaysWhatMakesAnAnswerCorrect(t *testing.T) {
+	flow, host := start(t, "app")
+	answers(t, flow,
+		"",             // display name
+		"",             // the checkout: the working directory, which is the api repository
+		"api",          // repository identifier
+		"",             // default access: read_write
+		"y",            // a second repository
+		"store",        // its checkout
+		"store",        // its identifier
+		"",             // default access: selectable
+		"n",            // no third repository
+		"",             // the repository a task works in: api
+		"devcontainer", // execution mode
+		filepath.Join(host.root, "devcontainer", "compose.yaml"),
+		"",          // no more Compose files
+		"dev",       // the service the agent runs in
+		"developer", // the user it runs as
+	)
+
+	// Both repositories, and not the first alone.
+	for _, repository := range []string{"api", "store"} {
+		mount, _ := flow.Step()
+		if mount.ID != "agent.mount" {
+			t.Fatalf("the agent's mount for %s is asked as %s", repository, mount.ID)
+		}
+		mustCarryTheMergeRule(t, mount, repository)
+		answer(t, flow, "")
+	}
+
+	answers(t, flow,
+		"n", // no configuration volume for Claude
+		"y", // the project runs application services
+		"y", // api brings Compose files
+		"",  // the file it proposes
+		"",  // no more of them
+		"",  // the services it declares
+	)
+
+	first, _ := flow.Step()
+	if first.ID != "runtime.mount" {
+		t.Fatalf("the question after api's services is %s, want where they expect its source", first.ID)
+	}
+	mustCarryTheMergeRule(t, first, "api")
+	answers(t, flow,
+		"",  // the mount point the files state
+		"",  // reachable: the service that publishes a port
+		"y", // store brings Compose files too
+		filepath.Join(host.root, "store", "compose.yaml"),
+		"",    // no more of them
+		"web", // its services, which those files do not declare
+	)
+
+	second, _ := flow.Step()
+	if second.ID != "runtime.mount" {
+		t.Fatalf("the question after store's services is %s, want where they expect its source", second.ID)
+	}
+	mustCarryTheMergeRule(t, second, "store")
+}
+
+// theMergeRule is what each group has to keep saying: an override that replaces
+// a mount only where the answer is the mount point already used, and two live
+// mounts where it is not. Both groups say it in the same words, and the runtime
+// group says one thing more, because it is the half only that field needs.
+var theMergeRule = map[string][]string{
+	"agent.mount":   {"override", "exact same mount point", "simultaneously"},
+	"runtime.mount": {"override", "exact same mount point", "simultaneously", "no error anywhere"},
+}
+
+// mustCarryTheMergeRule fails unless a mount question states the rule an answer
+// to it is right or wrong by.
+//
+// The words rather than the presence of a block, because a detail that had been
+// shortened into saying only what the field is would be the gap again with a
+// test passing over it: what has to survive is the override, the path it
+// replaces a mount at, and what an answer matching nothing produces instead.
+func mustCarryTheMergeRule(t *testing.T, question Question, repository string) {
+	t.Helper()
+
+	if len(question.Detail) == 0 {
+		t.Fatalf("%s for %s carries no detail at all", question.ID, repository)
+	}
+	// The first of a group opens with what the field is, breaks, and then warns.
+	// The break is a line of its own, because a warning running on from the
+	// sentence above it is a warning nobody stops at. A repeat opens with the
+	// warning and has nothing to break from.
+	if !strings.HasPrefix(question.Detail[0], "WARNING") && question.Detail[1] != "" {
+		t.Errorf("%s for %s runs its warning on from the sentence above it:\n%v",
+			question.ID, repository, question.Detail)
+	}
+	detail := strings.Join(question.Detail, " ")
+	for _, want := range theMergeRule[question.ID] {
+		if !strings.Contains(detail, want) {
+			t.Errorf("%s for %s does not say %q:\n%s", question.ID, repository, want, detail)
+		}
+	}
+}
+
+// TestAProposalReadFromAComposeFileNamesTheFile is gap 3 of the same finding,
+// and the smallest of it.
+//
+// The flow reported its readings only in the negative: an entry it could not
+// read was named, and a path it transcribed out of the user's own file arrived
+// as a proposal with nothing beside it. So the two proposals a user must treat
+// differently — a transcription, which is always right to accept, and a path
+// Feat made up, which is right only where those files mount the repository
+// nowhere — looked identical (ADR-082).
+func TestAProposalReadFromAComposeFileNamesTheFile(t *testing.T) {
+	flow, host := start(t, "app")
+	agentFile := filepath.Join(host.root, "devcontainer", "compose.yaml")
+	answers(t, flow,
+		"", "", "api", "", "y", "store", "store", "", "n", "",
+		"devcontainer", agentFile,
+		"",          // no more Compose files
+		"dev",       // the service the agent runs in
+		"developer", // the user it runs as
+	)
+
+	// The derivation names the file it came out of.
+	mount, _ := flow.Step()
+	notes := strings.Join(mount.Notes, " ")
+	if mount.Proposed != "/opt/api" {
+		t.Fatalf("the mount for api proposes %q, want the path those files mount it at", mount.Proposed)
+	}
+	if !strings.Contains(notes, "read from") || !strings.Contains(notes, agentFile) {
+		t.Errorf("the file api's mount point was read from is not named: %v", mount.Notes)
+	}
+	answer(t, flow, "")
+
+	// And Feat's own default does not claim to have been read from anywhere.
+	second, _ := flow.Step()
+	notes = strings.Join(second.Notes, " ")
+	if second.Proposed != "/srv/store" {
+		t.Fatalf("the mount for store proposes %q, want Feat's own default", second.Proposed)
+	}
+	if strings.Contains(notes, "read from") {
+		t.Errorf("a path Feat made up is reported as read out of a file: %v", second.Notes)
+	}
+	if !strings.Contains(notes, "interpolate") {
+		t.Errorf("the entry left unread is not named beside the default it caused: %v", second.Notes)
+	}
+
+	answers(t, flow,
+		"",  // the default
+		"n", // no configuration volume for Claude
+		"y", // the project runs application services
+		"y", // api brings Compose files
+		"",  // the file it proposes
+		"",  // no more of them
+		"",  // the services it declares
+	)
+
+	// The runtime's own proposal, read out of the files answered two questions
+	// ago, says the same thing.
+	runtime, _ := flow.Step()
+	notes = strings.Join(runtime.Notes, " ")
+	if runtime.ID != "runtime.mount" || runtime.Proposed != "/srv" {
+		t.Fatalf("the runtime mount is %s proposing %q", runtime.ID, runtime.Proposed)
+	}
+	if !strings.Contains(notes, "read from") ||
+		!strings.Contains(notes, filepath.Join(host.root, "api", "compose.yaml")) {
+		t.Errorf("the file api's runtime mount point was read from is not named: %v", runtime.Notes)
+	}
+}
