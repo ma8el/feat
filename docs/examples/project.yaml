@@ -70,6 +70,14 @@ repositories:
       reachable:
         - app
 
+    # Where this repository's merge requests are opened. Feat publishes from
+    # this machine with the forge's own CLI — `gh` for github, `glab` for
+    # gitlab — using the authentication you already have there; the agent
+    # environment never receives a token, and the words it writes are shown to
+    # you before anything is sent.
+    forge:
+      kind: github
+
     default_branch: main
     remote: origin
     default_access: read_write
@@ -181,6 +189,20 @@ runtime:
   # machine, so the second task could never bind it. The published ports of
   # every other service are removed for the same reason.
   port_range: "21000-21999"
+  # The host address an allocated port is published on, which decides who can
+  # reach these services. It must be a literal IP address: it reaches the
+  # generated override as a Compose `host_ip`, and a name would be resolved at a
+  # moment Feat cannot see. The default answers on this machine alone. Widening
+  # it is a decision, and "0.0.0.0" is the way to say it — for reaching a dev
+  # server from a phone on the same network, say — which is every interface this
+  # machine has: every network it is joined to, and the Docker bridge every
+  # other task's containers are on.
+  #
+  # It is the default for a publication that named no address of its own, and
+  # not an address applied over one: a service whose own Compose file publishes
+  # "0.0.0.0:3000:3000" keeps that address whatever this key says, on the host
+  # port Feat allocated for the task.
+  bind_address: "127.0.0.1"
   # Feat sets FEAT_PROJECT_ID, FEAT_TASK_ID, FEAT_TASK_KEY, and
   # FEAT_RUNTIME_PROJECT on every managed service, and FEAT_HOST_URL_<service>
   # and FEAT_HOST_PORT_<service> for each reachable one — upper-cased, with
@@ -208,3 +230,29 @@ checks:
       command: ["pytest"]
       # agent runs it in the agent's environment; host runs it on this machine.
       execution: agent
+
+# Where this project's tickets come from. Omit this section entirely for a
+# project whose tasks are all written by hand. With it, `feat project tickets
+# app` lists what the command printed and `feat implement --ticket <reference>`
+# composes a task brief from one, which you read and edit before it is what the
+# agent is told to do.
+tracker:
+  # How tickets are obtained. A configured command is the only kind: a tracker
+  # CLI already prints JSON, so an adapter per tracker would add nothing but a
+  # mapping from its field names to the shape Feat publishes.
+  kind: command
+  # A command printing your tickets as JSON in the shape of
+  # schema/feat-tickets.schema.json. It runs on this machine as you, in your
+  # home directory, and there is no task yet for it to run in.
+  #
+  # Feat passes it no filter and no placeholder: which tickets are yours is the
+  # command's decision, so make it here. Nothing is expanded either, so name a
+  # program on your path or write the path in full — a leading "~" would reach
+  # the program loader as a "~". `feat doctor` runs it and checks that what it
+  # printed is the published shape, so a mapping that is wrong is found there
+  # rather than when you are trying to start work.
+  #
+  # docs/examples/tickets in the Feat repository holds a worked command per
+  # tracker — GitHub Issues, GitHub Projects, GitLab Issues, and Shortcut — each
+  # beside the document it printed.
+  command: ["feat-tickets"]

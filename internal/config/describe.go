@@ -40,10 +40,15 @@ type Field struct {
 
 // Describe renders the resolved configuration.
 //
-// It is what `feat project show` prints and what `feat doctor` reports against:
-// the values Feat will actually act on, after "~" expansion and after defaults
-// are filled, rather than the text of the file. A user checking whether their
-// configuration says what they meant needs the first, not the second.
+// It is what `feat project show` prints: the values Feat will actually act on,
+// after "~" expansion and after defaults are filled, rather than the text of
+// the file. A user checking whether their configuration says what they meant
+// needs the first, not the second.
+//
+// `feat doctor` prints none of it. That command reports its own findings and
+// the mapping from Mounts below, so a section added here reaches one command
+// and not both — which is worth knowing when the section is the only place a
+// value is shown at all.
 func (c *Config) Describe() []Section {
 	sections := []Section{c.describeProject(), c.describeRepositories(), c.describeGit(), c.describeAgent()}
 	if c.HasRuntime() {
@@ -51,6 +56,9 @@ func (c *Config) Describe() []Section {
 	}
 	if len(c.Checks) > 0 {
 		sections = append(sections, c.describeChecks())
+	}
+	if c.Tracker != nil {
+		sections = append(sections, c.describeTracker())
 	}
 	return sections
 }
@@ -127,6 +135,17 @@ func (c *Config) describeRepositories() Section {
 			Field{Name: id + ".remote", Value: repository.Remote},
 			Field{Name: id + ".default_access", Value: repository.DefaultAccess},
 		)
+		// Printed before the runtime fields below, and not among them: a
+		// repository Feat publishes need not run a service, and one whose
+		// forge went unprinted until it did would be the omission this row
+		// exists to end (ADR-071).
+		if repository.Forge != nil {
+			section.Fields = append(section.Fields, Field{
+				Name:  id + ".forge.kind",
+				Value: repository.Forge.Kind,
+				Note:  "where this repository's merge requests are opened, from this machine",
+			})
+		}
 		if repository.Runtime == nil {
 			continue
 		}
@@ -252,6 +271,23 @@ func (c *Config) describeRuntime() Section {
 		fields = append(fields, Field{Name: fmt.Sprintf("env_files[%d]", i), Value: file, Note: secretMarker})
 	}
 	return Section{Title: "runtime", Fields: fields}
+}
+
+// describeTracker renders where the project's tickets come from.
+//
+// It is a section of its own rather than a field of the project's, because it
+// is one: the tracker is absent for a project whose tasks are all written by
+// hand, and a section that is not there says that more plainly than a row
+// reading "(none)" (ADR-071).
+func (c *Config) describeTracker() Section {
+	return Section{Title: "tracker", Fields: []Field{
+		{Name: "kind", Value: c.Tracker.Kind, Note: "a configured command is the only kind"},
+		// The command as it will be run. Feat passes it no filter, so what is
+		// printed here is the whole of which tickets this project sees, and a
+		// user checking that is checking this line.
+		{Name: "command", Value: strings.Join(c.Tracker.Command, " "),
+			Note: "runs on this machine, in your home directory"},
+	}}
 }
 
 func (c *Config) describeChecks() Section {

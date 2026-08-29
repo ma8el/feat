@@ -288,6 +288,84 @@ func TestTheBindAddressIsGlossedForWhatItGovernsAndNotForEveryPublication(t *tes
 	}
 }
 
+// TestTheTrackerAndTheForgeAreDescribed covers the two sections this command
+// could not print.
+//
+// Both exist, are validated, and are reported by `feat doctor`, and no value of
+// either reached `feat project show` — which is the command every file
+// `feat project init` writes names as the way to see the fields that file left
+// out. A section that command cannot print is one the documented way of
+// discovering it reports nothing about (ADR-071, ADR-072).
+func TestTheTrackerAndTheForgeAreDescribed(t *testing.T) {
+	dir := write(t, "app.yaml", fixture(t, "app.yaml"))
+	opts, _ := testOptions(t, nil)
+
+	loaded, err := config.Load(dir, "app", opts)
+	if err != nil {
+		t.Fatalf("loading a configuration that declares both: %v", err)
+	}
+	described := render(loaded.Describe())
+
+	for _, want := range []string{
+		// The tracker is the project's, and its command is the whole of which
+		// tickets this project sees, because Feat passes it no filter.
+		"tracker\n",
+		"kind = command",
+		"command = tickets-for-me",
+		// The forge is the repository's, and the value is the one Feat would
+		// open a merge request on.
+		"api.forge.kind = gitlab",
+	} {
+		if !strings.Contains(described, want) {
+			t.Errorf("the resolved configuration does not contain %q:\n%s", want, described)
+		}
+	}
+	// And it is the declaring repository's alone: a repository that publishes
+	// nowhere is not given a forge it does not have.
+	for _, absent := range []string{"web.forge", "infra.forge"} {
+		if strings.Contains(described, absent) {
+			t.Errorf("a repository that declares no forge was described with %q:\n%s", absent, described)
+		}
+	}
+
+	// A repository Feat publishes need not run a service, so the row cannot
+	// depend on a runtime being there beside it: `web` brings no services.
+	other := write(t, "app.yaml", strings.Replace(
+		fixture(t, "app.yaml"),
+		"  web:\n    host_path: ~/repos/app/web\n",
+		"  web:\n    host_path: ~/repos/app/web\n    forge:\n      kind: github\n",
+		1))
+	loaded, err = config.Load(other, "app", opts)
+	if err != nil {
+		t.Fatalf("loading a configuration whose published repository runs no service: %v", err)
+	}
+	if described = render(loaded.Describe()); !strings.Contains(described, "web.forge.kind = github") {
+		t.Errorf("a published repository that runs no service was described without its forge:\n%s", described)
+	}
+}
+
+// TestAProjectThatDeclaresNeitherIsDescribedWithNeither is the other half.
+//
+// Both sections are optional — a project may publish nowhere and write every
+// task by hand — and an empty section suggests something is configured that is
+// not, which is the mistake a "(none)" row would make here.
+func TestAProjectThatDeclaresNeitherIsDescribedWithNeither(t *testing.T) {
+	dir := write(t, "minimal.yaml", fixture(t, "minimal.yaml"))
+	opts, _ := testOptions(t, nil)
+
+	loaded, err := config.Load(dir, "minimal", opts)
+	if err != nil {
+		t.Fatalf("loading the minimal configuration: %v", err)
+	}
+	described := render(loaded.Describe())
+
+	for _, absent := range []string{"tracker", "forge"} {
+		if strings.Contains(described, absent) {
+			t.Errorf("a project that configures no %s was described with one:\n%s", absent, described)
+		}
+	}
+}
+
 // TestTheHostAgentOverrideIsNamedRatherThanGuessed is the other half of F6-06.
 //
 // FEAT_HOST_AGENT lives in the daemon's environment (ADR-032) and this command
