@@ -339,6 +339,8 @@ A task in a review state MUST show what its exits are, and MUST NOT offer an act
 
 There are two exits and Feat already had both: attaching to the agent with revision instructions, which returns the task to `working` when the prompt is submitted (FR-AGENT-009), and publishing, after which cleanup archives the task. Neither is a review decision — each does something — and a review action that recorded one was pressed once in fifty-one tasks while requesting changes was never pressed at all. Review's own actions are therefore observing and verifying, both of which measure something. See ADR-086.
 
+The user MUST be able to run the project's configured checks against a task whose agent has asked for review, whatever the last run of them concluded — including work that passed, which the user may have changed themselves while reading it. The run is the completion gate, so the task returns to `review_requested` and the gate decides where it lands, as it did the first time. A run with nothing to run MUST be refused without moving the task. See ADR-087.
+
 ## Persistence and recovery
 
 ### FR-STATE-001 — File storage

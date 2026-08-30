@@ -18,7 +18,7 @@ func TestWorkflowTransitionsMatchTheLifecycle(t *testing.T) {
 		WorkflowWorking:            {WorkflowReviewRequested, WorkflowFailed, WorkflowArchived},
 		WorkflowReviewRequested:    {WorkflowVerifying, WorkflowReadyForReview, WorkflowWorking, WorkflowFailed, WorkflowArchived},
 		WorkflowVerifying:          {WorkflowReadyForReview, WorkflowVerificationFailed, WorkflowReviewRequested, WorkflowFailed, WorkflowArchived},
-		WorkflowReadyForReview:     {WorkflowWorking, WorkflowFailed, WorkflowArchived},
+		WorkflowReadyForReview:     {WorkflowWorking, WorkflowReviewRequested, WorkflowFailed, WorkflowArchived},
 		WorkflowVerificationFailed: {WorkflowWorking, WorkflowReviewRequested, WorkflowFailed, WorkflowArchived},
 		WorkflowFailed:             {WorkflowPreparing, WorkflowWorking, WorkflowArchived},
 		WorkflowArchived:           nil,

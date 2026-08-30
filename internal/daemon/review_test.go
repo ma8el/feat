@@ -810,6 +810,84 @@ func TestVerifyingAgainIsAUserAction(t *testing.T) {
 	}
 }
 
+// TestWorkThatPassedItsChecksCanBeCheckedAgain is ADR-087.
+//
+// A user reading work that passed and changing something themselves has the same
+// question as one reading work that failed, and the answer used to be that the
+// checks run for a task whose agent has asked for review — which this task's
+// agent had. The run goes back through the request it came from, so the gate
+// decides where it lands as it did the first time, and a run that now fails
+// lands somewhere that says so.
+func TestWorkThatPassedItsChecksCanBeCheckedAgain(t *testing.T) {
+	live := launchForReview(t, nil)
+	live.checks.outputs["unit"] = review.Output{Stdout: "84 passed"}
+
+	live.requestReview(t, `{"summary":"ready"}`)
+	if got := live.task(t).Workflow; got != domain.WorkflowReadyForReview {
+		t.Fatalf("workflow = %q, want ready_for_review", got)
+	}
+	before := len(live.checks.commands())
+
+	// The user changed something themselves while reading it, and it broke.
+	live.checks.outputs["unit"] = review.Output{Stdout: "1 failed, 83 passed", ExitCode: 1}
+	live.review(t, api.ReviewVerify)
+	live.awaitGate(t)
+
+	if got := live.task(t).Workflow; got != domain.WorkflowVerificationFailed {
+		t.Errorf("workflow after a user's run failed = %q, want verification_failed", got)
+	}
+	if runs := len(live.checks.commands()); runs != before+1 {
+		t.Errorf("the gate ran %d times, want one more than the %d before", runs, before)
+	}
+
+	// And back out again, on the edge that already existed.
+	live.checks.outputs["unit"] = review.Output{Stdout: "84 passed"}
+	live.review(t, api.ReviewVerify)
+	live.awaitGate(t)
+
+	if got := live.task(t).Workflow; got != domain.WorkflowReadyForReview {
+		t.Errorf("workflow after fixing it = %q, want ready_for_review", got)
+	}
+}
+
+// TestARunWithNothingToRunChangesNothing is the trap the new edge opened.
+//
+// A run is refused before anything moves rather than after. The gate's own
+// background half bails when there is nothing to run, and it bails after the
+// task has been put back in review_requested — so a run started with no checks
+// configured would leave the task there with no gate left to bring it out, and
+// only the agent asking again or the user attaching as a way back. Reachable
+// when a project's checks were removed since the gate ran, which is the case a
+// user has just been editing configuration for.
+func TestARunWithNothingToRunChangesNothing(t *testing.T) {
+	live := launchForReview(t, nil)
+	live.checks.outputs["unit"] = review.Output{Stdout: "84 passed"}
+	live.requestReview(t, `{"summary":"ready"}`)
+
+	// The checks leave the project, as they would if the user edited its
+	// configuration between the gate and the key.
+	rewrite(t, live.service.layout, "app", strings.Split(reviewFixture, "\nchecks:")[0]+"\n")
+	before := len(live.checks.commands())
+
+	_, err := live.service.Review(context.Background(), live.ref.Task, api.ReviewVerify)
+	if err == nil {
+		t.Fatal("a run with nothing to run was accepted")
+	}
+	if !errors.Is(err, api.ErrInvalid) {
+		t.Errorf("the refusal is %v, want an invalid-request error", err)
+	}
+	if !strings.Contains(err.Error(), "configures no checks") {
+		t.Errorf("the refusal does not say why: %v", err)
+	}
+
+	if got := live.task(t).Workflow; got != domain.WorkflowReadyForReview {
+		t.Errorf("a refused run moved the task to %q, want it left at ready_for_review", got)
+	}
+	if runs := len(live.checks.commands()); runs != before {
+		t.Errorf("a refused run ran %d checks", runs-before)
+	}
+}
+
 // TestAReviewRequestFromAFailedGateRunsTheChecksAgain checks the other way back
 // into the loop: the agent fixed what the gate caught and asked again itself.
 func TestAReviewRequestFromAFailedGateRunsTheChecksAgain(t *testing.T) {

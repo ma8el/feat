@@ -49,7 +49,7 @@ func (s *service) Review(
 	// opening review does. Verifying is the other, and there is no third:
 	// recording a decision left with the states it recorded (ADR-086).
 	if action == api.ReviewVerify {
-		if err := s.verifyNow(ctx, task); err != nil {
+		if err := s.verifyNow(ctx, cfg, task); err != nil {
 			return api.ReviewResult{}, err
 		}
 	}
@@ -270,9 +270,15 @@ func expandCommand(template []string, task *domain.Task, binding domain.TaskRepo
 // daemon restart leaves a task back in review_requested with an event saying so,
 // and this is how it is run again. Recovery is offered and never automatic,
 // which is the rule every other lifecycle in Feat follows.
-func (s *service) verifyNow(ctx context.Context, task *domain.Task) error {
+//
+// It runs from either outcome of a gate, not only from the failing one. A user
+// reading work that passed and changing something themselves has the same
+// question as one reading work that failed, and until ADR-087 the answer was
+// that the checks run for a task whose agent has asked for review — which this
+// task's agent had (ADR-087).
+func (s *service) verifyNow(ctx context.Context, cfg *config.Config, task *domain.Task) error {
 	switch task.Workflow {
-	case domain.WorkflowReviewRequested, domain.WorkflowVerificationFailed:
+	case domain.WorkflowReviewRequested, domain.WorkflowReadyForReview, domain.WorkflowVerificationFailed:
 	case domain.WorkflowVerifying:
 		return fmt.Errorf("%w: task %s is already verifying", api.ErrInvalid, task.ID)
 	default:
@@ -280,10 +286,20 @@ func (s *service) verifyNow(ctx context.Context, task *domain.Task) error {
 			api.ErrInvalid, task.ID, task.Workflow)
 	}
 
-	if task.Workflow == domain.WorkflowVerificationFailed {
+	// Asked before anything moves, because the answer decides whether moving is
+	// safe. A project that configures no checks for this task's repositories
+	// reaches ready_for_review without a gate, and a run started from there
+	// would put the task back in review_requested and find nothing to run — with
+	// no gate left to bring it out again. Plan, record, then apply.
+	if run, skipped := s.taskChecks(cfg, task); len(run) == 0 && len(skipped) == 0 {
+		return fmt.Errorf("%w: this project configures no checks for the repositories task %s holds, "+
+			"so there is nothing to run. Nothing was changed", api.ErrInvalid, task.ID)
+	}
+
+	if task.Workflow != domain.WorkflowReviewRequested {
 		// Back to where the request was, so that the gate starts from the state
 		// it always starts from. The edge exists for exactly this and for the
-		// agent that fixed what the gate caught (ADR-036).
+		// agent that fixed what the gate caught (ADR-036, ADR-087).
 		if err := s.transition(ctx, task, domain.WorkflowReviewRequested,
 			"the user asked for the configured checks to run again"); err != nil {
 			return fmt.Errorf("%w: %w", api.ErrInvalid, err)

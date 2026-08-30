@@ -62,6 +62,12 @@ const (
 //   - verification_failed to review_requested is an agent that fixed what the
 //     gate caught and asked again. Without it a task whose checks failed once
 //     could never be reviewed again without a user typing something first.
+//   - ready_for_review to review_requested is the user running the checks again
+//     on work that already passed them, having changed something themselves
+//     while reading it. It is the same edge as the one above, from the other
+//     outcome of the same gate, and it adds no path into a review state: the
+//     agent's request is what the task returns to, and the gate decides where it
+//     lands next, as it did the first time (ADR-087).
 //   - review_requested, ready_for_review, and verification_failed back to
 //     working are the conservative revision transition in FR-AGENT-009, and they
 //     are the whole of what leaving a review state means now: a task is sent
@@ -81,7 +87,7 @@ var workflowTransitions = map[WorkflowState][]WorkflowState{
 	WorkflowWorking:            {WorkflowReviewRequested, WorkflowFailed},
 	WorkflowReviewRequested:    {WorkflowVerifying, WorkflowReadyForReview, WorkflowWorking, WorkflowFailed},
 	WorkflowVerifying:          {WorkflowReadyForReview, WorkflowVerificationFailed, WorkflowReviewRequested, WorkflowFailed},
-	WorkflowReadyForReview:     {WorkflowWorking, WorkflowFailed},
+	WorkflowReadyForReview:     {WorkflowWorking, WorkflowReviewRequested, WorkflowFailed},
 	WorkflowVerificationFailed: {WorkflowWorking, WorkflowReviewRequested, WorkflowFailed},
 	WorkflowFailed:             {WorkflowPreparing, WorkflowWorking},
 	WorkflowArchived:           {},

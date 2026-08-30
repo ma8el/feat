@@ -195,6 +195,7 @@ Target versions may start services based on configured phases or an agent-writte
 5. For this user's configuration, the editor is Neovim.
 6. Feat does not implement an internal diff renderer, inline comments, or reviewed-file tracking in v0.
 7. The user runs the project's configured checks if they want them run again, and then either attaches to Claude with revision instructions — which returns the task to `working` when they submit the prompt — or publishes. Those are the two exits, and the panel names them; there is no decision to record (ADR-086).
+8. Running them again works on work that passed as well as on work that failed, which is the case of a user who changed something themselves while reading it. The task goes back through `review_requested` and `verifying`, and the gate lands it in `ready_for_review` or `verification_failed` as it did the first time (ADR-087).
 
 ## 9. Publish changes
 

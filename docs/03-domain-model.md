@@ -276,6 +276,8 @@ failed
 
 There is no `approved` and no `changes_requested`. Both were review decisions the user recorded by hand; approving was reached once in fifty-one tasks and requesting changes never, nothing read either state, and requesting changes told the agent nothing — it recorded a label and then told the user to attach and say what to change. A task leaves a review state by being worked on again, which the user's next prompt does (FR-AGENT-009), and ends by being published and cleaned up. See ADR-086.
 
+`ready_for_review` is not terminal. It returns to `review_requested` when the user runs the project's checks again — on work that passed, which they may have changed themselves while reading it — and the gate decides where the task lands from there, as it did the first time (ADR-087). Nothing gains a path *into* a review state by this: the edge leaves `ready_for_review`, and semantic completion still requires the agent's own review request (FR-AGENT-008).
+
 Workflow and process states are not collapsed. A task can be `review_requested` while its process is `idle`, or `ready_for_review` while its runtime is still running.
 
 ### Runtime state
