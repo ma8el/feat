@@ -241,8 +241,18 @@ func newPrepare(backend Backend, start prepareStart) prepareModel {
 //
 // It carries no flags, so nothing has answered the source question and the fresh
 // run reaches that step as soon as the project is known.
+//
+// The project is one of those answers. It used to be carried, which was
+// invisible while the dashboard opened preparation with one already named and
+// wrong once `n` did not: the second task of a session skipped the question the
+// first had asked and opened on the source step, in whichever project the
+// previous task had gone to. The list of projects is carried, because that is
+// what was read rather than what was answered.
+//
+// A machine with one project registered still does not see the question, which
+// is chooseProject's rule rather than this one: there is nothing to choose.
 func (p prepareModel) restart() prepareModel {
-	fresh := newPrepare(p.backend, prepareStart{project: p.project, source: api.Source{Kind: "prompt"}})
+	fresh := newPrepare(p.backend, prepareStart{source: api.Source{Kind: "prompt"}})
 	fresh.projects = p.projects
 	fresh.width, fresh.height = p.width, p.height
 	fresh.resize(p.width, p.height)
