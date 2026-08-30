@@ -790,13 +790,13 @@ func (m Model) publicationHints() string {
 		// Looking again is offered here rather than only before a publication,
 		// because this is where a partial one is read: nothing is rolled back,
 		// and a fresh plan is what names the repositories still to publish.
-		return keyHints(keyHint("↑↓ pgup/pgdn", "read"),
+		return keyHints(readHint(),
 			keyHint("r", "look again"), keyHint("esc", "close"))
 	}
 
 	var hints []string
 	if m.publicationScrollable() {
-		hints = append(hints, keyHint("↑↓ pgup/pgdn", "read"))
+		hints = append(hints, readHint())
 	}
 	if len(api.OfferedDrafts(m.publication.status.Drafts)) > 0 {
 		hints = append(hints, keyHint("e", "edit the draft"))

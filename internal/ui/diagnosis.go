@@ -343,7 +343,7 @@ func (m Model) diagnosisHints() string {
 		return keyHints(keyHint("esc", "close"))
 	}
 	return keyHints(
-		keyHint("↑↓ pgup/pgdn", "read"),
+		readHint(),
 		keyHint("r", "check again"),
 		keyHint("esc", "close"),
 	)

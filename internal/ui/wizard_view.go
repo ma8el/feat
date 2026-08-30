@@ -197,13 +197,13 @@ func (w wizardModel) hints() string {
 	case wizardReviewing:
 		return keyHints(
 			keyHint("enter", "write it"),
-			keyHint("↑↓ pgup/pgdn", "read"),
+			readHint(),
 			keyHint("esc", "back"),
 			keyHint("ctrl+c", "cancel"),
 		)
 	case wizardChecking:
 		return keyHints(
-			keyHint("↑↓ pgup/pgdn", "read"),
+			readHint(),
 			keyHint("r", "check again"),
 			keyHint("enter", "continue"),
 		)
