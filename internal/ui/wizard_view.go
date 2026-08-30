@@ -3,8 +3,7 @@ package ui
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
-
+	"github.com/ma8el/feat/internal/ui/ask"
 	"github.com/ma8el/feat/internal/wizard"
 )
 
@@ -175,22 +174,15 @@ func (w wizardModel) doneView() string {
 // that a user acts on, and the box composites by cell: without this they end in
 // an ellipsis, and a path that is cut is a path nobody can check.
 //
-// The padding lipgloss adds is taken back off. dialogBox shrinks its box to the
-// widest line it is handed, and a line padded out to the width it wrapped to
-// reports itself as exactly as wide as the dialog was allowed — so the wizard
-// took three quarters of the terminal from the review step onwards, to show a
-// file whose lines are half that. What decides the width now is the widest thing
-// actually on the screen, which is what lets this dialog have as much room as it
-// needs and no more.
-func (w wizardModel) wrap(text string) string {
-	wrapped := lipgloss.NewStyle().Width(max(20, w.width)).Render(text)
+// The fold itself is the widget's, read back as the styles are (ADR-084). It
+// used to be written here, and the question's own prose — which the widget draws
+// and this cannot reach inside — went unwrapped for exactly as long: one screen
+// with a wrapper on the sentences around a question and none on the question's.
+func (w wizardModel) wrap(text string) string { return ask.Wrap(text, w.wrapWidth()) }
 
-	lines := strings.Split(wrapped, "\n")
-	for i, line := range lines {
-		lines[i] = strings.TrimRight(line, " ")
-	}
-	return strings.Join(lines, "\n")
-}
+// wrapWidth is what this dialog folds prose into, and what it tells the widget
+// to fold the question's own prose into, so that the two cannot differ.
+func (w wizardModel) wrapWidth() int { return max(20, w.width) }
 
 func (w wizardModel) hints() string {
 	switch w.step {

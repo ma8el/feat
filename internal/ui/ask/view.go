@@ -3,6 +3,7 @@ package ask
 import (
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ma8el/feat/internal/wizard"
@@ -17,19 +18,31 @@ import (
 // blank line and prints the notes above the widget, where they stay in the
 // scrollback after the widget has exited; the dialog has no scrollback and
 // draws the whole question at once (ADR-084).
+//
+// Everything here is folded into the width the caller gave, and a caller that
+// gave none gets the flow's own lines. See SetContextWidth for what that fixes.
 func (m Model) Context() string {
 	var out strings.Builder
 	if m.question.Heading != "" {
-		out.WriteString(TitleStyle.Render(m.question.Heading) + "\n")
+		out.WriteString(styled(TitleStyle, m.question.Heading, m.context) + "\n")
 	}
-	for _, line := range m.question.Detail {
-		// A paragraph break is a blank line, and styling an empty string writes
-		// the colour around nothing.
-		if line == "" {
+
+	for i, paragraph := range m.paragraphs() {
+		if i > 0 {
+			// A paragraph break is a blank line, and styling an empty string
+			// writes the colour around nothing.
 			out.WriteString("\n")
+		}
+		if m.context < 1 {
+			// No width to fold to, so the flow's breaks are the breaks. This is
+			// what the asker with no width would get, and it is what the flow
+			// authored the lines for.
+			for _, line := range paragraph {
+				out.WriteString(MutedStyle.Render(line) + "\n")
+			}
 			continue
 		}
-		out.WriteString(MutedStyle.Render(line) + "\n")
+		out.WriteString(styled(MutedStyle, strings.Join(paragraph, " "), m.context) + "\n")
 	}
 	if len(m.question.Detail) > 0 {
 		out.WriteString("\n")
@@ -37,13 +50,77 @@ func (m Model) Context() string {
 
 	// What the last answer established, in the colour of something Feat found
 	// rather than something the user typed.
+	//
+	// The bullet is the width of its own indent, so a note that folds hangs under
+	// its first line rather than under the mark: a second line starting in the
+	// bullet's column reads as a second note, and these are the lines that carry
+	// what Feat found out about the answer before this one.
 	for _, note := range m.question.Notes {
-		out.WriteString(AttentionStyle.Render("· ") + MutedStyle.Render(note) + "\n")
+		out.WriteString(AttentionStyle.Render("· ") +
+			indentAfterFirst(styled(MutedStyle, note, m.context-noteMarker), noteMarker) + "\n")
 	}
 	if len(m.question.Notes) > 0 {
 		out.WriteString("\n")
 	}
 	return out.String()
+}
+
+// noteMarker is the width of the bullet a note is written after.
+const noteMarker = 2
+
+// styled folds text into a width and colours each of its lines.
+//
+// Each line rather than the block. A style applied to several lines at once pads
+// them all out to the widest, and a padded line reports itself as exactly as
+// wide as the fold — so the box would shrink to the width it was allowed rather
+// than to the width it needs, which is the measurement this fold was written to
+// give back. It is the same reason Wrap takes lipgloss's own padding off again.
+func styled(style lipgloss.Style, text string, width int) string {
+	lines := strings.Split(Wrap(text, width), "\n")
+	for i, line := range lines {
+		if line == "" {
+			// Styling an empty string writes the colour around nothing.
+			continue
+		}
+		lines[i] = style.Render(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// paragraphs are a question's detail, grouped as the flow's blank lines group
+// it.
+//
+// The flow authors `Detail` as the lines it would be printed as, which is what
+// `feat project init` prints and what the rule over a section is measured
+// against (internal/cli's ruleWidth). Grouping rather than joining is what lets
+// both readings out of one place: a caller with a width joins a group and folds
+// it again, and a caller without one draws the lines it was given.
+func (m Model) paragraphs() [][]string {
+	var out [][]string
+	var current []string
+	for _, line := range m.question.Detail {
+		if line == "" {
+			if len(current) > 0 {
+				out = append(out, current)
+				current = nil
+			}
+			continue
+		}
+		current = append(current, line)
+	}
+	if len(current) > 0 {
+		out = append(out, current)
+	}
+	return out
+}
+
+// indentAfterFirst puts every line of a block but the first under the first.
+func indentAfterFirst(block string, cells int) string {
+	lines := strings.Split(block, "\n")
+	for i := 1; i < len(lines); i++ {
+		lines[i] = strings.Repeat(" ", cells) + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // View draws the question and how it is answered: the field with what is in it,

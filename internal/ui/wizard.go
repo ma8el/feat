@@ -127,6 +127,10 @@ func (w *wizardModel) resize(width, height int) {
 	if width > 4 {
 		w.input.SetWidth(min(width-6, 100))
 	}
+	// The field's width and the block's are told apart: the field is one line
+	// inside the block, indented and capped, and the prose around it is the whole
+	// of what the box has. The dialog knows both and the widget guesses neither.
+	w.input.SetContextWidth(w.wrapWidth())
 }
 
 func (w wizardModel) Update(message tea.Msg) (wizardModel, tea.Cmd) {

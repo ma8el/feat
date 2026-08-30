@@ -62,6 +62,13 @@ type Model struct {
 	input textinput.Model
 	// cursor is which of a closed question's options is under it.
 	cursor int
+	// context is how many cells the prose around the question is folded into.
+	//
+	// It is not the field's width and is not derived from it: the field is one
+	// line inside the block and is capped where the block is not, and a caller
+	// that has both hands them over separately. Nought means a caller that has
+	// not been told, and the prose is then drawn as the flow wrote it.
+	context int
 }
 
 // New builds the question widget.
@@ -104,7 +111,36 @@ func (m Model) Ask(question wizard.Question) Model {
 
 // SetWidth sets how many cells the field is drawn in. A caller that has not
 // been told how wide it is leaves this alone, and the field draws itself.
+//
+// This is the field and not the block around it; see SetContextWidth, which both
+// callers compute differently and which is not a cap.
 func (m *Model) SetWidth(cells int) { m.input.Width = cells }
+
+// SetContextWidth sets how many cells the prose around the question is folded
+// into, which is what Context draws.
+//
+// It exists because that prose had nothing to fold to and the caller that could
+// have folded it cannot reach inside the widget. `Detail` is authored as
+// pre-wrapped lines and wrapped at about seventy-two cells whatever box it was
+// drawn in; a `Notes` entry is one long string, and the note saying which
+// services are built from a repository runs to a hundred and sixty cells and was
+// cut with an ellipsis at the point where it lists them. A dialog that truncates
+// a line is also a dialog that reads that line as exactly as wide as it is
+// allowed, so the same note took the box's full three-quarters allowance to show
+// a sentence it had already cut short.
+//
+// It is separate from SetWidth because the two measure different things and are
+// derived differently: the dashboard's field is the block less its own indent
+// and capped at a hundred cells, and `feat project init`'s is the terminal less
+// the question's indent. A widget that guessed one from the other would be
+// guessing at a number both callers already know.
+//
+// Nought is the default and means the prose is drawn as the flow wrote it. That
+// is what `feat project init` uses — it does not call Context at all, printing
+// the same fields itself so that they stay in the scrollback after the widget
+// has exited (ADR-084) — so this setter is the dashboard's and the transcript is
+// untouched by it.
+func (m *Model) SetContextWidth(cells int) { m.context = cells }
 
 // Value is the answer as it stands, which is what Enter would send.
 func (m Model) Value() string { return m.input.Value() }

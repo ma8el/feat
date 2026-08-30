@@ -377,7 +377,7 @@ func longConfiguration() string {
 	for i := range 40 {
 		text.WriteString("  - id: repo" + strconv.Itoa(i) + "\n")
 	}
-	text.WriteString("    path: /srv/checkouts/example/a-repository-with-a-long-name\n")
+	text.WriteString("    path: /srv/checkouts/example/api\n")
 	return text.String()
 }
 
@@ -391,7 +391,7 @@ func reviewingWizard(t *testing.T, text string) Model {
 		asked: true, step: wizardReviewing,
 		review: wizard.Review{Path: "/config/example.yaml", Text: []byte(text)},
 	}
-	model.wizard.resize(model.preparationSize())
+	model.wizard.resize(model.wizardSize())
 	return model
 }
 
