@@ -198,7 +198,10 @@ func (m Model) taskPanel() string {
 		out.WriteString("  " + attentionStyle.Render("note") + " " + note + "\n")
 	}
 	if m.review.err != nil {
-		out.WriteString("  " + failureStyle.Render(m.review.err.Error()) + "\n")
+		// Unwrapped here, because this panel is re-flowed to its region as a whole
+		// before it is drawn (wrappedPanel). Wrapping twice would break the line
+		// where this measured it and again where the panel does.
+		out.WriteString("  " + daemonNote(m.review.err, task, 0) + "\n")
 	}
 	if m.review.pending != "" {
 		out.WriteString("  " + mutedStyle.Render(

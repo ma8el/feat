@@ -77,6 +77,21 @@ func IsShellMissing(err error) bool {
 	return classified(err, ErrShellMissing, CodeShellMissing)
 }
 
+// IsInvalid reports whether the daemon refused a request rather than failed one,
+// in process or across the socket.
+//
+// The difference is worth drawing wherever a person reads the result. A refusal
+// says what cannot be done from here — a task in a state the action is not for, a
+// project that configures no runtime — and it is answered by doing something
+// else. A failure says Feat tried and something broke. A screen that renders both
+// the same way asks the user to tell them apart from the wording.
+//
+// domain.ErrInvalid is classified as this too, so a validation error raised in
+// the domain arrives here as the refusal it is.
+func IsInvalid(err error) bool {
+	return classified(err, ErrInvalid, CodeInvalid) || errors.Is(err, domain.ErrInvalid)
+}
+
 // classified answers one of those questions from whichever form the caller has:
 // the daemon's own wrapped error, or a client's decoded code.
 func classified(err error, sentinel error, code string) bool {

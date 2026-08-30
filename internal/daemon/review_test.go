@@ -813,9 +813,9 @@ func TestVerifyingAgainIsAUserAction(t *testing.T) {
 // TestWorkThatPassedItsChecksCanBeCheckedAgain is ADR-087.
 //
 // A user reading work that passed and changing something themselves has the same
-// question as one reading work that failed, and the answer used to be that the
-// checks run for a task whose agent has asked for review — which this task's
-// agent had. The run goes back through the request it came from, so the gate
+// question as one reading work that failed, and the answer used to be that
+// checks can only run for a task whose agent has asked for review — which this
+// task's agent had. The run goes back through the request it came from, so the gate
 // decides where it lands as it did the first time, and a run that now fails
 // lands somewhere that says so.
 func TestWorkThatPassedItsChecksCanBeCheckedAgain(t *testing.T) {

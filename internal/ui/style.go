@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/ui/ask"
 )
 
@@ -227,3 +228,51 @@ func keyHints(hints ...string) string { return ask.KeyHints(hints...) }
 // The letters lead, as they do in the dashboard's key map, where the same pair
 // is written `j k h l  ↓↑←→`.
 func readHint() string { return keyHint("j k ↑↓ pgup/pgdn", "read") }
+
+// daemonNote renders what came back from a request the way the screen it lands
+// on should read it.
+//
+// A refusal is not a failure, and the two screens that draw one were drawing it
+// as a red line beginning `invalid request:` and carrying thirty-six characters
+// of task identifier — which is a log entry, and a screen that prints one is
+// asking the user to translate it. "Checks can only run for a task whose agent
+// has asked for review" is a statement about what can be done from here; the
+// answer is to do something else, not to report a fault.
+//
+// So a refusal is drawn the way both of these screens already draw a note, which
+// is the amber label they use for something that needs the user and is not a
+// verdict against the work. A genuine failure keeps the failure colour, because
+// then something did break.
+//
+// Two things go from the text. The wire prefix classifies the response for a
+// caller rather than telling a person anything, and it is the first thing on the
+// line. The task's identifier is shortened to the key the header above already
+// names it by: it is the longest thing on the line and the least worth reading,
+// and it is replaced by value rather than by pattern, so nothing that merely
+// looks like an identifier is rewritten.
+func daemonNote(err error, task api.Task, width int) string {
+	message := err.Error()
+	if task.ID != "" && task.Key != "" {
+		message = strings.ReplaceAll(message, task.ID, task.Key)
+	}
+	if !api.IsInvalid(err) {
+		return failureStyle.Render(wrapNote(message, width))
+	}
+	message = strings.TrimPrefix(message, api.ErrInvalid.Error()+": ")
+	return attentionStyle.Render("note") + " " + wrapNote(message, width)
+}
+
+// wrapNote folds a note to the region it is drawn in, where the caller knows the
+// width.
+//
+// The runtime screen is the reason it takes one at all: its body is the only tab
+// that is not re-flowed before it is drawn, so a sentence longer than the region
+// was cut at the edge with an ellipsis. What that cost was the end of the
+// sentence — and on the message that sends a user to their configuration, the end
+// of the sentence is the path.
+func wrapNote(message string, width int) string {
+	if width <= 0 {
+		return message
+	}
+	return ansi.Wrap(message, width, "")
+}
