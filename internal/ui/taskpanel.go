@@ -181,11 +181,16 @@ func (m Model) taskPanel() string {
 	case isDraft(task):
 		out.WriteString(mutedStyle.Render(
 			"  a draft has nothing to compare yet; it owns no worktree until it is launched") + "\n")
-	case !m.review.loaded:
-		// The wait every task panel opens with. It walks each of the task's
-		// worktrees, so on a task with three of them it is seconds of a panel that
-		// is otherwise complete and still; the mark is what says they are being
-		// spent (see activity).
+	case m.review.observing:
+		// The wait every task panel opens with, and the one `r` asks for again. It
+		// walks each of the task's worktrees, so on a task with three of them it is
+		// seconds of a panel that is otherwise complete and still; the mark is what
+		// says they are being spent (see activity).
+		//
+		// On the comparison in flight rather than on never having had one. Those
+		// are the same thing only the first time: a refresh on a loaded panel drew
+		// nothing at all, and a comparison that failed left this line under the
+		// error it failed with, perfectly still, saying it was still being made.
 		out.WriteString(mutedStyle.Render(
 			"  "+m.activity.mark("comparing every repository against its recorded base…")) + "\n")
 	}

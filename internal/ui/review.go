@@ -33,13 +33,17 @@ type reviewModel struct {
 	scroll int
 	// pending is the action in flight, so the screen says what it is waiting for.
 	pending api.ReviewAction
-	// observing reports that the comparison the panel opened with is in flight.
+	// observing reports that a comparison is in flight, whoever asked for it.
 	//
-	// It is separate from pending, which is the action a key press asked for.
-	// The opening read is nobody's key press, and it is what the loading
-	// indicator is drawn for here: a comparison walks every one of the task's
-	// worktrees and takes seconds, and until this the line saying so was as still
-	// as the one preparation used to draw.
+	// It is separate from pending, which is every other action, because the two
+	// can be outstanding at once: a gate landing while the user waits for a check
+	// run is exactly that. What divides them is the action rather than who asked,
+	// which is the division applyReview clears by — the panel's opening read is
+	// nobody's key press and `r` is one, and both are comparisons.
+	//
+	// It is what the loading indicator is drawn for: a comparison walks every one
+	// of the task's worktrees and takes seconds, and until this the line saying so
+	// was as still as the one preparation used to draw.
 	observing bool
 	// err is a failed action, shown rather than thrown.
 	err error
@@ -181,8 +185,18 @@ func (m Model) taskPanelKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // startReview records what the screen is waiting for and asks for it.
+//
+// Which marker records the wait is the same split applyReview clears by, and it
+// is on the action rather than on who asked for it. Recording `r`'s comparison
+// as pending left the panel waiting for a response that had already arrived and
+// been drawn: applyReview cleared observing for it, which was not the marker
+// that had been set, so the indicator ran until the panel was closed.
 func (m Model) startReview(action api.ReviewAction) (tea.Model, tea.Cmd) {
-	m.review.pending = action
+	if action == api.ReviewObserve {
+		m.review.observing = true
+	} else {
+		m.review.pending = action
+	}
 	m.review.err = nil
 	m.status = ""
 	return m, m.reviewAction(action)

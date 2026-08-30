@@ -345,6 +345,66 @@ func TestAReviewActionInFlightSaysSo(t *testing.T) {
 	}
 }
 
+// TestRefreshingTheTaskPanelStopsAnimatingWhenItLands is the one comparison a key
+// press asks for.
+//
+// `r` on this panel is the same observation the panel opens with, so it is held
+// in the same marker: recorded as a pending action instead, applyReview cleared
+// the other one and the panel went on saying it was waiting for a comparison it
+// had already drawn — for as long as the panel stayed open.
+func TestRefreshingTheTaskPanelStopsAnimatingWhenItLands(t *testing.T) {
+	backend := newFakeBackend()
+	model := reviewScreen(t, backend)
+	if model.activity.running {
+		t.Fatal("a panel with nothing outstanding is animating")
+	}
+
+	updated, cmd := model.Update(key("r"))
+	model = updated.(Model)
+
+	if !model.review.observing || model.review.pending != "" {
+		t.Fatalf("observing=%v pending=%q, want the refresh held as a comparison",
+			model.review.observing, model.review.pending)
+	}
+	view := model.taskPanel()
+	if !strings.Contains(flowed(view), "comparing every repository against its recorded base") {
+		t.Errorf("the panel does not say what it is waiting for:\n%s", view)
+	}
+
+	model = applyCommand(t, model, cmd)
+	if model.review.observing || model.activity.running {
+		t.Error("the comparison came back and the panel is still animating")
+	}
+	if spinning(model.taskPanel()) {
+		t.Errorf("a refreshed panel is drawn with an indicator on it:\n%s", model.taskPanel())
+	}
+}
+
+// TestAFailedComparisonStopsSayingItIsBeingMade is the other end of the same
+// line.
+//
+// The panel never loads, so a line drawn for not having loaded stayed under the
+// error — telling a user reading why the comparison failed that it was still
+// being made, and doing it perfectly still, because nothing was outstanding for
+// the indicator to animate.
+func TestAFailedComparisonStopsSayingItIsBeingMade(t *testing.T) {
+	backend := newFakeBackend()
+	backend.reviewStatus = reviewed()
+	backend.reviewErr = errors.New("core: not a worktree")
+	model := dashboard(backend, backend.reviewStatus.Task)
+
+	updated, cmd := model.Update(key("v"))
+	model = applyCommand(t, updated.(Model), cmd)
+
+	view := flowed(model.taskPanel())
+	if !strings.Contains(view, "core: not a worktree") {
+		t.Errorf("the panel does not say why the comparison failed:\n%s", view)
+	}
+	if strings.Contains(view, "comparing every repository against its recorded base") {
+		t.Errorf("a failed comparison is still drawn as being made:\n%s", view)
+	}
+}
+
 // TestTheRuntimeScreenShowsBothOfItsWaits covers the read it opens with and the
 // action a key press asks for.
 //
