@@ -1013,7 +1013,7 @@ func TestTheWarningCountSitsAtTheFootOfTheRail(t *testing.T) {
 
 // TestLookingAgainKeepsTheOverlayOpen is what its own hint promises.
 //
-// The key says "look again", and a key that closed the view was the answer
+// The key says "refresh", and a key that closed the view was the answer
 // arriving somewhere the user was no longer looking.
 func TestLookingAgainKeepsTheOverlayOpen(t *testing.T) {
 	backend := newFakeBackend()
@@ -1158,7 +1158,7 @@ func TestTheRecoveryBandSaysWhenItLooked(t *testing.T) {
 	if !strings.Contains(view, looked.Local().Format("15:04:05")) {
 		t.Errorf("recovery does not say when it looked:\n%s", view)
 	}
-	if !strings.Contains(view, "look again") {
+	if !strings.Contains(view, "r to refresh") {
 		t.Errorf("recovery does not say how to bring it up to date:\n%s", view)
 	}
 }

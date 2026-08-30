@@ -344,7 +344,7 @@ func (m Model) diagnosisHints() string {
 	}
 	return keyHints(
 		readHint(),
-		keyHint("r", "check again"),
+		keyHint("r", "refresh"),
 		keyHint("esc", "close"),
 	)
 }

@@ -185,8 +185,8 @@ func (m Model) checkedAt() string { return mutedStyle.Render("  " + m.checkedTex
 // checkedText is the same without the spacing a heading needs beside it.
 func (m Model) checkedText() string {
 	if m.reconciliation.FinishedAt.IsZero() {
-		return "r to look again"
+		return "r to refresh"
 	}
 	return "checked " + m.reconciliation.FinishedAt.Local().Format("15:04:05") +
-		"  ·  r to look again"
+		"  ·  r to refresh"
 }

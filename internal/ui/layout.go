@@ -272,7 +272,7 @@ func (m Model) hints() string {
 		return m.daemonHints()
 	}
 	if m.screen == screenRecovery {
-		return keyHints(keyHint("r", "look again"), keyHint("esc", "close"))
+		return keyHints(keyHint("r", "refresh"), keyHint("esc", "close"))
 	}
 	// A screen that has shut its keyboard while it waits for a request it cannot
 	// take back names the one key it still answers, rather than the "esc close"

@@ -209,7 +209,7 @@ func keyMap(width int) string {
 			// entirely (ADR-076, ADR-086).
 			{"P", "publish, read it first"},
 			{"pgup / pgdn", "scroll the panel"},
-			{"r", "compare again"},
+			{"r", "refresh"},
 		}},
 		{"the runtime view", [][2]string{
 			{"c / u / t", "create, start, stop"},
@@ -223,7 +223,7 @@ func keyMap(width int) string {
 			{"p", "configure a project"},
 			{"D", "check against the host"},
 			{"C", "clean up a task"},
-			{"r", "look again"},
+			{"r", "refresh"},
 			{"?", "this list"},
 			{"q", "quit"},
 		}},

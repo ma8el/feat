@@ -196,7 +196,7 @@ func (w wizardModel) hints() string {
 	case wizardChecking:
 		return keyHints(
 			readHint(),
-			keyHint("r", "check again"),
+			keyHint("r", "refresh"),
 			keyHint("enter", "continue"),
 		)
 	case wizardRegistering:

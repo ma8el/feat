@@ -1145,10 +1145,10 @@ func (m Model) quit() (tea.Model, tea.Cmd) {
 //
 // Falling through rather than being answered first is deliberate, and it is the
 // opposite of what frameKey does. Movement must beat a view, because a view that
-// swallowed it would trap the user in itself. An action must not: `r` means
-// compare again on the task panel and refresh on runtime, and `C` sends work back
-// there while it cleans a task up here. A view that claims a key keeps it, and
-// everything else lands on the dashboard's own meaning.
+// swallowed it would trap the user in itself. An action must not: `r` refreshes
+// the comparison on the task panel and the runtime's state on runtime, and `C`
+// sends work back there while it cleans a task up here. A view that claims a key
+// keeps it, and everything else lands on the dashboard's own meaning.
 func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// A pending confirmation takes the keyboard, as it does on the runtime
 	// screen: while Feat is asking whether to interrupt a working agent, no
@@ -1716,7 +1716,7 @@ func (m Model) stackedView() string {
 		width, _ := m.frameSize()
 		return m.keyMap(width) + m.footer(keyHints(keyHint("esc", "close")))
 	case screenRecovery:
-		return m.recoveryList() + m.footer(keyHints(keyHint("r", "look again"), keyHint("esc", "close")))
+		return m.recoveryList() + m.footer(keyHints(keyHint("r", "refresh"), keyHint("esc", "close")))
 	case screenDaemon:
 		width, _ := m.frameSize()
 		return m.daemonBody(width) + m.footer(m.daemonHints())
