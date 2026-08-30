@@ -271,12 +271,16 @@ func TestAnOverlayLeavesTheTaskListVisible(t *testing.T) {
 	if !strings.Contains(view, "9b02de41") {
 		t.Errorf("the task list is not visible behind the dialog:\n%s", view)
 	}
-	if !strings.Contains(view, "shift moves the frame") {
+	// A section heading rather than a hint's wording. This test is about whether
+	// the overlay opens over the list and closes again, and pinning it to a phrase
+	// that is being edited for its own reasons fails it for something it is not
+	// about — which is what "where shift is eaten" did when that line went.
+	if !strings.Contains(view, "everything else") {
 		t.Errorf("the key map is not on screen:\n%s", view)
 	}
 
 	closed := press(t, opened, "esc")
-	if strings.Contains(closed.View(), "shift moves the frame") {
+	if strings.Contains(closed.View(), "everything else") {
 		t.Errorf("the dialog did not close:\n%s", closed.View())
 	}
 }
@@ -310,18 +314,19 @@ func TestTheKeyMapFitsTheDialogItIsDrawnIn(t *testing.T) {
 // is protected when something has to go.
 //
 // At ninety-six cells the dialog is seventy-two wide, which holds one column of
-// keys and not two, and one column is forty-one lines against the twenty-seven a
-// thirty-two-row terminal leaves. Something is cut there, and it is cut from the
-// bottom — so what must be at the top is the rule the rest of the map is an
-// application of, and the cut must say it happened rather than end mid-list.
+// keys and not two, and one column is thirty-nine lines against the twenty-seven
+// a thirty-two-row terminal leaves. Something is cut there, and it is cut from
+// the bottom — so what must be at the top is everything that moves, which is the
+// section the rest of the map is read against, and the cut must say it happened
+// rather than end mid-list.
 func TestTheNarrowestSupportedWidthKeepsTheRule(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), minimumWidth, 32)
 	view := press(t, model, "?").View()
 
 	for _, want := range []string{
-		"shift moves the frame",  // the rule
-		"next and previous task", // and both halves of it
-		"move within the view",
+		"next/prev task, view",     // moving the frame
+		"move within the view",     // and moving inside one
+		"terminal, task panel",     // and going straight to one
 		"more lines than fit here", // said, rather than silently ending
 	} {
 		if !strings.Contains(view, want) {

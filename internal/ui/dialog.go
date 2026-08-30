@@ -163,82 +163,76 @@ const keyGap = 4
 // is reachable from where the user is, and this is where the rest lives.
 //
 // It is laid out in two columns wherever they fit, because in one column it does
-// not: seven sections of keys is forty-one lines, and the dialog on a normal
-// terminal has room for twenty-seven. What overflowed was cut from the bottom,
-// which is where the sections a reader has not memorised are.
+// not: seven sections of keys render as forty-five lines — thirty-nine of keys
+// and headings, and the blank line between each pair of sections — against the
+// twenty-seven the dialog has on a normal terminal. What overflowed was cut from
+// the bottom, which is where the sections a reader has not memorised are.
+//
+// Forty-five is the number that matters, and it is the only one measured: the
+// split and the fit are both decided on the rendered height. Counting keys and
+// headings without the separators between them is what put the split a section
+// early, which is why nothing counts them now.
+//
+// A description longer than keyDescription is what breaks this, and it breaks it
+// silently: the two columns stop fitting the width, the map falls back to the one
+// column that does not fit the height, and the last section is eaten. That is
+// checked rather than trusted (TestTheKeyMapStaysInsideItsColumns).
 func keyMap(width int) string {
 	sections := []struct {
 		heading string
 		keys    [][2]string
 	}{
-		// Shifted keys move the frame and plain keys move within the view. It is
-		// one rule, and it is the first thing this list says, because a user who
-		// has it needs the rest of the sections only once (ADR-046).
-		{"moving · shift moves the frame", [][2]string{
-			{"J / K", "next and previous task"},
-			{"L / H", "next and previous view"},
+		// Everything that moves, in one section: the frame's shifted keys, the
+		// letters that go straight to a view, and the plain keys that move inside
+		// whichever one is open (ADR-046). It is first because it is the section a
+		// reader needs once rather than repeatedly, and because it is the one the
+		// narrow fallback protects — there the map is a single column and is cut
+		// from the bottom.
+		//
+		// The sections after it are the tab bar's own order, so that the list a
+		// user reads is arranged the way the screen they are reading it over is.
+		{"moving", [][2]string{
+			{"J / K / L / H", "next/prev task, view"},
 			{"shift+↓ ↑ → ←", "the same, in arrows"},
-			{"ctrl+n / ctrl+p", "where shift is eaten"},
-			{"tab / shift+tab", "view, the same way"},
+			{"tab / shift+tab", "next/prev view"},
 			{"space", "fold or open a project"},
-		}},
-		// One key per view, beside the keys that step between them. Two views had
-		// one and two did not, and the two that had one did not agree on what a
-		// key for a view looked like: `R` opened the runtime, `enter` and `v` both
-		// opened the task panel, and the brief and the terminal had to be cycled
-		// to. `a` attaches to the terminal `A` shows, and they are in separate
-		// sections because that shift changes what happens rather than where.
-		//
-		// The keys are here rather than on the tab bar because the bar cannot hold
-		// them: at the supported minimum of 96 columns it gets 28 cells against
-		// `terminal task brief runtime` at 27, and a key on each tab is 35.
-		//
-		// Paired rather than one to a line, in the order the tab bar draws them and
-		// in its own words, because four lines here is two more than the dialog has
-		// to give: the column this section joins is full at twenty-three.
-		{"opening a view · one key each", [][2]string{
 			{"A / T", "terminal, task panel"},
-			{"B / R", "brief, runtime"},
-		}},
-		{"the view · plain keys stay in it", [][2]string{
+			{"B / R", "brief, runtime panel"},
 			{"j k h l  ↓↑←→", "move within the view"},
+		}},
+		{"the terminal tab", [][2]string{
 			{"i", "type into the pane"},
 			{"ctrl+q", "take the keyboard back"},
 			{"w", "agent's pane or shell"},
 		}},
-		{"the selected task", [][2]string{
+		{"the task tab", [][2]string{
+			{"j / k", "select a repository"},
+			{"d / e", "diff and editor"},
+			{"V", "run configured checks"},
+			{"P", "publish changes"},
+			{"pgup / pgdn", "scroll the panel"},
+		}},
+		{"the brief tab", [][2]string{
+			{"pgup / pgdn", "scroll the panel"},
+		}},
+		{"the runtime tab", [][2]string{
+			{"c / u", "create, start"},
+			{"t / d", "stop, destroy"},
+			{"o", "follow the Compose logs"},
+		}},
+		{"tasks and projects", [][2]string{
+			{"n", "prepare a new task"},
+			{"p", "configure a project"},
 			{"a", "attach to the terminal"},
 			{"s", "open the task's shell"},
 			{"z / t", "resume and stop it"},
-			{"x", "cancel a draft, on y"},
-		}},
-		{"the task panel", [][2]string{
-			{"j / k", "select a repository"},
-			{"d / e", "diff and editor, there"},
-			{"V", "run configured checks"},
-			// Publishing is one of the two ways a task ends, and since the
-			// decision keys went it is the only one on this panel — the other is
-			// attaching and typing, which is `a` above. It kept its own line
-			// through the change that removed the keys it used to sit beside:
-			// the line it once shared named a "pending" action that did not
-			// exist, which is how P came to be documented as something else
-			// entirely (ADR-076, ADR-086).
-			{"P", "publish, read it first"},
-			{"pgup / pgdn", "scroll the panel"},
-			{"r", "refresh"},
-		}},
-		{"the runtime view", [][2]string{
-			{"c / u / t", "create, start, stop"},
-			{"o", "follow the Compose logs"},
-			{"d", "destroy, after a yes"},
+			{"C", "clean up a task"},
+			{"x", "cancel a draft"},
 		}},
 		{"everything else", [][2]string{
 			{"!", "what recovery found"},
 			{"S", "start the daemon"},
-			{"n", "prepare a new task"},
-			{"p", "configure a project"},
-			{"D", "check against the host"},
-			{"C", "clean up a task"},
+			{"D", "run doctor"},
 			{"r", "refresh"},
 			{"?", "this list"},
 			{"q", "quit"},
@@ -246,7 +240,6 @@ func keyMap(width int) string {
 	}
 
 	blocks := make([]string, 0, len(sections))
-	lines := 0
 	for _, section := range sections {
 		var out strings.Builder
 		out.WriteString(mutedStyle.Render(section.heading))
@@ -255,10 +248,9 @@ func keyMap(width int) string {
 				mutedStyle.Render(key[1]))
 		}
 		blocks = append(blocks, out.String())
-		lines += len(section.keys) + 1
 	}
 
-	if columns, ok := twoColumnKeys(blocks, lines, width); ok {
+	if columns, ok := twoColumnKeys(blocks, width); ok {
 		return columns
 	}
 	return strings.Join(blocks, "\n\n")
@@ -270,16 +262,28 @@ func keyMap(width int) string {
 // end at about the same line however the sections are sized. A width that cannot
 // hold both is not squeezed: the caller stacks them instead, which is what the
 // narrow fallback gets.
-func twoColumnKeys(blocks []string, lines, width int) (string, bool) {
+//
+// Both sides of that comparison are rendered heights, blank separators included,
+// and they used not to be. The walk counted rendered lines and stopped at half
+// the count of keys and headings — a smaller number, because it left the blank
+// line between each pair of sections out — so it stopped a section early and the
+// right column carried the difference. Seven sections rendered as forty-five
+// lines and were split twenty and twenty-four.
+func twoColumnKeys(blocks []string, width int) (string, bool) {
 	if len(blocks) < 2 {
 		return "", false
+	}
+
+	total := len(blocks) - 1
+	for _, block := range blocks {
+		total += len(strings.Split(block, "\n"))
 	}
 
 	split, height := 0, 0
 	for i, block := range blocks[:len(blocks)-1] {
 		height += len(strings.Split(block, "\n")) + 1
 		split = i + 1
-		if height*2 >= lines {
+		if height*2 >= total {
 			break
 		}
 	}

@@ -857,13 +857,20 @@ func (m Model) apply(message tea.Msg) (tea.Model, tea.Cmd) {
 // task panel, so the same key meant two things and a user could not tell which
 // without pressing it.
 //
-// Each direction has three spellings, and they are not redundant. Uppercase
-// letters are the primary binding — a terminal has no modifier bit for a shifted
-// letter, so shift+j is delivered as J and that is what a Vim-shaped binding
-// actually is. The shifted arrows are the same movement for a user who does not
-// think in hjkl. The control pair is the fallback, because a terminal that eats
-// shifted arrows would otherwise leave the rail unreachable from a view that
-// takes the plain ones.
+// Each direction has three spellings. Uppercase letters are the primary binding —
+// a terminal has no modifier bit for a shifted letter, so shift+j is delivered as
+// J, and that is what a Vim-shaped binding actually is. The shifted arrows are the
+// same movement for a user who does not think in hjkl, and they are the one
+// spelling a terminal can fail to deliver: a modified arrow needs an escape
+// sequence of its own, and not every terminal emits one.
+//
+// The control pair is neither of those and is not a fallback either, which is what
+// it was documented as. A terminal that eats shifted arrows still delivers `J`, so
+// the letters already cover that case and the map says so. It is here for the
+// readline reflex, where ctrl+n and ctrl+p are next and previous line — an
+// affordance for a habit rather than a route anybody needs taught, which is why it
+// was taken off the key map and written down here instead. It costs nothing: it
+// shares an arm with the spelling that is documented, so the two cannot diverge.
 func (m Model) frameKey(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch key.String() {
 	case "L", "shift+right", "tab":
