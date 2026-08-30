@@ -624,6 +624,12 @@ func (m Model) animate(cmd tea.Cmd) (tea.Model, tea.Cmd) {
 // drawn on the screen that is waiting and nowhere else: a dialog closed over a
 // request still in flight has nothing left to draw a spinner in, and the answer
 // it is waiting for lands in the footer.
+//
+// The terminal's case widens what this answers. Every other wait here is a
+// request the dashboard has outstanding with the daemon; that one is a wait on
+// an event from the agent, which nothing on this side asked for and which the
+// daemon will report when it arrives. It is the same fact for the reader — Feat
+// is waiting, and this is what for — and the indicator says exactly that much.
 func (m Model) waiting() bool {
 	switch m.screen {
 	case screenPrepare:
@@ -636,6 +642,9 @@ func (m Model) waiting() bool {
 		return m.review.observing || m.review.pending != ""
 	case screenRuntime:
 		return m.runtime.observing || m.runtime.pending != ""
+	case screenTerminal:
+		task, ok := m.subject()
+		return ok && startingNote(task) != ""
 	}
 	return false
 }

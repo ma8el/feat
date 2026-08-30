@@ -119,6 +119,23 @@ func pad(cell string, width int) string {
 	return cell
 }
 
+// centreLine indents a line to the middle of a width.
+//
+// It measures what the terminal will draw rather than counting bytes, as pad
+// does and for the same reason: the lines this is given carry styling, and one
+// of them carries the indicator's own glyph.
+//
+// A line that does not fit is returned where it is. The caller cuts it to the
+// region afterwards, and an indent added to something already too wide would
+// only move the cut further into the sentence.
+func centreLine(line string, width int) string {
+	indent := (width - ansi.StringWidth(line)) / 2
+	if indent <= 0 {
+		return line
+	}
+	return strings.Repeat(" ", indent) + line
+}
+
 // tabStop is where a terminal puts a tab: the next multiple of eight.
 const tabStop = 8
 

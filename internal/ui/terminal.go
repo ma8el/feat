@@ -144,10 +144,8 @@ func (m Model) terminalBody(width, height int) string {
 	// is the other half — what was already held when it moved, which `esc` from
 	// the task panel put back on the screen without asking for a new one.
 	case m.terminal.task != task.ID:
-		return mutedStyle.Render("asking tmux what this pane shows…")
+		return m.awaitingFrame(task, width, height)
 	}
-
-	var out strings.Builder
 
 	switch {
 	case api.IsTerminalMissing(m.terminal.err):
@@ -155,29 +153,169 @@ func (m Model) terminalBody(width, height int) string {
 	case api.IsShellMissing(m.terminal.err):
 		return missingShell()
 	case m.terminal.err != nil:
-		out.WriteString(failureStyle.Render(m.terminal.err.Error()))
-		return out.String()
+		return failureStyle.Render(m.terminal.err.Error())
 	case !m.terminal.loaded:
-		out.WriteString(mutedStyle.Render("asking tmux what this pane shows…"))
-		return out.String()
+		return m.awaitingFrame(task, width, height)
 	}
 
-	// The note about a dead pane takes a row of the region rather than a row
-	// after it. The region is a card with a rule under it, and a line written
-	// past the last row is a line nobody sees — which is what a note explaining a
-	// terminal that has stopped must not be.
-	note := ""
+	// A dead pane wins the note row. A pane whose program has exited is not one
+	// whose agent is about to paint, so the startup sentence there would be a
+	// lie, and the two notes cannot share a row that only one of them fits in.
+	//
+	// It keeps the foot of the region whatever else is true. It is an explanation
+	// of a terminal that is over, read beside whatever that terminal last showed,
+	// rather than the subject of a region nobody is waiting at.
 	if dead := deadPanes(m.terminal.frame); dead > 0 {
-		note = failureStyle.Render(count(dead, "pane's program has", "panes' programs have") +
-			" exited; the terminal is retained so it can be read")
-		height--
+		return withNote(m.composeWindow(width, height-1),
+			failureStyle.Render(count(dead, "pane's program has", "panes' programs have")+
+				" exited; the terminal is retained so it can be read"), height)
 	}
 
-	out.WriteString(m.composeWindow(width, height))
-	if note != "" {
-		out.WriteString("\n" + note)
+	note := m.startupLine(task, width)
+	if note == "" {
+		return m.composeWindow(width, height)
 	}
-	return out.String()
+
+	// The window is composed and measured before the note is placed, and it is
+	// only a window that drew nothing at all that gives up its middle. Nothing is
+	// read out of the capture to decide this (ADR-042): the question asked is
+	// whether the region has anything in it, which is the same question fitRows
+	// already asks of what tmux reported, and it is asked of Feat's own rendering
+	// rather than of the bytes inside it.
+	window := m.composeWindow(width, height-1)
+	if blockWidth(window) == 0 {
+		return middleRow(note, height)
+	}
+	return withNote(window, note, height)
+}
+
+// middleRow puts a line in the middle of a region that has nothing else in it.
+//
+// For the length of a startup the note is the only thing in the region, and the
+// middle of an empty box is where a reader looks for what the box is doing. It
+// sits a row above the exact centre on an even height, which is where
+// centreOverlay puts a dialog and for the same reason.
+//
+// It is only ever reached when the composed window drew nothing, so it covers
+// nothing. That condition is what makes vertical centring safe at all: a
+// workspace-trust prompt is drawn while the task is still `preparing`, and a
+// line across the middle of the region would take a row of the question the
+// launch is waiting on. The moment anything is drawn, the note goes back to a
+// row of its own (see withNote).
+func middleRow(line string, height int) string {
+	if height < 1 {
+		height = 1
+	}
+	rows := make([]string, height)
+	rows[(height-1)/2] = line
+	return strings.Join(rows, "\n")
+}
+
+// withNote draws a body under the region's one note, which is then the region's
+// last row.
+//
+// The note takes a row of the region rather than a row after it: the region is a
+// card with a rule under it, and a line written past the last row is a line
+// nobody sees — which is what a note explaining a terminal that has stopped, or
+// one that has not started yet, must not be.
+//
+// The row is fixed here rather than left to whatever the body filled, and that
+// is the defect this closes. Before the first capture there is no body, so the
+// note was the region's only line and was drawn at the top of it; the moment a
+// pane arrived underneath, the same note moved to the foot. A user watching a
+// launch saw the indicator once in the top corner and then, for the rest of the
+// wait, in the bottom one. A note about waiting that moves while you wait for it
+// is the same defect as an indicator that does not move at all: both are read as
+// the dashboard doing something other than what it says.
+func withNote(body, note string, height int) string {
+	if height < 1 {
+		height = 1
+	}
+	rows := make([]string, height-1)
+	if body != "" {
+		copy(rows, strings.Split(body, "\n"))
+	}
+	return strings.Join(append(rows, note), "\n")
+}
+
+// startingNote is the sentence for a task whose terminal exists and whose agent
+// has not painted in it yet.
+//
+// It is the gap between the preparation overlay closing and the agent's first
+// frame: `LaunchDraft` runs `ensureTerminal` synchronously, so the tmux window
+// and the pane are already there when the overlay goes, and what follows is the
+// provider starting up inside them. Measured over the daemon's own event log,
+// that stretch has a median of 1.51s and a maximum of 12.79s, and it is longest
+// under host execution — where nothing had to be started, so the window appears
+// almost at once and the whole wait lands here.
+//
+// It is decided from the task's own state and never from whether the capture
+// looks empty (ADR-042). That is not only the rule: a workspace-trust prompt is
+// drawn while the task is still `preparing`, so a capture with something in it
+// is exactly the case where the user has to read what is there.
+//
+// It has one home because two places say it. The task panel has said this
+// sentence since terminalNote was written, and the terminal tab — the tab a
+// launch lands on — said nothing at all.
+func startingNote(task api.Task) string {
+	if task.Session == nil || task.Workflow != "preparing" {
+		return ""
+	}
+	return "the terminal is running; the agent has not reported starting yet"
+}
+
+// startupLine is that sentence as the terminal region draws it, or the honest
+// line once the daemon has stopped believing the agent is merely slow.
+//
+// A task can sit in `preparing` indefinitely, and the daemon's `armStartup`
+// exists because of the commonest reason: Claude asks for workspace trust on a
+// directory it has not seen before, and every task worktree is one. After the
+// startup grace the daemon raises attention and leaves the workflow where it is,
+// so attention is what bounds this note — not a clock kept here. There is no
+// elapsed figure for the same reason: the rail carries one already.
+//
+// It is centred across the region. For the length of a startup this line is the
+// only thing in the region, and a lone sentence against the left edge of an
+// otherwise empty box reads as something left behind rather than as the box's
+// subject. It stays centred once a pane has drawn something and the note has
+// moved to a row of its own, so that what changes then is the row and not also
+// the column.
+//
+// The centring is stable while the indicator runs: MiniDot is one cell and mark
+// always spends two, so the sentence does not shift as the spinner advances.
+func (m Model) startupLine(task api.Task, width int) string {
+	note := startingNote(task)
+	if note == "" {
+		return ""
+	}
+	// An unset attention is treated as none, as every other reading of it in this
+	// package does: a fixture or an older record that carries no value has not
+	// said that anything needs the user.
+	if task.Attention != "" && task.Attention != "none" {
+		return centreLine(attentionStyle.Render(
+			"nothing has been heard from the agent, and the pane may be asking something"), width)
+	}
+	// Marked with the dashboard's one indicator, which Model.waiting turns on for
+	// this screen. A sentence about a wait that does not move is the thing
+	// activity was written to stop.
+	return centreLine(mutedStyle.Render(m.activity.mark(note)), width)
+}
+
+// awaitingFrame is what the region says before it has a frame for this task.
+//
+// A user who has just launched is not waiting on tmux — the pane is there and
+// the agent has not painted in it — so telling them Feat is asking tmux a
+// question is a second wrong answer to the one question they have.
+//
+// The startup line is placed as it is placed over a window that drew nothing,
+// because that is what the next capture will be: this branch and the frame after
+// it are a quarter of a second apart, and a note that changed place between them
+// is a note that flickers.
+func (m Model) awaitingFrame(task api.Task, width, height int) string {
+	if line := m.startupLine(task, width); line != "" {
+		return middleRow(line, height)
+	}
+	return mutedStyle.Render("asking tmux what this pane shows…")
 }
 
 // missingTerminal explains a task whose tmux window is not there, and what can
