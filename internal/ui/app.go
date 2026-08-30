@@ -881,6 +881,42 @@ func (m Model) frameKey(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "J", "shift+down", "ctrl+n":
 		updated, cmd := m.selectTask(1)
 		return updated, cmd, true
+
+	// The same movement named rather than stepped: one shifted letter per view,
+	// so that reaching one is not counting how far it is from here. They are the
+	// frame's keys for the reason L and H are — a view must not be able to swallow
+	// the key that leaves it — and they are excluded while a dialog is open by the
+	// same rule, because moving the frame under an unanswered question would change
+	// what the answer applies to.
+	//
+	// Two views had a key and two did not, and the two that had one had it from
+	// here rather than from the frame — so they were answered after a view, and
+	// worked only because no view claimed them. `R` opened the runtime, `v` and
+	// `enter` both opened the task panel, and the brief and the terminal could only
+	// be cycled to. `enter` and `v` are gone: `enter` means "confirm" in every
+	// dialog the dashboard has, and the frame was the one place it did not.
+	//
+	// `A` is the agent's terminal and is deliberately the shifted form of `a`,
+	// which attaches to it: the pair is the view of the pane and the keyboard
+	// handed to it. It is the one pair here where shift changes what happens
+	// rather than where it happens. The terminal is not `H`, which would spell
+	// home: `H` is half of the pair that steps between views, and that is worth
+	// more than the mnemonic.
+	case "A":
+		updated, cmd := m.selectTab(tabTerminal)
+		return updated, cmd, true
+
+	case "T":
+		updated, cmd := m.selectTab(tabTask)
+		return updated, cmd, true
+
+	case "B":
+		updated, cmd := m.selectTab(tabBrief)
+		return updated, cmd, true
+
+	case "R":
+		updated, cmd := m.selectTab(tabRuntime)
+		return updated, cmd, true
 	}
 	return m, nil, false
 }
@@ -1253,9 +1289,6 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case " ", "space":
 		return m.foldProject()
 
-	case "enter":
-		return m.openTask()
-
 	case "n":
 		m.rememberTab()
 		m.screen = screenPrepare
@@ -1273,12 +1306,6 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "s":
 		return m.shell()
-
-	case "R":
-		return m.openRuntime()
-
-	case "v":
-		return m.openTask()
 
 	case "C":
 		return m.openCleanup()

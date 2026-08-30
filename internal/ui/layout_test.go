@@ -367,7 +367,7 @@ func TestTheKeyMapStaysInsideItsColumns(t *testing.T) {
 // draw, went on offering `? keys`. A view now falls through to the dashboard for
 // everything it does not claim.
 func TestTheOverlaysOpenFromEveryView(t *testing.T) {
-	for _, open := range []string{"", "v", "R"} {
+	for _, open := range []string{"", "T", "R"} {
 		for _, overlay := range []struct {
 			key  string
 			want screen
@@ -410,6 +410,49 @@ func TestAViewKeepsTheKeysItClaims(t *testing.T) {
 	}
 }
 
+// TestEveryViewHasOneKeyAndTheSameKind pins the shape of the frame's view keys.
+//
+// Two of the four views had a key and two did not, and the two that had one did
+// not agree on what a key for a view looked like: `R` opened the runtime, `v` and
+// `enter` both opened the task panel, and the brief and the terminal could only
+// be cycled to with `L`, `H`, or `tab`. So the shifted letter now names the view
+// it opens, in all four cases and from all four views — they are the frame's keys,
+// like the pair that steps between them, so no view can swallow the key that
+// leaves it.
+func TestEveryViewHasOneKeyAndTheSameKind(t *testing.T) {
+	for _, from := range []string{"", "T", "B", "R"} {
+		for key, want := range map[string]screen{
+			"A": screenTerminal,
+			"T": screenTask,
+			"B": screenBrief,
+			"R": screenRuntime,
+		} {
+			model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
+			if from != "" {
+				model = press(t, model, from)
+			}
+			if opened := press(t, model, key); opened.screen != want {
+				t.Errorf("%q from %q left the screen at %v, want %v", key, from, opened.screen, want)
+			}
+		}
+	}
+}
+
+// TestEnterAndVNoLongerOpenTheTaskPanel is the other half of the same change.
+//
+// They were the inconsistency: one view reached by two keys, neither of which
+// was the shifted letter every other view now uses. `enter` in particular means
+// "confirm" in every dialog the dashboard has, and the frame was the one place it
+// did not.
+func TestEnterAndVNoLongerOpenTheTaskPanel(t *testing.T) {
+	for _, gone := range []string{"enter", "v"} {
+		model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
+		if after := press(t, model, gone); after.screen != screenTerminal {
+			t.Errorf("%q still moved the frame to %v", gone, after.screen)
+		}
+	}
+}
+
 // TestCleanupIsTheOnlyMeaningOfC records the end of an overload.
 //
 // `C` sent work back on the task panel and cleaned a task up everywhere else,
@@ -441,7 +484,7 @@ func TestCleanupIsTheOnlyMeaningOfC(t *testing.T) {
 // had no answer for it at all: `a` there did nothing, from a screen whose whole
 // subject is the selected task.
 func TestTheTaskActionsReachEveryView(t *testing.T) {
-	for _, open := range []string{"", "v", "R"} {
+	for _, open := range []string{"", "T", "R"} {
 		backend := newFakeBackend()
 		model := sized(dashboard(backend, liveTask()), 120, 32)
 		if open != "" {
@@ -641,7 +684,7 @@ func TestTheRailIsReachableFromEveryView(t *testing.T) {
 	second := otherTask()
 
 	for _, key := range []string{"J", "shift+down", "ctrl+n"} {
-		for _, open := range []string{"", "tab", "v", "R"} {
+		for _, open := range []string{"", "tab", "T", "R"} {
 			model := sized(dashboard(newFakeBackend(), liveTask(), second), 120, 32)
 			if open != "" {
 				model = press(t, model, open)
@@ -676,7 +719,7 @@ func TestSelectingATaskWrapsAtBothEnds(t *testing.T) {
 // by the frame before any view sees them, so the cycle closes from wherever the
 // user is (ADR-046).
 func TestTheTabBarIsReachableFromEveryView(t *testing.T) {
-	for _, open := range []string{"", "tab", "v", "R"} {
+	for _, open := range []string{"", "tab", "T", "R"} {
 		model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
 		if open != "" {
 			model = press(t, model, open)
@@ -708,7 +751,7 @@ func TestTheTabBarIsReachableFromEveryView(t *testing.T) {
 // the terminal tab — where an unfocused pane has no cursor of its own — they move
 // nothing at all rather than reaching past it to the rail.
 func TestThePlainKeysNeverMoveTheFrame(t *testing.T) {
-	for _, open := range []string{"", "tab", "v", "R"} {
+	for _, open := range []string{"", "tab", "T", "R"} {
 		for _, plain := range []string{"j", "k", "h", "l", "up", "down", "left", "right"} {
 			model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
 			if open != "" {
@@ -773,7 +816,7 @@ func TestChangingTaskBringsTheOpenViewWithIt(t *testing.T) {
 	second := otherTask()
 	model := sized(dashboard(newFakeBackend(), liveTask(), second), 120, 32)
 
-	review := press(t, model, "v")
+	review := press(t, model, "T")
 	if review.review.task != liveTask().ID {
 		t.Fatalf("review opened on %s, want the first task", review.review.task)
 	}
@@ -839,7 +882,7 @@ func TestADialogHoldsTheFrameKeys(t *testing.T) {
 // a view's own keys are visible on the view, and these are not.
 func TestTheFrameKeysSurviveTruncation(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
-	footer := press(t, model, "v").frameFooter(120)
+	footer := press(t, model, "T").frameFooter(120)
 
 	for _, want := range []string{"J K", "H L", "?"} {
 		if !strings.Contains(footer, want) {
@@ -1177,7 +1220,7 @@ func TestAResumeIsNeverOfferedWithoutItsStop(t *testing.T) {
 			return sized(dashboard(backend, liveTask()), 70, 30)
 		},
 		"the task panel": func() Model {
-			return press(t, sized(dashboard(backend, liveTask()), 200, 40), "v")
+			return press(t, sized(dashboard(backend, liveTask()), 200, 40), "T")
 		},
 	} {
 		view := screen().View()

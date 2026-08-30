@@ -163,7 +163,7 @@ const keyGap = 4
 // is reachable from where the user is, and this is where the rest lives.
 //
 // It is laid out in two columns wherever they fit, because in one column it does
-// not: six sections of keys is forty-one lines, and the dialog on a normal
+// not: seven sections of keys is forty-one lines, and the dialog on a normal
 // terminal has room for twenty-seven. What overflowed was cut from the bottom,
 // which is where the sections a reader has not memorised are.
 func keyMap(width int) string {
@@ -182,9 +182,26 @@ func keyMap(width int) string {
 			{"tab / shift+tab", "view, the same way"},
 			{"space", "fold or open a project"},
 		}},
+		// One key per view, beside the keys that step between them. Two views had
+		// one and two did not, and the two that had one did not agree on what a
+		// key for a view looked like: `R` opened the runtime, `enter` and `v` both
+		// opened the task panel, and the brief and the terminal had to be cycled
+		// to. `a` attaches to the terminal `A` shows, and they are in separate
+		// sections because that shift changes what happens rather than where.
+		//
+		// The keys are here rather than on the tab bar because the bar cannot hold
+		// them: at the supported minimum of 96 columns it gets 28 cells against
+		// `terminal task brief runtime` at 27, and a key on each tab is 35.
+		//
+		// Paired rather than one to a line, in the order the tab bar draws them and
+		// in its own words, because four lines here is two more than the dialog has
+		// to give: the column this section joins is full at twenty-three.
+		{"opening a view · one key each", [][2]string{
+			{"A / T", "terminal, task panel"},
+			{"B / R", "brief, runtime"},
+		}},
 		{"the view · plain keys stay in it", [][2]string{
 			{"j k h l  ↓↑←→", "move within the view"},
-			{"enter / v", "open the task panel"},
 			{"i", "type into the pane"},
 			{"ctrl+q", "take the keyboard back"},
 			{"w", "agent's pane or shell"},
@@ -192,7 +209,6 @@ func keyMap(width int) string {
 		{"the selected task", [][2]string{
 			{"a", "attach to the terminal"},
 			{"s", "open the task's shell"},
-			{"R", "application runtime"},
 			{"z / t", "resume and stop it"},
 			{"x", "cancel a draft, on y"},
 		}},

@@ -258,7 +258,7 @@ func TestAReviewResponseForAnotherTaskIsDropped(t *testing.T) {
 	backend.reviewStatus = slow
 	model := sized(dashboard(backend, first, second), 120, 32)
 
-	panel := press(t, model, "v")
+	panel := press(t, model, "T")
 	if panel.review.task != first.ID {
 		t.Fatalf("the panel opened on %s, want %s", panel.review.task, first.Key)
 	}
@@ -349,7 +349,7 @@ func TestARefreshBetweenARequestAndItsResponseChangesNothing(t *testing.T) {
 	backend.reviewStatus = status
 	model := sized(dashboard(backend, subject), 120, 32)
 
-	panel := press(t, model, "v")
+	panel := press(t, model, "T")
 	refreshed, _ := panel.Update(tasksMsg{tasks: []api.Task{subject, newerTask()}})
 	applied, _ := refreshed.(Model).Update(
 		reviewMsg{task: subject.ID, action: api.ReviewObserve, status: status})
@@ -386,7 +386,7 @@ func TestLeavingRuntimeOpensThePanelOnTheSelectedTask(t *testing.T) {
 	backend.reviewStatus = status
 	model := sized(dashboard(backend, first, second), 120, 32)
 
-	panel := press(t, model, "v")
+	panel := press(t, model, "T")
 	if panel.review.task != first.ID {
 		t.Fatalf("the panel opened on %s, want %s", panel.review.task, first.Key)
 	}
@@ -446,7 +446,7 @@ func TestLeavingTheTaskPanelAsksTmuxForTheSelectedTasksPane(t *testing.T) {
 	}
 
 	backend.reviewStatus = api.ReviewStatus{Task: second}
-	moved := press(t, press(t, shown, "v"), "J")
+	moved := press(t, press(t, shown, "T"), "J")
 	if moved.selected != second.ID {
 		t.Fatalf("J selected %s, want %s", moved.selected, second.Key)
 	}
@@ -487,7 +487,7 @@ func TestLeavingTheTaskPanelRestartsThePollItLeftBehind(t *testing.T) {
 	}
 
 	backend.reviewStatus = api.ReviewStatus{Task: second}
-	moved := press(t, press(t, model, "v"), "J")
+	moved := press(t, press(t, model, "T"), "J")
 
 	// The tick already scheduled arrives while the panel has the region, which is
 	// what stops the poll.
@@ -594,7 +594,7 @@ func TestTheTerminalDoesNotDrawAnotherTasksPane(t *testing.T) {
 	// Open the panel, move to the second task, and come back. Nothing has asked
 	// tmux what the second task's pane shows.
 	backend.reviewStatus = api.ReviewStatus{Task: second}
-	back := press(t, press(t, press(t, shown, "v"), "J"), "esc")
+	back := press(t, press(t, press(t, shown, "T"), "J"), "esc")
 	if back.screen != screenTerminal {
 		t.Fatalf("esc from the task panel reached %v, want the terminal", back.screen)
 	}

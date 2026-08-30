@@ -277,7 +277,7 @@ func TestAttachAndShellUseTheSelectedTask(t *testing.T) {
 // attaches to one, and this one opens a screen about a project that may not
 // exist yet.
 func TestTheProjectWizardOpensFromEveryView(t *testing.T) {
-	for _, open := range []string{"", "v", "R"} {
+	for _, open := range []string{"", "T", "R"} {
 		backend := newFakeBackend()
 		model := sized(dashboard(backend, liveTask()), 120, 32)
 		if open != "" {

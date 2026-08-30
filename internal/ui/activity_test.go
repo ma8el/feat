@@ -291,7 +291,7 @@ func TestTheTaskPanelShowsTheComparisonItOpensWith(t *testing.T) {
 	backend.reviewStatus = reviewed()
 	model := dashboard(backend, backend.reviewStatus.Task)
 
-	updated, cmd := model.Update(key("v"))
+	updated, cmd := model.Update(key("T"))
 	model = updated.(Model)
 
 	if !model.review.observing || !model.activity.running {
@@ -393,7 +393,7 @@ func TestAFailedComparisonStopsSayingItIsBeingMade(t *testing.T) {
 	backend.reviewErr = errors.New("core: not a worktree")
 	model := dashboard(backend, backend.reviewStatus.Task)
 
-	updated, cmd := model.Update(key("v"))
+	updated, cmd := model.Update(key("T"))
 	model = applyCommand(t, updated.(Model), cmd)
 
 	view := flowed(model.taskPanel())
