@@ -234,7 +234,7 @@ func Published() *domain.Task {
 	must(task.AttachSession(PublishedSession(), after(5)))
 	must(task.TransitionTo(domain.WorkflowWorking, after(5)))
 	must(task.TransitionTo(domain.WorkflowReviewRequested, after(30)))
-	must(task.TransitionTo(domain.WorkflowApproved, after(35)))
+	must(task.TransitionTo(domain.WorkflowReadyForReview, after(35)))
 
 	// The plan is recorded before anything is attempted, and every result
 	// before the next repository begins.

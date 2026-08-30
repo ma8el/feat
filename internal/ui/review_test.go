@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/ma8el/feat/internal/api"
 )
 
@@ -167,108 +169,135 @@ func TestAnUnconfiguredEditorFallsBackToTheEnvironment(t *testing.T) {
 	}
 }
 
-// TestReviewDecisionsReachTheDaemonAndNothingElse is the fourth acceptance
+// TestReviewActionsReachTheDaemonAndNothingElse is the fourth acceptance
 // criterion at the screen.
 //
-// Approving asks the daemon to record a decision and does nothing else: no
-// runtime action is issued, which is checked by counting what the backend was
-// asked for rather than by looking at what a container is doing.
-func TestReviewDecisionsReachTheDaemonAndNothingElse(t *testing.T) {
+// Running the checks asks the daemon and does nothing else: no runtime action is
+// issued, which is checked by counting what the backend was asked for rather
+// than by looking at what a container is doing.
+func TestReviewActionsReachTheDaemonAndNothingElse(t *testing.T) {
 	backend := newFakeBackend()
 	model := reviewScreen(t, backend)
 
-	press(t, model, "A")
+	press(t, model, "V")
 
 	if len(backend.runtimeCalls) != 0 {
-		t.Errorf("approving reached the runtime: %v", backend.runtimeCalls)
+		t.Errorf("running the checks reached the runtime: %v", backend.runtimeCalls)
 	}
-	approved := false
+	verified := false
 	for _, call := range backend.reviewCalls {
-		if strings.HasPrefix(call, string(api.ReviewApprove)+" ") {
-			approved = true
+		if strings.HasPrefix(call, string(api.ReviewVerify)+" ") {
+			verified = true
 		}
 	}
-	if !approved {
-		t.Errorf("approving did not reach the daemon: %v", backend.reviewCalls)
+	if !verified {
+		t.Errorf("running the checks did not reach the daemon: %v", backend.reviewCalls)
 	}
 }
 
-// TestTheDecisionIsOfferedOnlyWhereItCanBeMade is what reading the decision from
-// the workflow bought (ADR-047).
+// TestThePanelOffersNoDecisionInAnyWorkflowState is what ADR-086 removed, pinned
+// so that it does not come back by habit.
 //
-// It used to be read from the review aggregate, which knows nothing about the
-// task, so a working task was told "A to approve" and the daemon then refused
-// the approval that line invited: approving applies to a task whose agent has
-// asked for review. The keys now follow the transition table.
-func TestTheDecisionIsOfferedOnlyWhereItCanBeMade(t *testing.T) {
-	for _, test := range []struct {
-		workflow string
-		want     string
-		offered  bool
-		// next is the step the decision still needs, for a decision that is not
-		// finished when it is recorded.
-		next string
-	}{
-		{workflow: "working", want: "the agent has not asked for review"},
-		{workflow: "preparing", want: "the agent has not asked for review"},
-		{workflow: "verifying", want: "the project's checks are running"},
-		{workflow: "review_requested", want: "pending", offered: true},
-		{workflow: "ready_for_review", want: "pending", offered: true},
-		{workflow: "verification_failed", want: "pending", offered: true},
-		{workflow: "approved", want: "approved"},
-		{workflow: "changes_requested", want: "changes requested", next: "a to attach"},
+// Approve was pressed once in fifty-one tasks and request-changes never, nothing
+// read the state either produced, and requesting changes recorded a label and
+// then told the user to attach and do the real thing. The keys are gone from the
+// panel in every state a task can be in, and pressing them asks the daemon for
+// nothing.
+func TestThePanelOffersNoDecisionInAnyWorkflowState(t *testing.T) {
+	for _, workflow := range []string{
+		"draft", "preparing", "working", "review_requested", "verifying",
+		"ready_for_review", "verification_failed", "failed",
 	} {
-		t.Run(test.workflow, func(t *testing.T) {
-			task := reviewed().Task
-			task.Workflow = test.workflow
+		t.Run(workflow, func(t *testing.T) {
+			backend := newFakeBackend()
+			status := reviewed()
+			status.Task.Workflow = workflow
+			backend.reviewStatus = status
 
-			line := reviewDecision(task)
-			if !strings.Contains(line, test.want) {
-				t.Errorf("the decision of a %s task is %q, want it to say %q", test.workflow, line, test.want)
+			model := press(t, dashboard(backend, status.Task), "v")
+			before := len(backend.reviewCalls)
+
+			for _, key := range []string{"A", "C"} {
+				after := press(t, model, key)
+				if len(backend.reviewCalls) != before {
+					t.Errorf("%s recorded %v", key, backend.reviewCalls[before:])
+				}
+				if after.review.pending != "" {
+					t.Errorf("%s left the panel waiting for %q", key, after.review.pending)
+				}
 			}
-			if offered := strings.Contains(line, "A to approve"); offered != test.offered {
-				t.Errorf("the decision of a %s task offers the approve key (%t), want %t: %q",
-					test.workflow, offered, test.offered, line)
+
+			panel := ansi.Strip(model.taskPanel())
+			for _, gone := range []string{"A to approve", "C to send back", "decision"} {
+				if strings.Contains(panel, gone) {
+					t.Errorf("a %s task is still offered %q:\n%s", workflow, gone, panel)
+				}
 			}
-			if test.next != "" && !strings.Contains(line, test.next) {
-				t.Errorf("the decision of a %s task is %q, and it does not say what is left to do (%q)",
-					test.workflow, line, test.next)
+			if hints := ansi.Strip(taskPanelHints()); strings.Contains(hints, "approve") ||
+				strings.Contains(hints, "request changes") {
+				t.Errorf("the panel's hints still name a decision: %s", hints)
 			}
 		})
 	}
 }
 
-// TestRequestingChangesSaysWhatIsLeftToDo is the gap that made the decision look
-// like it had no consequence.
+// TestTheWorkflowLineNamesTheExitsThatExist is what the decision field became.
 //
-// Requesting changes records a workflow state and tells the agent nothing: the
-// revision reaches the session when the user types it. So the panel has to say
-// so, or a user who pressed C is left with a task marked decided and an agent
-// that never heard. The key it names has to be the one that works, which for a
-// task in this state always exists — a task cannot reach changes_requested
-// without a session (domain.requiresSession).
-func TestRequestingChangesSaysWhatIsLeftToDo(t *testing.T) {
-	backend := newFakeBackend()
-	model := reviewScreen(t, backend)
+// The two transitions that carry the real loop are the ones nobody pressed a
+// decision key for: sending work back is the user attaching and typing, and
+// finishing is publishing and then cleaning up. So the line under the workflow
+// names those, in the states where they are what happens next, and says nothing
+// in the states where they are not (ADR-086).
+func TestTheWorkflowLineNamesTheExitsThatExist(t *testing.T) {
+	const exits = "P to publish · a to attach and revise"
 
+	for workflow, want := range map[string]bool{
+		"review_requested":    true,
+		"ready_for_review":    true,
+		"verification_failed": true,
+		// The checks are running, and what happens next is the gate's rather
+		// than the user's — which is the state the old decision field named no
+		// key in either.
+		"verifying": false,
+		"working":   false,
+		"preparing": false,
+		"draft":     false,
+		"failed":    false,
+		"archived":  false,
+	} {
+		t.Run(workflow, func(t *testing.T) {
+			task := reviewed().Task
+			task.Workflow = workflow
+
+			model := dashboard(newFakeBackend(), task)
+			model.selected = task.ID
+			model.screen = screenTask
+
+			panel := ansi.Strip(model.taskPanel())
+			if got := strings.Contains(panel, exits); got != want {
+				t.Errorf("a %s task names the exits (%t), want %t:\n%s", workflow, got, want, panel)
+			}
+		})
+	}
+
+	// And where it is drawn, it is under the workflow rather than beside it: the
+	// state is what a reader looks for and the exits are what they read next.
 	task := reviewed().Task
-	task.Workflow = "changes_requested"
-	if task.Session == nil {
-		t.Fatal("the fixture task has no session, so attaching is not the next step")
-	}
+	task.Workflow = "ready_for_review"
+	model := dashboard(newFakeBackend(), task)
+	model.selected = task.ID
+	model.screen = screenTask
 
-	line := reviewDecision(task)
-	if !strings.Contains(line, "attach") {
-		t.Errorf("a task sent back for revision does not say to attach: %q", line)
+	for _, line := range strings.Split(ansi.Strip(model.taskPanel()), "\n") {
+		if !strings.Contains(line, exits) {
+			continue
+		}
+		if strings.TrimRight(line, " ") != strings.Repeat(" ", fieldValueColumn)+exits {
+			t.Errorf("the exits are not on a continuation line under the workflow: %q", line)
+		}
+		return
 	}
-
-	// Nothing was asked of the daemon to produce that line: it is what the task
-	// already says, not a second round trip.
-	before := len(backend.reviewCalls)
-	_ = model.taskPanel()
-	if len(backend.reviewCalls) != before {
-		t.Errorf("rendering the panel made %d extra requests", len(backend.reviewCalls)-before)
-	}
+	t.Errorf("a task ready for review does not name its exits:\n%s", ansi.Strip(model.taskPanel()))
 }
 
 // TestOpeningReviewObservesRatherThanDecides checks that arriving at the screen
@@ -286,27 +315,267 @@ func TestOpeningReviewObservesRatherThanDecides(t *testing.T) {
 	}
 }
 
-// TestAnApprovedTaskWithRunningServicesIsOfferedTheStop is FR-RUN-005's rule
-// that approval offers to stop a task's services rather than stopping them,
-// exercised by the approval the review screen makes.
+// TestATaskReadyForReviewKeepsItsRunningServices is FR-RUN-005's rule that Feat
+// never stops a task's services on its own, exercised on the panel a user reads
+// when the work is ready.
 //
-// The offer is made in words on the screen the user is on when they approve, and
-// Feat never acts on it (docs/02-user-workflows.md §7).
-func TestAnApprovedTaskWithRunningServicesIsOfferedTheStop(t *testing.T) {
+// It used to be an offer in words — "press t to stop them" — shown after
+// approving, which went with the approval (ADR-086). What it was protecting is
+// this: reading the panel issues no runtime action, and the services are still
+// running afterwards (docs/02-user-workflows.md §7).
+func TestATaskReadyForReviewKeepsItsRunningServices(t *testing.T) {
 	backend := newFakeBackend()
 	status := reviewed()
-	status.Task.Workflow = "approved"
+	status.Task.Workflow = "ready_for_review"
 	status.Task.Runtime = runningRuntime()
 	backend.reviewStatus = status
 
 	model := dashboard(backend, status.Task)
 	model = press(t, model, "v")
 
-	view := content(model)
-	if !strings.Contains(view, "press t to stop") {
-		t.Errorf("an approved task with running services is not offered the stop:\n%s", view)
+	view := ansi.Strip(content(model))
+	if !strings.Contains(view, "running") {
+		t.Errorf("the panel does not say the task's services are running:\n%s", view)
 	}
 	if len(backend.runtimeCalls) != 0 {
-		t.Errorf("the offer was acted on: %v", backend.runtimeCalls)
+		t.Errorf("reading the panel acted on the runtime: %v", backend.runtimeCalls)
+	}
+}
+
+// taskEvent is one item of the daemon's stream, about one task.
+func taskEvent(id, kind string) api.Event {
+	return api.Event{
+		Kind:      api.KindTask,
+		TaskEvent: &api.TaskEvent{Sequence: 1, TaskID: id, Type: kind},
+	}
+}
+
+// TestAGateLandingRefreshesTheChecksOnTheOpenPanel is the defect found in use.
+//
+// A gate is background work: `V` records that the checks are running and returns,
+// and the results land minutes later. The dashboard answered every event by
+// re-reading the task list, which carries the workflow and the check counts but
+// not the results — so the panel that asked for the run went on showing the
+// previous run's failures under a workflow that had moved past them, until the
+// user left the tab and came back.
+func TestAGateLandingRefreshesTheChecksOnTheOpenPanel(t *testing.T) {
+	backend := newFakeBackend()
+	failed := reviewed()
+	failed.Task.Workflow = "verification_failed"
+	backend.reviewStatus = failed
+
+	model := press(t, dashboard(backend, failed.Task), "v")
+	if !strings.Contains(ansi.Strip(model.taskPanel()), "exited with status 1") {
+		t.Fatalf("the panel does not start from the failed run:\n%s", ansi.Strip(model.taskPanel()))
+	}
+
+	// What the daemon would answer once the gate it started has landed.
+	passed := reviewed()
+	passed.Task.Workflow = "ready_for_review"
+	passed.Review.Checks = []api.ReviewCheck{
+		{ID: "unit", RepositoryID: "core", Status: "passed", Reporter: "provider", Detail: "ok (cached)"},
+	}
+	backend.reviewStatus = passed
+
+	updated, cmd := model.Update(eventMsg{event: taskEvent(failed.Task.ID, "review_state_changed")})
+	model = applyCommand(t, updated.(Model), cmd)
+
+	// Read as the status rather than as the output: a check Feat ran and that
+	// passed prints no output on this panel.
+	panel := ansi.Strip(model.taskPanel())
+	if strings.Contains(panel, "exited with status 1") {
+		t.Errorf("the panel still shows the run that the gate replaced:\n%s", panel)
+	}
+	if !strings.Contains(panel, "unit (core)  passed") {
+		t.Errorf("the panel does not show what the gate found:\n%s", panel)
+	}
+	if !strings.Contains(panel, "checks        1 passed") {
+		t.Errorf("the checks field still counts the run that the gate replaced:\n%s", panel)
+	}
+}
+
+// TestOnlyAChangeToThisPanelsReviewCostsAnObservation keeps the refresh narrow.
+//
+// An observation walks every repository with Git, which is seconds on a task
+// holding three of them, and an agent's hooks produce events several times a
+// turn. Answering all of them would put a Git walk behind every keystroke the
+// agent makes.
+func TestOnlyAChangeToThisPanelsReviewCostsAnObservation(t *testing.T) {
+	for what, arrange := range map[string]struct {
+		event   api.Event
+		prepare func(Model) Model
+	}{
+		"an event about another task": {
+			event: taskEvent(otherTask().ID, "review_state_changed"),
+		},
+		"a state this panel does not draw": {
+			event: taskEvent(liveTask().ID, "agent_process_changed"),
+		},
+		"a stream item that is not a task event": {
+			event: api.Event{Kind: api.KindHello},
+		},
+		"an observation already in flight": {
+			event: taskEvent(liveTask().ID, "review_state_changed"),
+			prepare: func(m Model) Model {
+				m.review.observing = true
+				return m
+			},
+		},
+	} {
+		t.Run(what, func(t *testing.T) {
+			backend := newFakeBackend()
+			model := reviewScreen(t, backend)
+			if arrange.prepare != nil {
+				model = arrange.prepare(model)
+			}
+			before := len(backend.reviewCalls)
+
+			updated, cmd := model.Update(eventMsg{event: arrange.event})
+			applyCommand(t, updated.(Model), cmd)
+
+			if len(backend.reviewCalls) != before {
+				t.Errorf("%s asked for %v", what, backend.reviewCalls[before:])
+			}
+		})
+	}
+
+	// And the panel has to be the open one: an event about the selected task
+	// while the user is reading its terminal costs nothing either.
+	backend := newFakeBackend()
+	elsewhere := press(t, reviewScreen(t, backend), "esc")
+	if elsewhere.screen == screenTask {
+		t.Fatalf("esc left the task panel open")
+	}
+	before := len(backend.reviewCalls)
+
+	updated, cmd := elsewhere.Update(eventMsg{event: taskEvent(liveTask().ID, "review_state_changed")})
+	applyCommand(t, updated.(Model), cmd)
+
+	if len(backend.reviewCalls) != before {
+		t.Errorf("an event reached a panel nobody has open: %v", backend.reviewCalls[before:])
+	}
+}
+
+// TestChecksThatAreRunningAreNotReportedAsResults is the other half of the same
+// defect, in the window before anything has landed.
+//
+// A gate records nothing until it finishes, so what is stored while it runs is
+// the run before it. Reporting that as this task's checks tells a user who has
+// just pressed V that the run they started has already failed.
+func TestChecksThatAreRunningAreNotReportedAsResults(t *testing.T) {
+	backend := newFakeBackend()
+	running := reviewed()
+	running.Task.Workflow = "verifying"
+	backend.reviewStatus = running
+
+	model := press(t, dashboard(backend, running.Task), "v")
+
+	panel := ansi.Strip(model.taskPanel())
+	if !strings.Contains(panel, "checks        running") {
+		t.Errorf("a task whose checks are running does not say so:\n%s", panel)
+	}
+	if strings.Contains(panel, "1 failed") {
+		t.Errorf("the previous run's count is reported as this task's checks:\n%s", panel)
+	}
+	// The results themselves are kept and dated rather than hidden: the last
+	// thing known is worth reading, and it is not what is happening.
+	if !strings.Contains(panel, "from the run before this one") {
+		t.Errorf("the results shown are not dated:\n%s", panel)
+	}
+	if !strings.Contains(panel, "exited with status 1") {
+		t.Errorf("the previous run's results were dropped rather than dated:\n%s", panel)
+	}
+}
+
+// TestAnObservationLandingDoesNotEndAWaitForACheckRun keeps the indicator
+// honest now that two requests can be outstanding at once.
+//
+// A gate landing while the user waits for one is exactly that: the event fires an
+// observation, and the response to it must not stop the indicator the check run
+// is still holding up.
+func TestAnObservationLandingDoesNotEndAWaitForACheckRun(t *testing.T) {
+	backend := newFakeBackend()
+	model := reviewScreen(t, backend)
+
+	waiting, _ := model.Update(key("V"))
+	model = waiting.(Model)
+	if model.review.pending != api.ReviewVerify {
+		t.Fatalf("V left the panel waiting for %q", model.review.pending)
+	}
+
+	landed, _ := model.Update(reviewMsg{
+		task: model.review.task, action: api.ReviewObserve, status: reviewed(),
+	})
+	model = landed.(Model)
+
+	if model.review.pending != api.ReviewVerify {
+		t.Errorf("an observation cleared the wait for the check run: pending is %q", model.review.pending)
+	}
+	if !model.waiting() {
+		t.Error("the panel stopped waiting while the check run was still outstanding")
+	}
+}
+
+// TestAPassingCheckFeatRanShowsNoOutput is the noise found in use.
+//
+// The excerpt exists so that a user can see why a check failed. On a check that
+// passed it is the whole of a build command's stdout — forty lines of `ok
+// <package> (cached)` under a line that has already said "passed" — and it
+// pushed everything worth reading off the screen.
+func TestAPassingCheckFeatRanShowsNoOutput(t *testing.T) {
+	for what, test := range map[string]struct {
+		check api.ReviewCheck
+		// needle is one line of the detail, because a detail of several lines is
+		// indented under the check and no longer appears as one string.
+		needle string
+		want   bool
+	}{
+		"a check Feat ran and that passed": {
+			check: api.ReviewCheck{ID: "check", Status: "passed", Reporter: "provider",
+				Detail: "ok  github.com/ma8el/feat/internal/api  (cached)"},
+			needle: "(cached)",
+			want:   false,
+		},
+		// The reason each of these is kept is different, and each is the only
+		// place its fact is written down.
+		"a check Feat ran and that failed": {
+			check: api.ReviewCheck{ID: "check", Status: "failed", Reporter: "provider",
+				Detail: "exited with status 1\n2 failed, 82 passed"},
+			needle: "2 failed, 82 passed",
+			want:   true,
+		},
+		"a check that was skipped": {
+			check: api.ReviewCheck{ID: "check", Status: "skipped", Reporter: "provider",
+				Detail: "this repository is bound read-only, so the task cannot have changed it"},
+			needle: "bound read-only",
+			want:   true,
+		},
+		"a check that did not report": {
+			check: api.ReviewCheck{ID: "check", Status: "unknown", Reporter: "provider",
+				Detail: "did not finish within 30m0s"},
+			needle: "did not finish within",
+			want:   true,
+		},
+		// The agent's detail is a sentence it wrote rather than a command's
+		// output, so it is short whatever the status says.
+		"a passing check the agent reported": {
+			check: api.ReviewCheck{ID: "check", Status: "passed", Reporter: "agent",
+				Detail: "go test ./internal/config/... ok"},
+			needle: "internal/config",
+			want:   true,
+		},
+	} {
+		t.Run(what, func(t *testing.T) {
+			rendered := ansi.Strip(reviewChecks([]api.ReviewCheck{test.check}))
+			if got := strings.Contains(rendered, test.needle); got != test.want {
+				t.Errorf("%s shows its detail (%t), want %t:\n%s", what, got, test.want, rendered)
+			}
+			// Whatever happens to the detail, the check itself is still named,
+			// with who ran it. A status of "unknown" is drawn in the words the
+			// summary above it uses rather than as the word itself (ADR-051).
+			if !strings.Contains(rendered, test.check.ID) {
+				t.Errorf("%s does not name the check:\n%s", what, rendered)
+			}
+		})
 	}
 }

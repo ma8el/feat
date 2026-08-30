@@ -169,7 +169,7 @@ Semantic review completion MUST require an explicit provider event or control me
 
 ### FR-AGENT-009 — Revision
 
-Submitting a new user prompt in a review state SHOULD conservatively transition the task to `working` or `changes_requested` until the provider emits a new review request.
+Submitting a new user prompt in a review state SHOULD conservatively transition the task to `working` until the provider emits a new review request. This is how work is sent back for revision: it happened 32 times in the dogfood, against one use of the decision key that existed for it (ADR-086).
 
 ### FR-AGENT-010 — Provider CLIs
 
@@ -299,7 +299,9 @@ Repositories, runtime state, and verification state are required of the selected
 
 ### FR-UI-003 — Task detail
 
-Task detail MUST expose the task brief, repository/base mapping, tmux target, runtime services, completion/check summary, and actions. It need not reproduce the last Claude response.
+The dashboard MUST expose, for the selected task and across its tabs, the task brief, repository/base mapping, tmux target, runtime services, completion/check summary, and actions. It need not reproduce the last Claude response.
+
+Across its tabs rather than on one panel, and shown rather than necessarily named: the tmux target is satisfied by the terminal tab drawing that session, runtime services by the runtime tab, and the brief by whichever tab holds it. A panel that also carried each of them was four of seven fields the task list already showed and about thirty-five lines before its brief began. This is the move FR-UI-002 made in ADR-041 and the overview table in ADR-043; see ADR-086.
 
 A failed task MUST show why it failed, beside the state that says it did. The
 reason is recorded on the task when it enters `failed` and is shown as it was
@@ -331,9 +333,13 @@ v0 MUST provide shortcuts for configurable diff and editor commands, each in the
 
 The editor command MUST default to `$EDITOR` and execute in the selected task repository. The reference configuration uses Neovim.
 
-### FR-REV-004 — Review decision
+### FR-REV-004 — Leaving a review
 
-The user MUST be able to leave pending, approve, or attach to the agent with revision instructions.
+A task in a review state MUST show what its exits are, and MUST NOT offer an action that only records what the user thought.
+
+There are two exits and Feat already had both: attaching to the agent with revision instructions, which returns the task to `working` when the prompt is submitted (FR-AGENT-009), and publishing, after which cleanup archives the task. Neither is a review decision — each does something — and a review action that recorded one was pressed once in fifty-one tasks while requesting changes was never pressed at all. Review's own actions are therefore observing and verifying, both of which measure something. See ADR-086.
+
+The user MUST be able to run the project's configured checks against a task whose agent has asked for review, whatever the last run of them concluded — including work that passed, which the user may have changed themselves while reading it. The run is the completion gate, so the task returns to `review_requested` and the gate decides where it lands, as it did the first time. A run with nothing to run MUST be refused without moving the task. See ADR-087.
 
 ## Persistence and recovery
 

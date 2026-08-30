@@ -35,6 +35,14 @@ const (
 	// different and shared most of their content, and neither filled the region
 	// on its own (ADR-042, evidence 1).
 	tabTask
+	// tabBrief is the document the task was launched from.
+	//
+	// It is unbounded, and it was what made the panel beside it scroll: a task's
+	// fields are a screen and a brief is however long somebody wrote. Read
+	// heavily before launch and rarely during, so on a tab of its own the panel
+	// stops scrolling in the common case and a field is where it was last time
+	// (ADR-086, ADR-041 evidence 4).
+	tabBrief
 	tabRuntime
 )
 
@@ -44,12 +52,14 @@ const (
 // a wide cross-task table ADR-041 kept provisionally — and use decided against
 // it: the rail answers which task to go to next, and the panel answers
 // everything the table's remaining columns did, for the task you went to.
-var tabs = []tab{tabTerminal, tabTask, tabRuntime}
+var tabs = []tab{tabTerminal, tabTask, tabBrief, tabRuntime}
 
 func (t tab) title() string {
 	switch t {
 	case tabTask:
 		return "task"
+	case tabBrief:
+		return "brief"
 	case tabRuntime:
 		return "runtime"
 	default:
@@ -147,6 +157,8 @@ func (m Model) mainBody(width, height int) string {
 	switch m.activeTab() {
 	case tabTask:
 		return m.taskBody(width, height)
+	case tabBrief:
+		return m.briefBody(width, height)
 	case tabRuntime:
 		return m.runtimeBody()
 	default:
@@ -302,6 +314,8 @@ func (m Model) hints() string {
 		)
 	case screenTask:
 		return m.railHints() + mutedStyle.Render("   ") + taskPanelHints()
+	case screenBrief:
+		return m.railHints() + mutedStyle.Render("   ") + briefHints()
 	case screenRuntime:
 		return m.railHints() + mutedStyle.Render("   ") + runtimeHints()
 	}

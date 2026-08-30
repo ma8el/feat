@@ -33,11 +33,6 @@ const (
 	WorkflowReadyForReview WorkflowState = "ready_for_review"
 	// WorkflowVerificationFailed is a task whose checks failed.
 	WorkflowVerificationFailed WorkflowState = "verification_failed"
-	// WorkflowChangesRequested is a task the user sent back for revision.
-	WorkflowChangesRequested WorkflowState = "changes_requested"
-	// WorkflowApproved is a task the user approved. Approval does not stop the
-	// runtime and does not remove any resource.
-	WorkflowApproved WorkflowState = "approved"
 	// WorkflowArchived is a task whose metadata was archived by cleanup.
 	WorkflowArchived WorkflowState = "archived"
 	// WorkflowFailed is a task whose lifecycle failed part way through.
@@ -67,9 +62,18 @@ const (
 //   - verification_failed to review_requested is an agent that fixed what the
 //     gate caught and asked again. Without it a task whose checks failed once
 //     could never be reviewed again without a user typing something first.
-//   - review_requested and ready_for_review to approved or changes_requested
-//     are the review decisions in FR-REV-004; the edges back to working are the
-//     conservative revision transition in FR-AGENT-009.
+//   - ready_for_review to review_requested is the user running the checks again
+//     on work that already passed them, having changed something themselves
+//     while reading it. It is the same edge as the one above, from the other
+//     outcome of the same gate, and it adds no path into a review state: the
+//     agent's request is what the task returns to, and the gate decides where it
+//     lands next, as it did the first time (ADR-087).
+//   - review_requested, ready_for_review, and verification_failed back to
+//     working are the conservative revision transition in FR-AGENT-009, and they
+//     are the whole of what leaving a review state means now: a task is sent
+//     back by attaching and typing, and finished by publishing and cleaning up.
+//     There is no approved and no changes_requested, which were reached once and
+//     never in fifty-one tasks and which nothing read (FR-REV-004, ADR-086).
 //   - failed to preparing or working are recovery edges, so a lifecycle that
 //     broke half way through can be resumed rather than recreated.
 //
@@ -81,12 +85,10 @@ var workflowTransitions = map[WorkflowState][]WorkflowState{
 	WorkflowDraft:              {WorkflowPreparing},
 	WorkflowPreparing:          {WorkflowWorking, WorkflowFailed},
 	WorkflowWorking:            {WorkflowReviewRequested, WorkflowFailed},
-	WorkflowReviewRequested:    {WorkflowVerifying, WorkflowReadyForReview, WorkflowChangesRequested, WorkflowApproved, WorkflowWorking, WorkflowFailed},
+	WorkflowReviewRequested:    {WorkflowVerifying, WorkflowReadyForReview, WorkflowWorking, WorkflowFailed},
 	WorkflowVerifying:          {WorkflowReadyForReview, WorkflowVerificationFailed, WorkflowReviewRequested, WorkflowFailed},
-	WorkflowReadyForReview:     {WorkflowApproved, WorkflowChangesRequested, WorkflowWorking, WorkflowFailed},
-	WorkflowVerificationFailed: {WorkflowWorking, WorkflowReviewRequested, WorkflowChangesRequested, WorkflowFailed},
-	WorkflowChangesRequested:   {WorkflowWorking, WorkflowFailed},
-	WorkflowApproved:           {},
+	WorkflowReadyForReview:     {WorkflowWorking, WorkflowReviewRequested, WorkflowFailed},
+	WorkflowVerificationFailed: {WorkflowWorking, WorkflowReviewRequested, WorkflowFailed},
 	WorkflowFailed:             {WorkflowPreparing, WorkflowWorking},
 	WorkflowArchived:           {},
 }
@@ -132,8 +134,7 @@ func (s WorkflowState) Reachable() []WorkflowState {
 func (s WorkflowState) requiresSession() bool {
 	switch s {
 	case WorkflowWorking, WorkflowReviewRequested, WorkflowVerifying,
-		WorkflowReadyForReview, WorkflowVerificationFailed,
-		WorkflowChangesRequested, WorkflowApproved:
+		WorkflowReadyForReview, WorkflowVerificationFailed:
 		return true
 	default:
 		return false

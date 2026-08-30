@@ -1377,7 +1377,14 @@ Decisions:
   value bounds how long Feat will wait while knowing nothing, and any value
   comfortably beyond a working case serves equally well.
 - A check's output is stored as a bounded excerpt in `Check.Detail`, shown on
-  the review screen, and never put into an event payload. Evidence 6 is resolved
+  the review screen, and never put into an event payload. *Narrowed in use: a
+  check Feat ran and that passed shows no output on the panel, because its
+  excerpt is the whole of a build command's stdout printed under a line that
+  already said "passed" — forty lines of `ok <package> (cached)` on this
+  repository. It is still stored and still bounded; what changed is one panel's
+  display rule, not where the value may travel, which is what this bullet was
+  answering. A failure, a skip, and a check that did not report all keep their
+  detail: those are why, and Feat's own account of it.* Evidence 6 is resolved
   by narrowing where the field may travel rather than by adding a field, which
   would change a stored format that has carried every field this slice needs
   since slice 1. The excerpt is the output of the user's own program shown to
@@ -2470,7 +2477,8 @@ Evidence:
 Decisions:
 
 - The tab set is terminal, task, and runtime. Every tab is about the selected
-  task; the overview was the one that was not.
+  task; the overview was the one that was not. **Amended: the brief takes a
+  fourth tab, see ADR-086.**
 - Reconciliation findings that name a listed task appear on that task's panel,
   above the fields they contradict. A workflow of working beside a worktree that
   is not on disk is the contradiction the pass exists to surface, and the panel
@@ -2786,6 +2794,8 @@ the agent nothing — no inbox message is written, unlike a gate's verdict — a
 only reader treats it exactly as it treats `review_requested`,
 `ready_for_review`, and `verification_failed`. Either it earns its place by
 carrying the user's revision note into the session, or it folds into attaching.
+**Answered: it folded into attaching, and `approved` went with it, see ADR-086.
+FR-REV-004 no longer stands as written.**
 
 ### ADR-048 — Removing the external resource declaration
 
@@ -7371,6 +7381,238 @@ against the installed Claude Code 2.1.236, whose help gives its accepted values
 as `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk`, and `plan`;
 the version constants in `version.go` still record 2.1.220, because that is the
 build the hook payloads were read from and nothing has re-read them.
+
+### ADR-086 — The task panel keeps only what nothing else on the screen says
+
+Status: accepted  
+Recorded: 2026-08-29, before implementation
+
+The maintainer read the task tab after the dogfood runs and reported it as
+overloaded: most of it looked unnecessary, and the approve and request-changes
+actions had never been used. Read against `internal/ui` and against the daemon's
+own record — every `events.jsonl` under `~/.local/share/feat/projects/*/tasks/`,
+51 tasks, 46 of which reached a session.
+
+Evidence:
+
+1. Four of the panel's seven always-on fields are already on screen.
+   `taskPanel` (`internal/ui/taskpanel.go:129`) draws seven fields and up to
+   eight sections. The rail carries attention, agent state, and elapsed time
+   about four cells to the left (`internal/ui/rail.go:256`), and runtime is a
+   whole tab. Counted from the code, a one-repository task is about thirty-five
+   lines before the brief begins, so the panel is already a scroller before the
+   document that makes it scroll. This is ADR-041 evidence 9 one level down: the
+   fields were put here when the panel was the only place they could live, and
+   the rail that now carries them arrived afterwards without them being taken
+   out.
+2. The review decision was used once in fifty-one tasks. Workflow transitions
+   across every task record: `review_requested -> verifying` 53, `working ->
+   review_requested` 52, `draft -> preparing` 50, `preparing -> working` 44,
+   `verifying -> ready_for_review` 38, `ready_for_review -> working` 32,
+   `working -> archived` 31, `ready_for_review -> approved` 1, and anything to
+   `changes_requested` 0. The one approval was at 05:45 on 2026-08-29, which is
+   the maintainer pressing the key in order to ask this question. The two
+   transitions that carry the real loop are the ones nobody pressed a decision
+   key for: sending work back is `ready_for_review -> working`, which happens
+   when the user attaches and types, and finishing is `working -> archived`,
+   which is cleanup.
+3. Neither decision state does anything once it is reached. `approved` is
+   terminal (`internal/domain/states.go:89`) and no reader anywhere gates on it;
+   publication's "approved" is the approved *text*, not the workflow state.
+   Requesting changes records a transition and stops
+   (`internal/daemon/review.go:279`), after which the panel renders "changes
+   requested (a to attach and say what to change)" (`internal/ui/review.go:335`)
+   — a key that records a label and then instructs the user to go and do the
+   real thing. `feat review` only observes, so these two keys are the whole of
+   the capability.
+4. The tmux target is one constant and three pointers. Across the 46 sessions in
+   the task records there is exactly one distinct socket value, because it is
+   `Layout.Runtime/tmux.sock` by construction (`internal/paths/paths.go:149`).
+   The other three fields are tmux object ids — real values from the records are
+   `$12 @40 %51` — and ADR-030 chose ids over display names precisely because
+   they are stable identity, which is what makes them Feat's handle and not a
+   human's: nothing about `%51` can be recognised, guessed, or verified by eye,
+   and `$12` is shared across several tasks, so the session printed under a task
+   does not identify it. The one real use, running a tmux command by hand, is
+   served by `a` and by `feat attach`. These fields are also rendered from a
+   daemon response, so in the one situation where going around Feat makes sense
+   — the daemon being down — the panel is not on screen at all, while the same
+   values sit in `task.json` and are readable with `jq`.
+5. The environment section ends in a paragraph that cannot vary.
+   `executionDetail` (`internal/ui/dashboard.go:91`) closes with two lines about
+   generated overrides and reset container names that are identical on every
+   task: documentation living in a status panel. Its `container` field renders
+   Docker's uptime phrase verbatim, which is why it reads "Up Less than a
+   second" on a task that is plainly older. What must survive is narrower than
+   the section and wider than nothing: the log holds `reconciliation observed the
+   agent container as not running; it was not started or stopped` four times, and
+   that is a state the process word cannot express.
+6. `resources` gives two figures and does not say what they are. `resources  2%
+   448 MiB` leaves the reader to infer each meaning from its unit, which is the
+   machine block's defect before ADR-044 one level down. Underneath it, a
+   breakdown line and one row per container repeat the same total in two further
+   forms, and the container row's name is the compose project name plus a suffix.
+
+Decisions:
+
+- **The tab set becomes terminal, task, brief, runtime.** The brief is a document
+  and is unbounded; it is what makes the panel scroll, and it is read heavily
+  before launch and rarely during. On its own tab the panel stops scrolling in
+  the common case, which is ADR-041 evidence 4 restored: a field is where it was
+  last time. `source` moves there too, being a fact about the brief.
+- **The panel drops what the rail and the tabs already carry**: attention, agent
+  state as a bare word, elapsed time, the runtime detail, and the task UUID.
+- **The tmux block goes entirely.** Not relocated, and no `feat task show` is
+  required for it: evidence 4 is the reason, and the facts are already on disk in
+  a form that survives the daemon being down, which is the only condition under
+  which anybody wants them.
+- **The environment section collapses into the agent field**, which names what
+  runs, where, and the compose project, with the container's state appended only
+  when it is not simply running:
+
+  ```
+    agent         running · claude in devcontainer
+                  feat-agent-feat-33abeee0-3edd-45e1-ab53-3ac09c5bec4e
+
+    agent         stopped · claude in devcontainer · container not running
+                  feat-agent-feat-33abeee0-3edd-45e1-ab53-3ac09c5bec4e
+  ```
+
+  The compose project is on a continuation line of its own rather than inside the
+  value, so that the field is the same two-line shape at 96 columns and at 160.
+  The provider is named although v0 has one: it is a line that would otherwise be
+  edited twice. The per-container rows under `resources` go, rather than losing
+  only their figures, because stripped of those they are this same string again.
+- **`resources` takes the rail's vocabulary and not its bars**: `cpu 2%   memory
+  448 MiB`, with an absent figure shown absent. No bar, because the rail's bars
+  are shares of this host and these figures are not — ADR-035 is explicit that a
+  container's memory is what the runtime reported, inside its own VM on macOS,
+  and a bar against the host's total would invite exactly the comparison that
+  decision refuses. The breakdown line goes. `resourceCell` folds into
+  `resourceDetail`: its only other caller died with ADR-043's table, and its
+  comment still names that table.
+- **`runtime` survives as one word**, without the "(v0 starts application
+  services only when you ask)" apology. It is the literal word `absent` rather
+  than the em dash, so that it stays distinguishable from a figure nothing
+  measured (`internal/ui/style.go:18`).
+- **Approve and request changes are removed, and `approved` and
+  `changes_requested` leave the domain.** Evidence 2 and 3 are the reason. The
+  exits that exist are publishing and cleanup, and the workflow line names them:
+  `P to publish · a to attach and revise`. `approvalOffer`
+  (`internal/ui/runtime.go:409`) goes with them, being reachable only from a
+  state that will no longer exist.
+
+Measured effect: the panel goes from about thirty-five lines plus an unbounded
+brief to about twenty, against thirty-four rows of main region at 100×42. The
+task tab's footer hints go from about 156 cells to about 105, which fits a
+120-column terminal for the first time; today they truncate silently at every
+supported width.
+
+Known cost, accepted: a fourth tab is 35 cells of tab bar, so at the 96-column
+minimum the main header drops the "which task" subject entirely —
+`internal/ui/card.go:143` drops the aside when the gap is under two cells. At 120
+it is comfortable. Accepted rather than solved; the fallback, if it bites in use,
+is the brief on a key from the task tab rather than a tab of its own, which is
+the same view with less discoverability.
+
+Consequence: the requirements move with the code that makes them true, which is
+what ADR-041 and ADR-043 each did.
+[04-functional-specification.md](04-functional-specification.md) FR-UI-003
+becomes a requirement about what the dashboard exposes for the selected task
+across its tabs rather than about one panel, and it moves with the panel's field
+block. Nothing loses its requirement: the tmux target is *shown* by the terminal
+tab rather than named, runtime services are on the runtime tab, and the brief is
+on its own. FR-REV-004 is rewritten rather than trimmed, and
+[03-domain-model.md](03-domain-model.md)'s workflow states move with it, in the
+change that removes the two states from `internal/domain/states.go`. FR-UI-005 is
+unchanged, and is the reason `resources` stays on the panel at all: it is the
+only per-task total, and per-container metrics remain a MAY that nothing
+implements. Nothing crosses the socket differently for the panel's own work; the
+removal of the two decision states does change `internal/api` and the daemon,
+which is why it is the last of the four changes rather than the first.
+
+
+### ADR-087 — The checks run again on work that passed them
+
+Status: accepted  
+Recorded: 2026-08-30, with the implementation
+
+The maintainer read a task that was ready for review, changed something in the
+worktree themselves, and pressed `V` to run the project's checks against it. Feat
+refused: "task X is ready_for_review, and the checks run for a task whose agent
+has asked for review" — about a task whose agent had asked for review, and whose
+checks Feat had run because of it minutes earlier.
+
+Evidence:
+
+1. `verifyNow` (`internal/daemon/review.go`) accepts `review_requested` and
+   `verification_failed` and nothing else. Both are the states a gate can leave a
+   task in *except* the one where it passed, so the rule is not "the agent asked"
+   — it is "the checks have not succeeded yet".
+2. The edge this needs is the one that already exists twice.
+   `verification_failed → review_requested` is in the table for the agent that
+   fixed what the gate caught, and `verifying → review_requested` for a run a
+   restart interrupted; both return a task to the request it came from so the
+   gate can decide again. `ready_for_review → review_requested` is the third
+   outcome of the same gate taking the same road back.
+3. It adds no path *into* a review state. `TestIdleIsNotCompletion` asserts that
+   no state outside `review_requested`, `verifying`, and `ready_for_review`
+   reaches `ready_for_review`, and this edge leaves `ready_for_review` rather
+   than entering it. The test passes unchanged, which is the evidence rather than
+   the argument.
+4. A user-run gate that fails has somewhere to land: `verifying →
+   verification_failed`, which exists, means exactly that, and is a state `V`
+   already runs from — so a user who breaks the work while reading it can fix it
+   and re-run without the agent.
+5. The background half of a gate bails when there is nothing to run, and it bails
+   *after* the task has been returned to `review_requested`. A run started with
+   no checks configured therefore strands the task there: no gate is left to move
+   it, and the only ways out are the agent asking again or the user attaching and
+   typing. Reachable today from `verification_failed` when a project's checks
+   were removed since the gate ran, which is the situation of somebody who has
+   just been editing configuration.
+
+Decisions:
+
+- **`ready_for_review` gains one edge, to `review_requested`, and nothing else
+  changes in the lifecycle.** No new state, no second verb, no new endpoint, and
+  no field: because the run goes through `verifying` as every other gate does,
+  that state goes on meaning "the checks are running" and every screen, event,
+  and recovery path already built for it works untouched.
+- **The gate is the only thing that runs checks.** The alternative considered and
+  rejected was a check run separate from the gate, which would record results and
+  move nothing — needed if `V` were to work from `working` as well. It costs a
+  running marker on the review record, a second recovery path for a run a restart
+  interrupted, an API field, and a display that no longer keys off the workflow.
+  Running the checks from `working` is not what was asked for, and evidence 4 is
+  why the cheaper shape is also the better one: a bare run has nowhere to put a
+  failure, and this one does.
+- **A run with nothing to run is refused before anything moves**, naming the
+  project rather than the state. Evidence 5 is a trap this change would widen and
+  is a latent one today, so `verifyNow` asks `taskChecks` first and leaves the
+  workflow alone. Plan, record, then apply, applied to a transition rather than
+  to a resource.
+- **A run that a restart interrupts is recovered as it already was.** The task is
+  in `verifying`, `reconcileReviews` finds it, returns it to `review_requested`,
+  and reports it with the action that runs it again. Nothing about that path
+  knows or cares which key started the run.
+- The desktop notification a landing sends is not suppressed for a user-started
+  run, because it is not suppressed for one started from `verification_failed`
+  either and this changes nothing about that. If it becomes noise it is one
+  condition in `finishGate`, and it is the same condition for both.
+
+One accepted cost: a check running against a worktree the agent is also writing
+to can fail for reasons that are nobody's fault. `gates.claim` prevents two runs
+at once and cannot prevent that. The results are recorded as what the run found,
+which is what they are.
+
+Consequence: one row of `workflowTransitions` and its reason, one state added to
+one `switch`, and one guard before a transition.
+[03-domain-model.md](03-domain-model.md) and
+[04-functional-specification.md](04-functional-specification.md) FR-REV-004 move
+with it, and [02-user-workflows.md](02-user-workflows.md) §8 gains the sentence.
+No API change, no stored-format change, no schema version, and no client change:
+`V` is already on the panel and already says "run checks".
 
 
 ## Decision change process

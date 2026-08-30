@@ -63,7 +63,7 @@ var effects = map[agent.EventKind]effect{
 		workflow: func(current domain.WorkflowState) domain.WorkflowState {
 			switch current {
 			case domain.WorkflowReviewRequested, domain.WorkflowReadyForReview,
-				domain.WorkflowVerificationFailed, domain.WorkflowChangesRequested:
+				domain.WorkflowVerificationFailed:
 				return domain.WorkflowWorking
 			default:
 				return ""

@@ -254,9 +254,6 @@ func (m Model) runtimeBody() string {
 		out.WriteString(m.runtimeSummary(task))
 	}
 
-	if approvalOffer(task) != "" {
-		out.WriteString("\n" + attentionStyle.Render(approvalOffer(task)) + "\n")
-	}
 	for _, note := range m.runtime.status.Notes {
 		out.WriteString("\n" + attentionStyle.Render("note") + " " + note + "\n")
 	}
@@ -404,25 +401,6 @@ func runtimeSource(service api.RuntimeService) string {
 		return "configured"
 	}
 	return "dependency"
-}
-
-// approvalOffer is FR-RUN-005's rule about approval, in words.
-//
-// An approved task whose services are still running is offered the stop and
-// never given it: approval is a statement about the work, and the environment
-// the user was testing it in is theirs to keep or to end
-// (docs/02-user-workflows.md §7).
-func approvalOffer(task api.Task) string {
-	if task.Workflow != "approved" || task.Runtime == nil {
-		return ""
-	}
-	switch task.Runtime.State {
-	case "running", "degraded", "starting":
-		return "this task is approved and its services are still running — press t to stop them; " +
-			"Feat never stops them for you"
-	default:
-		return ""
-	}
 }
 
 // valueOr renders a value, or the absent marker when it is empty.

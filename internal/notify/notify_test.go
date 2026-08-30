@@ -42,13 +42,11 @@ func TestTheNotifiableStatesArePinned(t *testing.T) {
 
 	// The states nobody is interrupted for, and the reason each is absent.
 	for state, why := range map[domain.WorkflowState]string{
-		domain.WorkflowDraft:            "a draft is something the user is holding",
-		domain.WorkflowPreparing:        "the user just launched it",
-		domain.WorkflowWorking:          "the agent working is what was asked for",
-		domain.WorkflowVerifying:        "checks running is not a result",
-		domain.WorkflowChangesRequested: "the user asked for the changes",
-		domain.WorkflowApproved:         "the user approved it",
-		domain.WorkflowArchived:         "the user cleaned it up",
+		domain.WorkflowDraft:     "a draft is something the user is holding",
+		domain.WorkflowPreparing: "the user just launched it",
+		domain.WorkflowWorking:   "the agent working is what was asked for",
+		domain.WorkflowVerifying: "checks running is not a result",
+		domain.WorkflowArchived:  "the user cleaned it up",
 	} {
 		if condition, ok := ForWorkflow(state); ok {
 			t.Errorf("ForWorkflow(%s) notifies with %q, but %s", state, condition, why)

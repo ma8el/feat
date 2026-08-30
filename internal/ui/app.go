@@ -74,6 +74,10 @@ const (
 	// screens until ADR-042, and shared their subject, their header, their
 	// workflow, and their repository list.
 	screenTask
+	// screenBrief is the document a task was launched from, read on a tab of its
+	// own. It has no daemon call behind it: the brief travels on the task, and
+	// what this screen adds is the room to read it (ADR-086).
+	screenBrief
 	screenPrepare
 	// screenWizard is a project being configured. It is an overlay for the same
 	// reason preparation is: it is answered before work continues, and the tasks
@@ -130,6 +134,8 @@ func (s screen) tab() (tab, bool) {
 		return tabTerminal, true
 	case screenTask:
 		return tabTask, true
+	case screenBrief:
+		return tabBrief, true
 	case screenRuntime:
 		return tabRuntime, true
 	default:
@@ -144,6 +150,8 @@ func screenFor(active tab) screen {
 		return screenTerminal
 	case tabTask:
 		return screenTask
+	case tabBrief:
+		return screenBrief
 	case tabRuntime:
 		return screenRuntime
 	default:
@@ -222,6 +230,10 @@ type Model struct {
 	// review is the review screen's own state: the comparison it was given, the
 	// repository under the cursor, and what is in flight.
 	review reviewModel
+	// brief is the brief tab's own state: whose brief is being read and how far
+	// down it. Its own offset rather than the panel's, because two tabs sharing
+	// one would each move the other's position.
+	brief briefModel
 	// reconciliation is the daemon's most recent recovery pass, read on the
 	// periodic refresh rather than on every event: a pass is not published, and
 	// what it found changes on the scale of a restart rather than a keystroke.
@@ -679,7 +691,16 @@ func (m Model) apply(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case eventMsg:
-		return m, tea.Batch(m.load(), m.awaitEvent())
+		commands := []tea.Cmd{m.load(), m.awaitEvent()}
+		// The task list is the answer to every event, and it is not the whole
+		// answer while the task panel is open: it carries the workflow and the
+		// check counts, and the check results themselves come from an
+		// observation.
+		if m.reviewOutdatedBy(message.event) {
+			m.review.observing = true
+			commands = append(commands, m.reviewAction(api.ReviewObserve))
+		}
+		return m, tea.Batch(commands...)
 
 	case streamMsg:
 		// The stream is a convenience; the periodic read is what keeps the
@@ -986,6 +1007,8 @@ func (m Model) selectTab(active tab) (tea.Model, tea.Cmd) {
 	switch active {
 	case tabTask:
 		return m.openTask()
+	case tabBrief:
+		return m.openBrief()
 	case tabRuntime:
 		return m.openRuntime()
 	}
@@ -1077,6 +1100,9 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.screen == screenTask {
 		return m.taskPanelKey(key)
+	}
+	if m.screen == screenBrief {
+		return m.briefKey(key)
 	}
 	if m.screen == screenCleanup {
 		return m.cleanupKey(key)
@@ -1668,6 +1694,8 @@ func (m Model) stackedView() string {
 			m.footer(m.diagnosisHints())
 	case screenTask:
 		return m.taskView()
+	case screenBrief:
+		return m.briefView()
 	case screenRuntime:
 		return m.runtimeView()
 	case screenCleanup:

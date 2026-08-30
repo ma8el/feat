@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/ma8el/feat/internal/api"
 )
 
 // TestTheTaskPanelCarriesBothHalvesOnce is the merge.
@@ -19,17 +21,19 @@ func TestTheTaskPanelCarriesBothHalvesOnce(t *testing.T) {
 	panel := reviewScreen(t, newFakeBackend()).taskPanel()
 
 	for requirement, want := range map[string]string{
-		// FR-UI-003: brief, repository/base mapping, tmux target, runtime, checks.
-		"the brief":       "Export the daily report",
-		"the base commit": "1a2b3c4d5e6f",
-		"the branch":      "feat/7f3a1c2e-add-a-scheduled-export-job",
-		"the tmux pane":   "%7",
-		"the runtime":     "absent",
-		"the environment": "feat-agent-example-7f3a1c2e",
-		// FR-REV-001 and FR-REV-004: the comparison and the decision.
+		// FR-UI-003, which ADR-086 made a requirement about the tabs rather than
+		// about this panel: the repository/base mapping, the runtime, and the
+		// checks are here; the tmux target is shown by the terminal tab rather
+		// than named on this one, and the brief has a tab of its own.
+		"the base commit":     "1a2b3c4d5e6f",
+		"the branch":          "feat/7f3a1c2e-add-a-scheduled-export-job",
+		"the runtime":         "absent",
+		"the compose project": "feat-agent-example-7f3a1c2e",
+		// FR-REV-001 and FR-REV-004: the comparison, and the exits a review has
+		// now that it records no decision (ADR-086).
 		"the head commit":  "001122334455",
 		"the line counts":  "+214 -36",
-		"the decision":     "pending",
+		"the exits":        "a to attach and revise",
 		"the check detail": "Feat ran this",
 	} {
 		if !strings.Contains(panel, want) {
@@ -42,10 +46,9 @@ func TestTheTaskPanelCarriesBothHalvesOnce(t *testing.T) {
 	// workflow in its header; showing both was the duplication that made two
 	// thin tabs look like two different things.
 	for what, needle := range map[string]string{
-		"the workflow":       "workflow ",
-		"a repository":       "/srv/worktrees/example/7f3a1c2e/core",
-		"the check summary":  "run by Feat",
-		"the task's project": "example · ",
+		"the workflow":      "workflow ",
+		"a repository":      "/srv/worktrees/example/7f3a1c2e/core",
+		"the check summary": "run by Feat",
 	} {
 		if got := strings.Count(panel, needle); got != 1 {
 			t.Errorf("%s appears %d times, want once:\n%s", what, got, panel)
@@ -183,51 +186,232 @@ func TestAnErrorCannotPushTheFooterApart(t *testing.T) {
 //
 // The label column has a fixed width, and lipgloss wraps rather than overflows:
 // "compose project" came out as "compose" and then "project" against the panel's
-// left edge, where it read as a heading rather than a label.
+// left edge, where it read as a heading rather than a label. That label went with
+// the environment section (ADR-086) and the widest one left fills the column
+// exactly, which is the same branch.
 func TestALabelWiderThanItsColumnKeepsItsLine(t *testing.T) {
-	panel := reviewScreen(t, newFakeBackend()).taskPanel()
+	panel := ansi.Strip(reviewScreen(t, newFakeBackend()).taskPanel())
 
 	for _, line := range strings.Split(panel, "\n") {
-		if strings.HasPrefix(line, "project ") {
+		if strings.HasPrefix(line, "says ") {
 			t.Errorf("a wrapped label became its own line:\n%s", panel)
 		}
 	}
-	if !strings.Contains(panel, "compose project") {
-		t.Errorf("the compose project label did not survive on one line:\n%s", panel)
+	if !strings.Contains(panel, "the agent says Added the export job") {
+		t.Errorf("a label as wide as its column did not keep its value beside it:\n%s", panel)
 	}
 }
 
-// TestTheTaskPanelScrollsRatherThanHidingTheBrief keeps what does not fit
+// TestThePanelDropsWhatTheRailAndTheTabsAlreadyCarry is ADR-086's first
+// decision.
+//
+// Attention, agent state as a word, and elapsed time are four cells to the left
+// in the rail; the runtime's detail is a whole tab; the tmux target is one
+// constant and three object ids nobody reads; and the environment section ended
+// in two lines of explanation identical on every task. A panel repeating them
+// was thirty-five lines before its brief began.
+func TestThePanelDropsWhatTheRailAndTheTabsAlreadyCarry(t *testing.T) {
+	model := dashboard(newFakeBackend(), liveTask())
+	model.selected = liveTask().ID
+	model.screen = screenTask
+
+	panel := ansi.Strip(model.taskPanel())
+	for what, label := range map[string]string{
+		"attention, which is a badge in the rail":   "attention",
+		"elapsed time, which the rail carries":      "elapsed",
+		"the brief's source, which moves to it":     "source",
+		"the tmux session, window, and pane":        "tmux",
+		"the tmux socket":                           "socket",
+		"the compose service":                       "service",
+		"the container's own uptime phrase":         "container",
+		"the compose project as a field of its own": "compose project",
+	} {
+		for _, line := range strings.Split(panel, "\n") {
+			if strings.HasPrefix(line, "  "+label+" ") {
+				t.Errorf("the panel still has a field for %s:\n%s", what, panel)
+			}
+		}
+	}
+
+	for what, value := range map[string]string{
+		"the task's uuid":                    liveTask().ID,
+		"the tmux socket":                    "/run/feat/tmux.sock",
+		"the tmux pane":                      "%7",
+		"the user the agent runs as":         "coder",
+		"the generated override's paragraph": "container_name",
+		"the runtime's apology":              "only when you ask",
+	} {
+		if strings.Contains(panel, value) {
+			t.Errorf("the panel still shows %s (%q):\n%s", what, value, panel)
+		}
+	}
+}
+
+// TestTheAgentFieldHasOneShapePerThingItCanSay is what the environment section
+// collapsed into.
+//
+// What runs, where, and in what: the compose project on a continuation line
+// because it is a name a user types into a tool on the trusted host, and the
+// container's state appended only when it is not simply running. That last is
+// the state 9d found in the log four times — reconciliation observing an agent
+// container as not running — and the process word cannot express it.
+func TestTheAgentFieldHasOneShapePerThingItCanSay(t *testing.T) {
+	host := liveTask()
+	host.Session.ExecutionMode = "host"
+	host.Session.Execution = nil
+
+	stopped := liveTask()
+	stopped.Session.Process = "stopped"
+	stopped.Session.Execution.Running = false
+
+	for _, shape := range []struct {
+		what string
+		task api.Task
+		want string
+	}{
+		{"a containerised session", liveTask(), "running · claude in devcontainer"},
+		// "in host" read as the name of a container nobody had configured.
+		{"a host-native session", host, "running · claude on the host"},
+		{"a container that stopped under it", stopped,
+			"stopped · claude in devcontainer · container not running"},
+		{"a task that has no session yet", pendingDraft(), absent + "  (no terminal yet)"},
+	} {
+		model := dashboard(newFakeBackend(), shape.task)
+		model.selected = shape.task.ID
+		model.screen = screenTask
+
+		panel := ansi.Strip(model.taskPanel())
+		if !strings.Contains(panel, shape.want) {
+			t.Errorf("the agent field for %s does not read %q:\n%s", shape.what, shape.want, panel)
+		}
+	}
+
+	// The one state worth interrupting for is coloured as one. Nothing else on
+	// the field is: a container that is running says nothing extra at all.
+	loud := dashboard(newFakeBackend(), stopped)
+	loud.selected = stopped.ID
+	if panel := loud.taskPanel(); !strings.Contains(panel, attentionStyle.Render("container not running")) {
+		t.Errorf("a container that is not running is not marked as needing attention:\n%s", panel)
+	}
+	calm := dashboard(newFakeBackend(), liveTask())
+	calm.selected = liveTask().ID
+	panel := ansi.Strip(calm.taskPanel())
+	for what, value := range map[string]string{
+		"a state it is not in":       "container not running",
+		"Docker's own uptime phrase": "Up 4 minutes",
+	} {
+		if strings.Contains(panel, value) {
+			t.Errorf("a running container reported %s:\n%s", what, panel)
+		}
+	}
+}
+
+// TestTheComposeProjectKeepsALineOfItsOwnAtEveryWidth is why it is a
+// continuation line rather than part of the value.
+//
+// It is about fifty cells against a value column of thirty-nine at the minimum
+// width, so inside the value the wrap would break it in a different place at
+// every terminal size. Broken deliberately, the field is the same shape in all
+// of them.
+func TestTheComposeProjectKeepsALineOfItsOwnAtEveryWidth(t *testing.T) {
+	identity := liveTask().Session.Execution.Identity
+
+	for _, width := range []int{minimumWidth, 120, 160} {
+		model := sized(dashboard(newFakeBackend(), liveTask()), width, 40)
+		model.selected = liveTask().ID
+		model.screen = screenTask
+
+		region, _ := model.mainRegionSize()
+		panel := ansi.Strip(model.wrappedPanel(region))
+
+		var own bool
+		for _, line := range strings.Split(panel, "\n") {
+			if strings.Contains(line, identity) && strings.Contains(line, "claude in") {
+				t.Errorf("at %d columns the compose project shares the agent's line:\n%s", width, line)
+			}
+			if strings.TrimRight(line, " ") == strings.Repeat(" ", fieldValueColumn)+identity {
+				own = true
+			}
+		}
+		if !own {
+			t.Errorf("at %d columns the compose project is not on a line of its own under the value:\n%s",
+				width, panel)
+		}
+	}
+}
+
+// TestADraftPanelHasNoContinuationLines checks the shape a task without a
+// session leaves.
+//
+// A draft owns no environment, so there is no compose project to put under the
+// agent field and nothing to say about a container that does not exist.
+func TestADraftPanelHasNoContinuationLines(t *testing.T) {
+	model := dashboard(newFakeBackend(), pendingDraft())
+	model.selected = pendingDraft().ID
+	model.screen = screenTask
+
+	panel := ansi.Strip(model.taskPanel())
+	for _, line := range strings.Split(panel, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if strings.HasPrefix(line, strings.Repeat(" ", fieldValueColumn)) {
+			t.Errorf("a draft's panel has a continuation line under a field: %q\n%s", line, panel)
+		}
+	}
+}
+
+// TestTheTaskPanelScrollsRatherThanHidingWhatIsBelow keeps what does not fit
 // reachable.
 //
-// The panel is taller than the region on any terminal worth supporting once a
-// task has two repositories and a brief. FR-UI-003 requires the brief, and a
-// region that clipped it in silence would read as a task that has none.
-func TestTheTaskPanelScrollsRatherThanHidingTheBrief(t *testing.T) {
+// The panel is shorter than the region for a one-repository task since the brief
+// took a tab of its own, and a task with two repositories and a captured check
+// detail still outgrows it. A region that clipped that in silence would read as a
+// task with nothing under the fields.
+func TestTheTaskPanelScrollsRatherThanHidingWhatIsBelow(t *testing.T) {
 	model := sized(reviewScreen(t, newFakeBackend()), 120, 32)
 
 	width, height := model.mainRegionSize()
 	top := model.taskBody(width, height)
-	if strings.Contains(top, "Export the daily report") {
-		t.Skip("the panel fits this region, so there is nothing to scroll to")
-	}
 	if !strings.Contains(top, "pgup/pgdn") {
 		t.Fatalf("a clipped panel does not say it was clipped:\n%s", top)
 	}
 
-	// Down until the brief is reached, which must happen within the panel's
-	// length rather than never.
+	// Down until the last of the checks is reached, which must happen within the
+	// panel's length rather than never.
 	at := model
 	for range 20 {
 		at = press(t, at, "pgdown")
-		if strings.Contains(at.taskBody(width, height), "Export the daily report") {
+		if strings.Contains(at.taskBody(width, height), "the agent reported this") {
 			if back := press(t, at, "pgup"); back.review.scroll >= at.review.scroll {
 				t.Errorf("pgup did not move back: %d then %d", at.review.scroll, back.review.scroll)
 			}
 			return
 		}
 	}
-	t.Errorf("the brief was never reached by scrolling:\n%s", at.taskBody(width, height))
+	t.Errorf("the foot of the panel was never reached by scrolling:\n%s", at.taskBody(width, height))
+}
+
+// TestTheTaskPanelDoesNotScrollForAOneRepositoryTask is what moving the brief
+// bought.
+//
+// The brief is unbounded and the fields are not, so the panel was a scroller
+// before the document that made it scroll had been reached. The common case now
+// fits, which is ADR-041's fourth piece of evidence restored: a field is where it
+// was last time.
+func TestTheTaskPanelDoesNotScrollForAOneRepositoryTask(t *testing.T) {
+	task := liveTask()
+	task.Repositories = task.Repositories[:1]
+	task.Brief = strings.Repeat("A brief long enough to have filled the region on its own.\n", 40)
+
+	model := sized(dashboard(newFakeBackend(), task), 120, 32)
+	model.selected = task.ID
+	model.screen = screenTask
+
+	width, height := model.mainRegionSize()
+	if body := model.taskBody(width, height); strings.Contains(body, "pgup/pgdn") {
+		t.Errorf("the panel for a one-repository task still scrolls:\n%s", body)
+	}
 }
 
 // TestScrollingStopsAtTheEndOfThePanel keeps a held key from building up an
@@ -240,14 +424,19 @@ func TestScrollingStopsAtTheEndOfThePanel(t *testing.T) {
 		at = press(t, at, "pgdown")
 	}
 	settled := at.review.scroll
+	if settled == 0 {
+		t.Fatalf("this panel does not scroll at all, so there is no end to stop at")
+	}
 
 	if again := press(t, at, "pgdown"); again.review.scroll != settled {
 		t.Errorf("scrolling past the end moved from %d to %d", settled, again.review.scroll)
 	}
-	// And one press back is one page back, rather than the many it would take to
+	// And one press back is one page back — or the top, on a panel with less
+	// than a page left to give — rather than the many presses it would take to
 	// unwind an unbounded offset.
-	if back := press(t, at, "pgup"); back.review.scroll != settled-panelPage {
-		t.Errorf("pgup from the end left the offset at %d, want %d", back.review.scroll, settled-panelPage)
+	want := max(settled-panelPage, 0)
+	if back := press(t, at, "pgup"); back.review.scroll != want {
+		t.Errorf("pgup from the end left the offset at %d, want %d", back.review.scroll, want)
 	}
 }
 

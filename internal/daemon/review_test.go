@@ -331,13 +331,15 @@ func TestCommandsCannotEscapeConfiguredTaskPaths(t *testing.T) {
 	}
 }
 
-// TestApprovalDoesNotStopOrDestroyRuntime is the fourth acceptance criterion.
+// TestReviewDoesNotStopOrDestroyRuntime is the fourth acceptance criterion.
 //
-// It is checked by counting the commands an approval produces rather than by
+// It is checked by counting the commands review produces rather than by
 // asserting that a recorded state did not change: that no container command ran
 // at all is a stronger statement than that a container happens to still be there
-// (FR-REV-004, docs/02-user-workflows.md §7).
-func TestApprovalDoesNotStopOrDestroyRuntime(t *testing.T) {
+// (FR-REV-004, docs/02-user-workflows.md §7). It used to be phrased about
+// approving, which is the decision ADR-086 removed; what it is really about is
+// that reaching the end of the review path leaves the user's services alone.
+func TestReviewDoesNotStopOrDestroyRuntime(t *testing.T) {
 	docker := runtimetest.New()
 	checks := newFakeChecks()
 	live := launchWith(t, reviewRuntimeFixture, installed(), false, func(options *Options) {
@@ -356,7 +358,8 @@ func TestApprovalDoesNotStopOrDestroyRuntime(t *testing.T) {
 		Answer("network ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}", "").
 		Answer("volume ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}", "")
 
-	// Services the user started, and which are still running when they approve.
+	// Services the user started, and which are still running when the work is
+	// ready to be read.
 	if _, err := live.service.Runtime(context.Background(), live.ref.Task, api.RuntimeStart); err != nil {
 		t.Fatalf("starting the application services: %v", err)
 	}
@@ -364,41 +367,39 @@ func TestApprovalDoesNotStopOrDestroyRuntime(t *testing.T) {
 
 	session.emit(t, control.TypeReviewRequested, `{"summary":"ready"}`)
 	session.awaitGate(t)
-	result := session.review(t, api.ReviewApprove)
+	result := session.review(t, api.ReviewObserve)
 
-	if result.Task.Workflow != domain.WorkflowApproved {
-		t.Fatalf("workflow after approval = %q, want approved", result.Task.Workflow)
+	if result.Task.Workflow != domain.WorkflowReadyForReview {
+		t.Fatalf("workflow after the gate = %q, want ready_for_review", result.Task.Workflow)
 	}
 	if after := docker.Vectors(); len(after) != before {
-		t.Errorf("approving ran %v, and approval stops and destroys nothing", after[before:])
+		t.Errorf("review ran %v, and review stops and destroys nothing", after[before:])
 	}
 	if result.Task.Runtime == nil || result.Task.Runtime.State != domain.RuntimeRunning {
-		t.Errorf("the task's services are %+v after approval, want them still running", result.Task.Runtime)
+		t.Errorf("the task's services are %+v after review, want them still running", result.Task.Runtime)
 	}
 }
 
-// TestReviewDecisionsSurviveARestart checks that review state is preserved
-// across a restart.
+// TestReviewStateSurvivesARestart checks that review state is preserved across a
+// restart.
 //
-// What this really checks is that the decision goes to disk rather than into the
-// running process: a daemon restarted after an approval must not present the
-// task as waiting for one. The decision is the workflow state and is read from
-// the task, which is the only place it is recorded (ADR-047); the review
+// What this really checks is that it goes to disk rather than into the running
+// process: a daemon restarted after a gate finished must not present the task as
+// though the checks were still to run. The state is the workflow and is read
+// from the task, which is the only place it is recorded (ADR-047); the review
 // aggregate beside it keeps what the checks found.
-func TestReviewDecisionsSurviveARestart(t *testing.T) {
+func TestReviewStateSurvivesARestart(t *testing.T) {
 	live := launchForReview(t, nil)
 	live.emit(t, control.TypeReviewRequested, `{"summary":"ready"}`)
 	live.awaitGate(t)
-
-	live.review(t, api.ReviewApprove)
 
 	restarted := restart(t, live.session)
 	task, err := restarted.Task(context.Background(), live.ref.Task)
 	if err != nil {
 		t.Fatalf("loading the task after a restart: %v", err)
 	}
-	if task.Workflow != domain.WorkflowApproved {
-		t.Errorf("workflow after a restart = %q, want approved", task.Workflow)
+	if task.Workflow != domain.WorkflowReadyForReview {
+		t.Errorf("workflow after a restart = %q, want ready_for_review", task.Workflow)
 	}
 
 	record, err := restarted.store.Reviews().Load(context.Background(), live.ref)
@@ -410,34 +411,40 @@ func TestReviewDecisionsSurviveARestart(t *testing.T) {
 	}
 }
 
-// TestAnApprovedTaskNeverReadsAsUndecided is the defect ADR-047 removed, kept as
-// a test because it is the one that could come back.
+// TestAReviewedTaskNeverReadsAsUndecided is the defect ADR-047 removed, kept as
+// a test because it is the one that could come back, and extended to the
+// decisions ADR-086 removed with it.
 //
 // A review used to carry its own copy of the decision, and leaving one pending
 // moved that copy without moving the task's workflow: the panel then read
 // "workflow approved" above "decision pending", and there was no way out,
-// because approved has no outgoing transition. With one record there is nothing
-// to disagree with, and re-observing an approved task must not reintroduce one.
-func TestAnApprovedTaskNeverReadsAsUndecided(t *testing.T) {
+// because approved had no outgoing transition. There is no decision at all now —
+// approve was pressed once in fifty-one tasks and request-changes never — so
+// what a client may ask of a review is to observe it and to verify it, and
+// anything else is refused rather than half-obeyed.
+func TestAReviewedTaskNeverReadsAsUndecided(t *testing.T) {
 	live := launchForReview(t, nil)
 	live.emit(t, control.TypeReviewRequested, `{"summary":"ready"}`)
 	live.awaitGate(t)
-	live.review(t, api.ReviewApprove)
 
 	// Opening review again is what the dashboard does on every visit, and it
 	// writes the review record back.
 	result := live.review(t, api.ReviewObserve)
-	if result.Task.Workflow != domain.WorkflowApproved {
-		t.Errorf("workflow after re-observing an approved task = %q, want approved", result.Task.Workflow)
+	if result.Task.Workflow != domain.WorkflowReadyForReview {
+		t.Errorf("workflow after re-observing a reviewed task = %q, want ready_for_review", result.Task.Workflow)
 	}
 
-	// The undo that produced the contradiction is not in the vocabulary at all,
-	// so a client asking for it is refused rather than half-obeyed.
-	if api.ReviewAction("pending").Valid() {
-		t.Error("leaving a review pending is an action again, and it is the one that could disagree with the workflow")
-	}
-	if _, err := live.service.Review(context.Background(), live.ref.Task, api.ReviewAction("pending")); err == nil {
-		t.Error("the daemon accepted a review action that is not one")
+	for action, why := range map[string]string{
+		"pending": "leaving a review pending is the undo that could disagree with the workflow",
+		"approve": "approving is a decision nothing read and one user pressed once",
+		"changes": "requesting changes recorded a label and told the user to attach and do the real thing",
+	} {
+		if api.ReviewAction(action).Valid() {
+			t.Errorf("%q is a review action again: %s", action, why)
+		}
+		if _, err := live.service.Review(context.Background(), live.ref.Task, api.ReviewAction(action)); err == nil {
+			t.Errorf("the daemon accepted %q, which is not a review action", action)
+		}
 	}
 }
 
@@ -800,6 +807,84 @@ func TestVerifyingAgainIsAUserAction(t *testing.T) {
 
 	if got := live.task(t).Workflow; got != domain.WorkflowReadyForReview {
 		t.Errorf("workflow after a second run = %q, want ready_for_review", got)
+	}
+}
+
+// TestWorkThatPassedItsChecksCanBeCheckedAgain is ADR-087.
+//
+// A user reading work that passed and changing something themselves has the same
+// question as one reading work that failed, and the answer used to be that the
+// checks run for a task whose agent has asked for review — which this task's
+// agent had. The run goes back through the request it came from, so the gate
+// decides where it lands as it did the first time, and a run that now fails
+// lands somewhere that says so.
+func TestWorkThatPassedItsChecksCanBeCheckedAgain(t *testing.T) {
+	live := launchForReview(t, nil)
+	live.checks.outputs["unit"] = review.Output{Stdout: "84 passed"}
+
+	live.requestReview(t, `{"summary":"ready"}`)
+	if got := live.task(t).Workflow; got != domain.WorkflowReadyForReview {
+		t.Fatalf("workflow = %q, want ready_for_review", got)
+	}
+	before := len(live.checks.commands())
+
+	// The user changed something themselves while reading it, and it broke.
+	live.checks.outputs["unit"] = review.Output{Stdout: "1 failed, 83 passed", ExitCode: 1}
+	live.review(t, api.ReviewVerify)
+	live.awaitGate(t)
+
+	if got := live.task(t).Workflow; got != domain.WorkflowVerificationFailed {
+		t.Errorf("workflow after a user's run failed = %q, want verification_failed", got)
+	}
+	if runs := len(live.checks.commands()); runs != before+1 {
+		t.Errorf("the gate ran %d times, want one more than the %d before", runs, before)
+	}
+
+	// And back out again, on the edge that already existed.
+	live.checks.outputs["unit"] = review.Output{Stdout: "84 passed"}
+	live.review(t, api.ReviewVerify)
+	live.awaitGate(t)
+
+	if got := live.task(t).Workflow; got != domain.WorkflowReadyForReview {
+		t.Errorf("workflow after fixing it = %q, want ready_for_review", got)
+	}
+}
+
+// TestARunWithNothingToRunChangesNothing is the trap the new edge opened.
+//
+// A run is refused before anything moves rather than after. The gate's own
+// background half bails when there is nothing to run, and it bails after the
+// task has been put back in review_requested — so a run started with no checks
+// configured would leave the task there with no gate left to bring it out, and
+// only the agent asking again or the user attaching as a way back. Reachable
+// when a project's checks were removed since the gate ran, which is the case a
+// user has just been editing configuration for.
+func TestARunWithNothingToRunChangesNothing(t *testing.T) {
+	live := launchForReview(t, nil)
+	live.checks.outputs["unit"] = review.Output{Stdout: "84 passed"}
+	live.requestReview(t, `{"summary":"ready"}`)
+
+	// The checks leave the project, as they would if the user edited its
+	// configuration between the gate and the key.
+	rewrite(t, live.service.layout, "app", strings.Split(reviewFixture, "\nchecks:")[0]+"\n")
+	before := len(live.checks.commands())
+
+	_, err := live.service.Review(context.Background(), live.ref.Task, api.ReviewVerify)
+	if err == nil {
+		t.Fatal("a run with nothing to run was accepted")
+	}
+	if !errors.Is(err, api.ErrInvalid) {
+		t.Errorf("the refusal is %v, want an invalid-request error", err)
+	}
+	if !strings.Contains(err.Error(), "configures no checks") {
+		t.Errorf("the refusal does not say why: %v", err)
+	}
+
+	if got := live.task(t).Workflow; got != domain.WorkflowReadyForReview {
+		t.Errorf("a refused run moved the task to %q, want it left at ready_for_review", got)
+	}
+	if runs := len(live.checks.commands()); runs != before {
+		t.Errorf("a refused run ran %d checks", runs-before)
 	}
 }
 

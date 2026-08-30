@@ -315,33 +315,33 @@ func TestTheTaskPanelShowsTheComparisonItOpensWith(t *testing.T) {
 	}
 }
 
-// TestAReviewDecisionInFlightSaysSo covers the other half of the panel: not the
-// read it opens with, but the decision a key press asked for.
-func TestAReviewDecisionInFlightSaysSo(t *testing.T) {
+// TestAReviewActionInFlightSaysSo covers the other half of the panel: not the
+// read it opens with, but the action a key press asked for.
+func TestAReviewActionInFlightSaysSo(t *testing.T) {
 	backend := newFakeBackend()
 	model := reviewScreen(t, backend)
 	if model.activity.running {
 		t.Fatal("a panel with nothing outstanding is animating")
 	}
 
-	updated, cmd := model.Update(key("A"))
+	updated, cmd := model.Update(key("V"))
 	model = updated.(Model)
 
-	if model.review.pending != api.ReviewApprove || !model.activity.running {
-		t.Fatalf("pending=%q running=%v, want the approval shown as running",
+	if model.review.pending != api.ReviewVerify || !model.activity.running {
+		t.Fatalf("pending=%q running=%v, want the check run shown as running",
 			model.review.pending, model.activity.running)
 	}
 	view := model.taskPanel()
-	if !strings.Contains(flowed(view), "waiting for approve") {
+	if !strings.Contains(flowed(view), "waiting for verify") {
 		t.Errorf("the panel does not say what it is waiting for:\n%s", view)
 	}
 	if !spinning(view) {
-		t.Errorf("the approval is drawn without an indicator:\n%s", view)
+		t.Errorf("the check run is drawn without an indicator:\n%s", view)
 	}
 
 	model = applyCommand(t, model, cmd)
 	if model.activity.running {
-		t.Error("the approval landed and the panel is still animating")
+		t.Error("the check run landed and the panel is still animating")
 	}
 }
 

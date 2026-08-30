@@ -31,34 +31,43 @@ func (m Model) taskView() string {
 
 // taskBody renders the task panel into a region, scrolled to where the user is.
 //
-// The panel is taller than the region on any terminal worth supporting once a
-// task has two repositories and a brief, so what does not fit is scrolled to
-// rather than lost. The last line says what is above and below: a panel clipped
-// in silence reads as a panel that is short, and FR-UI-003 requires the brief to
-// be reachable.
+// The panel is shorter than the region for a one-repository task since the brief
+// moved to a tab of its own (ADR-086), and a task with several repositories or a
+// long check detail still outgrows it. What does not fit is scrolled to rather
+// than lost, and the last line says what is above and below: a panel clipped in
+// silence reads as a panel that is short.
 //
-// It is wrapped to the region before it is measured, and it is the one body that
-// is. Everything else the dashboard draws is a line whose width it controls, and
-// a rendered pane must never be re-flowed; this is prose — a brief, a note, a
+// It is wrapped to the region before it is measured. Everything else the
+// dashboard draws is a line whose width it controls, and a rendered pane must
+// never be re-flowed; this is prose — a note, a captured command's output, a
 // sentence explaining what a field could not be filled with — and prose cut at
 // the region's edge loses the half of the sentence that says what to do about it.
 // Wrapping before the split is also what keeps the scroll honest: the lines
 // counted are the lines drawn.
 func (m Model) taskBody(width, height int) string {
-	panel := m.wrappedPanel(width)
+	return scrollWindow(m.wrappedPanel(width), m.review.scroll, width, height)
+}
+
+// scrollWindow is the part of a rendered body that fits the region, under a line
+// saying how much of it is above and below.
+//
+// Shared by the two bodies that scroll. Each keeps its own offset — a brief and
+// a task panel sharing one would each move the other's position — and the note
+// they draw is the same, because it says the same thing about the same shape.
+func scrollWindow(body string, offset, width, height int) string {
 	if height <= 0 {
-		return panel
+		return body
 	}
 
-	lines := strings.Split(panel, "\n")
+	lines := strings.Split(body, "\n")
 	if len(lines) <= height {
-		return panel
+		return body
 	}
 
 	// One line of the region belongs to the note, so the window is that much
 	// shorter than the space.
 	visible := height - 1
-	offset := clampScroll(m.review.scroll, len(lines), height)
+	offset = clampScroll(offset, len(lines), height)
 	window := lines[offset : offset+visible]
 
 	var parts []string
@@ -137,27 +146,34 @@ func (m Model) taskPanel() string {
 	}
 
 	var out strings.Builder
-	out.WriteString(headingStyle.Render(task.Key+"  "+task.Title) + "\n")
-	out.WriteString(mutedStyle.Render(task.ProjectID+" · "+task.ID) + "\n\n")
+	out.WriteString(headingStyle.Render(task.Key+"  "+task.Title) + "\n\n")
 
 	// What the last reconciliation pass found about this task, before the fields
 	// it contradicts.
 	out.WriteString(m.recoveryBlock(m.recoveryFindings(task)))
 
-	out.WriteString(field("workflow", task.Workflow))
+	// Six lines and what only they can say. Attention, agent state as a bare
+	// word, elapsed time and the task's identifiers were all four cells to the
+	// left in the rail, and the runtime's detail is a whole tab; a panel that
+	// repeated them was thirty-five lines before its brief began (ADR-086).
+	workflow := task.Workflow
+	if exits := reviewExits(task); exits != "" {
+		workflow = continued(workflow, mutedStyle.Render(exits))
+	}
+	out.WriteString(field("workflow", workflow))
 	out.WriteString(failureBlock(task))
-	out.WriteString(field("attention", attentionState(task)))
 	out.WriteString(field("agent", agentDetail(task)))
 	// The runtime field carries the offer to stop services after an approval,
-	// which is why the review section below does not repeat it.
+	// which is why the review lines below do not repeat it.
 	out.WriteString(field("runtime", runtimeDetail(task)))
-	out.WriteString(field("resources", m.resourceDetail(task)))
-	out.WriteString(field("elapsed", elapsed(task, m.now())))
-	out.WriteString(field("source", sourceDetail(task.Source)))
-
-	out.WriteString("\n" + headingStyle.Render("review") + "\n")
-	out.WriteString(field("decision", reviewDecision(task)))
 	out.WriteString(field("checks", m.checksField(task)))
+	out.WriteString(field("resources", m.resourceDetail(task)))
+
+	// What the review found, under the fields and without a heading. The heading
+	// stood over a decision field and a handful of sentences, and the decision
+	// went with the two keys it named (ADR-086): what is left to say about a task
+	// in a review state is on the workflow field, as the exits it has.
+	out.WriteString("\n")
 	if summary := m.review.status.Review.Summary; summary != "" {
 		out.WriteString(field("the agent says", summary))
 	}
@@ -191,33 +207,28 @@ func (m Model) taskPanel() string {
 	out.WriteString("\n" + m.taskRepositories(task))
 
 	if checks := m.review.status.Review.Checks; len(checks) > 0 {
-		out.WriteString("\n" + headingStyle.Render("checks") + "\n")
-		out.WriteString(reviewChecks(checks))
+		out.WriteString("\n" + headingStyle.Render("checks"))
+		// Said once, over the results rather than on each of them. While a gate
+		// runs these are the run before it: kept, because the last thing known is
+		// worth reading, and dated, because it is not what is happening.
+		if verifying(task) {
+			out.WriteString(mutedStyle.Render("  from the run before this one"))
+		}
+		out.WriteString("\n" + reviewChecks(checks))
 	}
 
 	out.WriteString(publicationBlock(task))
 
-	if task.Session != nil {
-		out.WriteString("\n" + headingStyle.Render("terminal") + "\n")
-		// Named rather than run together. These are three different kinds of
-		// identifier and a reader who needs one — to run a tmux command against
-		// the task themselves — cannot tell them apart from their order.
-		out.WriteString(field("tmux", mutedStyle.Render("session ")+task.Session.Tmux.Session+
-			mutedStyle.Render("  window ")+task.Session.Tmux.Window+
-			mutedStyle.Render("  pane ")+task.Session.Tmux.Pane))
-		out.WriteString(field("socket", task.Session.Tmux.Socket))
-		if note := terminalNote(task); note != "" {
-			out.WriteString(mutedStyle.Render("  "+note) + "\n")
-		}
-	}
-
-	if task.Session != nil && task.Session.Execution != nil {
-		out.WriteString("\n" + headingStyle.Render("environment") + "\n")
-		out.WriteString(executionDetail(*task.Session.Execution))
-	}
-
-	out.WriteString("\n" + headingStyle.Render("brief") + "\n")
-	out.WriteString(indent(task.Brief, "  ") + "\n")
+	// The tmux target is not here. The socket is one value across every session
+	// this machine has ever run, being the runtime path by construction, and the
+	// other three are object ids chosen because they are stable identity rather
+	// than something a reader recognises. The one real use is running a tmux
+	// command by hand, which `a` and `feat attach` serve — and in the one
+	// situation where going around Feat makes sense, the daemon being down, this
+	// panel is not on screen while `task.json` still holds them (ADR-086).
+	//
+	// Nor is the brief. It is a document and it is unbounded, so it was what made
+	// this panel scroll before the fields had been read; it has a tab of its own.
 
 	return out.String()
 }
@@ -280,12 +291,23 @@ func failureBlock(task api.Task) string {
 // the results with the reporter of each, which is the richer answer and the one
 // that can say Feat ran them. Showing both was what made two thin tabs look like
 // two different facts.
+//
+// A task whose checks are running has neither answer yet. A gate records nothing
+// until it finishes, so what is stored while it runs is the run before it, and
+// reporting that here would tell a user who has just started a run that it had
+// already failed.
 func (m Model) checksField(task api.Task) string {
+	if verifying(task) {
+		return "running  " + mutedStyle.Render("(Feat is running the project's configured checks)")
+	}
 	if m.review.loaded && len(m.review.status.Review.Checks) > 0 {
 		return reviewChecksSummary(m.review.status.Review)
 	}
 	return verificationDetail(task)
 }
+
+// verifying reports whether this task's configured checks are running now.
+func verifying(task api.Task) bool { return task.Workflow == "verifying" }
 
 // taskRepositories renders one block per repository the task binds.
 //
@@ -390,8 +412,6 @@ func taskPanelHints() string {
 		keyHint("j k", "repository"),
 		keyHint("d", "diff"),
 		keyHint("e", "editor"),
-		keyHint("A", "approve"),
-		keyHint("C", "request changes"),
 		keyHint("V", "run checks"),
 		keyHint("P", "publish"),
 		keyHint("pgup/pgdn", "scroll"),

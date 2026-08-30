@@ -155,7 +155,8 @@ Included:
 - configurable diff shortcut;
 - configurable `$EDITOR`/Neovim shortcut;
 - configurable status shortcut;
-- approve, leave pending, or attach for revision.
+- running the project's configured checks on demand;
+- attaching for revision, and publishing, which are the two exits a review has (ADR-086).
 
 ### Persistence and recovery
 

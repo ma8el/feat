@@ -356,26 +356,43 @@ func TestTheOverlaysOpenFromEveryView(t *testing.T) {
 
 // TestAViewKeepsTheKeysItClaims is the other half of falling through.
 //
-// The dashboard's meaning applies only where the view has none of its own: `C`
-// sends work back on the task panel and cleans a task up everywhere else, and `r`
+// The dashboard's meaning applies only where the view has none of its own: `r`
 // compares, refreshes, or looks again depending on where it is pressed. A
 // fall-through that took precedence would have replaced all three.
 func TestAViewKeepsTheKeysItClaims(t *testing.T) {
 	backend := newFakeBackend()
-	panel := press(t, sized(reviewScreen(t, backend), 120, 32), "C")
+	panel := press(t, sized(reviewScreen(t, backend), 120, 32), "r")
 
-	if panel.screen == screenCleanup {
-		t.Error("C on the task panel opened cleanup, want the review decision")
-	}
 	if len(backend.reviewCalls) == 0 || !strings.HasPrefix(
-		backend.reviewCalls[len(backend.reviewCalls)-1], string(api.ReviewRequestChanges)) {
-		t.Errorf("C on the task panel asked for %v, want a request for changes", backend.reviewCalls)
+		backend.reviewCalls[len(backend.reviewCalls)-1], string(api.ReviewObserve)) {
+		t.Errorf("r on the task panel asked for %v, want a fresh comparison", backend.reviewCalls)
 	}
+	if panel.screen != screenTask {
+		t.Errorf("r on the task panel left the screen at %v", panel.screen)
+	}
+}
 
-	// Runtime claims neither, so both land on the dashboard's meaning.
-	runtime := press(t, sized(dashboard(newFakeBackend(), liveTask()), 120, 32), "R")
-	if cleanup := press(t, runtime, "C"); cleanup.screen != screenCleanup {
-		t.Errorf("C on the runtime view left the screen at %v, want cleanup", cleanup.screen)
+// TestCleanupIsTheOnlyMeaningOfC records the end of an overload.
+//
+// `C` sent work back on the task panel and cleaned a task up everywhere else,
+// which is one key with two meanings and one of them destructive. Requesting
+// changes was never used in fifty-one tasks and is gone, so the key means one
+// thing wherever it is pressed (ADR-086).
+func TestCleanupIsTheOnlyMeaningOfC(t *testing.T) {
+	backend := newFakeBackend()
+
+	for what, model := range map[string]Model{
+		"the task panel":   sized(reviewScreen(t, backend), 120, 32),
+		"the runtime view": press(t, sized(dashboard(newFakeBackend(), liveTask()), 120, 32), "R"),
+	} {
+		if cleanup := press(t, model, "C"); cleanup.screen != screenCleanup {
+			t.Errorf("C on %s left the screen at %v, want cleanup", what, cleanup.screen)
+		}
+	}
+	for _, call := range backend.reviewCalls {
+		if strings.HasPrefix(call, "changes") {
+			t.Errorf("C still asked the daemon for a decision: %v", backend.reviewCalls)
+		}
 	}
 }
 
@@ -556,12 +573,21 @@ func TestADialogTallerThanTheTerminalSaysWhatItDropped(t *testing.T) {
 func TestTabCyclesPastAViewWithItsOwnKeyboard(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
 
-	want := []tab{tabTask, tabRuntime, tabTerminal}
 	at := model
-	for i, expected := range want {
+	for i, expected := range []tab{tabTask, tabBrief, tabRuntime, tabTerminal} {
 		at = press(t, at, "tab")
 		if at.activeTab() != expected {
 			t.Fatalf("tab %d landed on %v, want %v", i+1, at.activeTab(), expected)
+		}
+	}
+
+	// And backwards, which is the same rule and a different key: a tab that
+	// swallowed the one would swallow the other.
+	back := model
+	for i, expected := range []tab{tabRuntime, tabBrief, tabTask, tabTerminal} {
+		back = press(t, back, "shift+tab")
+		if back.activeTab() != expected {
+			t.Fatalf("shift+tab %d landed on %v, want %v", i+1, back.activeTab(), expected)
 		}
 	}
 }
@@ -732,7 +758,7 @@ func TestTheTabCycleClosesForADraftToo(t *testing.T) {
 
 	model := sized(dashboard(newFakeBackend(), draft), 120, 32)
 	at := model
-	for i, expected := range []tab{tabTask, tabRuntime, tabTerminal} {
+	for i, expected := range []tab{tabTask, tabBrief, tabRuntime, tabTerminal} {
 		at = press(t, at, "tab")
 		if at.activeTab() != expected {
 			t.Fatalf("tab %d on a draft landed on %v, want %v", i+1, at.activeTab(), expected)
@@ -743,9 +769,9 @@ func TestTheTabCycleClosesForADraftToo(t *testing.T) {
 	// it: a draft owns no worktree and no services.
 	for _, want := range []string{"draft has nothing to compare", "still a draft"} {
 		view := sized(dashboard(newFakeBackend(), draft), 120, 32)
-		panel := press(t, press(t, view, "tab"), "tab").View()
-		if !strings.Contains(press(t, view, "tab").View(), want) &&
-			!strings.Contains(panel, want) {
+		task := press(t, view, "tab").View()
+		runtime := press(t, press(t, press(t, view, "tab"), "tab"), "tab").View()
+		if !strings.Contains(task, want) && !strings.Contains(runtime, want) {
 			t.Errorf("no view said %q for a draft", want)
 		}
 	}

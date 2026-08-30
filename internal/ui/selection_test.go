@@ -392,9 +392,10 @@ func TestLeavingRuntimeOpensThePanelOnTheSelectedTask(t *testing.T) {
 	}
 
 	backend.reviewStatus = api.ReviewStatus{Task: second}
-	runtime := press(t, panel, "L")
+	// Two views along: the brief sits between the panel and the runtime.
+	runtime := press(t, press(t, panel, "L"), "L")
 	if runtime.screen != screenRuntime {
-		t.Fatalf("L from the panel reached %v, want runtime", runtime.screen)
+		t.Fatalf("L twice from the panel reached %v, want runtime", runtime.screen)
 	}
 	moved := press(t, runtime, "J")
 	if moved.selected != second.ID {
@@ -409,10 +410,10 @@ func TestLeavingRuntimeOpensThePanelOnTheSelectedTask(t *testing.T) {
 		t.Errorf("the panel is headed %s and reviewing %s", second.Key, back.review.task)
 	}
 
-	press(t, back, "A")
+	press(t, back, "V")
 	if got := backend.reviewCalls; len(got) == 0 ||
-		got[len(got)-1] != string(api.ReviewApprove)+" "+second.ID {
-		t.Errorf("A approved %v, want %s — the task the panel names", got, second.Key)
+		got[len(got)-1] != string(api.ReviewVerify)+" "+second.ID {
+		t.Errorf("V ran the checks of %v, want %s — the task the panel names", got, second.Key)
 	}
 }
 

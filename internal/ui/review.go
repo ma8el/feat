@@ -150,12 +150,6 @@ func (m Model) taskPanelKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "e":
 		return m.runReviewCommand(api.ReviewCommandKindEditor)
 
-	case "A":
-		return m.startReview(api.ReviewApprove)
-
-	case "C":
-		return m.startReview(api.ReviewRequestChanges)
-
 	case "V":
 		return m.startReview(api.ReviewVerify)
 
@@ -252,6 +246,42 @@ func findCommand(commands []api.ReviewCommand, kind, repository string) (api.Rev
 	return api.ReviewCommand{}, false
 }
 
+// reviewOutdatedBy reports whether an event means this panel is drawing a review
+// that has moved on.
+//
+// Every event is answered by re-reading the task list, and that is not the whole
+// answer while this panel is open: the list carries the workflow and the check
+// counts, and the check results come from an observation, which is made when the
+// panel opens and when a key asks for one. A completion gate is background work
+// that finishes minutes after the key that started it (daemon startGate), so
+// without this the panel that asked for the run is the one that never sees it —
+// it goes on showing the previous run's failures under a workflow that has moved
+// past them.
+//
+// It is deliberately narrow. An observation walks every repository with Git,
+// seconds on a task holding three of them, and an agent's hooks produce events
+// several times a turn. Only a change to what this panel draws, about the task
+// it is drawing, earns one. Observing records nothing itself, so there is no
+// event for this to answer with a second observation.
+func (m Model) reviewOutdatedBy(event api.Event) bool {
+	if m.screen != screenTask || m.review.task == "" || m.review.observing {
+		return false
+	}
+	changed := event.TaskEvent
+	if changed == nil || changed.TaskID != m.review.task {
+		return false
+	}
+	// Spelled as the wire spells them, which is how this package reads every
+	// other state the API carries as a string. A workflow change is what a gate
+	// starting and landing looks like; a review change is what it recorded.
+	switch changed.Type {
+	case "task_workflow_changed", "review_state_changed":
+		return true
+	default:
+		return false
+	}
+}
+
 // applyReview records what an action reported.
 //
 // A response for a task the panel is no longer about is dropped rather than
@@ -263,7 +293,15 @@ func (m Model) applyReview(message reviewMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.review.pending, m.review.observing = "", false
+	// Only the request this answers. An observation and a check run can be
+	// outstanding at once — a gate landing while the user waits for one is
+	// exactly that — and clearing both would stop the indicator while the other
+	// was still in flight.
+	if message.action == api.ReviewObserve {
+		m.review.observing = false
+	} else {
+		m.review.pending = ""
+	}
 	if message.err != nil {
 		m.review.err = message.err
 		return m, nil
@@ -318,35 +356,26 @@ func reviewChangeSummary(row api.ReviewRepository) string {
 	return summary
 }
 
-// reviewDecision renders the user's decision, which is the task's workflow
-// state and is read from there.
+// reviewExits names what a task in a review state can do next.
 //
-// The keys are offered only where the transition exists. The decision used to be
-// read from the review aggregate's own copy of it, which knew nothing about the
-// task: a working task was offered "A to approve" and the daemon refused it,
-// because approving applies to a task whose agent has asked for review
-// (domain.workflowTransitions, ADR-047).
+// It replaces the decision field, which offered two keys nobody pressed: approve
+// was used once in fifty-one tasks and requesting changes never, while the two
+// transitions carrying the real loop — back to working by attaching and typing,
+// and out through cleanup — had no key on this panel at all (ADR-086). So the
+// line says what the exits are rather than recording a decision that travelled
+// nowhere.
 //
-// Requesting changes is the one decision that is not finished when it is
-// recorded. Feat tells the agent nothing about it: the revision reaches the
-// session when the user types it, and submitting that prompt is what returns the
-// task to working (FR-AGENT-009). So the line says what is left to do, rather
-// than marking a task with a decision that has not yet travelled anywhere.
-func reviewDecision(task api.Task) string {
+// A task whose agent has not asked for review has no exits to name and gets no
+// line, which is the panel's rule throughout: a check with nothing to report
+// reports nothing. Nor does a task whose checks are running: the old decision
+// field named no key in that state either, because what happens next is the
+// gate's rather than the user's.
+func reviewExits(task api.Task) string {
 	switch task.Workflow {
-	case "approved":
-		// Approval's own next step — the offer to stop services a task was
-		// approved with still running — is on the runtime line, where it appears
-		// only when there are services to stop.
-		return "approved"
-	case "changes_requested":
-		return "changes requested  " + mutedStyle.Render("(a to attach and say what to change)")
-	case "verifying":
-		return "pending  " + mutedStyle.Render("(the project's checks are running)")
 	case "review_requested", "ready_for_review", "verification_failed":
-		return "pending  " + mutedStyle.Render("(A to approve, C to send back)")
+		return "P to publish · a to attach and revise"
 	default:
-		return absent + "  " + mutedStyle.Render("(the agent has not asked for review)")
+		return ""
 	}
 }
 
@@ -423,11 +452,36 @@ func reviewChecks(checks []api.ReviewCheck) string {
 		}
 
 		out.WriteString("  " + name + "  " + status + mutedStyle.Render("  "+reporter) + "\n")
-		if detail := strings.TrimSpace(check.Detail); detail != "" {
+		if detail := checkDetail(check); detail != "" {
 			out.WriteString(indent(detail, "      ") + "\n")
 		}
 	}
 	return out.String()
+}
+
+// checkDetail is what one check's line has under it, or nothing.
+//
+// A check Feat ran and that passed says nothing more. Its detail is the whole
+// output of the user's own build command, which on this project is forty lines
+// of `ok  <package>  (cached)` and a `go build` invocation, printed under a line
+// that has already said "passed" — a screen a user scrolls past rather than
+// reads. It is still stored: the excerpt is what ADR-036 records, and hiding it
+// here is a rule about this panel rather than about the record.
+//
+// Every other detail earns its room. A failure's output is why it failed, which
+// is the whole reason the excerpt is kept at all. A skip carries the reason it
+// was skipped, and a check that did not report carries Feat's own account of
+// what happened to it — a bound that elapsed, a runner this build does not have
+// — and those are the only place the difference between "did not run" and "ran
+// and found nothing" is written down (ADR-028).
+//
+// The agent's own details are short by construction: a sentence it wrote about
+// its work, not a command's output, and the panel keeps them whatever the status.
+func checkDetail(check api.ReviewCheck) string {
+	if check.Status == "passed" && check.Reporter == "provider" {
+		return ""
+	}
+	return strings.TrimSpace(check.Detail)
 }
 
 // shortCommit renders a commit at the length a person reads.

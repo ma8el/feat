@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -80,49 +79,55 @@ func pluralTasks(count int) string {
 	return "tasks"
 }
 
-// executionDetail renders the isolated environment the agent runs in.
+// agentDetail is what runs this task, where, and in what.
 //
-// Three things are said rather than implied. The identity, because it is what a
-// user needs to inspect or clean up the container themselves. The user, because
-// a non-root agent is the boundary the security model describes and a claim
-// nobody can see is a claim nobody can check. And what the generated override
-// changed about the project's own service, because Feat editing somebody else's
-// Compose file quietly would be worse than not editing it at all (ADR-033).
-func executionDetail(environment api.Execution) string {
-	var out strings.Builder
-
-	out.WriteString(field("compose project", environment.Identity))
-	out.WriteString(field("service", environment.Service+"  "+
-		mutedStyle.Render("(running as "+environment.User+", with no Docker access)")))
-
-	state := "not observed"
-	switch {
-	case environment.Running && environment.Status != "":
-		state = environment.Status
-	case environment.Running:
-		state = "running"
-	case environment.Container != "":
-		state = "not running"
-	}
-	if environment.Container != "" {
-		state += "  " + mutedStyle.Render("("+environment.Container+")")
-	}
-	out.WriteString(field("container", state))
-
-	if environment.Health != "" && environment.Health != "unknown" {
-		out.WriteString(field("health", environment.Health))
-	}
-	out.WriteString(mutedStyle.Render(
-		"  Feat's generated override mounts this task's worktrees at their container paths and resets\n" +
-			"  container_name and published ports for this service, so tasks can run side by side\n"))
-	return out.String()
-}
-
+// It absorbed the environment section, which was five fields and two lines of
+// explanation that were identical on every task — documentation living in a
+// status panel (ADR-086). Three things survive that. What runs and where, which
+// names the provider although v0 has one, because it is a line that would
+// otherwise be edited twice. The compose project, which is the one identifier
+// here with a use the tmux ids lacked: a name a user types into a tool they
+// already have on the trusted host. And the container's state, appended only
+// when it is not simply running — reconciliation observes an agent container
+// that is not running, and the process word cannot express that. A container
+// that is running says nothing extra, which is the panel's rule throughout: a
+// check with nothing to report reports nothing.
+//
+// The compose project goes on a continuation line rather than into the value.
+// It is about fifty cells against a value column of thirty-nine at the minimum
+// width and sixty-three at 120, so inside the value it would break in a
+// different place at every terminal width; on a line of its own the field is the
+// same shape everywhere.
 func agentDetail(task api.Task) string {
 	if task.Session == nil {
 		return absent + "  " + mutedStyle.Render("(no terminal yet)")
 	}
-	return fmt.Sprintf("%s, %s in %s", task.Session.Process, task.Session.Provider, task.Session.ExecutionMode)
+
+	detail := task.Session.Process + " · " + task.Session.Provider + " " +
+		agentLocation(task.Session.ExecutionMode)
+	if environment := task.Session.Execution; environment != nil {
+		if environment.Container != "" && !environment.Running {
+			detail += " · " + attentionStyle.Render("container not running")
+		}
+		if environment.Identity != "" {
+			detail = continued(detail, environment.Identity)
+		}
+	}
+	if note := terminalNote(task); note != "" {
+		detail = continued(detail, mutedStyle.Render(note))
+	}
+	return detail
+}
+
+// agentLocation names where a session runs, in the preposition its mode takes.
+//
+// A devcontainer is something the agent runs inside; the host is not, and "in
+// host" read as the name of a container nobody had configured.
+func agentLocation(mode string) string {
+	if mode == "host" {
+		return "on the host"
+	}
+	return "in " + mode
 }
 
 // terminalNote explains a task terminal that is not what the project asked for.
@@ -150,24 +155,28 @@ func terminalNote(task api.Task) string {
 	return ""
 }
 
+// runtimeDetail is what this task's application services are doing.
+//
+// A task with none reads as the bare word rather than as the em dash: the dash
+// means "nothing measured" everywhere else on this screen, and no services
+// running is a different fact and a measured one. The sentence explaining that
+// v0 starts services only when asked was an apology on every task that had never
+// been asked, which is nearly all of them (ADR-086).
 func runtimeDetail(task api.Task) string {
 	if task.Runtime == nil {
-		return "absent  " + mutedStyle.Render("(v0 starts application services only when you ask)")
+		return "absent"
 	}
 	detail := task.Runtime.State + ", health " + task.Runtime.Health
 	if len(task.Runtime.Services) > 0 {
 		detail += "  " + strings.Join(task.Runtime.Services, ", ")
 	}
-	// An approved task whose services are still running is offered the stop and
-	// never given it, here as well as on the runtime screen: this is the line a
-	// user reads after approving, and a runtime Feat had stopped on their behalf
-	// would be one they did not decide to end (docs/02-user-workflows.md §7).
-	if offer := approvalOffer(task); offer != "" {
-		detail += "\n  " + attentionStyle.Render(offer)
-	}
 	return detail
 }
 
+// sourceDetail says where a task's brief came from.
+//
+// It lives beside the brief rather than on the task panel, being a fact about
+// that document rather than about the task's state (ADR-086).
 func sourceDetail(source api.Source) string {
 	if source.Reference != "" {
 		return source.Kind + " · " + source.Reference
@@ -185,6 +194,20 @@ func field(label, value string) string {
 		return "  " + fieldStyle.UnsetWidth().Render(label) + " " + value + "\n"
 	}
 	return "  " + fieldStyle.Render(label) + value + "\n"
+}
+
+// fieldValueColumn is the cell a field's value starts in: the panel's own margin
+// and the label column beside it.
+const fieldValueColumn = 2 + fieldWidth
+
+// continued puts a second line under a field's value, in the value's column.
+//
+// A value that will not sit beside its label is broken here rather than left to
+// the wrap. The wrap breaks wherever the width runs out, so the same field would
+// have a different shape in every terminal; a break made deliberately is in the
+// same place in all of them.
+func continued(value, line string) string {
+	return value + "\n" + strings.Repeat(" ", fieldValueColumn) + line
 }
 
 // indent prefixes every line of a block.

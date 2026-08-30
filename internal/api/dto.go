@@ -950,11 +950,6 @@ const (
 	// returns what review shows. It observes and records what it observed,
 	// which is why it is a POST.
 	ReviewObserve ReviewAction = "observe"
-	// ReviewApprove records the user's approval. It never stops or destroys a
-	// runtime; the offer to stop one is made in words (FR-REV-004, ADR-034).
-	ReviewApprove ReviewAction = "approve"
-	// ReviewRequestChanges sends the work back for revision.
-	ReviewRequestChanges ReviewAction = "changes"
 	// ReviewVerify runs the project's configured checks now. It is how a gate
 	// interrupted by a restart is run again, and recovery in Feat is an action a
 	// user takes rather than something that happens on its own.
@@ -963,13 +958,15 @@ const (
 
 // Valid reports whether the action is one Feat performs.
 //
-// There is deliberately no action for leaving a review pending. A review nobody
-// has decided is already pending, so the action was a way of un-deciding, and it
-// moved the review's own copy of the decision without moving the task's — which
-// is how a task came to read approved and pending at once (ADR-047).
+// There is deliberately no action that records a decision. Approving and
+// requesting changes were reached once and never in fifty-one tasks; nothing
+// read the state either produced, and requesting changes told the agent nothing
+// — it recorded a label and then told the user to attach and do the real thing
+// (ADR-086). What is left observes and verifies, and both of those measure
+// something.
 func (a ReviewAction) Valid() bool {
 	switch a {
-	case ReviewObserve, ReviewApprove, ReviewRequestChanges, ReviewVerify:
+	case ReviewObserve, ReviewVerify:
 		return true
 	default:
 		return false

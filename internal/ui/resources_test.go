@@ -190,25 +190,59 @@ func TestTheTaskPanelShowsItsOwnTotals(t *testing.T) {
 	}
 }
 
-// TestTheTaskDetailSeparatesContainerFromProcessMemory checks that the two
-// halves are named rather than only summed.
+// TestTheTaskPanelSaysWhichFigureIsWhich takes the rail's vocabulary without its
+// bars (ADR-086).
 //
-// They are not measured against the same thing: a container's memory is what the
-// container runtime reported, and on macOS that is memory inside its own virtual
-// machine rather than a share of the machine in the card above. Saying only the
-// sum would invite exactly that comparison.
-func TestTheTaskDetailSeparatesContainerFromProcessMemory(t *testing.T) {
+// "2% 448 MiB" left the reader to infer each meaning from its unit, which is the
+// machine block's defect before ADR-044 one level down. No bar goes with the
+// words: the rail's bars are shares of this host and these figures are not, and
+// one drawn against the host's total would invite the comparison ADR-035
+// refuses.
+func TestTheTaskPanelSaysWhichFigureIsWhich(t *testing.T) {
 	model := withResources(dashboard(newFakeBackend(), liveTask()), sampled(), nil)
 	model.selected = liveTask().ID
 	model.screen = screenTask
 
-	view := content(model)
-	for _, want := range []string{
-		"1 container", "7 host processes", "container runtime", "feat-agent-example-7f3a1c2e-dev", "agent",
+	panel := ansi.Strip(model.taskPanel())
+	if !strings.Contains(panel, "cpu 144%   memory 2.5 GiB") {
+		t.Errorf("the panel's two figures are not labelled:\n%s", panel)
+	}
+	if strings.ContainsAny(panel, barFull+barEmpty) {
+		t.Errorf("a per-task figure was drawn as a share of this host:\n%s", panel)
+	}
+
+	// The breakdown and the per-container rows are the same total in two further
+	// forms, and the container's name is the compose project with a suffix.
+	for what, gone := range map[string]string{
+		"the breakdown's container half": "container runtime",
+		"the breakdown's process half":   "7 host processes",
+		"a per-container row":            "feat-agent-example-7f3a1c2e-dev",
 	} {
-		if !strings.Contains(view, want) {
-			t.Errorf("the task detail does not show %q:\n%s", want, view)
+		if strings.Contains(panel, gone) {
+			t.Errorf("the panel still repeats the total as %s:\n%s", what, panel)
 		}
+	}
+}
+
+// TestAFigureNothingMeasuredIsShownAbsentBesideOneThatWas keeps FR-UI-005's
+// honesty rule inside a labelled line.
+//
+// The two figures come from different collectors, and one of them failing is not
+// the other one being zero.
+func TestAFigureNothingMeasuredIsShownAbsentBesideOneThatWas(t *testing.T) {
+	report := sampled()
+	report.Tasks[0].MemoryBytes = nil
+
+	model := withResources(dashboard(newFakeBackend(), liveTask()), report, nil)
+	model.selected = liveTask().ID
+	model.screen = screenTask
+
+	panel := ansi.Strip(model.taskPanel())
+	if !strings.Contains(panel, "cpu 144%   memory "+absent) {
+		t.Errorf("an unmeasured figure is not shown absent beside the one that was measured:\n%s", panel)
+	}
+	if strings.Contains(panel, "0 B") {
+		t.Errorf("an unmeasured figure was rendered as a size:\n%s", panel)
 	}
 }
 

@@ -914,7 +914,6 @@ func TestNoEndOfTurnPathReachesAReviewState(t *testing.T) {
 		domain.WorkflowReviewRequested: true,
 		domain.WorkflowVerifying:       true,
 		domain.WorkflowReadyForReview:  true,
-		domain.WorkflowApproved:        true,
 	}
 
 	for kind, change := range effects {
@@ -929,7 +928,7 @@ func TestNoEndOfTurnPathReachesAReviewState(t *testing.T) {
 		for _, from := range []domain.WorkflowState{
 			domain.WorkflowPreparing, domain.WorkflowWorking, domain.WorkflowReviewRequested,
 			domain.WorkflowReadyForReview, domain.WorkflowVerificationFailed,
-			domain.WorkflowChangesRequested, domain.WorkflowFailed,
+			domain.WorkflowFailed,
 		} {
 			if next := change.workflow(from); semantic[next] {
 				t.Errorf("event %q takes a %s task to %s; semantic completion requires an explicit "+

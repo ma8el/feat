@@ -217,16 +217,27 @@ func (m Model) taskResources(id string) (api.TaskResources, bool) {
 	return api.TaskResources{}, false
 }
 
-// resourceCell renders one task's totals for the task list.
+// resourceDetail renders one task's totals, in the rail's vocabulary and not its
+// bars (FR-UI-005, ADR-086).
 //
-// A task nothing measured shows nothing. That is not the same as a task using
-// nothing, and a draft — which owns no container and no process — is the
-// commonest example: it has not been measured because there is nothing there to
-// measure.
-func (m Model) resourceCell(task api.Task) string {
+// Two figures, each said rather than inferred from its unit. No bar: the rail's
+// bars are shares of this host and these are not — a container's memory is what
+// the container runtime reported, inside its own virtual machine on macOS, and a
+// bar against the host's total would invite exactly the comparison ADR-035
+// refuses. The breakdown and the per-container rows that sat under this were the
+// same total in two further forms, and the container's name was the compose
+// project again with a suffix on it.
+//
+// A task nothing measured shows nothing rather than zero. Those are different
+// answers, and a draft — which owns no container and no process — is the
+// commonest case: it has not been measured because there is nothing to measure.
+func (m Model) resourceDetail(task api.Task) string {
+	if m.resourceErr != nil {
+		return absent + "  " + mutedStyle.Render("("+m.resourceErr.Error()+")")
+	}
 	usage, found := m.taskResources(task.ID)
-	if !found {
-		return absent
+	if !found || (usage.CPUPercent == nil && usage.MemoryBytes == nil) {
+		return absent + "  " + mutedStyle.Render("(nothing of this task's has been measured)")
 	}
 
 	cpu := absent
@@ -237,51 +248,7 @@ func (m Model) resourceCell(task api.Task) string {
 	if usage.MemoryBytes != nil {
 		memory = humanBytes(*usage.MemoryBytes)
 	}
-	if cpu == absent && memory == absent {
-		return absent
-	}
-	return cpu + " " + memory
-}
-
-// resourceDetail renders one task's usage with room to explain it.
-//
-// The two halves are named because they are not measured against the same thing.
-// A container's memory is what the container runtime reported, and on macOS that
-// is memory inside its own virtual machine rather than a share of the memory in
-// the card above; the process half is host memory. Adding them says what this
-// task is using, and saying only the sum would invite the wrong comparison
-// (ADR-035).
-func (m Model) resourceDetail(task api.Task) string {
-	if m.resourceErr != nil {
-		return absent + "  " + mutedStyle.Render("("+m.resourceErr.Error()+")")
-	}
-	usage, found := m.taskResources(task.ID)
-	if !found || (usage.CPUPercent == nil && usage.MemoryBytes == nil) {
-		return absent + "  " + mutedStyle.Render("(nothing of this task's has been measured)")
-	}
-
-	var out strings.Builder
-	out.WriteString(m.resourceCell(task))
-
-	var halves []string
-	if len(usage.Containers) > 0 {
-		halves = append(halves, humanBytes(usage.ContainerBytes)+" in "+
-			count(len(usage.Containers), "container", "containers")+
-			" (as the container runtime reports it)")
-	}
-	if usage.Processes > 0 {
-		halves = append(halves, humanBytes(usage.ProcessBytes)+" in "+
-			count(usage.Processes, "host process", "host processes"))
-	}
-	if len(halves) > 0 {
-		out.WriteString("\n  " + mutedStyle.Render(strings.Join(halves, ", ")))
-	}
-
-	for _, container := range usage.Containers {
-		out.WriteString("\n  " + mutedStyle.Render(container.Kind+"  ") + container.Name +
-			mutedStyle.Render(fmt.Sprintf("  %.0f%% %s", container.CPUPercent, humanBytes(container.MemoryBytes))))
-	}
-	return out.String()
+	return mutedStyle.Render("cpu ") + cpu + mutedStyle.Render("   memory ") + memory
 }
 
 // count renders "1 container" and "3 containers".
