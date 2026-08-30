@@ -169,9 +169,10 @@ func TestTheTaskPanelSaysWhatItIsWaitingOn(t *testing.T) {
 
 	view := model.taskPanel()
 	for _, want := range []string{
-		// FR-UI-003's required content, less the tmux target: the terminal tab
-		// shows that session rather than naming its ids (ADR-086).
-		"Export the daily report", "core", "origin/main", "1a2b3c4d5e6f",
+		// FR-UI-003's required content, less the tmux target and the brief: the
+		// terminal tab shows that session rather than naming its ids, and the
+		// brief has a tab of its own (ADR-086).
+		"core", "origin/main", "1a2b3c4d5e6f",
 		"feat/7f3a1c2e-add-a-scheduled-export-job",
 		// And the field that has nothing in it yet: this task's agent has
 		// reported no checks, so the panel says what would produce some rather

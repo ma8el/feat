@@ -31,34 +31,43 @@ func (m Model) taskView() string {
 
 // taskBody renders the task panel into a region, scrolled to where the user is.
 //
-// The panel is taller than the region on any terminal worth supporting once a
-// task has two repositories and a brief, so what does not fit is scrolled to
-// rather than lost. The last line says what is above and below: a panel clipped
-// in silence reads as a panel that is short, and FR-UI-003 requires the brief to
-// be reachable.
+// The panel is shorter than the region for a one-repository task since the brief
+// moved to a tab of its own (ADR-086), and a task with several repositories or a
+// long check detail still outgrows it. What does not fit is scrolled to rather
+// than lost, and the last line says what is above and below: a panel clipped in
+// silence reads as a panel that is short.
 //
-// It is wrapped to the region before it is measured, and it is the one body that
-// is. Everything else the dashboard draws is a line whose width it controls, and
-// a rendered pane must never be re-flowed; this is prose — a brief, a note, a
+// It is wrapped to the region before it is measured. Everything else the
+// dashboard draws is a line whose width it controls, and a rendered pane must
+// never be re-flowed; this is prose — a note, a captured command's output, a
 // sentence explaining what a field could not be filled with — and prose cut at
 // the region's edge loses the half of the sentence that says what to do about it.
 // Wrapping before the split is also what keeps the scroll honest: the lines
 // counted are the lines drawn.
 func (m Model) taskBody(width, height int) string {
-	panel := m.wrappedPanel(width)
+	return scrollWindow(m.wrappedPanel(width), m.review.scroll, width, height)
+}
+
+// scrollWindow is the part of a rendered body that fits the region, under a line
+// saying how much of it is above and below.
+//
+// Shared by the two bodies that scroll. Each keeps its own offset — a brief and
+// a task panel sharing one would each move the other's position — and the note
+// they draw is the same, because it says the same thing about the same shape.
+func scrollWindow(body string, offset, width, height int) string {
 	if height <= 0 {
-		return panel
+		return body
 	}
 
-	lines := strings.Split(panel, "\n")
+	lines := strings.Split(body, "\n")
 	if len(lines) <= height {
-		return panel
+		return body
 	}
 
 	// One line of the region belongs to the note, so the window is that much
 	// shorter than the space.
 	visible := height - 1
-	offset := clampScroll(m.review.scroll, len(lines), height)
+	offset = clampScroll(offset, len(lines), height)
 	window := lines[offset : offset+visible]
 
 	var parts []string
@@ -206,9 +215,9 @@ func (m Model) taskPanel() string {
 	// command by hand, which `a` and `feat attach` serve — and in the one
 	// situation where going around Feat makes sense, the daemon being down, this
 	// panel is not on screen while `task.json` still holds them (ADR-086).
-
-	out.WriteString("\n" + headingStyle.Render("brief") + "\n")
-	out.WriteString(indent(task.Brief, "  ") + "\n")
+	//
+	// Nor is the brief. It is a document and it is unbounded, so it was what made
+	// this panel scroll before the fields had been read; it has a tab of its own.
 
 	return out.String()
 }

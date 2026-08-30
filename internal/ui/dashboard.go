@@ -180,6 +180,17 @@ func runtimeDetail(task api.Task) string {
 	return detail
 }
 
+// sourceDetail says where a task's brief came from.
+//
+// It lives beside the brief rather than on the task panel, being a fact about
+// that document rather than about the task's state (ADR-086).
+func sourceDetail(source api.Source) string {
+	if source.Reference != "" {
+		return source.Kind + " · " + source.Reference
+	}
+	return source.Kind
+}
+
 // field renders one label and value of the task panel.
 //
 // A label as wide as the column keeps a single space instead of the padding. A

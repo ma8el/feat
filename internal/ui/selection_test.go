@@ -392,9 +392,10 @@ func TestLeavingRuntimeOpensThePanelOnTheSelectedTask(t *testing.T) {
 	}
 
 	backend.reviewStatus = api.ReviewStatus{Task: second}
-	runtime := press(t, panel, "L")
+	// Two views along: the brief sits between the panel and the runtime.
+	runtime := press(t, press(t, panel, "L"), "L")
 	if runtime.screen != screenRuntime {
-		t.Fatalf("L from the panel reached %v, want runtime", runtime.screen)
+		t.Fatalf("L twice from the panel reached %v, want runtime", runtime.screen)
 	}
 	moved := press(t, runtime, "J")
 	if moved.selected != second.ID {

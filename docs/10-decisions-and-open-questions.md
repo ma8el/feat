@@ -2470,7 +2470,8 @@ Evidence:
 Decisions:
 
 - The tab set is terminal, task, and runtime. Every tab is about the selected
-  task; the overview was the one that was not.
+  task; the overview was the one that was not. **Amended: the brief takes a
+  fourth tab, see ADR-086.**
 - Reconciliation findings that name a listed task appear on that task's panel,
   above the fields they contradict. A workflow of working beside a worktree that
   is not on disk is the contradiction the pass exists to surface, and the panel

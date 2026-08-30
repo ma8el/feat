@@ -556,12 +556,21 @@ func TestADialogTallerThanTheTerminalSaysWhatItDropped(t *testing.T) {
 func TestTabCyclesPastAViewWithItsOwnKeyboard(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
 
-	want := []tab{tabTask, tabRuntime, tabTerminal}
 	at := model
-	for i, expected := range want {
+	for i, expected := range []tab{tabTask, tabBrief, tabRuntime, tabTerminal} {
 		at = press(t, at, "tab")
 		if at.activeTab() != expected {
 			t.Fatalf("tab %d landed on %v, want %v", i+1, at.activeTab(), expected)
+		}
+	}
+
+	// And backwards, which is the same rule and a different key: a tab that
+	// swallowed the one would swallow the other.
+	back := model
+	for i, expected := range []tab{tabRuntime, tabBrief, tabTask, tabTerminal} {
+		back = press(t, back, "shift+tab")
+		if back.activeTab() != expected {
+			t.Fatalf("shift+tab %d landed on %v, want %v", i+1, back.activeTab(), expected)
 		}
 	}
 }
@@ -732,7 +741,7 @@ func TestTheTabCycleClosesForADraftToo(t *testing.T) {
 
 	model := sized(dashboard(newFakeBackend(), draft), 120, 32)
 	at := model
-	for i, expected := range []tab{tabTask, tabRuntime, tabTerminal} {
+	for i, expected := range []tab{tabTask, tabBrief, tabRuntime, tabTerminal} {
 		at = press(t, at, "tab")
 		if at.activeTab() != expected {
 			t.Fatalf("tab %d on a draft landed on %v, want %v", i+1, at.activeTab(), expected)
@@ -743,9 +752,9 @@ func TestTheTabCycleClosesForADraftToo(t *testing.T) {
 	// it: a draft owns no worktree and no services.
 	for _, want := range []string{"draft has nothing to compare", "still a draft"} {
 		view := sized(dashboard(newFakeBackend(), draft), 120, 32)
-		panel := press(t, press(t, view, "tab"), "tab").View()
-		if !strings.Contains(press(t, view, "tab").View(), want) &&
-			!strings.Contains(panel, want) {
+		task := press(t, view, "tab").View()
+		runtime := press(t, press(t, press(t, view, "tab"), "tab"), "tab").View()
+		if !strings.Contains(task, want) && !strings.Contains(runtime, want) {
 			t.Errorf("no view said %q for a draft", want)
 		}
 	}

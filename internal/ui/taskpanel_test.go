@@ -22,10 +22,9 @@ func TestTheTaskPanelCarriesBothHalvesOnce(t *testing.T) {
 
 	for requirement, want := range map[string]string{
 		// FR-UI-003, which ADR-086 made a requirement about the tabs rather than
-		// about this panel: the brief, the repository/base mapping, the runtime,
-		// and the checks are here, and the tmux target is shown by the terminal
-		// tab rather than named on this one.
-		"the brief":           "Export the daily report",
+		// about this panel: the repository/base mapping, the runtime, and the
+		// checks are here; the tmux target is shown by the terminal tab rather
+		// than named on this one, and the brief has a tab of its own.
 		"the base commit":     "1a2b3c4d5e6f",
 		"the branch":          "feat/7f3a1c2e-add-a-scheduled-export-job",
 		"the runtime":         "absent",
@@ -361,37 +360,57 @@ func TestADraftPanelHasNoContinuationLines(t *testing.T) {
 	}
 }
 
-// TestTheTaskPanelScrollsRatherThanHidingTheBrief keeps what does not fit
+// TestTheTaskPanelScrollsRatherThanHidingWhatIsBelow keeps what does not fit
 // reachable.
 //
-// The panel is taller than the region on any terminal worth supporting once a
-// task has two repositories and a brief. FR-UI-003 requires the brief, and a
-// region that clipped it in silence would read as a task that has none.
-func TestTheTaskPanelScrollsRatherThanHidingTheBrief(t *testing.T) {
+// The panel is shorter than the region for a one-repository task since the brief
+// took a tab of its own, and a task with two repositories and a captured check
+// detail still outgrows it. A region that clipped that in silence would read as a
+// task with nothing under the fields.
+func TestTheTaskPanelScrollsRatherThanHidingWhatIsBelow(t *testing.T) {
 	model := sized(reviewScreen(t, newFakeBackend()), 120, 32)
 
 	width, height := model.mainRegionSize()
 	top := model.taskBody(width, height)
-	if strings.Contains(top, "Export the daily report") {
-		t.Skip("the panel fits this region, so there is nothing to scroll to")
-	}
 	if !strings.Contains(top, "pgup/pgdn") {
 		t.Fatalf("a clipped panel does not say it was clipped:\n%s", top)
 	}
 
-	// Down until the brief is reached, which must happen within the panel's
-	// length rather than never.
+	// Down until the last of the checks is reached, which must happen within the
+	// panel's length rather than never.
 	at := model
 	for range 20 {
 		at = press(t, at, "pgdown")
-		if strings.Contains(at.taskBody(width, height), "Export the daily report") {
+		if strings.Contains(at.taskBody(width, height), "the agent reported this") {
 			if back := press(t, at, "pgup"); back.review.scroll >= at.review.scroll {
 				t.Errorf("pgup did not move back: %d then %d", at.review.scroll, back.review.scroll)
 			}
 			return
 		}
 	}
-	t.Errorf("the brief was never reached by scrolling:\n%s", at.taskBody(width, height))
+	t.Errorf("the foot of the panel was never reached by scrolling:\n%s", at.taskBody(width, height))
+}
+
+// TestTheTaskPanelDoesNotScrollForAOneRepositoryTask is what moving the brief
+// bought.
+//
+// The brief is unbounded and the fields are not, so the panel was a scroller
+// before the document that made it scroll had been reached. The common case now
+// fits, which is ADR-041's fourth piece of evidence restored: a field is where it
+// was last time.
+func TestTheTaskPanelDoesNotScrollForAOneRepositoryTask(t *testing.T) {
+	task := liveTask()
+	task.Repositories = task.Repositories[:1]
+	task.Brief = strings.Repeat("A brief long enough to have filled the region on its own.\n", 40)
+
+	model := sized(dashboard(newFakeBackend(), task), 120, 32)
+	model.selected = task.ID
+	model.screen = screenTask
+
+	width, height := model.mainRegionSize()
+	if body := model.taskBody(width, height); strings.Contains(body, "pgup/pgdn") {
+		t.Errorf("the panel for a one-repository task still scrolls:\n%s", body)
+	}
 }
 
 // TestScrollingStopsAtTheEndOfThePanel keeps a held key from building up an
@@ -404,14 +423,19 @@ func TestScrollingStopsAtTheEndOfThePanel(t *testing.T) {
 		at = press(t, at, "pgdown")
 	}
 	settled := at.review.scroll
+	if settled == 0 {
+		t.Fatalf("this panel does not scroll at all, so there is no end to stop at")
+	}
 
 	if again := press(t, at, "pgdown"); again.review.scroll != settled {
 		t.Errorf("scrolling past the end moved from %d to %d", settled, again.review.scroll)
 	}
-	// And one press back is one page back, rather than the many it would take to
+	// And one press back is one page back — or the top, on a panel with less
+	// than a page left to give — rather than the many presses it would take to
 	// unwind an unbounded offset.
-	if back := press(t, at, "pgup"); back.review.scroll != settled-panelPage {
-		t.Errorf("pgup from the end left the offset at %d, want %d", back.review.scroll, settled-panelPage)
+	want := max(settled-panelPage, 0)
+	if back := press(t, at, "pgup"); back.review.scroll != want {
+		t.Errorf("pgup from the end left the offset at %d, want %d", back.review.scroll, want)
 	}
 }
 
