@@ -207,8 +207,14 @@ func (m Model) taskPanel() string {
 	out.WriteString("\n" + m.taskRepositories(task))
 
 	if checks := m.review.status.Review.Checks; len(checks) > 0 {
-		out.WriteString("\n" + headingStyle.Render("checks") + "\n")
-		out.WriteString(reviewChecks(checks))
+		out.WriteString("\n" + headingStyle.Render("checks"))
+		// Said once, over the results rather than on each of them. While a gate
+		// runs these are the run before it: kept, because the last thing known is
+		// worth reading, and dated, because it is not what is happening.
+		if verifying(task) {
+			out.WriteString(mutedStyle.Render("  from the run before this one"))
+		}
+		out.WriteString("\n" + reviewChecks(checks))
 	}
 
 	out.WriteString(publicationBlock(task))
@@ -285,12 +291,23 @@ func failureBlock(task api.Task) string {
 // the results with the reporter of each, which is the richer answer and the one
 // that can say Feat ran them. Showing both was what made two thin tabs look like
 // two different facts.
+//
+// A task whose checks are running has neither answer yet. A gate records nothing
+// until it finishes, so what is stored while it runs is the run before it, and
+// reporting that here would tell a user who has just started a run that it had
+// already failed.
 func (m Model) checksField(task api.Task) string {
+	if verifying(task) {
+		return "running  " + mutedStyle.Render("(Feat is running the project's configured checks)")
+	}
 	if m.review.loaded && len(m.review.status.Review.Checks) > 0 {
 		return reviewChecksSummary(m.review.status.Review)
 	}
 	return verificationDetail(task)
 }
+
+// verifying reports whether this task's configured checks are running now.
+func verifying(task api.Task) bool { return task.Workflow == "verifying" }
 
 // taskRepositories renders one block per repository the task binds.
 //

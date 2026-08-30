@@ -246,6 +246,42 @@ func findCommand(commands []api.ReviewCommand, kind, repository string) (api.Rev
 	return api.ReviewCommand{}, false
 }
 
+// reviewOutdatedBy reports whether an event means this panel is drawing a review
+// that has moved on.
+//
+// Every event is answered by re-reading the task list, and that is not the whole
+// answer while this panel is open: the list carries the workflow and the check
+// counts, and the check results come from an observation, which is made when the
+// panel opens and when a key asks for one. A completion gate is background work
+// that finishes minutes after the key that started it (daemon startGate), so
+// without this the panel that asked for the run is the one that never sees it —
+// it goes on showing the previous run's failures under a workflow that has moved
+// past them.
+//
+// It is deliberately narrow. An observation walks every repository with Git,
+// seconds on a task holding three of them, and an agent's hooks produce events
+// several times a turn. Only a change to what this panel draws, about the task
+// it is drawing, earns one. Observing records nothing itself, so there is no
+// event for this to answer with a second observation.
+func (m Model) reviewOutdatedBy(event api.Event) bool {
+	if m.screen != screenTask || m.review.task == "" || m.review.observing {
+		return false
+	}
+	changed := event.TaskEvent
+	if changed == nil || changed.TaskID != m.review.task {
+		return false
+	}
+	// Spelled as the wire spells them, which is how this package reads every
+	// other state the API carries as a string. A workflow change is what a gate
+	// starting and landing looks like; a review change is what it recorded.
+	switch changed.Type {
+	case "task_workflow_changed", "review_state_changed":
+		return true
+	default:
+		return false
+	}
+}
+
 // applyReview records what an action reported.
 //
 // A response for a task the panel is no longer about is dropped rather than
@@ -257,7 +293,15 @@ func (m Model) applyReview(message reviewMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.review.pending, m.review.observing = "", false
+	// Only the request this answers. An observation and a check run can be
+	// outstanding at once — a gate landing while the user waits for one is
+	// exactly that — and clearing both would stop the indicator while the other
+	// was still in flight.
+	if message.action == api.ReviewObserve {
+		m.review.observing = false
+	} else {
+		m.review.pending = ""
+	}
 	if message.err != nil {
 		m.review.err = message.err
 		return m, nil

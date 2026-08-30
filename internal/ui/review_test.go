@@ -341,3 +341,172 @@ func TestATaskReadyForReviewKeepsItsRunningServices(t *testing.T) {
 		t.Errorf("reading the panel acted on the runtime: %v", backend.runtimeCalls)
 	}
 }
+
+// taskEvent is one item of the daemon's stream, about one task.
+func taskEvent(id, kind string) api.Event {
+	return api.Event{
+		Kind:      api.KindTask,
+		TaskEvent: &api.TaskEvent{Sequence: 1, TaskID: id, Type: kind},
+	}
+}
+
+// TestAGateLandingRefreshesTheChecksOnTheOpenPanel is the defect found in use.
+//
+// A gate is background work: `V` records that the checks are running and returns,
+// and the results land minutes later. The dashboard answered every event by
+// re-reading the task list, which carries the workflow and the check counts but
+// not the results — so the panel that asked for the run went on showing the
+// previous run's failures under a workflow that had moved past them, until the
+// user left the tab and came back.
+func TestAGateLandingRefreshesTheChecksOnTheOpenPanel(t *testing.T) {
+	backend := newFakeBackend()
+	failed := reviewed()
+	failed.Task.Workflow = "verification_failed"
+	backend.reviewStatus = failed
+
+	model := press(t, dashboard(backend, failed.Task), "v")
+	if !strings.Contains(ansi.Strip(model.taskPanel()), "exited with status 1") {
+		t.Fatalf("the panel does not start from the failed run:\n%s", ansi.Strip(model.taskPanel()))
+	}
+
+	// What the daemon would answer once the gate it started has landed.
+	passed := reviewed()
+	passed.Task.Workflow = "ready_for_review"
+	passed.Review.Checks = []api.ReviewCheck{
+		{ID: "unit", RepositoryID: "core", Status: "passed", Reporter: "provider", Detail: "82 passed"},
+	}
+	backend.reviewStatus = passed
+
+	updated, cmd := model.Update(eventMsg{event: taskEvent(failed.Task.ID, "review_state_changed")})
+	model = applyCommand(t, updated.(Model), cmd)
+
+	panel := ansi.Strip(model.taskPanel())
+	if strings.Contains(panel, "exited with status 1") {
+		t.Errorf("the panel still shows the run that the gate replaced:\n%s", panel)
+	}
+	if !strings.Contains(panel, "82 passed") {
+		t.Errorf("the panel does not show what the gate found:\n%s", panel)
+	}
+}
+
+// TestOnlyAChangeToThisPanelsReviewCostsAnObservation keeps the refresh narrow.
+//
+// An observation walks every repository with Git, which is seconds on a task
+// holding three of them, and an agent's hooks produce events several times a
+// turn. Answering all of them would put a Git walk behind every keystroke the
+// agent makes.
+func TestOnlyAChangeToThisPanelsReviewCostsAnObservation(t *testing.T) {
+	for what, arrange := range map[string]struct {
+		event   api.Event
+		prepare func(Model) Model
+	}{
+		"an event about another task": {
+			event: taskEvent(otherTask().ID, "review_state_changed"),
+		},
+		"a state this panel does not draw": {
+			event: taskEvent(liveTask().ID, "agent_process_changed"),
+		},
+		"a stream item that is not a task event": {
+			event: api.Event{Kind: api.KindHello},
+		},
+		"an observation already in flight": {
+			event: taskEvent(liveTask().ID, "review_state_changed"),
+			prepare: func(m Model) Model {
+				m.review.observing = true
+				return m
+			},
+		},
+	} {
+		t.Run(what, func(t *testing.T) {
+			backend := newFakeBackend()
+			model := reviewScreen(t, backend)
+			if arrange.prepare != nil {
+				model = arrange.prepare(model)
+			}
+			before := len(backend.reviewCalls)
+
+			updated, cmd := model.Update(eventMsg{event: arrange.event})
+			applyCommand(t, updated.(Model), cmd)
+
+			if len(backend.reviewCalls) != before {
+				t.Errorf("%s asked for %v", what, backend.reviewCalls[before:])
+			}
+		})
+	}
+
+	// And the panel has to be the open one: an event about the selected task
+	// while the user is reading its terminal costs nothing either.
+	backend := newFakeBackend()
+	elsewhere := press(t, reviewScreen(t, backend), "esc")
+	if elsewhere.screen == screenTask {
+		t.Fatalf("esc left the task panel open")
+	}
+	before := len(backend.reviewCalls)
+
+	updated, cmd := elsewhere.Update(eventMsg{event: taskEvent(liveTask().ID, "review_state_changed")})
+	applyCommand(t, updated.(Model), cmd)
+
+	if len(backend.reviewCalls) != before {
+		t.Errorf("an event reached a panel nobody has open: %v", backend.reviewCalls[before:])
+	}
+}
+
+// TestChecksThatAreRunningAreNotReportedAsResults is the other half of the same
+// defect, in the window before anything has landed.
+//
+// A gate records nothing until it finishes, so what is stored while it runs is
+// the run before it. Reporting that as this task's checks tells a user who has
+// just pressed V that the run they started has already failed.
+func TestChecksThatAreRunningAreNotReportedAsResults(t *testing.T) {
+	backend := newFakeBackend()
+	running := reviewed()
+	running.Task.Workflow = "verifying"
+	backend.reviewStatus = running
+
+	model := press(t, dashboard(backend, running.Task), "v")
+
+	panel := ansi.Strip(model.taskPanel())
+	if !strings.Contains(panel, "checks        running") {
+		t.Errorf("a task whose checks are running does not say so:\n%s", panel)
+	}
+	if strings.Contains(panel, "1 failed") {
+		t.Errorf("the previous run's count is reported as this task's checks:\n%s", panel)
+	}
+	// The results themselves are kept and dated rather than hidden: the last
+	// thing known is worth reading, and it is not what is happening.
+	if !strings.Contains(panel, "from the run before this one") {
+		t.Errorf("the results shown are not dated:\n%s", panel)
+	}
+	if !strings.Contains(panel, "exited with status 1") {
+		t.Errorf("the previous run's results were dropped rather than dated:\n%s", panel)
+	}
+}
+
+// TestAnObservationLandingDoesNotEndAWaitForACheckRun keeps the indicator
+// honest now that two requests can be outstanding at once.
+//
+// A gate landing while the user waits for one is exactly that: the event fires an
+// observation, and the response to it must not stop the indicator the check run
+// is still holding up.
+func TestAnObservationLandingDoesNotEndAWaitForACheckRun(t *testing.T) {
+	backend := newFakeBackend()
+	model := reviewScreen(t, backend)
+
+	waiting, _ := model.Update(key("V"))
+	model = waiting.(Model)
+	if model.review.pending != api.ReviewVerify {
+		t.Fatalf("V left the panel waiting for %q", model.review.pending)
+	}
+
+	landed, _ := model.Update(reviewMsg{
+		task: model.review.task, action: api.ReviewObserve, status: reviewed(),
+	})
+	model = landed.(Model)
+
+	if model.review.pending != api.ReviewVerify {
+		t.Errorf("an observation cleared the wait for the check run: pending is %q", model.review.pending)
+	}
+	if !model.waiting() {
+		t.Error("the panel stopped waiting while the check run was still outstanding")
+	}
+}

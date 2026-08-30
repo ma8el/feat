@@ -691,7 +691,16 @@ func (m Model) apply(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case eventMsg:
-		return m, tea.Batch(m.load(), m.awaitEvent())
+		commands := []tea.Cmd{m.load(), m.awaitEvent()}
+		// The task list is the answer to every event, and it is not the whole
+		// answer while the task panel is open: it carries the workflow and the
+		// check counts, and the check results themselves come from an
+		// observation.
+		if m.reviewOutdatedBy(message.event) {
+			m.review.observing = true
+			commands = append(commands, m.reviewAction(api.ReviewObserve))
+		}
+		return m, tea.Batch(commands...)
 
 	case streamMsg:
 		// The stream is a convenience; the periodic read is what keeps the
