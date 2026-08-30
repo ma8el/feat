@@ -89,7 +89,10 @@ func (w wizardModel) reviewView() string {
 
 	lines := strings.Split(strings.TrimRight(string(w.review.Text), "\n"), "\n")
 	height := w.reviewHeight()
-	first := min(w.scroll, max(0, len(lines)-1))
+	// The last window rather than the last line, and clamped here as well as
+	// where the keys move it, so that the renderer and the key handler cannot
+	// disagree about where the file ends.
+	first := min(w.scroll, w.reviewEnd())
 	last := min(len(lines), first+height)
 
 	// Every line is drawn in the width of the file's widest, so that scrolling
@@ -99,10 +102,16 @@ func (w wizardModel) reviewView() string {
 	for _, line := range lines[first:last] {
 		out.WriteString(mutedStyle.Render(pad(line, block)) + "\n")
 	}
+
+	// The marker row is drawn whether or not there is a marker for it, blank
+	// where there is none. reviewHeight reserves a line for it, and a note that
+	// appeared and disappeared made the dialog a line shorter exactly as the user
+	// reached the end of the file they were about to write.
+	note := ""
 	if last < len(lines) {
-		out.WriteString(mutedStyle.Render("… " + count(len(lines)-last, "more line", "more lines")))
-		out.WriteString("\n")
+		note = mutedStyle.Render("… " + count(len(lines)-last, "more line", "more lines"))
 	}
+	out.WriteString(note + "\n")
 
 	out.WriteString("\n" + mutedStyle.Render("nothing has been written yet") + "\n")
 	return out.String()

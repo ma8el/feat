@@ -1323,7 +1323,9 @@ func (m Model) openDiagnosis() (tea.Model, tea.Cmd) {
 
 // diagnosisKey answers the report: read it, run it again, or leave.
 func (m Model) diagnosisKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
-	_, height := m.dialogLimits()
+	// The window the report is drawn in, not the dialog it sits inside: paging by
+	// the dialog's height moved the document further than the screen showed.
+	_, height := m.diagnosisSize()
 
 	switch key.String() {
 	case "esc", "D":
@@ -1347,13 +1349,13 @@ func (m Model) diagnosisKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, diagnose(m.backend, project)
 
 	case "up", "k":
-		m.diagnosis = m.diagnosis.scrollBy(-1)
+		m.diagnosis = m.diagnosis.scrollBy(-1, height)
 	case "down", "j":
-		m.diagnosis = m.diagnosis.scrollBy(1)
+		m.diagnosis = m.diagnosis.scrollBy(1, height)
 	case "pgup":
-		m.diagnosis = m.diagnosis.scrollBy(-height)
+		m.diagnosis = m.diagnosis.scrollBy(-height, height)
 	case "pgdown":
-		m.diagnosis = m.diagnosis.scrollBy(height)
+		m.diagnosis = m.diagnosis.scrollBy(height, height)
 	}
 	return m, nil
 }
@@ -1698,9 +1700,8 @@ func (m Model) stackedView() string {
 	case screenWizard:
 		return m.wizard.View()
 	case screenDiagnosis:
-		width, height := m.frameSize()
-		return m.diagnosis.body(width, height-footerHeight-diagnosisChrome) +
-			m.footer(m.diagnosisHints())
+		width, height := m.diagnosisSize()
+		return m.diagnosis.body(width, height) + m.footer(m.diagnosisHints())
 	case screenTask:
 		return m.taskView()
 	case screenBrief:
@@ -1745,9 +1746,9 @@ func (m Model) dialogView() string {
 	case screenWizard:
 		return dialogBox("configure a project", m.wizard.View(), inner, tallest)
 	case screenDiagnosis:
+		width, height := m.diagnosisSize()
 		return dialogBox(m.diagnosis.title(),
-			m.diagnosis.body(inner-cardChrome, tallest-diagnosisChrome)+"\n"+m.diagnosisHints(),
-			inner, tallest)
+			m.diagnosis.body(width, height)+"\n"+m.diagnosisHints(), inner, tallest)
 	case screenCleanup:
 		// The dialog carries cleanup's own keys, because the frame's footer says
 		// how to close a dialog and this says what this one can do.

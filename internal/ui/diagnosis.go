@@ -72,8 +72,21 @@ func (d diagnosisModel) start(project string) diagnosisModel {
 }
 
 // scrollBy moves the report under the window, without moving past either end.
-func (d diagnosisModel) scrollBy(delta int) diagnosisModel {
-	d.scroll = min(max(0, d.scroll+delta), max(0, len(d.lines())-1))
+//
+// The end is the last window rather than the last line. Clamping to the line
+// left the report's final line alone in a box that had collapsed around it,
+// because dialogBox sets no height and is as tall as what it is given — so the
+// last thing a reader did before leaving was watch the box shrink to nothing.
+// The height is the caller's because it is the renderer's: the two have to agree
+// about how much of the report is on the screen, and only one of them can
+// decide.
+//
+// It is publication's form rather than clampScroll's. Those look like the same
+// arithmetic and are not — clampScroll clamps to total-(height-1), one line
+// short, so its last window carries a line over. That belongs to the task panel
+// and to cleanup's inventory, neither of which has the collapse this is about.
+func (d diagnosisModel) scrollBy(delta, height int) diagnosisModel {
+	d.scroll = min(max(0, d.scroll+delta), max(0, len(d.lines())-max(1, height)))
 	return d
 }
 
@@ -219,7 +232,10 @@ func (d diagnosisModel) body(width, height int) string {
 	}
 
 	var out strings.Builder
-	first := min(d.scroll, max(0, len(lines)-1))
+	// The last window rather than the last line, and clamped here as well as
+	// where the keys move it, so that the renderer and the key handler cannot
+	// disagree about where the report ends.
+	first := min(d.scroll, max(0, len(lines)-max(1, height)))
 	last := min(len(lines), first+max(1, height))
 
 	// Every line is drawn in the width of the report's widest, so that scrolling
@@ -227,16 +243,27 @@ func (d diagnosisModel) body(width, height int) string {
 	// report rather than the window, because the window is what changes.
 	block := documentWidth(lines, max(1, width))
 
+	// Both marker rows are drawn whether or not there is a marker for them, blank
+	// where there is none, so that the report occupies the same number of lines at
+	// every offset. diagnosisTailHeight reserves a constant two for them, and a
+	// note that appeared and disappeared made the box shorter by up to two lines
+	// as the reader moved through it (see publicationWindow, where the same
+	// reservation is also a correctness property).
+	above := ""
 	if first > 0 {
-		out.WriteString(mutedStyle.Render("… "+count(first, "line", "lines")+" above") + "\n")
+		above = mutedStyle.Render("… " + count(first, "line", "lines") + " above")
 	}
+	out.WriteString(above + "\n")
+
 	for _, line := range lines[first:last] {
 		out.WriteString(pad(line, block) + "\n")
 	}
+
+	below := ""
 	if last < len(lines) {
-		out.WriteString(mutedStyle.Render("… " + count(len(lines)-last, "more line", "more lines")))
-		out.WriteString("\n")
+		below = mutedStyle.Render("… " + count(len(lines)-last, "more line", "more lines"))
 	}
+	out.WriteString(below + "\n")
 
 	// The counts last, where a long report ends, and the sentence a skipped
 	// check earns: a check that did not run has told the user nothing, and
@@ -275,7 +302,11 @@ func (d diagnosisModel) title() string {
 // diagnosisTailHeight is what this screen draws around the scrolling report:
 // the two notes saying how much of it is above and below the window, the blank
 // and the counts, the sentence a skipped check earns, the line saying where the
-// checks ran, and the blank and the hints.
+// checks ran, and the blank and the hints. Eight lines, and it used to say eight
+// and reserve seven — which fitted only because the report never drew both notes
+// at the top of a document, where this screen opens. Now that both rows are
+// drawn at every offset so the box holds still, the reservation has to be what
+// it always claimed.
 //
 // The dialog's own cost is dialogVerticalChrome, which the box names so that the
 // arithmetic is not written twice. The dialog clamps from the bottom, so an
@@ -283,9 +314,28 @@ func (d diagnosisModel) title() string {
 // which is the one action this screen offers. TestTheDiagnosisFitsItsDialog is
 // what keeps this honest.
 const (
-	diagnosisTailHeight = 7
+	diagnosisTailHeight = 8
 	diagnosisChrome     = dialogVerticalChrome + diagnosisTailHeight
 )
+
+// diagnosisSize is the space the report is drawn in.
+//
+// It is resolved here rather than at each caller for the reason publication's
+// is: the report scrolls, so the key handler and the renderer have to agree
+// about how much of it is on the screen, and only one of the two can decide.
+// They did not — the keys paged by the whole dialog's height while the window
+// was that height less the seven lines drawn under it — and the end of the
+// scroll is now measured from this, so a stale idea of the height cannot leave
+// the box collapsed around one line.
+func (m Model) diagnosisSize() (width, height int) {
+	if m.narrow() {
+		width, height = m.frameSize()
+		return width, height - footerHeight - diagnosisChrome
+	}
+
+	inner, tallest := m.dialogLimits()
+	return inner - cardChrome, tallest - diagnosisChrome
+}
 
 // diagnosisHints are the keys the report answers.
 func (m Model) diagnosisHints() string {
