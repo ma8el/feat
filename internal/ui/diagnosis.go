@@ -222,11 +222,16 @@ func (d diagnosisModel) body(width, height int) string {
 	first := min(d.scroll, max(0, len(lines)-1))
 	last := min(len(lines), first+max(1, height))
 
+	// Every line is drawn in the width of the report's widest, so that scrolling
+	// through it does not resize the dialog around it. The measure is the whole
+	// report rather than the window, because the window is what changes.
+	block := documentWidth(lines, max(1, width))
+
 	if first > 0 {
 		out.WriteString(mutedStyle.Render("… "+count(first, "line", "lines")+" above") + "\n")
 	}
 	for _, line := range lines[first:last] {
-		out.WriteString(truncate(line, max(1, width)) + "\n")
+		out.WriteString(pad(line, block) + "\n")
 	}
 	if last < len(lines) {
 		out.WriteString(mutedStyle.Render("… " + count(len(lines)-last, "more line", "more lines")))

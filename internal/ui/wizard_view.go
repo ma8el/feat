@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ma8el/feat/internal/wizard"
 )
@@ -96,7 +95,7 @@ func (w wizardModel) reviewView() string {
 	// Every line is drawn in the width of the file's widest, so that scrolling
 	// through it does not resize the dialog around it. The measure is the whole
 	// file rather than the window, because the window is what changes.
-	block := reviewBlock(lines, max(1, w.width-2))
+	block := documentWidth(lines, max(1, w.width-2))
 	for _, line := range lines[first:last] {
 		out.WriteString(mutedStyle.Render(pad(line, block)) + "\n")
 	}
@@ -107,18 +106,6 @@ func (w wizardModel) reviewView() string {
 
 	out.WriteString("\n" + mutedStyle.Render("nothing has been written yet") + "\n")
 	return out.String()
-}
-
-// reviewBlock is the width the configuration is drawn in: its own widest line,
-// up to what the dialog allows.
-func reviewBlock(lines []string, limit int) int {
-	widest := 0
-	for _, line := range lines {
-		if measured := ansi.StringWidth(line); measured > widest {
-			widest = measured
-		}
-	}
-	return min(max(widest, 1), limit)
 }
 
 // checkView draws what this machine says about the project that now exists.
