@@ -64,7 +64,7 @@ func reviewScreen(t *testing.T, backend *fakeBackend) Model {
 
 	backend.reviewStatus = reviewed()
 	model := dashboard(backend, backend.reviewStatus.Task)
-	return press(t, model, "v")
+	return press(t, model, "T")
 }
 
 // TestTheTaskPanelGroupsChangesByRepository is FR-REV-001 on the panel.
@@ -214,7 +214,7 @@ func TestThePanelOffersNoDecisionInAnyWorkflowState(t *testing.T) {
 			status.Task.Workflow = workflow
 			backend.reviewStatus = status
 
-			model := press(t, dashboard(backend, status.Task), "v")
+			model := press(t, dashboard(backend, status.Task), "T")
 			before := len(backend.reviewCalls)
 
 			for _, key := range []string{"A", "C"} {
@@ -331,7 +331,7 @@ func TestATaskReadyForReviewKeepsItsRunningServices(t *testing.T) {
 	backend.reviewStatus = status
 
 	model := dashboard(backend, status.Task)
-	model = press(t, model, "v")
+	model = press(t, model, "T")
 
 	view := ansi.Strip(content(model))
 	if !strings.Contains(view, "running") {
@@ -364,7 +364,7 @@ func TestAGateLandingRefreshesTheChecksOnTheOpenPanel(t *testing.T) {
 	failed.Task.Workflow = "verification_failed"
 	backend.reviewStatus = failed
 
-	model := press(t, dashboard(backend, failed.Task), "v")
+	model := press(t, dashboard(backend, failed.Task), "T")
 	if !strings.Contains(ansi.Strip(model.taskPanel()), "exited with status 1") {
 		t.Fatalf("the panel does not start from the failed run:\n%s", ansi.Strip(model.taskPanel()))
 	}
@@ -468,7 +468,7 @@ func TestChecksThatAreRunningAreNotReportedAsResults(t *testing.T) {
 	running.Task.Workflow = "verifying"
 	backend.reviewStatus = running
 
-	model := press(t, dashboard(backend, running.Task), "v")
+	model := press(t, dashboard(backend, running.Task), "T")
 
 	panel := ansi.Strip(model.taskPanel())
 	if !strings.Contains(panel, "checks        running") {

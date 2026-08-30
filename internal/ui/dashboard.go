@@ -41,7 +41,7 @@ func (m Model) listView() string {
 
 	return out.String() + m.footer(keyHints(
 		keyHint("↑↓", "select"),
-		keyHint("enter", "task"),
+		keyHint("T", "task"),
 		keyHint("n", "new task"),
 		keyHint("a", "attach"),
 		keyHint("s", "shell"),

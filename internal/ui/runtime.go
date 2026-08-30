@@ -258,7 +258,12 @@ func (m Model) runtimeBody() string {
 		out.WriteString("\n" + attentionStyle.Render("note") + " " + note + "\n")
 	}
 	if m.runtime.err != nil {
-		out.WriteString("\n" + failureStyle.Render(m.runtime.err.Error()) + "\n")
+		// Wrapped to the region, which this body has to ask for: it is the one tab
+		// that is not re-flowed before it is drawn, so a long sentence was cut at
+		// the edge — and the sentence that sends a user to their configuration ends
+		// in the path.
+		width, _ := m.mainRegionSize()
+		out.WriteString("\n" + daemonNote(m.runtime.err, task, width) + "\n")
 	}
 	if m.runtime.pending != "" {
 		waiting := "waiting for " + string(m.runtime.pending) + "…"

@@ -77,7 +77,7 @@ func TestTextFeatDidNotWriteCannotBreakTheFrame(t *testing.T) {
 	status.Task.Brief = "Progress was reported like this:\r100%\vand then some\bmore."
 	backend.reviewStatus = status
 
-	model := sized(press(t, dashboard(backend, status.Task), "v"), 120, 40)
+	model := sized(press(t, dashboard(backend, status.Task), "T"), 120, 40)
 	width, _ := model.mainRegionSize()
 
 	// The whole panel rather than the window the scroll happens to show, because

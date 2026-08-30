@@ -274,15 +274,21 @@ func expandCommand(template []string, task *domain.Task, binding domain.TaskRepo
 // It runs from either outcome of a gate, not only from the failing one. A user
 // reading work that passed and changing something themselves has the same
 // question as one reading work that failed, and until ADR-087 the answer was
-// that the checks run for a task whose agent has asked for review — which this
-// task's agent had (ADR-087).
+// that checks can only run for a task whose agent has asked for review — which
+// this task's agent had (ADR-087).
 func (s *service) verifyNow(ctx context.Context, cfg *config.Config, task *domain.Task) error {
 	switch task.Workflow {
 	case domain.WorkflowReviewRequested, domain.WorkflowReadyForReview, domain.WorkflowVerificationFailed:
 	case domain.WorkflowVerifying:
 		return fmt.Errorf("%w: task %s is already verifying", api.ErrInvalid, task.ID)
 	default:
-		return fmt.Errorf("%w: task %s is %s, and the checks run for a task whose agent has asked for review",
+		// The rule first and this task's state second, because the rule is the
+		// part the reader does not already have. Said the other way round it read
+		// as two facts joined by "and" — the task is working, and checks run for a
+		// reviewed task — with nothing saying the first was why the second
+		// refused. The dashboard has the workflow on the panel above this line and
+		// `feat review` has it in the row above; neither has the rule anywhere.
+		return fmt.Errorf("%w: checks can only run for a task whose agent has asked for review, and task %s is %s",
 			api.ErrInvalid, task.ID, task.Workflow)
 	}
 

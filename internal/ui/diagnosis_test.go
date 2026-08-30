@@ -139,7 +139,7 @@ func TestTheDiagnosisFitsItsDialog(t *testing.T) {
 	if strings.Contains(drawn, "than fit here") {
 		t.Errorf("the diagnosis overruns the dialog:\n%s", drawn)
 	}
-	for _, want := range []string{"checks passed", "check again", "checked from this terminal"} {
+	for _, want := range []string{"checks passed", "refresh", "checked from this terminal"} {
 		if !strings.Contains(drawn, want) {
 			t.Errorf("the dialog lost %q from the bottom:\n%s", want, drawn)
 		}

@@ -857,13 +857,20 @@ func (m Model) apply(message tea.Msg) (tea.Model, tea.Cmd) {
 // task panel, so the same key meant two things and a user could not tell which
 // without pressing it.
 //
-// Each direction has three spellings, and they are not redundant. Uppercase
-// letters are the primary binding — a terminal has no modifier bit for a shifted
-// letter, so shift+j is delivered as J and that is what a Vim-shaped binding
-// actually is. The shifted arrows are the same movement for a user who does not
-// think in hjkl. The control pair is the fallback, because a terminal that eats
-// shifted arrows would otherwise leave the rail unreachable from a view that
-// takes the plain ones.
+// Each direction has three spellings. Uppercase letters are the primary binding —
+// a terminal has no modifier bit for a shifted letter, so shift+j is delivered as
+// J, and that is what a Vim-shaped binding actually is. The shifted arrows are the
+// same movement for a user who does not think in hjkl, and they are the one
+// spelling a terminal can fail to deliver: a modified arrow needs an escape
+// sequence of its own, and not every terminal emits one.
+//
+// The control pair is neither of those and is not a fallback either, which is what
+// it was documented as. A terminal that eats shifted arrows still delivers `J`, so
+// the letters already cover that case and the map says so. It is here for the
+// readline reflex, where ctrl+n and ctrl+p are next and previous line — an
+// affordance for a habit rather than a route anybody needs taught, which is why it
+// was taken off the key map and written down here instead. It costs nothing: it
+// shares an arm with the spelling that is documented, so the two cannot diverge.
 func (m Model) frameKey(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch key.String() {
 	case "L", "shift+right", "tab":
@@ -880,6 +887,42 @@ func (m Model) frameKey(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 
 	case "J", "shift+down", "ctrl+n":
 		updated, cmd := m.selectTask(1)
+		return updated, cmd, true
+
+	// The same movement named rather than stepped: one shifted letter per view,
+	// so that reaching one is not counting how far it is from here. They are the
+	// frame's keys for the reason L and H are — a view must not be able to swallow
+	// the key that leaves it — and they are excluded while a dialog is open by the
+	// same rule, because moving the frame under an unanswered question would change
+	// what the answer applies to.
+	//
+	// Two views had a key and two did not, and the two that had one had it from
+	// here rather than from the frame — so they were answered after a view, and
+	// worked only because no view claimed them. `R` opened the runtime, `v` and
+	// `enter` both opened the task panel, and the brief and the terminal could only
+	// be cycled to. `enter` and `v` are gone: `enter` means "confirm" in every
+	// dialog the dashboard has, and the frame was the one place it did not.
+	//
+	// `A` is the agent's terminal and is deliberately the shifted form of `a`,
+	// which attaches to it: the pair is the view of the pane and the keyboard
+	// handed to it. It is the one pair here where shift changes what happens
+	// rather than where it happens. The terminal is not `H`, which would spell
+	// home: `H` is half of the pair that steps between views, and that is worth
+	// more than the mnemonic.
+	case "A":
+		updated, cmd := m.selectTab(tabTerminal)
+		return updated, cmd, true
+
+	case "T":
+		updated, cmd := m.selectTab(tabTask)
+		return updated, cmd, true
+
+	case "B":
+		updated, cmd := m.selectTab(tabBrief)
+		return updated, cmd, true
+
+	case "R":
+		updated, cmd := m.selectTab(tabRuntime)
 		return updated, cmd, true
 	}
 	return m, nil, false
@@ -1145,10 +1188,10 @@ func (m Model) quit() (tea.Model, tea.Cmd) {
 //
 // Falling through rather than being answered first is deliberate, and it is the
 // opposite of what frameKey does. Movement must beat a view, because a view that
-// swallowed it would trap the user in itself. An action must not: `r` means
-// compare again on the task panel and refresh on runtime, and `C` sends work back
-// there while it cleans a task up here. A view that claims a key keeps it, and
-// everything else lands on the dashboard's own meaning.
+// swallowed it would trap the user in itself. An action must not: `r` refreshes
+// the comparison on the task panel and the runtime's state on runtime, and `C`
+// sends work back there while it cleans a task up here. A view that claims a key
+// keeps it, and everything else lands on the dashboard's own meaning.
 func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// A pending confirmation takes the keyboard, as it does on the runtime
 	// screen: while Feat is asking whether to interrupt a working agent, no
@@ -1253,9 +1296,6 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case " ", "space":
 		return m.foldProject()
 
-	case "enter":
-		return m.openTask()
-
 	case "n":
 		m.rememberTab()
 		m.screen = screenPrepare
@@ -1273,12 +1313,6 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "s":
 		return m.shell()
-
-	case "R":
-		return m.openRuntime()
-
-	case "v":
-		return m.openTask()
 
 	case "C":
 		return m.openCleanup()
@@ -1716,7 +1750,7 @@ func (m Model) stackedView() string {
 		width, _ := m.frameSize()
 		return m.keyMap(width) + m.footer(keyHints(keyHint("esc", "close")))
 	case screenRecovery:
-		return m.recoveryList() + m.footer(keyHints(keyHint("r", "look again"), keyHint("esc", "close")))
+		return m.recoveryList() + m.footer(keyHints(keyHint("r", "refresh"), keyHint("esc", "close")))
 	case screenDaemon:
 		width, _ := m.frameSize()
 		return m.daemonBody(width) + m.footer(m.daemonHints())

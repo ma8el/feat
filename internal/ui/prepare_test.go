@@ -2093,3 +2093,32 @@ func TestPreparingAgainOpensOnTheSourceQuestion(t *testing.T) {
 		}
 	}
 }
+
+// TestPreparingAgainAsksWhichProject is the same key where there is more than
+// one to ask about.
+//
+// The second task of a session opened on the source step in whichever project
+// the first had gone to: restart carried the project forward, and chooseProject
+// takes a project it is given as answered. So a user preparing two tasks was
+// asked once, and the task they did not answer for went wherever the last one
+// did — which on a machine with one project is invisible and on a machine with
+// two is a task in the wrong project.
+func TestPreparingAgainAsksWhichProject(t *testing.T) {
+	backend := newFakeBackend()
+	backend.projects = append(backend.projects, api.Project{ID: "other", Name: "Other"})
+
+	model := prepared(t, backend)
+	if model.project != "example" {
+		t.Fatalf("project = %q, want the one the first task was prepared in", model.project)
+	}
+
+	fresh := model.restart()
+	fresh = settle(t, fresh, fresh.Init())
+
+	if fresh.step != stepProject {
+		t.Fatalf("step = %d, want the project question: %v", fresh.step, fresh.err)
+	}
+	if fresh.project != "" {
+		t.Errorf("project = %q, want the previous task's project gone", fresh.project)
+	}
+}

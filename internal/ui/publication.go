@@ -791,7 +791,7 @@ func (m Model) publicationHints() string {
 		// because this is where a partial one is read: nothing is rolled back,
 		// and a fresh plan is what names the repositories still to publish.
 		return keyHints(readHint(),
-			keyHint("r", "look again"), keyHint("esc", "close"))
+			keyHint("r", "refresh"), keyHint("esc", "close"))
 	}
 
 	var hints []string
@@ -804,7 +804,7 @@ func (m Model) publicationHints() string {
 	if m.publicationRead() && len(m.publicationApprovals()) > 0 {
 		hints = append(hints, keyHint("enter", "publish"))
 	}
-	return keyHints(append(hints, keyHint("r", "look again"), keyHint("esc", "close"))...)
+	return keyHints(append(hints, keyHint("r", "refresh"), keyHint("esc", "close"))...)
 }
 
 // publicationScrollable reports that the document does not fit its window.

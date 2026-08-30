@@ -463,7 +463,7 @@ func TestLookingAgainAfterAPublicationShowsTheNewPlan(t *testing.T) {
 	if !published.publication.done {
 		t.Fatal("the screen does not know a publication ran")
 	}
-	if !strings.Contains(published.publicationHints(), "look again") {
+	if !strings.Contains(published.publicationHints(), "refresh") {
 		t.Errorf("the finished screen does not offer a way back to a plan: %q", published.publicationHints())
 	}
 
