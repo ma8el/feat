@@ -373,19 +373,24 @@ func TestAGateLandingRefreshesTheChecksOnTheOpenPanel(t *testing.T) {
 	passed := reviewed()
 	passed.Task.Workflow = "ready_for_review"
 	passed.Review.Checks = []api.ReviewCheck{
-		{ID: "unit", RepositoryID: "core", Status: "passed", Reporter: "provider", Detail: "82 passed"},
+		{ID: "unit", RepositoryID: "core", Status: "passed", Reporter: "provider", Detail: "ok (cached)"},
 	}
 	backend.reviewStatus = passed
 
 	updated, cmd := model.Update(eventMsg{event: taskEvent(failed.Task.ID, "review_state_changed")})
 	model = applyCommand(t, updated.(Model), cmd)
 
+	// Read as the status rather than as the output: a check Feat ran and that
+	// passed prints no output on this panel.
 	panel := ansi.Strip(model.taskPanel())
 	if strings.Contains(panel, "exited with status 1") {
 		t.Errorf("the panel still shows the run that the gate replaced:\n%s", panel)
 	}
-	if !strings.Contains(panel, "82 passed") {
+	if !strings.Contains(panel, "unit (core)  passed") {
 		t.Errorf("the panel does not show what the gate found:\n%s", panel)
+	}
+	if !strings.Contains(panel, "checks        1 passed") {
+		t.Errorf("the checks field still counts the run that the gate replaced:\n%s", panel)
 	}
 }
 
@@ -508,5 +513,69 @@ func TestAnObservationLandingDoesNotEndAWaitForACheckRun(t *testing.T) {
 	}
 	if !model.waiting() {
 		t.Error("the panel stopped waiting while the check run was still outstanding")
+	}
+}
+
+// TestAPassingCheckFeatRanShowsNoOutput is the noise found in use.
+//
+// The excerpt exists so that a user can see why a check failed. On a check that
+// passed it is the whole of a build command's stdout — forty lines of `ok
+// <package> (cached)` under a line that has already said "passed" — and it
+// pushed everything worth reading off the screen.
+func TestAPassingCheckFeatRanShowsNoOutput(t *testing.T) {
+	for what, test := range map[string]struct {
+		check api.ReviewCheck
+		// needle is one line of the detail, because a detail of several lines is
+		// indented under the check and no longer appears as one string.
+		needle string
+		want   bool
+	}{
+		"a check Feat ran and that passed": {
+			check: api.ReviewCheck{ID: "check", Status: "passed", Reporter: "provider",
+				Detail: "ok  github.com/ma8el/feat/internal/api  (cached)"},
+			needle: "(cached)",
+			want:   false,
+		},
+		// The reason each of these is kept is different, and each is the only
+		// place its fact is written down.
+		"a check Feat ran and that failed": {
+			check: api.ReviewCheck{ID: "check", Status: "failed", Reporter: "provider",
+				Detail: "exited with status 1\n2 failed, 82 passed"},
+			needle: "2 failed, 82 passed",
+			want:   true,
+		},
+		"a check that was skipped": {
+			check: api.ReviewCheck{ID: "check", Status: "skipped", Reporter: "provider",
+				Detail: "this repository is bound read-only, so the task cannot have changed it"},
+			needle: "bound read-only",
+			want:   true,
+		},
+		"a check that did not report": {
+			check: api.ReviewCheck{ID: "check", Status: "unknown", Reporter: "provider",
+				Detail: "did not finish within 30m0s"},
+			needle: "did not finish within",
+			want:   true,
+		},
+		// The agent's detail is a sentence it wrote rather than a command's
+		// output, so it is short whatever the status says.
+		"a passing check the agent reported": {
+			check: api.ReviewCheck{ID: "check", Status: "passed", Reporter: "agent",
+				Detail: "go test ./internal/config/... ok"},
+			needle: "internal/config",
+			want:   true,
+		},
+	} {
+		t.Run(what, func(t *testing.T) {
+			rendered := ansi.Strip(reviewChecks([]api.ReviewCheck{test.check}))
+			if got := strings.Contains(rendered, test.needle); got != test.want {
+				t.Errorf("%s shows its detail (%t), want %t:\n%s", what, got, test.want, rendered)
+			}
+			// Whatever happens to the detail, the check itself is still named,
+			// with who ran it. A status of "unknown" is drawn in the words the
+			// summary above it uses rather than as the word itself (ADR-051).
+			if !strings.Contains(rendered, test.check.ID) {
+				t.Errorf("%s does not name the check:\n%s", what, rendered)
+			}
+		})
 	}
 }

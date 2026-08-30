@@ -452,11 +452,36 @@ func reviewChecks(checks []api.ReviewCheck) string {
 		}
 
 		out.WriteString("  " + name + "  " + status + mutedStyle.Render("  "+reporter) + "\n")
-		if detail := strings.TrimSpace(check.Detail); detail != "" {
+		if detail := checkDetail(check); detail != "" {
 			out.WriteString(indent(detail, "      ") + "\n")
 		}
 	}
 	return out.String()
+}
+
+// checkDetail is what one check's line has under it, or nothing.
+//
+// A check Feat ran and that passed says nothing more. Its detail is the whole
+// output of the user's own build command, which on this project is forty lines
+// of `ok  <package>  (cached)` and a `go build` invocation, printed under a line
+// that has already said "passed" — a screen a user scrolls past rather than
+// reads. It is still stored: the excerpt is what ADR-036 records, and hiding it
+// here is a rule about this panel rather than about the record.
+//
+// Every other detail earns its room. A failure's output is why it failed, which
+// is the whole reason the excerpt is kept at all. A skip carries the reason it
+// was skipped, and a check that did not report carries Feat's own account of
+// what happened to it — a bound that elapsed, a runner this build does not have
+// — and those are the only place the difference between "did not run" and "ran
+// and found nothing" is written down (ADR-028).
+//
+// The agent's own details are short by construction: a sentence it wrote about
+// its work, not a command's output, and the panel keeps them whatever the status.
+func checkDetail(check api.ReviewCheck) string {
+	if check.Status == "passed" && check.Reporter == "provider" {
+		return ""
+	}
+	return strings.TrimSpace(check.Detail)
 }
 
 // shortCommit renders a commit at the length a person reads.

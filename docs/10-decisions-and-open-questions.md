@@ -1377,7 +1377,14 @@ Decisions:
   value bounds how long Feat will wait while knowing nothing, and any value
   comfortably beyond a working case serves equally well.
 - A check's output is stored as a bounded excerpt in `Check.Detail`, shown on
-  the review screen, and never put into an event payload. Evidence 6 is resolved
+  the review screen, and never put into an event payload. *Narrowed in use: a
+  check Feat ran and that passed shows no output on the panel, because its
+  excerpt is the whole of a build command's stdout printed under a line that
+  already said "passed" — forty lines of `ok <package> (cached)` on this
+  repository. It is still stored and still bounded; what changed is one panel's
+  display rule, not where the value may travel, which is what this bullet was
+  answering. A failure, a skip, and a check that did not report all keep their
+  detail: those are why, and Feat's own account of it.* Evidence 6 is resolved
   by narrowing where the field may travel rather than by adding a field, which
   would change a stored format that has carried every field this slice needs
   since slice 1. The excerpt is the output of the user's own program shown to
