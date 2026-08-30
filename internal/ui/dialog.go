@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // What a dialog spends on itself.
@@ -65,6 +66,33 @@ func dialogBox(title, body string, limit, tallest int) string {
 func blockWidth(block string) int {
 	width, _ := blockSize(block)
 	return width
+}
+
+// documentWidth is the width a scrolling body draws its lines in: the widest
+// line of the whole document, up to what the dialog allows.
+//
+// It exists because dialogBox shrinks the box to the widest line of what it is
+// handed, and a body that scrolls hands it a window rather than a document. The
+// widest *visible* line then decides the width, and scrolling changes which
+// lines those are — so the box grows and shrinks under somebody trying to read
+// it. The measure is the whole document rather than the window, because the
+// window is what changes.
+//
+// Padding every drawn line to this is the other half, and both halves are
+// needed: measuring without padding leaves the window as wide as its own widest
+// line, which is the thing that varies.
+//
+// It is here rather than beside any one body for the reason the chrome constants
+// are: four bodies scroll, and arithmetic written four times is arithmetic that
+// drifts.
+func documentWidth(lines []string, limit int) int {
+	widest := 0
+	for _, line := range lines {
+		if measured := ansi.StringWidth(line); measured > widest {
+			widest = measured
+		}
+	}
+	return min(max(widest, 1), limit)
 }
 
 // clampHeight drops the lines of a block that do not fit, saying that it did.

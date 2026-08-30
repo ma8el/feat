@@ -209,6 +209,55 @@ func TestProjectInitWritesAConfigurationThatLoads(t *testing.T) {
 	}
 }
 
+// TestProjectInitPrintsTheFlowsOwnLines is the transcript's half of the fold the
+// dashboard's dialog gained.
+//
+// The widget folds a question's prose into the width its caller gives it, and
+// this asker gives none. It prints these fields itself so that they stay in the
+// scrollback after the widget has exited, and the rule that opens a section is
+// measured against the width the flow wrote them to rather than against the
+// terminal (ADR-084, ruleWidth). So the flow's own breaks have to arrive here
+// exactly as they were written: two source lines, on two lines, unjoined.
+func TestProjectInitPrintsTheFlowsOwnLines(t *testing.T) {
+	m := prepareWizard(t)
+
+	code, stdout, stderr := m.converse(t, answers(
+		"app",               // project identifier
+		"Example",           // display name
+		m.repository("api"), // path of the checkout
+		"api",               // repository identifier
+		"",                  // default access: read_write
+		"n",                 // no second repository
+		"",                  // execution mode: host
+		"",                  // no application services
+		"n",                 // do not write it
+	), "project", "init")
+
+	if code != ExitOK {
+		t.Fatalf("exit code %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+
+	// The execution-mode question's detail, which the flow authors as four
+	// literal lines of about seventy-two cells.
+	for _, line := range []string{
+		"host runs Claude Code in the task's own worktree, with no container",
+		"boundary. devcontainer runs it as a non-root user in a Compose service,",
+	} {
+		if !strings.Contains(stdout, line+"\n") {
+			t.Errorf("the transcript does not end this line where the flow ended it: %q\n%s",
+				line, stdout)
+		}
+	}
+	// And they are two lines rather than one folded to something else.
+	if strings.Contains(stdout, "with no container boundary.") {
+		t.Errorf("the transcript rejoined the flow's own lines:\n%s", stdout)
+	}
+	// The rule stays the width of the paragraph it sits over.
+	if !strings.Contains(stdout, strings.Repeat("─", ruleWidth)) {
+		t.Errorf("the rule is no longer drawn at the width of what it separates:\n%s", stdout)
+	}
+}
+
 // TestProjectInitConfiguresADevcontainerFromWhatItFinds checks the mode with
 // something to discover: the Compose file beside the repository, and the
 // services that file defines.

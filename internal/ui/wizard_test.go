@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ma8el/feat/internal/api"
 )
@@ -65,6 +66,119 @@ func enter(t *testing.T, model Model, times int) Model {
 		model = pressKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	}
 	return model
+}
+
+// rejoined is a rendered block with its line breaks taken out, for asserting on
+// something the dialog wrapped rather than on where it wrapped it.
+//
+// A wrapped path is still the whole path — it is folded rather than cut, so
+// every character is on the screen — and where the fold lands depends on the
+// machine the test is running on, because a temporary directory's path does.
+func rejoined(block string) string {
+	return strings.ReplaceAll(ansi.Strip(block), "\n", "")
+}
+
+// reachQuestion answers whatever is asked, with whatever is proposed, until the
+// wizard is on the question named.
+func reachQuestion(t *testing.T, model Model, id string) Model {
+	t.Helper()
+
+	for range 32 {
+		if question(t, model) == id {
+			return model
+		}
+		model = enter(t, model, 1)
+	}
+	t.Fatalf("the flow never reached %s; it is at %s", id, question(t, model))
+	return model
+}
+
+// TestTheQuestionsProseIsFoldedIntoTheDialog is Root C at the screen it was
+// reported on.
+//
+// `Detail` is authored in the flow as the lines it would be printed as — four
+// literal lines of about seventy-two cells for this question — so it wrapped at
+// seventy-two whatever box it was drawn in, and a `Notes` entry, which is one
+// long string, was cut with an ellipsis instead. The widget had a field width
+// and no block width, and the caller that has one had no way to hand it over
+// (ADR-088).
+func TestTheQuestionsProseIsFoldedIntoTheDialog(t *testing.T) {
+	// Wide enough that the fold has somewhere to go: at the terminal the defect
+	// was reported on, seventy-two cells is most of the box already.
+	model := reachQuestion(t, sized(wizardScreen(t, newFakeBackend()), 240, 44), "agent.mode")
+
+	detail := model.wizard.question.Detail
+	if len(detail) < 2 {
+		t.Fatalf("this question is authored as %d lines, so folding it proves nothing", len(detail))
+	}
+	authored := 0
+	for _, line := range detail {
+		authored = max(authored, ansi.StringWidth(line))
+	}
+
+	// The paragraph as it is drawn: the lines of the context that came from the
+	// detail, found by the first word of it.
+	body := ansi.Strip(model.wizard.input.Context())
+	folded, widest := 0, 0
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, strings.Fields(detail[0])[0]) || widest > 0 && line != "" {
+			folded++
+			widest = max(widest, ansi.StringWidth(line))
+		}
+		if widest > 0 && line == "" {
+			break
+		}
+	}
+
+	if widest <= authored {
+		t.Errorf("the paragraph is still drawn at the flow's own %d cells in a %d-cell box:\n%s",
+			authored, model.wizard.width, body)
+	}
+	if folded >= len(detail) {
+		t.Errorf("the paragraph still takes %d lines, which is what the flow wrote:\n%s", folded, body)
+	}
+	if widest > model.wizard.width {
+		t.Errorf("a line is %d cells in a %d-cell box:\n%s", widest, model.wizard.width, body)
+	}
+
+	// And the box shrank to what it needs rather than to what it was allowed,
+	// which is what a line padded out to the fold would have cost.
+	allowed, _ := model.wizardLimits()
+	if drawn, _ := blockSize(model.dialogView()); drawn >= allowed {
+		t.Errorf("the dialog takes its whole %d-cell allowance to draw %d cells of prose",
+			allowed, widest)
+	}
+}
+
+// TestEveryWizardStepCanNameItsKeys keeps wizardSmallest honest.
+//
+// The wizard is drawn in half the terminal where every other overlay has three
+// quarters, and half of an ordinary terminal is narrower than the keys the review
+// step offers. A hint that is cut is a key nobody can press, so the narrower
+// measure has a floor — and a floor written down is a floor that drifts the day
+// a hint gains a word, which is what this reads back.
+func TestEveryWizardStepCanNameItsKeys(t *testing.T) {
+	model := atReview(t, 120)
+
+	for _, step := range []wizardStep{
+		wizardAsking, wizardReviewing, wizardChecking, wizardRegistering, wizardDone,
+	} {
+		w := model.wizard
+		w.step = step
+		if hints := blockWidth(w.hints()); hints+dialogChrome > wizardSmallest {
+			t.Errorf("step %v names %d cells of keys, and the wizard is never drawn wider "+
+				"than %d: raise wizardSmallest or shorten the hint", step, hints, wizardSmallest)
+		}
+	}
+
+	// And at an ordinary terminal the floor is what is drawn, so the keys are on
+	// the screen whole.
+	if drawn, _ := blockSize(model.dialogView()); drawn < wizardSmallest {
+		t.Errorf("the wizard is drawn at %d cells, under its own floor of %d", drawn, wizardSmallest)
+	}
+	if strings.Contains(ansi.Strip(model.dialogView()), "cancel") == false {
+		t.Errorf("the last key of the review step is cut off:\n%s", model.dialogView())
+	}
 }
 
 // answered is how many questions the wizard has left to ask, which is what a
@@ -220,7 +334,11 @@ func TestTabStepsThroughEveryCandidate(t *testing.T) {
 	// The field is empty here, so what is left is on the screen in words: the
 	// completion cannot draw itself into a field nobody has typed in, and this is
 	// the question where a second file is either added or forgotten.
-	if !strings.Contains(view, "press tab to use one of them") {
+	//
+	// Read as one run of words, because the note is folded into the box and the
+	// sentence may cross a line: where it folds depends on how long a temporary
+	// directory's path is on the machine running this.
+	if !strings.Contains(flowed(view), "press tab to use one of them") {
 		t.Errorf("the repeat does not say what is left to add:\n%s", view)
 	}
 
@@ -330,14 +448,14 @@ func atReview(t *testing.T, width int) Model {
 	return model
 }
 
-// roomFor is a terminal wide enough that a dialog of this width is not clamped.
+// roomFor is a terminal wide enough that a wizard of this width is not clamped.
 //
-// dialogLimits allows three quarters of the terminal, so a dialog is drawn at its
-// own size only where three quarters of the screen is at least that. The width is
+// wizardLimits allows half the terminal, so this dialog is drawn at its own size
+// only where half the screen is at least that. The width is
 // derived rather than written down because what the review holds is a path, and
 // how long a path is depends on the machine the test is running on — which is how
 // this test first failed on somebody else's.
-func roomFor(cells int) int { return cells*4/3 + 8 }
+func roomFor(cells int) int { return cells*2 + 8 }
 
 // TestTheWizardIsSizedToItsContent keeps the dialog off the width of the screen.
 //
@@ -355,7 +473,7 @@ func TestTheWizardIsSizedToItsContent(t *testing.T) {
 	model := atReview(t, 400)
 
 	natural, _ := blockSize(model.dialogView())
-	allowed, _ := model.dialogLimits()
+	allowed, _ := model.wizardLimits()
 	if natural >= allowed {
 		t.Fatalf("the review took all %d cells it was allowed rather than sizing to the file", allowed)
 	}
@@ -370,7 +488,7 @@ func TestTheWizardIsSizedToItsContent(t *testing.T) {
 	// And a terminal with no room for it is still not overrun: the allowance is
 	// a ceiling, and the file's lines are cut to it.
 	cramped := sized(model, natural, 44)
-	crampedAllowed, _ := cramped.dialogLimits()
+	crampedAllowed, _ := cramped.wizardLimits()
 	if got, _ := blockSize(cramped.dialogView()); got > crampedAllowed {
 		t.Errorf("the review is %d cells in a box allowed %d", got, crampedAllowed)
 	}
@@ -534,8 +652,12 @@ func TestRegisteringIsOfferedAndAnswered(t *testing.T) {
 	if len(backend.registered) != 1 || backend.registered[0] != "repo" {
 		t.Fatalf("registered %v, want the project that was written", backend.registered)
 	}
+	// The path is asserted with the line breaks taken out, because the wizard's
+	// box is half the terminal and a temporary directory's path is longer than
+	// that: it is wrapped rather than cut, which is what wizardModel.wrap is for —
+	// a path that is cut is a path nobody can check.
 	view := content(model)
-	if !strings.Contains(view, filepath.Join("config", "repo.yaml")) {
+	if !strings.Contains(rejoined(view), filepath.Join("config", "repo.yaml")) {
 		t.Errorf("the last screen does not say what was written:\n%s", view)
 	}
 	if !strings.Contains(view, "registered repo") {

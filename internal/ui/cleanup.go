@@ -722,6 +722,19 @@ func (m Model) cleanupArchive(width int) string {
 // scrolled to wherever the window is.
 func (m Model) cleanupInventory(width, height int) string {
 	lines := m.cleanupLines(width)
+
+	// Every line is drawn in the width of the inventory's widest, so that
+	// scrolling through it does not resize the dialog around it. The measure is
+	// the whole inventory rather than the window, because the window is what
+	// changes: one long resource identity low in a plan widened the box the
+	// moment it came into view.
+	block := documentWidth(lines, max(1, width))
+	drawn := make([]string, len(lines))
+	for i, line := range lines {
+		drawn[i] = pad(line, block)
+	}
+	lines = drawn
+
 	if len(lines) <= height {
 		return strings.Join(lines, "\n") + "\n"
 	}

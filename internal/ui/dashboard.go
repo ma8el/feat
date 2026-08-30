@@ -137,12 +137,16 @@ func agentLocation(mode string) string {
 // devcontainer this build cannot start. Saying so in words is the rule ADR-031
 // set: a value that was never measured is never displayed as one, and a
 // boundary that is not there is never implied by silence.
+//
+// The first of those sentences is startingNote's, and is written there rather
+// than here: the terminal tab says the same thing about the same state, and a
+// wording kept in two places is a wording that comes to differ.
 func terminalNote(task api.Task) string {
 	if task.Session == nil {
 		return ""
 	}
-	if task.Workflow == "preparing" {
-		return "the terminal is running; the agent has not reported starting yet"
+	if note := startingNote(task); note != "" {
+		return note
 	}
 	if task.Session.ExecutionMode == "host" {
 		for _, binding := range task.Repositories {

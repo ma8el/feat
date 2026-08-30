@@ -127,6 +127,10 @@ func (w *wizardModel) resize(width, height int) {
 	if width > 4 {
 		w.input.SetWidth(min(width-6, 100))
 	}
+	// The field's width and the block's are told apart: the field is one line
+	// inside the block, indented and capped, and the prose around it is the whole
+	// of what the box has. The dialog knows both and the widget guesses neither.
+	w.input.SetContextWidth(w.wrapWidth())
 }
 
 func (w wizardModel) Update(message tea.Msg) (wizardModel, tea.Cmd) {
@@ -311,13 +315,13 @@ func (w wizardModel) reviewingKey(key tea.KeyMsg) (wizardModel, tea.Cmd) {
 			w.scroll--
 		}
 	case "down", "j":
-		if w.scroll < w.reviewLines()-1 {
+		if w.scroll < w.reviewEnd() {
 			w.scroll++
 		}
 	case "pgup":
 		w.scroll = max(0, w.scroll-w.reviewHeight())
 	case "pgdown":
-		w.scroll = min(max(0, w.reviewLines()-1), w.scroll+w.reviewHeight())
+		w.scroll = min(w.reviewEnd(), w.scroll+w.reviewHeight())
 	}
 	return w, nil
 }
@@ -340,14 +344,16 @@ func (w wizardModel) checkingKey(key tea.KeyMsg) (wizardModel, tea.Cmd) {
 		w.check = w.check.start(w.flow.ID())
 		return w, diagnose(w.backend, w.flow.ID())
 
+	// The report is drawn in the same window the review is, which is what the
+	// scroll is measured against.
 	case "up", "k":
-		w.check = w.check.scrollBy(-1)
+		w.check = w.check.scrollBy(-1, w.reviewHeight())
 	case "down", "j":
-		w.check = w.check.scrollBy(1)
+		w.check = w.check.scrollBy(1, w.reviewHeight())
 	case "pgup":
-		w.check = w.check.scrollBy(-w.reviewHeight())
+		w.check = w.check.scrollBy(-w.reviewHeight(), w.reviewHeight())
 	case "pgdown":
-		w.check = w.check.scrollBy(w.reviewHeight())
+		w.check = w.check.scrollBy(w.reviewHeight(), w.reviewHeight())
 	}
 	return w, nil
 }
@@ -410,4 +416,20 @@ func (w wizardModel) reviewLines() int {
 func (w wizardModel) reviewHeight() int {
 	const chrome = 14
 	return max(3, w.height-chrome)
+}
+
+// reviewEnd is the last offset the review scrolls to: the one whose window ends
+// on the last line of the file.
+//
+// The end of a scroll is the last window, not the last line. Clamping to the
+// line left the file's final line alone in a box that had collapsed around it,
+// because dialogBox sets no height and is as tall as what it is given — so the
+// last thing a user did before writing the configuration was watch the box
+// shrink to one line of it.
+//
+// It is publication's form rather than clampScroll's, which clamps one line
+// short so that its last window carries a line over. That belongs to the task
+// panel and to cleanup's inventory, and neither has this collapse.
+func (w wizardModel) reviewEnd() int {
+	return max(0, w.reviewLines()-w.reviewHeight())
 }

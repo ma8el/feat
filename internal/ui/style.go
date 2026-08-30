@@ -119,6 +119,23 @@ func pad(cell string, width int) string {
 	return cell
 }
 
+// centreLine indents a line to the middle of a width.
+//
+// It measures what the terminal will draw rather than counting bytes, as pad
+// does and for the same reason: the lines this is given carry styling, and one
+// of them carries the indicator's own glyph.
+//
+// A line that does not fit is returned where it is. The caller cuts it to the
+// region afterwards, and an indent added to something already too wide would
+// only move the cut further into the sentence.
+func centreLine(line string, width int) string {
+	indent := (width - ansi.StringWidth(line)) / 2
+	if indent <= 0 {
+		return line
+	}
+	return strings.Repeat(" ", indent) + line
+}
+
 // tabStop is where a terminal puts a tab: the next multiple of eight.
 const tabStop = 8
 
@@ -197,3 +214,16 @@ func keyHint(key, action string) string { return ask.KeyHint(key, action) }
 
 // keyHints joins footer hints.
 func keyHints(hints ...string) string { return ask.KeyHints(hints...) }
+
+// readHint is the keys that move a document under its window.
+//
+// One wording, because five overlays offer the same four keys and every one of
+// them named two: the arrows and the page keys were on the screen and the
+// letters were not. j and k work in all of them — the key handlers answer "up",
+// "k" and "down", "j" together — and a user who has learned the dashboard's own
+// j and k had nothing here telling them the same keys carry over. A key that
+// works and is not offered is as good as one that does not exist.
+//
+// The letters lead, as they do in the dashboard's key map, where the same pair
+// is written `j k h l  ↓↑←→`.
+func readHint() string { return keyHint("j k ↑↓ pgup/pgdn", "read") }

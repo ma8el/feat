@@ -43,3 +43,34 @@ func KeyHint(key, action string) string {
 func KeyHints(hints ...string) string {
 	return strings.Join(hints, MutedStyle.Render("   "))
 }
+
+// Wrap folds text into a width, measuring what the terminal will draw.
+//
+// It is here for the reason the styles are: the dashboard wraps the paths and
+// the errors it draws around a question, the widget wraps the prose the flow
+// writes for one, and two wrappers that fold differently would put a paragraph
+// and the sentence under it on different measures inside one box (ADR-084). The
+// dependency runs one way, so `internal/ui` reads this back as it reads the four
+// style tokens back.
+//
+// The padding lipgloss adds is taken off again. A dialog shrinks its box to the
+// widest line it is handed, and a line padded out to the width it wrapped to
+// reports itself as exactly as wide as the dialog was allowed — so a wrapped
+// paragraph would take three quarters of the terminal to say something half that
+// wide, which is the defect wizardModel.wrap was written to avoid and which this
+// inherits the fix for.
+//
+// A width of nothing is text nobody has been told how to fold, and it is
+// returned as it came: a caller that has not been given a width leaves this
+// alone, which is the same rule SetWidth follows.
+func Wrap(text string, width int) string {
+	if width < 1 {
+		return text
+	}
+
+	lines := strings.Split(lipgloss.NewStyle().Width(width).Render(text), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " ")
+	}
+	return strings.Join(lines, "\n")
+}

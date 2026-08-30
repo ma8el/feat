@@ -529,18 +529,44 @@ func (m Model) publicationWindow(width, height int) string {
 	}
 
 	var out strings.Builder
-	first := min(m.publication.scroll, max(0, len(lines)-1))
+	// The last window rather than the last line, and clamped here as well as
+	// where the keys move it, so that the renderer and the key handler cannot
+	// disagree about where the document ends.
+	first := min(m.publication.scroll, max(0, len(lines)-max(1, height)))
 	last := min(len(lines), first+max(1, height))
 
+	// Every line is drawn in the width of the draft's widest, so that scrolling
+	// through it does not resize the dialog around it. The measure is the whole
+	// draft rather than the window, because the window is what changes: a long
+	// line low in a document widened the box the moment it came into view.
+	block := documentWidth(lines, max(1, width))
+
+	// Both marker rows are drawn whether or not there is a marker for them, blank
+	// where there is none. publicationDocumentSize reserves a constant two lines
+	// for them rather than counting the ones that appear, and the two have to
+	// agree: the alternative — subtracting only the markers actually drawn —
+	// would work visually and change how much of the draft the gate believes was
+	// read. ADR-076's gate is "these lines were displayed", and a note that
+	// quietly took one of their rows would make it "these lines were displayed,
+	// less one".
+	//
+	// It is also what stops the box wobbling by up to two lines as the reader
+	// moves, and losing one exactly as they reach the end.
+	above := ""
 	if first > 0 {
-		out.WriteString(mutedStyle.Render("  … "+count(first, "line", "lines")+" above") + "\n")
+		above = mutedStyle.Render("  … " + count(first, "line", "lines") + " above")
 	}
+	out.WriteString(above + "\n")
+
 	for _, line := range lines[first:last] {
-		out.WriteString(truncate(line, max(1, width)) + "\n")
+		out.WriteString(pad(line, block) + "\n")
 	}
+
+	below := ""
 	if last < len(lines) {
-		out.WriteString(mutedStyle.Render("  … "+count(len(lines)-last, "more line", "more lines")) + "\n")
+		below = mutedStyle.Render("  … " + count(len(lines)-last, "more line", "more lines"))
 	}
+	out.WriteString(below + "\n")
 	return out.String()
 }
 
@@ -764,13 +790,13 @@ func (m Model) publicationHints() string {
 		// Looking again is offered here rather than only before a publication,
 		// because this is where a partial one is read: nothing is rolled back,
 		// and a fresh plan is what names the repositories still to publish.
-		return keyHints(keyHint("↑↓ pgup/pgdn", "read"),
+		return keyHints(readHint(),
 			keyHint("r", "look again"), keyHint("esc", "close"))
 	}
 
 	var hints []string
 	if m.publicationScrollable() {
-		hints = append(hints, keyHint("↑↓ pgup/pgdn", "read"))
+		hints = append(hints, readHint())
 	}
 	if len(api.OfferedDrafts(m.publication.status.Drafts)) > 0 {
 		hints = append(hints, keyHint("e", "edit the draft"))

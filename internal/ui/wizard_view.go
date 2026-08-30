@@ -3,9 +3,7 @@ package ui
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
-
+	"github.com/ma8el/feat/internal/ui/ask"
 	"github.com/ma8el/feat/internal/wizard"
 )
 
@@ -90,35 +88,32 @@ func (w wizardModel) reviewView() string {
 
 	lines := strings.Split(strings.TrimRight(string(w.review.Text), "\n"), "\n")
 	height := w.reviewHeight()
-	first := min(w.scroll, max(0, len(lines)-1))
+	// The last window rather than the last line, and clamped here as well as
+	// where the keys move it, so that the renderer and the key handler cannot
+	// disagree about where the file ends.
+	first := min(w.scroll, w.reviewEnd())
 	last := min(len(lines), first+height)
 
 	// Every line is drawn in the width of the file's widest, so that scrolling
 	// through it does not resize the dialog around it. The measure is the whole
 	// file rather than the window, because the window is what changes.
-	block := reviewBlock(lines, max(1, w.width-2))
+	block := documentWidth(lines, max(1, w.width-2))
 	for _, line := range lines[first:last] {
 		out.WriteString(mutedStyle.Render(pad(line, block)) + "\n")
 	}
+
+	// The marker row is drawn whether or not there is a marker for it, blank
+	// where there is none. reviewHeight reserves a line for it, and a note that
+	// appeared and disappeared made the dialog a line shorter exactly as the user
+	// reached the end of the file they were about to write.
+	note := ""
 	if last < len(lines) {
-		out.WriteString(mutedStyle.Render("… " + count(len(lines)-last, "more line", "more lines")))
-		out.WriteString("\n")
+		note = mutedStyle.Render("… " + count(len(lines)-last, "more line", "more lines"))
 	}
+	out.WriteString(note + "\n")
 
 	out.WriteString("\n" + mutedStyle.Render("nothing has been written yet") + "\n")
 	return out.String()
-}
-
-// reviewBlock is the width the configuration is drawn in: its own widest line,
-// up to what the dialog allows.
-func reviewBlock(lines []string, limit int) int {
-	widest := 0
-	for _, line := range lines {
-		if measured := ansi.StringWidth(line); measured > widest {
-			widest = measured
-		}
-	}
-	return min(max(widest, 1), limit)
 }
 
 // checkView draws what this machine says about the project that now exists.
@@ -179,35 +174,28 @@ func (w wizardModel) doneView() string {
 // that a user acts on, and the box composites by cell: without this they end in
 // an ellipsis, and a path that is cut is a path nobody can check.
 //
-// The padding lipgloss adds is taken back off. dialogBox shrinks its box to the
-// widest line it is handed, and a line padded out to the width it wrapped to
-// reports itself as exactly as wide as the dialog was allowed — so the wizard
-// took three quarters of the terminal from the review step onwards, to show a
-// file whose lines are half that. What decides the width now is the widest thing
-// actually on the screen, which is what lets this dialog have as much room as it
-// needs and no more.
-func (w wizardModel) wrap(text string) string {
-	wrapped := lipgloss.NewStyle().Width(max(20, w.width)).Render(text)
+// The fold itself is the widget's, read back as the styles are (ADR-084). It
+// used to be written here, and the question's own prose — which the widget draws
+// and this cannot reach inside — went unwrapped for exactly as long: one screen
+// with a wrapper on the sentences around a question and none on the question's.
+func (w wizardModel) wrap(text string) string { return ask.Wrap(text, w.wrapWidth()) }
 
-	lines := strings.Split(wrapped, "\n")
-	for i, line := range lines {
-		lines[i] = strings.TrimRight(line, " ")
-	}
-	return strings.Join(lines, "\n")
-}
+// wrapWidth is what this dialog folds prose into, and what it tells the widget
+// to fold the question's own prose into, so that the two cannot differ.
+func (w wizardModel) wrapWidth() int { return max(20, w.width) }
 
 func (w wizardModel) hints() string {
 	switch w.step {
 	case wizardReviewing:
 		return keyHints(
 			keyHint("enter", "write it"),
-			keyHint("↑↓ pgup/pgdn", "read"),
+			readHint(),
 			keyHint("esc", "back"),
 			keyHint("ctrl+c", "cancel"),
 		)
 	case wizardChecking:
 		return keyHints(
-			keyHint("↑↓ pgup/pgdn", "read"),
+			readHint(),
 			keyHint("r", "check again"),
 			keyHint("enter", "continue"),
 		)

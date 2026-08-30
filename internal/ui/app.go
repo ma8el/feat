@@ -624,6 +624,12 @@ func (m Model) animate(cmd tea.Cmd) (tea.Model, tea.Cmd) {
 // drawn on the screen that is waiting and nowhere else: a dialog closed over a
 // request still in flight has nothing left to draw a spinner in, and the answer
 // it is waiting for lands in the footer.
+//
+// The terminal's case widens what this answers. Every other wait here is a
+// request the dashboard has outstanding with the daemon; that one is a wait on
+// an event from the agent, which nothing on this side asked for and which the
+// daemon will report when it arrives. It is the same fact for the reader — Feat
+// is waiting, and this is what for — and the indicator says exactly that much.
 func (m Model) waiting() bool {
 	switch m.screen {
 	case screenPrepare:
@@ -636,6 +642,9 @@ func (m Model) waiting() bool {
 		return m.review.observing || m.review.pending != ""
 	case screenRuntime:
 		return m.runtime.observing || m.runtime.pending != ""
+	case screenTerminal:
+		task, ok := m.subject()
+		return ok && startingNote(task) != ""
 	}
 	return false
 }
@@ -646,7 +655,7 @@ func (m Model) apply(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = message.Width, message.Height
 		m.prepare.resize(m.preparationSize())
-		m.wizard.resize(m.preparationSize())
+		m.wizard.resize(m.wizardSize())
 		// A window that grew shows more of the publication draft than the last
 		// one did, and what has been shown is what may be published: the frame
 		// that follows this message is drawn at the new size, so this is where
@@ -1314,7 +1323,9 @@ func (m Model) openDiagnosis() (tea.Model, tea.Cmd) {
 
 // diagnosisKey answers the report: read it, run it again, or leave.
 func (m Model) diagnosisKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
-	_, height := m.dialogLimits()
+	// The window the report is drawn in, not the dialog it sits inside: paging by
+	// the dialog's height moved the document further than the screen showed.
+	_, height := m.diagnosisSize()
 
 	switch key.String() {
 	case "esc", "D":
@@ -1338,13 +1349,13 @@ func (m Model) diagnosisKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, diagnose(m.backend, project)
 
 	case "up", "k":
-		m.diagnosis = m.diagnosis.scrollBy(-1)
+		m.diagnosis = m.diagnosis.scrollBy(-1, height)
 	case "down", "j":
-		m.diagnosis = m.diagnosis.scrollBy(1)
+		m.diagnosis = m.diagnosis.scrollBy(1, height)
 	case "pgup":
-		m.diagnosis = m.diagnosis.scrollBy(-height)
+		m.diagnosis = m.diagnosis.scrollBy(-height, height)
 	case "pgdown":
-		m.diagnosis = m.diagnosis.scrollBy(height)
+		m.diagnosis = m.diagnosis.scrollBy(height, height)
 	}
 	return m, nil
 }
@@ -1358,7 +1369,7 @@ func (m Model) configureProject() (tea.Model, tea.Cmd) {
 	m.rememberTab()
 	m.screen = screenWizard
 	m.wizard = newWizard(m.backend)
-	m.wizard.resize(m.preparationSize())
+	m.wizard.resize(m.wizardSize())
 	return m, m.wizard.Init()
 }
 
@@ -1689,9 +1700,8 @@ func (m Model) stackedView() string {
 	case screenWizard:
 		return m.wizard.View()
 	case screenDiagnosis:
-		width, height := m.frameSize()
-		return m.diagnosis.body(width, height-footerHeight-diagnosisChrome) +
-			m.footer(m.diagnosisHints())
+		width, height := m.diagnosisSize()
+		return m.diagnosis.body(width, height) + m.footer(m.diagnosisHints())
 	case screenTask:
 		return m.taskView()
 	case screenBrief:
@@ -1726,6 +1736,40 @@ func (m Model) dialogLimits() (widest, tallest int) {
 	return width * 3 / 4, height - footerHeight
 }
 
+// wizardLimits are the widest and tallest `configure a project` is drawn.
+//
+// Half the terminal, where every other overlay has three quarters, and it is the
+// one overlay whose content is prose the user reads rather than the paths,
+// identifiers, and lists the others hold. Width is legibility for those and a
+// cost for this one: ADR-088 gave the question widget the box to fold its
+// paragraphs into, which fixed a note that was being cut short, and what it
+// inherited was the box's own measure — a paragraph set to a hundred and sixteen
+// cells on a wide terminal, which is past where a line stops being read and
+// starts being scanned back to.
+//
+// The tallest is unchanged. A dialog never reaches the footer, and how long a
+// line is says nothing about how many of them there is room for.
+func (m Model) wizardLimits() (widest, tallest int) {
+	width, height := m.frameSize()
+	// Never below what its own keys need, and never above what it would have been
+	// allowed before: the floor is a floor rather than a licence to be wider than
+	// every other overlay on a terminal too narrow for either.
+	return min(max(width/2, wizardSmallest), width*3/4), height - footerHeight
+}
+
+// wizardSmallest is the narrowest `configure a project` is drawn, whatever half
+// the terminal comes to.
+//
+// The review step names the most keys of any step — write it, the four that read
+// the file, step back, and cancel — and they come to sixty-five cells, with the
+// box spending four more on its border and gutters. A hint that is cut is a key
+// nobody can press, which is what the key map already says about its own column,
+// so this is a floor and not something the narrower measure may squeeze.
+// TestEveryWizardStepCanNameItsKeys is what keeps the number honest.
+//
+// It binds below about a hundred and forty columns and does nothing above it.
+const wizardSmallest = 65 + dialogChrome
+
 // dialogView renders the open overlay, or nothing when none is open.
 func (m Model) dialogView() string {
 	inner, tallest := m.dialogLimits()
@@ -1734,11 +1778,14 @@ func (m Model) dialogView() string {
 	case screenPrepare:
 		return dialogBox("prepare a task", m.prepare.View(m.activity), inner, tallest)
 	case screenWizard:
-		return dialogBox("configure a project", m.wizard.View(), inner, tallest)
+		// Its own allowance, which is narrower than every other overlay's; see
+		// wizardLimits for why this is the one that reads better with less.
+		widest, tall := m.wizardLimits()
+		return dialogBox("configure a project", m.wizard.View(), widest, tall)
 	case screenDiagnosis:
+		width, height := m.diagnosisSize()
 		return dialogBox(m.diagnosis.title(),
-			m.diagnosis.body(inner-cardChrome, tallest-diagnosisChrome)+"\n"+m.diagnosisHints(),
-			inner, tallest)
+			m.diagnosis.body(width, height)+"\n"+m.diagnosisHints(), inner, tallest)
 	case screenCleanup:
 		// The dialog carries cleanup's own keys, because the frame's footer says
 		// how to close a dialog and this says what this one can do.
@@ -1786,6 +1833,22 @@ func (m Model) preparationSize() (width, height int) {
 	widest, tallest := m.dialogLimits()
 	// What the box itself spends: a border and a gutter on each side, and a
 	// border above and below.
+	return widest - cardChrome, tallest - cardVerticalChrome
+}
+
+// wizardSize is the space `configure a project` is drawn in.
+//
+// It is preparationSize's shape over the wizard's own allowance, and it is a
+// second function rather than a parameter because the two overlays no longer
+// share a width. The wizard's field and the prose around it size themselves to
+// what they are told, so this is what they are told — and it is told to the
+// widget as well, which folds a question's paragraphs into it (ADR-088).
+func (m Model) wizardSize() (width, height int) {
+	if m.narrow() {
+		return m.frameSize()
+	}
+
+	widest, tallest := m.wizardLimits()
 	return widest - cardChrome, tallest - cardVerticalChrome
 }
 

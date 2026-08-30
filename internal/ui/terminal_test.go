@@ -772,6 +772,352 @@ func TestTheTerminalTabSpendsItsRowsOnTheTerminal(t *testing.T) {
 	}
 }
 
+// preparingTask is a launched task whose terminal exists and whose agent has not
+// painted in it yet.
+//
+// It is derived from liveTask rather than replacing it: the two differ in the
+// workflow and in nothing else, and the point of every test below is what the
+// region does with that one difference. liveTask is `working` and is shared, so
+// it is copied rather than moved into this state.
+func preparingTask() api.Task {
+	task := liveTask()
+	task.Workflow = "preparing"
+	task.Attention = "none"
+	return task
+}
+
+// blankPane is the capture that made the region blank: the pane exists, its
+// program is running, and it has painted nothing yet.
+func blankPane() api.TerminalFrame {
+	return api.TerminalFrame{Width: 87, Height: 6, Panes: []api.TerminalPane{
+		{Pane: "%1", Width: 87, Height: 6, Active: true, CursorX: 0, CursorY: 0},
+	}}
+}
+
+// startingSentence is what the region says while the agent has not painted, and
+// terminalNote's first branch says on the task panel. One wording, one home.
+const startingSentence = "the terminal is running; the agent has not reported starting yet"
+
+// terminalRegion renders the main region for one task and one capture.
+func terminalRegion(t *testing.T, task api.Task, frame api.TerminalFrame) string {
+	t.Helper()
+
+	model := terminalDashboard(t, newFakeBackend(), task)
+	loaded, _ := model.Update(terminalFrameMsg{task: task.ID, frame: frame})
+	return ansi.Strip(loaded.(Model).terminalBody(87, 6))
+}
+
+// TestABlankPaneSaysTheAgentHasNotStarted is the reported defect: a user who
+// launches a task lands on the terminal tab and watches an empty box for a few
+// seconds with nothing on screen saying why.
+//
+// The overlay covers the launch itself and says so. What follows it — the
+// provider starting inside a pane that already exists — had no sentence at all,
+// and the daemon's own event log puts a median of 1.51s and a worst case of
+// 12.79s in it.
+func TestABlankPaneSaysTheAgentHasNotStarted(t *testing.T) {
+	body := terminalRegion(t, preparingTask(), blankPane())
+
+	if !strings.Contains(body, startingSentence) {
+		t.Errorf("the blank region says nothing about why it is blank:\n%s", body)
+	}
+}
+
+// TestAPreparingPaneIsStillDrawn is the test that matters most in this slice.
+//
+// Claude asks for workspace trust on a directory it has not seen before, and
+// every task worktree is one — so the question is drawn while the task is still
+// `preparing`. A note that replaced the capture would cover the question the
+// user has to answer for the launch to finish at all, which is why the note
+// takes a row beside the pane and never the pane's place (ADR-042: nothing here
+// reads the capture to decide what to draw).
+func TestAPreparingPaneIsStillDrawn(t *testing.T) {
+	trust := api.TerminalFrame{Width: 87, Height: 6, Panes: []api.TerminalPane{
+		{Pane: "%1", Width: 87, Height: 6, Active: true, Content: []string{
+			"Do you trust the files in this folder?", "> 1. Yes, proceed",
+		}},
+	}}
+
+	body := terminalRegion(t, preparingTask(), trust)
+
+	if !strings.Contains(body, "Do you trust the files in this folder?") {
+		t.Errorf("the note covered the question the launch is waiting on:\n%s", body)
+	}
+	if !strings.Contains(body, "1. Yes, proceed") {
+		t.Errorf("the answer the user has to pick is not on screen:\n%s", body)
+	}
+	if !strings.Contains(body, startingSentence) {
+		t.Errorf("the region drew the pane and dropped the note:\n%s", body)
+	}
+}
+
+// TestADeadPaneWinsTheNoteRow checks the precedence between the two notes.
+//
+// A pane whose program has exited is not one whose agent is about to paint, so
+// the startup sentence there would be a lie. There is one note row and the true
+// note takes it.
+func TestADeadPaneWinsTheNoteRow(t *testing.T) {
+	dead := api.TerminalFrame{Width: 87, Height: 6, Panes: []api.TerminalPane{
+		{Pane: "%1", Width: 87, Height: 6, Active: true, Dead: true,
+			Content: []string{"claude: command not found"}},
+	}}
+
+	body := terminalRegion(t, preparingTask(), dead)
+
+	if !strings.Contains(body, "exited; the terminal is retained so it can be read") {
+		t.Errorf("the dead pane is not explained:\n%s", body)
+	}
+	if strings.Contains(body, startingSentence) {
+		t.Errorf("a pane whose program has exited is described as still starting:\n%s", body)
+	}
+}
+
+// TestAStartupThatStoppedBeingOneSaysSo is what bounds the sentence.
+//
+// A task can sit in `preparing` indefinitely, and after the startup grace the
+// daemon raises attention and leaves the workflow where it is. From that moment
+// "the agent has not reported starting yet" is a claim Feat has stopped
+// believing, so it is dropped for the honest one. The bound is the attention the
+// daemon publishes rather than a clock kept in the view.
+func TestAStartupThatStoppedBeingOneSaysSo(t *testing.T) {
+	task := preparingTask()
+	task.Attention = "possibly_waiting"
+
+	body := terminalRegion(t, task, blankPane())
+
+	if strings.Contains(body, startingSentence) {
+		t.Errorf("the region still claims the agent is starting:\n%s", body)
+	}
+	if !strings.Contains(body, "nothing has been heard from the agent") {
+		t.Errorf("the region says nothing about a startup that has not arrived:\n%s", body)
+	}
+	if !strings.Contains(body, "the pane may be asking something") {
+		t.Errorf("the region does not say what the pane might be doing:\n%s", body)
+	}
+	// No clock, deadline, or elapsed figure: the rail carries elapsed already.
+	for _, invented := range []string{"seconds", "elapsed", "timed out"} {
+		if strings.Contains(body, invented) {
+			t.Errorf("the region invented %q from a state that carries no time:\n%s", invented, body)
+		}
+	}
+}
+
+// TestAWorkingTaskGetsNoStartupNote keeps the note to the state it is about. A
+// task whose agent has reported starting spends every row of the region on the
+// pane.
+func TestAWorkingTaskGetsNoStartupNote(t *testing.T) {
+	body := terminalRegion(t, liveTask(), twoPaneFrame())
+
+	if strings.Contains(body, startingSentence) {
+		t.Errorf("a working task is described as starting:\n%s", body)
+	}
+	if strings.Contains(body, "nothing has been heard from the agent") {
+		t.Errorf("a working task is described as unheard from:\n%s", body)
+	}
+}
+
+// TestTheRegionDoesNotBlameTmuxForAStartingAgent covers the branch before any
+// frame has arrived.
+//
+// A user who has just launched is not waiting on tmux — the pane is there and
+// the agent has not painted in it — so being told Feat is asking tmux a question
+// is a second wrong answer to the one question they have.
+func TestTheRegionDoesNotBlameTmuxForAStartingAgent(t *testing.T) {
+	// No frame has been delivered, so the region has nothing recorded for this
+	// task: the state the dashboard is in the moment the overlay closes.
+	model := terminalDashboard(t, newFakeBackend(), preparingTask())
+
+	body := ansi.Strip(model.terminalBody(87, 6))
+	if strings.Contains(body, "asking tmux") {
+		t.Errorf("the region blamed tmux for an agent that has not started:\n%s", body)
+	}
+	if !strings.Contains(body, startingSentence) {
+		t.Errorf("the region says nothing before the first frame:\n%s", body)
+	}
+
+	// The other branch that says it: a frame was recorded for this task and none
+	// has loaded.
+	model.terminal.task = preparingTask().ID
+	model.terminal.loaded = false
+	if body := ansi.Strip(model.terminalBody(87, 6)); !strings.Contains(body, startingSentence) {
+		t.Errorf("the unloaded branch still blames tmux:\n%s", body)
+	}
+
+	// A task nobody launched keeps the sentence about tmux, which is true of it.
+	working := terminalDashboard(t, newFakeBackend(), liveTask())
+	if body := ansi.Strip(working.terminalBody(87, 6)); !strings.Contains(body, "asking tmux") {
+		t.Errorf("a task with no frame yet says nothing at all:\n%s", body)
+	}
+}
+
+// rowOf is which row of a rendered region carries a string, and how many rows
+// there are, so that a note's place can be compared between two renderings.
+func rowOf(t *testing.T, body, want string) (row, rows int) {
+	t.Helper()
+
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		if strings.Contains(line, want) {
+			return i, len(lines)
+		}
+	}
+	t.Fatalf("%q is not in the region:\n%s", want, body)
+	return 0, 0
+}
+
+// TestTheStartupNoteKeepsItsPlace is the reported glitch.
+//
+// The note was drawn for one frame in the region's top corner and then, for the
+// rest of the wait, in its bottom one: before the first capture it was the
+// region's only line, and the moment a pane arrived underneath it moved to the
+// foot. A note about waiting that moves while you wait for it is read the same
+// way a frozen indicator is — as the dashboard doing something other than what
+// it says.
+//
+// The two renderings either side of the first capture are the ones a user sees
+// in that order, a quarter of a second apart, so they are compared directly.
+func TestTheStartupNoteKeepsItsPlace(t *testing.T) {
+	model := terminalDashboard(t, newFakeBackend(), preparingTask())
+
+	before, rowsBefore := rowOf(t, ansi.Strip(model.terminalBody(87, 6)), startingSentence)
+
+	loaded, _ := model.Update(terminalFrameMsg{task: preparingTask().ID, frame: blankPane()})
+	body := ansi.Strip(loaded.(Model).terminalBody(87, 6))
+	after, rowsAfter := rowOf(t, body, startingSentence)
+
+	if before != after {
+		t.Errorf("the note moved from row %d to row %d when the first capture arrived", before, after)
+	}
+	if rowsBefore != 6 || rowsAfter != 6 {
+		t.Errorf("the region drew %d rows before the capture and %d after, want six of both",
+			rowsBefore, rowsAfter)
+	}
+	// The middle of a six-row region, a row above the exact centre on an even
+	// height, which is where centreOverlay puts a dialog.
+	if before != 2 {
+		t.Errorf("the note is on row %d of a six-row region, want the middle:\n%s", before, body)
+	}
+}
+
+// TestTheStartupNoteIsCentredInAnEmptyRegion is what a user watching a launch
+// looks at: an empty box, and the one thing in it in the middle of it.
+func TestTheStartupNoteIsCentredInAnEmptyRegion(t *testing.T) {
+	for name, task := range map[string]api.Task{
+		"starting": preparingTask(),
+		"unheard from": func() api.Task {
+			task := preparingTask()
+			task.Attention = "possibly_waiting"
+			return task
+		}(),
+	} {
+		body := terminalRegion(t, task, blankPane())
+		lines := strings.Split(body, "\n")
+
+		row, rows := rowOf(t, body, strings.TrimSpace(lines[2]))
+		if rows != 6 || row != 2 {
+			t.Errorf("%s: the note is on row %d of %d, want the middle of six:\n%s",
+				name, row, rows, body)
+		}
+
+		note := lines[row]
+		text := strings.TrimLeft(note, " ")
+		indent := ansi.StringWidth(note) - ansi.StringWidth(text)
+		if want := (87 - ansi.StringWidth(text)) / 2; indent != want {
+			t.Errorf("%s: the note starts at cell %d of 87, want %d", name, indent, want)
+		}
+		if indent == 0 {
+			t.Errorf("%s: the note is still against the region's left edge: %q", name, note)
+		}
+	}
+}
+
+// TestTheStartupNoteLeavesTheMiddleWhenThePanePaints is what makes the vertical
+// centring safe.
+//
+// The middle of the region is the note's only while there is nothing there to
+// cover. A workspace-trust prompt is drawn while the task is still `preparing`,
+// and a line across the middle would take a row of the question the launch is
+// waiting on — so the moment anything is drawn, the note goes back to a row of
+// its own at the foot.
+func TestTheStartupNoteLeavesTheMiddleWhenThePanePaints(t *testing.T) {
+	painted := api.TerminalFrame{Width: 87, Height: 6, Panes: []api.TerminalPane{
+		{Pane: "%1", Width: 87, Height: 6, Active: true, Content: []string{
+			"", "", "Do you trust the files in this folder?", "", "> 1. Yes, proceed",
+		}},
+	}}
+
+	body := terminalRegion(t, preparingTask(), painted)
+	row, rows := rowOf(t, body, startingSentence)
+
+	if rows != 6 || row != rows-1 {
+		t.Errorf("the note is on row %d of %d, want the last:\n%s", row, rows, body)
+	}
+	for _, kept := range []string{"Do you trust the files in this folder?", "1. Yes, proceed"} {
+		if !strings.Contains(body, kept) {
+			t.Errorf("the note covered %q:\n%s", kept, body)
+		}
+	}
+	// Still centred across the row it moved to: what changes is the row, not also
+	// the column.
+	note := strings.Split(body, "\n")[row]
+	text := strings.TrimLeft(note, " ")
+	if want := (87 - ansi.StringWidth(text)) / 2; ansi.StringWidth(note)-ansi.StringWidth(text) != want {
+		t.Errorf("the note lost its centring when it moved to the foot: %q", note)
+	}
+}
+
+// TestTheStartupNoteIsAnimated is why waiting gained a terminal case.
+//
+// activity is explicit that a frozen glyph is worse than no glyph: an indicator
+// that does not move cannot be told apart from a dashboard that has stopped,
+// which is the thing it exists to answer. The mark is only honest if the one
+// spinner is running while it is drawn.
+func TestTheStartupNoteIsAnimated(t *testing.T) {
+	model := terminalDashboard(t, newFakeBackend(), preparingTask())
+
+	if !model.waiting() {
+		t.Fatal("the terminal tab does not report waiting while an agent starts")
+	}
+	if !model.activity.running {
+		t.Error("the one indicator is not animating behind the startup note")
+	}
+
+	// And it stops. A task whose agent has reported starting is not a wait.
+	started, _ := model.Update(tasksMsg{tasks: []api.Task{liveTask()}})
+	if started.(Model).waiting() || started.(Model).activity.running {
+		t.Error("the indicator kept running after the agent started")
+	}
+}
+
+// TestTheStartupSentenceHasOneHome checks the extraction: the task panel's
+// wording is the terminal region's, read out of the same function.
+func TestTheStartupSentenceHasOneHome(t *testing.T) {
+	if note := terminalNote(preparingTask()); note != startingSentence {
+		t.Errorf("terminalNote = %q, want the sentence it has always shown", note)
+	}
+	if note := startingNote(preparingTask()); note != startingSentence {
+		t.Errorf("startingNote = %q, want the same sentence", note)
+	}
+
+	// The other branches of terminalNote are untouched by the extraction.
+	if note := terminalNote(liveTask()); note != "" {
+		t.Errorf("a working devcontainer task has a note: %q", note)
+	}
+	host := liveTask()
+	host.Session.ExecutionMode = "host"
+	host.Repositories[0].ContainerPath = "/srv/checkout/core"
+	if note := terminalNote(host); !strings.Contains(note, "directly on this host") {
+		t.Errorf("the host-execution note went missing: %q", note)
+	}
+
+	// A draft has no terminal to be starting in.
+	draft := preparingTask()
+	draft.Session = nil
+	if note := startingNote(draft); note != "" {
+		t.Errorf("a task with no session is described as starting: %q", note)
+	}
+}
+
 // TestSpaceReachesTheAgent is the reported defect.
 //
 // A space arrives as its own key type, not as runes, and its name is the
