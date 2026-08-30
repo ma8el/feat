@@ -20,7 +20,7 @@
         "change_available": true
       }
     },
-    "workflow": "approved",
+    "workflow": "ready_for_review",
     "attention": "none",
     "repositories": [
       {

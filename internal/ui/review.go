@@ -150,12 +150,6 @@ func (m Model) taskPanelKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "e":
 		return m.runReviewCommand(api.ReviewCommandKindEditor)
 
-	case "A":
-		return m.startReview(api.ReviewApprove)
-
-	case "C":
-		return m.startReview(api.ReviewRequestChanges)
-
 	case "V":
 		return m.startReview(api.ReviewVerify)
 
@@ -318,35 +312,26 @@ func reviewChangeSummary(row api.ReviewRepository) string {
 	return summary
 }
 
-// reviewDecision renders the user's decision, which is the task's workflow
-// state and is read from there.
+// reviewExits names what a task in a review state can do next.
 //
-// The keys are offered only where the transition exists. The decision used to be
-// read from the review aggregate's own copy of it, which knew nothing about the
-// task: a working task was offered "A to approve" and the daemon refused it,
-// because approving applies to a task whose agent has asked for review
-// (domain.workflowTransitions, ADR-047).
+// It replaces the decision field, which offered two keys nobody pressed: approve
+// was used once in fifty-one tasks and requesting changes never, while the two
+// transitions carrying the real loop — back to working by attaching and typing,
+// and out through cleanup — had no key on this panel at all (ADR-086). So the
+// line says what the exits are rather than recording a decision that travelled
+// nowhere.
 //
-// Requesting changes is the one decision that is not finished when it is
-// recorded. Feat tells the agent nothing about it: the revision reaches the
-// session when the user types it, and submitting that prompt is what returns the
-// task to working (FR-AGENT-009). So the line says what is left to do, rather
-// than marking a task with a decision that has not yet travelled anywhere.
-func reviewDecision(task api.Task) string {
+// A task whose agent has not asked for review has no exits to name and gets no
+// line, which is the panel's rule throughout: a check with nothing to report
+// reports nothing. Nor does a task whose checks are running: the old decision
+// field named no key in that state either, because what happens next is the
+// gate's rather than the user's.
+func reviewExits(task api.Task) string {
 	switch task.Workflow {
-	case "approved":
-		// Approval's own next step — the offer to stop services a task was
-		// approved with still running — is on the runtime line, where it appears
-		// only when there are services to stop.
-		return "approved"
-	case "changes_requested":
-		return "changes requested  " + mutedStyle.Render("(a to attach and say what to change)")
-	case "verifying":
-		return "pending  " + mutedStyle.Render("(the project's checks are running)")
 	case "review_requested", "ready_for_review", "verification_failed":
-		return "pending  " + mutedStyle.Render("(A to approve, C to send back)")
+		return "P to publish · a to attach and revise"
 	default:
-		return absent + "  " + mutedStyle.Render("(the agent has not asked for review)")
+		return ""
 	}
 }
 

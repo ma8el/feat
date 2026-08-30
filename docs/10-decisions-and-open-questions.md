@@ -2787,6 +2787,8 @@ the agent nothing — no inbox message is written, unlike a gate's verdict — a
 only reader treats it exactly as it treats `review_requested`,
 `ready_for_review`, and `verification_failed`. Either it earns its place by
 carrying the user's revision note into the session, or it folds into attaching.
+**Answered: it folded into attaching, and `approved` went with it, see ADR-086.
+FR-REV-004 no longer stands as written.**
 
 ### ADR-048 — Removing the external resource declaration
 

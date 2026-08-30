@@ -16,12 +16,10 @@ func TestWorkflowTransitionsMatchTheLifecycle(t *testing.T) {
 		WorkflowDraft:              {WorkflowPreparing, WorkflowArchived},
 		WorkflowPreparing:          {WorkflowWorking, WorkflowFailed, WorkflowArchived},
 		WorkflowWorking:            {WorkflowReviewRequested, WorkflowFailed, WorkflowArchived},
-		WorkflowReviewRequested:    {WorkflowVerifying, WorkflowReadyForReview, WorkflowChangesRequested, WorkflowApproved, WorkflowWorking, WorkflowFailed, WorkflowArchived},
+		WorkflowReviewRequested:    {WorkflowVerifying, WorkflowReadyForReview, WorkflowWorking, WorkflowFailed, WorkflowArchived},
 		WorkflowVerifying:          {WorkflowReadyForReview, WorkflowVerificationFailed, WorkflowReviewRequested, WorkflowFailed, WorkflowArchived},
-		WorkflowReadyForReview:     {WorkflowApproved, WorkflowChangesRequested, WorkflowWorking, WorkflowFailed, WorkflowArchived},
-		WorkflowVerificationFailed: {WorkflowWorking, WorkflowReviewRequested, WorkflowChangesRequested, WorkflowFailed, WorkflowArchived},
-		WorkflowChangesRequested:   {WorkflowWorking, WorkflowFailed, WorkflowArchived},
-		WorkflowApproved:           {WorkflowArchived},
+		WorkflowReadyForReview:     {WorkflowWorking, WorkflowFailed, WorkflowArchived},
+		WorkflowVerificationFailed: {WorkflowWorking, WorkflowReviewRequested, WorkflowFailed, WorkflowArchived},
 		WorkflowFailed:             {WorkflowPreparing, WorkflowWorking, WorkflowArchived},
 		WorkflowArchived:           nil,
 	}
@@ -45,8 +43,8 @@ func TestWorkflowTransitionsMatchTheLifecycle(t *testing.T) {
 }
 
 // TestIdleIsNotCompletion checks invariant 13 as a property of the lifecycle: no
-// state reaches ready_for_review or approved without passing through an explicit
-// review request.
+// state reaches ready_for_review without passing through an explicit review
+// request.
 //
 // A Stop or end-of-turn signal is an observation of a process. The shape a
 // "Stop means done" defect would take is exactly an edge into a review state
@@ -62,10 +60,8 @@ func TestIdleIsNotCompletion(t *testing.T) {
 		if allowed[state] {
 			continue
 		}
-		for _, completion := range []WorkflowState{WorkflowReadyForReview, WorkflowApproved} {
-			if state.CanTransitionTo(completion) {
-				t.Errorf("%s reaches %s without an explicit review request (FR-AGENT-008)", state, completion)
-			}
+		if state.CanTransitionTo(WorkflowReadyForReview) {
+			t.Errorf("%s reaches ready_for_review without an explicit review request (FR-AGENT-008)", state)
 		}
 	}
 }

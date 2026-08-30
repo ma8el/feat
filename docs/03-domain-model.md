@@ -270,13 +270,13 @@ review_requested
 verifying
 ready_for_review
 verification_failed
-changes_requested
-approved
 archived
 failed
 ```
 
-Workflow and process states are not collapsed. A task can be `review_requested` while its process is `idle`, or `approved` while its runtime is still running.
+There is no `approved` and no `changes_requested`. Both were review decisions the user recorded by hand; approving was reached once in fifty-one tasks and requesting changes never, nothing read either state, and requesting changes told the agent nothing — it recorded a label and then told the user to attach and say what to change. A task leaves a review state by being worked on again, which the user's next prompt does (FR-AGENT-009), and ends by being published and cleaned up. See ADR-086.
+
+Workflow and process states are not collapsed. A task can be `review_requested` while its process is `idle`, or `ready_for_review` while its runtime is still running.
 
 ### Runtime state
 

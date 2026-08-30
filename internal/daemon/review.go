@@ -45,16 +45,11 @@ func (s *service) Review(
 		return api.ReviewResult{}, err
 	}
 
-	switch action {
-	case api.ReviewObserve:
-		// Observing is the only action that asks Git anything, and it is what
-		// opening review does.
-	case api.ReviewVerify:
+	// Observing is the only action that asks Git anything, and it is what
+	// opening review does. Verifying is the other, and there is no third:
+	// recording a decision left with the states it recorded (ADR-086).
+	if action == api.ReviewVerify {
 		if err := s.verifyNow(ctx, task); err != nil {
-			return api.ReviewResult{}, err
-		}
-	default:
-		if err := s.decide(ctx, task, action); err != nil {
 			return api.ReviewResult{}, err
 		}
 	}
@@ -267,39 +262,6 @@ func expandCommand(template []string, task *domain.Task, binding domain.TaskRepo
 		expanded = append(expanded, value)
 	}
 	return expanded, nil
-}
-
-// decide records the user's review decision.
-//
-// The decision is a workflow transition and nothing else. It used to be two
-// things — the review aggregate's own status and the task's workflow state — and
-// they could disagree, so the workflow is now the only record of it (ADR-047).
-// Nothing else moves either: no container is stopped, no service is started, and
-// no resource is removed.
-func (s *service) decide(ctx context.Context, task *domain.Task, action api.ReviewAction) error {
-	var workflow domain.WorkflowState
-	var detail string
-	switch action {
-	case api.ReviewApprove:
-		workflow, detail = domain.WorkflowApproved, "approved by the user"
-	case api.ReviewRequestChanges:
-		workflow, detail = domain.WorkflowChangesRequested, "the user asked for changes"
-	default:
-		return fmt.Errorf("%w: %q is not a review decision", api.ErrInvalid, action)
-	}
-
-	if task.Workflow == workflow {
-		return nil
-	}
-	if !task.Workflow.CanTransitionTo(workflow) {
-		return fmt.Errorf("%w: task %s is %s, and a review decision applies to a task whose agent has asked "+
-			"for review. Nothing was recorded",
-			api.ErrInvalid, task.ID, task.Workflow)
-	}
-	if err := s.transition(ctx, task, workflow, detail); err != nil {
-		return fmt.Errorf("%w: %w", api.ErrInvalid, err)
-	}
-	return nil
 }
 
 // verifyNow runs the completion gate because the user asked for it.

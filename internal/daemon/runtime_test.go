@@ -258,13 +258,15 @@ func TestTheRuntimeKeepsRunningThroughReview(t *testing.T) {
 	}
 }
 
-// TestApprovalNeverStopsTheRuntime is the daemon half of the fifth acceptance
-// criterion.
+// TestReachingAReviewStateNeverStopsTheRuntime is the daemon half of the fifth
+// acceptance criterion.
 //
-// Approval offers to stop the services and never does it. The offer is the
-// dashboard's, which internal/ui tests; what belongs here is that reaching
-// `approved` runs nothing at all.
-func TestApprovalNeverStopsTheRuntime(t *testing.T) {
+// A task's services are the user's to keep or to end, and no workflow transition
+// touches them: the environment somebody is testing in outlives the state the
+// work is in. This used to be phrased about approval, which was the furthest a
+// task could get without cleanup; `ready_for_review` is that end of the
+// lifecycle now (ADR-086).
+func TestReachingAReviewStateNeverStopsTheRuntime(t *testing.T) {
 	arranged := arrangeConfigured(t, runtimeFixture)
 	task := arranged.launched(t)
 	arranged.answerFor(task, "running", "Up 2 minutes")
@@ -273,7 +275,7 @@ func TestApprovalNeverStopsTheRuntime(t *testing.T) {
 	before := len(arranged.runtimes.Calls())
 
 	for _, next := range []domain.WorkflowState{
-		domain.WorkflowWorking, domain.WorkflowReviewRequested, domain.WorkflowApproved,
+		domain.WorkflowWorking, domain.WorkflowReviewRequested, domain.WorkflowReadyForReview,
 	} {
 		if err := arranged.service.transition(context.Background(),
 			arranged.reload(t, task.ID), next, "test"); err != nil {
@@ -282,11 +284,11 @@ func TestApprovalNeverStopsTheRuntime(t *testing.T) {
 	}
 
 	if after := len(arranged.runtimes.Calls()); after != before {
-		t.Fatalf("approving a task ran %d Compose commands: %v",
+		t.Fatalf("moving a task through the review states ran %d Compose commands: %v",
 			after-before, arranged.runtimes.Calls()[before:])
 	}
 	if state := arranged.reload(t, task.ID).Runtime.State; state != domain.RuntimeRunning {
-		t.Errorf("the runtime is %q after approval, want running", state)
+		t.Errorf("the runtime is %q once the task is ready for review, want running", state)
 	}
 }
 

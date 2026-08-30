@@ -21,7 +21,7 @@ func reviewPath(action string) string {
 // the path, so an action Feat does not perform is a 404 rather than a request
 // the daemon has to interpret.
 func TestReviewResponseBodies(t *testing.T) {
-	for _, action := range []string{"observe", "approve", "changes", "verify"} {
+	for _, action := range []string{"observe", "verify"} {
 		t.Run(action, func(t *testing.T) {
 			service := newFakeService()
 			handler := NewHandler(Options{Service: service})
@@ -43,16 +43,25 @@ func TestReviewResponseBodies(t *testing.T) {
 
 // TestAnUnknownReviewActionIsNotAnInstruction keeps the vocabulary closed, as
 // the runtime's is.
+//
+// The two decisions ADR-086 removed are checked beside a word that was never an
+// action, because a client built against the old daemon is exactly what would
+// send them: they are refused at the door rather than interpreted.
 func TestAnUnknownReviewActionIsNotAnInstruction(t *testing.T) {
-	service := newFakeService()
-	handler := NewHandler(Options{Service: service})
+	for _, action := range []string{"merge", "approve", "changes"} {
+		t.Run(action, func(t *testing.T) {
+			service := newFakeService()
+			handler := NewHandler(Options{Service: service})
 
-	response := request(t, handler, http.MethodPost, reviewPath("merge"))
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d, body: %s", response.Code, http.StatusNotFound, response.Body.String())
-	}
-	if len(service.actions) != 0 {
-		t.Fatalf("an unknown action reached the daemon: %v", service.actions)
+			response := request(t, handler, http.MethodPost, reviewPath(action))
+			if response.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want %d, body: %s",
+					response.Code, http.StatusNotFound, response.Body.String())
+			}
+			if len(service.actions) != 0 {
+				t.Fatalf("%q reached the daemon: %v", action, service.actions)
+			}
+		})
 	}
 }
 

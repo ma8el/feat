@@ -156,7 +156,11 @@ func (m Model) taskPanel() string {
 	// word, elapsed time and the task's identifiers were all four cells to the
 	// left in the rail, and the runtime's detail is a whole tab; a panel that
 	// repeated them was thirty-five lines before its brief began (ADR-086).
-	out.WriteString(field("workflow", task.Workflow))
+	workflow := task.Workflow
+	if exits := reviewExits(task); exits != "" {
+		workflow = continued(workflow, mutedStyle.Render(exits))
+	}
+	out.WriteString(field("workflow", workflow))
 	out.WriteString(failureBlock(task))
 	out.WriteString(field("agent", agentDetail(task)))
 	// The runtime field carries the offer to stop services after an approval,
@@ -166,9 +170,10 @@ func (m Model) taskPanel() string {
 	out.WriteString(field("resources", m.resourceDetail(task)))
 
 	// What the review found, under the fields and without a heading. The heading
-	// stood over one field and a handful of sentences, and the field it named is
-	// a fact about the task like the six above it.
-	out.WriteString("\n" + field("decision", reviewDecision(task)))
+	// stood over a decision field and a handful of sentences, and the decision
+	// went with the two keys it named (ADR-086): what is left to say about a task
+	// in a review state is on the workflow field, as the exits it has.
+	out.WriteString("\n")
 	if summary := m.review.status.Review.Summary; summary != "" {
 		out.WriteString(field("the agent says", summary))
 	}
@@ -390,8 +395,6 @@ func taskPanelHints() string {
 		keyHint("j k", "repository"),
 		keyHint("d", "diff"),
 		keyHint("e", "editor"),
-		keyHint("A", "approve"),
-		keyHint("C", "request changes"),
 		keyHint("V", "run checks"),
 		keyHint("P", "publish"),
 		keyHint("pgup/pgdn", "scroll"),

@@ -182,7 +182,7 @@ Observable agent process state and semantic workflow state are separate.
 5. The agent receives no Docker socket or Docker CLI.
 6. Feat displays normal Compose service state and opens `docker compose logs` for logs. The logs hold the terminal until the user interrupts them, which returns to the dashboard rather than leaving Feat.
 7. The runtime remains available during review.
-8. Approval offers to stop services; it does not stop or destroy them automatically.
+8. Feat never stops or destroys services on its own. No workflow transition touches them: the environment a user is testing in is theirs to keep or to end, and `t` is the key that ends it. This used to be phrased as an offer made after approving, which went with the approval (ADR-086).
 
 Target versions may start services based on configured phases or an agent-written, user-approved `runtime_requested` control message.
 
@@ -194,7 +194,7 @@ Target versions may start services based on configured phases or an agent-writte
 4. The user invokes the configured editor command, defaulting to `$EDITOR` in the selected repository.
 5. For this user's configuration, the editor is Neovim.
 6. Feat does not implement an internal diff renderer, inline comments, or reviewed-file tracking in v0.
-7. The user either approves, attaches to Claude with revision instructions, or leaves the task pending.
+7. The user runs the project's configured checks if they want them run again, and then either attaches to Claude with revision instructions — which returns the task to `working` when they submit the prompt — or publishes. Those are the two exits, and the panel names them; there is no decision to record (ADR-086).
 
 ## 9. Publish changes
 

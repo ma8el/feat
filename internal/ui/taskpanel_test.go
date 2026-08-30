@@ -29,10 +29,11 @@ func TestTheTaskPanelCarriesBothHalvesOnce(t *testing.T) {
 		"the branch":          "feat/7f3a1c2e-add-a-scheduled-export-job",
 		"the runtime":         "absent",
 		"the compose project": "feat-agent-example-7f3a1c2e",
-		// FR-REV-001 and FR-REV-004: the comparison and the decision.
+		// FR-REV-001 and FR-REV-004: the comparison, and the exits a review has
+		// now that it records no decision (ADR-086).
 		"the head commit":  "001122334455",
 		"the line counts":  "+214 -36",
-		"the decision":     "pending",
+		"the exits":        "a to attach and revise",
 		"the check detail": "Feat ran this",
 	} {
 		if !strings.Contains(panel, want) {

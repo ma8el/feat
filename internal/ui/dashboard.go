@@ -170,13 +170,6 @@ func runtimeDetail(task api.Task) string {
 	if len(task.Runtime.Services) > 0 {
 		detail += "  " + strings.Join(task.Runtime.Services, ", ")
 	}
-	// An approved task whose services are still running is offered the stop and
-	// never given it, here as well as on the runtime screen: this is the line a
-	// user reads after approving, and a runtime Feat had stopped on their behalf
-	// would be one they did not decide to end (docs/02-user-workflows.md §7).
-	if offer := approvalOffer(task); offer != "" {
-		detail += "\n  " + attentionStyle.Render(offer)
-	}
 	return detail
 }
 

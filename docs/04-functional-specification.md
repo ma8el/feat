@@ -169,7 +169,7 @@ Semantic review completion MUST require an explicit provider event or control me
 
 ### FR-AGENT-009 — Revision
 
-Submitting a new user prompt in a review state SHOULD conservatively transition the task to `working` or `changes_requested` until the provider emits a new review request.
+Submitting a new user prompt in a review state SHOULD conservatively transition the task to `working` until the provider emits a new review request. This is how work is sent back for revision: it happened 32 times in the dogfood, against one use of the decision key that existed for it (ADR-086).
 
 ### FR-AGENT-010 — Provider CLIs
 
@@ -333,9 +333,11 @@ v0 MUST provide shortcuts for configurable diff and editor commands, each in the
 
 The editor command MUST default to `$EDITOR` and execute in the selected task repository. The reference configuration uses Neovim.
 
-### FR-REV-004 — Review decision
+### FR-REV-004 — Leaving a review
 
-The user MUST be able to leave pending, approve, or attach to the agent with revision instructions.
+A task in a review state MUST show what its exits are, and MUST NOT offer an action that only records what the user thought.
+
+There are two exits and Feat already had both: attaching to the agent with revision instructions, which returns the task to `working` when the prompt is submitted (FR-AGENT-009), and publishing, after which cleanup archives the task. Neither is a review decision — each does something — and a review action that recorded one was pressed once in fifty-one tasks while requesting changes was never pressed at all. Review's own actions are therefore observing and verifying, both of which measure something. See ADR-086.
 
 ## Persistence and recovery
 

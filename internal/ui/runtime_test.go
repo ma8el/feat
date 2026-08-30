@@ -312,15 +312,18 @@ func confirmedDestroy(calls []string) bool {
 	return false
 }
 
-// TestApprovalOffersToStopTheRuntimeWithoutStopping is the fifth acceptance
-// criterion at the dashboard.
+// TestReadingATaskNeverActsOnItsRuntime is the fifth acceptance criterion at the
+// dashboard.
 //
-// An approved task whose services are still running is offered the stop, in
-// words, on both the screens a user reads after approving. What the dashboard
-// must never do is take the offer itself.
-func TestApprovalOffersToStopTheRuntimeWithoutStopping(t *testing.T) {
+// A task's services are the user's to keep or to end, and reading about a task
+// that has reached the end of its review path must not stop them. It used to be
+// phrased as an offer in words on both screens — "this task is approved and its
+// services are still running" — which went with the approval that produced it
+// (ADR-086). The half that mattered is this one: the dashboard never takes the
+// action itself, and t is the key that does.
+func TestReadingATaskNeverActsOnItsRuntime(t *testing.T) {
 	task := liveTask()
-	task.Workflow = "approved"
+	task.Workflow = "ready_for_review"
 	task.Runtime = runningRuntime()
 
 	backend := newFakeBackend()
@@ -330,38 +333,14 @@ func TestApprovalOffersToStopTheRuntimeWithoutStopping(t *testing.T) {
 	model.selected = task.ID
 	model.screen = screenTask
 
-	// Read as words rather than as lines: the panel is wrapped to the region it
-	// is drawn in, and where a sentence breaks is the layout's business.
-	detail := content(model)
-	if !strings.Contains(flowed(detail), "press t to stop") {
-		t.Errorf("the task detail does not offer to stop the runtime:\n%s", detail)
-	}
-	if !strings.Contains(flowed(detail), "never stops them for you") {
-		t.Errorf("the task detail does not say that Feat leaves it running:\n%s", detail)
-	}
-
-	screen := runtimeScreen(t, backend, task)
-	if !strings.Contains(flowed(content(screen)), "press t to stop") {
-		t.Errorf("the runtime screen does not offer to stop the runtime:\n%s", content(screen))
-	}
+	_ = content(model)
+	_ = content(runtimeScreen(t, backend, task))
 
 	// Rendering both screens asked for a status and nothing else.
 	for _, call := range backend.runtimeCalls {
 		if !strings.HasPrefix(call, "status ") {
-			t.Fatalf("approval reached the runtime: %v", backend.runtimeCalls)
+			t.Fatalf("reading a task reached its runtime: %v", backend.runtimeCalls)
 		}
-	}
-}
-
-// TestAStoppedRuntimeIsNotOfferedAStop keeps the offer from becoming noise.
-func TestAStoppedRuntimeIsNotOfferedAStop(t *testing.T) {
-	task := liveTask()
-	task.Workflow = "approved"
-	task.Runtime = runningRuntime()
-	task.Runtime.State = "stopped"
-
-	if offer := approvalOffer(task); offer != "" {
-		t.Errorf("a stopped runtime was offered a stop: %s", offer)
 	}
 }
 

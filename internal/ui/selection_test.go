@@ -410,10 +410,10 @@ func TestLeavingRuntimeOpensThePanelOnTheSelectedTask(t *testing.T) {
 		t.Errorf("the panel is headed %s and reviewing %s", second.Key, back.review.task)
 	}
 
-	press(t, back, "A")
+	press(t, back, "V")
 	if got := backend.reviewCalls; len(got) == 0 ||
-		got[len(got)-1] != string(api.ReviewApprove)+" "+second.ID {
-		t.Errorf("A approved %v, want %s — the task the panel names", got, second.Key)
+		got[len(got)-1] != string(api.ReviewVerify)+" "+second.ID {
+		t.Errorf("V ran the checks of %v, want %s — the task the panel names", got, second.Key)
 	}
 }
 
