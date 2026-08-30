@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -166,6 +167,43 @@ func TestTheRailGroupsTasksByProject(t *testing.T) {
 		t.Fatalf("the rail does not name both projects:\n%s", view)
 	case example > platform:
 		t.Errorf("projects are not in the order their tasks are:\n%s", view)
+	}
+}
+
+// TestTheRailKeepsProjectsInAFixedOrder is ADR-041's evidence 4, one level up
+// from the row it was found on.
+//
+// Projects appeared in the order their first task did, and the list is sorted
+// newest-first, so launching a task lifted its whole project over every other
+// one. The header a user's eye had learned moved down the rail on the day they
+// were busy enough to start something, which is the day its position mattered.
+// Ordering by the project's own name means no task can move a project.
+func TestTheRailKeepsProjectsInAFixedOrder(t *testing.T) {
+	// Newer than anything in "example", which is what used to lift "platform"
+	// above it however long both had been registered.
+	launched := otherTask()
+	launched.ID, launched.Key = "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d", "1a2b3c4d"
+	launched.Title = "Cache the rate limit buckets"
+	launched.CreatedAt = dashboardOrigin.Add(2 * time.Hour)
+	launched.UpdatedAt = launched.CreatedAt
+
+	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask(), launched), 120, 32)
+
+	var order []string
+	for _, group := range groupByProject(model.tasks) {
+		order = append(order, group.project)
+	}
+	if len(order) != 2 || order[0] != "example" || order[1] != "platform" {
+		t.Errorf("the newest task reordered the rail's projects: %v", order)
+	}
+
+	// Drawn in that order too, and not only grouped in it: the rail, the movement
+	// keys, and the narrow fallback all read this one function, so an order it
+	// returns that the rail did not draw would move the cursor invisibly.
+	rail := ansi.Strip(model.railView(32))
+	example, platform := strings.Index(rail, "example"), strings.Index(rail, "platform")
+	if example < 0 || platform < 0 || example > platform {
+		t.Errorf("the rail draws its projects in another order:\n%s", rail)
 	}
 }
 

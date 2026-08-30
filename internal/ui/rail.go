@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 
@@ -337,11 +338,20 @@ type projectGroup struct {
 	indexes []int
 }
 
-// groupByProject collects tasks under their project.
+// groupByProject collects tasks under their project, in a fixed order.
 //
-// Projects appear in the order their first task does, so grouping never
-// reorders the list under a cursor that is holding still: the task list is
-// already sorted so that a refresh cannot move a row, and this preserves that
+// Projects are ordered by name, which is what the rail draws them as, and tasks
+// keep the order the list sorted them into inside each one. The order a project's
+// first task appeared in was the order before, and it moved a project the moment
+// a task was launched in it: the newest task sorts first, so starting one in the
+// project at the bottom of the rail lifted that project to the top and pushed
+// every other one down. That is ADR-041's evidence 4 — the row a user's eye
+// learned moving on the day it mattered — reappearing a level up, on the day the
+// user was busy enough to have started something.
+//
+// So a refresh cannot move a project, and no task can. Only registering a project
+// or finishing the last task in one changes what the rail holds, which is the
+// list changing rather than reordering itself under a cursor holding still
 // (FR-UI-001).
 func groupByProject(tasks []api.Task) []projectGroup {
 	groups := make([]projectGroup, 0, 4)
@@ -356,6 +366,7 @@ func groupByProject(tasks []api.Task) []projectGroup {
 		}
 		groups[index].indexes = append(groups[index].indexes, i)
 	}
+	sort.Slice(groups, func(i, j int) bool { return groups[i].project < groups[j].project })
 	return groups
 }
 
