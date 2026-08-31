@@ -251,15 +251,32 @@ func readHint() string { return keyHint("j k ↑↓ pgup/pgdn", "read") }
 // and it is replaced by value rather than by pattern, so nothing that merely
 // looks like an identifier is rewritten.
 func daemonNote(err error, task api.Task, width int) string {
+	message := daemonMessage(err, task)
+	if !api.IsInvalid(err) {
+		return failureStyle.Render(wrapNote(message, width))
+	}
+	return attentionStyle.Render("note") + " " + wrapNote(message, width)
+}
+
+// daemonMessage is what the daemon said with what it said for a caller taken
+// off, for a screen that has already decided how to draw it.
+//
+// The two shortenings are daemonNote's, and they are separated from it because
+// not every screen wants its colouring. A cleanup that stopped partway through a
+// removal is a failure whatever the wire classified it as — the daemon wraps it
+// as a refusal so that its message survives the response at all — and the dialog
+// that reports it draws it as one.
+//
+// A caller with no task to name asks for the prefix alone. The identifier is
+// replaced for a screen whose messages are about the task; on one whose messages
+// are about the task's resources it is part of a worktree path, and replacing it
+// by value would rewrite that path into one that is not on disk.
+func daemonMessage(err error, task api.Task) string {
 	message := err.Error()
 	if task.ID != "" && task.Key != "" {
 		message = strings.ReplaceAll(message, task.ID, task.Key)
 	}
-	if !api.IsInvalid(err) {
-		return failureStyle.Render(wrapNote(message, width))
-	}
-	message = strings.TrimPrefix(message, api.ErrInvalid.Error()+": ")
-	return attentionStyle.Render("note") + " " + wrapNote(message, width)
+	return strings.TrimPrefix(message, api.ErrInvalid.Error()+": ")
 }
 
 // wrapNote folds a note to the region it is drawn in, where the caller knows the

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -860,6 +861,199 @@ func TestACleanupThatFailedHalfwayKeepsTheDialogAndReReadsThePlan(t *testing.T) 
 	// rest is about to be renamed by the plan coming back.
 	if model.cleanup.chosen["terminal"] {
 		t.Error("a selection survived the cleanup that acted on it")
+	}
+}
+
+// failCleanup answers the confirmation with y and lets the removal fail.
+//
+// The whole path rather than the message it ends in: y is what sends the
+// removal, the failure comes back as the daemon's answer to it, and the resolve
+// that failure fires is answered as the daemon answers it — which is the step
+// the account of the failure used to be lost in.
+func failCleanup(t *testing.T, model Model, backend *fakeBackend) Model {
+	t.Helper()
+
+	updated, cmd := model.Update(key("y"))
+	model = updated.(Model)
+	if !model.cleanup.removing {
+		t.Fatal("y did not send the removal it authorised")
+	}
+	runCommands(t, cmd)
+
+	updated, cmd = model.Update(cleanupDoneMsg{err: backend.cleanupErr})
+	model = updated.(Model)
+	runCommands(t, cmd)
+	updated, _ = model.Update(cleanupPlanMsg{plan: backend.cleanupPlan})
+	return updated.(Model)
+}
+
+// TestAFailedCleanupIsStillOnTheScreenOnceTheResolveComesBack is what a user saw
+// instead of an error.
+//
+// A failure re-reads the plan, so that the inventory names what is left rather
+// than what was there. The answer to that read carries an error field of its own,
+// and it used to be written into the same place the removal's was: a resolve that
+// succeeded — which is the ordinary case, because the daemon is reachable and the
+// task's resources are still there — wrote nil over the account of what had just
+// gone wrong. The dialog came back with a fresh inventory, an unticked selection,
+// and nothing at all to say why any of it was still listed.
+func TestAFailedCleanupIsStillOnTheScreenOnceTheResolveComesBack(t *testing.T) {
+	backend := newFakeBackend()
+	backend.cleanupErr = errors.New("removing the worktrees of task 7f3a1c2e: the worktree is locked")
+	model := openCleanupScreen(t, backend)
+
+	updated, _ := model.Update(key(" "))
+	model = updated.(Model)
+	model = requestCleanup(t, model, backend.cleanupPlan)
+	model = failCleanup(t, model, backend)
+
+	if model.screen != screenCleanup {
+		t.Fatal("the resolve after a failed cleanup closed the screen that explains it")
+	}
+	if !strings.Contains(flowed(content(model)), "the worktree is locked") {
+		t.Errorf("the failure was written over by the resolve it fired:\n%s", content(model))
+	}
+	// And the inventory is drawn beside it: the failure says what stopped, the
+	// list says what is left, and a screen with only one of the two is half an
+	// account (ADR-029).
+	if !strings.Contains(flowed(content(model)), "the task's tmux window") {
+		t.Errorf("the re-read inventory is not on the screen beside the failure:\n%s", content(model))
+	}
+}
+
+// TestAResolveThatFailedIsDrawnBesideTheRemovalThatDid keeps the two apart.
+//
+// They are answers to different requests, and the second does not replace the
+// first: the removal broke, and then the read that would have said what is left
+// broke as well. A screen showing only one of them is a screen that lost a
+// failure.
+func TestAResolveThatFailedIsDrawnBesideTheRemovalThatDid(t *testing.T) {
+	backend := newFakeBackend()
+	backend.cleanupErr = errors.New("removing the worktrees of task 7f3a1c2e: the worktree is locked")
+	model := openCleanupScreen(t, backend)
+
+	updated, _ := model.Update(key(" "))
+	model = updated.(Model)
+	model = requestCleanup(t, model, backend.cleanupPlan)
+
+	updated, cmd := model.Update(key("y"))
+	model = updated.(Model)
+	runCommands(t, cmd)
+	updated, cmd = model.Update(cleanupDoneMsg{err: backend.cleanupErr})
+	model = updated.(Model)
+	runCommands(t, cmd)
+	updated, _ = model.Update(cleanupPlanMsg{err: errors.New("no feat daemon is listening")})
+	model = updated.(Model)
+
+	body := flowed(content(model))
+	if !strings.Contains(body, "the worktree is locked") {
+		t.Errorf("the removal's failure is gone:\n%s", content(model))
+	}
+	if !strings.Contains(body, "no feat daemon is listening") {
+		t.Errorf("the resolve's failure is gone:\n%s", content(model))
+	}
+}
+
+// TestTheDialogSaysWhatWentWrongRatherThanThatSomethingDid is what one truncated
+// line cost.
+//
+// The daemon puts the wire's classification at the front of its answer and names
+// the task by the identifier the request carried, and the cause is at the end. A
+// line cut to the dialog's width therefore got as far as "invalid request:
+// removing the worktrees of task 7f3a1c2e-2b1a-…" and stopped — which reports
+// that there was an error and nothing else. The border above already names the
+// task, so what is left of the sentence is what happened.
+func TestTheDialogSaysWhatWentWrongRatherThanThatSomethingDid(t *testing.T) {
+	backend := newFakeBackend()
+	task := liveTask()
+	worktree := "/state/feat/worktrees/example/" + task.ID + "/api"
+	backend.cleanupErr = fmt.Errorf(
+		"%w: removing the worktrees of task %s: removing the worktree %q of /srv/repos/api: "+
+			"`git worktree remove --force %s` failed with exit code 128 in /srv/repos/api: "+
+			"fatal: cannot remove a locked working tree, lock reason: held by a demo",
+		api.ErrInvalid, task.ID, worktree, worktree)
+
+	model := sized(openCleanupScreen(t, backend), 120, 32)
+	updated, _ := model.Update(key(" "))
+	model = updated.(Model)
+	model = requestCleanup(t, model, backend.cleanupPlan)
+	model = failCleanup(t, model, backend)
+
+	body := flowed(content(model))
+	if !strings.Contains(body, "cannot remove a locked working tree") {
+		t.Errorf("the end of the message, which is the only part that says what went wrong, "+
+			"did not survive:\n%s", content(model))
+	}
+	if strings.Contains(body, api.ErrInvalid.Error()) {
+		t.Errorf("the wire's classification is still leading the line:\n%s", content(model))
+	}
+	// The identifier stays, because here it is part of a path. A screen about a
+	// task's resources that shortened one would be printing a path that is not on
+	// disk, which is worse than printing a long one.
+	if !strings.Contains(body, worktree) {
+		t.Errorf("the worktree path was rewritten, so the message names a path "+
+			"nothing is at:\n%s", content(model))
+	}
+}
+
+// TestAPlanThatCouldNotBeReadSaysWhyTheSameWay keeps the dialog's two failures
+// legible in the same way.
+//
+// The screen holds one for the removal and one for the read, they arrive from
+// the same daemon in the same shape, and a dialog that shortened one of them and
+// cut the other would be two screens.
+func TestAPlanThatCouldNotBeReadSaysWhyTheSameWay(t *testing.T) {
+	backend := newFakeBackend()
+	task := liveTask()
+	backend.cleanupPlanErr = fmt.Errorf(
+		"%w: task %s cannot be resolved: reading the worktrees of repository api: "+
+			"git worktree list: fatal: not a git repository: '/srv/repos/api'",
+		api.ErrInvalid, task.ID)
+
+	model := sized(dashboard(backend, task), 120, 32)
+	updated, cmd := model.Update(key("C"))
+	model = updated.(Model)
+	runCommands(t, cmd)
+	updated, _ = model.Update(cleanupPlanMsg{err: backend.cleanupPlanErr})
+	model = updated.(Model)
+
+	body := flowed(content(model))
+	if !strings.Contains(body, "not a git repository") {
+		t.Errorf("the end of the message is cut:\n%s", content(model))
+	}
+	if strings.Contains(body, api.ErrInvalid.Error()) {
+		t.Errorf("the wire's classification is still leading the line:\n%s", content(model))
+	}
+}
+
+// TestAnotherRemovalClearsTheFailureItSupersedes keeps the account to the removal
+// it is about.
+//
+// The failure is what the last removal did. Authorising another one makes it the
+// past, and a red line above an indicator saying a removal is in flight is a line
+// about a different request from the one the screen is waiting for.
+func TestAnotherRemovalClearsTheFailureItSupersedes(t *testing.T) {
+	backend := newFakeBackend()
+	backend.cleanupErr = errors.New("removing the worktrees of task 7f3a1c2e: the worktree is locked")
+	model := openCleanupScreen(t, backend)
+
+	updated, _ := model.Update(key(" "))
+	model = updated.(Model)
+	model = requestCleanup(t, model, backend.cleanupPlan)
+	model = failCleanup(t, model, backend)
+
+	updated, _ = model.Update(key(" "))
+	model = updated.(Model)
+	model = requestCleanup(t, model, backend.cleanupPlan)
+	updated, _ = model.Update(key("y"))
+	model = updated.(Model)
+
+	if !model.cleanup.removing {
+		t.Fatal("y did not send the removal it authorised")
+	}
+	if strings.Contains(flowed(content(model)), "the worktree is locked") {
+		t.Errorf("the previous failure is drawn over the removal that supersedes it:\n%s",
+			content(model))
 	}
 }
 

@@ -62,8 +62,19 @@ type cleanupModel struct {
 	// being cleaned up is often one whose agent is still working in it, and the
 	// warnings are what move while a user reads (ADR-061).
 	pending bool
-	// err is a failed plan or cleanup, shown rather than thrown.
+	// err is a failed plan, shown rather than thrown.
 	err error
+	// failure is a removal that failed, kept apart from err.
+	//
+	// They are answers to two different requests, and the screen holds both
+	// because a failed removal fires a resolve: the read that follows it is what
+	// makes the inventory name what is left rather than what was there, and its
+	// own answer used to be written into the same field. A resolve that succeeded
+	// — the ordinary case, since the daemon is reachable and the resources are
+	// still there — wrote nil over the account of what had just gone wrong, and
+	// the dialog came back with a fresh inventory, an unticked selection, and
+	// nothing to say why any of it was still listed.
+	failure error
 }
 
 // cleanupPlanMsg carries a resolved plan.
@@ -227,6 +238,11 @@ func (m Model) cleanupKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cleanup.executing = false
 		switch key.String() {
 		case "y", "Y":
+			// The account goes with the removal it is about. What the last one did
+			// is the past the moment another is authorised, and a failure drawn
+			// above the indicator would be reporting a request the screen is no
+			// longer waiting for.
+			m.cleanup.failure = nil
 			m.cleanup.working, m.cleanup.removing = true, true
 			return m, m.cleanupExecute()
 		default:
@@ -465,7 +481,7 @@ func cleanupSubstance(plan api.CleanupPlan) string {
 // was there before (ADR-029).
 func (m Model) applyCleanupResult(message cleanupDoneMsg) (tea.Model, tea.Cmd) {
 	m.cleanup.working, m.cleanup.removing = false, false
-	m.cleanup.err = message.err
+	m.cleanup.failure = message.err
 	// The recovery band is refreshed either way: a cleanup is precisely the thing
 	// that resolves what the band was reporting, and a band still naming it
 	// afterwards would be describing the past.
@@ -617,10 +633,11 @@ func (m Model) cleanupBody() string {
 
 	switch {
 	case m.cleanup.err != nil:
-		// Flattened to one line, as the footer flattens the errors it shows: this
-		// one comes from the daemon and may carry a command's output, and a block
-		// that wraps here is a block drawn over the question below it (ADR-054).
-		out.WriteString(failureStyle.Render(truncate(plainLine(m.cleanup.err.Error()), width)) + "\n")
+		// Wrapped and shortened the way a failed removal is, and bounded by the
+		// lines the inventory would have had: this stands in place of the class
+		// list, so the room is already reserved, and the question below it is
+		// drawn from the tail that was measured before it (ADR-054).
+		out.WriteString(m.cleanupUnresolved(width, height) + "\n")
 	case m.cleanup.working && !m.cleanup.loaded:
 		// The first thing the screen ever draws, and the one the user waits at with
 		// nothing else on it: opening the dialog asks the daemon to walk the task's
@@ -668,8 +685,8 @@ func (m Model) cleanupSubject(width int) string {
 }
 
 // cleanupTail is what is drawn under the inventory: the archive choice, whatever
-// the plan refused to resolve, what the last cleanup removed, and the question
-// that is outstanding.
+// the plan refused to resolve, how the last removal failed, and the question that
+// is outstanding.
 func (m Model) cleanupTail(width int) string {
 	var out strings.Builder
 
@@ -678,8 +695,75 @@ func (m Model) cleanupTail(width int) string {
 		out.WriteString("\n" + failureStyle.Render(truncate(plainLine("! "+problem), width)) + "\n")
 	}
 
+	out.WriteString(m.cleanupFailure(width))
 	out.WriteString(m.cleanupPrompt(width))
 	return out.String()
+}
+
+// cleanupUnresolved is the plan that could not be read, drawn where the class
+// list it would have held goes.
+//
+// There is no inventory in this case, so it takes the region's own lines rather
+// than a share of them. It is shortened for the reason the removal's failure is:
+// the message a user has to act on — a daemon that is not listening, a task that
+// no longer exists — is the end of the sentence, and the beginning of it is the
+// wire's classification, which says nothing to a person.
+func (m Model) cleanupUnresolved(width, height int) string {
+	message := wrapNote(plainText(daemonMessage(m.cleanup.err, api.Task{})), width)
+	return clampHeight(failureStyle.Render(message), height, width)
+}
+
+// cleanupFailureLines is the fewest lines a failed removal is given, whatever
+// the terminal.
+const cleanupFailureLines = 4
+
+// cleanupFailureLimit is how much of the region a failed removal may take.
+//
+// Half of it, and never less than cleanupFailureLines. The failure is the one
+// thing on this screen the user cannot get anywhere else — the inventory is an
+// answer they can ask for again, and it scrolls — but it is drawn above the
+// question, so a message allowed the whole region would push that off the screen.
+//
+// Half is what a real one needs. The daemon names the class, the Git adapter
+// names the worktree and the checkout it belongs to, and the runner quotes the
+// command and its output, so `git worktree remove` refusing a locked worktree
+// arrives as some five hundred cells: four lines held the three paths and
+// stopped before the word "locked", which is the only part of it a user can act
+// on. What still will not fit is said to be there, and the event log has every
+// failure in full.
+func (m Model) cleanupFailureLimit() int {
+	_, region := m.cleanupRegion()
+	return max(cleanupFailureLines, region/2)
+}
+
+// cleanupFailure is the removal that stopped, said under the inventory that was
+// read again because of it.
+//
+// Drawn here rather than in place of the class list, which is where a plan that
+// could not be resolved is drawn: this failure comes with an inventory — the one
+// re-read after it, naming what is left — and the two together are the account of
+// a cleanup that went halfway (ADR-029). One says what stopped and the other what
+// is still there, and either alone is half of it.
+//
+// Wrapped rather than cut, and the wire's classification taken off first. The
+// part worth reading is at the end of the sentence, so on a dialog a hundred and
+// twenty cells wide one truncated line of it got as far as "invalid request:
+// removing the worktrees of task 7f3a1c2e-2b1a-…" and stopped — an error message
+// that says only that there was an error. It is safe to wrap here because the
+// tail is measured before the inventory is given what is left of the region, and
+// bounded anyway so that the question below it keeps its lines.
+//
+// The task is not named, though daemonNote's callers name one and have the
+// identifier replaced by the key for it. This screen is about resources, and a
+// resource's identity is built from the task: the worktree path in the message
+// contains the identifier, and replacing it by value rewrote the path into one
+// that is not on disk. The dialog's own border says which task this is.
+func (m Model) cleanupFailure(width int) string {
+	if m.cleanup.failure == nil {
+		return ""
+	}
+	message := wrapNote(plainText(daemonMessage(m.cleanup.failure, api.Task{})), width)
+	return "\n" + clampHeight(failureStyle.Render(message), m.cleanupFailureLimit(), width) + "\n"
 }
 
 // cleanupArchive renders the archive choice, a row of the screen like any other.
