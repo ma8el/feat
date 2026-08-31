@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
 )
 
@@ -33,6 +34,30 @@ editing the configuration fixes.
 The exit code is 0 when nothing failed and 1 when something did. Warnings do not
 fail the run.`
 
+// diagnostics returns the options every diagnostic run shares, and the layout
+// they were resolved from.
+//
+// The checks are run from three places — this command, the wizard's offer at the
+// end of `feat project init`, and the dashboard — and what differs between them
+// is which projects they cover and whether a daemon can be asked about
+// registration. Where the files are is not one of those differences, so it is
+// assembled once here rather than at each call site: the dashboard's run left
+// the settings directory unset, and the host section reported every machine as
+// having no settings file, of users who had written one and of a daemon that was
+// reading it.
+func (e *environment) diagnostics() (paths.Layout, project.Options, error) {
+	layout, options, err := e.project()
+	if err != nil {
+		return paths.Layout{}, project.Options{}, err
+	}
+	return layout, project.Options{
+		ConfigDir:   layout.ProjectConfigDir(),
+		SettingsDir: layout.Config,
+		Resolve:     options,
+		Runner:      e.runner,
+	}, nil
+}
+
 func newDoctorCommand(env *environment) *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
@@ -40,21 +65,16 @@ func newDoctorCommand(env *environment) *cobra.Command {
 		Long:  doctorLong,
 		Args:  checkArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			layout, options, err := env.project()
+			layout, options, err := env.diagnostics()
 			if err != nil {
 				return err
 			}
+			// Registration is reported when a daemon can be asked. Starting one
+			// to answer a diagnostic question would make a command that changes
+			// nothing change something.
+			options.Registered = registeredProjects(cmd.Context(), layout)
 
-			report, err := project.Diagnose(cmd.Context(), project.Options{
-				ConfigDir:   layout.ProjectConfigDir(),
-				SettingsDir: layout.Config,
-				Resolve:     options,
-				Runner:      env.runner,
-				// Registration is reported when a daemon can be asked. Starting
-				// one to answer a diagnostic question would make a command that
-				// changes nothing change something.
-				Registered: registeredProjects(cmd.Context(), layout),
-			})
+			report, err := project.Diagnose(cmd.Context(), options)
 			if err != nil {
 				return err
 			}

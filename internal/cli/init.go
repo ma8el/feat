@@ -394,16 +394,13 @@ func (c *conversation) diagnose(ctx context.Context) error {
 		return err
 	}
 
-	layout, options, err := c.env.project()
+	layout, options, err := c.env.diagnostics()
 	if err != nil {
 		return err
 	}
-	report, err := project.Diagnose(ctx, project.Options{
-		ConfigDir: layout.ProjectConfigDir(),
-		Resolve:   options,
-		Runner:    c.env.runner,
-		Projects:  []string{c.wizard.ID()},
-	})
+	options.Projects = []string{c.wizard.ID()}
+
+	report, err := project.Diagnose(ctx, options)
 	if err != nil {
 		return err
 	}
