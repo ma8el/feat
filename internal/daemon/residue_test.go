@@ -135,7 +135,16 @@ func TestALaunchThatFailedAfterItsContainerIsStillRemovable(t *testing.T) {
 	if !arranged.docker.Ran("down") {
 		t.Errorf("nothing removed the Compose project: %v", arranged.docker.Calls())
 	}
-	if len(result.Removed) != 1 || result.Removed[0].Identity != identity || !result.Removed[0].Removed {
+	// The Compose project by name, and not counted against the removals: the same
+	// class also removes the directory the launch generated to define it, and that
+	// is reported too (ADR-037 evidence 16).
+	var reported bool
+	for _, entry := range result.Removed {
+		if entry.Identity == identity {
+			reported = entry.Removed
+		}
+	}
+	if !reported {
 		t.Errorf("the cleanup reported %+v, want the agent containers of %s removed", result.Removed, identity)
 	}
 }
@@ -528,5 +537,139 @@ func TestATaskWithNoContainerIsNotAskedAbout(t *testing.T) {
 	}
 	if asked := arranged.docker.Calls()[before:]; len(asked) != 0 {
 		t.Errorf("reconciliation asked Docker about a draft: %v", asked)
+	}
+}
+
+// TestCleanupRemovesTheGeneratedExecutionInput is ADR-037 evidence 16's criterion for the
+// execution root.
+//
+// A launch generates `<state>/execution/<project-id>/<task-id>/compose.override.yaml`
+// and nothing ever removed the directory holding it, so every task that had ever
+// launched left one: 47 of the 48 under the execution root of the dogfood machine
+// belonged to tasks that had been cleaned up and archived. The override is the
+// document the destroy is run against, so it goes with the Compose project it
+// defines.
+func TestCleanupRemovesTheGeneratedExecutionInput(t *testing.T) {
+	arranged, task := abandonedLaunch(t)
+
+	directory, err := arranged.service.executionDirectory(task)
+	if err != nil {
+		t.Fatalf("resolving the execution directory: %v", err)
+	}
+	if _, err := os.Stat(directory); err != nil {
+		t.Fatalf("the launch generated no execution input, so there is nothing to remove: %v", err)
+	}
+
+	plan := arranged.planOf(t, task)
+	result, err := arranged.service.Cleanup(context.Background(), task.ID,
+		selectAll(plan, reconcile.ClassAgentContainers))
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if _, err := os.Stat(directory); !os.IsNotExist(err) {
+		t.Errorf("the generated execution input %s is still there: %v", directory, err)
+	}
+
+	// And it is reported. A directory Feat deleted is part of the answer to what
+	// a cleanup removed, even though no target named it.
+	var reported bool
+	for _, entry := range result.Removed {
+		if entry.Identity == directory {
+			reported = true
+			if entry.Class != string(reconcile.ClassAgentContainers) {
+				t.Errorf("the generated input was reported under %q, want the class that removed it", entry.Class)
+			}
+			if !entry.Removed {
+				t.Error("the generated input was reported as not removed")
+			}
+		}
+	}
+	if !reported {
+		t.Errorf("the cleanup removed %s without reporting it: %+v", directory, result.Removed)
+	}
+}
+
+// TestAProjectsExecutionDirectoryOutlivesItsLastTask is the boundary the
+// worktree walk already stops at, applied to the root ADR-037 evidence 16 adds.
+//
+// A project outlives every task in it, and the next task of that project is
+// created inside its directory. Removing it because it is momentarily empty
+// would delete a directory the next launch recreates.
+func TestAProjectsExecutionDirectoryOutlivesItsLastTask(t *testing.T) {
+	arranged, task := abandonedLaunch(t)
+
+	directory, err := arranged.service.executionDirectory(task)
+	if err != nil {
+		t.Fatalf("resolving the execution directory: %v", err)
+	}
+	project := filepath.Dir(directory)
+
+	plan := arranged.planOf(t, task)
+	if _, err := arranged.service.Cleanup(context.Background(), task.ID,
+		selectAll(plan, reconcile.ClassAgentContainers)); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if _, err := os.Stat(project); err != nil {
+		t.Errorf("the project's own execution directory %s was removed with its last task: %v", project, err)
+	}
+	if _, err := os.Stat(arranged.layout.ExecutionRoot()); err != nil {
+		t.Errorf("the execution root %s was removed: %v", arranged.layout.ExecutionRoot(), err)
+	}
+}
+
+// TestGeneratedInputsAreOnlyRemovedFromTheirOwnRoot is the check that runs
+// again immediately before a directory tree is deleted.
+//
+// The path reaching it is computed from a validated project and task identifier
+// under a root the daemon resolved, so nothing a caller supplies can name one of
+// these. The check is here because the cost of it is nothing next to the cost of
+// being wrong, which is the rule the control workspace's own removal states.
+func TestGeneratedInputsAreOnlyRemovedFromTheirOwnRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+
+	for _, refused := range []struct {
+		name      string
+		directory string
+	}{
+		{"the root itself", root},
+		{"a project directory", filepath.Join(root, "app")},
+		{"below a task", filepath.Join(root, "app", "task", "deeper")},
+		{"outside the root", filepath.Join(outside, "app", "task")},
+		{"a relative path", filepath.Join("app", "task")},
+		{"a shared directory", "/tmp"},
+	} {
+		t.Run(refused.name, func(t *testing.T) {
+			if err := os.MkdirAll(refused.directory, 0o700); err != nil && filepath.IsAbs(refused.directory) {
+				t.Fatalf("arranging %s: %v", refused.directory, err)
+			}
+			removed, err := removeGeneratedInputs(refused.directory, root)
+			if err == nil {
+				t.Fatalf("removing %s was allowed", refused.directory)
+			}
+			if removed {
+				t.Errorf("a refusal reported %s as removed", refused.directory)
+			}
+			if filepath.IsAbs(refused.directory) {
+				if _, err := os.Stat(refused.directory); err != nil {
+					t.Errorf("the refused directory %s was removed anyway: %v", refused.directory, err)
+				}
+			}
+		})
+	}
+
+	// And the shape it is for goes through, twice: a directory that is not there
+	// is not an error, because a cleanup re-run must finish rather than refuse.
+	task := filepath.Join(root, "app", "task")
+	if err := os.MkdirAll(task, 0o700); err != nil {
+		t.Fatalf("arranging %s: %v", task, err)
+	}
+	removed, err := removeGeneratedInputs(task, root)
+	if err != nil || !removed {
+		t.Fatalf("removeGeneratedInputs(%s) = %v, %v; want it removed", task, removed, err)
+	}
+	removed, err = removeGeneratedInputs(task, root)
+	if err != nil || removed {
+		t.Fatalf("removing a directory that is already gone = %v, %v; want no error and nothing removed", removed, err)
 	}
 }

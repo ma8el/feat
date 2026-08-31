@@ -1160,3 +1160,105 @@ func TestAFinishingGateDoesNotLoseItsResultsToAConcurrentRead(t *testing.T) {
 		t.Error("the comparison the review made was lost instead")
 	}
 }
+
+// selectEverything asks a cleanup for every class a plan names, and to archive.
+func selectEverything(plan api.CleanupPlan) api.CleanupSelection {
+	selection := api.CleanupSelection{Token: plan.Token, Archive: true}
+	for _, entry := range plan.Classes {
+		selection.Classes = append(selection.Classes, api.CleanupChoice{
+			Class: entry.Class, ConfirmedWarnings: entry.Warnings,
+		})
+	}
+	return selection
+}
+
+// TestAGateThatFinishesAfterAnArchiveWritesNothing is ADR-036 evidence 12.
+//
+// A gate outlives the request that started it, and cleanup is a thing a user
+// does while watching one run. On the dogfood machine the checks landed 115ms
+// after the cleanup had removed the control workspace, and `answer` recreated
+// the tree to write the verdict into — leaving `control/<project>/<task>/inbox/`
+// holding one file, on a task that had been archived, which is what the
+// maintainer found and reasonably read as a cleanup that had skipped something.
+//
+// finishGate already guarded the transition against a task that had moved, and
+// the guard was written for a task moving forward through review. An archived
+// task is the other way it moves, and nothing here applies to it: the worktree
+// the checks ran in is gone and so is the session that would read the verdict.
+func TestAGateThatFinishesAfterAnArchiveWritesNothing(t *testing.T) {
+	live := launchForReview(t, nil)
+	live.checks.released = make(chan struct{})
+
+	live.emit(t, control.TypeReviewRequested, `{"summary":"ready"}`)
+	waitFor(t, func() bool { return live.task(t).Workflow == domain.WorkflowVerifying })
+
+	workspace, err := live.service.controlWorkspace(live.task(t))
+	if err != nil {
+		t.Fatalf("resolving the control workspace: %v", err)
+	}
+	root := workspace.Root()
+
+	// The user cleans the task up and archives it while the checks run.
+	plan, err := live.service.CleanupPlan(context.Background(), live.ref.Task)
+	if err != nil {
+		t.Fatalf("CleanupPlan: %v", err)
+	}
+	if _, err := live.service.Cleanup(context.Background(), live.ref.Task, selectEverything(plan)); err != nil {
+		t.Fatalf("Cleanup while the checks ran: %v", err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("the cleanup left the control workspace %s: %v", root, err)
+	}
+
+	close(live.checks.released)
+	live.awaitGate(t)
+
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Errorf("the gate recreated the control workspace %s after the cleanup removed it: %v", root, err)
+	}
+	task := live.task(t)
+	if task.Workflow != domain.WorkflowArchived {
+		t.Errorf("workflow = %q, want the archived state the user asked for", task.Workflow)
+	}
+
+	// And the user is told why no verdict ever appeared. A gate they watched
+	// start has to account for itself even when its results are discarded.
+	explained := false
+	for _, event := range history(t, live.session) {
+		if event.Type == domain.EventReviewChanged && strings.Contains(event.Detail, "archived") {
+			explained = true
+		}
+	}
+	if !explained {
+		t.Error("nothing in the task's history says the checks finished after it was archived")
+	}
+}
+
+// TestAGateDoesNotRebuildAControlWorkspaceThatWasRemoved is the same rule reached
+// without an archive.
+//
+// The classes of a cleanup are independent choices, so removing the control
+// workspace alone is something a user can ask for. Every write in internal/control
+// creates the directory it writes into, so answering a request whose workspace
+// has gone does not reach a waiting session — it rebuilds the tree the user
+// confirmed the removal of, holding one file nothing will ever open.
+func TestAGateDoesNotRebuildAControlWorkspaceThatWasRemoved(t *testing.T) {
+	live := launchForReview(t, nil)
+
+	task := live.task(t)
+	workspace, err := live.service.controlWorkspace(task)
+	if err != nil {
+		t.Fatalf("resolving the control workspace: %v", err)
+	}
+	root := workspace.Root()
+	if _, err := workspace.Remove(); err != nil {
+		t.Fatalf("removing the control workspace: %v", err)
+	}
+
+	if err := live.service.answer(task, "01J000000000000000000000", control.VerificationPassed, "all good"); err != nil {
+		t.Fatalf("answering a request whose workspace is gone: %v", err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Errorf("the verdict rebuilt the control workspace %s: %v", root, err)
+	}
+}

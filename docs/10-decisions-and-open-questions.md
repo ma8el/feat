@@ -1532,6 +1532,35 @@ from this repository's own fakes:
     leaves the task in `verifying` and writes nothing, which is exactly the state
     evidence 2's recovery was built for.
 
+12. **A gate that landed on an archived task rebuilt the control workspace the
+    cleanup had just removed.** The maintainer found two control workspaces on
+    tasks whose archive event reads "the task was archived after removing its …
+    control workspace", each holding one file: `inbox/verification-<request>.txt`.
+    The task's own event log dates the removal at 17:18:28.637 and the gate's
+    landing at 17:18:28.764. So the cleanup did remove the workspace, and 115ms
+    later the gate wrote a verdict into it — and every write in `internal/control`
+    creates the directory it writes into, because that is what a workspace's own
+    launch needs.
+
+    `finishGate` guards the *transition* on the task still being `verifying`,
+    which evidence 9 added for the user who approves while the suite runs. It
+    guards nothing else, so the review record, the event, and the verdict all
+    still ran. An archived task is the other way a task moves while its checks
+    run, and it is the one where every write is addressed to something that no
+    longer exists: the worktree the checks ran in is gone, and so is the session
+    that would read the verdict.
+
+    Decision: the rule evidence 11 states for a cancelled run holds for an
+    archived one. A gate that finds its task archived records that its results
+    were discarded and stops — no review record, no transition, no verdict. The
+    event is written rather than the run ending in silence, because a user who
+    watched a gate start and then archived the task is owed the reason no verdict
+    ever appeared. And `answer` checks that the workspace is still there before
+    writing, at the write rather than only at this caller: the classes of a
+    cleanup are independent choices, so removing the control workspace without
+    archiving is a supported thing to ask for, and rebuilding a tree the user
+    confirmed the removal of is wrong however the caller reached it.
+
 ### ADR-037 — Quarantine, recovery, and what cleanup is allowed to resolve
 
 Status: accepted
@@ -1845,6 +1874,55 @@ of them was reachable from this repository's own fixtures:
     changed there is one sentence: an orphan that is empty is named as empty and
     given the command that clears it, because the machines that have this residue
     already will keep it until somebody removes it by hand.
+
+16. **The two generated-input roots are the same defect as evidence 15, at the
+    two directories that walk does not reach.** The maintainer read
+    `~/.local/share/feat` and asked which of its per-project trees cleanup
+    actually removes. The answer is two of five: `ClassControl` removes
+    `control/<project-id>/<task-id>/` and `ClassWorktrees` removes the worktree
+    and the directories above it, `projects/` is kept on purpose, and
+    `execution/` and `runtime/` are removed by nothing — a grep for every
+    `os.Remove`/`os.RemoveAll` in the tree finds `internal/control/workspace.go`
+    and `internal/git/remove.go` and no third place. On the dogfood machine, 47
+    of the 48 directories under `execution/feat/` belonged to tasks that were
+    already archived, and 4 of the 6 under `runtime/jobharbor/` did.
+
+    ADR-033 and ADR-034 placed those roots and said what goes in them. Neither
+    says anything about their lifetime and neither adds a class, because both
+    arrived after the class list was fixed: this is an omission rather than a
+    decision. Each directory holds one generated file, so the residue is 240K and
+    52K rather than anything a machine notices, which is why it survived the whole
+    dogfood unseen.
+
+    Decision: evidence 15's rule, at both roots. A task's generated Compose
+    document is what its Compose project is defined by and what the destroy is run
+    against, so it is removed with that project — the execution directory with the
+    agent's containers, the runtime directory with the application's. After the
+    destroy and never before, since for the application runtime that directory is
+    also the working directory of every Compose command Feat runs for the task.
+    The walk stops at the project's own directory for evidence 15's reason. It is
+    reported with the class that removed it and is not a target of its own, again
+    for evidence 15's reason: it is where a resource was defined, not a resource
+    the user chooses about.
+
+    The one place evidence 15 does not carry over is what a failure does. That
+    rule — "nothing here fails a removal" — rests on reconciliation naming the
+    directory that was left, and nothing scans these two roots. So a removal that
+    fails fails the class, naming the path; cleanup re-resolves its plan and is
+    re-runnable, and a silent failure would recreate exactly the situation this
+    entry reports. Removing both directories on archive instead was rejected: it
+    reaches the same directories in practice, but it ties a generated document's
+    lifetime to a record's rather than to the resource it defines, and it leaves
+    the document behind for a user who cleans up without archiving.
+
+    One residual, accepted: a launch that wrote the override and then died before
+    recording a session, whose containers were later removed by hand, has no
+    `agent_containers` target for the class to be offered under, so its directory
+    stays. Everything that reaches the class is covered — for a recorded session
+    the target is added whether or not the containers are still present — and
+    closing the last case would mean making a generated file a target, which is
+    what this decision declines to do. As with evidence 15, the machines that have
+    this residue already keep it until somebody removes it by hand.
 
 ### ADR-038 — Naming a task
 

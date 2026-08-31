@@ -508,6 +508,25 @@ func (s *service) finishGate(
 	verdict := review.Decide(results)
 	landing := gateLanding(results, verdict)
 
+	// A task the user cleaned up and archived while its checks ran. Nothing here
+	// applies to it: the worktree the checks ran in has been removed, the session
+	// that would read the verdict has been removed with it, and the account of
+	// the task is closed. Writing anyway is what left a control workspace behind
+	// on the dogfood machine — `answer` recreates the tree to write the verdict
+	// into, 115ms after cleanup had removed it (ADR-036 evidence 12).
+	//
+	// It is recorded rather than dropped in silence, because a user who watched
+	// a gate start and then archived the task is owed the reason no verdict ever
+	// appeared.
+	if task.Workflow == domain.WorkflowArchived {
+		s.record(ctx, task, domain.Event{
+			Type: domain.EventReviewChanged,
+			Detail: "the task was archived while its checks were running, so their results were discarded: " +
+				verdict.Summary,
+		})
+		return nil
+	}
+
 	record, err := s.loadReview(ctx, task)
 	if err != nil {
 		return err
@@ -765,6 +784,13 @@ func (s *service) checkDirectory(binding domain.TaskRepository, onHost bool) str
 // agent is still waiting on, and this is what ends that wait. A run the user
 // asked for has nobody waiting, and writing a verdict named after a request that
 // does not exist would leave a file nothing reads.
+//
+// A workspace that is no longer there is the same case reached the other way. A
+// cleanup that removed the control workspace removed the record the wait was
+// happening in, and every write in this package creates the directory it writes
+// into — so answering would not reach a waiting session, it would rebuild a tree
+// the user had just confirmed the removal of, holding one file nothing will ever
+// open (ADR-036 evidence 12).
 func (s *service) answer(task *domain.Task, request, status, report string) error {
 	if request == "" {
 		return nil
@@ -772,6 +798,9 @@ func (s *service) answer(task *domain.Task, request, status, report string) erro
 	workspace, err := s.controlWorkspace(task)
 	if err != nil {
 		return err
+	}
+	if !workspace.Exists() {
+		return nil
 	}
 	return workspace.WriteVerification(request, control.Verification{Status: status, Report: report})
 }
