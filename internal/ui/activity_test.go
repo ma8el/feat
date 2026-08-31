@@ -422,7 +422,7 @@ func TestTheRuntimeScreenShowsBothOfItsWaits(t *testing.T) {
 		t.Fatalf("observing=%v running=%v, want the read shown as running",
 			model.runtime.observing, model.activity.running)
 	}
-	view := model.runtimeBody()
+	view := model.runtimeBody(model.mainRegionSize())
 	if !strings.Contains(flowed(view), "reading what is running") || !spinning(view) {
 		t.Errorf("the opening read is not drawn as one:\n%s", view)
 	}
@@ -439,7 +439,7 @@ func TestTheRuntimeScreenShowsBothOfItsWaits(t *testing.T) {
 		t.Fatalf("pending=%q running=%v, want the start shown as running",
 			model.runtime.pending, model.activity.running)
 	}
-	view = model.runtimeBody()
+	view = model.runtimeBody(model.mainRegionSize())
 	if !strings.Contains(flowed(view), "waiting for start") {
 		t.Errorf("the screen does not say what it is waiting for:\n%s", view)
 	}

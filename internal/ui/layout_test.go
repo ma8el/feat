@@ -24,6 +24,21 @@ func content(m Model) string { return m.stackedView() }
 // is drawn in wrapped the sentence, and the task panel is wrapped to its region.
 func flowed(block string) string { return strings.Join(strings.Fields(ansi.Strip(block)), " ") }
 
+// overrun is the lines of a body that will not fit the region it is drawn in.
+//
+// They are what a card cuts, marking the cut with an ellipsis, so a body with
+// none of them is one nothing was taken from. Measured by display width, which
+// is what the card measures by.
+func overrun(body string, width int) []string {
+	var out []string
+	for _, line := range strings.Split(body, "\n") {
+		if ansi.StringWidth(line) > width {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
 // sized gives a model a terminal, which is what decides between the three
 // regions and the stacked fallback.
 func sized(m Model, width, height int) Model {

@@ -219,6 +219,7 @@ func keyMap(width int) string {
 			{"c / u", "create, start"},
 			{"t / d", "stop, destroy"},
 			{"o", "follow the Compose logs"},
+			{"pgup / pgdn", "scroll the panel"},
 		}},
 		{"tasks and projects", [][2]string{
 			{"n", "prepare a new task"},

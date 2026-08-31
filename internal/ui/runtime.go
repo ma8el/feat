@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ma8el/feat/internal/api"
 )
@@ -34,6 +35,12 @@ type runtimeModel struct {
 	observing bool
 	// confirming reports that destroy is waiting for a yes.
 	confirming bool
+	// scroll is how far down the tab the reader is.
+	//
+	// Its own, as the brief's and the task panel's are: a project with a service
+	// per repository, its ports and its retained volumes outgrows the region, and
+	// an offset shared with another tab would move every time that one was read.
+	scroll int
 	// err is a failed action, shown rather than thrown: a dashboard that exited
 	// because Docker refused would take the view of every other task with it.
 	err error
@@ -138,6 +145,14 @@ func (m Model) runtimeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// with one exception is the thing this dashboard's keys were being fixed
 		// for.
 		return m.runtimeLogs()
+
+	case "pgup":
+		m.runtime.scroll = m.runtimeScroll(-panelPage)
+		return m, nil
+
+	case "pgdown":
+		m.runtime.scroll = m.runtimeScroll(panelPage)
+		return m, nil
 	}
 	// Everything this view does not claim is the dashboard's, including `a` and
 	// `s` — which the task panel implements itself and this one had no answer for
@@ -213,16 +228,56 @@ func (m Model) applyRuntime(message runtimeMsg) (tea.Model, tea.Cmd) {
 // runtimeView renders the runtime screen as a whole terminal, which is what the
 // narrow fallback draws when there is no room for the three regions.
 func (m Model) runtimeView() string {
+	width, height := m.frameSize()
+	body := m.runtimeBody(width, height-stackedFooterHeight)
+
 	if _, ok := m.task(m.selected); !ok {
-		return m.runtimeBody() + m.footer(keyHints(keyHint("A", "task list"), keyHint("q", "quit")))
+		return body + m.footer(keyHints(keyHint("A", "task list"), keyHint("q", "quit")))
 	}
-	return m.runtimeBody() + m.footer(runtimeHints())
+	return body + m.footer(runtimeHints())
 }
 
-// runtimeBody renders the runtime tab's content, without a footer: in the
-// three-region layout the frame owns the footer, so a tab that drew its own
-// would put a second one in the middle of the screen.
-func (m Model) runtimeBody() string {
+// runtimeBody renders the runtime tab into a region, scrolled to where the user
+// is and without a footer: in the three-region layout the frame owns the footer,
+// so a tab that drew its own would put a second one in the middle of the screen.
+func (m Model) runtimeBody(width, height int) string {
+	return scrollWindow(m.wrappedRuntime(width), m.runtime.scroll, width, height)
+}
+
+// wrappedRuntime is the runtime tab re-flowed to the width it will be drawn at.
+//
+// This was the one tab that was not, and the cards cut what overruns them: the
+// sentence saying nothing has been created yet, the one saying what a dependency
+// is, and every note and error the daemon returned all ended in an ellipsis at
+// the region's edge, which is where the half of a sentence that says what to do
+// about it lives. Wrapping before the split is also what keeps the scroll
+// honest: the lines counted are the lines drawn.
+func (m Model) wrappedRuntime(width int) string {
+	panel := plainText(m.runtimePanel(width))
+	if width <= 0 {
+		return panel
+	}
+	return ansi.Wrap(panel, width, "")
+}
+
+// runtimeScroll is where the page keys leave the tab, bounded by its length.
+//
+// The bound is applied here rather than while rendering, for the reason the
+// brief's and the panel's are: rendering cannot write back, so without it
+// holding pgdn past the end would build up an offset that took as many presses
+// to undo.
+func (m Model) runtimeScroll(delta int) int {
+	width, height := m.mainRegionSize()
+	total := len(strings.Split(m.wrappedRuntime(width), "\n"))
+	return clampScroll(m.runtime.scroll+delta, total, height)
+}
+
+// runtimePanel renders what this task's application runtime is and what it owns.
+//
+// The width is the region's, and is spent on the service table rather than on
+// the prose: the wrap above folds a sentence and leaves it readable, and folds a
+// table row into a shape with no columns in it at all.
+func (m Model) runtimePanel(width int) string {
 	task, ok := m.task(m.selected)
 	if !ok {
 		return headingStyle.Render("runtime") + "\n\n" +
@@ -243,19 +298,17 @@ func (m Model) runtimeBody() string {
 		out.WriteString(field("state", "absent  "+
 			mutedStyle.Render("(nothing has been created; Feat starts services only when you ask)")))
 	default:
-		out.WriteString(m.runtimeSummary(task))
+		out.WriteString(m.runtimeSummary(task, width))
 	}
 
 	for _, note := range m.runtime.status.Notes {
 		out.WriteString("\n" + attentionStyle.Render("note") + " " + note + "\n")
 	}
 	if m.runtime.err != nil {
-		// Wrapped to the region, which this body has to ask for: it is the one tab
-		// that is not re-flowed before it is drawn, so a long sentence was cut at
-		// the edge — and the sentence that sends a user to their configuration ends
-		// in the path.
-		width, _ := m.mainRegionSize()
-		out.WriteString("\n" + daemonNote(m.runtime.err, task, width) + "\n")
+		// Unwrapped here, because this panel is re-flowed to its region as a whole
+		// before it is drawn (wrappedRuntime). Wrapping twice would break the line
+		// where this measured it and again where the panel does.
+		out.WriteString("\n" + daemonNote(m.runtime.err, task) + "\n")
 	}
 	if m.runtime.pending != "" {
 		waiting := "waiting for " + string(m.runtime.pending) + "…"
@@ -283,12 +336,58 @@ func runtimeHints() string {
 		keyHint("o", "logs"),
 		keyHint("d", "destroy"),
 		keyHint("r", "refresh"),
+		keyHint("pgup/pgdn", "scroll"),
 		keyHint("q", "quit"),
 	)
 }
 
+// The service table's columns.
+//
+// Every one but the status has a measure of its own: a service name, a Compose
+// state, a health verdict, and the one word this table uses to say where a
+// service came from.
+const (
+	runtimeServiceColumn = 16
+	runtimeStateColumn   = 10
+	runtimeHealthColumn  = 9
+	runtimeSourceColumn  = 11
+	// runtimeStatusColumn is what the status gets where there is room for it,
+	// and runtimeStatusFloor the least it can say anything in.
+	runtimeStatusColumn = 28
+	runtimeStatusFloor  = 12
+	// runtimeColumnGap is what renderTable puts between two columns.
+	runtimeColumnGap = 2
+)
+
+// runtimeStatusWidth is how many cells the status column may spend in a region
+// of this width, or none at all when the table does not fit without it.
+//
+// The status is Compose's own sentence about a container and the only column
+// here without a measure of its own, so it is the one that gives up cells as the
+// region narrows: the columns beside it are read down rather than across, and a
+// row folded by the wrap is a row with no columns in it. Below a dozen cells it
+// has nothing left to say — the state and the health beside it are the same fact
+// in Feat's own words — so it is dropped rather than shown as an ellipsis.
+func runtimeStatusWidth(width int, dependencies bool) int {
+	if width <= 0 {
+		return runtimeStatusColumn
+	}
+	spent := runtimeServiceColumn + runtimeStateColumn + runtimeHealthColumn + 3*runtimeColumnGap
+	if dependencies {
+		spent += runtimeSourceColumn + runtimeColumnGap
+	}
+	switch room := width - spent; {
+	case room > runtimeStatusColumn:
+		return runtimeStatusColumn
+	case room < runtimeStatusFloor:
+		return 0
+	default:
+		return room
+	}
+}
+
 // runtimeSummary renders what a task's services are and what they own.
-func (m Model) runtimeSummary(task api.Task) string {
+func (m Model) runtimeSummary(task api.Task, width int) string {
 	runtime := task.Runtime
 
 	var out strings.Builder
@@ -307,6 +406,7 @@ func (m Model) runtimeSummary(task api.Task) string {
 		// The source column appears only when there is something to say: a
 		// column reading "configured" all the way down is a column nobody reads.
 		dependencies := runtimeDependencies(services)
+		status := runtimeStatusWidth(width, dependencies)
 
 		out.WriteString("\n" + headingStyle.Render("services") + "\n")
 		rows := make([][]string, 0, len(services))
@@ -315,7 +415,9 @@ func (m Model) runtimeSummary(task api.Task) string {
 				service.Name,
 				valueOr(service.State, absent),
 				valueOr(service.Health, absent),
-				valueOr(service.Status, absent),
+			}
+			if status > 0 {
+				cells = append(cells, valueOr(service.Status, absent))
 			}
 			if dependencies {
 				cells = append(cells, runtimeSource(service))
@@ -323,13 +425,15 @@ func (m Model) runtimeSummary(task api.Task) string {
 			rows = append(rows, cells)
 		}
 		columns := []column{
-			{title: "SERVICE", width: 16},
-			{title: "STATE", width: 10},
-			{title: "HEALTH", width: 9},
-			{title: "STATUS", width: 28},
+			{title: "SERVICE", width: runtimeServiceColumn},
+			{title: "STATE", width: runtimeStateColumn},
+			{title: "HEALTH", width: runtimeHealthColumn},
+		}
+		if status > 0 {
+			columns = append(columns, column{title: "STATUS", width: status})
 		}
 		if dependencies {
-			columns = append(columns, column{title: "SOURCE", width: 11})
+			columns = append(columns, column{title: "SOURCE", width: runtimeSourceColumn})
 		}
 		out.WriteString(renderTable(columns, rows) + "\n")
 
@@ -357,15 +461,13 @@ func (m Model) runtimeSummary(task api.Task) string {
 				mutedStyle.Render("  bound on "+allocation.Binding()) + "\n")
 		}
 		if runtime.BoundEverywhere() {
-			// Three lines rather than one, because the panel is narrow and a
-			// sentence that runs off the right of it is one nobody finishes.
-			for _, line := range []string{
-				"a port bound on every address answers on every network this machine is joined to,",
-				"and on the bridge every container is on. runtime.bind_address sets the default;",
-				"an address a repository's own Compose file names is kept.",
-			} {
-				out.WriteString(mutedStyle.Render(line) + "\n")
-			}
+			// One sentence, folded by the wrap. It was written as three hand-cut
+			// lines while this tab was drawn without one, which put the breaks in
+			// the same cells in every terminal and left them ragged in most.
+			out.WriteString(mutedStyle.Render(
+				"a port bound on every address answers on every network this machine is "+
+					"joined to, and on the bridge every container is on. runtime.bind_address "+
+					"sets the default; an address a repository's own Compose file names is kept.") + "\n")
 		}
 	}
 	if len(runtime.Volumes) > 0 {
