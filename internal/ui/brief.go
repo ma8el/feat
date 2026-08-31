@@ -41,7 +41,7 @@ func (m Model) briefView() string {
 	body := m.briefBody(width, height-stackedFooterHeight)
 
 	if _, ok := m.task(m.selected); !ok {
-		return body + m.footer(keyHints(keyHint("esc", "back"), keyHint("q", "quit")))
+		return body + m.footer(keyHints(keyHint("A", "task list"), keyHint("q", "quit")))
 	}
 	return body + m.footer(briefHints())
 }
@@ -112,13 +112,6 @@ func (m Model) briefScroll(delta int) int {
 // briefKey answers the brief tab's own keys.
 func (m Model) briefKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
-	case "esc":
-		// Through selectTab rather than by setting the screen, as the task
-		// panel's esc is: the tab this lands on holds what it was last told about
-		// one task, and the selection may have moved while this tab had the
-		// keyboard.
-		return m.selectTab(tabTerminal)
-
 	case "ctrl+c", "q":
 		return m.quit()
 

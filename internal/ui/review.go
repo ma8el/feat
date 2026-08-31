@@ -115,14 +115,6 @@ func (m Model) reviewAction(action api.ReviewAction) tea.Cmd {
 // repository they meant.
 func (m Model) taskPanelKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
-	case "esc":
-		// Through selectTab rather than by setting the screen, for the reason
-		// runtime's own esc goes through openTask: the tab this lands on holds
-		// what it was last told about one task, and the selection may have moved
-		// while the panel had the keyboard. Opening it is what discards the pane
-		// it was holding and asks tmux for the selected task's.
-		return m.selectTab(tabTerminal)
-
 	case "ctrl+c", "q":
 		m.quitting = true
 		m.stopStream()

@@ -458,6 +458,46 @@ func TestEnterAndVNoLongerOpenTheTaskPanel(t *testing.T) {
 	}
 }
 
+// TestEscMovesNothingBetweenViews is the reported defect.
+//
+// The panel and the brief closed onto the terminal and runtime closed onto the
+// panel, so held down from the runtime tab `esc` walked backwards through three
+// of the four views and never through the brief. It read as a back button with a
+// view missing from it. The frame's keys are the way between views now, and this
+// checks all four tabs at once because the complaint was about the pattern
+// rather than about any one of them.
+//
+// A real Escape rather than the three runes press sends, since the point is the
+// key a terminal delivers. What esc still does is close an overlay, which
+// TestTheOverlaysOpenFromEveryView checks from these same views.
+func TestEscMovesNothingBetweenViews(t *testing.T) {
+	for key, from := range map[string]screen{
+		"A": screenTerminal,
+		"T": screenTask,
+		"B": screenBrief,
+		"R": screenRuntime,
+	} {
+		backend := newFakeBackend()
+		model := press(t, sized(dashboard(backend, liveTask(), otherTask()), 120, 32), key)
+		if model.screen != from {
+			t.Fatalf("%q opened %v, want %v", key, model.screen, from)
+		}
+
+		after := pressTyped(t, model, "esc")
+		if after.screen != from {
+			t.Errorf("esc on %v moved the screen to %v", from, after.screen)
+		}
+		if after.activeTab() != model.activeTab() {
+			t.Errorf("esc on %v moved the tab bar to %v", from, after.activeTab())
+		}
+		// And no footer offers it, because a hint naming a key nothing answers is
+		// the same defect from the other side.
+		if hints := flowed(after.hints()); strings.Contains(hints, "esc") {
+			t.Errorf("the footer on %v still offers esc: %s", from, hints)
+		}
+	}
+}
+
 // TestCleanupIsTheOnlyMeaningOfC records the end of an overload.
 //
 // `C` sent work back on the task panel and cleaned a task up everywhere else,
@@ -503,6 +543,71 @@ func TestTheTaskActionsReachEveryView(t *testing.T) {
 		if prepared := press(t, model, "n"); prepared.screen != screenPrepare {
 			t.Errorf("n from %q left the screen at %v, want preparation", open, prepared.screen)
 		}
+	}
+}
+
+// TestPreparationClosesOntoTheTabItOpenedOver is the second half of the same
+// report.
+//
+// `esc` was removed from the tabs and then closed `prepare a new task` onto the
+// terminal anyway, which is the same surprise arriving by another road: a user
+// who opened the dialog from the task panel and changed their mind was moved to
+// a view they had not asked for, in answer to a key that had just undone the
+// only thing they had. Preparation remembered the tab on the way in and went
+// home regardless; every other overlay already returned to what was underneath.
+func TestPreparationClosesOntoTheTabItOpenedOver(t *testing.T) {
+	for key, want := range map[string]screen{
+		"A": screenTerminal,
+		"T": screenTask,
+		"B": screenBrief,
+		"R": screenRuntime,
+	} {
+		backend := newFakeBackend()
+		model := press(t, sized(dashboard(backend, liveTask(), otherTask()), 120, 32), key)
+
+		opened := press(t, model, "n")
+		if opened.screen != screenPrepare {
+			t.Fatalf("n from %q left the screen at %v, want preparation", key, opened.screen)
+		}
+
+		// The cancellation preparation reports for `esc` at its first step, which
+		// is what the dialog closes with.
+		updated, cmd := opened.Update(preparedMsg{})
+		closed := applyCommand(t, updated.(Model), cmd)
+
+		if closed.screen != want {
+			t.Errorf("cancelling preparation from %q left the screen at %v, want %v",
+				key, closed.screen, want)
+		}
+		if closed.activeTab() != model.activeTab() {
+			t.Errorf("cancelling preparation from %q left the tab bar on %v, want %v",
+				key, closed.activeTab(), model.activeTab())
+		}
+	}
+}
+
+// TestALaunchOpensTheTerminalOfTheTaskItCreated is the exception the rule keeps.
+//
+// A launch is a result rather than a movement: the terminal draws the pane of
+// the task that was just created, which is what the user asked preparation for
+// and is not the tab they left. It goes through the tab's own opener, because
+// the selection moves with it — a panel or a runtime view assigned rather than
+// opened would draw the new task's name over the previous task's answer.
+func TestALaunchOpensTheTerminalOfTheTaskItCreated(t *testing.T) {
+	backend := newFakeBackend()
+	first := liveTask()
+	launched := newerTask()
+	model := press(t, sized(dashboard(backend, first), 120, 32), "R")
+
+	updated, cmd := press(t, model, "n").Update(preparedMsg{task: &launched})
+	closed := applyCommand(t, updated.(Model), cmd)
+
+	if closed.screen != screenTerminal {
+		t.Errorf("a launch from the runtime tab left the screen at %v, want the terminal",
+			closed.screen)
+	}
+	if closed.selected != launched.ID {
+		t.Errorf("the selection is %s, want the launched task %s", closed.selected, launched.Key)
 	}
 }
 

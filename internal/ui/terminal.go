@@ -141,8 +141,8 @@ func (m Model) terminalBody(width, height int) string {
 		return mutedStyle.Render("task " + task.Key + " has no terminal yet")
 	// A frame, or a failure, belonging to another task is not drawn under this
 	// one's name. applyFrame drops what arrives after the selection moved; this
-	// is the other half — what was already held when it moved, which `esc` from
-	// the task panel put back on the screen without asking for a new one.
+	// is the other half — what was already held when it moved, which returning
+	// to this tab put back on the screen without asking for a new one.
 	case m.terminal.task != task.ID:
 		return m.awaitingFrame(task, width, height)
 	}

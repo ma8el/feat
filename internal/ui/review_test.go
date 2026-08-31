@@ -442,9 +442,9 @@ func TestOnlyAChangeToThisPanelsReviewCostsAnObservation(t *testing.T) {
 	// And the panel has to be the open one: an event about the selected task
 	// while the user is reading its terminal costs nothing either.
 	backend := newFakeBackend()
-	elsewhere := press(t, reviewScreen(t, backend), "esc")
+	elsewhere := press(t, reviewScreen(t, backend), "A")
 	if elsewhere.screen == screenTask {
-		t.Fatalf("esc left the task panel open")
+		t.Fatalf("A left the task panel open")
 	}
 	before := len(backend.reviewCalls)
 
