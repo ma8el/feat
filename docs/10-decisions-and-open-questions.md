@@ -7735,6 +7735,73 @@ ends them. No API change, no stored-format change, no schema version, and no
 daemon change. ADR-084 stands: this adds the one thing the split left out, which
 is that the caller with a width had no way to say so.
 
+### ADR-089 — `esc` is not navigation on the dashboard
+
+Status: accepted  
+Recorded: 2026-08-31, with the implementation
+
+The maintainer reported that `esc` on the dashboard behaves like a back button
+that cycles through the views already visited, except that it skips the brief —
+unexpected enough to read as a bug, and the request was to remove the key as a
+way of moving between views rather than to fix where it lands.
+
+Evidence:
+
+1. It was not a history. Three views answered `esc` with a fixed destination:
+   the task panel and the brief closed onto the terminal, and runtime closed onto
+   the task panel. Nothing recorded where the user had come from, so `esc` could
+   only ever walk one route.
+2. That route is not the tab bar's. The bar is `terminal, task, brief, runtime`
+   in a cycle of four, and `esc` walked `runtime → task → terminal` — two steps
+   that pass over the brief, which sits between the two views the second step
+   joins. The brief's own `esc` skipped the task panel in the other direction.
+   Hence the report: it looks like a back button with one view missing from it.
+3. It lands on views the user has not been to. `R` from the terminal opens
+   runtime; `esc` there opened the task panel, which was never on the screen. A
+   back button that goes forward is the same defect stated from the other side.
+4. No view needs it. Every tab has its own shifted letter — `A`, `T`, `B`, `R` —
+   beside the pair that steps between them, `L`/`H`, `shift+→`/`shift+←`, and
+   `tab`/`shift+tab` (ADR-046). There is no view reachable only by cycling and
+   none that can be left only by closing, so `esc` was a second way to move
+   between the same four views that disagreed with the first about what is next
+   to what.
+5. It was never advertised as movement. The key map on `?` lists the frame's keys
+   and has never named `esc` among them, and in the three-region layout only
+   runtime's footer offered `esc back` — the other three tabs named the keys that
+   move within them and nothing else. So the key that was reported as surprising
+   is also the one a user could only have found by pressing it.
+6. `esc` already has one meaning, and it is not this. Every overlay — the key
+   map, recovery, `feat doctor`, cleanup, publication, the daemon dialog — closes
+   on it, and every step of task preparation and the project wizard steps back on
+   it. Those are answered before a key reaches a tab, so removing the tab's
+   meaning touches none of them.
+
+Decisions:
+
+- **`esc` does nothing on all four tabs.** The three cases are removed rather
+  than redirected: any destination is a second movement rule, and the frame
+  already has one that covers every view from every view.
+- **It is answered explicitly in `dashboardKey` rather than left to fall off the
+  end of the switch**, so that the key is written down as deliberately inert and
+  the next reader does not restore it as an obvious omission.
+- **What `esc` means elsewhere is untouched.** It closes an overlay, it steps a
+  wizard back, and a focused pane still receives it as `Escape` — that last one
+  matters more than the rest, because it is how a user quits insert mode in the
+  editor an agent opened.
+- **The two footers that named it are corrected.** Runtime's hints drop `esc
+  back`, and the narrow fallback's "no task here" footers offer `A` — which below
+  the layout's minimum is the task list — because a hint naming a key nothing
+  answers is this defect from the other side.
+
+Consequence: contained to `internal/ui`. Three key cases and two hints go, one
+inert case and one test arrive, and five existing tests press the frame's keys
+where they pressed `esc` — they were about a view being opened rather than
+assigned, which is a rule about every route into it and not about which key took
+it. No daemon, API, storage, or configuration change, and no documented CLI
+surface moves. Nothing in the specification described the behaviour, so nothing
+in it is amended: the dashboard's keys live in the key map on `?`, which never
+listed this one.
+
 
 ## Decision change process
 

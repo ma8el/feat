@@ -370,12 +370,17 @@ func TestARefreshBetweenARequestAndItsResponseChangesNothing(t *testing.T) {
 
 // TestLeavingRuntimeOpensThePanelOnTheSelectedTask is G2-03.
 //
-// `esc` set the screen rather than opening the panel, so the panel was drawn for
-// the selected task while the review model still held whatever task it was last
-// opened on. The heading named one task; the agent report, the check results,
-// the repository rows — matched by repository identifier, so within one project
-// they filled in — and every review key belonged to another. Pressing `A` there
-// approved the task the screen was not about.
+// Leaving runtime for the panel set the screen rather than opening it, so the
+// panel was drawn for the selected task while the review model still held
+// whatever task it was last opened on. The heading named one task; the agent
+// report, the check results, the repository rows — matched by repository
+// identifier, so within one project they filled in — and every review key
+// belonged to another. Pressing `A` there approved the task the screen was not
+// about.
+//
+// It was `esc` that did it, and `T` is what leaves runtime for the panel now
+// (ADR-089). The defect is not about which key: it is about a screen assigned
+// rather than opened, and every route into the panel goes through openTask.
 func TestLeavingRuntimeOpensThePanelOnTheSelectedTask(t *testing.T) {
 	status := reviewed()
 	first := status.Task
@@ -402,9 +407,9 @@ func TestLeavingRuntimeOpensThePanelOnTheSelectedTask(t *testing.T) {
 		t.Fatalf("J selected %s, want %s", moved.selected, second.Key)
 	}
 
-	back := press(t, moved, "esc")
+	back := press(t, moved, "T")
 	if back.screen != screenTask {
-		t.Fatalf("esc from runtime reached %v, want the task panel", back.screen)
+		t.Fatalf("T from runtime reached %v, want the task panel", back.screen)
 	}
 	if back.review.task != second.ID {
 		t.Errorf("the panel is headed %s and reviewing %s", second.Key, back.review.task)
@@ -418,14 +423,13 @@ func TestLeavingRuntimeOpensThePanelOnTheSelectedTask(t *testing.T) {
 }
 
 // TestLeavingTheTaskPanelAsksTmuxForTheSelectedTasksPane is the same rule as
-// TestLeavingRuntimeOpensThePanelOnTheSelectedTask, on the other `esc`.
+// TestLeavingRuntimeOpensThePanelOnTheSelectedTask, on the view next door.
 //
-// Both views close onto something that holds one task's answer, and neither is
-// re-opened by assigning a screen. Runtime's `esc` goes through openTask; the
-// panel's goes through selectTab, which discards the frame the terminal was
-// holding and asks tmux for the selected task's. Setting the screen directly
-// left the previous task's pane on the screen under the new task's name, with
-// nothing outstanding to replace it.
+// Both views are left for something that holds one task's answer, and neither is
+// re-opened by assigning a screen. The panel is left through selectTab, which
+// discards the frame the terminal was holding and asks tmux for the selected
+// task's. Setting the screen directly left the previous task's pane on the
+// screen under the new task's name, with nothing outstanding to replace it.
 //
 // The half that is asserted here is the request. terminalBody's own guard makes
 // the stale pane unreadable — "asking tmux what this pane shows…" — which is the
@@ -452,13 +456,13 @@ func TestLeavingTheTaskPanelAsksTmuxForTheSelectedTasksPane(t *testing.T) {
 	}
 
 	asked := len(backend.frameTasks)
-	back := press(t, moved, "esc")
+	back := press(t, moved, "A")
 
 	if back.screen != screenTerminal {
-		t.Fatalf("esc from the task panel reached %v, want the terminal", back.screen)
+		t.Fatalf("A from the task panel reached %v, want the terminal", back.screen)
 	}
 	if got := backend.frameTasks[asked:]; len(got) != 1 || got[0] != second.ID {
-		t.Errorf("esc from the task panel asked tmux for %v, want one frame for the selected task %s",
+		t.Errorf("A from the task panel asked tmux for %v, want one frame for the selected task %s",
 			got, second.Key)
 	}
 	if back.terminal.task != second.ID {
@@ -468,7 +472,7 @@ func TestLeavingTheTaskPanelAsksTmuxForTheSelectedTasksPane(t *testing.T) {
 }
 
 // TestLeavingTheTaskPanelRestartsThePollItLeftBehind is the other half of the
-// same `esc`.
+// same return.
 //
 // The poll stops when the tab does: a tick that arrives while another view has
 // the main region clears terminal.polling, so a dashboard costs the daemon
@@ -497,18 +501,18 @@ func TestLeavingTheTaskPanelRestartsThePollItLeftBehind(t *testing.T) {
 		t.Fatalf("a tick on the task panel left the poll running")
 	}
 
-	updated, cmd := waiting.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("esc")})
+	updated, cmd := waiting.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("A")})
 	back := updated.(Model)
 
 	if back.screen != screenTerminal {
-		t.Fatalf("esc from the task panel reached %v, want the terminal", back.screen)
+		t.Fatalf("A from the task panel reached %v, want the terminal", back.screen)
 	}
 	if !back.terminal.polling {
-		t.Error("esc returned to the terminal with no poll behind it, " +
+		t.Error("A returned to the terminal with no poll behind it, " +
 			"so the pane it draws is never asked about again")
 	}
 	if cmd == nil {
-		t.Fatal("esc from the task panel produced no command, so nothing asks tmux anything")
+		t.Fatal("A from the task panel produced no command, so nothing asks tmux anything")
 	}
 }
 
@@ -575,9 +579,9 @@ func TestFeatReviewResolvesAShortKeyToTheTaskItNames(t *testing.T) {
 // dashboard opens on.
 //
 // applyFrame drops a frame that arrives after the selection moved. The frame
-// already held when it moved is the other half: `esc` from the task panel put
-// the previous task's pane back on the screen under the new task's name, with no
-// request outstanding to replace it.
+// already held when it moved is the other half: returning to the terminal from
+// the task panel put the previous task's pane back on the screen under the new
+// task's name, with no request outstanding to replace it.
 func TestTheTerminalDoesNotDrawAnotherTasksPane(t *testing.T) {
 	first, second := liveTask(), otherTask()
 
@@ -594,9 +598,9 @@ func TestTheTerminalDoesNotDrawAnotherTasksPane(t *testing.T) {
 	// Open the panel, move to the second task, and come back. Nothing has asked
 	// tmux what the second task's pane shows.
 	backend.reviewStatus = api.ReviewStatus{Task: second}
-	back := press(t, press(t, press(t, shown, "T"), "J"), "esc")
+	back := press(t, press(t, press(t, shown, "T"), "J"), "A")
 	if back.screen != screenTerminal {
-		t.Fatalf("esc from the task panel reached %v, want the terminal", back.screen)
+		t.Fatalf("A from the task panel reached %v, want the terminal", back.screen)
 	}
 	if got, _ := back.subject(); got.ID != second.ID {
 		t.Fatalf("the subject is %s, want %s", got.Key, second.Key)

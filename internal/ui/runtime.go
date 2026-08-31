@@ -105,14 +105,6 @@ func (m Model) runtimeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch key.String() {
-	case "esc":
-		// Through openTask rather than by setting the screen, because the panel
-		// this lands on acts on the task the review model holds and that model is
-		// not re-opened by assigning a screen. Setting it directly drew the panel
-		// under the selected task's name over whichever task the review was last
-		// opened on — and `A` there approved that other task (ADR-041).
-		return m.openTask()
-
 	case "ctrl+c", "q":
 		m.quitting = true
 		m.stopStream()
@@ -222,7 +214,7 @@ func (m Model) applyRuntime(message runtimeMsg) (tea.Model, tea.Cmd) {
 // narrow fallback draws when there is no room for the three regions.
 func (m Model) runtimeView() string {
 	if _, ok := m.task(m.selected); !ok {
-		return m.runtimeBody() + m.footer(keyHints(keyHint("esc", "back"), keyHint("q", "quit")))
+		return m.runtimeBody() + m.footer(keyHints(keyHint("A", "task list"), keyHint("q", "quit")))
 	}
 	return m.runtimeBody() + m.footer(runtimeHints())
 }
@@ -291,7 +283,6 @@ func runtimeHints() string {
 		keyHint("o", "logs"),
 		keyHint("d", "destroy"),
 		keyHint("r", "refresh"),
-		keyHint("esc", "back"),
 		keyHint("q", "quit"),
 	)
 }

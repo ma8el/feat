@@ -458,6 +458,46 @@ func TestEnterAndVNoLongerOpenTheTaskPanel(t *testing.T) {
 	}
 }
 
+// TestEscMovesNothingBetweenViews is the reported defect (ADR-089).
+//
+// The panel and the brief closed onto the terminal and runtime closed onto the
+// panel, so held down from the runtime tab `esc` walked backwards through three
+// of the four views and never through the brief. It read as a back button with a
+// view missing from it. The frame's keys are the way between views now, and this
+// checks all four tabs at once because the complaint was about the pattern
+// rather than about any one of them.
+//
+// A real Escape rather than the three runes press sends, since the point is the
+// key a terminal delivers. What esc still does is close an overlay, which
+// TestTheOverlaysOpenFromEveryView checks from these same views.
+func TestEscMovesNothingBetweenViews(t *testing.T) {
+	for key, from := range map[string]screen{
+		"A": screenTerminal,
+		"T": screenTask,
+		"B": screenBrief,
+		"R": screenRuntime,
+	} {
+		backend := newFakeBackend()
+		model := press(t, sized(dashboard(backend, liveTask(), otherTask()), 120, 32), key)
+		if model.screen != from {
+			t.Fatalf("%q opened %v, want %v", key, model.screen, from)
+		}
+
+		after := pressTyped(t, model, "esc")
+		if after.screen != from {
+			t.Errorf("esc on %v moved the screen to %v", from, after.screen)
+		}
+		if after.activeTab() != model.activeTab() {
+			t.Errorf("esc on %v moved the tab bar to %v", from, after.activeTab())
+		}
+		// And no footer offers it, because a hint naming a key nothing answers is
+		// the same defect from the other side.
+		if hints := flowed(after.hints()); strings.Contains(hints, "esc") {
+			t.Errorf("the footer on %v still offers esc: %s", from, hints)
+		}
+	}
+}
+
 // TestCleanupIsTheOnlyMeaningOfC records the end of an overload.
 //
 // `C` sent work back on the task panel and cleaned a task up everywhere else,

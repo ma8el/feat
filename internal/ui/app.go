@@ -1228,10 +1228,17 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case startDaemonKey:
 		return m.offerDaemonStart()
 
+	// esc is not navigation. It closes an overlay, and every overlay answers it
+	// before a key reaches here; on a tab it means nothing at all.
+	//
+	// The tabs used to close on it — the panel and the brief onto the terminal,
+	// runtime onto the panel — which read as a back button that had lost the
+	// brief: the tab bar is a cycle of four in a fixed order, and esc walked a
+	// different, shorter one backwards through it. Two ways to move between the
+	// same four views, disagreeing about what is next to what, is one more than
+	// the frame's keys need (ADR-089). It is answered here rather than left to
+	// fall off the end of the switch so that what it does is written down.
 	case "esc":
-		if m.screen == screenKeys {
-			m.screen = m.home()
-		}
 		return m, nil
 
 	case "?":

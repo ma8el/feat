@@ -24,7 +24,7 @@ func (m Model) taskView() string {
 	body := m.taskBody(width, height-stackedFooterHeight)
 
 	if _, ok := m.task(m.selected); !ok {
-		return body + m.footer(keyHints(keyHint("esc", "back"), keyHint("q", "quit")))
+		return body + m.footer(keyHints(keyHint("A", "task list"), keyHint("q", "quit")))
 	}
 	return body + m.footer(taskPanelHints())
 }
