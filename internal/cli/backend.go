@@ -314,18 +314,14 @@ func (b *backend) WriteProject(flow *wizard.Wizard) (string, error) {
 // environment. What crosses to the dashboard is data, so the screen that draws
 // it reaches no adapter (ADR-031, ADR-064).
 func (b *backend) Diagnose(ctx context.Context, id string) (api.Diagnosis, error) {
-	layout, options, err := b.env.project()
+	_, options, err := b.env.diagnostics()
 	if err != nil {
 		return api.Diagnosis{}, err
 	}
+	options.Projects = projectList(id)
+	options.Registered = b.registered(ctx)
 
-	report, err := project.Diagnose(ctx, project.Options{
-		ConfigDir:  layout.ProjectConfigDir(),
-		Resolve:    options,
-		Runner:     b.env.runner,
-		Projects:   projectList(id),
-		Registered: b.registered(ctx),
-	})
+	report, err := project.Diagnose(ctx, options)
 	if err != nil {
 		return api.Diagnosis{}, err
 	}

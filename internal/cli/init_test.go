@@ -747,3 +747,53 @@ func TestTheDashboardGetsTheChecksTheCommandRuns(t *testing.T) {
 		}
 	}
 }
+
+// TestTheDashboardDiagnosisReadsTheMachinesSettings is the other half of that:
+// the checks are the command's, and so is the machine they are asked about.
+//
+// The dashboard's run left the settings directory unset, so the host section
+// looked for a settings file relative to whatever directory the process happened
+// to be started in. On every machine that was not the configuration directory,
+// which is all of them, the report said there was no settings file and that the
+// defaults applied — of a user who had written one, and of a daemon that was
+// reading it.
+func TestTheDashboardDiagnosisReadsTheMachinesSettings(t *testing.T) {
+	m := prepareWizard(t)
+	m.configure(t, "app", projectFixture)
+	file := m.settings(t, "version: 1\n\nresources:\n  sample_interval: 10s\n")
+
+	caller := client.New(m.layout.Socket)
+	defer caller.Close()
+
+	dashboard := &backend{client: caller, env: &environment{
+		layout:  &m.layout,
+		process: &m.env,
+		runner:  m.runner,
+	}}
+
+	report, err := dashboard.Diagnose(context.Background(), "app")
+	if err != nil {
+		t.Fatalf("diagnosing: %v", err)
+	}
+
+	finding, ok := hostFinding(report, "settings")
+	if !ok {
+		t.Fatalf("the host section does not check the settings: %+v", report.Host)
+	}
+	if !strings.Contains(finding.Summary, file) {
+		t.Errorf("the settings finding is %q, want it to name %s", finding.Summary, file)
+	}
+	if strings.Contains(finding.Summary, "the defaults apply") {
+		t.Errorf("the settings file exists and the report says %q", finding.Summary)
+	}
+}
+
+// hostFinding returns one of a report's host findings by check name.
+func hostFinding(report api.Diagnosis, check string) (api.Finding, bool) {
+	for _, finding := range report.Host {
+		if finding.Check == check {
+			return finding, true
+		}
+	}
+	return api.Finding{}, false
+}
