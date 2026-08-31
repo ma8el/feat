@@ -160,7 +160,7 @@ func (m Model) mainBody(width, height int) string {
 	case tabBrief:
 		return m.briefBody(width, height)
 	case tabRuntime:
-		return m.runtimeBody()
+		return m.runtimeBody(width, height)
 	default:
 		return m.terminalBody(width, height)
 	}

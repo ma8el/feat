@@ -329,7 +329,7 @@ func TestARuntimeResponseForAnotherTaskIsDropped(t *testing.T) {
 		t.Errorf("runtime holds %s's observation under %s's name",
 			after.runtime.status.Task.Key, second.Key)
 	}
-	if drawn := flowed(after.runtimeBody()); strings.Contains(drawn, "exporter") {
+	if drawn := flowed(after.runtimeBody(after.mainRegionSize())); strings.Contains(drawn, "exporter") {
 		t.Errorf("runtime shows the other task's services:\n%s", drawn)
 	}
 }

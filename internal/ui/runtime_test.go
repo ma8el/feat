@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ma8el/feat/internal/api"
 )
@@ -417,10 +418,149 @@ func TestADraftReachesTheRuntimeScreenAndIsToldItHasNone(t *testing.T) {
 	if opened.screen != screenRuntime {
 		t.Fatalf("R left the dashboard on %v", opened.screen)
 	}
-	if !strings.Contains(opened.runtimeBody(), "still a draft") {
-		t.Errorf("the runtime screen does not say why it is empty:\n%s", opened.runtimeBody())
+	if !strings.Contains(opened.runtimeBody(opened.mainRegionSize()), "still a draft") {
+		t.Errorf("the runtime screen does not say why it is empty:\n%s", opened.runtimeBody(opened.mainRegionSize()))
 	}
 	if len(backend.runtimeCalls) != 0 {
 		t.Errorf("a draft reached the runtime: %v", backend.runtimeCalls)
+	}
+}
+
+// TestTheRuntimeTabWrapsWhatDoesNotFitTheRegion is the report this answers.
+//
+// Every other tab is re-flowed to its region before it is drawn and this one was
+// not, so the cards cut what overran them: the sentence a user meets first on a
+// task with no services said "Feat starts services only when you" and then an
+// ellipsis, which is the half of it that says what to do about it.
+func TestTheRuntimeTabWrapsWhatDoesNotFitTheRegion(t *testing.T) {
+	task := liveTask()
+	task.Runtime = nil
+
+	backend := newFakeBackend()
+	backend.runtimeStatus = api.RuntimeStatus{Task: task}
+
+	model := sized(dashboard(backend, task), 120, 32)
+	model.selected = task.ID
+	opened := press(t, model, "R")
+
+	width, height := opened.mainRegionSize()
+	body := ansi.Strip(opened.runtimeBody(width, height))
+	if over := overrun(body, width); len(over) > 0 {
+		t.Errorf("the runtime tab overruns the region, so the card cuts it: %q", over)
+	}
+	if !strings.Contains(flowed(body), "Feat starts services only when you ask") {
+		t.Errorf("the tab lost the end of the sentence:\n%s", body)
+	}
+}
+
+// TestTheServiceTableKeepsEachServiceOnOneLine covers what the wrap put at risk.
+//
+// A row wider than the region used to lose the end of its last column and keep
+// its shape; wrapped, it folds instead, and a folded row is a row with no
+// columns in it. The status is the column that gives up the cells, down to being
+// left out where there are none to give.
+func TestTheServiceTableKeepsEachServiceOnOneLine(t *testing.T) {
+	task := liveTask()
+	task.Runtime = runningRuntime()
+
+	backend := newFakeBackend()
+	backend.runtimeStatus = api.RuntimeStatus{
+		Task: task,
+		Services: []api.RuntimeService{
+			{Name: "api", State: "running", Status: "Up 2 minutes", Health: "unknown", Managed: true},
+			{Name: "postgres", State: "running", Status: "Up 2 minutes (healthy)", Health: "healthy"},
+		},
+	}
+
+	// The narrowest terminal the three regions are drawn in, one a little wider,
+	// and one with room for every column.
+	for _, terminal := range []int{minimumWidth, 100, 160} {
+		model := sized(dashboard(backend, task), terminal, 32)
+		model.selected = task.ID
+		opened := press(t, model, "R")
+
+		width, _ := opened.mainRegionSize()
+		body := ansi.Strip(opened.wrappedRuntime(width))
+		for service, source := range map[string]string{"api": "configured", "postgres": "dependency"} {
+			if !rowHolds(body, service, source) {
+				t.Errorf("in %d columns the %s row does not hold its own source:\n%s",
+					terminal, service, body)
+			}
+		}
+		if terminal == 160 && !rowHolds(body, "postgres", "Up 2 minutes (healthy)") {
+			t.Errorf("a region with room for the status column is drawn without it:\n%s", body)
+		}
+	}
+}
+
+// rowHolds reports whether the line naming a service also carries a value, which
+// is what a table row that has not been folded looks like.
+func rowHolds(body, service, value string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, service+" ") && strings.Contains(line, value) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestTheRuntimeTabScrollsRatherThanEndingShort covers the other half of the
+// wrap: folded prose is taller than the prose it replaced, and the card cuts
+// what will not fit in silence.
+func TestTheRuntimeTabScrollsRatherThanEndingShort(t *testing.T) {
+	task := liveTask()
+	task.Runtime = runningRuntime()
+	task.Runtime.Volumes = []string{
+		"feat-example-7f3a1c2e_pgdata", "feat-example-7f3a1c2e_uploads",
+		"feat-example-7f3a1c2e_search", "feat-example-7f3a1c2e_cache",
+	}
+
+	services := make([]api.RuntimeService, 0, 8)
+	for _, name := range []string{"api", "worker", "scheduler", "search", "cache", "mail", "web", "docs"} {
+		services = append(services, api.RuntimeService{
+			Name: name, State: "running", Status: "Up 2 minutes", Health: "unknown", Managed: true,
+		})
+	}
+
+	backend := newFakeBackend()
+	backend.runtimeStatus = api.RuntimeStatus{Task: task, Services: services}
+
+	model := sized(dashboard(backend, task), 120, 24)
+	model.selected = task.ID
+	opened := press(t, model, "R")
+
+	width, height := opened.mainRegionSize()
+	body := ansi.Strip(opened.runtimeBody(width, height))
+	if !strings.Contains(body, "lines below") {
+		t.Fatalf("the tab is cut without saying so:\n%s", body)
+	}
+	if strings.Contains(body, "feat-example-7f3a1c2e_cache") {
+		t.Fatalf("the fixture is not long enough to be cut:\n%s", body)
+	}
+
+	updated, _ := opened.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	scrolled := updated.(Model)
+	if scrolled.runtime.scroll == 0 {
+		t.Fatal("pgdn left the runtime tab where it was")
+	}
+
+	body = ansi.Strip(scrolled.runtimeBody(width, height))
+	if !strings.Contains(body, "feat-example-7f3a1c2e_cache") {
+		t.Errorf("scrolling did not reach the volumes below:\n%s", body)
+	}
+	if !strings.Contains(body, "lines above") {
+		t.Errorf("the tab does not say what is above it:\n%s", body)
+	}
+
+	// Held, rather than run past its own end: the bound belongs where the key is
+	// answered, because rendering cannot write back.
+	far := scrolled
+	for range 20 {
+		updated, _ = far.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+		far = updated.(Model)
+	}
+	if !strings.Contains(ansi.Strip(far.runtimeBody(width, height)), "feat-example-7f3a1c2e_cache") {
+		t.Errorf("holding pgdn scrolled the tab off its own end:\n%s",
+			ansi.Strip(far.runtimeBody(width, height)))
 	}
 }

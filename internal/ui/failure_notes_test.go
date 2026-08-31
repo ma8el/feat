@@ -31,7 +31,7 @@ func TestARefusalReadsAsANoteRatherThanAnErrorLog(t *testing.T) {
 	refused := fmt.Errorf("%w: checks can only run for a task whose agent has asked for review, and task %s is %s",
 		api.ErrInvalid, task.ID, task.Workflow)
 
-	note := daemonNote(refused, task, 0)
+	note := daemonNote(refused, task)
 	plain := ansi.Strip(note)
 
 	if strings.Contains(plain, api.ErrInvalid.Error()) {
@@ -60,7 +60,7 @@ func TestAFailureIsStillDrawnAsOne(t *testing.T) {
 	task := refusedTask()
 	broken := errors.New("the daemon could not complete the request")
 
-	note := daemonNote(broken, task, 0)
+	note := daemonNote(broken, task)
 	if !strings.Contains(note, failureStyle.Render(broken.Error())) {
 		t.Errorf("a failure lost the failure colour: %q", note)
 	}
@@ -71,10 +71,10 @@ func TestAFailureIsStillDrawnAsOne(t *testing.T) {
 
 // TestTheRuntimeRefusalKeepsThePathItSendsTheUserTo is the half that was cut off.
 //
-// The runtime body is the one tab that is not re-flowed before it is drawn, so a
-// sentence longer than the region was truncated at the edge with an ellipsis —
-// and this sentence ends in the configuration file to add a runtime section to,
-// which is the only part of it that says what to do.
+// The runtime body was the one tab that was not re-flowed before it was drawn,
+// so a sentence longer than the region was truncated at the edge with an
+// ellipsis — and this sentence ends in the configuration file to add a runtime
+// section to, which is the only part of it that says what to do.
 func TestTheRuntimeRefusalKeepsThePathItSendsTheUserTo(t *testing.T) {
 	task := refusedTask()
 	path := "/srv/config/feat/projects/example.yaml"
@@ -88,9 +88,10 @@ func TestTheRuntimeRefusalKeepsThePathItSendsTheUserTo(t *testing.T) {
 	opened := press(t, model, "R")
 	opened.runtime.err = refused
 
-	body := ansi.Strip(opened.runtimeBody())
-	if strings.Contains(body, "…") {
-		t.Errorf("the refusal is cut rather than wrapped:\n%s", body)
+	width, height := opened.mainRegionSize()
+	body := ansi.Strip(opened.runtimeBody(width, height))
+	if over := overrun(body, width); len(over) > 0 {
+		t.Errorf("the refusal overruns the region, so the card cuts it: %q", over)
 	}
 	if !strings.Contains(flowed(body), path) {
 		t.Errorf("the refusal lost the path it sends the user to:\n%s", body)

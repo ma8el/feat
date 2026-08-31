@@ -250,12 +250,16 @@ func readHint() string { return keyHint("j k ↑↓ pgup/pgdn", "read") }
 // names it by: it is the longest thing on the line and the least worth reading,
 // and it is replaced by value rather than by pattern, so nothing that merely
 // looks like an identifier is rewritten.
-func daemonNote(err error, task api.Task, width int) string {
+//
+// It returns one unwrapped note. Both tabs that draw one are re-flowed to their
+// region as a whole before they are drawn, and a note folded here as well would
+// break where this measured it and again where the tab does.
+func daemonNote(err error, task api.Task) string {
 	message := daemonMessage(err, task)
 	if !api.IsInvalid(err) {
-		return failureStyle.Render(wrapNote(message, width))
+		return failureStyle.Render(message)
 	}
-	return attentionStyle.Render("note") + " " + wrapNote(message, width)
+	return attentionStyle.Render("note") + " " + message
 }
 
 // daemonMessage is what the daemon said with what it said for a caller taken
@@ -282,11 +286,11 @@ func daemonMessage(err error, task api.Task) string {
 // wrapNote folds a note to the region it is drawn in, where the caller knows the
 // width.
 //
-// The runtime screen is the reason it takes one at all: its body is the only tab
-// that is not re-flowed before it is drawn, so a sentence longer than the region
-// was cut at the edge with an ellipsis. What that cost was the end of the
-// sentence — and on the message that sends a user to their configuration, the end
-// of the sentence is the path.
+// Its callers are the cleanup dialog's. It draws into a box of its own width
+// rather than through a body that is re-flowed as a whole, so a sentence longer
+// than the box is cut at its edge with an ellipsis — and what that costs is the
+// end of the sentence, which on the message that sends a user to their
+// configuration is the path.
 func wrapNote(message string, width int) string {
 	if width <= 0 {
 		return message
