@@ -379,8 +379,9 @@ func TestARefreshBetweenARequestAndItsResponseChangesNothing(t *testing.T) {
 // about.
 //
 // It was `esc` that did it, and `T` is what leaves runtime for the panel now
-// (ADR-089). The defect is not about which key: it is about a screen assigned
-// rather than opened, and every route into the panel goes through openTask.
+// that esc moves nothing. The defect is not about which key: it is about a
+// screen assigned rather than opened, and every route into the panel goes
+// through openTask.
 func TestLeavingRuntimeOpensThePanelOnTheSelectedTask(t *testing.T) {
 	status := reviewed()
 	first := status.Task

@@ -458,7 +458,7 @@ func TestEnterAndVNoLongerOpenTheTaskPanel(t *testing.T) {
 	}
 }
 
-// TestEscMovesNothingBetweenViews is the reported defect (ADR-089).
+// TestEscMovesNothingBetweenViews is the reported defect.
 //
 // The panel and the brief closed onto the terminal and runtime closed onto the
 // panel, so held down from the runtime tab `esc` walked backwards through three
@@ -546,8 +546,8 @@ func TestTheTaskActionsReachEveryView(t *testing.T) {
 	}
 }
 
-// TestPreparationClosesOntoTheTabItOpenedOver is the second half of the report
-// behind ADR-089.
+// TestPreparationClosesOntoTheTabItOpenedOver is the second half of the same
+// report.
 //
 // `esc` was removed from the tabs and then closed `prepare a new task` onto the
 // terminal anyway, which is the same surprise arriving by another road: a user

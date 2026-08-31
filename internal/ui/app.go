@@ -1236,7 +1236,7 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// brief: the tab bar is a cycle of four in a fixed order, and esc walked a
 	// different, shorter one backwards through it. Two ways to move between the
 	// same four views, disagreeing about what is next to what, is one more than
-	// the frame's keys need (ADR-089). It is answered here rather than left to
+	// the frame's keys need (ADR-046). It is answered here rather than left to
 	// fall off the end of the switch so that what it does is written down.
 	case "esc":
 		return m, nil
