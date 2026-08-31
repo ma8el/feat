@@ -7743,7 +7743,9 @@ Recorded: 2026-08-31, with the implementation
 The maintainer reported that `esc` on the dashboard behaves like a back button
 that cycles through the views already visited, except that it skips the brief —
 unexpected enough to read as a bug, and the request was to remove the key as a
-way of moving between views rather than to fix where it lands.
+way of moving between views rather than to fix where it lands. Reported again
+from the sandbox once the tabs no longer answered it: closing `prepare a new
+task` with `esc` still moved the user to the terminal.
 
 Evidence:
 
@@ -7775,6 +7777,13 @@ Evidence:
    on it, and every step of task preparation and the project wizard steps back on
    it. Those are answered before a key reaches a tab, so removing the tab's
    meaning touches none of them.
+7. One overlay closed onto the terminal rather than onto what was underneath.
+   `n` calls `rememberTab` on the way in, as every overlay does, and
+   `finishPreparation` went home regardless — so cancelling from the task panel,
+   the brief, or runtime moved the user to a view they had not asked for, in
+   answer to a key that had just undone the only thing they had. It is the same
+   surprise as the report above, arriving by another road, and it is the half a
+   user meets first: preparation is the dialog they open most.
 
 Decisions:
 
@@ -7792,15 +7801,26 @@ Decisions:
   back`, and the narrow fallback's "no task here" footers offer `A` — which below
   the layout's minimum is the task list — because a hint naming a key nothing
   answers is this defect from the other side.
+- **Preparation closes onto the tab it opened over**, which is what every other
+  overlay already did and what `rememberTab` exists for. A launch is the one
+  exception, and it is a result rather than a movement: the terminal draws the
+  pane of the task that was just created, which is what the dialog was opened to
+  produce and is not the tab the user left.
+- **Both go through `selectTab` rather than by assigning the screen**, because a
+  launch moves the selection. The panel and runtime hold one task's answer and
+  are not re-opened by being drawn, so an assignment would put the new task's
+  name over the previous task's repositories, checks, and services — the defect
+  ADR-041 recorded, and the reason `esc` on those tabs went through their own
+  openers for as long as it existed.
 
-Consequence: contained to `internal/ui`. Three key cases and two hints go, one
-inert case and one test arrive, and five existing tests press the frame's keys
-where they pressed `esc` — they were about a view being opened rather than
-assigned, which is a rule about every route into it and not about which key took
-it. No daemon, API, storage, or configuration change, and no documented CLI
-surface moves. Nothing in the specification described the behaviour, so nothing
-in it is amended: the dashboard's keys live in the key map on `?`, which never
-listed this one.
+Consequence: contained to `internal/ui`. Three key cases and two hints go; an
+inert case, a close that returns to the remembered tab, and three tests arrive;
+and five existing tests press the frame's keys where they pressed `esc` — they
+were about a view being opened rather than assigned, which is a rule about every
+route into it and not about which key took it. No daemon, API, storage, or
+configuration change, and no documented CLI surface moves. Nothing in the
+specification described the behaviour, so nothing in it is amended: the
+dashboard's keys live in the key map on `?`, which never listed this one.
 
 
 ## Decision change process

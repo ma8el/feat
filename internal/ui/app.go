@@ -1606,18 +1606,38 @@ func (m Model) taskKey(id string) string {
 // and the marker was a row, so the refresh that listed the new task first — the
 // list is newest-first — moved the marker onto whatever had been first before,
 // and the footer said "launched task X" over a rail pointing somewhere else.
+//
+// Where it closes onto is the tab it opened over, which is what an overlay does
+// and what every other one here already did: preparation remembered the tab on
+// the way in and then went home anyway, so cancelling it from the task panel or
+// the brief moved the user to the terminal — a view they had not asked for, in
+// answer to a key that had just undone the only thing they had. Preparation the
+// dashboard opens on, for `feat implement`, was never over a tab and has nothing
+// to remember; the terminal is the zero value, which is where it closed before.
+//
+// A launch is the exception, and it is a result rather than a movement: the
+// terminal is the pane of the task that was created, which is what the user
+// asked for and is not the tab they left.
+//
+// Both go through selectTab rather than by assigning the screen, because a
+// launch moves the selection: the panel and runtime hold one task's answer and
+// are not re-opened by being drawn, so assigning the screen would put the new
+// task's name over the old task's repositories, checks, and services (ADR-041).
 func (m Model) finishPreparation(message preparedMsg) (tea.Model, tea.Cmd) {
-	m.screen = m.home()
+	opened := m.tab
 	switch {
 	case message.err != nil:
 		m.err = message.err
 	case message.task != nil:
 		m.status = "launched task " + message.task.Key + " — " + message.task.Title
 		m.selected = message.task.ID
+		opened = tabTerminal
 	default:
 		m.status = "task preparation cancelled; nothing was created"
 	}
-	return m, m.load()
+
+	updated, cmd := m.selectTab(opened)
+	return updated, tea.Batch(cmd, m.load())
 }
 
 // subject is the task an action applies to: the selected one, which is what the
