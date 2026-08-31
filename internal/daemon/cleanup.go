@@ -2,13 +2,18 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	iofs "io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/git"
+	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/reconcile"
 	"github.com/ma8el/feat/internal/runtime"
 	"github.com/ma8el/feat/internal/tmux"
@@ -454,7 +459,35 @@ func (s *service) removeTerminal(
 	return removed, nil
 }
 
+// removeAgentContainers destroys the agent's Compose project and removes what
+// Feat generated to define it.
+//
+// The two are one act rather than two, in the order the resource and its
+// definition were created in: the generated override is the document the destroy
+// is run against, so it is removed once the project it described is gone
+// (ADR-037 evidence 16).
 func (s *service) removeAgentContainers(
+	ctx context.Context, task *domain.Task, plan *reconcile.Plan,
+) ([]api.CleanupRemoval, error) {
+	removed, err := s.destroyAgentContainers(ctx, task, plan)
+	if err != nil {
+		return removed, err
+	}
+
+	directory, err := s.executionDirectory(task)
+	if err != nil {
+		return removed, err
+	}
+	generated, err := removeGeneratedInputs(directory, s.layout.ExecutionRoot())
+	if generated {
+		removed = append(removed, api.CleanupRemoval{
+			Class: string(reconcile.ClassAgentContainers), Identity: directory, Removed: true,
+		})
+	}
+	return removed, err
+}
+
+func (s *service) destroyAgentContainers(
 	ctx context.Context, task *domain.Task, plan *reconcile.Plan,
 ) ([]api.CleanupRemoval, error) {
 	targets := plan.For(reconcile.ClassAgentContainers)
@@ -513,7 +546,33 @@ func (s *service) removeUnrecordedAgentContainers(
 	}}, nil
 }
 
+// removeRuntimeContainers destroys the application's Compose project and removes
+// what Feat generated to define it, for the reason removeAgentContainers does.
+//
+// The directory is also the working directory of every Compose command Feat runs
+// for this task, which is why it goes after the destroy rather than before it.
 func (s *service) removeRuntimeContainers(
+	ctx context.Context, task *domain.Task, plan *reconcile.Plan,
+) ([]api.CleanupRemoval, error) {
+	removed, err := s.destroyRuntimeContainers(ctx, task, plan)
+	if err != nil {
+		return removed, err
+	}
+
+	directory, err := s.runtimeDirectory(task)
+	if err != nil {
+		return removed, err
+	}
+	generated, err := removeGeneratedInputs(directory, s.layout.RuntimeRoot())
+	if generated {
+		removed = append(removed, api.CleanupRemoval{
+			Class: string(reconcile.ClassRuntimeContainers), Identity: directory, Removed: true,
+		})
+	}
+	return removed, err
+}
+
+func (s *service) destroyRuntimeContainers(
 	ctx context.Context, task *domain.Task, plan *reconcile.Plan,
 ) ([]api.CleanupRemoval, error) {
 	targets := plan.For(reconcile.ClassRuntimeContainers)
@@ -534,6 +593,51 @@ func (s *service) removeRuntimeContainers(
 	return []api.CleanupRemoval{{
 		Class: string(reconcile.ClassRuntimeContainers), Identity: targets[0].Identity, Removed: true,
 	}}, nil
+}
+
+// removeGeneratedInputs removes one task's directory of generated Compose input,
+// and reports whether there was one.
+//
+// This is the mirror of creation ADR-037 applied to the two roots it did not
+// reach. A task's Compose override is generated from the task, written to
+// `<root>/<project-id>/<task-id>/`, and never removed, so every task that has
+// ever launched leaves a directory behind — 47 of the 48 under the execution
+// root of the dogfood machine belonged to tasks that had been cleaned up and
+// archived. It is not a target the user chooses about, for the reason the
+// directories above a worktree are not: it is where a resource was defined, not
+// a resource (ADR-037 evidence 16).
+//
+// The project's directory is left, exactly as the worktree walk leaves it. A
+// project outlives every task in it, and the next task of that project is
+// created inside it.
+//
+// The path is computed from a validated project and task identifier under a root
+// the daemon resolved, never one a caller supplied, and it is checked again here
+// because this function deletes a directory tree.
+func removeGeneratedInputs(directory, root string) (bool, error) {
+	cleaned := filepath.Clean(directory)
+	if !filepath.IsAbs(cleaned) || paths.Broad(cleaned) {
+		return false, fmt.Errorf(
+			"refusing to remove the generated Compose input %q: it is not a directory Feat owns", directory)
+	}
+	// It lives two levels below its root, at <root>/<project-id>/<task-id>, so
+	// anything shallower or outside is not one whatever else it may be.
+	if !paths.Under(root, cleaned) || paths.Depth(cleaned) != paths.Depth(root)+2 {
+		return false, fmt.Errorf(
+			"refusing to remove the generated Compose input %q: it is not a task's directory under %s",
+			directory, root)
+	}
+
+	if _, err := os.Stat(cleaned); err != nil {
+		if errors.Is(err, iofs.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("reading the generated Compose input %s: %w", cleaned, err)
+	}
+	if err := os.RemoveAll(cleaned); err != nil {
+		return false, fmt.Errorf("removing the generated Compose input %s: %w", cleaned, err)
+	}
+	return true, nil
 }
 
 // removeVolumes removes the volumes of whichever Compose projects the plan

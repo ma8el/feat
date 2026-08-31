@@ -13,6 +13,7 @@ import (
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/paths"
+	"github.com/ma8el/feat/internal/reconcile"
 	"github.com/ma8el/feat/internal/runtime"
 	"github.com/ma8el/feat/internal/runtime/compose/runtimetest"
 	"github.com/ma8el/feat/internal/store"
@@ -1130,5 +1131,55 @@ func rewrite(t *testing.T, layout paths.Layout, id, body string) {
 	if err := os.WriteFile(
 		filepath.Join(layout.ProjectConfigDir(), id+".yaml"), []byte(body), 0o600); err != nil {
 		t.Fatalf("rewriting the configuration: %v", err)
+	}
+}
+
+// TestCleanupRemovesTheGeneratedRuntimeInput is ADR-037 evidence 16 at the second of the two
+// roots it names.
+//
+// The application's generated Compose document has the same lifetime as the
+// agent's: it is written per task under `<state>/runtime/<project-id>/<task-id>/`,
+// it is what the Compose project is defined by, and nothing removed it. This
+// directory is also the working directory of every Compose command Feat runs for
+// the task, which is why it goes after the destroy rather than before it.
+func TestCleanupRemovesTheGeneratedRuntimeInput(t *testing.T) {
+	arranged := arrangeConfigured(t, runtimeFixture)
+	task := arranged.launched(t)
+	arranged.answerFor(task, "running", "Up 2 seconds")
+	arranged.act(t, task.ID, api.RuntimeStart)
+
+	directory, err := arranged.service.runtimeDirectory(task)
+	if err != nil {
+		t.Fatalf("resolving the runtime directory: %v", err)
+	}
+	if _, err := os.Stat(directory); err != nil {
+		t.Fatalf("the start generated no runtime input, so there is nothing to remove: %v", err)
+	}
+
+	// The services are gone by the time the cleanup runs, which is the state a
+	// destroy leaves and the state the plan is resolved against.
+	arranged.runtimes.Answer("ps --all --format json", "")
+	plan := arranged.planOf(t, arranged.reload(t, task.ID))
+	result, err := arranged.service.Cleanup(context.Background(), task.ID,
+		selectAll(plan, reconcile.ClassRuntimeContainers))
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+
+	if _, err := os.Stat(directory); !os.IsNotExist(err) {
+		t.Errorf("the generated runtime input %s is still there: %v", directory, err)
+	}
+	if _, err := os.Stat(filepath.Dir(directory)); err != nil {
+		t.Errorf("the project's own runtime directory was removed with its last task: %v", err)
+	}
+
+	var reported bool
+	for _, entry := range result.Removed {
+		if entry.Identity == directory && entry.Removed {
+			reported = true
+		}
+	}
+	if !reported {
+		t.Errorf("the cleanup removed %s without reporting it: %+v", directory, result.Removed)
 	}
 }

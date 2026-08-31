@@ -190,18 +190,32 @@ func (s *service) composeDirectory() (string, error) {
 	return root, nil
 }
 
-// overridePath is where a task's generated Compose override is written.
+// executionDirectory is where a task's generated execution input is written.
+//
+// It is named separately from the file in it because its lifetime is a thing in
+// its own right: it is created for one task's agent Compose project and is
+// removed with that project, so the directory is what cleanup addresses and the
+// file is what a launch writes (ADR-037 evidence 16).
 //
 // Both identifiers are validated before either reaches a path, so no stored
 // value can name a directory outside the execution root.
-func (s *service) overridePath(task *domain.Task) (string, error) {
+func (s *service) executionDirectory(task *domain.Task) (string, error) {
 	if err := task.ProjectID.Validate(); err != nil {
 		return "", err
 	}
 	if err := task.ID.Validate(); err != nil {
 		return "", err
 	}
-	return filepath.Join(s.layout.ExecutionRoot(), task.ProjectID.String(), task.ID.String(), overrideName), nil
+	return filepath.Join(s.layout.ExecutionRoot(), task.ProjectID.String(), task.ID.String()), nil
+}
+
+// overridePath is where a task's generated Compose override is written.
+func (s *service) overridePath(task *domain.Task) (string, error) {
+	directory, err := s.executionDirectory(task)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(directory, overrideName), nil
 }
 
 // taskMounts is what the agent's container gets to see.

@@ -341,6 +341,8 @@ There are two exits and Feat already had both: attaching to the agent with revis
 
 The user MUST be able to run the project's configured checks against a task whose agent has asked for review, whatever the last run of them concluded — including work that passed, which the user may have changed themselves while reading it. The run is the completion gate, so the task returns to `review_requested` and the gate decides where it lands, as it did the first time. A run with nothing to run MUST be refused without moving the task. See ADR-087.
 
+A gate outlives the request that started it, so the task can move while its checks run. A task the user has archived meanwhile MUST NOT be written to: the gate records that its results were discarded and stops, without a review record, a transition, or a verdict. Writing the verdict recreated the control workspace the cleanup had just removed, which is what left one behind. See ADR-036.
+
 ## Persistence and recovery
 
 ### FR-STATE-001 — File storage
@@ -379,6 +381,15 @@ they are where a resource lived, not a resource the user chooses about. What the
 walk stops at is what the task was not given — the directory the worktree root
 gives its project, which outlives every task in it, and the fixed root under
 that. See ADR-037.
+
+The same holds for the Compose documents Feat generates. A task's agent
+environment and its application services are each defined by a document written
+per task under the state directory, so removing the agent's containers removes
+that task's generated execution directory and removing the application's removes
+its generated runtime directory — after the project is destroyed, never before,
+and stopping at the project's own directory as the worktree walk does. They are
+reported with the class that removed them and are not targets of their own, for
+the reason the directories above a worktree are not. See ADR-037.
 
 The enumeration is also what every surface offering the choice shows.
 `feat task cleanup` and the dashboard's cleanup screen present the same targets,
