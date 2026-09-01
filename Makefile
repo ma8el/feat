@@ -7,9 +7,19 @@ BINARY := feat
 MODULE := github.com/ma8el/feat
 CMD    := ./cmd/feat
 
-BIN_DIR         := bin
-GOLANGCI        := $(BIN_DIR)/golangci-lint
-GORELEASER      := $(BIN_DIR)/goreleaser
+BIN_DIR := bin
+
+# Installed tools go under bin/<goos>-<goarch>/ because bin/ is not always one
+# machine's. A Feat task agent runs in a Linux container writing into a worktree
+# on the macOS host, so a single bin/golangci-lint is whichever of the two
+# installed it last, and the other gets "cannot execute binary file". The rules
+# below could not notice: they are satisfied by a file that exists, not by one
+# this machine can run, so make reports the tool up to date and `make clean` is
+# the only way out. The platform in the path is what makes the rule true again.
+TOOL_DIR := $(BIN_DIR)/$(shell go env GOOS)-$(shell go env GOARCH)
+
+GOLANGCI        := $(TOOL_DIR)/golangci-lint
+GORELEASER      := $(TOOL_DIR)/goreleaser
 LINT_VERSION    := $(shell cat .golangci-version)
 RELEASE_VERSION := $(shell cat .goreleaser-version)
 
@@ -147,21 +157,21 @@ golden: ## Rewrite golden test files
 	go test ./internal/api -update
 
 .PHONY: tools
-tools: $(GOLANGCI) $(GORELEASER) ## Install the pinned developer tools into bin/
+tools: $(GOLANGCI) $(GORELEASER) ## Install the pinned developer tools for this platform
 
 # The binary is rebuilt whenever the pinned version changes. Installing with an
 # explicit @version keeps the linter's dependencies out of the module graph, so
 # `go install github.com/ma8el/feat/cmd/feat@latest` stays clean for users.
 $(GOLANGCI): .golangci-version
-	@mkdir -p $(BIN_DIR)
-	GOBIN=$(CURDIR)/$(BIN_DIR) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(LINT_VERSION)
+	@mkdir -p $(TOOL_DIR)
+	GOBIN=$(CURDIR)/$(TOOL_DIR) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(LINT_VERSION)
 
 # Same pattern, same reason. .goreleaser-version is the single source for the
 # pinned releaser, shared with the release workflow, which reads the file rather
 # than naming a version of its own.
 $(GORELEASER): .goreleaser-version
-	@mkdir -p $(BIN_DIR)
-	GOBIN=$(CURDIR)/$(BIN_DIR) go install github.com/goreleaser/goreleaser/v2@$(RELEASE_VERSION)
+	@mkdir -p $(TOOL_DIR)
+	GOBIN=$(CURDIR)/$(TOOL_DIR) go install github.com/goreleaser/goreleaser/v2@$(RELEASE_VERSION)
 
 .PHONY: release-check
 release-check: $(GORELEASER) ## Validate .goreleaser.yaml without building anything
