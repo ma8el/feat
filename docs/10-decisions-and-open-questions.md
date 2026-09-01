@@ -416,6 +416,10 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   nothing: release binaries, `go install`, and the setup skill move into it,
   Linux moves out of it, and host-native execution is recorded as delivered.
 
+- **[ADR-091 — The version package's leaf is enforced, not just documented](decisions/ADR-091-the-version-packages-leaf-is-enforced-not-just-documented.md)** · accepted  
+  `internal/version` may import the standard library and nothing else, held by a
+  `depguard` rule rather than by the sentence in its doc comment that said so.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is

@@ -577,6 +577,21 @@ linters:
               desc: the daemon is the only reader and writer of persistent state
             - pkg: github.com/ma8el/feat/internal/tmux
 
+        # ADR-091: internal/version is a standard-library-only leaf, as
+        # ADR-025 declared it. Every surface that reports build identity reads
+        # it — `feat version`, the health screen, and later `feat doctor` — so
+        # it may read nothing: a version package that imported configuration or
+        # storage would fail for the reasons it exists to report. Its own tests
+        # are exempt, because they build and install a real binary to check what
+        # the toolchain stamps into one.
+        version-stays-a-leaf:
+          list-mode: strict
+          files:
+            - "**/internal/version/**"
+            - "!$test"
+          allow:
+            - $gostd
+
         # ADR-013: invoke the Docker Compose CLI. Linking a Docker SDK would
         # make it far easier to accidentally grant the agent Docker reach.
         no-docker-sdk:

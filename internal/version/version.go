@@ -176,7 +176,7 @@ func fromBuildInfo(bi *debug.BuildInfo) identity {
 // fromPseudoVersion reads the revision and its timestamp out of a module version
 // the toolchain derived from a commit. A version that names a tag instead —
 // v0.4.1, or v0.4.1-rc.1 — describes no single commit, and comes back empty.
-func fromPseudoVersion(moduleVersion string) (commit, date string) {
+func fromPseudoVersion(moduleVersion string) (revision, timestamp string) {
 	base, _, _ := strings.Cut(moduleVersion, "+")
 
 	match := pseudoVersion.FindStringSubmatch(base)
@@ -184,13 +184,13 @@ func fromPseudoVersion(moduleVersion string) (commit, date string) {
 		return "", ""
 	}
 
-	when, err := time.Parse(pseudoVersionTime, match[1])
+	stamped, err := time.Parse(pseudoVersionTime, match[1])
 	if err != nil {
 		// The digits are a timestamp by shape and not by value, which says
 		// nothing about the revision beside them.
 		return match[2], ""
 	}
-	return match[2], when.UTC().Format(time.RFC3339)
+	return match[2], stamped.UTC().Format(time.RFC3339)
 }
 
 // shorten renders a revision at the length a person reads, which is the length
