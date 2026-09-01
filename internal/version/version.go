@@ -141,9 +141,10 @@ func firstKnown(linked, embedded, placeholder string) string {
 // better answer: a full revision, and whether the tree had moved past it.
 //
 // The timestamp both sources carry is the revision's, not the moment the
-// compiler ran; the toolchain records no build time at all. String() renders the
-// field as "built" because a linked date is one, and when nothing was linked the
-// nearest true thing a binary can say is when its source was committed.
+// compiler ran; the toolchain records no build time at all. That is the contract
+// ADR-092 states for the field across every kind of build: the commit's date
+// wherever the source can date itself, and a build clock only where nothing else
+// saw the build, which is `make build` alone.
 func fromBuildInfo(bi *debug.BuildInfo) identity {
 	var embedded identity
 	if v := bi.Main.Version; v != devel {

@@ -420,6 +420,11 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   `internal/version` may import the standard library and nothing else, held by a
   `depguard` rule rather than by the sentence in its doc comment that said so.
 
+- **[ADR-092 — `built` is the date the build is dated by](decisions/ADR-092-built-is-the-date-the-build-is-dated-by.md)** · accepted  
+  One field, four kinds of build: the commit's date wherever the source can date
+  itself, a build clock only where nothing else saw the build. No source changes
+  what it stamps.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is
