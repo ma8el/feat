@@ -1,0 +1,157 @@
+# GoReleaser builds the archives published for a tag. The pinned version lives
+# in .goreleaser-version, beside .golangci-version and read the same way: the
+# Makefile installs it into bin/, and the release workflow reads the file rather
+# than naming a version of its own.
+#
+# `make release-snapshot` runs this configuration locally, after `goreleaser
+# check` validates it. It tags nothing and publishes nothing, and is the only
+# way to see the archives before a tag exists.
+version: 2
+
+project_name: feat
+
+builds:
+  - id: feat
+    main: ./cmd/feat
+    binary: feat
+
+    # Feat's binary is one file with no C dependencies, and a release must not
+    # acquire one from whichever host built it.
+    env:
+      - CGO_ENABLED=0
+
+    # macOS only. The Linux build compiles and CI tests it on ubuntu-latest, but
+    # nobody has run Feat there yet, and a published archive claims more than
+    # that. v0.2 adds Linux once it has been run (docs/08-v0-scope.md).
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+    # Rebuilding a tag on the same operating system, with the same Go version,
+    # produces the same bytes. Three things are otherwise wired to the moment of
+    # the build rather than to the commit:
+    #
+    #   -trimpath        the build path, which GoReleaser does NOT pass by
+    #                    itself — an archive built before this line carried the
+    #                    builder's absolute directory into a public binary.
+    #   mod_timestamp    the modification time stamped on the file in the tar.
+    #   .CommitDate      see the ldflags below.
+    #
+    # What this does NOT give is a rebuild on a different operating system. A
+    # macOS and a Linux build of one commit, both on go1.26.5, differ inside the
+    # compiled binary, and the cause was not found: the build path, the clocks,
+    # the account recorded in the tar header, and Go's own build ID were each
+    # eliminated in turn and the two still disagreed. So the checksums file is
+    # reproducible by somebody rebuilding on the platform the release was built
+    # on, and is a bare integrity check for everybody else. Do not widen that
+    # claim without a macOS and a Linux build that actually match.
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+    # The same three symbols the Makefile's LDFLAGS sets.
+    #
+    # version is `v{{ .Version }}` rather than the bare `{{ .Version }}`, which
+    # drops the leading `v`: at tag v0.1.0 this prints `v0.1.0`, which is the
+    # tag, is what the archive around it is named for, and is what `make build`
+    # prints on the same commit through `git describe`. The `v` is prepended
+    # rather than taken from `{{ .Tag }}` because .Tag invents a `v0.0.0` when
+    # the repository has no tag at all, which is every snapshot build.
+    #
+    # The cost is the dirty marker: `git describe --dirty` gives `make build` a
+    # `-dirty` suffix and .Version has no equivalent. Only a snapshot can be
+    # built from a dirty tree — GoReleaser refuses a real release from one — so
+    # what is lost is a warning on a local artifact, and what is gained is that
+    # the version a released binary reports is the version on the archive it
+    # came out of.
+    #
+    # .ShortCommit is `git rev-parse --short HEAD`, character for character what
+    # `make build` puts in commit.
+    #
+    # date is the one deliberate divergence. The Makefile uses `date -u`, the
+    # moment of the build; a release uses .CommitDate, the moment of the commit,
+    # in the same RFC 3339 UTC format. A build clock cannot be reproduced, and
+    # between a timestamp that is reproducible and one that is five seconds more
+    # precise about a build nobody witnessed, a published checksum wants the
+    # first.
+    #
+    # -s -w drop the symbol table and DWARF. Go stack traces come from the
+    # pclntab and survive both, as does the build information `go version -m`
+    # reads, so a panic from a release binary still names its functions.
+    ldflags:
+      - -s
+      - -w
+      - -X github.com/ma8el/feat/internal/version.version=v{{ .Version }}
+      - -X github.com/ma8el/feat/internal/version.commit={{ .ShortCommit }}
+      - -X github.com/ma8el/feat/internal/version.date={{ .CommitDate }}
+
+archives:
+  - id: feat
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+    # Unpacking must not scatter three files into whatever directory the user
+    # ran tar in, and must not overwrite a README.md or a LICENSE already
+    # sitting there. The wrapper is named after the archive.
+    wrap_in_directory: true
+
+    # A tar header carries the building account and the building umask, so
+    # without these the archive is reproducible only for whoever built it first:
+    # two machines producing an identical binary still disagree on the bytes
+    # around it. This was found by a macOS build failing to match a Linux one
+    # that had already matched itself twice.
+    #
+    # builds_info covers the compiled binary; the per-file info blocks below
+    # cover what is copied in beside it.
+    builds_info:
+      owner: root
+      group: root
+      mode: 0755
+      mtime: "{{ .CommitDate }}"
+
+    # Apache 2.0 requires the licence to travel with the distribution, and the
+    # README is the only installation instruction someone unpacking a tarball has.
+    #
+    # mtime for the same reason builds.mod_timestamp exists above, which only
+    # covers the compiled binary: these two are copied straight out of the
+    # checkout, so without this they carry the time Git happened to write them
+    # and two clones of one tag produce two different tarballs around identical
+    # contents.
+    files:
+      - src: README.md
+        info:
+          owner: root
+          group: root
+          mode: 0644
+          mtime: "{{ .CommitDate }}"
+      - src: LICENSE
+        info:
+          owner: root
+          group: root
+          mode: 0644
+          mtime: "{{ .CommitDate }}"
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  # v0.1.0 packages the finished dogfood for its author. The repository is
+  # public, so the choice is not between visible and hidden but between
+  # advertised and unadvertised, and pre-release is what says unadvertised to
+  # somebody deciding whether to install.
+  #
+  # It is marked here rather than written into the tag, which stays a plain
+  # `v0.1.0`. A tag carrying the pre-release instead — `v0.1.0-alpha.1` — would
+  # be reached by `go install ...@latest` only through Go's fallback for modules
+  # that have no release version at all, and would stop being reached the moment
+  # any plain tag existed. So the marking belongs on the release, and this file
+  # is the only place that can put it there: `goreleaser release` has a --draft
+  # flag and no --prerelease, so no workflow can pass it.
+  #
+  # Not `auto`, which infers the flag from a pre-release segment in the tag.
+  # `v0.1.0` has none, so `auto` would publish it as a normal release.
+  prerelease: true
