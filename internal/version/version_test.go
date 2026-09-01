@@ -7,143 +7,164 @@ import (
 	"testing"
 )
 
-// buildInfo assembles what the toolchain would have embedded: a main module
-// version, and the vcs settings a build inside a checkout carries.
-func buildInfo(mainVersion string, settings ...debug.BuildSetting) *debug.BuildInfo {
+// nothingLinked is a build the Makefile never touched: every field still holds
+// the placeholder it was declared with.
+var nothingLinked = identity{version: devVersion, commit: unknown, date: unknown}
+
+// embeds assembles what the toolchain would have recorded for a main module
+// version, with no vcs settings — the shape of a binary installed from a proxy.
+func embeds(mainVersion string, settings ...debug.BuildSetting) *debug.BuildInfo {
 	return &debug.BuildInfo{
-		Main:     debug.Module{Path: "github.com/ma8el/feat", Version: mainVersion},
+		Main:     debug.Module{Version: mainVersion},
 		Settings: settings,
 	}
 }
 
-func vcs(revision, when, modified string) []debug.BuildSetting {
+// vcs is what a build inside a checkout records beside the module version.
+func vcs(revision, committed string, modified bool) []debug.BuildSetting {
+	recorded := "false"
+	if modified {
+		recorded = "true"
+	}
 	return []debug.BuildSetting{
 		{Key: "vcs", Value: "git"},
 		{Key: "vcs.revision", Value: revision},
-		{Key: "vcs.time", Value: when},
-		{Key: "vcs.modified", Value: modified},
+		{Key: "vcs.time", Value: committed},
+		{Key: "vcs.modified", Value: recorded},
 	}
 }
 
-func TestResolveBuildIdentity(t *testing.T) {
-	unlinked := Info{Version: devVersion, Commit: unknown, Date: unknown}
+const (
+	fullRevision  = "b9c8e9de37811b0d1b1d4b3f7a2c9e5d0a6f8c31"
+	shortRevision = "b9c8e9de3781"
+	committedAt   = "2026-08-30T17:46:02Z"
+	pseudo        = "v0.0.0-20260830174602-" + shortRevision
+)
 
+func TestResolveBuildIdentity(t *testing.T) {
 	tests := []struct {
 		name   string
-		linked Info
+		linked identity
 		build  *debug.BuildInfo
-		want   Info
+		want   identity
 	}{
 		{
-			// `go install github.com/ma8el/feat/cmd/feat@v0.4.1`: the module
-			// version is known and there is no checkout to have a revision.
-			name:   "installed binary reports its module version",
-			linked: unlinked,
-			build:  buildInfo("v0.4.1"),
-			want:   Info{Version: "v0.4.1", Commit: unknown, Date: unknown},
+			// `go install github.com/ma8el/feat/cmd/feat@v0.4.1`: a module
+			// downloaded from a proxy has a version and no checkout, and a
+			// version naming a tag names no single commit.
+			name:   "a binary installed at a tag reports its module version",
+			linked: nothingLinked,
+			build:  embeds("v0.4.1"),
+			want:   identity{version: "v0.4.1", commit: unknown, date: unknown},
 		},
 		{
-			// A build the toolchain could not derive a version for, and which
-			// carries no vcs settings either — a git worktree, or -buildvcs=false.
-			name:   "devel build keeps the placeholders",
-			linked: unlinked,
-			build:  buildInfo("(devel)"),
-			want:   unlinked,
+			// `go install ...@latest` against a repository with no tag, which
+			// is the install path a tester takes today. The version the
+			// toolchain derived carries the commit and its timestamp, so the
+			// binary knows all three fields without a checkout to read.
+			name:   "a binary installed at a pseudo-version reads the commit out of it",
+			linked: nothingLinked,
+			build:  embeds(pseudo),
+			want:   identity{version: pseudo, commit: shortRevision, date: committedAt},
 		},
 		{
-			// A plain `go build` inside a clean checkout.
-			name:   "checkout build reports revision and time",
-			linked: unlinked,
-			build: buildInfo(
-				"v0.0.0-20260830174602-b9c8e9de3781",
-				vcs("b9c8e9de37811b0d1b1d4b3f7a2c9e5d0a6f8c31", "2026-08-30T17:46:02Z", "false")...,
-			),
-			want: Info{
-				Version: "v0.0.0-20260830174602-b9c8e9de3781",
-				Commit:  "b9c8e9de3781",
-				Date:    "2026-08-30T17:46:02Z",
+			// A prerelease tag is not a pseudo-version, however much it looks
+			// like one, and must not be mined for a commit that is not there.
+			name:   "a prerelease tag yields no commit",
+			linked: nothingLinked,
+			build:  embeds("v0.4.1-rc.1"),
+			want:   identity{version: "v0.4.1-rc.1", commit: unknown, date: unknown},
+		},
+		{
+			// A build the toolchain could not derive a version for and which
+			// carries no vcs settings either: a Git worktree, or -buildvcs=false.
+			name:   "a devel build keeps the placeholders",
+			linked: nothingLinked,
+			build:  embeds(devel),
+			want:   nothingLinked,
+		},
+		{
+			// A plain `go build` inside a clean checkout. The vcs settings
+			// answer, and the full revision is cut to the length a person reads.
+			name:   "a checkout build reports its revision and time",
+			linked: nothingLinked,
+			build:  embeds(pseudo, vcs(fullRevision, committedAt, false)...),
+			want:   identity{version: pseudo, commit: shortRevision, date: committedAt},
+		},
+		{
+			// The same checkout with uncommitted changes. The toolchain marks
+			// the version; we mark the revision the tree has moved past, the
+			// way `git describe --dirty` does.
+			name:   "a dirty checkout build marks the revision",
+			linked: nothingLinked,
+			build:  embeds(pseudo+dirtyMetadata, vcs(fullRevision, committedAt, true)...),
+			want: identity{
+				version: pseudo + dirtyMetadata,
+				commit:  shortRevision + dirtySuffix,
+				date:    committedAt,
 			},
 		},
 		{
-			// The same checkout with uncommitted changes: the toolchain marks
-			// the version and we mark the revision it no longer describes.
-			name:   "dirty build marks the revision",
-			linked: unlinked,
-			build: buildInfo(
-				"v0.0.0-20260830174602-b9c8e9de3781+dirty",
-				vcs("b9c8e9de37811b0d1b1d4b3f7a2c9e5d0a6f8c31", "2026-08-30T17:46:02Z", "true")...,
-			),
-			want: Info{
-				Version: "v0.0.0-20260830174602-b9c8e9de3781+dirty",
-				Commit:  "b9c8e9de3781-dirty",
-				Date:    "2026-08-30T17:46:02Z",
+			// A dirty tree the toolchain recorded in the version alone. The two
+			// fields have to tell the same story whichever source said so.
+			name:   "a dirty module version marks the revision it names",
+			linked: nothingLinked,
+			build:  embeds(pseudo + dirtyMetadata),
+			want: identity{
+				version: pseudo + dirtyMetadata,
+				commit:  shortRevision + dirtySuffix,
+				date:    committedAt,
 			},
 		},
 		{
-			// `make build`. The Makefile's LDFLAGS describe the same build more
-			// precisely than the toolchain does, so every one of them wins.
+			// `make build`. The LDFLAGS describe the same build more precisely
+			// than the toolchain does, so every one of them wins.
 			name:   "linked values win over build information",
-			linked: Info{Version: "v0.5.0-3-gb9c8e9d", Commit: "b9c8e9d", Date: "2026-08-31T09:00:00Z"},
-			build: buildInfo(
-				"v0.0.0-20260830174602-b9c8e9de3781",
-				vcs("b9c8e9de37811b0d1b1d4b3f7a2c9e5d0a6f8c31", "2026-08-30T17:46:02Z", "false")...,
-			),
-			want: Info{Version: "v0.5.0-3-gb9c8e9d", Commit: "b9c8e9d", Date: "2026-08-31T09:00:00Z"},
+			linked: identity{version: "v0.5.0-3-gb9c8e9d", commit: "b9c8e9d", date: "2026-08-31T09:00:00Z"},
+			build:  embeds(pseudo, vcs(fullRevision, committedAt, false)...),
+			want:   identity{version: "v0.5.0-3-gb9c8e9d", commit: "b9c8e9d", date: "2026-08-31T09:00:00Z"},
 		},
 		{
 			// A binary with no build information at all: nothing to fall back to.
 			name:   "no build information keeps the placeholders",
-			linked: unlinked,
+			linked: nothingLinked,
 			build:  nil,
-			want:   unlinked,
+			want:   nothingLinked,
 		},
 		{
-			// Each field stands alone: a build can know its revision without
-			// knowing its version, and must still report the revision.
-			name:   "revision without a version keeps both answers",
-			linked: unlinked,
-			build: buildInfo(
-				"(devel)",
-				vcs("b9c8e9de37811b0d1b1d4b3f7a2c9e5d0a6f8c31", "2026-08-30T17:46:02Z", "false")...,
-			),
-			want: Info{
-				Version: devVersion,
-				Commit:  "b9c8e9de3781",
-				Date:    "2026-08-30T17:46:02Z",
-			},
+			// Each field stands alone: a build that knows its revision and not
+			// its version still reports the revision.
+			name:   "a revision without a version keeps both answers",
+			linked: nothingLinked,
+			build:  embeds(devel, vcs(fullRevision, committedAt, false)...),
+			want:   identity{version: devVersion, commit: shortRevision, date: committedAt},
 		},
 		{
 			// And the other way: a linked version does not suppress the commit
 			// and date the toolchain knew.
 			name:   "a linked version leaves the rest to build information",
-			linked: Info{Version: "v0.5.0", Commit: unknown, Date: unknown},
-			build: buildInfo(
-				"(devel)",
-				vcs("b9c8e9de37811b0d1b1d4b3f7a2c9e5d0a6f8c31", "2026-08-30T17:46:02Z", "true")...,
-			),
-			want: Info{
-				Version: "v0.5.0",
-				Commit:  "b9c8e9de3781-dirty",
-				Date:    "2026-08-30T17:46:02Z",
+			linked: identity{version: "v0.5.0", commit: unknown, date: unknown},
+			build:  embeds(devel, vcs(fullRevision, committedAt, true)...),
+			want: identity{
+				version: "v0.5.0",
+				commit:  shortRevision + dirtySuffix,
+				date:    committedAt,
 			},
 		},
 		{
 			// A revision shorter than a pseudo-version's is reported whole.
 			name:   "a short revision is not cut",
-			linked: unlinked,
-			build:  buildInfo("(devel)", vcs("b9c8e9d", "2026-08-30T17:46:02Z", "false")...),
-			want: Info{
-				Version: devVersion,
-				Commit:  "b9c8e9d",
-				Date:    "2026-08-30T17:46:02Z",
-			},
+			linked: nothingLinked,
+			build:  embeds(devel, vcs("b9c8e9d", committedAt, false)...),
+			want:   identity{version: devVersion, commit: "b9c8e9d", date: committedAt},
 		},
 		{
-			// Nothing linked and nothing embedded still renders a whole line.
+			// Nothing linked, nothing embedded, and nothing empty: `feat
+			// version` still prints a whole line.
 			name:   "empty values fall back to the placeholders",
-			linked: Info{},
-			build:  buildInfo(""),
-			want:   unlinked,
+			linked: identity{},
+			build:  embeds(""),
+			want:   nothingLinked,
 		},
 	}
 
@@ -151,14 +172,52 @@ func TestResolveBuildIdentity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := resolve(tt.linked, tt.build)
 
-			if got.Version != tt.want.Version {
-				t.Errorf("Version = %q, want %q", got.Version, tt.want.Version)
+			if got.version != tt.want.version {
+				t.Errorf("version = %q, want %q", got.version, tt.want.version)
 			}
-			if got.Commit != tt.want.Commit {
-				t.Errorf("Commit = %q, want %q", got.Commit, tt.want.Commit)
+			if got.commit != tt.want.commit {
+				t.Errorf("commit = %q, want %q", got.commit, tt.want.commit)
 			}
-			if got.Date != tt.want.Date {
-				t.Errorf("Date = %q, want %q", got.Date, tt.want.Date)
+			if got.date != tt.want.date {
+				t.Errorf("date = %q, want %q", got.date, tt.want.date)
+			}
+		})
+	}
+}
+
+func TestFromPseudoVersionReadsOnlyADerivedVersion(t *testing.T) {
+	tests := []struct {
+		moduleVersion string
+		wantCommit    string
+		wantDate      string
+	}{
+		{moduleVersion: pseudo, wantCommit: shortRevision, wantDate: committedAt},
+		{moduleVersion: pseudo + dirtyMetadata, wantCommit: shortRevision, wantDate: committedAt},
+		// The form the toolchain derives from a commit that follows a tag.
+		{moduleVersion: "v0.5.1-0.20260830174602-" + shortRevision, wantCommit: shortRevision, wantDate: committedAt},
+		{moduleVersion: "v0.5.1-rc.1.0.20260830174602-" + shortRevision, wantCommit: shortRevision, wantDate: committedAt},
+		// Tags, an empty version, and a revision of the wrong length name no
+		// commit the caller may report.
+		{moduleVersion: "v0.4.1"},
+		{moduleVersion: "v0.4.1+incompatible"},
+		{moduleVersion: ""},
+		{moduleVersion: "v0.0.0-20260830174602-b9c8e9de37"},
+		{moduleVersion: "v0.0.0-2026083017460-" + shortRevision},
+		{moduleVersion: "v0.0.0-20260830174602-B9C8E9DE3781"},
+		// Fourteen digits that are not a date: the revision beside them is
+		// still a revision.
+		{moduleVersion: "v0.0.0-99999999999999-" + shortRevision, wantCommit: shortRevision},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.moduleVersion, func(t *testing.T) {
+			commit, date := fromPseudoVersion(tt.moduleVersion)
+
+			if commit != tt.wantCommit {
+				t.Errorf("commit = %q, want %q", commit, tt.wantCommit)
+			}
+			if date != tt.wantDate {
+				t.Errorf("date = %q, want %q", date, tt.wantDate)
 			}
 		})
 	}
@@ -180,15 +239,20 @@ func TestGetReportsRuntimeIdentity(t *testing.T) {
 	}
 }
 
-func TestGetPrefersLinkedValues(t *testing.T) {
-	restore := func(v, c, d string) { version, commit, date = v, c, d }
-	defer restore(version, commit, date)
+// TestGetReadsThisBinarysBuildInformation pins the wiring: the linked values and
+// the information the toolchain embedded in *this* binary, resolved the one way.
+//
+// What it can prove depends on the machine — a test binary built inside a Git
+// worktree carries no vcs settings to find, which is most of why
+// integration_test.go builds one somewhere the toolchain will stamp.
+func TestGetReadsThisBinarysBuildInformation(t *testing.T) {
+	embedded, _ := debug.ReadBuildInfo()
+	want := resolve(identity{version: version, commit: commit, date: date}, embedded)
 
-	version, commit, date = "v9.9.9", "abcdef0", "2026-08-31T09:00:00Z"
-
-	info := Get()
-	if info.Version != "v9.9.9" || info.Commit != "abcdef0" || info.Date != "2026-08-31T09:00:00Z" {
-		t.Errorf("Get() = %+v, want the linked version, commit, and date", info)
+	got := Get()
+	if got.Version != want.version || got.Commit != want.commit || got.Date != want.date {
+		t.Errorf("Get() reported %q/%q/%q, want %q/%q/%q",
+			got.Version, got.Commit, got.Date, want.version, want.commit, want.date)
 	}
 }
 
