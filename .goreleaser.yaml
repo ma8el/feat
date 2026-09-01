@@ -90,6 +90,20 @@ archives:
     # sitting there. The wrapper is named after the archive.
     wrap_in_directory: true
 
+    # A tar header carries the building account and the building umask, so
+    # without these the archive is reproducible only for whoever built it first:
+    # two machines producing an identical binary still disagree on the bytes
+    # around it. This was found by a macOS build failing to match a Linux one
+    # that had already matched itself twice.
+    #
+    # builds_info covers the compiled binary; the per-file info blocks below
+    # cover what is copied in beside it.
+    builds_info:
+      owner: root
+      group: root
+      mode: 0755
+      mtime: "{{ .CommitDate }}"
+
     # Apache 2.0 requires the licence to travel with the distribution, and the
     # README is the only installation instruction someone unpacking a tarball has.
     #
@@ -101,9 +115,15 @@ archives:
     files:
       - src: README.md
         info:
+          owner: root
+          group: root
+          mode: 0644
           mtime: "{{ .CommitDate }}"
       - src: LICENSE
         info:
+          owner: root
+          group: root
+          mode: 0644
           mtime: "{{ .CommitDate }}"
 
 checksum:
