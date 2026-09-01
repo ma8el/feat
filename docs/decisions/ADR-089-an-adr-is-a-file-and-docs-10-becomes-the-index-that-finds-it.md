@@ -37,10 +37,13 @@ Evidence:
    truncated: the open questions cannot stay wedged between two index rows.
 
 Not a reason, and recorded so that it is not re-argued: **supersession does not
-need the split.** `Status: superseded by ADR-NNN` works in one file exactly as it
-works in eighty-nine, and no decision here is superseded outright — what this log
-does instead is mark a bullet in place, which a file carries as readily as a
-section does.
+need the split.** Recording that one decision superseded another works in one
+file exactly as it works in eighty-nine, and no decision here is superseded
+outright — what this log does instead is mark a bullet in place, which a file
+carries as readily as a section does. Where it is recorded is the body and not
+the status: a status is one word, and a relation written into the body is one a
+reader meets where the reasoning is and one the guards below can hold both ends
+of.
 
 Decisions:
 
@@ -69,8 +72,10 @@ Decisions:
 - **The layout is held by a test rather than by care.** `internal/guard` asserts
   that every `ADR-NNN` named anywhere in the repository resolves to exactly one
   file, that the index and the directory name each other exactly, that no two
-  files claim one number, and that each file's heading number matches its
-  filename. The failure this is written against is the silent one: a dropped or
+  files claim one number, that each file's heading number matches its filename,
+  that each carries one status written one way and drawn from a closed set, and
+  that a decision recording a relation to another is answered by the decision it
+  names. The failure this is written against is the silent one: a dropped or
   half-copied section turns nothing red, and evidence 2's duplicate number is
   something a test can see and a merge cannot. It also refuses a number nothing
   has written: naming an ADR that does not exist yet is a dangling reference, and

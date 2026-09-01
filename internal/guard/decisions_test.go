@@ -52,6 +52,14 @@ var statusLine = regexp.MustCompile(`(?m)^Status:.*$`)
 
 // statusForm is the one way a status is written: no padding, no trailing
 // whitespace, one word.
+//
+// One word is a decision rather than a convenience. The form a decision log
+// usually reaches for, `superseded by ADR-065`, puts a relation between two
+// decisions inside a string — where a reader looking for the reasoning does not
+// meet it, and where the relation guard below, which reads the body, cannot see
+// it. ADR-089 says the same thing from the other end. Widening this to admit a
+// multi-word value is therefore a change to where a relation lives, not a
+// loosening of a format.
 var statusForm = regexp.MustCompile(`^Status: ([a-z_]+)$`)
 
 // decisionStatuses is the closed set of statuses a decision may carry.
@@ -267,7 +275,10 @@ func TestEveryDecisionCarriesOneStatusFromTheClosedSet(t *testing.T) {
 		if form == nil {
 			t.Errorf("%s/%s writes its status as %q\n"+
 				"\tWrite it as `Status: <value>` — one space, one word, and nothing after it. "+
-				"A trailing space is invisible in an editor and is not invisible to anything that reads this.",
+				"A trailing space is invisible in an editor and is not invisible to anything that reads this. "+
+				"A status that wants to name another decision — `superseded by ADR-065` — belongs in the body "+
+				"instead, where a reader meets it and where the relation guard below can check that the "+
+				"decision it names answers it (ADR-089).",
 				decisionsDir, decision.name, lines[0])
 			continue
 		}
