@@ -61,8 +61,9 @@ Evidence:
    execution is the branch that goes past it. The claim to the contrary is
    `internal/execution/host/doc.go`'s closing line, which dates from the project
    skeleton (524b14f) — written before the capability existed and never
-   revisited — and it is repeated in `README.md`, `docs/README.md`,
-   `docs/08-v0-scope.md`, and Phase 1 of `docs/09-roadmap.md`.
+   revisited — and it is repeated in `CLAUDE.md`, `README.md`, `docs/README.md`,
+   `docs/06-technical-architecture.md`, `docs/08-v0-scope.md`, and Phase 1 of
+   `docs/09-roadmap.md`.
 5. **The tag is read by the toolchain and the marking is read by a person.** Go
    resolves `@latest` to the highest release version and falls back to a
    pre-release only when a module has no release version at all, so writing the
@@ -104,15 +105,15 @@ Decisions:
 - **Host-native execution is recorded here as delivered.** The correction
   belongs in this decision because the stale claim is what would otherwise size
   the release: it is Phase 1's largest single item, and a release list written
-  against it would hold v0.1.0 back for work that is finished. The five
-  documents named in evidence 4 are corrected in a change of their own, against
-  this record.
+  against it would hold v0.1.0 back for work that is finished. The seven
+  documents named in evidence 4 are corrected against this record.
 
 Consequence: `docs/08-v0-scope.md` gains release binaries, `go install`, and the
-setup skill in v0.1 and loses Linux support and host-native execution from v0.2,
-`docs/09-roadmap.md`'s Phase 1 loses host-native execution as outstanding work
-and keeps the tap, and `README.md`, `docs/README.md`, and
+setup skill in v0.1 and loses host-native agent execution, the binaries, and
+`go install` from v0.2; `docs/09-roadmap.md`'s Phase 1 loses host-native
+execution as outstanding work and keeps the tap; and `CLAUDE.md`, `README.md`,
+`docs/README.md`, `docs/06-technical-architecture.md`, and
 `internal/execution/host/doc.go` stop saying that host-native execution is still
-to come — all in a separate change, which this decision is the record for. What
-is tagged is `v0.1.0`, marked pre-release, claiming macOS and the v0.1
-definition of done.
+to come. Linux support stays in v0.2, where it already was: what changes is that
+v0.1.0 does not claim it. What is tagged is `v0.1.0`, marked pre-release,
+claiming macOS and the v0.1 definition of done.

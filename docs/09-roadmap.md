@@ -33,9 +33,6 @@ project. Two of these come last within the milestone, because they wait on
 dogfood runs rather than on anything listed here — the first-task documentation
 and the second pass over the wizard, each of which says so where it appears:
 
-- **Host-native execution.** The task domain, the execution interface, and the
-  provider adapter already separate the agent from the environment it runs in;
-  what is missing is the second implementation behind that interface.
 - **Linux notifications.** `internal/notify` reports its own absence on Linux
   rather than pretending to deliver. The attention badges in the dashboard work
   on every platform and are unaffected.
@@ -59,8 +56,10 @@ and the second pass over the wizard, each of which says so where it appears:
   Feat has the socket or screen-scraping. `task list`, `task review`,
   `runtime status`, and `project show` are the ones with something to say, and
   the schema they would publish is the one this milestone finalizes.
-- **Release packaging:** binaries, a Homebrew formula and tap, and `go install`
-  instructions.
+- **A Homebrew formula and tap.** The release binaries and the `go install`
+  instructions belong to `v0.1.0`, because they are what a tag emits. A tap is a
+  second repository with a formula to keep in step, and it waits here for the
+  audience that justifies maintaining it (ADR-090).
 - **A contribution and security policy**, including the known security
   limitations: what a standard container does and does not protect against, that
   Feat claims no hostile-kernel isolation and no network data-loss prevention,
@@ -96,6 +95,16 @@ was complete. It has left this milestone entirely: ADR-072 schedules the ticket
 adapter before the public preview rather than inside it, and ADR-071 makes
 Shortcut one configuration of a generic adapter rather than an integration of its
 own.
+
+Host-native execution was this milestone's largest single item and has left it
+too, for the opposite reason: it is finished. It was delivered in v0.1 with the
+Claude adapter — the daemon dispatches a project configured with `mode: host`
+straight to the agent launch, the wizard offers the mode and proposes it, and
+validation and the daemon and project suites cover it. There was no second
+implementation behind the execution interface left to write, because host
+execution is the absence of a container environment rather than another kind of
+one. The bullet that said otherwise was written in the project skeleton, before
+the capability existed (ADR-090).
 
 Done when the public-v0 definition of done passes on macOS and Linux, host-native
 and devcontainer modes use the same task domain, the installation and first-task

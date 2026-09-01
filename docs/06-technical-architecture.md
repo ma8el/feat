@@ -91,7 +91,7 @@ Adapters are compiled into the binary initially. Interfaces must avoid leaking i
 
 `internal/runtime` and `internal/runtime/compose` sit under the same rule, with a `runtime-stays-an-adapter` `depguard` rule that also denies them `internal/execution`. `internal/paths` owns the runtime root. See ADR-034.
 
-`internal/execution` and `internal/execution/compose` sit under the same rule, with an `execution-stays-an-adapter` `depguard` rule. The daemon resolves configuration into an execution specification, wraps the environment's probe runner as the agent adapter's runner, and turns the adapter's launch specification into a host command the terminal backend runs. The two adapters therefore never import each other, and host-native execution is added behind the same interface without touching either. See ADR-033.
+`internal/execution` and `internal/execution/compose` sit under the same rule, with an `execution-stays-an-adapter` `depguard` rule. The daemon resolves configuration into an execution specification, wraps the environment's probe runner as the agent adapter's runner, and turns the adapter's launch specification into a host command the terminal backend runs. The two adapters therefore never import each other. Host-native execution turned out to need no second adapter behind that interface: it is the absence of a container environment, so the daemon dispatches `mode: host` straight to the agent launch and `internal/execution/host` holds only its package comment (ADR-090). See ADR-033.
 
 `internal/review` sits under the same rule, with a
 `review-stays-a-policy` `depguard` rule. It receives final values — an expanded

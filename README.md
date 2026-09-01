@@ -20,9 +20,12 @@ One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
 > **Status: alpha.** The v0.1 dogfood scope is complete and Feat is being used
-> on real work. It is not yet packaged for anyone else's machine: host-native
-> execution, Linux notifications, and release binaries are what
-> [the roadmap](docs/09-roadmap.md) still calls v0.2.
+> on real work. It runs on macOS, with Claude in a devcontainer or directly on
+> the host. The first release, `v0.1.0`, packages that scope for its author: it
+> is marked pre-release, and it claims macOS and nothing wider. Linux is built
+> and tested on every commit and has never been run in anger, and Linux support
+> and its notifications, generalized configuration, a Homebrew tap, and the
+> public documentation are what [the roadmap](docs/09-roadmap.md) calls v0.2.
 >
 > Feat has the full command surface, a versioned domain model with file-backed
 > storage, a local daemon serving a JSON API and a state-event stream over a
@@ -74,9 +77,11 @@ environment. A task may span several repositories.
 > against a deliberate kernel or container-runtime exploit, and nothing here
 > restricts the network. Mounts *inside* your home directory are deliberately
 > allowed, so that a project can configure the credential mounts it needs. Each
-> task gets its own Compose project, so tasks run side by side. Set
-> `FEAT_HOST_AGENT=1` in the daemon's environment to run Claude directly on your
-> host instead, with no container boundary around it.
+> task gets its own Compose project, so tasks run side by side. A project that
+> configures `agent.execution.mode: host` runs Claude directly in the task's own
+> worktree instead, with no container boundary around it, and
+> `FEAT_HOST_AGENT=1` in the daemon's environment does the same for every task
+> whatever the project says.
 >
 > A task's **application services** are yours to run from Feat: create, start,
 > stop, status, logs, and destroy, each under that task's own Compose project.

@@ -30,7 +30,7 @@ Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadma
 - Claude Code only in v0, behind an agent interface
 - Multi-repository tasks from the beginning
 - One task owns one agent session and one feature environment
-- Devcontainer execution for dogfood; host-native by public v0
+- Devcontainer execution for dogfood; host-native execution beside it from v0.1
 - Docker Compose CLI on the trusted host
 - Agent receives no Docker socket/host Docker CLI
 - Provider work is host-side by default; the agent drafts the words and the user approves them before anything is sent

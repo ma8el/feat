@@ -147,7 +147,7 @@ a terminal the inventory is printed and nothing is removed. See ADR-037.
 
 ## Release boundary
 
-- **v0.1 dogfood:** the multi-repository reference project, Claude Code in a non-root devcontainer, manual Compose lifecycle, macOS, local prompt/Markdown tasks.
-- **v0.2 public preview:** generalized configuration, host-native execution, macOS and Linux, public documentation and release packaging.
+- **v0.1 dogfood:** the multi-repository reference project, Claude Code in a non-root devcontainer or host-native, manual Compose lifecycle, macOS, local prompt/Markdown tasks. It is released as `v0.1.0`, marked pre-release, with release binaries and `go install`; the setup skill and its two emitters come with them, because the release creates the user they are for. See ADR-090.
+- **v0.2 public preview:** generalized configuration, macOS and Linux, public documentation, and the Homebrew tap.
 - Ticket ingestion, automated runtime phases, stable hostnames, additional agents, and remote control are roadmap work unless explicitly pulled forward. Publication was pulled forward, ahead of the public preview, because a dogfood task cannot finish without it; the tracker follows it. See ADR-072.
 

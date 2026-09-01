@@ -7,6 +7,16 @@
 - `v0.1`: personally usable dogfood on the reference project.
 - `v0.2`: generalized public preview.
 
+`v0.1` is released as the tag `v0.1.0`, marked pre-release. It packages the
+dogfood scope for its author and widens nothing. Two things cross the milestone
+boundary for the release rather than for the roadmap: GitHub release binaries
+and `go install` come into `v0.1`, because they are what a tag emits, and the
+setup skill and its two emitters — `feat project schema` and `feat project
+example` — come with them, because a user who installed a binary has none of the
+repository that the schema and example rules point at. The Homebrew tap, any apt
+path, and Linux support stay in `v0.2`; Linux is built and tested on every
+commit and has never been run, so `v0.1.0` claims macOS. See ADR-090.
+
 The first milestone is allowed to use manually authored project YAML and project-specific configuration. It must not hard-code the reference project's paths, repository names, or services into the domain model.
 
 ## v0.1 dogfood
@@ -85,7 +95,9 @@ Included:
 - short idle grace period;
 - attach/detach;
 - optional on-demand shell pane inside the devcontainer;
-- dedicated control workspace.
+- dedicated control workspace;
+- host-native execution as a configured mode alongside the devcontainer,
+  delivered with the Claude adapter rather than after this milestone (ADR-090).
 
 Excluded:
 
@@ -203,19 +215,16 @@ Included:
 ## v0.2 public preview additions
 
 - Linux support
-- host-native agent execution
 - generalized configuration examples
 - clearer project registration/manual onboarding
 - JSON Schema and shell completion
 - public diagnostics and troubleshooting
-- GitHub release binaries
 - Homebrew tap
-- `go install`
 - Linux desktop notification where supported
 - Apache 2.0 license and contribution documentation
 - no telemetry
 
-Publication and the ticket adapter arrive before this milestone rather than inside it, in that order, because the dogfood cannot finish a task without the first (ADR-072). This replaces the condition recorded here previously, which admitted Shortcut into v0.2 only if core reliability was already complete and required that it not delay public preview.
+Publication and the ticket adapter arrive before this milestone rather than inside it, in that order, because the dogfood cannot finish a task without the first (ADR-072). Host-native agent execution has left this list because it was delivered in v0.1, and release binaries and `go install` because `v0.1.0` publishes them (ADR-090). This replaces the condition recorded here previously, which admitted Shortcut into v0.2 only if core reliability was already complete and required that it not delay public preview.
 
 ## Explicit v0 non-goals
 
