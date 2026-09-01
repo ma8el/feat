@@ -14,7 +14,7 @@ Read in this order:
 6. `06-technical-architecture.md`
 7. `07-configuration-model.md`
 8. `08-v0-scope.md`
-9. `10-decisions-and-open-questions.md`
+9. `10-decisions-and-open-questions.md` — the decision index. Read it, then open the decisions your change touches; each one is a file under `decisions/`.
 
 Use `02-user-workflows.md` when implementing user-facing behavior and `09-roadmap.md` when the change touches something the roadmap holds for later, so that extension boundaries survive. Do not implement roadmap features during v0 unless a recorded decision schedules one. ADR-072 is the only one that has: it pulls publication from Phase 3 and the ticket adapter from Phase 6 ahead of the public preview, in that order, because the dogfood cannot finish a task without the first.
 
@@ -99,5 +99,5 @@ For every change:
 
 Work is complete when the behavior it promised is verified, not when the code that would produce it exists. Feature presence without recovery, validation, and safe failure behavior is incomplete.
 
-Prefer fake adapters and deterministic harnesses to requiring real Docker, tmux, or Git in every unit test, and add opt-in end-to-end tests for the real tools. Never expose Docker to the agent to simplify an implementation, and never replace structured agent events with terminal scraping as the semantic source of truth. When evidence changes an accepted design, update `10-decisions-and-open-questions.md` in the same change.
+Prefer fake adapters and deterministic harnesses to requiring real Docker, tmux, or Git in every unit test, and add opt-in end-to-end tests for the real tools. Never expose Docker to the agent to simplify an implementation, and never replace structured agent events with terminal scraping as the semantic source of truth. When evidence changes an accepted design, write the ADR as a file under `docs/decisions/` and add its row to the index in `10-decisions-and-open-questions.md`, in the same change.
 
