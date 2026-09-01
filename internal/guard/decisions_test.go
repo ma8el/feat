@@ -81,9 +81,17 @@ var decisionStatuses = map[string]bool{
 //
 // So a relation is a bold span carrying one of the verbs, and the decision it
 // relates to is the first one named inside that span or just after it.
+//
+// Each verb is listed in all three forms a statement is written in — the base,
+// the third person, and the past participle — because which one an author
+// reaches for depends on which end they are writing from: the decision that
+// lost says it was superseded, and the decision that won says it supersedes.
+// Carrying only some forms is this guard's own failure mode reproduced inside
+// it: **Extends ADR-034** would go unmatched, and an unmatched relation is one
+// whose far end nothing then checks. A verb added later gets three forms too.
 var (
 	boldSpan     = regexp.MustCompile(`(?s)\*\*(.+?)\*\*`)
-	relationVerb = regexp.MustCompile(`(?i)\b(supersede|supersedes|superseded|extended)\b`)
+	relationVerb = regexp.MustCompile(`(?i)\b(supersede|supersedes|superseded|extend|extends|extended)\b`)
 )
 
 // relationTrail is how far past a bold span the decision it names may sit, which
