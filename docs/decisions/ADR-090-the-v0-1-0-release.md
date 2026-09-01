@@ -1,4 +1,4 @@
-# ADR-090 — v0.1.0 is the dogfood scope, packaged for its author
+# ADR-090 — The v0.1.0 release
 
 Status: accepted
 Recorded: 2026-09-01, with the implementation
