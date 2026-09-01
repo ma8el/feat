@@ -42,16 +42,24 @@ builds:
       - -trimpath
     mod_timestamp: "{{ .CommitTimestamp }}"
 
-    # The same three symbols the Makefile's LDFLAGS sets, so a downloaded binary
-    # and a `make build` binary report identity through one code path.
+    # The same three symbols the Makefile's LDFLAGS sets.
     #
-    # The values are GoReleaser's spellings of the Makefile's three shell
-    # commands: .Summary is `git describe --tags --always --dirty` and
-    # .ShortCommit is `git rev-parse --short HEAD`, so version and commit are
-    # character-for-character what `make build` puts there on the same commit.
-    # .Summary rather than .Version because .Version drops the leading `v`, and
-    # then `feat version` would print a different string from the tag it was
-    # built from.
+    # version is `v{{ .Version }}` rather than the bare `{{ .Version }}`, which
+    # drops the leading `v`: at tag v0.1.0 this prints `v0.1.0`, which is the
+    # tag, is what the archive around it is named for, and is what `make build`
+    # prints on the same commit through `git describe`. The `v` is prepended
+    # rather than taken from `{{ .Tag }}` because .Tag invents a `v0.0.0` when
+    # the repository has no tag at all, which is every snapshot build.
+    #
+    # The cost is the dirty marker: `git describe --dirty` gives `make build` a
+    # `-dirty` suffix and .Version has no equivalent. Only a snapshot can be
+    # built from a dirty tree — GoReleaser refuses a real release from one — so
+    # what is lost is a warning on a local artifact, and what is gained is that
+    # the version a released binary reports is the version on the archive it
+    # came out of.
+    #
+    # .ShortCommit is `git rev-parse --short HEAD`, character for character what
+    # `make build` puts in commit.
     #
     # date is the one deliberate divergence. The Makefile uses `date -u`, the
     # moment of the build; a release uses .CommitDate, the moment of the commit,
@@ -66,7 +74,7 @@ builds:
     ldflags:
       - -s
       - -w
-      - -X github.com/ma8el/feat/internal/version.version={{ .Summary }}
+      - -X github.com/ma8el/feat/internal/version.version=v{{ .Version }}
       - -X github.com/ma8el/feat/internal/version.commit={{ .ShortCommit }}
       - -X github.com/ma8el/feat/internal/version.date={{ .CommitDate }}
 
@@ -100,3 +108,21 @@ archives:
 
 checksum:
   name_template: checksums.txt
+
+release:
+  # v0.1.0 packages the finished dogfood for its author. The repository is
+  # public, so the choice is not between visible and hidden but between
+  # advertised and unadvertised, and pre-release is what says unadvertised to
+  # somebody deciding whether to install.
+  #
+  # It is marked here rather than written into the tag, which stays a plain
+  # `v0.1.0`. A tag carrying the pre-release instead — `v0.1.0-alpha.1` — would
+  # be reached by `go install ...@latest` only through Go's fallback for modules
+  # that have no release version at all, and would stop being reached the moment
+  # any plain tag existed. So the marking belongs on the release, and this file
+  # is the only place that can put it there: `goreleaser release` has a --draft
+  # flag and no --prerelease, so no workflow can pass it.
+  #
+  # Not `auto`, which infers the flag from a pre-release segment in the tag.
+  # `v0.1.0` has none, so `auto` would publish it as a normal release.
+  prerelease: true
