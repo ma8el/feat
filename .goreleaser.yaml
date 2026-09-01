@@ -71,9 +71,17 @@ builds:
     # -s -w drop the symbol table and DWARF. Go stack traces come from the
     # pclntab and survive both, as does the build information `go version -m`
     # reads, so a panic from a release binary still names its functions.
+    #
+    # -buildid= empties Go's build ID, which is otherwise the last thing tying
+    # the output to the machine that produced it: Go derives it from action IDs
+    # that hash the toolchain's own binaries, so a darwin-hosted and a
+    # linux-hosted toolchain of the same version stamp different values into an
+    # otherwise identical binary. Emptying it costs the go command's staleness
+    # check for an installed binary, which a release archive never uses.
     ldflags:
       - -s
       - -w
+      - -buildid=
       - -X github.com/ma8el/feat/internal/version.version=v{{ .Version }}
       - -X github.com/ma8el/feat/internal/version.commit={{ .ShortCommit }}
       - -X github.com/ma8el/feat/internal/version.date={{ .CommitDate }}
