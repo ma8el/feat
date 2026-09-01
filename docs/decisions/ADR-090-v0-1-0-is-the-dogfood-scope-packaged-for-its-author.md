@@ -112,8 +112,12 @@ Consequence: `docs/08-v0-scope.md` gains release binaries, `go install`, and the
 setup skill in v0.1 and loses host-native agent execution, the binaries, and
 `go install` from v0.2; `docs/09-roadmap.md`'s Phase 1 loses host-native
 execution as outstanding work and keeps the tap; and `CLAUDE.md`, `README.md`,
-`docs/README.md`, `docs/06-technical-architecture.md`, and
-`internal/execution/host/doc.go` stop saying that host-native execution is still
-to come. Linux support stays in v0.2, where it already was: what changes is that
+`docs/README.md`, and `docs/06-technical-architecture.md` stop saying that
+host-native execution is still to come. `internal/execution/host` goes rather
+than being corrected: it held that claim and no code, and the two rules its
+comment carried — that the mode has no container boundary and must not be
+described as though it had one, and that both modes share one task domain — move
+to `internal/execution/doc.go`, where the interface they are about is defined.
+ADR-070 cites the old path for the second of them and now cites the new one. Linux support stays in v0.2, where it already was: what changes is that
 v0.1.0 does not claim it. What is tagged is `v0.1.0`, marked pre-release,
 claiming macOS and the v0.1 definition of done.

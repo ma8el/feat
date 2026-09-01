@@ -15,6 +15,18 @@
 // use Docker Compose. This package covers only where the agent runs;
 // internal/runtime covers the application under development.
 //
+// Only devcontainer execution implements the interface. Host-native execution
+// has no implementation and needs none, which is what the mode turned out to be
+// rather than work outstanding: it is the absence of a container, so
+// internal/daemon dispatches a project whose agent.execution.mode is host
+// straight to the agent launch instead of building an environment first
+// (ADR-090).
+//
+// That mode offers convenience and no container security boundary, and
+// diagnostics and documentation must say so plainly rather than implying
+// isolation. Host-native and devcontainer execution share one task domain;
+// selecting a mode must not change task semantics (ADR-070).
+//
 // An environment receives final values and reads neither configuration nor
 // persistent state: the daemon expands templates and records what an adapter
 // reports, as it does for Git (ADR-029) and the agent (ADR-032). The

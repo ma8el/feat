@@ -55,7 +55,7 @@ project does not mount is not there.
 Publication stays host-side in both modes regardless, for reasons that are not
 containment. Host-native and devcontainer execution share one task domain and
 selecting a mode must not change task semantics
-(`internal/execution/host/doc.go`), and ADR-073's record — a plan, a result per
+(`internal/execution/doc.go`), and ADR-073's record — a plan, a result per
 repository, a re-publication that skips what already published — exists only
 where Feat is the one publishing. An agent running `glab` itself would put that
 record back to being discovered rather than known, which is the capability Phase
