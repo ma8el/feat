@@ -1,6 +1,6 @@
 # ADR-038 — Naming a task
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-08
 
 Evidence found while running the product by hand, across slices 9 and 11:

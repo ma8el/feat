@@ -1,6 +1,6 @@
 # ADR-040 — Where a command lives
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-08, before implementation
 
 Evidence found by reading the command surface rather than by running it, which is

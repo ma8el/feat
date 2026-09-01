@@ -1,6 +1,6 @@
 # ADR-057 — The agent's environment is owned by its session, and the pair of verbs is resume and stop
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-13, from dogfooding the devcontainer lifecycle
 
 A task's agent environment had two ways in and one way out of the product:

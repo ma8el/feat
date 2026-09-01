@@ -1,6 +1,6 @@
 # ADR-048 — Removing the external resource declaration
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-09, after use
 
 `runtime.external_resources` is the one part of the runtime model drawn from the

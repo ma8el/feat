@@ -1,6 +1,6 @@
 # ADR-054 — Text Feat did not write is made measurable before it is measured
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-12, alpha review, after ADR-053
 
 ADR-051 made the dashboard draw its own frame a line at a time, cutting by cell

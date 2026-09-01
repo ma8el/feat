@@ -1,6 +1,6 @@
 # ADR-025 — Package layout additions and mechanical rule enforcement
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-04
 
 Evidence found while bootstrapping the repository:

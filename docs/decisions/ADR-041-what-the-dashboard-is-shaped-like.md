@@ -1,6 +1,6 @@
 # ADR-041 — What the dashboard is shaped like
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-08, before implementation
 
 Evidence found by reading the dashboard against the terminal it is read in, after

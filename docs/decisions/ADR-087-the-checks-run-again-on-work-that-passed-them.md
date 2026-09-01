@@ -1,6 +1,6 @@
 # ADR-087 — The checks run again on work that passed them
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-30, with the implementation
 
 The maintainer read a task that was ready for review, changed something in the

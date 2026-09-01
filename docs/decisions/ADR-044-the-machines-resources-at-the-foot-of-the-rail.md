@@ -1,6 +1,6 @@
 # ADR-044 — The machine's resources at the foot of the rail
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-09, after use
 
 ADR-041 put the machine's figures in the footer beside the selected task's

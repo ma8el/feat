@@ -1,6 +1,6 @@
 # ADR-028 — Configuration loading, project registration, and the honesty of diagnostics
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-05
 
 Evidence found while implementing YAML configuration and `feat doctor`:

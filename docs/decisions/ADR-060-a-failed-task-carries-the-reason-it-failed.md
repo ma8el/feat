@@ -1,6 +1,6 @@
 # ADR-060 — A failed task carries the reason it failed
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-14, from dogfooding the launch refusals
 
 The maintainer, watching a launch fail on purpose to test ADR-059: it is not

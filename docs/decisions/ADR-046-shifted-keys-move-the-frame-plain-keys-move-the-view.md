@@ -1,6 +1,6 @@
 # ADR-046 — Shifted keys move the frame, plain keys move the view
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-09, after use
 
 The maintainer reported that dashboard navigation was inconsistent: the arrow

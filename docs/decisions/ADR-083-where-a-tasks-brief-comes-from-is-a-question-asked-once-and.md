@@ -1,6 +1,6 @@
 # ADR-083 — Where a task's brief comes from is a question, asked once and after the project
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-29, from the interface for a model the domain already had
 
 Feat models three brief sources and treats them as equals in the domain —

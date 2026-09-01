@@ -1,6 +1,6 @@
 # ADR-027 — Daemon ownership, runtime file layout, and local API surface
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-04, before implementation
 
 Evidence found while planning the daemon and the local API:

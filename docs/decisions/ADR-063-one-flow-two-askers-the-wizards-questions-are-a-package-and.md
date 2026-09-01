@@ -1,6 +1,6 @@
 # ADR-063 — One flow, two askers: the wizard's questions are a package, and the dashboard asks them itself
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-15, from asking whether the wizard is reachable from the TUI
 
 The maintainer, after `feat project init` landed: is it possible to execute the

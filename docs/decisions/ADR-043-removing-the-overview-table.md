@@ -1,6 +1,6 @@
 # ADR-043 — Removing the overview table
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-09, after use
 
 ADR-041 kept the overview tab's wide task table provisionally, to be removed if

@@ -1,6 +1,6 @@
 # ADR-053 — The palette is ordered by chroma, and measured
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-12, alpha review, after ADR-052
 
 ADR-051 chose the six colours as a set and said what the set was for: the

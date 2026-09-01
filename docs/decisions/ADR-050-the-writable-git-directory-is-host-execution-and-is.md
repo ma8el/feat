@@ -1,6 +1,6 @@
 # ADR-050 — The writable Git directory is host execution, and is disclosed rather than closed
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-11, alpha review
 
 The alpha review asked what the devcontainer boundary is worth and found one

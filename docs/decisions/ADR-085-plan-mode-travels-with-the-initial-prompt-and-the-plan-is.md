@@ -1,6 +1,6 @@
 # ADR-085 — Plan mode travels with the initial prompt, and the plan is approved in the terminal
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-29, with the implementation
 
 Feat launched every task the same way: the session opens, the agent reads the

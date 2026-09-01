@@ -1,6 +1,6 @@
 # ADR-056 — One stash stack is shared by every worktree, and Feat says so rather than working around it
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-13, from an assessment of what concurrent tasks on one repository share
 
 A linked worktree has its own working tree, index, and HEAD. Everything else

@@ -1,6 +1,6 @@
 # ADR-062 — A project is configured by answering questions, and the answers are checked before there is a file
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-15, from the cost of adding a project by hand
 
 The maintainer, adding a second project: adding a project to Feat is quite

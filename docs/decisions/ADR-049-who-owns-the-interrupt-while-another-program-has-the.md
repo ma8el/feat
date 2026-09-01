@@ -1,6 +1,6 @@
 # ADR-049 — Who owns the interrupt while another program has the terminal
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-09, after use
 
 The maintainer opened the Compose logs from the runtime tab and found no way out

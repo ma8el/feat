@@ -1,6 +1,6 @@
 # ADR-079 — What is true of the machine is configured once, in a settings file with no per-project override
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-27, from the six project configurations on the author's machine
 
 Three sections of project configuration were never about a project. Feat had no

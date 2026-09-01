@@ -1,6 +1,6 @@
 # ADR-051 — What the dashboard looks like
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-11, alpha review
 
 ADR-041 decided what the dashboard is *shaped* like — a rail, a main region, and

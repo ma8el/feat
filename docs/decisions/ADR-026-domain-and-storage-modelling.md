@@ -1,6 +1,6 @@
 # ADR-026 — Domain and storage modelling
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-04
 
 Evidence found while implementing the domain and the file-backed store:

@@ -1,6 +1,6 @@
 # ADR-058 — Attention is set by the end of a turn, not by a message the agent wrote mid-turn
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-13, from the event logs of the dogfood runs
 
 The maintainer's observation, from dogfooding: `possibly_waiting` shows up while

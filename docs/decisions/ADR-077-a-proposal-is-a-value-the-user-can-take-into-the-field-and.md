@@ -1,6 +1,6 @@
 # ADR-077 — A proposal is a value the user can take into the field and edit, and what the flow derived beside it is offered rather than only named
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-27, from walking the wizard question by question on the reference project
 
 The maintainer, at the question asking which Compose service the agent runs in,

@@ -1,6 +1,6 @@
 # ADR-080 — `network` and `git` leave `agent.capabilities`, because a capability is a claim Feat checks
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-28, from reviewing what is left of `agent.capabilities` after ADR-075
 
 ADR-028 created the section and recorded, in the same breath, that three of its

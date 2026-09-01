@@ -1,6 +1,6 @@
 # ADR-052 — A folded project is a cursor position
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-12, alpha review, after ADR-051 shipped
 
 ADR-051 gave the rail's fold marker the control it had always been promising, and

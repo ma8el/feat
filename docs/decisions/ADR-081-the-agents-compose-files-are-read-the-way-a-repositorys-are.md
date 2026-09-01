@@ -1,6 +1,6 @@
 # ADR-081 — The agent's Compose files are read the way a repository's are, and a mount a worktree cannot hold is reported before a task runs
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-28, from the reference project's setup walkthrough and from reading what the structural reader already threw away
 
 `feat project init` asked where each repository is mounted in the agent's own

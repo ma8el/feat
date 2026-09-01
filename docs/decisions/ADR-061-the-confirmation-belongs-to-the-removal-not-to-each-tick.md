@@ -1,6 +1,6 @@
 # ADR-061 — The confirmation belongs to the removal, not to each tick that led to it
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-14, from using the cleanup screen
 
 The maintainer, on the dashboard's cleanup dialog: it is clunky — why the extra

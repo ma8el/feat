@@ -1,6 +1,6 @@
 # ADR-045 — The status command loses its key
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-09, after use
 
 The task panel bound `s` to the project's configured status command, the third of

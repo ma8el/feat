@@ -1,6 +1,6 @@
 # ADR-042 — Showing the agent's terminal without becoming one
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-08, before implementation
 
 ADR-041 built the dashboard around views Feat writes itself, on the reasoning

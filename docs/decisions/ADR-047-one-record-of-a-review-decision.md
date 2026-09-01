@@ -1,6 +1,6 @@
 # ADR-047 — One record of a review decision
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-09, after use
 
 The maintainer, reading the review surface during dogfood, observed that the

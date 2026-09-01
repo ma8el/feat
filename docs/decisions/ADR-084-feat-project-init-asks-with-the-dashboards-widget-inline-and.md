@@ -1,6 +1,6 @@
 # ADR-084 — `feat project init` asks with the dashboard's widget, inline, and what it leaves behind is the transcript
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-29, from walking the command's worst question on a narrow terminal
 
 The maintainer, at the question asking how a repository takes part in a task:

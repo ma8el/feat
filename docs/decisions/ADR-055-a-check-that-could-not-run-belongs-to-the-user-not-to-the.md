@@ -1,6 +1,6 @@
 # ADR-055 — A check that could not run belongs to the user, not to the agent
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-12, from the first real feature run on the reference project
 
 ADR-036 drew the distinction and the code kept it: a check that could not be

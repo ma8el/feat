@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -15,11 +16,14 @@ import (
 // CLAUDE.md's reading order, so what an agent reads before writing anything is
 // the shape of every decision and where each one lives.
 //
-// These four guards are here rather than beside the documents because the
+// These six guards are here rather than beside the documents because the
 // failure they are written against is silent. A section dropped or half-copied
 // by a future reorganisation turns nothing red; an ADR written on two branches
-// at once merges into a document with one number twice; and a reference to a
-// decision nobody wrote reads exactly like a reference to one somebody did.
+// at once merges into a document with one number twice; a reference to a
+// decision nobody wrote reads exactly like a reference to one somebody did; a
+// status written a second way is a status nothing can read; and half a
+// supersession leaves the decision that was superseded saying so and the one
+// that superseded it never having heard of it.
 const (
 	decisionsDir  = "docs/decisions"
 	decisionIndex = "docs/10-decisions-and-open-questions.md"
@@ -41,6 +45,66 @@ var decisionHeading = regexp.MustCompile(`^# ADR-([0-9]{3}) \x{2014} \S`)
 // indexEntry matches the link an index row carries to the file it describes.
 var indexEntry = regexp.MustCompile(`\(decisions/(ADR-[0-9]{3}-[a-z0-9-]+\.md)\)`)
 
+// statusLine matches a line that sets a decision's status, however it is
+// written. The guard reads every one of them and then decides, so that a line
+// written a second way fails as a malformed status rather than going unseen.
+var statusLine = regexp.MustCompile(`(?m)^Status:.*$`)
+
+// statusForm is the one way a status is written: no padding, no trailing
+// whitespace, one word.
+var statusForm = regexp.MustCompile(`^Status: ([a-z_]+)$`)
+
+// decisionStatuses is the closed set of statuses a decision may carry.
+//
+// It holds `accepted` alone because that is what every decision in this log
+// says. It is deliberately not seeded with the statuses a decision log usually
+// grows — proposed, rejected, superseded — because a value nothing uses is a
+// value nobody has decided the meaning of, and the first decision to need one
+// should add it here on purpose rather than find it already waiting.
+var decisionStatuses = map[string]bool{
+	"accepted": true,
+}
+
+// A relation statement is how one decision records what it does to another:
+// this log writes it as an emphatic lead — **Superseded for ports by ADR-065.**,
+// **Extended by ADR-065**, **supersedes** ADR-034's rule — and that emphasis is
+// what tells it from the same verb used in ordinary prose, of which there are
+// five occurrences that mean nothing of the kind.
+//
+// So a relation is a bold span carrying one of the verbs, and the decision it
+// relates to is the first one named inside that span or just after it.
+var (
+	boldSpan     = regexp.MustCompile(`(?s)\*\*(.+?)\*\*`)
+	relationVerb = regexp.MustCompile(`(?i)\b(supersede|supersedes|superseded|extended)\b`)
+)
+
+// relationTrail is how far past a bold span the decision it names may sit, which
+// covers the one site that puts it outside: **supersedes** ADR-034's rule.
+const relationTrail = 120
+
+// relation is one decision recording what it does to another.
+type relation struct {
+	source string // the number of the decision making the statement
+	target string // the number of the decision it names
+	verb   string // the verb it made the statement with, lower-cased
+}
+
+// knownRelations are the relation statements this log held when the guard was
+// written: ADR-034 twice, ADR-041, and ADR-065, at lines 91, 203, 152 and 129 of
+// their own files. They are pinned because the expensive way for this guard to
+// fail is to stop matching — a reciprocity check over an empty set passes, and
+// passes silently, which is worse than not having one.
+//
+// The guard requires these to be among what it matched and does not require the
+// set to be exactly these, so that a new decision recording a supersession is
+// checked for reciprocity rather than being made to edit this list first.
+var knownRelations = []relation{
+	{source: "034", target: "065", verb: "superseded"},
+	{source: "034", target: "065", verb: "extended"},
+	{source: "041", target: "043", verb: "superseded"},
+	{source: "065", target: "034", verb: "supersedes"},
+}
+
 // decisionScanSkips are the directories a repository-wide scan for references
 // does not descend into. testdata is deliberately not among them: a fixture that
 // cites a decision cites one, and a citation that does not resolve is as broken
@@ -60,6 +124,7 @@ type decisionFile struct {
 	name    string // ADR-NNN-slug.md
 	number  string // the three digits in the name
 	heading string // the three digits in the file's own heading, empty if it has none
+	body    string // everything the file holds
 }
 
 // TestEveryDecisionFileIsNamedForItsOwnHeading holds the two halves of a
@@ -178,6 +243,118 @@ func TestEveryADRReferenceResolvesToOneDecision(t *testing.T) {
 	}
 }
 
+// TestEveryDecisionCarriesOneStatusFromTheClosedSet holds the one field of a
+// decision that is read rather than prose. The index prints it beside every
+// title, so a status written a second way — padded, capitalised, trailing a
+// space, or a word nobody has defined — is a value that reads fine to a person
+// and is a different value to anything mechanical.
+//
+// The trailing-space form is not hypothetical: 43 of these files inherited
+// `Status: accepted` with two spaces after it from the document they were split
+// out of, where it was a Markdown hard break, and nothing in the toolchain
+// noticed until this guard.
+func TestEveryDecisionCarriesOneStatusFromTheClosedSet(t *testing.T) {
+	for _, decision := range decisionFiles(t, repoRoot(t)) {
+		lines := statusLine.FindAllString(decision.body, -1)
+		if len(lines) != 1 {
+			t.Errorf("%s/%s carries %d status lines, and a decision has exactly one\n"+
+				"\tThe status is what the index prints beside the title, so there is one thing to print.",
+				decisionsDir, decision.name, len(lines))
+			continue
+		}
+
+		form := statusForm.FindStringSubmatch(lines[0])
+		if form == nil {
+			t.Errorf("%s/%s writes its status as %q\n"+
+				"\tWrite it as `Status: <value>` — one space, one word, and nothing after it. "+
+				"A trailing space is invisible in an editor and is not invisible to anything that reads this.",
+				decisionsDir, decision.name, lines[0])
+			continue
+		}
+
+		if !decisionStatuses[form[1]] {
+			t.Errorf("%s/%s has status %q, which is not one this log defines (%s)\n"+
+				"\tIf the decision genuinely needs a new status, add it to decisionStatuses here "+
+				"and say in the log what it means. Do not add one ahead of a decision that uses it.",
+				decisionsDir, decision.name, form[1], strings.Join(sortedKeys(decisionStatuses), ", "))
+		}
+	}
+}
+
+// TestARelationBetweenDecisionsIsAnsweredByBothOfThem checks the half of a
+// supersession that is easy to leave out. Recording that this decision was
+// superseded is the natural half to write, because it is written while reading
+// the decision that lost; the decision that won is somewhere else and is
+// finished. A log where only one end of the relation knows about it sends a
+// reader who arrives from the other end straight past it.
+//
+// What counts as an answer is a mention, not a matching relation statement: the
+// decision that won ordinarily explains the change in its own terms rather than
+// restating the relation, which is what ADR-043 does for ADR-041. What is being
+// guarded is that the two ends know about each other at all.
+//
+// Two limits, stated rather than discovered. A bare citation creates no
+// obligation, so a decision may cite any other freely. And a relation statement
+// that names no decision — "superseded by a later decision" — is read as prose
+// and skipped, because a relation this cannot follow is one it cannot check.
+func TestARelationBetweenDecisionsIsAnsweredByBothOfThem(t *testing.T) {
+	decisions := decisionFiles(t, repoRoot(t))
+
+	bodies := make(map[string]string, len(decisions))
+	for _, decision := range decisions {
+		bodies[decision.number] = decision.body
+	}
+
+	var found []relation
+	for _, decision := range decisions {
+		for _, span := range boldSpan.FindAllStringSubmatchIndex(decision.body, -1) {
+			statement := decision.body[span[2]:span[3]]
+			verb := relationVerb.FindString(statement)
+			if verb == "" {
+				continue
+			}
+
+			trail := min(span[1]+relationTrail, len(decision.body))
+			named := adrReference.FindStringSubmatch(statement + decision.body[span[1]:trail])
+			if named == nil {
+				continue
+			}
+
+			found = append(found, relation{
+				source: decision.number,
+				target: named[1],
+				verb:   strings.ToLower(verb),
+			})
+		}
+	}
+
+	for _, want := range knownRelations {
+		if !slices.Contains(found, want) {
+			t.Errorf("the matcher no longer finds ADR-%s's %q relation to ADR-%s\n"+
+				"\tEither that statement was reworded, or the matcher stopped recognising the form "+
+				"this log writes relations in. Fix whichever it is: a reciprocity check that matches "+
+				"nothing passes, and passes silently.",
+				want.source, want.verb, want.target)
+		}
+	}
+
+	for _, found := range found {
+		answer, ok := bodies[found.target]
+		if !ok {
+			t.Errorf("ADR-%s says it %s ADR-%s, and no file under %s holds ADR-%s",
+				found.source, found.verb, found.target, decisionsDir, found.target)
+			continue
+		}
+		if !strings.Contains(answer, "ADR-"+found.source) {
+			t.Errorf("ADR-%s says it %s ADR-%s, and ADR-%s never mentions ADR-%s\n"+
+				"\tA reader who arrives at ADR-%s has no way to learn about the relation. "+
+				"Say there what it did to ADR-%s, in its own terms.",
+				found.source, found.verb, found.target,
+				found.target, found.source, found.target, found.source)
+		}
+	}
+}
+
 // decisionFiles reads the decision directory and reports what it holds. It
 // judges nothing beyond the shape of a name, so that each guard above can fail
 // for its own reason with its own remedy.
@@ -211,7 +388,7 @@ func decisionFiles(t *testing.T, root string) []decisionFile {
 		if err != nil {
 			t.Fatalf("reading %s/%s: %v", decisionsDir, entry.Name(), err)
 		}
-		decision := decisionFile{name: entry.Name(), number: match[1]}
+		decision := decisionFile{name: entry.Name(), number: match[1], body: string(body)}
 		first, _, _ := strings.Cut(string(body), "\n")
 		if heading := decisionHeading.FindStringSubmatch(first); heading != nil {
 			decision.heading = heading[1]

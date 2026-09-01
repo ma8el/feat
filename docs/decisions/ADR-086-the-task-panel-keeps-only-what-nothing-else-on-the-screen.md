@@ -1,6 +1,6 @@
 # ADR-086 — The task panel keeps only what nothing else on the screen says
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-29, before implementation
 
 The maintainer read the task tab after the dogfood runs and reported it as

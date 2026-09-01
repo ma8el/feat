@@ -1,6 +1,6 @@
 # ADR-039 — Proving a notification arrived
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-08
 
 Evidence found while walking every notifiable condition against a real desktop:

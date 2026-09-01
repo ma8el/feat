@@ -1,6 +1,6 @@
 # ADR-078 — The wizard stops asking about verification, and `checks:` stays exactly as it is
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-27, from the recorded history of 45 tasks across three projects
 
 `feat project init` walked every user into configuring a gate, three questions

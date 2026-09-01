@@ -1,6 +1,6 @@
 # ADR-029 — Git adapter boundary, preparation order, and path safety
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-05
 
 Evidence found while implementing the Git and worktree lifecycle:

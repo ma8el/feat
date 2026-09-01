@@ -1,6 +1,6 @@
 # ADR-082 — The container-path detail repeats on every mount question, because this is the field whose wrong answer says nothing
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-29, settled with the maintainer, from walking the configuration interface end to end
 
 `Question.Detail` is documented as set "on the first question of a group rather

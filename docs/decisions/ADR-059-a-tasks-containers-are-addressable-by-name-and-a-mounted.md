@@ -1,6 +1,6 @@
 # ADR-059 — A task's containers are addressable by name, and a mounted directory is released before it is removed
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-14, from dogfooding the mount-and-socket rules
 
 Both halves of this are one sentence: the container outlives the request that

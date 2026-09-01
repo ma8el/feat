@@ -1,6 +1,6 @@
 # ADR-064 — Diagnosis is read on the dashboard, and it says which process it is true of
 
-Status: accepted  
+Status: accepted
 Recorded: 2026-08-15, from the hole ADR-063 left
 
 The dashboard could configure a project and could not tell the user whether it
