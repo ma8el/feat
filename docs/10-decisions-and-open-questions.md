@@ -411,6 +411,11 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   the index that finds it, and a test in `internal/guard` holds the two
   together.
 
+- **[ADR-090 — The v0.1.0 release](decisions/ADR-090-the-v0-1-0-release.md)** · accepted  
+  The tag packages the finished dogfood scope for its author and widens
+  nothing: release binaries, `go install`, and the setup skill move into it,
+  Linux moves out of it, and host-native execution is recorded as delivered.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is

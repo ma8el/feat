@@ -62,7 +62,6 @@ internal/tmux                tmux execution adapter
 internal/agent               agent interfaces and events
 internal/agent/claude        Claude Code launch/hooks/control protocol
 internal/execution           execution environment interface
-internal/execution/host      host-native execution
 internal/execution/compose   devcontainer execution through Compose
 internal/runtime             application runtime interface
 internal/runtime/compose     Docker Compose runtime
@@ -91,7 +90,7 @@ Adapters are compiled into the binary initially. Interfaces must avoid leaking i
 
 `internal/runtime` and `internal/runtime/compose` sit under the same rule, with a `runtime-stays-an-adapter` `depguard` rule that also denies them `internal/execution`. `internal/paths` owns the runtime root. See ADR-034.
 
-`internal/execution` and `internal/execution/compose` sit under the same rule, with an `execution-stays-an-adapter` `depguard` rule. The daemon resolves configuration into an execution specification, wraps the environment's probe runner as the agent adapter's runner, and turns the adapter's launch specification into a host command the terminal backend runs. The two adapters therefore never import each other, and host-native execution is added behind the same interface without touching either. See ADR-033.
+`internal/execution` and `internal/execution/compose` sit under the same rule, with an `execution-stays-an-adapter` `depguard` rule. The daemon resolves configuration into an execution specification, wraps the environment's probe runner as the agent adapter's runner, and turns the adapter's launch specification into a host command the terminal backend runs. The two adapters therefore never import each other. There is one adapter: host-native execution turned out to need no second implementation behind the interface, because it is the absence of a container environment rather than another kind of one, so the daemon dispatches a project configured with `mode: host` straight to the agent launch. `internal/execution/host` was listed here for that second implementation and is removed with the claim (ADR-090). See ADR-033.
 
 `internal/review` sits under the same rule, with a
 `review-stays-a-policy` `depguard` rule. It receives final values — an expanded
