@@ -3,8 +3,9 @@
 # Makefile installs it into bin/, and the release workflow reads the file rather
 # than naming a version of its own.
 #
-# `make release-snapshot` runs this configuration locally. It tags nothing and
-# publishes nothing, and is the only way to see the archives before a tag exists.
+# `make release-snapshot` runs this configuration locally, after `goreleaser
+# check` validates it. It tags nothing and publishes nothing, and is the only
+# way to see the archives before a tag exists.
 version: 2
 
 project_name: feat
@@ -28,19 +29,46 @@ builds:
       - amd64
       - arm64
 
+    # Rebuilding a tag must produce the same bytes, or the checksums file below
+    # is a number only the machine that made it can confirm. Three things are
+    # otherwise wired to the moment of the build rather than to the commit:
+    #
+    #   -trimpath        the build path, which GoReleaser does NOT pass by
+    #                    itself — the v0.1.0 archives built before this line
+    #                    carried the builder's absolute directory.
+    #   mod_timestamp    the modification time stamped on the file in the tar.
+    #   .CommitDate      see the ldflags below.
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
     # The same three symbols the Makefile's LDFLAGS sets, so a downloaded binary
     # and a `make build` binary report identity through one code path.
     #
     # The values are GoReleaser's spellings of the Makefile's three shell
-    # commands: .Summary is `git describe --tags --always --dirty`, .ShortCommit
-    # is `git rev-parse --short HEAD`, and .Date is the build time in UTC
-    # RFC 3339. .Summary rather than .Version because .Version drops the leading
-    # `v`, and then `feat version` would print a different string from the tag
-    # it was built from and from what `make build` prints on the same commit.
+    # commands: .Summary is `git describe --tags --always --dirty` and
+    # .ShortCommit is `git rev-parse --short HEAD`, so version and commit are
+    # character-for-character what `make build` puts there on the same commit.
+    # .Summary rather than .Version because .Version drops the leading `v`, and
+    # then `feat version` would print a different string from the tag it was
+    # built from.
+    #
+    # date is the one deliberate divergence. The Makefile uses `date -u`, the
+    # moment of the build; a release uses .CommitDate, the moment of the commit,
+    # in the same RFC 3339 UTC format. A build clock cannot be reproduced, and
+    # between a timestamp that is reproducible and one that is five seconds more
+    # precise about a build nobody witnessed, a published checksum wants the
+    # first.
+    #
+    # -s -w drop the symbol table and DWARF. Go stack traces come from the
+    # pclntab and survive both, as does the build information `go version -m`
+    # reads, so a panic from a release binary still names its functions.
     ldflags:
+      - -s
+      - -w
       - -X github.com/ma8el/feat/internal/version.version={{ .Summary }}
       - -X github.com/ma8el/feat/internal/version.commit={{ .ShortCommit }}
-      - -X github.com/ma8el/feat/internal/version.date={{ .Date }}
+      - -X github.com/ma8el/feat/internal/version.date={{ .CommitDate }}
 
 archives:
   - id: feat
@@ -48,11 +76,27 @@ archives:
       - tar.gz
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+    # Unpacking must not scatter three files into whatever directory the user
+    # ran tar in, and must not overwrite a README.md or a LICENSE already
+    # sitting there. The wrapper is named after the archive.
+    wrap_in_directory: true
+
     # Apache 2.0 requires the licence to travel with the distribution, and the
     # README is the only installation instruction someone unpacking a tarball has.
+    #
+    # mtime for the same reason builds.mod_timestamp exists above, which only
+    # covers the compiled binary: these two are copied straight out of the
+    # checkout, so without this they carry the time Git happened to write them
+    # and two clones of one tag produce two different tarballs around identical
+    # contents.
     files:
-      - README.md
-      - LICENSE
+      - src: README.md
+        info:
+          mtime: "{{ .CommitDate }}"
+      - src: LICENSE
+        info:
+          mtime: "{{ .CommitDate }}"
 
 checksum:
   name_template: checksums.txt

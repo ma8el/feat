@@ -163,8 +163,12 @@ $(GORELEASER): .goreleaser-version
 	@mkdir -p $(BIN_DIR)
 	GOBIN=$(CURDIR)/$(BIN_DIR) go install github.com/goreleaser/goreleaser/v2@$(RELEASE_VERSION)
 
+.PHONY: release-check
+release-check: $(GORELEASER) ## Validate .goreleaser.yaml without building anything
+	$(GORELEASER) check
+
 .PHONY: release-snapshot
-release-snapshot: $(GORELEASER) ## Build the release archives locally, tagging and publishing nothing
+release-snapshot: release-check ## Build the release archives locally, tagging and publishing nothing
 # --snapshot builds as if the current commit were tagged and skips every step
 # that reaches a server; --clean empties dist/ first, so what is there afterwards
 # is what this run produced rather than what a previous one left.
