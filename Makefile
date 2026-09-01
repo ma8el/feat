@@ -7,9 +7,11 @@ BINARY := feat
 MODULE := github.com/ma8el/feat
 CMD    := ./cmd/feat
 
-BIN_DIR      := bin
-GOLANGCI     := $(BIN_DIR)/golangci-lint
-LINT_VERSION := $(shell cat .golangci-version)
+BIN_DIR         := bin
+GOLANGCI        := $(BIN_DIR)/golangci-lint
+GORELEASER      := $(BIN_DIR)/goreleaser
+LINT_VERSION    := $(shell cat .golangci-version)
+RELEASE_VERSION := $(shell cat .goreleaser-version)
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -145,7 +147,7 @@ golden: ## Rewrite golden test files
 	go test ./internal/api -update
 
 .PHONY: tools
-tools: $(GOLANGCI) ## Install the pinned developer tools into bin/
+tools: $(GOLANGCI) $(GORELEASER) ## Install the pinned developer tools into bin/
 
 # The binary is rebuilt whenever the pinned version changes. Installing with an
 # explicit @version keeps the linter's dependencies out of the module graph, so
@@ -154,11 +156,25 @@ $(GOLANGCI): .golangci-version
 	@mkdir -p $(BIN_DIR)
 	GOBIN=$(CURDIR)/$(BIN_DIR) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(LINT_VERSION)
 
+# Same pattern, same reason. .goreleaser-version is the single source for the
+# pinned releaser, shared with the release workflow, which reads the file rather
+# than naming a version of its own.
+$(GORELEASER): .goreleaser-version
+	@mkdir -p $(BIN_DIR)
+	GOBIN=$(CURDIR)/$(BIN_DIR) go install github.com/goreleaser/goreleaser/v2@$(RELEASE_VERSION)
+
+.PHONY: release-snapshot
+release-snapshot: $(GORELEASER) ## Build the release archives locally, tagging and publishing nothing
+# --snapshot builds as if the current commit were tagged and skips every step
+# that reaches a server; --clean empties dist/ first, so what is there afterwards
+# is what this run produced rather than what a previous one left.
+	$(GORELEASER) release --snapshot --clean
+
 .PHONY: clean
 clean: ## Remove build output and installed tools
-	rm -rf $(BIN_DIR)
+	rm -rf $(BIN_DIR) dist
 
 .PHONY: help
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
-		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-17s\033[0m %s\n", $$1, $$2}'

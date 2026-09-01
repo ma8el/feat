@@ -1,0 +1,58 @@
+# GoReleaser builds the archives published for a tag. The pinned version lives
+# in .goreleaser-version, beside .golangci-version and read the same way: the
+# Makefile installs it into bin/, and the release workflow reads the file rather
+# than naming a version of its own.
+#
+# `make release-snapshot` runs this configuration locally. It tags nothing and
+# publishes nothing, and is the only way to see the archives before a tag exists.
+version: 2
+
+project_name: feat
+
+builds:
+  - id: feat
+    main: ./cmd/feat
+    binary: feat
+
+    # Feat's binary is one file with no C dependencies, and a release must not
+    # acquire one from whichever host built it.
+    env:
+      - CGO_ENABLED=0
+
+    # macOS only. The Linux build compiles and CI tests it on ubuntu-latest, but
+    # nobody has run Feat there yet, and a published archive claims more than
+    # that. v0.2 adds Linux once it has been run (docs/08-v0-scope.md).
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+    # The same three symbols the Makefile's LDFLAGS sets, so a downloaded binary
+    # and a `make build` binary report identity through one code path.
+    #
+    # The values are GoReleaser's spellings of the Makefile's three shell
+    # commands: .Summary is `git describe --tags --always --dirty`, .ShortCommit
+    # is `git rev-parse --short HEAD`, and .Date is the build time in UTC
+    # RFC 3339. .Summary rather than .Version because .Version drops the leading
+    # `v`, and then `feat version` would print a different string from the tag
+    # it was built from and from what `make build` prints on the same commit.
+    ldflags:
+      - -X github.com/ma8el/feat/internal/version.version={{ .Summary }}
+      - -X github.com/ma8el/feat/internal/version.commit={{ .ShortCommit }}
+      - -X github.com/ma8el/feat/internal/version.date={{ .Date }}
+
+archives:
+  - id: feat
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    # Apache 2.0 requires the licence to travel with the distribution, and the
+    # README is the only installation instruction someone unpacking a tarball has.
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
