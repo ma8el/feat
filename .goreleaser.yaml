@@ -29,15 +29,24 @@ builds:
       - amd64
       - arm64
 
-    # Rebuilding a tag must produce the same bytes, or the checksums file below
-    # is a number only the machine that made it can confirm. Three things are
-    # otherwise wired to the moment of the build rather than to the commit:
+    # Rebuilding a tag on the same operating system, with the same Go version,
+    # produces the same bytes. Three things are otherwise wired to the moment of
+    # the build rather than to the commit:
     #
     #   -trimpath        the build path, which GoReleaser does NOT pass by
-    #                    itself — the v0.1.0 archives built before this line
-    #                    carried the builder's absolute directory.
+    #                    itself — an archive built before this line carried the
+    #                    builder's absolute directory into a public binary.
     #   mod_timestamp    the modification time stamped on the file in the tar.
     #   .CommitDate      see the ldflags below.
+    #
+    # What this does NOT give is a rebuild on a different operating system. A
+    # macOS and a Linux build of one commit, both on go1.26.5, differ inside the
+    # compiled binary, and the cause was not found: the build path, the clocks,
+    # the account recorded in the tar header, and Go's own build ID were each
+    # eliminated in turn and the two still disagreed. So the checksums file is
+    # reproducible by somebody rebuilding on the platform the release was built
+    # on, and is a bare integrity check for everybody else. Do not widen that
+    # claim without a macOS and a Linux build that actually match.
     flags:
       - -trimpath
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -71,17 +80,9 @@ builds:
     # -s -w drop the symbol table and DWARF. Go stack traces come from the
     # pclntab and survive both, as does the build information `go version -m`
     # reads, so a panic from a release binary still names its functions.
-    #
-    # -buildid= empties Go's build ID, which is otherwise the last thing tying
-    # the output to the machine that produced it: Go derives it from action IDs
-    # that hash the toolchain's own binaries, so a darwin-hosted and a
-    # linux-hosted toolchain of the same version stamp different values into an
-    # otherwise identical binary. Emptying it costs the go command's staleness
-    # check for an installed binary, which a release archive never uses.
     ldflags:
       - -s
       - -w
-      - -buildid=
       - -X github.com/ma8el/feat/internal/version.version=v{{ .Version }}
       - -X github.com/ma8el/feat/internal/version.commit={{ .ShortCommit }}
       - -X github.com/ma8el/feat/internal/version.date={{ .CommitDate }}
