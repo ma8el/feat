@@ -54,11 +54,24 @@ and the second pass over the wizard, each of which says so where it appears:
   that compares field names in both directions; publishing it is what makes it a
   compatibility surface. The generated completion command is registered and
   hidden until it is supported.
-- **Machine-readable output for the reading commands.** Every command prints a
-  table a person reads and nothing else can parse, so a user scripting around
-  Feat has the socket or screen-scraping. `task list`, `task review`,
-  `runtime status`, and `project show` are the ones with something to say, and
-  the schema they would publish is the one this milestone finalizes.
+- **Machine-readable output for the reading commands, and a two-phase
+  command-line `implement`.** Every command prints a table a person reads and
+  nothing else can parse, so a user scripting around Feat has the socket or
+  screen-scraping. `task list`, `task review`, `runtime status`, and
+  `project show` are the ones with something to say, and the schema they would
+  publish is the one this milestone finalizes. Task creation belongs to the same
+  work: `feat implement` refuses without a terminal, so a script, a queue, or CI
+  cannot create a task at all — while the daemon behind it already treats the
+  confirmation as a value rather than a key press, the plan fingerprint ADR-031
+  has `launch` carry back. One command that resolves a draft and prints its plan,
+  and a second that launches it by that fingerprint, keeps FR-TASK-003 and
+  ADR-031 literally rather than by analogy; it is the opposite of the unattended
+  path [08-v0-scope.md](08-v0-scope.md) excludes, which is what a `--yes` flag
+  would build instead. It waits for this milestone rather than arriving earlier
+  because it publishes a command surface and a JSON shape together, and building
+  it first would fix the shape before the decision that finalizes it. Taking it
+  up needs an ADR of its own: it moves ADR-028's terminal-independence principle
+  onto task creation and decides what confirming means without a screen.
 - **A Homebrew formula and tap.** The release binaries and the `go install`
   instructions belong to `v0.1.0`, because they are what a tag emits. A tap is a
   second repository with a formula to keep in step, and it waits here for the
