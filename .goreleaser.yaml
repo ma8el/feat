@@ -138,6 +138,33 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# What the release page shows is the entry CHANGELOG.md holds for the tag.
+#
+# With no changelog block at all, GoReleaser builds the body out of the commits
+# since the previous tag. This repository's commit subjects are prose written to
+# be read one at a time, and a list of them is not what somebody deciding
+# whether to install is reading the page for. So the generated list is off and
+# the body comes from the file that was written for that reader.
+#
+# The mechanism is here rather than in the workflow, which could pass
+# `--release-notes CHANGELOG.md` to the same end. Three reasons, and the second
+# is the one that matters. This file is what `make release-check` validates and
+# `make release-snapshot` runs, so the mechanism is inside the thing a
+# maintainer already exercises locally rather than in an argument list only
+# Actions ever executes. `--release-notes` takes a whole file, so the body would
+# grow an entry every release; the template below takes the section for the tag.
+# And the rest of what this release is — the pre-release marking, the archives,
+# the version stamped into the binary — is already in this file.
+#
+# What it costs: a header is rendered only when the release is published, so no
+# local run prints it. `--snapshot` implies `--skip=publish`, and the changelog
+# pipe skips itself for snapshots, so `make release-snapshot` proves the
+# archives and says nothing about the body. Reading the body before a tag exists
+# means driving a publish at a stub of the GitHub API, which is how the wiring
+# was checked.
+changelog:
+  disable: true
+
 release:
   # v0.1.0 packages the finished dogfood for its author. The repository is
   # public, so the choice is not between visible and hidden but between
@@ -155,3 +182,14 @@ release:
   # Not `auto`, which infers the flag from a pre-release segment in the tag.
   # `v0.1.0` has none, so `auto` would publish it as a normal release.
   prerelease: true
+
+  # The section for this tag alone: everything between its own `## <tag>`
+  # heading and the next one, with the heading put back on the front.
+  #
+  # A tag CHANGELOG.md has no entry for fails here, on `index` of a one-element
+  # split, and it fails in the step that composes the body — before the release
+  # is created and before anything is uploaded. What a forgotten entry costs is
+  # therefore the tag, not a published page carrying the wrong words.
+  header: |
+    {{- $entry := index (split (mustReadFile "CHANGELOG.md") (printf "\n## %s" .Tag)) 1 -}}
+    ## {{ .Tag }}{{ index (split $entry "\n## ") 0 }}
