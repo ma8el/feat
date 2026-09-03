@@ -115,6 +115,104 @@ environment. A task may span several repositories.
 > would lose work says so beside the resource it would lose it on, and again in
 > the confirmation that removes it.
 
+## Installing
+
+Feat is claimed on macOS and only there. Linux compiles and CI runs the whole
+suite on `ubuntu-latest` on every commit, but nobody has run a task on a Linux
+machine and Linux has no desktop notifications yet — so the absence of a Linux
+archive below means Linux is not claimed, not that it does not build.
+[ADR-090](docs/decisions/ADR-090-the-v0-1-0-release.md) records why, and [the
+roadmap](docs/09-roadmap.md) holds Linux for v0.2; `go install` and `make build`
+will build it there in the meantime, unclaimed.
+
+Feat needs these on the machine:
+
+- **Git** and **tmux**. Feat drives Git for every branch, worktree, and diff,
+  and runs every agent session in tmux.
+
+- **[Claude Code](https://code.claude.com/docs/en/setup), installed and
+  authenticated.** It is the agent Feat launches, and the one tool without
+  which nothing runs. It has to be where the agent runs: on this machine for a
+  project that configures `agent.execution.mode: host`, and inside the image
+  for one that runs its agent in a devcontainer.
+
+- **The Docker Compose CLI**, for a project that runs its agent in a
+  devcontainer or that has an application runtime, and for nothing else.
+
+`feat doctor` checks all of this and says what to do about whatever it finds.
+Run it before any project exists for the tools Feat always needs, and again
+once one does — `feat project init` offers that itself — for the ones only a
+configuration can name: the Compose service, the repositories' remotes, and
+Claude Code where that project's agent will run.
+
+There are three ways to get the binary.
+
+**A release archive.** The [releases
+page](https://github.com/ma8el/feat/releases) carries one `tar.gz` per macOS
+architecture — `arm64` for Apple Silicon, `amd64` for an Intel Mac — each
+holding the binary, this README, and the licence in a directory named after the
+archive:
+
+```sh
+curl -LO https://github.com/ma8el/feat/releases/download/v0.1.0/feat_0.1.0_darwin_arm64.tar.gz
+tar xzf feat_0.1.0_darwin_arm64.tar.gz
+mv feat_0.1.0_darwin_arm64/feat /usr/local/bin/   # or anywhere on your PATH
+feat version
+```
+
+`checksums.txt` is published beside the archives, for checking a download. The
+binaries are neither signed nor notarized, and `curl` attaches no quarantine
+attribute to what it downloads, which is why the line above uses it; take an
+archive through a browser instead and macOS will refuse to run what comes out
+of it until you clear that attribute with `xattr -d com.apple.quarantine feat`.
+
+**`go install`**, with the Go toolchain [`go.mod`](go.mod) pins:
+
+```sh
+go install github.com/ma8el/feat/cmd/feat@latest
+```
+
+Such a binary never sees the link flags a build passes, and reads its identity
+out of the build information the toolchain embedded instead, so `feat version`
+names the release it was installed at rather than `dev`. It reports no commit
+and no build date: a tag names a release rather than a commit, and a module
+fetched from the proxy has no checkout to read one from.
+
+**From source.** `make build` writes `./bin/feat`, stamped with the version
+your checkout describes, its commit, and the moment you built it:
+
+```sh
+git clone https://github.com/ma8el/feat.git
+cd feat
+make build
+```
+
+[Development](#development) is what a checkout adds beyond that.
+
+However you got it, the path from here runs in one of your project's checkouts:
+
+```sh
+feat doctor          # changes nothing, needs no daemon: run it first
+feat project init    # answer the questions; it writes a validated configuration
+feat daemon start
+feat project add myproject
+feat implement       # or `feat` for the dashboard
+```
+
+The wizard prints those last commands itself once it has written the file, and
+offers to run the diagnostics and the registration rather than leaving them to
+you. [Configuring a project](#configuring-a-project) is the same ground at
+length.
+
+Two things the wizard does not cover. `feat skill install` writes a setup skill
+into your own Claude Code session, for the half with no wizard behind it: a
+project that already exists and needs editing, and a machine with no terminal
+to converse with, which is where `feat project init` refuses. And `feat project
+schema` and `feat project example` print the JSON Schema and a commented
+example out of the binary, for writing the file by hand — they exist because
+somebody who installed Feat has the binary and none of this repository
+([ADR-093](docs/decisions/ADR-093-a-skill-is-installed-into-the-users-own-session-and-it.md)).
+
 ## Preparing a task
 
 ```sh
