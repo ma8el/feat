@@ -22,9 +22,7 @@ environment. A task may span several repositories.
 > **Status: alpha.** The v0.1 scope is complete and Feat is being used on real
 > work, on macOS, with Claude in a devcontainer or on the host. The first
 > release, `v0.1.0`, packages that scope for its author and is marked
-> pre-release. Linux support and its notifications, generalized configuration, a
-> Homebrew tap, and the public documentation are what [the
-> roadmap](docs/09-roadmap.md) calls v0.2.
+> pre-release.
 
 ## Installing
 
