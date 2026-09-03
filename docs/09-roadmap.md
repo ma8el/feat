@@ -273,14 +273,9 @@ Behavior:
 
 ## Phase 7 — remote web/PWA control
 
-Goal: monetize secure access to the local multi-agent control plane from another device.
+Goal: secure access to the local multi-agent control plane from another device.
 
-Open-source side:
-
-- local/LAN responsive web client.
-
-Commercial side:
-
+- local/LAN responsive web client;
 - hosted outbound relay;
 - device pairing;
 - end-to-end encrypted state and terminal transport;
