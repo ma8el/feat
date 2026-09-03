@@ -14,7 +14,10 @@ Deliver the exact scope in [08-v0-scope.md](08-v0-scope.md), centered on:
 - manual task-scoped Compose lifecycle;
 - attention notifications;
 - external diff/editor workflow;
-- recovery and safe cleanup.
+- recovery and safe cleanup;
+- a setup skill Feat installs into the user's own agent session, covering the
+  configuration editing and setup judgement no command answers, with the schema
+  and the example emitted by the binary that carries it (ADR-090, ADR-093).
 
 Exit signal: three concurrent tasks can be implemented and reviewed with less coordination and idle time.
 

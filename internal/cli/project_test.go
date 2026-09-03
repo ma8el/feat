@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	feat "github.com/ma8el/feat"
 	"github.com/ma8el/feat/internal/daemon"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
@@ -677,5 +678,45 @@ func TestDoctorReportsRegistrationWhenADaemonIsRunning(t *testing.T) {
 	if !strings.Contains(stdout, "registered with the daemon") ||
 		strings.Contains(stdout, "not registered with the daemon") {
 		t.Errorf("the report does not reflect the registration:\n%s", stdout)
+	}
+}
+
+// TestProjectSchemaAndExamplePrintTheEmbeddedDocuments pins the two emitters
+// to what the build embedded, byte for byte: a user pointing an editor at the
+// printed schema, or starting a file from the printed example, is working from
+// the repository's own documents with nothing added or dropped (ADR-093).
+//
+// Neither command needs a daemon, a configuration, or a terminal, because the
+// machines that need them most have none of the three.
+func TestProjectSchemaAndExamplePrintTheEmbeddedDocuments(t *testing.T) {
+	m := prepare(t)
+
+	emitters := []struct {
+		command string
+		want    []byte
+		anchor  string
+	}{
+		{"schema", feat.ProjectSchema(), "$schema"},
+		{"example", feat.ProjectExample(), "feat doctor"},
+	}
+
+	for _, emitter := range emitters {
+		code, stdout, stderr := m.run(t, "project", emitter.command)
+		if code != ExitOK {
+			t.Fatalf("`feat project %s`: exit %d, stderr:\n%s", emitter.command, code, stderr)
+		}
+		if stdout != string(emitter.want) {
+			t.Errorf("`feat project %s` does not print the embedded document verbatim", emitter.command)
+		}
+		// The anchor guards the fixture itself: an embed of the wrong file
+		// would still equal itself.
+		if !strings.Contains(stdout, emitter.anchor) {
+			t.Errorf("`feat project %s` output does not contain %q:\n%.200s",
+				emitter.command, emitter.anchor, stdout)
+		}
+		if stderr != "" {
+			t.Errorf("`feat project %s` wrote to stderr, and the document must be the whole output:\n%s",
+				emitter.command, stderr)
+		}
 	}
 }

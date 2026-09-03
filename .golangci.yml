@@ -564,8 +564,35 @@ linters:
         cli-is-a-client:
           files:
             - "**/internal/cli/**"
+            # ADR-093: `feat skill install` writes the provider's skill into
+            # the user's own environment, and it runs on machines no daemon
+            # exists on yet. The one file wiring that command is governed by
+            # the rule below instead, which differs only in reaching the
+            # adapter.
+            - "!**/internal/cli/skill.go"
           deny:
             - pkg: github.com/ma8el/feat/internal/agent
+            - pkg: github.com/ma8el/feat/internal/control
+            - pkg: github.com/ma8el/feat/internal/execution
+            - pkg: github.com/ma8el/feat/internal/git
+            - pkg: github.com/ma8el/feat/internal/notify
+            - pkg: github.com/ma8el/feat/internal/reconcile
+            - pkg: github.com/ma8el/feat/internal/resources
+            - pkg: github.com/ma8el/feat/internal/runtime
+            - pkg: github.com/ma8el/feat/internal/store
+              desc: the daemon is the only reader and writer of persistent state
+            - pkg: github.com/ma8el/feat/internal/tmux
+
+        # ADR-093: the setup skill's content, the directory Claude Code reads
+        # it from, and the marker beside it are Claude's, so they live in the
+        # provider adapter — and installing is a host-side act of the command,
+        # like `feat settings init`, because the machine that needs the skill
+        # most has no daemon yet. This rule is cli-is-a-client for the one
+        # file that wires the install, minus the adapter it exists to call.
+        cli-skill-installs-through-the-adapter:
+          files:
+            - "**/internal/cli/skill.go"
+          deny:
             - pkg: github.com/ma8el/feat/internal/control
             - pkg: github.com/ma8el/feat/internal/execution
             - pkg: github.com/ma8el/feat/internal/git
