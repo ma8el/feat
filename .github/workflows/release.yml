@@ -64,19 +64,36 @@ jobs:
       - name: Test
         run: go test -race ./...
 
-      # `goreleaser check`, through the Makefile target rather than open-coded,
-      # so the configuration is validated by the command the maintainer runs
-      # locally — `make release-snapshot` is the same target followed by a build
-      # that publishes nothing — and at the version .goreleaser-version pins.
-      - name: Validate the release configuration
-        run: make release-check
-
       # .goreleaser-version is the single source for the pinned releaser, shared
       # with the Makefile, which is why this reads the file rather than naming a
       # version of its own. Same shape as ci.yml's .golangci-version step.
+      #
+      # It is read before the validation below as well as the publish, because
+      # both steps take the releaser from here.
       - name: Read the pinned GoReleaser version
         id: pinned
         run: echo "version=$(cat .goreleaser-version)" >> "$GITHUB_OUTPUT"
+
+      # `goreleaser check` through the action rather than through `make
+      # release-check`, which is the same command locally but not here.
+      #
+      # The Makefile builds its tools with `go install`, and the Go this job
+      # gets is the one go.mod names — 1.26.0, with setup-go pinning
+      # GOTOOLCHAIN=local so that stays exact. The releaser needs 1.26.5 to
+      # build, so the install failed on a runner while working on a machine that
+      # happens to run a newer Go. The action downloads the released binary
+      # instead and needs no toolchain at all, which is also what the publish
+      # step below has always done: the job was installing the same releaser
+      # twice, and only the half that compiled it could break.
+      #
+      # Raising go.mod would have fixed this too, and would have raised the Go a
+      # user needs to build Feat in order to satisfy the tool that packages it.
+      # Those are two requirements and only one of them belongs in go.mod.
+      - name: Validate the release configuration
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: ${{ steps.pinned.outputs.version }}
+          args: check
 
       # The release is published as a pre-release, and that is set in
       # .goreleaser.yaml rather than here: `goreleaser release` has a --draft
