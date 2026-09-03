@@ -425,6 +425,12 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   itself, a build clock only where nothing else saw the build. No source changes
   what it stamps.
 
+- **[ADR-093 — A skill is installed into the user's own session, and it carries method rather than schema](decisions/ADR-093-a-skill-is-installed-into-the-users-own-session-and-it.md)** · accepted  
+  Feat embeds the skill, the schema, and the example, and emits all three:
+  `feat skill install` writes the skill, `feat project schema` and
+  `feat project example` print what it drafts against. A reinstall replaces
+  what still matches the recorded install and refuses what does not.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is

@@ -205,6 +205,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		newImplementCommand(env),
 		newProjectCommand(env),
 		newSettingsCommand(env),
+		newSkillCommand(env),
 		newTaskCommand(env, attach, review),
 		aliasOf(attach, "feat task attach"),
 		aliasOf(review, "feat task review"),

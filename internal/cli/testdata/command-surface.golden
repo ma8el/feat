@@ -10,8 +10,10 @@ feat doctor
 feat implement [--file] [--plan] [--project] [--ticket]
 feat project
 feat project add <project>
+feat project example
 feat project init [<project>] [--dry-run]
 feat project list
+feat project schema
 feat project show <project>
 feat project tickets <project>
 feat review <task>
@@ -27,6 +29,9 @@ feat settings edit
 feat settings init
 feat settings path
 feat settings show
+feat skill
+feat skill install [--dry-run] [--force]
+feat skill show
 feat task
 feat task attach <task>
 feat task cleanup <task>

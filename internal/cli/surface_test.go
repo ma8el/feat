@@ -105,6 +105,14 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 		// command. Invoking it here would ask the running user's tracker for
 		// their tickets.
 		"feat project tickets": true,
+		// The two emitters print documents embedded in the binary and read
+		// nothing from the machine at all.
+		"feat project schema":  true,
+		"feat project example": true,
+		// Installing the skill writes into the running user's own ~/.claude;
+		// show prints the embedded document and reads nothing.
+		"feat skill install": true,
+		"feat skill show":    true,
 		// Initialising a project reads the running user's configuration
 		// directory, and with no terminal it refuses rather than asking
 		// questions into a pipe. Invoking it here would do neither usefully.

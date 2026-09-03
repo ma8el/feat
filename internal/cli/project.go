@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	feat "github.com/ma8el/feat"
 	"github.com/ma8el/feat/internal/api"
 	"github.com/ma8el/feat/internal/client"
 	"github.com/ma8el/feat/internal/config"
@@ -34,12 +35,53 @@ func newProjectCommand(env *environment) *cobra.Command {
 	}
 	cmd.AddCommand(
 		newProjectAddCommand(env),
+		newProjectExampleCommand(),
 		newProjectInitCommand(env),
 		newProjectListCommand(env),
+		newProjectSchemaCommand(),
 		newProjectShowCommand(env),
 		newProjectTicketsCommand(env),
 	)
 	return cmd
+}
+
+func newProjectSchemaCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "schema",
+		Short: "Print the JSON Schema for project configuration files",
+		Long: `Print the JSON Schema a project's configuration file is described by.
+
+It is schema/feat-project.schema.json from Feat's repository, embedded so an
+installation without a checkout still has it. Point an editor at it, or read
+it for what a field may hold.
+
+` + "`feat project example`" + ` prints a worked configuration to start from.`,
+		Args: checkArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			_, err := cmd.OutOrStdout().Write(feat.ProjectSchema())
+			return err
+		},
+	}
+}
+
+func newProjectExampleCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "example",
+		Short: "Print a worked example of a project configuration",
+		Long: `Print the worked example of a project's configuration file.
+
+It is docs/examples/project.yaml from Feat's repository, embedded so an
+installation without a checkout still has it. Its comments say where the file
+belongs.
+
+Start from it when writing a configuration by hand, and validate what you save
+with ` + "`feat doctor`" + `; where a terminal exists, ` + "`feat project init`" + ` asks instead.`,
+		Args: checkArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			_, err := cmd.OutOrStdout().Write(feat.ProjectExample())
+			return err
+		},
+	}
 }
 
 func newProjectAddCommand(env *environment) *cobra.Command {
