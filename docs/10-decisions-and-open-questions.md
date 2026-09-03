@@ -97,10 +97,6 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   Public v0 ships release binaries, Homebrew, and `go install` on macOS and
   Linux, with no telemetry.
 
-- **[ADR-023 — Open-source boundary](decisions/ADR-023-open-source-boundary.md)** · accepted  
-  The local core and the local or LAN web client are open source; a hosted
-  relay, push, and later team control may be commercial.
-
 - **[ADR-024 — Plugin strategy](decisions/ADR-024-plugin-strategy.md)** · accepted  
   Adapters are compiled-in Go implementations, behind interface boundaries that
   leave a future external plugin protocol possible.

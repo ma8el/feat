@@ -19,101 +19,81 @@ runtime, and review — without replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: alpha.** The v0.1 dogfood scope is complete and Feat is being used
-> on real work. It runs on macOS, with Claude in a devcontainer or directly on
-> the host. The first release, `v0.1.0`, packages that scope for its author: it
-> is marked pre-release, and it claims macOS and nothing wider. Linux is built
-> and tested on every commit and has never been run in anger, and Linux support
-> and its notifications, generalized configuration, a Homebrew tap, and the
-> public documentation are what [the roadmap](docs/09-roadmap.md) calls v0.2.
->
-> Feat has the full command surface, a versioned domain model with file-backed
-> storage, a local daemon serving a JSON API and a state-event stream over a
-> Unix-domain socket, YAML project configuration with diagnostics, and the Git
-> and worktree lifecycle that gives a task its branches and worktrees across
-> several repositories. It has a dedicated tmux backend with tagged stable
-> identity, native attachment, shell-pane creation, and daemon-restart
-> reconciliation.
->
-> **Setting a project up** starts with `feat project init`, or with `p` in the
-> dashboard, which asks the same questions as a dialog. It asks about the
-> project, finds out what it can from your checkouts — the working-tree root, the
-> remote, the default branch, the Compose files beside them and the services they
-> define — and writes a configuration it has already validated, once you have
-> seen the whole of it.
->
-> You can prepare, confirm, launch, list, and inspect a task: `feat` opens the
-> dashboard, `feat implement` opens task preparation, and `feat task attach` yields
-> your terminal to a task's own. **A task now runs a real Claude Code session**
-> in a devcontainer or on the host, reports its lifecycle through a
-> task control workspace, and goes idle only after a grace period — idle never
-> means done, and only an explicit request from the agent reaches review.
->
-> **A task's brief can come from a ticket.** A project points `tracker.command`
-> at a command of yours that prints your tickets as JSON — `docs/examples/tickets`
-> has a worked one for GitHub Issues, GitHub Projects, GitLab Issues, and
-> Shortcut — and Feat runs it on your machine, with your own authentication and
-> no filter of its own: which tickets are yours is the command's decision.
-> `feat doctor` runs it too and reports what does not conform, so a mapping that
-> is wrong is found when you ask whether the project is configured.
-> `feat project tickets` lists them, and `feat implement --ticket <reference>`
-> matches the reference against the ones the command printed. Selecting one
-> composes a brief you then read, edit, and confirm — what you approve is that
-> brief rather than the ticket it came from, and the agent's environment never
-> sees a tracker credential.
->
-> A project configured for a devcontainer runs its agent inside one: Feat
-> starts the configured Compose service, mounts each task worktree at the
-> container path its repository configures, mounts the task's control workspace,
-> and launches Claude there as the configured non-root user. Before starting the
-> agent it inspects that container and refuses one that reaches a container
-> runtime's socket — by its path, by a directory holding it, or by its name; that
-> has `docker`, `podman`, or `nerdctl` installed; that sets `DOCKER_HOST` or
-> another variable pointing a client at a daemon; that mounts Feat's own runtime
-> or state directory, or your home directory; that mounts the ordinary checkout
-> of a repository the task is working in; or that leaves writable a path the task
-> holds read-only. Those are checks on how a container is configured, and they
-> are what Feat verifies rather than what it guarantees: they are not a defence
-> against a deliberate kernel or container-runtime exploit, and nothing here
-> restricts the network. Mounts *inside* your home directory are deliberately
-> allowed, so that a project can configure the credential mounts it needs. Each
-> task gets its own Compose project, so tasks run side by side. A project that
-> configures `agent.execution.mode: host` runs Claude directly in the task's own
-> worktree instead, with no container boundary around it, and
-> `FEAT_HOST_AGENT=1` in the daemon's environment does the same for every task
-> whatever the project says.
->
-> A task's **application services** are yours to run from Feat: create, start,
-> stop, status, logs, and destroy, each under that task's own Compose project.
-> Nothing starts on its own and nothing stops because a task reached review or
-> approval.
->
-> The dashboard shows **what the machine has left** and what each task is using,
-> and Feat **tells you when a task may need you** — on macOS, through the
-> ordinary notification centre.
->
-> **Review** compares every repository against the base commit it started from,
-> opens your own diff and editor commands, and runs a gate over the project's
-> configured checks before a task is called ready.
->
-> **Publication** closes the task. Feat opens one merge request per changed
-> repository from your own machine, with your own credentials: the agent drafts
-> the title and description, you read and edit them in your editor, and what you
-> read is what is sent. It pushes and opens one repository at a time and records
-> every result before the next, so a publication that stopped half way says what
-> it never attempted, and publishing again skips what already has a merge
-> request.
->
-> **Recovery and cleanup** close the loop. Feat compares what it recorded with
-> what the machine actually has, reports whatever is missing, orphaned,
-> inconsistent, or unreadable, and repairs none of it on its own — a dead agent
-> session can be resumed, continuing the recorded conversation rather than
-> starting an empty one, but only when you ask. `C` on the dashboard and
-> `feat task cleanup` show the same exact inventory of what a task owns — every
-> resource, what it is, and whether it is still there — and remove only what you
-> select, one class at a time, with volumes retained unless chosen. Anything that
-> would lose work says so beside the resource it would lose it on, and again in
-> the confirmation that removes it.
+> **Status: alpha.** The v0.1 scope is complete and Feat is being used on real
+> work, on macOS, with Claude in a devcontainer or on the host. The first
+> release, `v0.1.0`, packages that scope for its author and is marked
+> pre-release.
+
+## Installing
+
+This version is end-to-end tested on macOS only. Linux compiles and CI runs the
+whole suite on `ubuntu-latest` on every commit, but nobody has run a task on a
+Linux machine yet, which is why there is no Linux archive below. `go install`
+and `make build` build it there; expect bugs.
+
+Feat needs these on the machine:
+
+- **Git** and **tmux**. Feat drives Git for every branch, worktree, and diff,
+  and runs every agent session in tmux.
+- **[Claude Code](https://code.claude.com/docs/en/setup), installed and
+  authenticated** — the agent Feat launches, and the one tool without which
+  nothing runs. It has to be where the agent runs: on this machine in host
+  mode, inside the image for a devcontainer.
+- **The Docker Compose CLI**, only for a devcontainer or an application
+  runtime.
+
+`feat doctor` checks all of this and says what to do about what it finds.
+
+There are three ways to get the binary.
+
+**A release archive.** The [releases
+page](https://github.com/ma8el/feat/releases) has one `tar.gz` per macOS
+architecture — `arm64` for Apple Silicon, `amd64` for an Intel Mac:
+
+```sh
+curl -LO https://github.com/ma8el/feat/releases/download/v0.1.0/feat_0.1.0_darwin_arm64.tar.gz
+tar xzf feat_0.1.0_darwin_arm64.tar.gz
+mv feat_0.1.0_darwin_arm64/feat /usr/local/bin/   # or anywhere on your PATH
+feat version
+```
+
+The archives are not notarized, so an archive taken through a browser rather
+than with the `curl` above is quarantined: clear it with
+`xattr -d com.apple.quarantine feat`.
+
+**`go install`**, with the Go toolchain [`go.mod`](go.mod) pins:
+
+```sh
+go install github.com/ma8el/feat/cmd/feat@latest
+```
+
+**From source.**
+
+```sh
+git clone https://github.com/ma8el/feat.git
+cd feat
+make build   # ./bin/feat
+```
+
+Then, in one of your project's checkouts:
+
+```sh
+feat doctor          # changes nothing, needs no daemon: run it first
+feat project init    # answer the questions; it writes a validated configuration
+feat daemon start
+feat project add myproject
+feat implement       # or `feat` for the dashboard
+```
+
+`feat project init` prints those last commands itself, and offers to run the
+checks and the registration for you. [Configuring a
+project](#configuring-a-project) is the same ground at length.
+
+Additional support for setting up a project: `feat skill install` writes a setup
+skill into your own Claude Code session, for editing a project that already
+exists or authoring one from scratch; `feat project schema` and `feat project
+example` print the schema and a commented example out of the binary, for writing
+the file by hand.
 
 ## Preparing a task
 
@@ -197,6 +177,18 @@ becomes `idle` after a short grace period and never means the work is done, and
 a task reaches review only when the agent explicitly asks for it. The first
 launch in a new worktree waits for Claude's own workspace-trust prompt; Feat
 says a task is waiting rather than answering on your behalf.
+
+A project configured for a devcontainer runs its agent inside one, in a Compose
+project of its own, so tasks run side by side. Before starting the agent Feat
+inspects that container and refuses one that can reach a container runtime — a
+socket, a `docker`, `podman`, or `nerdctl` client, a variable pointing one at a
+daemon — or that mounts Feat's own state, your home directory, or the ordinary
+checkout of a repository the task is working in. Those are checks on how a
+container is configured rather than a guarantee about it: they are no defence
+against a deliberate kernel or container-runtime exploit, and nothing here
+restricts the network. A project that configures `agent.execution.mode: host`
+runs Claude in the task's own worktree instead, with no container boundary
+around it at all.
 
 ```sh
 feat task stop <task>     # put the agent's container to sleep, or press t
@@ -328,6 +320,16 @@ there. Where a repository has a `pre-push` hook or a configured `core.hooksPath`
 Feat names it before you approve, and `feat doctor` says so at configuration
 time — so if that hook is what scans for secrets before anything leaves your
 machine, you can push by hand instead.
+
+## Cleaning up
+
+`C` on the dashboard and `feat task cleanup` show the same inventory of what a
+task owns — every resource, what it is, and whether it is still there — and
+remove only what you select, one class at a time, with volumes retained unless
+chosen. Anything that would lose work says so beside the resource it would lose
+it on, and again in the confirmation that removes it. Feat also compares what it
+recorded with what the machine actually has and reports whatever is missing,
+orphaned, or inconsistent, repairing none of it on its own.
 
 ## Knowing when to look
 

@@ -247,7 +247,7 @@ No age-based automatic deletion exists in initial versions.
 
 ## 12. Future remote workflow
 
-The working hypothesis for the commercial remote client is:
+The working hypothesis for the remote client is:
 
 - global task overview;
 - non-sensitive attention notifications;

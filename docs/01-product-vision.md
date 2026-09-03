@@ -114,9 +114,7 @@ The local daemon, CLI, TUI, adapters, and review workflow are open source. Local
 
 Claude Code is the first adapter, not the domain model. Tasks, sessions, runtimes, and reviews must not embed Claude-specific assumptions outside the Claude adapter.
 
-## Open-source and commercial boundary
-
-### Open source
+## Open source
 
 - Local daemon, CLI, and TUI
 - Project and task lifecycle
@@ -125,16 +123,6 @@ Claude Code is the first adapter, not the domain model. Tasks, sessions, runtime
 - Local review workflow
 - Local ticket and Git-provider integrations
 - Local/LAN web client when one exists
-
-### Potential commercial service
-
-- Hosted encrypted relay
-- Remote web/PWA access across networks
-- Push notifications
-- Cross-machine orchestration
-- Shared team queues and runners
-- Central templates, policy, audit, approvals, and SSO
-- Managed preview environments
 
 ## Non-goals
 
