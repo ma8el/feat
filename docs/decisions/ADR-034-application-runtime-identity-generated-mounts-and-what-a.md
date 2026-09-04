@@ -59,6 +59,16 @@ Decisions:
   behind one type, which is the distinction the domain model, the security
   model, and CLAUDE.md all keep. Roughly a hundred and fifty lines is the price
   of a boundary that three documents state.
+
+  **Extended by ADR-094**: the price is roughly three hundred lines a side now,
+  and the cost this paragraph knowingly accepted has been paid once — ADR-033
+  evidence 15 records the `depends_on`-closure reset fixed in the runtime adapter
+  and not in the execution one, and calls itself "ADR-034 evidence 12 exactly".
+  The boundary stands. What is added is that where duplication is mandated the
+  correspondence is pinned by a test rather than left to attention, and that the
+  candidate here — both `parseContainers` implementations run over one recorded
+  Compose output — is named there with the condition under which it becomes worth
+  its upkeep.
 - All six actions get an endpoint, and the endpoint list in
   [06-technical-architecture.md](06-technical-architecture.md) gains `create`,
   `status`, and `destroy`. `status` is a POST because it observes and records
