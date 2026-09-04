@@ -427,6 +427,12 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   `feat project example` print what it drafts against. A reinstall replaces
   what still matches the recorded install and refuses what does not.
 
+- **[ADR-094 — Where duplication is mandated, the correspondence is pinned by a test rather than removed](decisions/ADR-094-where-duplication-is-mandated-the-correspondence-is-pinned.md)** · accepted  
+  A boundary that forbids merging cannot forbid drifting, so a test asserts the
+  two copies still agree. The first is a guard on the five project-shape rules
+  `internal/domain` and `internal/config` both state; ADR-034's Compose twins
+  are the candidate named beside it, with the trigger and the price.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is
