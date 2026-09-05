@@ -32,15 +32,18 @@ func (s *service) CleanupPlan(ctx context.Context, id domain.TaskID) (api.Cleanu
 	if err != nil {
 		return api.CleanupPlan{}, err
 	}
-	plan, err := s.resolveCleanup(ctx, task)
-	if err != nil {
-		return api.CleanupPlan{}, err
-	}
+	plan := s.resolveCleanup(ctx, task)
 	return s.renderCleanupPlan(task, plan), nil
 }
 
 // resolveCleanup builds the inventory.
-func (s *service) resolveCleanup(ctx context.Context, task *domain.Task) (*reconcile.Plan, error) {
+//
+// It returns a plan alone because it cannot fail. Every resolver below turns
+// what it could not read into a problem on the plan rather than into an error,
+// since a plan that names what is unresolvable is what lets a user decide and a
+// plan that refuses to be built tells them nothing (ADR-029). An error return
+// here would be a branch no caller could ever take.
+func (s *service) resolveCleanup(ctx context.Context, task *domain.Task) *reconcile.Plan {
 	plan := &reconcile.Plan{Project: task.ProjectID, Task: task.ID}
 
 	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
@@ -61,7 +64,7 @@ func (s *service) resolveCleanup(ctx context.Context, task *domain.Task) (*recon
 	s.resolveControlCleanup(task, plan)
 
 	plan.Sort()
-	return plan, nil
+	return plan
 }
 
 // resolveGitCleanup fills the worktree and branch targets.
@@ -374,10 +377,7 @@ func (s *service) Cleanup(
 	if err != nil {
 		return api.CleanupResult{}, fmt.Errorf("%w: %w", api.ErrInvalid, err)
 	}
-	plan, err := s.resolveCleanup(ctx, task)
-	if err != nil {
-		return api.CleanupResult{}, err
-	}
+	plan := s.resolveCleanup(ctx, task)
 	if err := plan.Check(chosen); err != nil {
 		return api.CleanupResult{}, fmt.Errorf("%w: %w", api.ErrInvalid, err)
 	}
