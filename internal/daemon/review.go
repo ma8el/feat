@@ -54,7 +54,7 @@ func (s *service) Review(
 		}
 	}
 
-	return s.reviewResult(ctx, cfg, task)
+	return s.reviewResult(ctx, task)
 }
 
 // reviewTask loads a task and its project configuration for a review action.
@@ -81,9 +81,7 @@ func (s *service) reviewTask(ctx context.Context, id domain.TaskID) (*domain.Tas
 // screen that showed what Feat saw an hour ago would be describing a worktree the
 // agent has been writing to since. What is recorded is what was just observed, so
 // the summary survives a restart and the dashboard's file counts follow it.
-func (s *service) reviewResult(
-	ctx context.Context, cfg *config.Config, task *domain.Task,
-) (api.ReviewResult, error) {
+func (s *service) reviewResult(ctx context.Context, task *domain.Task) (api.ReviewResult, error) {
 	record, err := s.loadReview(ctx, task)
 	if err != nil {
 		return api.ReviewResult{}, err
