@@ -4,7 +4,7 @@
 // directory layout but gives it no owner. internal/config, internal/store/fs,
 // and internal/daemon all need the same resolution, and none of them should
 // depend on another to get it, so it lives in its own leaf package.
-// See docs/10-decisions-and-open-questions.md, ADR-025 and ADR-027.
+// See ADR-025 and ADR-027.
 //
 // It resolves:
 //
