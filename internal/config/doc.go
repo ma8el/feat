@@ -1,13 +1,8 @@
 // Package config loads, resolves, and validates the YAML project configuration
 // described in docs/07-configuration-model.md.
 //
-// Dependency rule: config depends on the standard library, a YAML decoder,
-// internal/domain, and internal/paths only. It must not import adapter, daemon,
-// api, or ui packages, so that validation stays testable without a host
-// environment.
-//
-// Loading is three stages, kept separate because they fail for different
-// reasons and are fixed in different ways:
+// Loading is three stages, and each one holds a property that is easy to remove
+// by accident:
 //
 //   - Parse decodes the document strictly. An unknown field and a repeated key
 //     are errors rather than values silently ignored, and the decoder reports
@@ -22,8 +17,7 @@
 // answers `feat project init` collects, and it renders a file, parses it,
 // resolves it, and validates it through the same three stages. A caller can
 // therefore obtain a generated configuration only by obtaining one Feat
-// accepts, and the rules live in one place for a file that was typed and a file
-// that was answered.
+// accepts.
 //
 // This package checks shape and safety; it never asks the host a question.
 // Whether a path exists, holds a Git repository, or names a real Compose
@@ -33,7 +27,6 @@
 //
 // Rules this package enforces:
 //
-//   - unknown YAML fields fail with a useful location and message;
 //   - IDs, branch templates, and runtime project-name templates produce safe
 //     names, and worktree roots cannot resolve to a broad unsafe path;
 //   - container paths are absolute and non-overlapping;
@@ -44,5 +37,5 @@
 //     is declared because a launch and a diagnostic check the agent's container
 //     against it (ADR-080).
 //
-// See ADR-028 in docs/10-decisions-and-open-questions.md.
+// See ADR-028.
 package config

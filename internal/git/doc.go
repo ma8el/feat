@@ -1,12 +1,11 @@
 // Package git is the Git and worktree adapter.
 //
-// It invokes the Git CLI as an argument vector, never as an interpolated shell
-// string, and it works on domain types and final names: templates are expanded
-// by the daemon, because the placeholder vocabulary belongs to configuration,
-// and an adapter that had to read a YAML file to create a directory would be
-// coupled to a format it has no opinion about.
+// It works on domain types and final names: templates are expanded by the
+// daemon, because the placeholder vocabulary belongs to configuration, and a
+// `git-stays-an-adapter` depguard rule makes that mechanical.
 //
-// Task preparation is two steps with the record between them:
+// Task preparation is two steps with the record between them, and this is what
+// an addition to it has to preserve:
 //
 //   - Plan resolves every base policy to an immutable commit, proposes every
 //     branch and worktree path, and reports every collision. It creates nothing.
@@ -22,24 +21,18 @@
 // worktree that exists may already have been written to, and removing it to
 // tidy up is a destructive act the user did not ask for.
 //
-// Responsibilities:
+// Two reference points are used deliberately and are not interchangeable: what
+// a task did is measured against its recorded base commit, which never moves,
+// and where the world went is measured against the base ref as it is now.
 //
-//   - validate repositories and remotes;
-//   - fetch without mutating the user's ordinary checkout;
-//   - resolve a base policy to an immutable commit and record the commit, not
-//     the ref name;
-//   - detect branch, path, and worktree collisions before anything is created;
-//   - create read-write and read-only task worktrees;
-//   - observe dirty, ahead, behind, and merged state;
-//   - compute change summaries against each repository's recorded base;
-//   - produce exact cleanup plans. Removing anything belongs to
-//     internal/reconcile, and this package has no code that does it.
+// Removing is here, in remove.go; deciding what may be removed is not.
+// internal/reconcile holds that policy, and a request arriving here is
+// re-checked against the rules below immediately before it is carried out,
+// because a plan resolved minutes ago is a record that could have been edited
+// since.
 //
-// Two reference points are used deliberately: what a task did is measured
-// against its recorded base commit, which never moves, and where the world went
-// is measured against the base ref as it is now.
-//
-// Rules this package enforces:
+// Rules this package enforces, each of them something an edit would otherwise
+// quietly undo:
 //
 //   - a dirty ordinary checkout is preserved and never blocks an independent
 //     task;
@@ -50,5 +43,5 @@
 //     passed;
 //   - a collision is reported, never resolved by renaming.
 //
-// See ADR-029 in docs/10-decisions-and-open-questions.md.
+// See ADR-029.
 package git
