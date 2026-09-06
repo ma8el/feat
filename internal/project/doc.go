@@ -32,14 +32,13 @@
 //     execution environment, which is this machine for a host-mode project and
 //     a running container of the project for a devcontainer one; `feat doctor`
 //     starts neither, so a project with no live task has nothing to look inside
-//     and is told so. Whether such a check can run is a fact about the machine
-//     rather than about this build (ADR-033). A diagnostic that
-//     claims a check it did not run is worse than no diagnostic.
+//     and is told so (ADR-033). A diagnostic that claims a check it did not run
+//     is worse than no diagnostic.
 //   - secret file contents never reach a finding. Environment files are
 //     examined by path and metadata only, and the sole Compose command used is
 //     `config --services`, which lists service names. Plain `docker compose
 //     config` renders the resolved project including values taken from those
 //     files, and is never run (docs/05-security-model.md).
 //
-// See ADR-028 in docs/10-decisions-and-open-questions.md.
+// See ADR-028.
 package project

@@ -264,14 +264,11 @@ func (t *Tmux) PasteText(ctx context.Context, pane, text string) error {
 //
 // A window somebody is attached to is neither sized nor zoomed, which keeps a
 // rendering from resizing a real client's terminal. What it does get is the
-// opposite operation: Feat's pin comes off it. A window is pinned for as long as
-// the dashboard is the only thing looking at it, and tmux holds a pinned window
-// at that size however large the terminal attaching to it is — so a client that
-// arrives while the pin is on sits in a terminal showing the dashboard's main
-// region with the rest of the screen filled in with dots. Releasing here is what
-// makes that unrecoverable state impossible to stay in: whichever way a client
-// reached this window, the next frame hands the size back to it. Measured
-// against tmux 3.7b, a window pinned at 171x49 with a 200x60 client attached:
+// opposite operation: Feat's pin comes off it — see ResizeWindow for what the
+// pin does to a client. Releasing here is what makes that state impossible to
+// stay in: whichever way a client reached this window, the next frame hands the
+// size back to it. Measured against tmux 3.7b, a window pinned at 171x49 with a
+// 200x60 client attached:
 //
 //	left alone          -u window-size
 //	171x49              200x60
@@ -285,10 +282,6 @@ func (t *Tmux) PasteText(ctx context.Context, pane, text string) error {
 // The client is the one resizing it, and a user attached to a window owns it:
 // pinning it against them would leave them looking at a window larger or smaller
 // than their terminal, with no way to see the rest of it.
-//
-// A window nobody is watching is sized to the region and zoomed onto the pane,
-// and a window holding a pane whose program has ended is never made smaller, for
-// the reason given at frozenSize.
 func (t *Tmux) RenderPane(ctx context.Context, window, pane string, width, height int, watched bool) (PaneFrame, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -537,12 +530,7 @@ func (t *Tmux) UnzoomWindow(ctx context.Context, window string) error {
 
 // ReleaseWindowSize returns a window to the size its own clients ask for.
 //
-// It is the other half of ResizeWindow and exists because of what that one does
-// to a native attach. Sizing a window pins it: tmux sets window-size to manual —
-// with or without being asked — and then keeps the window at that size however
-// large the terminal attaching to it is, leaving the rest of the screen blank.
-// A user who rendered a pane in the dashboard and then attached to it got a
-// terminal the size of the dashboard's main region.
+// It is the other half of ResizeWindow, and undoes the pin that one applies.
 //
 // Unsetting the option is the whole of it, and resizing here would undo it.
 // Measured against tmux 3.5a with a real client attached in a pty:
@@ -559,6 +547,7 @@ func (t *Tmux) UnzoomWindow(ctx context.Context, window string) error {
 // Unsetting rather than setting a value restores the user's own preference:
 // ADR-030 has Feat load their normal configuration, so a global window-size of
 // largest stays largest.
+//
 // Releasing is not on its own enough to keep an attach correct, and the other
 // half is in RenderPane: a poll landing between this release and the client
 // actually arriving would size the window again, at a moment when tmux still
@@ -595,6 +584,12 @@ const (
 // names a size; it is set here as well so that the pinning is visible at the
 // call site rather than being a side effect, and so that ReleaseWindowSize has
 // something it is plainly the opposite of.
+//
+// This is what pinning costs, and why the release exists: tmux then holds the
+// window at that size however large the terminal attaching to it is, so a user
+// who rendered a pane in the dashboard and then attached to it got a terminal
+// the size of the dashboard's main region with the rest of the screen filled in
+// with dots.
 //
 // Resizing to the size a window already has is not the no-op it looks like from
 // tmux's side: see RenderPane for what it does to a zoomed pane's pty. Callers

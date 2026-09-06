@@ -27,7 +27,7 @@ import "strconv"
 // stashing, because a session that decides to stash has decided something, and
 // this is for the settings that decide on its behalf.
 //
-// See ADR-056 in docs/10-decisions-and-open-questions.md.
+// See ADR-056.
 var worktreeSettings = [][2]string{
 	{"rebase.autoStash", "false"},
 	{"merge.autoStash", "false"},
