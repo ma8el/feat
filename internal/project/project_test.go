@@ -41,6 +41,17 @@ type fakeRunner struct {
 	calls []string
 }
 
+// dockerRuntimeQuery is the command diagnostics ask the container runtime what
+// it is, and the key its answer is scripted under.
+const dockerRuntimeQuery = "docker info --format {{.OperatingSystem}} {{.KernelVersion}}"
+
+// dockerCreatesFileMountPoints scripts a runtime that creates a file mount point
+// inside a bind mount rather than refusing it, which is what a native Linux
+// daemon was measured to do.
+func dockerCreatesFileMountPoints(w *world) {
+	w.runner.output[dockerRuntimeQuery] = "Ubuntu 24.04.1 LTS 6.8.0-51-generic"
+}
+
 func newFakeRunner() *fakeRunner {
 	return &fakeRunner{
 		missing: map[string]bool{},
@@ -50,6 +61,12 @@ func newFakeRunner() *fakeRunner {
 			"git --version":          "git version 2.51.0",
 			"tmux -V":                "tmux 3.5a",
 			"docker compose version": "Docker Compose version v2.40.0",
+			// The runtime the mount-target severity turns on (ADR-098). Docker
+			// Desktop is the default here because it is the runtime the failure
+			// that motivated the check was measured on, and because a test that
+			// says nothing about the runtime should get the severity that
+			// machine produces. dockerCreatesFileMountPoints is the other one.
+			dockerRuntimeQuery: "Docker Desktop 6.12.76-linuxkit",
 		},
 	}
 }
@@ -223,6 +240,46 @@ func finding(t *testing.T, findings []project.Finding, check string) project.Fin
 	}
 	t.Fatalf("no finding for %q; got %s", check, render(findings))
 	return project.Finding{}
+}
+
+// naming returns the one finding whose summary names a path, from findings
+// already narrowed to a single check.
+//
+// It is how two findings about one check are told apart where their severities
+// are not a safe discriminator — where one of them depends on the machine the
+// test is running on, which is true of anything the container runtime decides.
+func naming(t *testing.T, findings []project.Finding, path string) project.Finding {
+	t.Helper()
+	var found []project.Finding
+	for _, candidate := range findings {
+		if strings.Contains(candidate.Summary, path) {
+			found = append(found, candidate)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("%d findings name %s, want one; got %s", len(found), path, render(findings))
+	}
+	return found[0]
+}
+
+// severity returns the one finding of a severity, from findings already narrowed
+// to a single check.
+//
+// A check that reports two things reports them in the order its checker happens
+// to run, and a test that asserted that order would be pinning something nobody
+// decided. What was decided is which finding each entry earns.
+func severity(t *testing.T, findings []project.Finding, want project.Severity) project.Finding {
+	t.Helper()
+	var found []project.Finding
+	for _, candidate := range findings {
+		if candidate.Severity == want {
+			found = append(found, candidate)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("%d findings are %q, want one; got %s", len(found), want, render(findings))
+	}
+	return found[0]
 }
 
 func render(findings []project.Finding) string {
@@ -823,24 +880,29 @@ func (w *world) composeFile(t *testing.T, path, body string) {
 // TestAMountAWorktreeCannotSatisfyIsReported is the pre-flight the container
 // runtime's own error message arrives too late to be.
 //
-// A task works in a worktree, and a worktree holds only what Git tracks. A
-// devcontainer that binds an ignored `.env` out of a repository is naming
-// something that will not be there, and the shape that hurts most never reaches
-// a Docker error at all: the bind succeeds, an empty file is created, and the
-// application misbehaves with nothing naming the cause.
+// A task works in a worktree, and a worktree holds only what Git tracks, so a
+// devcontainer binding an ignored `.env` out of a repository names something
+// that will not be there. What that costs depends on where the mount writes,
+// and the two halves are what this pins.
 //
-// So it is reported here, where the user asked whether the project is
-// configured — and reported rather than refused, because a file a build step
-// creates is a legitimate absence and Feat cannot tell one from the other.
+// A mount landing somewhere Feat does not touch is reported and not refused:
+// the bind succeeds, an empty file is created, the application misbehaves with
+// nothing naming the cause — and a file a build step creates is a legitimate
+// absence Feat cannot tell from that one. A mount landing inside the container
+// path is refused, because the container runtime has to create that mount point
+// inside the worktree, cannot, and never starts the container at all.
+//
+// One entry produces one finding. The same `.env` is written to both places
+// here, so the entry rather than the file is what each finding is about.
 func TestAMountAWorktreeCannotSatisfyIsReported(t *testing.T) {
 	w := arrange(t)
 	api := filepath.Join(w.home, "repos", "app", "api")
 
 	// The agent's own Compose files, which live in a repository of their own and
-	// reach into another one. Four entries, and only one of them is this check's
-	// business: the repository itself is the container path question, the tracked
-	// file is a mount a worktree satisfies, and the interpolated source is one
-	// Feat must not resolve.
+	// reach into another one. Five entries: the repository itself is the
+	// container path question, the tracked file is a mount a worktree satisfies,
+	// the interpolated source is one Feat must not resolve, and the same ignored
+	// `.env` is bound twice — once into the container path and once outside it.
 	w.composeFile(t, filepath.Join(w.home, "repos", "app", "infra", "docker-compose.yml"),
 		`services:
   dev:
@@ -848,6 +910,7 @@ func TestAMountAWorktreeCannotSatisfyIsReported(t *testing.T) {
     volumes:
       - ../api:/srv/api
       - ../api/.env:/srv/api/.env
+      - ../api/.env:/etc/app/env:ro
       - ../api/docker-compose.yml:/srv/api/docker-compose.yml:ro
       - ${TOOLS}/bin:/usr/local/bin
 `)
@@ -858,9 +921,9 @@ func TestAMountAWorktreeCannotSatisfyIsReported(t *testing.T) {
 
 	report := w.diagnose(t)
 	findings := w.only(t, report).Findings
-	if report.Failed() {
-		t.Errorf("a mount a worktree cannot satisfy failed the diagnosis, and it reports rather "+
-			"than refuses:%s", render(findings))
+	if !report.Failed() {
+		t.Errorf("a mount the container runtime cannot create passed the diagnosis:%s",
+			render(findings))
 	}
 
 	var reported []project.Finding
@@ -869,18 +932,32 @@ func TestAMountAWorktreeCannotSatisfyIsReported(t *testing.T) {
 			reported = append(reported, found)
 		}
 	}
-	if len(reported) != 1 {
-		t.Fatalf("%d mounts were reported, want the one Git does not track:%s",
+	if len(reported) != 2 {
+		t.Fatalf("%d mounts were reported, want the two entries Git does not track:%s",
 			len(reported), render(findings))
 	}
-	if reported[0].Severity != project.SeverityWarning {
-		t.Errorf("an untracked mount is %q, want warning", reported[0].Severity)
+
+	// The entry writing into the container path. It fails before any command in
+	// the container could have supplied the file, so the remedy the softer
+	// finding offers is named as one that cannot work here.
+	fatal := severity(t, reported, project.SeverityError)
+	if !strings.Contains(fatal.Summary, "/srv/api/.env") {
+		t.Errorf("the finding does not name the target: %q", fatal.Summary)
 	}
-	if !strings.Contains(reported[0].Summary, filepath.Join(api, ".env")) {
-		t.Errorf("the finding does not name the path: %q", reported[0].Summary)
+	if !strings.Contains(fatal.Action, "/srv/api") ||
+		!strings.Contains(fatal.Action, "postCreateCommand") {
+		t.Errorf("the action does not say where the worktree lands, or that no command in the "+
+			"container runs first: %q", fatal.Action)
 	}
-	if !strings.Contains(reported[0].Action, "worktree") {
-		t.Errorf("the action does not say why it will not be there: %q", reported[0].Action)
+
+	// And the entry writing anywhere else keeps the softer finding, because a
+	// build step really may create that file before anything reads it.
+	soft := severity(t, reported, project.SeverityWarning)
+	if !strings.Contains(soft.Summary, filepath.Join(api, ".env")) {
+		t.Errorf("the finding does not name the path: %q", soft.Summary)
+	}
+	if !strings.Contains(soft.Action, "worktree") {
+		t.Errorf("the action does not say why it will not be there: %q", soft.Action)
 	}
 
 	// And the entry Feat could not read is reported as unchecked rather than
@@ -905,9 +982,19 @@ func TestAMountAWorktreeCannotSatisfyIsReported(t *testing.T) {
 // asked of the application's files.
 //
 // A repository's own services get the task's worktree too, so a mount of
-// something inside the checkout is exactly as unsatisfiable there. The
-// repository itself is not among them: that mount is the container path, and
-// Feat's generated override replaces it.
+// something inside the checkout is exactly as unsatisfiable there, and the same
+// split applies. The repository itself is neither half: that mount is the
+// container path, and Feat's generated override replaces it.
+//
+// The two container paths are different fields answering different questions, so
+// this asks against `/app` where the agent's side asks against `/srv/api`.
+//
+// Both entries here write into the container path and only one is refused, which
+// is the discriminator rather than an accident of the fixture: the environment
+// file exists on disk, so its mount point would have to be a file and the
+// container never starts; `node_modules` does not, so the runtime creates a
+// directory for it, the container starts, and the application finds an empty
+// directory — which is exactly the soft failure the warning is for.
 func TestARepositorysOwnMountsAreCheckedAgainstItsWorktree(t *testing.T) {
 	w := arrange(t)
 	api := filepath.Join(w.home, "repos", "app", "api")
@@ -917,9 +1004,11 @@ func TestARepositorysOwnMountsAreCheckedAgainstItsWorktree(t *testing.T) {
     image: alpine
     volumes:
       - ./:/app
+      - ./.env:/app/.env:ro
       - ./node_modules:/app/node_modules
 `)
 	w.runner.failing["git ls-files --error-unmatch -- node_modules"] = true
+	w.runner.failing["git ls-files --error-unmatch -- .env"] = true
 
 	findings := w.only(t, w.diagnose(t)).Findings
 
@@ -929,12 +1018,224 @@ func TestARepositorysOwnMountsAreCheckedAgainstItsWorktree(t *testing.T) {
 			reported = append(reported, found)
 		}
 	}
-	if len(reported) != 1 {
-		t.Fatalf("%d mounts were reported, want the directory Git does not track:%s",
+	if len(reported) != 2 {
+		t.Fatalf("%d mounts were reported, want the two entries Git does not track:%s",
 			len(reported), render(findings))
 	}
-	if !strings.Contains(reported[0].Summary, filepath.Join(api, "node_modules")) {
-		t.Errorf("the finding does not name the path: %q", reported[0].Summary)
+	if fatal := severity(t, reported, project.SeverityError); !strings.Contains(
+		fatal.Summary, "/app/.env") {
+		t.Errorf("the error does not name the target inside the container path: %q", fatal.Summary)
+	}
+	if soft := severity(t, reported, project.SeverityWarning); !strings.Contains(
+		soft.Summary, filepath.Join(api, "node_modules")) {
+		t.Errorf("the warning does not name the directory beside it: %q", soft.Summary)
+	}
+}
+
+// TestAMaskingMountIsReportedByItsTarget is the acceptance run's own failure,
+// asked before a task exists.
+//
+// A devcontainer that masks environment files by binding `/dev/null` over each
+// one is a compliance pattern rather than a preference, and it defeats the check
+// that reads mount sources completely: `/dev/null` is not inside any repository,
+// so nothing about the source is worth reporting. The target is the whole of the
+// problem. The container runtime has to create `/srv/api/.env` inside the
+// worktree Feat mounts at `/srv/api`, refuses to create anything outside the
+// container's rootfs, and the task fails at container creation.
+//
+// The repository's own mount interpolates here, as it did on the machine this
+// came from. That entry is unread and says so, and the masking entry beside it
+// is read and judged: a check that could only speak when it understood every
+// line would have nothing to say about the file that produced this.
+func TestAMaskingMountIsReportedByItsTarget(t *testing.T) {
+	w := arrange(t)
+
+	w.composeFile(t, filepath.Join(w.home, "repos", "app", "infra", "docker-compose.yml"),
+		`services:
+  dev:
+    image: alpine
+    volumes:
+      - ${REPOS_ROOT:-${HOME}/repos}/api:/srv/api
+      - /dev/null:/srv/api/.env:ro
+`)
+	w.runner.failing["git ls-files --error-unmatch -- .env"] = true
+
+	report := w.diagnose(t)
+	findings := w.only(t, report).Findings
+	if !report.Failed() {
+		t.Errorf("the mount that stopped the acceptance run passed the diagnosis:%s",
+			render(findings))
+	}
+
+	found := finding(t, findings, "repositories.api.agent.mounts")
+	if found.Severity != project.SeverityError {
+		t.Errorf("a masking mount is %q, want error", found.Severity)
+	}
+	// The source is named because it identifies the entry, and it decides
+	// nothing: what is missing is the place to put it.
+	for _, want := range []string{"/dev/null", "/srv/api/.env", ".env"} {
+		if !strings.Contains(found.Summary, want) {
+			t.Errorf("the finding does not name %s: %q", want, found.Summary)
+		}
+	}
+
+	unread := finding(t, findings, "agent.execution.compose_files.mounts")
+	if unread.Severity != project.SeveritySkipped {
+		t.Errorf("the interpolated entry beside it is %q, want it reported as not checked",
+			unread.Severity)
+	}
+}
+
+// TestAStableReadOnlyCheckoutIsNotJudgedByTheWorktreeRule is the case the target
+// check would otherwise call broken while it works.
+//
+// A stable read-only repository is not a task repository: it has no branch and
+// no worktree, and a task mounts the ordinary checkout of it read-only
+// (internal/daemon/execution.go, taskMounts). An ordinary checkout holds the
+// ignored files a worktree does not, so a mask over one is a mount that starts
+// the container — and Git still says the path is untracked, which is the whole
+// of what the check asks. Judging it would report a project that works as
+// broken, which is the failure the comment on checkRuntime already warns about.
+//
+// Both mount questions are silent, not only the one about targets: every word
+// either of them says is about a worktree, and this repository is given a
+// checkout. So the last two entries here, whose sources are inside it and which
+// Git does not track, are not warned about either.
+//
+// And both sides are asked, because a repository declares its container paths
+// for the agent and for the runtime separately and the same rule governs both.
+func TestAStableReadOnlyCheckoutIsNotJudgedByTheWorktreeRule(t *testing.T) {
+	w := arrange(t)
+	// The fixture's infra repository is already stable read-only, and the agent's
+	// own Compose files live in it. Giving it a runtime section asks the same
+	// question of the other side.
+	rewrite(t, w, `  infra:
+    name: Container definitions`, `  infra:
+    name: Container definitions
+    runtime:
+      compose_files:
+        - docker-compose.yml
+      container_path: /opt/infra
+      services:
+        - proxy`)
+	w.runner.output["docker compose --project-directory "+
+		filepath.Join(w.home, "repos", "app", "infra")+" --file "+
+		filepath.Join(w.home, "repos", "app", "infra", "docker-compose.yml")+
+		" config --services"] = "dev\nproxy\n"
+
+	w.composeFile(t, filepath.Join(w.home, "repos", "app", "infra", "docker-compose.yml"),
+		`services:
+  dev:
+    image: alpine
+    volumes:
+      - /dev/null:/srv/infra/.env:ro
+      - ./.env:/etc/infra/env:ro
+  proxy:
+    image: alpine
+    volumes:
+      - /dev/null:/opt/infra/.env:ro
+      - ./node_modules:/var/cache/node_modules
+`)
+	for _, path := range []string{".env", "node_modules"} {
+		w.runner.failing["git ls-files --error-unmatch -- "+path] = true
+	}
+
+	report := w.diagnose(t)
+	findings := w.only(t, report).Findings
+	if report.Failed() {
+		t.Errorf("a mask on a stable read-only checkout failed the diagnosis:%s", render(findings))
+	}
+	for _, found := range findings {
+		if !strings.HasPrefix(found.Check, "repositories.infra.") ||
+			!strings.HasSuffix(found.Check, ".mounts") {
+			continue
+		}
+		// An entry Feat could not read is still disclosed: that is a statement
+		// about this reader rather than a claim about the project.
+		if found.Severity == project.SeveritySkipped {
+			continue
+		}
+		t.Errorf("a mount of the ordinary checkout was judged against a worktree: %s %s %q",
+			found.Check, found.Severity, found.Summary)
+	}
+}
+
+// TestTheMountTargetSeverityFollowsTheRuntime is OQ-016 arriving, and what it
+// changed.
+//
+// The error severity rested on a measurement: inside a bind-mounted worktree a
+// container runtime refuses to create a file mount point. That is what Docker
+// Desktop does, and running the opt-in test on Linux established that a native
+// daemon creates the file and starts the container. So the same project is a
+// blocked task on one machine and a working one on the next, and a check that
+// failed the run everywhere would be refusing a project that works.
+//
+// It stays reported, one severity lower, and the message names both measured
+// outcomes rather than choosing one — because which applies is exactly what Feat
+// has not established about this runtime. Under-claiming is the safe direction:
+// a launch that does fail is explained where it fails, while a wrong refusal
+// blocks somebody whose project is fine.
+func TestTheMountTargetSeverityFollowsTheRuntime(t *testing.T) {
+	w := arrange(t)
+	dockerCreatesFileMountPoints(w)
+
+	w.composeFile(t, filepath.Join(w.home, "repos", "app", "infra", "docker-compose.yml"),
+		`services:
+  dev:
+    image: alpine
+    volumes:
+      - ../api:/srv/api
+      - /dev/null:/srv/api/.env:ro
+`)
+	w.runner.failing["git ls-files --error-unmatch -- .env"] = true
+
+	report := w.diagnose(t)
+	findings := w.only(t, report).Findings
+	if report.Failed() {
+		t.Errorf("a runtime that creates the mount point failed the diagnosis:%s", render(findings))
+	}
+
+	found := finding(t, findings, "repositories.api.agent.mounts")
+	if found.Severity != project.SeverityWarning {
+		t.Errorf("a mount on an unestablished runtime is %q, want warning", found.Severity)
+	}
+	// Both answers, and that Feat has not established which: a message naming
+	// one of them would be the claim this severity exists to avoid making.
+	for _, want := range []string{"has not established", "Docker Desktop", "native Linux"} {
+		if !strings.Contains(found.Action, want) {
+			t.Errorf("the action does not say %q: %q", want, found.Action)
+		}
+	}
+}
+
+// TestAMountTheWorktreeHoldsIsNotReported is the negative half of the target
+// check, and the reason it is worth having rather than refusing every mount that
+// writes into the container path.
+//
+// A tracked file is in the worktree, so the mount point exists and the container
+// runtime creates the mount without complaint. Nothing is reported, and the
+// diagnosis passes.
+func TestAMountTheWorktreeHoldsIsNotReported(t *testing.T) {
+	w := arrange(t)
+
+	w.composeFile(t, filepath.Join(w.home, "repos", "app", "infra", "docker-compose.yml"),
+		`services:
+  dev:
+    image: alpine
+    volumes:
+      - ../api:/srv/api
+      - /dev/null:/srv/api/docker-compose.yml:ro
+`)
+
+	report := w.diagnose(t)
+	findings := w.only(t, report).Findings
+	if report.Failed() {
+		t.Errorf("a mount over a tracked file failed the diagnosis:%s", render(findings))
+	}
+	for _, found := range findings {
+		if strings.HasSuffix(found.Check, ".mounts") {
+			t.Errorf("a mount the worktree holds was reported: %s %q", found.Severity, found.Summary)
+		}
 	}
 }
 

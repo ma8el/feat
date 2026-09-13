@@ -454,9 +454,10 @@ func TestRealWorktreeMountsAreAskedOfGit(t *testing.T) {
 	git(t, api, "add", ".gitignore", "docker-compose.yml")
 	git(t, api, "commit", "--message", "initial")
 
-	// The agent's own Compose files bind two paths out of that repository: one
-	// the commit above tracks, and the ignored one beside it that the fixture
-	// wrote and Git has never heard of.
+	// The agent's own Compose files bind three paths out of that repository: one
+	// the commit above tracks, and the ignored one beside it — which the fixture
+	// wrote and Git has never heard of — written to two different targets, so
+	// that real Git answers for both halves of the check at once.
 	w.composeFile(t, filepath.Join(w.home, "repos", "app", "infra", "docker-compose.yml"),
 		`services:
   dev:
@@ -464,6 +465,7 @@ func TestRealWorktreeMountsAreAskedOfGit(t *testing.T) {
     volumes:
       - ../api:/srv/api
       - ../api/.env:/srv/api/.env
+      - ../api/.env:/etc/app/env:ro
       - ../api/docker-compose.yml:/srv/api/docker-compose.yml:ro
 `)
 
@@ -475,16 +477,50 @@ func TestRealWorktreeMountsAreAskedOfGit(t *testing.T) {
 			reported = append(reported, found)
 		}
 	}
-	if len(reported) != 1 {
-		t.Fatalf("real Git reported %d mounts, want the ignored one:%s", len(reported), render(findings))
+	if len(reported) != 2 {
+		t.Fatalf("real Git reported %d mounts, want the ignored one twice:%s",
+			len(reported), render(findings))
 	}
-	if !strings.Contains(reported[0].Summary, filepath.Join(api, ".env")) {
-		t.Errorf("the finding does not name the ignored path: %q", reported[0].Summary)
+
+	// The two findings are told apart by the path each names, not by severity.
+	// This test demands Git and not Docker, so the runtime that decides the
+	// target side's severity may be absent or not answering here, and asserting
+	// an error would be asserting something about a machine this test says
+	// nothing about. Only the container path appears in the target finding, and
+	// only the resolved host path in the source one.
+	target := naming(t, reported, "/srv/api/.env")
+	source := naming(t, reported, filepath.Join(api, ".env"))
+
+	// Inside the container path: real Git says the path is not tracked, so a
+	// worktree would not hold it. Whether that stops a task is the runtime's to
+	// say, and Feat's expectation of the runtime in front of this test is what
+	// its severity has to match.
+	want := project.SeverityWarning
+	if project.RefusesFileMountPoint(t.Context(), project.HostRunner{}) {
+		want = project.SeverityError
 	}
-	// The file that mount is written in is named, so the tracked one is
-	// recognised by its path in the repository rather than by its base name.
-	if strings.Contains(reported[0].Summary, filepath.Join(api, "docker-compose.yml")) {
-		t.Errorf("a tracked file was reported as one a worktree will not hold: %q", reported[0].Summary)
+	if target.Severity != want {
+		t.Errorf("the target finding is %q, want %q for the runtime Feat sees here",
+			target.Severity, want)
+	}
+	// And outside it, where the same ignored file is only a path the mount needs.
+	// That severity is the runtime's business nowhere: no mount point is created
+	// inside a worktree for it.
+	if source.Severity != project.SeverityWarning {
+		t.Errorf("the source finding is %q, want warning", source.Severity)
+	}
+	// The tracked file is recognised by its path in the repository rather than
+	// by its base name, so neither finding is about it — by its source and by
+	// its target alike. Every summary names the Compose file it was written in,
+	// which shares that base name and is why this asks about whole paths.
+	for _, found := range reported {
+		for _, tracked := range []string{filepath.Join(api, "docker-compose.yml"),
+			"/srv/api/docker-compose.yml"} {
+			if strings.Contains(found.Summary, tracked) {
+				t.Errorf("a tracked file was reported as one a worktree will not hold: %q",
+					found.Summary)
+			}
+		}
 	}
 }
 
@@ -555,4 +591,125 @@ func writeTrackerScript(t *testing.T, prints string) string {
 		t.Fatalf("writing the tracker command: %v", err)
 	}
 	return path
+}
+
+// TestRealFileMountPointBehaviourIsWhatFeatExpects holds the target-side mount
+// check to what the runtime on this machine actually does.
+//
+// The check's severity rests on a measurement that is not in any documentation:
+// what a container runtime does when a mount's target is missing inside a bind
+// mount. It is not the same everywhere. Docker Desktop refuses to create a file
+// mount point and the task fails at container creation; a native Linux daemon
+// creates the file and the container starts. The first version of this test
+// asserted the refusal outright and failed on Linux, which is how that was
+// found.
+//
+// So it asserts no platform. It asks Feat what it expects of this runtime,
+// through the same predicate the check uses, and asserts the runtime agrees —
+// which makes it a test of the mapping rather than of one machine. It passes on
+// Docker Desktop and on a native daemon, and fails on any runtime Feat has
+// classified wrongly, including the ones nobody here can try: Colima, Rancher
+// Desktop, WSL2, a daemon over a socket.
+//
+// Both directions are failures worth having. Feat expecting a refusal that does
+// not happen is an error reported against a project that works; Feat expecting
+// none where the runtime refuses is a launch that fails after a diagnosis that
+// only warned.
+//
+// The bind mount stands in for a task's worktree, and the absent target for a
+// path Git does not track.
+func TestRealFileMountPointBehaviourIsWhatFeatExpects(t *testing.T) {
+	requireRealTools(t)
+	if _, err := exec.LookPath("docker"); err != nil {
+		integrationtest.Unavailable(t, integrationtest.Docker, "docker is not installed")
+	}
+
+	// A source that is a directory and one that is a file, beside a worktree
+	// made fresh for each case.
+	//
+	// Fresh because a refused launch is not inert: the daemon creates the
+	// missing mount point in the worktree on its way to failing, so a second
+	// case reusing the directory would find the file the first one left and pass
+	// for the wrong reason. That is also why a task that failed this way starts
+	// when it is resumed.
+	root := t.TempDir()
+	// A mount point the runtime created belongs to the container's user, so the
+	// test's own cleanup cannot remove it. This runs before that one, because
+	// TempDir registered its cleanup first and they unwind in reverse.
+	t.Cleanup(func() {
+		_ = exec.Command("docker", "run", "--rm", "--volume", root+":/scratch",
+			"alpine:3", "sh", "-c", "rm -rf /scratch/*").Run()
+	})
+
+	directory := filepath.Join(root, "directory")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatalf("creating %s: %v", directory, err)
+	}
+	file := filepath.Join(root, "file.conf")
+	if err := os.WriteFile(file, []byte("x\n"), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", file, err)
+	}
+
+	// What Feat expects of the runtime it can see, asked exactly as the check
+	// asks it. Everything below is asserted against this rather than against a
+	// platform.
+	refuses := project.RefusesFileMountPoint(t.Context(), project.HostRunner{})
+	t.Logf("Feat expects this runtime to refuse a file mount point: %t", refuses)
+
+	for _, c := range []struct {
+		name string
+		// mount is the entry added beside the worktree.
+		mount string
+		// needsFile is whether the runtime would have to create a *file* for
+		// this entry's mount point, which is the property the reader classifies
+		// on (project.mountPointFor) and the only one Feat's expectation is
+		// about.
+		needsFile bool
+	}{
+		// The shapes the check reports, where the worktree has nothing and the
+		// source is not a directory.
+		{"a device masking an absent file", "/dev/null:/srv/api/.env:ro", true},
+		{"a file over an absent file", file + ":/srv/api/.env:ro", true},
+		// And the shapes it stays silent about on every runtime, each for its own
+		// reason: a directory mount point is created, an absent source is created
+		// as a directory, and a path already in the worktree needs no mount point
+		// created at all.
+		{"a directory over an absent path", directory + ":/srv/api/node_modules", false},
+		{"an absent source over an absent path", filepath.Join(root, "gone") + ":/srv/api/gone", false},
+		{"a device masking a path the worktree holds", "/dev/null:/srv/api/tracked.conf:ro", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			worktree := filepath.Join(root, strings.ReplaceAll(c.name, " ", "-"))
+			if err := os.MkdirAll(worktree, 0o700); err != nil {
+				t.Fatalf("creating %s: %v", worktree, err)
+			}
+			if err := os.WriteFile(
+				filepath.Join(worktree, "tracked.conf"), []byte("x\n"), 0o600); err != nil {
+				t.Fatalf("writing the tracked file: %v", err)
+			}
+
+			output, err := exec.Command("docker", "run", "--rm",
+				"--volume", worktree+":/srv/api", "--volume", c.mount,
+				"alpine:3", "true").CombinedOutput()
+
+			// A file mount point is refused only where Feat said this runtime
+			// refuses one. Nothing else is ever refused.
+			wantRefused := c.needsFile && refuses
+			switch {
+			case err != nil && !strings.Contains(string(output), "mountpoint"):
+				// It failed for some other reason, which proves nothing about the
+				// rule either way and must not be read as proving it.
+				integrationtest.Unavailable(t, integrationtest.Docker,
+					"starting a container failed for an unrelated reason: %s", output)
+			case wantRefused && err == nil:
+				t.Errorf("Feat expects this runtime to refuse a file mount point and it created "+
+					"one, so checkMountTargets reports an error against a project that works: %s",
+					output)
+			case !wantRefused && err != nil:
+				t.Errorf("this runtime refused a mount point Feat does not expect it to "+
+					"(needs a file: %t, Feat expects refusal: %t), so a task fails at container "+
+					"creation after a diagnosis that did not say so: %s", c.needsFile, refuses, output)
+			}
+		})
+	}
 }

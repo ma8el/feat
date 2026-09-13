@@ -459,6 +459,22 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   containment answer and the removal records what it forced on; an uncontained
   branch still warns and is still deleted only on a confirmation.
 
+- **[ADR-098 — A mount whose target lands in a task's worktree is an error before the task exists, and the fix is refused](decisions/ADR-098-a-mount-whose-target-lands-in-a-tasks-worktree-is-an-error.md)** · accepted  
+  The mount pre-flight read only a mount's source, so the masking pattern that
+  stopped the v0.1.0 acceptance run — `/dev/null` bound over a `.env` inside the
+  worktree — never reached it. The target side now reports as an error, because
+  the container is never created and no build step runs early enough to be the
+  legitimate absence the source-side warning allows for — but only where Feat has
+  established that this runtime refuses such a mount point, because a native Linux
+  daemon creates the file and starts the container, and elsewhere the finding
+  warns and names both outcomes. Measured rather than reasoned throughout, and
+  narrower than the error message reads: only a mount point that would have to be
+  a file is refused, so directories, absent sources, named volumes and tmpfs are
+  not reported. No fix is built, with triggers recorded. It answers OQ-016.
+  It answers the diagnosis half of ADR-081's masking case, and amends it: neither
+  mount check speaks about a repository a task mounts no worktree of, because
+  every claim they make is about a worktree.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is
@@ -629,6 +645,28 @@ is reading the words before they are sent.
 The evidence to decide on is a user who depends on a `pre-push` hook they did not
 write, and the dogfood cannot supply one. Do not decide before the public preview
 has such a user; a mechanism built now would be fitted to a hook nobody has.
+
+### OQ-016 — Whether a mount point inside a bind mount is refused the same way on Linux
+
+**Answered, 2026-09-13, and it was the opt-in test that answered it.** ADR-098's
+check rested on a measurement taken on Docker Desktop on macOS: inside a
+bind-mounted worktree, the runtime refuses to create a *file* mount point and
+creates a *directory* one without complaint. The question was what a native Linux
+bind mount does.
+
+It creates the file and starts the container, and it refuses neither kind — so the
+asymmetry belongs to Docker Desktop, whose binds cross a virtual machine, rather
+than to container runtimes. The same project therefore cannot launch a task on one
+machine and launches on the next, and the error severity was wrong everywhere
+except where the refusal was measured.
+
+The check now takes the severity the runtime earns, asking the daemon what it is:
+an error where Feat has established that this runtime refuses, a warning naming
+both outcomes where it has not. The open question is not replaced by a second
+claim — it is replaced by a mechanism. The opt-in test asserts that what Feat
+expects of the runtime in front of it is what that runtime does, so Colima,
+Rancher Desktop, WSL2 and a daemon over a socket each answer for themselves on
+the machine that has one. See ADR-098, evidence 10.
 
 ## Decision change process
 
