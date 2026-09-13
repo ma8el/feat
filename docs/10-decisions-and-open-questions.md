@@ -433,6 +433,14 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   `internal/domain` and `internal/config` both state; ADR-034's Compose twins
   are the candidate named beside it, with the trigger and the price.
 
+- **[ADR-095 — What v0.1.1 is, and the two items that move into it](decisions/ADR-095-what-v0-1-1-is-and-the-two-items-that-move-into-it.md)** · accepted  
+  An internal release on ADR-090's terms carrying the public preview's
+  functional half, so that an installed build is in use on real work before the
+  milestone's documentation is written against runs. The two-phase `implement`
+  with machine-readable output moves into it as one item, and the wizard's
+  second pass moves because the runs it waited on have happened; Linux stays in
+  v0.2 entire.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is
