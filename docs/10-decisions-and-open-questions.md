@@ -459,7 +459,7 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   containment answer and the removal records what it forced on; an uncontained
   branch still warns and is still deleted only on a confirmation.
 
-- **[ADR-098 — A mount whose target lands in a task's worktree is an error before the task exists, and the fix is refused](decisions/ADR-098-a-mount-whose-target-lands-in-a-tasks-worktree-is-an-error.md)** · accepted  
+- **[ADR-098 — A mount whose target lands in a task's worktree is reported before the task exists, at the severity the runtime earns, and the fix is refused](decisions/ADR-098-a-mount-whose-target-lands-in-a-tasks-worktree-is-an-error.md)** · accepted  
   The mount pre-flight read only a mount's source, so the masking pattern that
   stopped the v0.1.0 acceptance run — `/dev/null` bound over a `.env` inside the
   worktree — never reached it. The target side now reports as an error, because
