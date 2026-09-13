@@ -25,6 +25,207 @@ func reading(projectDir, repository string) project.ComposeReader {
 	}
 }
 
+// readingInto is reading for a caller that knows where a task's worktree lands.
+//
+// It is a separate constructor rather than a fourth argument to reading, because
+// every existing test is a caller that supplies no container path and the fact
+// that they read identically either way is the property worth keeping visible.
+func readingInto(projectDir, repository, containerPath string) project.ComposeReader {
+	r := reading(projectDir, repository)
+	r.ContainerPath = containerPath
+	return r
+}
+
+// mountFixture is a devcontainer reaching into a repository every way that
+// matters, laid out beside a checkout whose files decide how each entry reads.
+//
+// Two entries write a file into the container path, three write something the
+// runtime will create for itself, one writes outside it, and two are not bind
+// mounts of this repository at all.
+const mountFixture = `services:
+  dev:
+    image: alpine
+    volumes:
+      - ../api:/srv/api
+      - /dev/null:/srv/api/.env:ro
+      - ../api/config.yml:/srv/api/config.yml
+      - ../api/other.yml:/srv/api/config.yml
+      - ../api/node_modules:/srv/api/node_modules
+      - ../api/absent:/srv/api/absent
+      - ../api/.env:/etc/app/env:ro
+      - agent-config:/srv/api/cache
+      - ${TOOLS}/bin:/srv/api/bin
+`
+
+// mountFixtureFiles writes the checkout the fixture's entries point at and
+// returns the Compose file that names them.
+func mountFixtureFiles(t *testing.T, root string) (repository, devcontainer, file string) {
+	t.Helper()
+	repository = filepath.Join(root, "api")
+	devcontainer = filepath.Join(root, "devcontainer")
+	// node_modules is a directory and absent is nothing at all; the rest are
+	// files. What each one is, is the whole of what decides how it reads.
+	for _, dir := range []string{devcontainer, filepath.Join(repository, "node_modules")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("creating %s: %v", dir, err)
+		}
+	}
+	for _, name := range []string{".env", "config.yml", "other.yml"} {
+		if err := os.WriteFile(filepath.Join(repository, name), []byte("x\n"), 0o600); err != nil {
+			t.Fatalf("writing %s: %v", name, err)
+		}
+	}
+	file = filepath.Join(devcontainer, "compose.yaml")
+	if err := os.WriteFile(file, []byte(mountFixture), 0o600); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+	return repository, devcontainer, file
+}
+
+// TestTheMountsWritingIntoAWorktreeAreCollected covers the half of a mount that
+// decides whether a task's container can be created at all.
+//
+// A mount writing into where Feat mounts the worktree needs a mount point there,
+// and the worktree holds only what Git tracks. Measured against Docker 29.5.2:
+// the runtime creates a directory without complaint and refuses to create a
+// file, so only the entries whose source is not a directory are collected here.
+// Whether the path is tracked is Git's answer and `feat doctor`'s question; this
+// reads the entries.
+func TestTheMountsWritingIntoAWorktreeAreCollected(t *testing.T) {
+	root := t.TempDir()
+	repository, devcontainer, file := mountFixtureFiles(t, root)
+
+	composition := readingInto(devcontainer, repository, "/srv/api").Read(file)
+
+	var targets, relatives, sources []string
+	for _, target := range composition.Targets {
+		targets = append(targets, target.Target)
+		relatives = append(relatives, target.Relative)
+		sources = append(sources, target.Source)
+	}
+	// The masked environment file and the configuration file, and nothing else.
+	// The repository's own mount is the container path rather than something
+	// inside it; the directory and the absent source get a directory created for
+	// them; the mount outside the container path is somebody else's problem; and
+	// the named volume is not a bind mount.
+	if want := []string{"/srv/api/.env", "/srv/api/config.yml"}; !slices.Equal(targets, want) {
+		t.Errorf("the mounts writing into the worktree are %v, want %v", targets, want)
+	}
+	if want := []string{".env", "config.yml"}; !slices.Equal(relatives, want) {
+		t.Errorf("the paths the worktree would have to hold are %v, want %v", relatives, want)
+	}
+	// Named as written, and the second entry for one target is dropped: the
+	// mount point is what the runtime creates, and two entries writing to one
+	// target are one mount point. A base file and an overlay repeating a
+	// service's volumes produce exactly this shape.
+	if want := []string{"/dev/null", "../api/config.yml"}; !slices.Equal(sources, want) {
+		t.Errorf("the entries are named by %v, want %v", sources, want)
+	}
+	for _, target := range composition.Targets {
+		if !strings.Contains(target.Where, file) || !strings.Contains(target.Where, "dev") {
+			t.Errorf("the mount at %s is attributed to %q", target.Target, target.Where)
+		}
+	}
+
+	// One entry, one finding: a source inside the repository that writes into
+	// the container path is not also a path the mount needs, because the softer
+	// question is not the one it raises.
+	var paths []string
+	for _, mount := range composition.Mounts {
+		paths = append(paths, mount.Path)
+	}
+	want := []string{
+		filepath.Join(repository, "node_modules"),
+		filepath.Join(repository, "absent"),
+		filepath.Join(repository, ".env"),
+	}
+	if !slices.Equal(paths, want) {
+		t.Errorf("the paths a mount needs are %v, want %v", paths, want)
+	}
+	if dev, _ := composition.Service("dev"); !slices.Equal(dev.SourceTargets, []string{"/srv/api"}) {
+		t.Errorf("the repository's own mount is %v, want [/srv/api]", dev.SourceTargets)
+	}
+}
+
+// TestWithoutAContainerPathNoMountIsJudgedByItsTarget is the property that keeps
+// this reading out of everything that is not `feat doctor`.
+//
+// The wizard reads these files to derive a container path and does not have one
+// yet, and the daemon reads them for build contexts. Neither asks where a mount
+// writes, so neither is answered about it: the same document read without a
+// container path is the document as it read before any of this existed.
+func TestWithoutAContainerPathNoMountIsJudgedByItsTarget(t *testing.T) {
+	root := t.TempDir()
+	repository, devcontainer, file := mountFixtureFiles(t, root)
+
+	composition := reading(devcontainer, repository).Read(file)
+
+	if len(composition.Targets) != 0 {
+		t.Errorf("a reader with no container path judged %d mounts by their target",
+			len(composition.Targets))
+	}
+	// And every entry coming out of the repository is a path a mount needs,
+	// including the two the container path would have claimed.
+	var paths []string
+	for _, mount := range composition.Mounts {
+		paths = append(paths, mount.Path)
+	}
+	want := []string{
+		filepath.Join(repository, "config.yml"),
+		filepath.Join(repository, "other.yml"),
+		filepath.Join(repository, "node_modules"),
+		filepath.Join(repository, "absent"),
+		filepath.Join(repository, ".env"),
+	}
+	if !slices.Equal(paths, want) {
+		t.Errorf("the paths a mount needs are %v, want %v", paths, want)
+	}
+}
+
+// TestAContainerPathIsComparedAsAContainerWouldCompareIt pins the arithmetic the
+// target question is decided by.
+//
+// A container path is a path in the container, so it is compared as one:
+// cleaned, whole segments only, and strictly. A target equal to it is the
+// repository's own mount and not something inside it, and a path that merely
+// starts with the same letters is a different directory.
+func TestAContainerPathIsComparedAsAContainerWouldCompareIt(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "api")
+	devcontainer := filepath.Join(root, "devcontainer")
+	for _, dir := range []string{repository, devcontainer} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("creating %s: %v", dir, err)
+		}
+	}
+	file := filepath.Join(devcontainer, "compose.yaml")
+	if err := os.WriteFile(file, []byte(`services:
+  dev:
+    image: alpine
+    volumes:
+      - /dev/null:/srv/api:ro
+      - /dev/null:/srv/api-tools/config:ro
+      - /dev/null:/srv/./api/deep/nested.conf:ro
+`), 0o600); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+
+	// A trailing slash on the configured path changes nothing either.
+	composition := readingInto(devcontainer, repository, "/srv/api/").Read(file)
+
+	var targets, relatives []string
+	for _, target := range composition.Targets {
+		targets = append(targets, target.Target)
+		relatives = append(relatives, target.Relative)
+	}
+	if want := []string{"/srv/api/deep/nested.conf"}; !slices.Equal(targets, want) {
+		t.Errorf("the mounts writing into the worktree are %v, want %v", targets, want)
+	}
+	if want := []string{"deep/nested.conf"}; !slices.Equal(relatives, want) {
+		t.Errorf("the paths the worktree would have to hold are %v, want %v", relatives, want)
+	}
+}
+
 // composeFixture is one repository's own Compose files, with everything the
 // structural read has to answer and everything it must not touch.
 //

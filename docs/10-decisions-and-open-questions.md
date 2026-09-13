@@ -459,6 +459,19 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   containment answer and the removal records what it forced on; an uncontained
   branch still warns and is still deleted only on a confirmation.
 
+- **[ADR-098 — A mount whose target lands in a task's worktree is an error before the task exists, and the fix is refused](decisions/ADR-098-a-mount-whose-target-lands-in-a-tasks-worktree-is-an-error.md)** · accepted  
+  The mount pre-flight read only a mount's source, so the masking pattern that
+  stopped the v0.1.0 acceptance run — `/dev/null` bound over a `.env` inside the
+  worktree — never reached it. The target side now reports as an error, because
+  the container is never created and no build step runs early enough to be the
+  legitimate absence the source-side warning allows for. Measured rather than
+  reasoned, and narrower than the error message reads: only a mount point that
+  would have to be a file is refused, so directories, absent sources, named
+  volumes and tmpfs are not reported. No fix is built, with triggers recorded.
+  It answers the diagnosis half of ADR-081's masking case, and amends it: neither
+  mount check speaks about a repository a task mounts no worktree of, because
+  every claim they make is about a worktree.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is
@@ -629,6 +642,27 @@ is reading the words before they are sent.
 The evidence to decide on is a user who depends on a `pre-push` hook they did not
 write, and the dogfood cannot supply one. Do not decide before the public preview
 has such a user; a mechanism built now would be fitted to a hook nobody has.
+
+### OQ-016 — Whether a mount point inside a bind mount is refused the same way on Linux
+
+ADR-098's check rests on a measurement rather than on documentation: inside a
+bind-mounted worktree, a container runtime refuses to create a *file* mount point
+and creates a *directory* one without complaint. Both halves matter. The first is
+why the check reports at all, and the second is why it reports so few entries —
+without it, every `node_modules` bind and every cache directory would be called
+fatal.
+
+Every measurement was Docker Desktop on macOS, and the acceptance run's own error
+resolved through `/run/host_virtiofs/…`, which is the same. If a native Linux
+bind mount permits the file mount point, the finding is macOS-specific and its
+severity is wrong there; if it refuses the directory one too, the check is too
+narrow and misses failures. Either way the opt-in test that pins the measurement
+fails on the machine that proves it, which is the outcome to want.
+
+Decide it against the Linux item, which is v0.2 entire (ADR-095), and on that
+machine rather than on a document. Do not narrow or widen the check before then:
+what is in place now is what one platform was measured to do, which is the rule
+ADR-028 set.
 
 ## Decision change process
 

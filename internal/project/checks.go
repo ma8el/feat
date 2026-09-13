@@ -508,12 +508,20 @@ func (c *checker) checkRuntime(ctx context.Context) {
 		// The same reading the agent's files get, against this repository's own
 		// checkout: it is both the directory these paths resolve against and the
 		// repository they are being asked about.
+		//
+		// The container path is supplied only where a worktree will be mounted
+		// at it, which is what runtimeMounts decides: it mounts a worktree for a
+		// task's own repositories and nothing for the rest, and a repository
+		// whose services bake their code declares no path at all.
+		containerPath := worktreeContainerPath(repository, contribution.ContainerPath)
 		composition := ComposeReader{
-			Env:        c.env,
-			ProjectDir: contribution.Directory,
-			Repository: repository.HostPath,
+			Env:           c.env,
+			ProjectDir:    contribution.Directory,
+			Repository:    repository.HostPath,
+			ContainerPath: containerPath,
 		}.Read(contribution.ComposeFiles...)
 		c.checkMounts(ctx, field+".mounts", repository, composition.Mounts)
+		c.checkMountTargets(ctx, field+".mounts", repository, containerPath, composition.Targets)
 		c.reportUnreadMounts(field+".mounts", composition.UnreadMounts)
 	}
 }
@@ -543,10 +551,14 @@ func (c *checker) checkAgentMounts(ctx context.Context) {
 		if !known || domain.DefaultAccess(repository.DefaultAccess) == domain.DefaultAccessOmitted {
 			continue
 		}
+		containerPath := worktreeContainerPath(repository, repository.Agent.ContainerPath)
 		composition := ComposeReader{
 			Env: c.env, ProjectDir: directory, Repository: repository.HostPath,
+			ContainerPath: containerPath,
 		}.Read(execution.ComposeFiles...)
 		c.checkMounts(ctx, "repositories."+id+".agent.mounts", repository, composition.Mounts)
+		c.checkMountTargets(ctx, "repositories."+id+".agent.mounts", repository,
+			containerPath, composition.Targets)
 		for _, entry := range composition.UnreadMounts {
 			if !contains(unread, entry) {
 				unread = append(unread, entry)
@@ -574,10 +586,18 @@ func (c *checker) checkAgentMounts(ctx context.Context) {
 // It reports and refuses nothing, for the reason that explanation does: a file a
 // build step creates, or one that arrives with a `postCreateCommand`, is a
 // legitimate absence, and Feat cannot tell it from the one that will hurt.
+//
+// An entry whose target lands where Feat mounts the worktree never reaches here.
+// The reader has classified it as a Target instead, checkMountTargets refuses
+// it, and the reasoning above is exactly what it does not get: one entry, one
+// finding, at the severity that entry's own failure has.
+//
+// A repository a task mounts no worktree of is not asked at all, because every
+// word above is about a worktree (mountsNoWorktree).
 func (c *checker) checkMounts(
 	ctx context.Context, check string, repository config.Repository, mounts []MountedPath,
 ) {
-	if len(mounts) == 0 {
+	if len(mounts) == 0 || mountsNoWorktree(repository) {
 		return
 	}
 	// A repository Git cannot answer about has already been reported by
@@ -602,6 +622,114 @@ func (c *checker) checkMounts(
 		c.warn(check, fmt.Sprintf("%s binds %s, and Git does not track it", mount.Where, mount.Path),
 			"a task works in a worktree, which holds only what Git tracks, so that path will not be "+
 				"there: commit it, have the container create it, or drop the mount")
+	}
+}
+
+// mountsNoWorktree reports whether a task mounts no worktree of a repository.
+//
+// Both mount checks rest on a task working in a worktree, so both are silent
+// about a repository no task gives one. Two default access modes qualify, for
+// different reasons and with the same consequence — the project's own mounts
+// stand exactly as they are written, against the ordinary checkout, which holds
+// the untracked files a worktree does not:
+//
+//   - omitted, which puts the repository in no task at all, and which
+//     checkRepositories already reports as out of scope;
+//   - stable read-only, which is a checkout rather than a worktree by design: it
+//     has no branch and no worktree, a task mounts the ordinary checkout of it
+//     read-only (internal/daemon/execution.go, taskMounts), and runtimeMounts
+//     passes over it because it mounts a task's own repositories. This is the
+//     mode a project uses for the repository nobody edits, so a mask over an
+//     ignored file in one works, and reporting it would be the diagnostic
+//     checkRuntime's own comment warns about: one that reports a project that
+//     works as broken.
+//
+// A task may promote a stable read-only repository, and it then does get a
+// worktree and such a mount could fail. `feat doctor` runs before any task
+// exists and cannot know which future task promotes what, so it speaks about the
+// default — which is the same reason an omitted repository is not asked either,
+// though a task may select one.
+//
+// What is not gated is the report of what Feat could not read. An unread entry
+// is a statement about this reader rather than a claim about the project, and it
+// is true of a repository whichever way a task mounts it.
+func mountsNoWorktree(repository config.Repository) bool {
+	switch domain.DefaultAccess(repository.DefaultAccess) {
+	case domain.DefaultAccessOmitted, domain.DefaultAccessStableReadOnly:
+		return true
+	default:
+		return false
+	}
+}
+
+// worktreeContainerPath is where a task mounts a worktree of a repository, and
+// empty where a task mounts none.
+//
+// It is one rule in one place because the two callers must not answer it
+// differently, and it is what decides whether a mount's target is judged at all.
+func worktreeContainerPath(repository config.Repository, containerPath string) string {
+	if mountsNoWorktree(repository) {
+		return ""
+	}
+	return containerPath
+}
+
+// checkMountTargets reports the bind mounts that will stop a task's container
+// from being created at all.
+//
+// It is the other side of checkMounts, asked about the same repository in the
+// same checkout, and it is the side that hurts. The container runtime has to
+// create the mount point; inside a bind-mounted worktree that path resolves onto
+// the host, and it refuses to create a file outside the container's rootfs. An
+// ordinary checkout satisfies such a mount because the file is simply there, and
+// a worktree holds only what Git tracks, so it is not.
+//
+// Which entries reach here is decided in the reader and is narrower than the
+// error message suggests (project.mountPointFor): only a source that is not a
+// directory needs a file for a mount point. A directory, an absent source, a
+// named volume and a tmpfs all get a directory created for them and the
+// container starts, so none of them is reported.
+//
+// This one refuses, where checkMounts reports. checkMounts warns because a file
+// a build step creates, or one a `postCreateCommand` writes, is a legitimate
+// absence — and that reason does not survive the crossing: no command in the
+// container runs before its mounts, so there is no build step and no
+// `postCreateCommand` that could have supplied this one. Feat explains the same
+// failure after the fact (internal/runtime/compose/explain.go); saying it before
+// a task exists is what this is for.
+//
+// The question Git is asked is checkMounts's exactly, about a different path:
+// the target under the container path is the path a worktree would have to hold,
+// and the ordinary checkout answers for the worktree. No worktree path is built,
+// because none exists yet and none needs to.
+func (c *checker) checkMountTargets(
+	ctx context.Context, check string,
+	repository config.Repository, containerPath string, targets []MountedTarget,
+) {
+	if len(targets) == 0 {
+		return
+	}
+	// checkMounts's reason, unchanged: a repository Git cannot answer about has
+	// already been reported by checkRepositories, and asking it once per mount
+	// would report every one of them on the strength of that same failure.
+	if _, err := c.runner.Run(ctx, repository.HostPath, gitExecutable, "rev-parse", "--git-dir"); err != nil {
+		return
+	}
+
+	for _, target := range targets {
+		if _, err := c.runner.Run(ctx, repository.HostPath, gitExecutable,
+			"ls-files", "--error-unmatch", "--", target.Relative); err == nil {
+			continue
+		}
+		c.fail(check,
+			fmt.Sprintf("%s binds %s at %s, and Git does not track %s",
+				target.Where, target.Source, target.Target, target.Relative),
+			fmt.Sprintf("Feat mounts this task's worktree at %s, and a worktree holds only what Git "+
+				"tracks, so the container runtime has to create a file at %s inside it, refuses to "+
+				"create one outside the container, and the task fails at container creation: commit "+
+				"%s, or drop the mount. A build step or a `postCreateCommand` cannot supply it, "+
+				"because no command in the container runs before its mounts",
+				containerPath, target.Relative, target.Relative))
 	}
 }
 

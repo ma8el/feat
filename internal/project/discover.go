@@ -2,8 +2,11 @@ package project
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -273,9 +276,11 @@ func serviceNames(file string) []string {
 // becomes configuration only when the user accepts it into their own YAML, and
 // nothing derived here is persisted in Feat's own state (ADR-065).
 //
-// Four things are read and nothing else: service keys, the container targets of
-// bind mounts whose source is the repository itself, whether a service is built
-// from the repository, and the container ports it publishes to the host. No
+// Five things are read and nothing else: service keys, the bind mounts of the
+// repository — the container targets of those whose source is the repository
+// itself, the paths inside it that others name, and the ones writing into where
+// Feat mounts a task's worktree — whether a service is built from the
+// repository, and the container ports it publishes to the host. No
 // `environment` value, no `build.args` entry, and no `env_file` is opened, and
 // an entry containing a "${...}" is left unread rather than resolved — Feat
 // could not derive it without interpolating, so the user is asked instead.
@@ -293,6 +298,25 @@ type Composition struct {
 	// step creates is a legitimate absence, so this is read to report and never
 	// to refuse (internal/runtime/compose/explain.go).
 	Mounts []MountedPath
+	// Targets are the bind mounts that write into where Feat mounts a task's
+	// worktree, rather than out of the repository — which is what Mounts holds.
+	//
+	// They are the other half of the same question and the harder half. The
+	// container runtime has to create the mount point; inside a bind-mounted
+	// worktree that path resolves onto the host, and it refuses to create a file
+	// outside the container's rootfs. So unlike a mount in Mounts, which a build
+	// step may yet satisfy, nothing in the container can repair this one: the
+	// failure precedes every command in it, and the container is never created.
+	//
+	// Only the entries whose mount point would have to be a file are here, which
+	// is what mountPointFor establishes. What is bound over it decides nothing —
+	// a `/dev/null` and a real file fail alike — and what kind of thing it is
+	// decides everything.
+	//
+	// Only a caller that supplies ComposeReader.ContainerPath gets any of these:
+	// where Feat mounts no worktree there is no substitution for a mount to fall
+	// foul of.
+	Targets []MountedTarget
 	// UnreadMounts names the bind mounts left unread because they interpolate.
 	//
 	// They are in Undecided as well, and they are separately here because they
@@ -314,6 +338,29 @@ type MountedPath struct {
 	// Where is the file and the service that wrote the entry, in the words the
 	// unread entries are named in: a reader sent to look at one has the same
 	// problem either way.
+	Where string
+}
+
+// MountedTarget is one container path a bind mount writes to, inside where Feat
+// mounts a task's worktree.
+type MountedTarget struct {
+	// Target is the container path the entry names, cleaned. It is a path in
+	// the container rather than on this host, and it is never resolved against
+	// either.
+	Target string
+	// Relative is Target under the container path: the repository-relative path
+	// a task's worktree would have to hold for the mount point to be creatable,
+	// and so the path to ask Git about.
+	Relative string
+	// Source is the entry's source as it was written, which is how a reader
+	// sent to the file finds the line.
+	//
+	// What it points at is not what fails — a `/dev/null` masking a file and the
+	// file itself fail alike — but that it is not a directory is why this entry
+	// is here at all (mountPointFor).
+	Source string
+	// Where is the file and the service that wrote the entry, as MountedPath
+	// names it.
 	Where string
 }
 
@@ -456,6 +503,20 @@ type ComposeReader struct {
 	// repository in turn, so there the two differ and a reader that assumed one
 	// would answer about the wrong repository.
 	Repository string
+	// ContainerPath is where a task's worktree of Repository is mounted inside
+	// the container these files describe.
+	//
+	// It is empty unless the caller knows Feat will mount one there, and that is
+	// the whole of what turns Composition.Targets on: a reader deriving a
+	// container path does not have one yet, a repository whose services bake
+	// their code has none, and a repository no task takes gets no worktree. In
+	// each of those, a mount into that path is the project's own arrangement
+	// standing exactly as it was written, and nothing here has anything to say
+	// about it.
+	//
+	// Like Repository, it is per repository rather than per file: a devcontainer
+	// holds every repository a task takes, and each is mounted at its own path.
+	ContainerPath string
 }
 
 // Read reads the given Compose files.
@@ -516,6 +577,33 @@ func (r ComposeReader) mergeService(c *Composition, position int, file string, r
 			// whose home directory cannot be established at all.
 			c.unread(where + ": a volume names a path outside this user's home, so it was not read")
 			continue
+		}
+		if relative, inside := insideContainerPath(r.ContainerPath, target); inside {
+			// An entry writing into where Feat mounts the worktree, which is a
+			// harder question than the one below and is asked first: it fails
+			// before the container exists, so the softer finding would be a
+			// second report about one line at a severity this entry has already
+			// outgrown.
+			//
+			// Only where the mount point would have to be a file. That is the
+			// whole of the difference and it is measured rather than reasoned
+			// (see checkMountTargets): a directory the runtime creates and the
+			// container starts, which is the ordinary soft case the fall-through
+			// below reports.
+			switch mountPointFor(resolved) {
+			case mountPointFile:
+				c.targeted(MountedTarget{
+					Target: path.Clean(target), Relative: relative, Source: source, Where: where,
+				})
+				continue
+			case mountPointUnknown:
+				c.unread(where + ": a volume writes into " + path.Clean(r.ContainerPath) +
+					" from a source this could not examine, so it was not read")
+				continue
+			case mountPointDirectory:
+				// Nothing fails, so this entry is only whatever the questions
+				// below make of it.
+			}
 		}
 		if resolved == filepath.Clean(r.Repository) {
 			if !contains(service.SourceTargets, target) {
@@ -590,6 +678,23 @@ func (c *Composition) mounted(one MountedPath) {
 		}
 	}
 	c.Mounts = append(c.Mounts, one)
+}
+
+// targeted records one mount point a bind mount needs created, once.
+//
+// By target rather than by entry or by source, because the target is what the
+// container runtime has to create. Compose files that layer over one another
+// repeat a service's volumes, and two entries writing to one target are one
+// mount point — Compose keeps the last of them — while one source written to two
+// targets is two. The first place it was written is the one named, because that
+// is where a reader starts looking.
+func (c *Composition) targeted(one MountedTarget) {
+	for _, existing := range c.Targets {
+		if existing.Target == one.Target {
+			return
+		}
+	}
+	c.Targets = append(c.Targets, one)
 }
 
 // containsPublication reports whether a service already declares a publication.
@@ -862,6 +967,88 @@ func within(repository, resolved string) bool {
 	}
 	repository = filepath.Clean(repository)
 	return resolved == repository || strings.HasPrefix(resolved, repository+string(filepath.Separator))
+}
+
+// mountPointKind is what a container runtime would have to create for a bind
+// mount's target, which its source decides.
+type mountPointKind int
+
+const (
+	// mountPointDirectory is a mount point the runtime creates without
+	// complaint, even inside a bind mount.
+	mountPointDirectory mountPointKind = iota
+	// mountPointFile is one it refuses to create inside a bind mount.
+	mountPointFile
+	// mountPointUnknown is a source this could not examine, which is neither
+	// answer and must not be reported as either.
+	mountPointUnknown
+)
+
+// mountPointFor reports what kind of mount point a bind mount's target needs.
+//
+// Measured against Docker 29.5.2 on this machine rather than reasoned from the
+// error message, because reasoning from it gets this wrong. Inside a
+// bind-mounted worktree, with the target absent:
+//
+//   - a source that is not a directory — `/dev/null`, a regular file — fails.
+//     The runtime has to create a file, that path resolves onto the host inside
+//     the worktree, and it refuses to create one outside the container's rootfs.
+//   - a source that is a directory succeeds. So does a source that does not
+//     exist, which the runtime creates as a directory, and so do a named volume
+//     and a tmpfs, which are not bind mounts and are not read here at all.
+//
+// So the source's kind decides this even though its contents decide nothing: a
+// `/dev/null` bound over a file and a real file bound over it fail alike, and
+// the same entry pointed at a directory does not fail at all. A rule that
+// skipped this test would report every `node_modules` bind and every cache
+// directory as fatal, which is the commonest shape there is.
+func mountPointFor(source string) mountPointKind {
+	info, err := os.Stat(source)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return mountPointDirectory
+	case err != nil:
+		return mountPointUnknown
+	case info.IsDir():
+		return mountPointDirectory
+	default:
+		return mountPointFile
+	}
+}
+
+// insideContainerPath reports whether a mount target lies inside the path a
+// task's worktree is mounted at, and what it is relative to it.
+//
+// Strictly inside. A target equal to the container path is the repository's own
+// mount, which Feat replaces rather than fails on, and which is what
+// ComposeService.SourceTargets exists to collect.
+//
+// It works in "path" rather than "path/filepath" because both of these are the
+// container's paths and neither is this machine's. On the two platforms Feat
+// targets the two packages agree, so this is a statement about what the values
+// mean rather than a fix for anything: a path read out of a Compose file is
+// resolved by a container runtime, and joining it to something with this host's
+// separator would be answering a question nobody asked.
+func insideContainerPath(containerPath, target string) (string, bool) {
+	if containerPath == "" || target == "" {
+		return "", false
+	}
+	parent := strings.TrimSuffix(path.Clean(containerPath), "/")
+	if parent == "" {
+		// A container path of "/" holds everything, which would report every
+		// mount in the file. Configuration refuses it (config.checkContainerPath),
+		// so this is the total-function half rather than a case to handle.
+		return "", false
+	}
+	cleaned := path.Clean(target)
+	if !strings.HasPrefix(cleaned, parent+"/") {
+		return "", false
+	}
+	relative := strings.TrimPrefix(cleaned, parent+"/")
+	if relative == "" || relative == "." || strings.HasPrefix(relative, "..") {
+		return "", false
+	}
+	return relative, true
 }
 
 // sortedNames returns a service mapping's keys in order, so that a proposal is
