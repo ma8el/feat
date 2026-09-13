@@ -464,10 +464,13 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   stopped the v0.1.0 acceptance run — `/dev/null` bound over a `.env` inside the
   worktree — never reached it. The target side now reports as an error, because
   the container is never created and no build step runs early enough to be the
-  legitimate absence the source-side warning allows for. Measured rather than
-  reasoned, and narrower than the error message reads: only a mount point that
-  would have to be a file is refused, so directories, absent sources, named
-  volumes and tmpfs are not reported. No fix is built, with triggers recorded.
+  legitimate absence the source-side warning allows for — but only where Feat has
+  established that this runtime refuses such a mount point, because a native Linux
+  daemon creates the file and starts the container, and elsewhere the finding
+  warns and names both outcomes. Measured rather than reasoned throughout, and
+  narrower than the error message reads: only a mount point that would have to be
+  a file is refused, so directories, absent sources, named volumes and tmpfs are
+  not reported. No fix is built, with triggers recorded. It answers OQ-016.
   It answers the diagnosis half of ADR-081's masking case, and amends it: neither
   mount check speaks about a repository a task mounts no worktree of, because
   every claim they make is about a worktree.
@@ -645,24 +648,25 @@ has such a user; a mechanism built now would be fitted to a hook nobody has.
 
 ### OQ-016 — Whether a mount point inside a bind mount is refused the same way on Linux
 
-ADR-098's check rests on a measurement rather than on documentation: inside a
-bind-mounted worktree, a container runtime refuses to create a *file* mount point
-and creates a *directory* one without complaint. Both halves matter. The first is
-why the check reports at all, and the second is why it reports so few entries —
-without it, every `node_modules` bind and every cache directory would be called
-fatal.
+**Answered, 2026-09-13, and it was the opt-in test that answered it.** ADR-098's
+check rested on a measurement taken on Docker Desktop on macOS: inside a
+bind-mounted worktree, the runtime refuses to create a *file* mount point and
+creates a *directory* one without complaint. The question was what a native Linux
+bind mount does.
 
-Every measurement was Docker Desktop on macOS, and the acceptance run's own error
-resolved through `/run/host_virtiofs/…`, which is the same. If a native Linux
-bind mount permits the file mount point, the finding is macOS-specific and its
-severity is wrong there; if it refuses the directory one too, the check is too
-narrow and misses failures. Either way the opt-in test that pins the measurement
-fails on the machine that proves it, which is the outcome to want.
+It creates the file and starts the container, and it refuses neither kind — so the
+asymmetry belongs to Docker Desktop, whose binds cross a virtual machine, rather
+than to container runtimes. The same project therefore cannot launch a task on one
+machine and launches on the next, and the error severity was wrong everywhere
+except where the refusal was measured.
 
-Decide it against the Linux item, which is v0.2 entire (ADR-095), and on that
-machine rather than on a document. Do not narrow or widen the check before then:
-what is in place now is what one platform was measured to do, which is the rule
-ADR-028 set.
+The check now takes the severity the runtime earns, asking the daemon what it is:
+an error where Feat has established that this runtime refuses, a warning naming
+both outcomes where it has not. The open question is not replaced by a second
+claim — it is replaced by a mechanism. The opt-in test asserts that what Feat
+expects of the runtime in front of it is what that runtime does, so Colima,
+Rancher Desktop, WSL2 and a daemon over a socket each answer for themselves on
+the machine that has one. See ADR-098, evidence 10.
 
 ## Decision change process
 

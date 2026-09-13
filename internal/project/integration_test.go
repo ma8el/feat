@@ -576,19 +576,32 @@ func writeTrackerScript(t *testing.T, prints string) string {
 	return path
 }
 
-// TestRealContainerRefusesAFileMountPointInsideAWorktree pins the measurement
-// the target-side mount check is built on.
+// TestRealFileMountPointBehaviourIsWhatFeatExpects holds the target-side mount
+// check to what the runtime on this machine actually does.
 //
-// The check reports an error for one shape and stays silent for the shapes
-// beside it, and the difference is not in any documentation: it is what a
-// container runtime does when a mount's target is missing inside a bind mount.
-// Measured against Docker 29.5.2 while the check was written, and asserted here
-// so that a runtime which stops behaving this way fails the gate rather than
-// leaving `feat doctor` quietly wrong in either direction.
+// The check's severity rests on a measurement that is not in any documentation:
+// what a container runtime does when a mount's target is missing inside a bind
+// mount. It is not the same everywhere. Docker Desktop refuses to create a file
+// mount point and the task fails at container creation; a native Linux daemon
+// creates the file and the container starts. The first version of this test
+// asserted the refusal outright and failed on Linux, which is how that was
+// found.
+//
+// So it asserts no platform. It asks Feat what it expects of this runtime,
+// through the same predicate the check uses, and asserts the runtime agrees —
+// which makes it a test of the mapping rather than of one machine. It passes on
+// Docker Desktop and on a native daemon, and fails on any runtime Feat has
+// classified wrongly, including the ones nobody here can try: Colima, Rancher
+// Desktop, WSL2, a daemon over a socket.
+//
+// Both directions are failures worth having. Feat expecting a refusal that does
+// not happen is an error reported against a project that works; Feat expecting
+// none where the runtime refuses is a launch that fails after a diagnosis that
+// only warned.
 //
 // The bind mount stands in for a task's worktree, and the absent target for a
 // path Git does not track.
-func TestRealContainerRefusesAFileMountPointInsideAWorktree(t *testing.T) {
+func TestRealFileMountPointBehaviourIsWhatFeatExpects(t *testing.T) {
 	requireRealTools(t)
 	if _, err := exec.LookPath("docker"); err != nil {
 		integrationtest.Unavailable(t, integrationtest.Docker, "docker is not installed")
@@ -620,19 +633,30 @@ func TestRealContainerRefusesAFileMountPointInsideAWorktree(t *testing.T) {
 		t.Fatalf("writing %s: %v", file, err)
 	}
 
+	// What Feat expects of the runtime it can see, asked exactly as the check
+	// asks it. Everything below is asserted against this rather than against a
+	// platform.
+	refuses := project.RefusesFileMountPoint(t.Context(), project.HostRunner{})
+	t.Logf("Feat expects this runtime to refuse a file mount point: %t", refuses)
+
 	for _, c := range []struct {
-		name    string
-		mount   string
-		refused bool
+		name string
+		// mount is the entry added beside the worktree.
+		mount string
+		// needsFile is whether the runtime would have to create a *file* for
+		// this entry's mount point, which is the property the reader classifies
+		// on (project.mountPointFor) and the only one Feat's expectation is
+		// about.
+		needsFile bool
 	}{
-		// The shape the check reports. Both of these need a file where the
-		// worktree has nothing, which is what the runtime will not create.
+		// The shapes the check reports, where the worktree has nothing and the
+		// source is not a directory.
 		{"a device masking an absent file", "/dev/null:/srv/api/.env:ro", true},
 		{"a file over an absent file", file + ":/srv/api/.env:ro", true},
-		// And the shapes it stays silent about, each for its own reason: the
-		// runtime creates a directory mount point, creates an absent source as
-		// a directory, and needs to create nothing at all when the path is
-		// already in the worktree.
+		// And the shapes it stays silent about on every runtime, each for its own
+		// reason: a directory mount point is created, an absent source is created
+		// as a directory, and a path already in the worktree needs no mount point
+		// created at all.
 		{"a directory over an absent path", directory + ":/srv/api/node_modules", false},
 		{"an absent source over an absent path", filepath.Join(root, "gone") + ":/srv/api/gone", false},
 		{"a device masking a path the worktree holds", "/dev/null:/srv/api/tracked.conf:ro", false},
@@ -650,18 +674,24 @@ func TestRealContainerRefusesAFileMountPointInsideAWorktree(t *testing.T) {
 			output, err := exec.Command("docker", "run", "--rm",
 				"--volume", worktree+":/srv/api", "--volume", c.mount,
 				"alpine:3", "true").CombinedOutput()
+
+			// A file mount point is refused only where Feat said this runtime
+			// refuses one. Nothing else is ever refused.
+			wantRefused := c.needsFile && refuses
 			switch {
-			case c.refused && err == nil:
-				t.Errorf("the runtime created a file mount point inside a bind mount; "+
-					"checkMountTargets reports this as an error and would now be wrong: %s", output)
-			case c.refused && !strings.Contains(string(output), "mountpoint"):
-				// It failed for some other reason, which proves nothing about
-				// the rule and must not be read as proving it.
+			case err != nil && !strings.Contains(string(output), "mountpoint"):
+				// It failed for some other reason, which proves nothing about the
+				// rule either way and must not be read as proving it.
 				integrationtest.Unavailable(t, integrationtest.Docker,
 					"starting a container failed for an unrelated reason: %s", output)
-			case !c.refused && err != nil:
-				t.Errorf("the runtime refused a mount point checkMountTargets stays silent about, "+
-					"so the check now misses a failure it should report: %v: %s", err, output)
+			case wantRefused && err == nil:
+				t.Errorf("Feat expects this runtime to refuse a file mount point and it created "+
+					"one, so checkMountTargets reports an error against a project that works: %s",
+					output)
+			case !wantRefused && err != nil:
+				t.Errorf("this runtime refused a mount point Feat does not expect it to "+
+					"(needs a file: %t, Feat expects refusal: %t), so a task fails at container "+
+					"creation after a diagnosis that did not say so: %s", c.needsFile, refuses, output)
 			}
 		})
 	}

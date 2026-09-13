@@ -116,16 +116,52 @@ Evidence:
    Kubernetes' `optional: true` has no Compose equivalent. Feat's generated
    override already uses this vocabulary (`container_name: !reset null`,
    `ports: !reset []`), so the syntax is available at the version Feat requires.
+10. **A native Linux daemon does not refuse it, and this was found the way it
+    should have been.** Evidence 4 was measured on Docker Desktop on macOS, and
+    OQ-016 recorded the Linux half as open. Running the opt-in test on a Linux
+    machine failed on exactly the two cases that assert the refusal: the runtime
+    created the file mount point and the container started. Nothing is refused
+    there in either direction — the three cases that start on Docker Desktop
+    start on Linux too — so the file-and-directory asymmetry is a property of
+    Docker Desktop rather than of container runtimes.
+
+    The cause is visible in the error evidence 1 quotes: the mount point resolves
+    through `/run/host_virtiofs/…`, a bind mediated by Docker Desktop's virtual
+    machine, and runc refuses a path whose realpath escapes the container's
+    rootfs. A native bind is in the same mount namespace and resolves inside it.
+
+    So one project is a task that cannot launch on one machine and a task that
+    launches on the next. What this did *not* cost is a wrong check shipped
+    quietly: the test asserting the refusal is what failed, on the machine that
+    proves it, which is what a test pinning a measurement is for.
 
 Decisions:
 
-- **The target side is reported, as an error, before a task exists.** A bind
-  mount writing into where Feat mounts a task's worktree, on a path the worktree
-  would not hold, fails the diagnosis and exits non-zero. Evidence 3 is the whole
-  of why the severity differs from its sibling's, and the message says so: it
-  names two of the three remedies `checkMounts` offers — commit it, or drop the
-  mount — and names the third as one that cannot work here, because a user who
-  has read the sibling warning will otherwise reach for it.
+- **The target side is reported before a task exists, at the severity the runtime
+  earns.** A bind mount writing into where Feat mounts a task's worktree, on a
+  path the worktree would not hold, is reported either way — the finding is about
+  the project and is true on every runtime. What differs is the consequence, so
+  what differs is the severity:
+  - where Feat has established that this runtime refuses such a mount point, it
+    **fails** the diagnosis and exits non-zero. Evidence 3 is why that severity
+    is available here and not to its sibling, and the message says so: it names
+    two of the three remedies `checkMounts` offers — commit it, or drop the
+    mount — and names the third as one that cannot work here, because a user who
+    has read the sibling warning will otherwise reach for it;
+  - where it has not, it **warns**, and the action names both measured outcomes
+    rather than choosing one, because which applies is exactly what is not known.
+
+  Feat asks the runtime what it is rather than inferring it from this machine's
+  operating system: what decides it is whether a bind crosses a virtual machine,
+  which a Linux host running Docker Desktop or Colima also does, and which a
+  daemon reached over a socket reports for itself. `docker info` reads nothing
+  belonging to the project, so it is a question this command may ask (ADR-028).
+
+  **A runtime Feat cannot place answers no**, including one there is no Docker to
+  ask about. Under-claiming is the direction to fail in: the finding still
+  reaches the user one severity lower, and a launch that does fail is explained
+  where it fails, so a missed pre-flight costs a run — while a wrong refusal
+  blocks a project that works, on a check whose exit code is what CI reads.
 - **Only where the mount point would have to be a file**, which is evidence 4.
   Feat establishes that by asking what the resolved source is, and a source it
   cannot examine is reported as unread rather than judged either way, for the
@@ -217,12 +253,14 @@ Three things this deliberately does not do:
   which is the boundary the source-side check already draws, and widening it is a
   different change with no evidence behind it.
 
-Unverified, and recorded rather than assumed: every measurement here is Docker
-Desktop on macOS, and the acceptance run's error resolved through
-`/run/host_virtiofs/…`, which is the same. Whether a native Linux bind mount
-refuses the same file mount point, and whether the file/directory asymmetry holds
-there, was not tested — it needs a Linux machine, and Linux is v0.2 entire
-(ADR-095). It is OQ-016.
+OQ-016 asked whether a native Linux bind mount refuses the same file mount point
+and is **answered**: it does not, which is evidence 10 and is why the severity is
+the runtime's rather than the check's. What replaces the open question is not
+another claim but a mechanism — the opt-in test no longer asserts a platform, it
+asserts that what Feat expects of the runtime in front of it is what that runtime
+does. Colima, Rancher Desktop, WSL2 and a daemon over a socket are all runtimes
+nobody here can try, and each of them fails that test on the machine that has it
+rather than being reasoned about in this file.
 
 Consequence: [04-functional-specification.md](04-functional-specification.md)
 FR-PROJ-004 gains the target side of the mount pre-flight and states why its
@@ -241,9 +279,18 @@ projects, and it was already once left out.
 The tests are in three places, because a check built on a measurement needs all
 three. The classification is a unit test on the reader, which is where one entry
 becomes one finding and where the file-or-directory question is asked. The
-severity split is a unit test on the checks against a fake Git runner, with both
-halves in one Compose document so that the discriminator is asserted rather than
-arranged. And the measurement itself is an opt-in test against real Docker, which
-asserts the refusal *and* the four shapes that are not refused: a runtime that
-stops behaving this way should fail the gate rather than leave `feat doctor`
-quietly wrong in one direction or the other.
+severities are unit tests on the checks against a fake Git runner: the source and
+target halves in one Compose document so that the discriminator between them is
+asserted rather than arranged, and one runtime of each kind so that both
+severities are pinned to what the runtime is rather than to what the check
+prefers.
+
+And the runtime's behaviour is an opt-in test against real Docker, which asks
+Feat what it expects through the same predicate the check uses and asserts the
+runtime agrees. That is the part evidence 10 changed. Asserting the refusal
+outright was a test of one machine wearing the clothes of a test of the rule, and
+it failed on the second machine it met — correctly, but a version that had
+instead been written against `runtime.GOOS` would have passed while being just as
+wrong. Both directions of disagreement now fail: an expected refusal that does
+not happen is an error reported against a project that works, and an unexpected
+one is a launch that fails after a diagnosis that only warned.

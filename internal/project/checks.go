@@ -43,8 +43,13 @@ type checker struct {
 	// env is the environment a Compose file's paths are read against. It is the
 	// same one configuration was resolved with, so a "~" written in a project's
 	// Compose file and a "~" written in its YAML name one directory.
-	env      paths.Environment
-	findings []Finding
+	env paths.Environment
+	// fileMountPoint caches whether this machine's container runtime refuses to
+	// create a file mount point inside a bind mount, which is what decides the
+	// severity of a mount writing into a task's worktree (ADR-098). It is nil
+	// until something asks.
+	fileMountPoint *bool
+	findings       []Finding
 }
 
 func (c *checker) add(finding Finding) { c.findings = append(c.findings, finding) }
@@ -625,6 +630,65 @@ func (c *checker) checkMounts(
 	}
 }
 
+// RefusesFileMountPoint reports whether the container runtime this machine talks
+// to refuses to create a file mount point inside a bind mount.
+//
+// It is the fact ADR-098's severity turns on, and it is a property of the runtime
+// rather than of anything in a project. Measured on both runtimes this has been
+// run against, with a mount's target absent inside a bind-mounted worktree:
+//
+//   - Docker Desktop 4.76.0, Docker 29.5.2, on macOS: refuses. The bind is
+//     mediated by a virtual machine, so the mount point resolves through
+//     `/run/host_virtiofs/…` and runc will not create a file outside the
+//     container's rootfs. The task fails at container creation.
+//   - a native Linux daemon: creates the file, and the container starts. Nothing
+//     is refused there at all, in either direction — the directory case starts on
+//     both.
+//
+// So it is answered from what the daemon says it is, and it answers no wherever
+// Feat has not established one, including where there is no Docker to ask: a
+// diagnostic with nothing to go on is not a runtime that permits this. Answering
+// no under-claims on purpose. The finding is still reported, one severity lower,
+// and a launch that then fails is explained where it happens
+// (internal/runtime/compose/explain.go) — so a missed pre-flight costs a run,
+// while a wrong refusal would block a project that works.
+//
+// It is deliberately not inferred from this machine's own operating system. What
+// decides it is whether a bind crosses a virtual machine, which a Linux host
+// running Docker Desktop or Colima also does, and which a daemon reached over a
+// socket reports for itself.
+//
+// `docker info` reads nothing belonging to the project — no Compose file and no
+// environment file — so it is a question `feat doctor` may ask (ADR-028).
+func RefusesFileMountPoint(ctx context.Context, runner Runner) bool {
+	if _, err := runner.Look(dockerExecutable); err != nil {
+		return false
+	}
+	described, err := runner.Run(ctx, "", dockerExecutable,
+		"info", "--format", "{{.OperatingSystem}} {{.KernelVersion}}")
+	if err != nil {
+		return false
+	}
+	described = strings.ToLower(described)
+	// Docker Desktop names itself as the operating system on every platform it
+	// runs on, and the kernel is the one its own virtual machine boots, so a
+	// build that stopped reporting the first would still be caught by the second.
+	return strings.Contains(described, "docker desktop") || strings.Contains(described, "linuxkit")
+}
+
+// refusesFileMountPoint answers RefusesFileMountPoint once per diagnosis.
+//
+// The answer is about the machine rather than about a repository, and a project
+// with four repositories would otherwise ask the daemon the same question four
+// times.
+func (c *checker) refusesFileMountPoint(ctx context.Context) bool {
+	if c.fileMountPoint == nil {
+		refuses := RefusesFileMountPoint(ctx, c.runner)
+		c.fileMountPoint = &refuses
+	}
+	return *c.fileMountPoint
+}
+
 // mountsNoWorktree reports whether a task mounts no worktree of a repository.
 //
 // Both mount checks rest on a task working in a worktree, so both are silent
@@ -690,6 +754,13 @@ func worktreeContainerPath(repository config.Repository, containerPath string) s
 // named volume and a tmpfs all get a directory created for them and the
 // container starts, so none of them is reported.
 //
+// Whether it refuses at all is the runtime's to decide, and not every runtime
+// does: a native Linux daemon creates the file. So this refuses only where
+// RefusesFileMountPoint established that the runtime will, and warns elsewhere
+// rather than failing a project that works — which is the whole of what
+// separates the two severities here, the timing argument below being what
+// separates them from checkMounts.
+//
 // This one refuses, where checkMounts reports. checkMounts warns because a file
 // a build step creates, or one a `postCreateCommand` writes, is a legitimate
 // absence — and that reason does not survive the crossing: no command in the
@@ -716,20 +787,36 @@ func (c *checker) checkMountTargets(
 		return
 	}
 
+	refuses := c.refusesFileMountPoint(ctx)
+
 	for _, target := range targets {
 		if _, err := c.runner.Run(ctx, repository.HostPath, gitExecutable,
 			"ls-files", "--error-unmatch", "--", target.Relative); err == nil {
 			continue
 		}
-		c.fail(check,
-			fmt.Sprintf("%s binds %s at %s, and Git does not track %s",
-				target.Where, target.Source, target.Target, target.Relative),
-			fmt.Sprintf("Feat mounts this task's worktree at %s, and a worktree holds only what Git "+
-				"tracks, so the container runtime has to create a file at %s inside it, refuses to "+
-				"create one outside the container, and the task fails at container creation: commit "+
-				"%s, or drop the mount. A build step or a `postCreateCommand` cannot supply it, "+
-				"because no command in the container runs before its mounts",
+		summary := fmt.Sprintf("%s binds %s at %s, and Git does not track %s",
+			target.Where, target.Source, target.Target, target.Relative)
+
+		if !refuses {
+			// A runtime Feat has not established refuses this. Both measured
+			// answers are named rather than one of them chosen, because which
+			// applies is exactly what is not known here.
+			c.warn(check, summary, fmt.Sprintf(
+				"Feat mounts this task's worktree at %s, and a worktree holds only what Git tracks, "+
+					"so the container runtime has to create %s inside it. What that costs depends on "+
+					"the runtime and Feat has not established this one's: Docker Desktop refuses and "+
+					"the task fails at container creation, and a native Linux daemon creates an empty "+
+					"file there instead. Commit %s, or drop the mount",
 				containerPath, target.Relative, target.Relative))
+			continue
+		}
+		c.fail(check, summary, fmt.Sprintf(
+			"Feat mounts this task's worktree at %s, and a worktree holds only what Git tracks, so "+
+				"this runtime has to create a file at %s inside it, refuses to create one outside "+
+				"the container, and the task fails at container creation: commit %s, or drop the "+
+				"mount. A build step or a `postCreateCommand` cannot supply it, because no command "+
+				"in the container runs before its mounts",
+			containerPath, target.Relative, target.Relative))
 	}
 }
 

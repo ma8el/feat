@@ -41,6 +41,17 @@ type fakeRunner struct {
 	calls []string
 }
 
+// dockerRuntimeQuery is the command diagnostics ask the container runtime what
+// it is, and the key its answer is scripted under.
+const dockerRuntimeQuery = "docker info --format {{.OperatingSystem}} {{.KernelVersion}}"
+
+// dockerCreatesFileMountPoints scripts a runtime that creates a file mount point
+// inside a bind mount rather than refusing it, which is what a native Linux
+// daemon was measured to do.
+func dockerCreatesFileMountPoints(w *world) {
+	w.runner.output[dockerRuntimeQuery] = "Ubuntu 24.04.1 LTS 6.8.0-51-generic"
+}
+
 func newFakeRunner() *fakeRunner {
 	return &fakeRunner{
 		missing: map[string]bool{},
@@ -50,6 +61,12 @@ func newFakeRunner() *fakeRunner {
 			"git --version":          "git version 2.51.0",
 			"tmux -V":                "tmux 3.5a",
 			"docker compose version": "Docker Compose version v2.40.0",
+			// The runtime the mount-target severity turns on (ADR-098). Docker
+			// Desktop is the default here because it is the runtime the failure
+			// that motivated the check was measured on, and because a test that
+			// says nothing about the runtime should get the severity that
+			// machine produces. dockerCreatesFileMountPoints is the other one.
+			dockerRuntimeQuery: "Docker Desktop 6.12.76-linuxkit",
 		},
 	}
 }
@@ -1120,6 +1137,54 @@ func TestAStableReadOnlyCheckoutIsNotJudgedByTheWorktreeRule(t *testing.T) {
 		}
 		t.Errorf("a mount of the ordinary checkout was judged against a worktree: %s %s %q",
 			found.Check, found.Severity, found.Summary)
+	}
+}
+
+// TestTheMountTargetSeverityFollowsTheRuntime is OQ-016 arriving, and what it
+// changed.
+//
+// The error severity rested on a measurement: inside a bind-mounted worktree a
+// container runtime refuses to create a file mount point. That is what Docker
+// Desktop does, and running the opt-in test on Linux established that a native
+// daemon creates the file and starts the container. So the same project is a
+// blocked task on one machine and a working one on the next, and a check that
+// failed the run everywhere would be refusing a project that works.
+//
+// It stays reported, one severity lower, and the message names both measured
+// outcomes rather than choosing one — because which applies is exactly what Feat
+// has not established about this runtime. Under-claiming is the safe direction:
+// a launch that does fail is explained where it fails, while a wrong refusal
+// blocks somebody whose project is fine.
+func TestTheMountTargetSeverityFollowsTheRuntime(t *testing.T) {
+	w := arrange(t)
+	dockerCreatesFileMountPoints(w)
+
+	w.composeFile(t, filepath.Join(w.home, "repos", "app", "infra", "docker-compose.yml"),
+		`services:
+  dev:
+    image: alpine
+    volumes:
+      - ../api:/srv/api
+      - /dev/null:/srv/api/.env:ro
+`)
+	w.runner.failing["git ls-files --error-unmatch -- .env"] = true
+
+	report := w.diagnose(t)
+	findings := w.only(t, report).Findings
+	if report.Failed() {
+		t.Errorf("a runtime that creates the mount point failed the diagnosis:%s", render(findings))
+	}
+
+	found := finding(t, findings, "repositories.api.agent.mounts")
+	if found.Severity != project.SeverityWarning {
+		t.Errorf("a mount on an unestablished runtime is %q, want warning", found.Severity)
+	}
+	// Both answers, and that Feat has not established which: a message naming
+	// one of them would be the claim this severity exists to avoid making.
+	for _, want := range []string{"has not established", "Docker Desktop", "native Linux"} {
+		if !strings.Contains(found.Action, want) {
+			t.Errorf("the action does not say %q: %q", want, found.Action)
+		}
 	}
 }
 
