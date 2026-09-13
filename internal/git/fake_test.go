@@ -51,6 +51,11 @@ type fakeRepository struct {
 	counts map[string]int
 	// ancestors answers `merge-base --is-ancestor`, keyed by "a b".
 	ancestors map[string]bool
+	// containedByHead are the branches `git branch -d` accepts: the ones the
+	// checkout's HEAD contains. Every other branch is refused without -D, which
+	// is the question Git asks about a deletion and is not the question Feat's
+	// plan answers (ADR-097).
+	containedByHead map[string]bool
 	// fail makes one subcommand fail, keyed by its first word.
 	fail map[string]error
 	// missing marks the repository as not being one at all.
@@ -98,6 +103,9 @@ func (f *fakeGit) add(dir string, repository *fakeRepository) *fakeRepository {
 	}
 	if repository.ancestors == nil {
 		repository.ancestors = make(map[string]bool)
+	}
+	if repository.containedByHead == nil {
+		repository.containedByHead = make(map[string]bool)
 	}
 	if repository.fail == nil {
 		repository.fail = make(map[string]error)
@@ -187,6 +195,8 @@ func (f *fakeGit) RunWith(_ context.Context, dir string, env []string, args ...s
 		return "", nil
 	case "worktree":
 		return f.worktree(repository, args, dir)
+	case "branch":
+		return f.branch(repository, args, dir)
 	case "status":
 		return repository.dirty[dir], nil
 	case "diff":
@@ -321,6 +331,28 @@ func (f *fakeGit) worktree(repository *fakeRepository, args []string, dir string
 	default:
 		return "", fmt.Errorf("fake git: unexpected worktree command %q", strings.Join(args, " "))
 	}
+}
+
+// branch answers `git branch -d` and `git branch -D`.
+//
+// Git's own refusal is modelled rather than assumed. `-d` deletes a branch the
+// checkout's HEAD contains and refuses one it does not, in the words Git uses;
+// `-D` deletes either. A fake that deleted whatever it was handed would let a
+// caller that chose the wrong flag pass here and fail on a real checkout, which
+// is exactly how the defect ADR-097 records survived the unit tests.
+func (f *fakeGit) branch(repository *fakeRepository, args []string, dir string) (string, error) {
+	name := args[len(args)-1]
+	if !contains(args, "-D") && !repository.containedByHead[name] {
+		return "", &ExitError{
+			Args: args, Dir: dir, Code: 1,
+			Stderr: "error: the branch '" + name + "' is not fully merged",
+		}
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(repository.refs, "refs/heads/"+name)
+	return "", nil
 }
 
 // contains reports whether an argument vector carries a flag.

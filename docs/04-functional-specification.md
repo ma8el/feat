@@ -445,6 +445,14 @@ when the user answers — and removal is refused for a warning that was not
 confirmed. A surface that resolves only on opening therefore reports that refusal
 after the fact rather than the warning before it. See ADR-061.
 
+"Unmerged" is asked about the ref the task branched from, and the removal follows
+that answer rather than the different one `git branch -d` asks about the
+checkout's HEAD. The two disagree on any checkout whose HEAD is behind its
+remote, which is where most checkouts sit, so a branch Feat established as
+contained by its recorded base is deleted with `-D` and the removal records what
+it forced on. A branch that base ref does not contain warns and is deleted only
+from a confirmation, which is this requirement unchanged. See ADR-097.
+
 ### FR-CLEAN-004 — Volume retention
 
 Volumes MUST be retained by default in initial versions.

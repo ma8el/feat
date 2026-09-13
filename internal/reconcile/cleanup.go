@@ -143,6 +143,23 @@ type Target struct {
 	// uncommitted work, unpushed commits, an unmerged branch (FR-CLEAN-003).
 	// They are deliberately not part of the token.
 	Warnings []string
+	// Contained reports that Feat established the target holds nothing the ref
+	// it was made from does not already have. Only the branch class sets it: it
+	// is whether the recorded base ref contains the branch tip.
+	//
+	// It travels beside the warnings rather than inside the token, and for the
+	// same reason: it describes the same resource rather than a different one,
+	// so a branch that became contained between the plan being displayed and the
+	// cleanup being executed is the same target with a fresher answer, not a
+	// plan that has gone stale. Execute re-resolves the plan, so what an adapter
+	// is given is what was true at the moment of removal.
+	//
+	// It is what decides the deletion flag, which the warnings no longer do. A
+	// branch with nothing at risk has no warning to confirm, so a force derived
+	// from the warnings could never reach it — and `git branch -d` refuses it
+	// anyway, because Git asks about HEAD and Feat asked about the base ref
+	// (ADR-097).
+	Contained bool
 }
 
 // Risky reports whether removing the target would need confirmation.

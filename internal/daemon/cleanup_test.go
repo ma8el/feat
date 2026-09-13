@@ -256,6 +256,131 @@ func TestCleanupRetainsVolumesThatWereNotChosen(t *testing.T) {
 	}
 }
 
+// TestAContainedBranchCleansUpAndArchivesInOnePass is the deadlock this change
+// exists for, end to end.
+//
+// The fixture is the ordinary state of a checkout that fetches under a remote
+// base policy: the recorded base ref contains the task branch, so Feat's plan
+// reports nothing at risk, and the checkout's HEAD does not, so `git branch -d`
+// refuses. Deriving the flag from the warnings produced a branch with no warning
+// to confirm and therefore no path to `-D` — so the cleanup failed on every
+// retry, and the archive refused to leave the branch behind. Neither selection
+// the user could make was the right one, which is what made it permanent
+// (ADR-097).
+func TestAContainedBranchCleansUpAndArchivesInOnePass(t *testing.T) {
+	service, arranged, _ := launched(t)
+	branch := arranged.reload(t).Repositories[0].Branch
+	arranged.fake.branches[branch] = true
+	arranged.fake.contained = true
+	arranged.fake.headBehind = true
+
+	plan := planFor(t, service, arranged)
+	branches, ok := classOf(plan, reconcile.ClassBranches)
+	if !ok {
+		t.Fatal("the plan named no branches")
+	}
+	// The premise: the plan says nothing is at risk, so there is nothing for the
+	// user to confirm. A fixture that warned would be testing the other case.
+	if len(branches.Warnings) != 0 {
+		t.Fatalf("the contained branch carries warnings %v, so this is not the case the test is for",
+			branches.Warnings)
+	}
+
+	selection := api.CleanupSelection{Token: plan.Token, Archive: true}
+	for _, class := range plan.Classes {
+		selection.Classes = append(selection.Classes, api.CleanupChoice{
+			Class: class.Class, ConfirmedWarnings: class.Warnings,
+		})
+	}
+
+	result, err := service.Cleanup(context.Background(), arranged.ref.Task, selection)
+	if err != nil {
+		t.Fatalf("cleaning up a task whose branch its base ref contains: %v", err)
+	}
+	if !result.Archived {
+		t.Fatal("the task was not archived, and no other selection would have removed the branch")
+	}
+
+	var deleted bool
+	for _, vector := range arranged.fake.vectors() {
+		if strings.HasPrefix(vector, "branch -d ") {
+			t.Errorf("the deletion ran %q, which Git refuses in a checkout whose HEAD is behind the base ref", vector)
+		}
+		if strings.HasPrefix(vector, "branch -D ") {
+			deleted = true
+		}
+	}
+	if !deleted {
+		t.Errorf("no branch deletion ran at all: %v", arranged.fake.vectors())
+	}
+	if arranged.fake.branches[branch] {
+		t.Error("the branch is still there")
+	}
+
+	// The force is accounted for rather than silent: it overrode Git's own
+	// refusal, so what it rested on is in the report and in the event log.
+	var note string
+	for _, entry := range result.Removed {
+		if entry.Class == string(reconcile.ClassBranches) {
+			note = entry.Note
+		}
+	}
+	if !strings.Contains(note, "forced") || !strings.Contains(note, "refs/remotes/origin/main") {
+		t.Errorf("the removal reported %q, want it to say it forced and name the ref it established containment against",
+			note)
+	}
+	for _, event := range events(t, service, arranged) {
+		if event.Type == domain.EventCleanedUp && event.To == string(reconcile.ClassBranches) {
+			if !strings.Contains(event.Detail, "forced") {
+				t.Errorf("the event log says %q, want the account of the forced deletion", event.Detail)
+			}
+		}
+	}
+}
+
+// TestAnUncontainedBranchIsStillOnlyDeletedOnAConfirmation is the half that must
+// not be weakened: a branch holding commits the base ref does not have warns,
+// and the confirmation is what produces the force (FR-CLEAN-003).
+func TestAnUncontainedBranchIsStillOnlyDeletedOnAConfirmation(t *testing.T) {
+	service, arranged, _ := launched(t)
+	arranged.fake.branches[arranged.reload(t).Repositories[0].Branch] = true
+	arranged.fake.headBehind = true
+
+	plan := planFor(t, service, arranged)
+	branches, ok := classOf(plan, reconcile.ClassBranches)
+	if !ok || len(branches.Warnings) == 0 {
+		t.Fatalf("the plan does not warn about a branch its base ref does not contain: %+v", branches)
+	}
+
+	// Selecting it without confirming what it costs is refused, and nothing ran.
+	before := len(arranged.fake.vectors())
+	unconfirmed := api.CleanupSelection{
+		Token:   plan.Token,
+		Classes: []api.CleanupChoice{{Class: string(reconcile.ClassBranches)}},
+	}
+	if _, err := service.Cleanup(context.Background(), arranged.ref.Task, unconfirmed); err == nil {
+		t.Fatal("an unmerged branch was deleted without confirming the warning")
+	}
+	for _, vector := range arranged.fake.vectors()[before:] {
+		if strings.HasPrefix(vector, "branch -") {
+			t.Errorf("a refused cleanup still ran %q", vector)
+		}
+	}
+
+	// Confirming it deletes it, and the account names the confirmation rather
+	// than a containment nobody established.
+	result, err := service.Cleanup(context.Background(), arranged.ref.Task,
+		selectAll(plan, reconcile.ClassBranches))
+	if err != nil {
+		t.Fatalf("a confirmed deletion of an unmerged branch was refused: %v", err)
+	}
+	for _, entry := range result.Removed {
+		if entry.Class == string(reconcile.ClassBranches) && !strings.Contains(entry.Note, "confirmed") {
+			t.Errorf("the removal reported %q, want it to rest on the confirmation", entry.Note)
+		}
+	}
+}
+
 // TestArchivingRefusesToStrandAResource is the rule that keeps an archived task
 // from becoming an orphan.
 func TestArchivingRefusesToStrandAResource(t *testing.T) {

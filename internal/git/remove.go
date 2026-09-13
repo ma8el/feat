@@ -34,6 +34,31 @@ type RemoveRequest struct {
 	// Force removes work that would be lost. It is set only from a confirmation
 	// the user gave against a warning they were shown (FR-CLEAN-003).
 	Force bool
+	// Contained reports that Feat established the branch's tip is already in the
+	// ref recorded as its base, so deleting it discards nothing.
+	//
+	// It is a separate field from Force because it answers a separate question,
+	// and only DeleteBranch reads it. Force is about consent to lose work;
+	// this is about which question Git is being asked. See ADR-097.
+	Contained bool
+	// BaseRef is the ref containment was established against. It names the
+	// evidence in what a removal reports and in the error if one fails, and
+	// decides nothing on its own.
+	BaseRef string
+}
+
+// BranchDeletion is what deleting one branch did.
+//
+// It reports the flag as well as the outcome, because a deletion that overrode
+// Git's own refusal should leave an account of why it was allowed to. The
+// caller records it, and the event log is where the account lives (ADR-097).
+type BranchDeletion struct {
+	// Deleted reports whether there was a branch to delete.
+	Deleted bool
+	// Forced reports whether the branch was deleted with `-D`.
+	Forced bool
+	// Reason is the evidence the force rested on, empty when nothing was forced.
+	Reason string
 }
 
 // WorktreeRemoval is what removing one worktree did.
@@ -161,34 +186,81 @@ func pruneGeneratedDirectories(path string, req RemoveRequest) []string {
 
 // DeleteBranch deletes one task branch from the checkout that holds it.
 //
-// Without Force this is `git branch -d`, which Git itself refuses for a branch
-// that is not merged — so an unconfirmed deletion of unmerged work is refused
-// twice: once by the confirmation rule in internal/reconcile, and once by Git.
-// The second refusal is the one that still holds if the first is ever wrong.
+// The flag follows what Feat established, not what Git would ask. `git branch
+// -d` tests whether the branch is contained by the checkout's HEAD or by the
+// branch's own upstream; Feat tests whether it is contained by the ref the task
+// branched from. A task branch has no upstream, and a local `main` is behind
+// `origin/main` on any checkout that has fetched, so under a remote base policy
+// the two disagree as a matter of course: Feat calls the branch merged, attaches
+// no warning, derives no force from it, and Git then refuses `-d` every time.
+// With no warning there is nothing for the user to confirm, so no selection they
+// can make reaches `-D` — and the archive refuses to strand the branch. That
+// deadlock is what ADR-097 is about.
 //
-// It reports whether anything was deleted.
-func (g *Git) DeleteBranch(ctx context.Context, branch string, req RemoveRequest) (bool, error) {
+// Git's refusal was a deliberate second gate behind the confirmation rule, and
+// what replaces it is Feat's own containment check against the recorded base
+// ref. That is the narrower question of the two: it is asked about the ref the
+// branch was actually made from rather than about whatever HEAD happens to be,
+// and a branch it does not answer for — no base ref, a base ref that is gone, a
+// comparison that failed — is not contained here, warns exactly as before, and
+// is deleted only from a confirmation given against that warning
+// (FR-CLEAN-003).
+//
+// It reports what it did, including whether it forced and on what evidence.
+func (g *Git) DeleteBranch(ctx context.Context, branch string, req RemoveRequest) (BranchDeletion, error) {
 	if err := checkArgument("branch", branch); err != nil {
-		return false, err
+		return BranchDeletion{}, err
 	}
 	if err := checkArgument("checkout path", req.HostPath); err != nil {
-		return false, err
+		return BranchDeletion{}, err
 	}
 
 	present, err := g.Exists(ctx, req.HostPath, "refs/heads/"+branch)
 	if err != nil {
-		return false, err
+		return BranchDeletion{}, err
 	}
 	if !present {
-		return false, nil
+		return BranchDeletion{}, nil
+	}
+
+	// Containment is stated first where both hold, because it is the answer that
+	// makes `-d` the wrong question rather than the answer that permits losing
+	// work. A branch can be both contained and carrying commits its remote has
+	// never seen, and that one is still forced and still confirmed.
+	deletion := BranchDeletion{}
+	switch {
+	case req.Contained:
+		deletion.Forced = true
+		deletion.Reason = "the plan established that " + req.containment() + " contains it"
+	case req.Force:
+		deletion.Forced = true
+		deletion.Reason = "the cleanup confirmed the warnings shown against it"
 	}
 
 	flag := "-d"
-	if req.Force {
+	if deletion.Forced {
 		flag = "-D"
 	}
 	if _, err := g.runner.Run(ctx, req.HostPath, "branch", flag, "--", branch); err != nil {
-		return false, fmt.Errorf("deleting branch %s in %s: %w", branch, req.HostPath, err)
+		// In the plan's terms first. The failure this replaced said only that
+		// Git found the branch unmerged, which contradicted the plan the user
+		// had just read and made the same attempt look worth repeating.
+		why := deletion.Reason
+		if !deletion.Forced {
+			why = "the plan reported it as neither contained by " + req.containment() +
+				" nor carrying a warning the cleanup confirmed"
+		}
+		return deletion, fmt.Errorf("deleting branch %s in %s, which Feat asked Git to delete with `%s` because %s: %w",
+			branch, req.HostPath, flag, why, err)
 	}
-	return true, nil
+	deletion.Deleted = true
+	return deletion, nil
+}
+
+// containment names the ref a branch's containment was established against.
+func (r RemoveRequest) containment() string {
+	if r.BaseRef == "" {
+		return "the ref the task branched from"
+	}
+	return r.BaseRef
 }
