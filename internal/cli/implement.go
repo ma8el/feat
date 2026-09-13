@@ -35,6 +35,10 @@ tickets, or import a Markdown file you have already written. --ticket and --file
 are answers to that question, so a run that passes one skips it. --brief is the
 text itself, and --file - reads it from standard input.
 
+A brief given to --brief is in this process's argument vector, where every user
+on the machine can read it in ps output. Pipe it to --file - instead where that
+matters, which for a script it usually does.
+
 --ticket runs the project's configured tracker command and matches the reference
 it names against the ones that command printed. Feat composes a brief from the
 ticket into the field you are editing, and what you confirm is that composed
@@ -164,7 +168,9 @@ func newImplementCommand(env *environment) *cobra.Command {
 		},
 	}
 	cmd.Flags().String("file", "", "read the task brief from a Markdown file, or from standard input with -")
-	cmd.Flags().String("brief", "", "the task brief itself")
+	// Every user on the machine can read a process's arguments, and the agent
+	// adapter already declines to carry a brief that way (ADR-099).
+	cmd.Flags().String("brief", "", "the task brief itself; it appears in ps output, so a script should use --file - instead")
 	cmd.Flags().String("project", "", "prepare the task in this project")
 	// The reference is the tracker's own, exactly as its command printed it.
 	// Feat parses no part of one: it re-runs the command and matches (ADR-071).

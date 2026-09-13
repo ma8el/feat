@@ -106,6 +106,18 @@ Decisions:
   that works today changes: `--project` alone still pre-fills the screen, which is
   what ADR-031 gave it.
 
+- **A brief given to `--brief` is in the argument vector, and `--file -` is
+  not, and the help says so.** Every user on the machine can read a process's
+  arguments, so the flag that is easiest to type is the one that exposes the
+  text of a task. The Claude adapter already declines to carry a brief that way:
+  its first user message names the brief rather than carrying it, because
+  passing it "would put the whole task text into the process argument vector,
+  where every user on the machine can read it in ps output". This is the same
+  exposure one hop earlier, on the client side, and a scripted caller is the one
+  who can least see it happen. Both flags stay — a brief is not always a secret,
+  and typing one is how a person uses this at a terminal — and what closes the
+  gap is that `--brief` says where it ends up and names the flag that does not.
+
 - **`--tui` opens the screen anyway, and `--dry-run` prints the proposal and
   creates nothing.** `--tui` is the way back to composition once the flags are
   enough without it. `--dry-run` resolves the draft, prints what would be
