@@ -302,16 +302,18 @@ type Composition struct {
 	// worktree, rather than out of the repository — which is what Mounts holds.
 	//
 	// They are the other half of the same question and the harder half. The
-	// container runtime has to create the mount point; inside a bind-mounted
-	// worktree that path resolves onto the host, and it refuses to create a file
-	// outside the container's rootfs. So unlike a mount in Mounts, which a build
-	// step may yet satisfy, nothing in the container can repair this one: the
-	// failure precedes every command in it, and the container is never created.
+	// container runtime has to create the mount point, and on a runtime whose
+	// binds cross a virtual machine that path resolves outside the container's
+	// rootfs and it will not create a file there. So unlike a mount in Mounts,
+	// which a build step may yet satisfy, nothing in the container can repair
+	// this one: the failure precedes every command in it, and the container is
+	// never created. Which runtimes do that is not settled here — the severity
+	// is taken from the runtime where the check runs (ADR-098).
 	//
 	// Only the entries whose mount point would have to be a file are here, which
 	// is what mountPointFor establishes. What is bound over it decides nothing —
-	// a `/dev/null` and a real file fail alike — and what kind of thing it is
-	// decides everything.
+	// a `/dev/null` and a real file need the same thing — and what kind of thing
+	// it is decides everything.
 	//
 	// Only a caller that supplies ComposeReader.ContainerPath gets any of these:
 	// where Feat mounts no worktree there is no substitution for a mount to fall
@@ -974,10 +976,12 @@ func within(repository, resolved string) bool {
 type mountPointKind int
 
 const (
-	// mountPointDirectory is a mount point the runtime creates without
-	// complaint, even inside a bind mount.
+	// mountPointDirectory is a mount point every measured runtime creates
+	// without complaint, even inside a bind mount.
 	mountPointDirectory mountPointKind = iota
-	// mountPointFile is one it refuses to create inside a bind mount.
+	// mountPointFile is one some runtimes refuse to create inside a bind mount.
+	// Which ones is not this package's answer to give here; see
+	// RefusesFileMountPoint.
 	mountPointFile
 	// mountPointUnknown is a source this could not examine, which is neither
 	// answer and must not be reported as either.
@@ -986,22 +990,38 @@ const (
 
 // mountPointFor reports what kind of mount point a bind mount's target needs.
 //
-// Measured against Docker 29.5.2 on this machine rather than reasoned from the
-// error message, because reasoning from it gets this wrong. Inside a
-// bind-mounted worktree, with the target absent:
+// It says what the runtime would have to create and nothing about what that
+// costs. Inside a bind-mounted worktree, with the target absent:
 //
-//   - a source that is not a directory — `/dev/null`, a regular file — fails.
-//     The runtime has to create a file, that path resolves onto the host inside
-//     the worktree, and it refuses to create one outside the container's rootfs.
-//   - a source that is a directory succeeds. So does a source that does not
-//     exist, which the runtime creates as a directory, and so do a named volume
-//     and a tmpfs, which are not bind mounts and are not read here at all.
+//   - a source that is not a directory — `/dev/null`, a regular file — needs a
+//     file created at the target;
+//   - a source that is a directory needs a directory. So does a source that does
+//     not exist, which a runtime creates as one, and so do a named volume and a
+//     tmpfs, which are not bind mounts and are not read here at all.
 //
 // So the source's kind decides this even though its contents decide nothing: a
-// `/dev/null` bound over a file and a real file bound over it fail alike, and
-// the same entry pointed at a directory does not fail at all. A rule that
-// skipped this test would report every `node_modules` bind and every cache
-// directory as fatal, which is the commonest shape there is.
+// `/dev/null` bound over a file and a real file bound over it need the same
+// thing, and the same entry pointed at a directory needs something else.
+//
+// Whether needing a file is a problem is the runtime's answer rather than this
+// one's, and the two were confused once already: Docker Desktop refuses to
+// create a file mount point there, because its binds cross a virtual machine and
+// the path resolves outside the container's rootfs, while a native Linux daemon
+// creates the file and the container starts. Neither refuses a directory
+// (ADR-098, evidence 10).
+//
+// That question is asked where the severity is decided
+// (project.RefusesFileMountPoint, checkMountTargets), and it cannot be asked
+// here: a ComposeReader has no runner, because reading a Compose file
+// structurally is not something that should need to run anything. This function
+// stats one path, which is a fact about the entry in front of it. The runtime is
+// a fact about the machine, asked once for a whole diagnosis rather than once
+// per bind mount — and a diagnosis that could not ask, because the daemon is
+// absent or stopped, still reads these entries exactly as it does now.
+//
+// The file-or-directory test itself is why the check is usable at all, on every
+// runtime. A rule that skipped it would name every `node_modules` bind and every
+// cache directory, which is the commonest mount shape there is.
 func mountPointFor(source string) mountPointKind {
 	info, err := os.Stat(source)
 	switch {

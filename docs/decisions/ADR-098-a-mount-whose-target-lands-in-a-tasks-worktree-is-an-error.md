@@ -1,4 +1,4 @@
-# ADR-098 — A mount whose target lands in a task's worktree is an error before the task exists, and the fix is refused
+# ADR-098 — A mount whose target lands in a task's worktree is reported before the task exists, at the severity the runtime earns, and the fix is refused
 
 Status: accepted
 Recorded: 2026-09-13, from the v0.1.0 acceptance run and from a measurement of the container runtime taken while writing this
@@ -162,6 +162,19 @@ Decisions:
   reaches the user one severity lower, and a launch that does fail is explained
   where it fails, so a missed pre-flight costs a run — while a wrong refusal
   blocks a project that works, on a check whose exit code is what CI reads.
+
+  The two misplacements are therefore not equally bad, and only one of them is
+  bounded by the rule above. Placing a runtime as *not* refusing when it does —
+  Colima, Rancher Desktop, WSL2, a daemon reached over a socket, none of which
+  anybody here can try — costs the warning-instead-of-error this paragraph
+  accepts. Placing one as refusing when it does not is the failure this decision
+  was amended to remove, and nothing bounds it except that `linuxkit` is Docker
+  Desktop's own kernel and `Docker Desktop` is what it calls itself. That is thin
+  and it is deliberate: a positive match is made only on what a runtime says
+  about itself, never inferred from the host. The opt-in test is the only thing
+  that would catch a wrong positive, and it catches it only on a machine somebody
+  runs it on — which is the standing cost of a mapping measured on two runtimes
+  and applied to all of them.
 - **Only where the mount point would have to be a file**, which is evidence 4.
   Feat establishes that by asking what the resolved source is, and a source it
   cannot examine is reported as unread rather than judged either way, for the

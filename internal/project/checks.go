@@ -747,10 +747,10 @@ func worktreeContainerPath(repository config.Repository, containerPath string) s
 //
 // It is the other side of checkMounts, asked about the same repository in the
 // same checkout, and it is the side that hurts. The container runtime has to
-// create the mount point; inside a bind-mounted worktree that path resolves onto
-// the host, and it refuses to create a file outside the container's rootfs. An
-// ordinary checkout satisfies such a mount because the file is simply there, and
-// a worktree holds only what Git tracks, so it is not.
+// create the mount point, and on a runtime whose binds cross a virtual machine
+// that path resolves outside the container's rootfs and it will not create a
+// file there. An ordinary checkout satisfies such a mount because the file is
+// simply there, and a worktree holds only what Git tracks, so it is not.
 //
 // Which entries reach here is decided in the reader and is narrower than the
 // error message suggests (project.mountPointFor): only a source that is not a
