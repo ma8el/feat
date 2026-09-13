@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,6 +95,9 @@ type machine struct {
 	layout paths.Layout
 	env    paths.Environment
 	home   string
+	// input is what a command reading standard input finds there. A nil reader
+	// leaves the process's own, which no test should reach.
+	input io.Reader
 }
 
 // prepare builds an isolated machine for a command test.
@@ -158,6 +162,7 @@ func (m *machine) run(t *testing.T, args ...string) (int, string, string) {
 		Layout:      &m.layout,
 		Environment: &m.env,
 		Runner:      workingHost{},
+		Input:       m.input,
 	}, args, &stdout, &stderr)
 	return code, stdout.String(), stderr.String()
 }

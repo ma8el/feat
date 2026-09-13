@@ -51,10 +51,14 @@ feat implement --file task.md
 feat implement --project <project>
 feat implement --ticket <reference>
 feat implement --plan
+feat implement --project <project> --brief "<text>"
+feat implement --project <project> --file - [--repository <id>[:<access>]]
+feat implement --project <project> --brief "<text>" --dry-run [--json]
+feat implement --project <project> --brief "<text>" --tui
 feat project init [<project>]
 feat project add <project>
 feat project list
-feat project show <project>
+feat project show <project> [--json]
 feat project tickets <project>
 feat project schema
 feat project example
@@ -64,9 +68,9 @@ feat settings show
 feat settings path
 feat settings init
 feat settings edit
-feat task list
+feat task list [--all] [--json]
 feat task attach <task>
-feat task review <task>
+feat task review <task> [--json]
 feat task publish <task>
 feat task resume <task>
 feat task stop <task>
@@ -74,7 +78,7 @@ feat task cleanup <task>
 feat runtime create <task>
 feat runtime start <task>
 feat runtime stop <task>
-feat runtime status <task>
+feat runtime status <task> [--json]
 feat runtime logs <task>
 feat runtime destroy <task> [--yes]
 feat doctor
@@ -84,7 +88,11 @@ feat daemon run
 
 `feat` without arguments opens the dashboard. `feat implement` opens task preparation and creates nothing until the user confirms the final task brief and repository selection. Confirming creates exactly what was displayed: a draft that changed since the plan was shown is refused rather than launched, and `--project` preselects the project without removing the confirmation. See ADR-031.
 
-`feat project tickets` runs the project's configured tracker command and lists what it printed. `feat implement --ticket` runs the same command and matches the reference it was given against the ones that command emitted; Feat parses no part of a reference, and passes the command no filter. Selecting a ticket — by that flag, or from the same list offered while the brief is being written — composes a brief from it into the field a typed prompt is written in, so the confirmation, the fingerprint, and every other invariant of preparation apply unchanged. What the confirmation displays is that composed brief rather than the ticket it came from. See ADR-070 and ADR-071.
+An invocation that says what the task is creates it, terminal or not: `--project` and either `--brief` or `--file` are the whole of it, and the confirmation is the invocation. One that does not say what the task is opens the preparation screen with whatever it was given, which is what `--tui` asks for when the flags would otherwise have been enough. `--dry-run` prints the same proposal and creates nothing, and `--repository <id>[:read_write|read_only]` replaces the project's default selection for the task being created. A brief given to `--brief` is in the argument vector, where every user on the machine can read it in `ps` output — the exposure the Claude adapter already declines by naming the brief rather than carrying it — so a script pipes it to `--file -` instead. There is no `--yes`: a flag that skips a confirmation somebody was shown is the unattended path v0 excludes, and an invocation that was shown nothing has nothing to skip. See ADR-099.
+
+`feat project tickets` runs the project's configured tracker command and lists what it printed. `feat implement --ticket` runs the same command and matches the reference it was given against the ones that command emitted; Feat parses no part of a reference, and passes the command no filter. Selecting a ticket — by that flag, or from the same list offered while the brief is being written — composes a brief from it into the field a typed prompt is written in, so the confirmation, the fingerprint, and every other invariant of preparation apply unchanged. What the confirmation displays is that composed brief rather than the ticket it came from, which is why `--ticket` needs a terminal and never creates a task on its own. See ADR-070, ADR-071, and ADR-099.
+
+`--json` prints what the command holds as a document instead of a table, on the four commands that report and on `feat implement`. It is never the default: a person at a terminal is the default reader. It renders the answer the command already gives rather than a second one: `feat task list` leaves out archived tasks unless `--all` is given, in the table and in the document alike, and the document counts them either way so that a caller can tell a partial list from a whole one. Standard output then carries one document or nothing — an error goes to standard error and is said by the exit code, which is already what a script reads. `schema/feat-output.schema.json` describes every document and a test holds it to the Go types in both directions; what is promised about it is the public preview's decision rather than this one's. See ADR-099.
 
 `feat project add` takes the project's identifier, which is also its configuration file's name; the daemon reads the file from the configuration directory rather than from a path a caller supplies. See ADR-028.
 

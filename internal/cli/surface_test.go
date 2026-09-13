@@ -238,5 +238,15 @@ func TestAnAliasIsOneImplementationUnderTwoNames(t *testing.T) {
 		if !strings.Contains(alias.Long, canonicalName) {
 			t.Errorf("%s does not say in its help that it is %s", name, canonicalName)
 		}
+		// One implementation under two names has to accept the same
+		// invocations, and the flags are the half the code pointer above says
+		// nothing about: `feat task review --json` and `feat review --json` ran
+		// the same function, and one of them called the flag unknown until
+		// aliasOf carried the flag set across.
+		if got, want := localFlagNames(alias), localFlagNames(canonical); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s offers %v and %s offers %v\n"+
+				"\tThe alias is the same command under a second name, so it takes the same flags.",
+				name, got, canonicalName, want)
+		}
 	}
 }

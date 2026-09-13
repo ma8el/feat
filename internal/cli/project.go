@@ -218,7 +218,7 @@ registration is something Feat knows about.`,
 }
 
 func newProjectShowCommand(env *environment) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "show <project>",
 		Short: "Show a project's resolved configuration",
 		Long: `Print the configuration Feat will act on: paths expanded, defaults filled in,
@@ -236,6 +236,10 @@ hold secrets are listed by path; their contents are never read.`,
 			cfg, err := config.Load(layout.ProjectConfigDir(), args[0], options)
 			if err != nil {
 				return configFailure(err)
+			}
+
+			if wantsJSON(cmd) {
+				return emitJSON(cmd.OutOrStdout(), describeProject(cfg))
 			}
 
 			out := cmd.OutOrStdout()
@@ -257,6 +261,57 @@ hold secrets are listed by path; their contents are never read.`,
 			return nil
 		},
 	}
+	addJSONFlag(cmd)
+	return cmd
+}
+
+// describeProject renders a loaded configuration as the document this command
+// prints.
+//
+// The mapping is here rather than in internal/api because this is the package
+// that loads a configuration: the transport describes the shape and does not
+// take a dependency on the configuration package to fill it in.
+//
+// It is the same two things the table shows, in the same order — the mount
+// mapping, which is what a task depends on, and the resolved values beneath it.
+func describeProject(cfg *config.Config) api.ProjectConfiguration {
+	described := api.ProjectConfiguration{
+		ID:                cfg.Project.ID,
+		Name:              cfg.Project.Name,
+		PrimaryRepository: cfg.Project.PrimaryRepository,
+		Repositories:      make([]api.ConfiguredRepository, 0, len(cfg.Repositories)),
+		Sections:          make([]api.ConfigurationSection, 0, len(cfg.Describe())),
+	}
+
+	for _, mount := range cfg.Mounts() {
+		services := mount.RuntimeServices
+		if services == nil {
+			// A list rather than null, so that a caller can iterate every
+			// repository's services without a nil check.
+			services = []string{}
+		}
+		described.Repositories = append(described.Repositories, api.ConfiguredRepository{
+			ID:              mount.RepositoryID,
+			HostPath:        mount.HostPath,
+			AgentPath:       mount.AgentPath,
+			RuntimePath:     mount.RuntimePath,
+			RuntimeServices: services,
+			DefaultAccess:   mount.DefaultAccess,
+			Primary:         mount.Primary,
+		})
+	}
+
+	for _, section := range cfg.Describe() {
+		fields := make([]api.ConfigurationField, 0, len(section.Fields))
+		for _, field := range section.Fields {
+			fields = append(fields, api.ConfigurationField{
+				Name: field.Name, Value: field.Value, Note: field.Note,
+			})
+		}
+		described.Sections = append(described.Sections,
+			api.ConfigurationSection{Title: section.Title, Fields: fields})
+	}
+	return described
 }
 
 func newProjectTicketsCommand(env *environment) *cobra.Command {

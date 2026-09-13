@@ -7,22 +7,22 @@ feat daemon start [--log-level]
 feat daemon status
 feat daemon stop
 feat doctor
-feat implement [--file] [--plan] [--project] [--ticket]
+feat implement [--brief] [--dry-run] [--file] [--json] [--plan] [--project] [--repository] [--ticket] [--tui]
 feat project
 feat project add <project>
 feat project example
 feat project init [<project>] [--dry-run]
 feat project list
 feat project schema
-feat project show <project>
+feat project show <project> [--json]
 feat project tickets <project>
-feat review <task>
+feat review <task> [--json]
 feat runtime
 feat runtime create <task>
 feat runtime destroy <task> [--yes]
 feat runtime logs <task>
 feat runtime start <task>
-feat runtime status <task>
+feat runtime status <task> [--json]
 feat runtime stop <task>
 feat settings
 feat settings edit
@@ -35,9 +35,9 @@ feat skill show
 feat task
 feat task attach <task>
 feat task cleanup <task>
-feat task list
+feat task list [--all] [--json]
 feat task publish <task>
 feat task resume <task>
-feat task review <task>
+feat task review <task> [--json]
 feat task stop <task>
 feat version

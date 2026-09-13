@@ -228,7 +228,7 @@ func newPrepare(backend Backend, start prepareStart) prepareModel {
 	}
 	if start.brief != "" {
 		model.brief.SetValue(start.brief)
-		model.title.SetValue(titleFrom(start.brief))
+		model.title.SetValue(brief.Title(start.brief))
 	}
 	if model.source.Kind == "" {
 		model.source.Kind = "prompt"
@@ -311,7 +311,7 @@ func (p prepareModel) Update(message tea.Msg) (prepareModel, tea.Cmd) {
 		}
 		p.brief.SetValue(message.brief)
 		if strings.TrimSpace(p.title.Value()) == "" {
-			p.title.SetValue(titleFrom(message.brief))
+			p.title.SetValue(brief.Title(message.brief))
 		}
 		return p, nil
 
@@ -935,7 +935,7 @@ func (p prepareModel) importFile() (prepareModel, tea.Cmd) {
 	// follows: a title the user typed is theirs, and this is a document they may
 	// be importing over one they have already named.
 	if strings.TrimSpace(p.title.Value()) == "" {
-		p.title.SetValue(titleFrom(text))
+		p.title.SetValue(brief.Title(text))
 	}
 	p.source = api.Source{Kind: "markdown", Reference: path}
 	p.path.Blur()
@@ -1265,36 +1265,6 @@ func (p prepareModel) confirm() (prepareModel, tea.Cmd) {
 		}
 		return preparedMsg{task: &task}
 	}
-}
-
-// titleFrom derives a title from an imported brief.
-//
-// The first Markdown heading is what the document calls itself; failing that,
-// the first line of text is. Either way the user can change it, which is why
-// guessing is worth doing at all.
-func titleFrom(document string) string {
-	for _, line := range strings.Split(document, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if heading := strings.TrimLeft(line, "#"); heading != line {
-			return truncateTitle(strings.TrimSpace(heading))
-		}
-		return truncateTitle(line)
-	}
-	return ""
-}
-
-// titleLimit keeps a derived title to something a task row can show.
-const titleLimit = 72
-
-func truncateTitle(title string) string {
-	runes := []rune(title)
-	if len(runes) <= titleLimit {
-		return title
-	}
-	return strings.TrimSpace(string(runes[:titleLimit]))
 }
 
 // briefName is the file name an imported brief is reported under.

@@ -1,0 +1,59 @@
+{
+  "task": {
+    "id": "",
+    "key": "7f3a1c2e",
+    "project_id": "",
+    "title": "",
+    "brief": "",
+    "source": {
+      "kind": ""
+    },
+    "workflow": "",
+    "attention": "",
+    "repositories": null,
+    "session": null,
+    "runtime": {
+      "provider": "compose",
+      "identity": "feat-app-7f3a1c2e",
+      "services": [
+        "api"
+      ],
+      "provenance": null,
+      "allocations": null,
+      "ports": [
+        {
+          "service": "api",
+          "container_port": 8000,
+          "host_port": 8080
+        }
+      ],
+      "state": "running",
+      "health": "unknown",
+      "networks": null,
+      "volumes": [
+        "feat-app-7f3a1c2e_pgdata"
+      ],
+      "composition": null,
+      "generated_include_path": "",
+      "static_overrides": null,
+      "env_files": null,
+      "generated_override_path": "",
+      "observed_at": "0001-01-01T00:00:00Z"
+    },
+    "verification": null,
+    "publication": null,
+    "created_at": "0001-01-01T00:00:00Z",
+    "updated_at": "0001-01-01T00:00:00Z"
+  },
+  "services": [
+    {
+      "name": "api",
+      "container": "c0ffee",
+      "state": "running",
+      "status": "Up 2 seconds",
+      "health": "unknown",
+      "managed": true
+    }
+  ],
+  "notes": null
+}

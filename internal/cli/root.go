@@ -229,8 +229,14 @@ func NewRootCommand(opts Options) *cobra.Command {
 // It is hidden for the reason `feat daemon run` is (ADR-027): `feat --help`
 // stays equal to the documented command surface, while the golden file, which
 // walks hidden commands, still pins it.
+//
+// The flags come across too, and they are the same flags rather than copies of
+// them: pflag's AddFlagSet carries the pointers, so a value parsed on the alias
+// is the value the shared RunE reads. Without this, one name would answer
+// `--json` and the other would call it unknown — an alias that is a second
+// implementation in the one place it is easiest not to notice.
 func aliasOf(canonical *cobra.Command, path string) *cobra.Command {
-	return &cobra.Command{
+	alias := &cobra.Command{
 		Use:   canonical.Use,
 		Short: canonical.Short,
 		Long: canonical.Long + "\n\n" +
@@ -239,6 +245,8 @@ func aliasOf(canonical *cobra.Command, path string) *cobra.Command {
 		Hidden: true,
 		RunE:   canonical.RunE,
 	}
+	alias.Flags().AddFlagSet(canonical.LocalFlags())
+	return alias
 }
 
 func newVersionCommand() *cobra.Command {

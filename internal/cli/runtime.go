@@ -33,6 +33,14 @@ func newRuntimeCommand(env *environment) *cobra.Command {
 		Short: "Control a task's application services",
 		Long:  runtimeLong,
 	}
+	// Status is the reading action, and the only one of the four given a
+	// document to print. The other three are asked to change something, and what
+	// a caller does with the answer is check that it worked; the exit code says
+	// that already.
+	status := newRuntimeActionCommand(env, api.RuntimeObserve, "status <task>",
+		"Show the state of the task's application services")
+	addJSONFlag(status)
+
 	cmd.AddCommand(
 		newRuntimeActionCommand(env, api.RuntimeCreate, "create <task>",
 			"Create the task's application containers without starting them"),
@@ -40,8 +48,7 @@ func newRuntimeCommand(env *environment) *cobra.Command {
 			"Start the task's application services"),
 		newRuntimeActionCommand(env, api.RuntimeStop, "stop <task>",
 			"Stop the task's application services, keeping their containers"),
-		newRuntimeActionCommand(env, api.RuntimeObserve, "status <task>",
-			"Show the state of the task's application services"),
+		status,
 		newRuntimeLogsCommand(env),
 		newRuntimeDestroyCommand(env),
 	)
@@ -49,6 +56,9 @@ func newRuntimeCommand(env *environment) *cobra.Command {
 }
 
 // newRuntimeActionCommand builds the four actions that need no confirmation.
+//
+// The document branch below is reachable only from the one its caller gives the
+// flag to: wantsJSON answers false for a command that does not offer it.
 func newRuntimeActionCommand(env *environment, action api.RuntimeAction, use, short string) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
@@ -62,6 +72,9 @@ func newRuntimeActionCommand(env *environment, action api.RuntimeAction, use, sh
 				status, err := caller.Runtime(cmd.Context(), args[0], action)
 				if err != nil {
 					return err
+				}
+				if wantsJSON(cmd) {
+					return emitJSON(cmd.OutOrStdout(), status)
 				}
 				printRuntime(cmd.OutOrStdout(), status)
 				return nil

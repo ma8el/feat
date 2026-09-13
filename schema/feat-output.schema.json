@@ -1,0 +1,1276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/ma8el/feat/main/schema/feat-output.schema.json",
+  "title": "Feat command output",
+  "description": "The documents `feat` prints when it is asked for one with --json. It describes what this build prints and is held to the Go types by a test in both directions; what is promised about it is a separate decision (ADR-099).",
+  "$defs": {
+    "configuration_field": {
+      "type": "object",
+      "description": "One resolved value.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The field's dotted configuration path."
+        },
+        "note": {
+          "type": "string",
+          "description": "Explains a value that would otherwise need explaining, such as a default Feat filled in or a file it does not read. It is empty when there is nothing to explain."
+        },
+        "value": {
+          "type": "string",
+          "description": "The resolved value as it will be used."
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "note"
+      ]
+    },
+    "configuration_section": {
+      "type": "object",
+      "description": "One titled block of resolved configuration.",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "description": "The block's values, in the order the table prints them.",
+          "items": {
+            "$ref": "#/$defs/configuration_field"
+          }
+        },
+        "title": {
+          "type": "string",
+          "description": "Names the block."
+        }
+      },
+      "required": [
+        "title",
+        "fields"
+      ]
+    },
+    "configured_repository": {
+      "type": "object",
+      "description": "One repository's resolved place.",
+      "properties": {
+        "agent_path": {
+          "type": "string",
+          "description": "Where task worktrees are mounted in the agent's own container, empty for host-native execution."
+        },
+        "default_access": {
+          "type": "string",
+          "description": "The repository's default participation in a task."
+        },
+        "host_path": {
+          "type": "string",
+          "description": "The ordinary checkout, after expansion."
+        },
+        "id": {
+          "type": "string",
+          "description": "Identifies the repository within the project."
+        },
+        "primary": {
+          "type": "boolean",
+          "description": "Whether this is the project's primary repository."
+        },
+        "runtime_path": {
+          "type": "string",
+          "description": "Where this repository's own services expect their source, empty for a repository whose code no service runs."
+        },
+        "runtime_services": {
+          "type": "array",
+          "description": "The services this repository asks Feat to manage.",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "host_path",
+        "agent_path",
+        "runtime_path",
+        "runtime_services",
+        "default_access",
+        "primary"
+      ]
+    },
+    "draft_plan": {
+      "type": "object",
+      "description": "The response of POST /v1/task-drafts/{draft_id}/plan.",
+      "properties": {
+        "fingerprint": {
+          "type": "string",
+          "description": "Identifies this exact draft, and is what launching carries back."
+        },
+        "notes": {
+          "type": "array",
+          "description": "What happened while resolving that the user should know about without it stopping the task, such as a fetch that failed while an older remote-tracking ref was still available.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "task": {
+          "$ref": "#/$defs/task",
+          "description": "The draft as it is now recorded, carrying every resolved base and every proposed branch and worktree path."
+        }
+      },
+      "required": [
+        "task",
+        "notes",
+        "fingerprint"
+      ]
+    },
+    "execution": {
+      "type": "object",
+      "description": "The isolated environment one agent session runs in.",
+      "properties": {
+        "container": {
+          "type": "string",
+          "description": "The observed container, empty when none was observed."
+        },
+        "health": {
+          "type": "string",
+          "description": "The observed health, which is separate from running."
+        },
+        "identity": {
+          "type": "string",
+          "description": "What makes an action affect one task's environment and no other's, which for the Compose adapter is the project name."
+        },
+        "observed_at": {
+          "type": "string",
+          "description": "When the last four fields were established.",
+          "format": "date-time"
+        },
+        "provider": {
+          "type": "string",
+          "description": "Identifies the execution adapter, such as the Compose adapter."
+        },
+        "running": {
+          "type": "boolean",
+          "description": "Whether the environment was observed to be up."
+        },
+        "service": {
+          "type": "string",
+          "description": "The service the agent runs in."
+        },
+        "status": {
+          "type": "string",
+          "description": "What the environment itself called its state."
+        },
+        "user": {
+          "type": "string",
+          "description": "The identity the agent runs as, which is never root."
+        }
+      },
+      "required": [
+        "provider",
+        "identity",
+        "service",
+        "user",
+        "running"
+      ]
+    },
+    "git_observation": {
+      "type": "object",
+      "description": "What Feat last saw in a task worktree.",
+      "properties": {
+        "ahead": {
+          "type": "integer",
+          "description": "How many commits the task branch had that its base did not."
+        },
+        "behind": {
+          "type": "integer",
+          "description": "How many commits the base had that the task branch did not."
+        },
+        "changed_files": {
+          "type": "integer",
+          "description": "How many files differed from the recorded base commit."
+        },
+        "dirty": {
+          "type": "boolean",
+          "description": "Whether the worktree held uncommitted changes."
+        },
+        "merged": {
+          "type": "boolean",
+          "description": "Whether the task branch was contained in its base branch."
+        },
+        "observed_at": {
+          "type": "string",
+          "description": "When Feat last looked.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "dirty",
+        "ahead",
+        "behind",
+        "merged",
+        "changed_files",
+        "observed_at"
+      ]
+    },
+    "merge_request": {
+      "type": "object",
+      "description": "A request Feat opened on a forge. GitHub calls it a pull request; there is one shape either way.",
+      "properties": {
+        "reference": {
+          "type": "string",
+          "description": "The forge's own identifier for the merge request, as it printed it."
+        },
+        "url": {
+          "type": "string",
+          "description": "Where the merge request can be read."
+        }
+      },
+      "required": [
+        "reference",
+        "url"
+      ]
+    },
+    "port": {
+      "type": "object",
+      "description": "One published port of one service.",
+      "properties": {
+        "container_port": {
+          "type": "integer",
+          "description": "The port inside the container."
+        },
+        "host_ip": {
+          "type": "string",
+          "description": "The address the container runtime reported the port bound on, empty when it reported none. It is read back rather than assumed, so a binding that disagrees with the allocation beside it can be seen."
+        },
+        "host_port": {
+          "type": "integer",
+          "description": "The port it is published on."
+        },
+        "service": {
+          "type": "string",
+          "description": "The service publishing the port."
+        }
+      },
+      "required": [
+        "service",
+        "container_port",
+        "host_port"
+      ]
+    },
+    "port_allocation": {
+      "type": "object",
+      "description": "One host port Feat reserved for one service of one task.",
+      "properties": {
+        "address": {
+          "type": "string",
+          "description": "Where the service is reached from this machine, which is the value of its generated FEAT_HOST_URL variable without the scheme. It is not the address another container reaches it at: a published port belongs to the host's network namespace, and a service calling a sibling uses the Compose service name and the container port."
+        },
+        "container_port": {
+          "type": "integer",
+          "description": "The port inside the container."
+        },
+        "host_ip": {
+          "type": "string",
+          "description": "The host address this port is published on: the one the project's own Compose file named, or the project's configured runtime.bind_address when it named none. It is empty only in a record written before Feat had a bind address of its own."
+        },
+        "host_port": {
+          "type": "integer",
+          "description": "The host port Feat reserved."
+        },
+        "protocol": {
+          "type": "string",
+          "description": "The protocol the publication is for, tcp or udp."
+        },
+        "service": {
+          "type": "string",
+          "description": "The service the port was reserved for."
+        }
+      },
+      "required": [
+        "service",
+        "container_port",
+        "host_port",
+        "protocol",
+        "address"
+      ]
+    },
+    "project_configuration": {
+      "type": "object",
+      "description": "The document `feat project show --json` prints: the configuration Feat will act on, after \"~\" expansion and after defaults are filled.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The project's identifier, which is also its configuration file's name."
+        },
+        "name": {
+          "type": "string",
+          "description": "The project's display name, which defaults to its identifier."
+        },
+        "primary_repository": {
+          "type": "string",
+          "description": "Where a task works by default."
+        },
+        "repositories": {
+          "type": "array",
+          "description": "Each repository's place on the host, in the agent's container, and in its own services' containers.",
+          "items": {
+            "$ref": "#/$defs/configured_repository"
+          }
+        },
+        "sections": {
+          "type": "array",
+          "description": "The rest of the resolved configuration, in the order and the words the table prints: a dotted configuration path, the value Feat will use, and a note where one is needed.",
+          "items": {
+            "$ref": "#/$defs/configuration_section"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "primary_repository",
+        "repositories",
+        "sections"
+      ]
+    },
+    "publication": {
+      "type": "object",
+      "description": "A task's recorded publication on the wire.",
+      "properties": {
+        "planned_at": {
+          "type": "string",
+          "description": "When the publication was last planned.",
+          "format": "date-time"
+        },
+        "repositories": {
+          "type": "array",
+          "description": "One entry per repository the last publication planned, with what came of it.",
+          "items": {
+            "$ref": "#/$defs/publication_repository"
+          }
+        },
+        "updated_at": {
+          "type": "string",
+          "description": "When any of its repositories last changed.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "repositories",
+        "planned_at",
+        "updated_at"
+      ]
+    },
+    "publication_repository": {
+      "type": "object",
+      "description": "One repository's part of a recorded publication.",
+      "properties": {
+        "attempted_at": {
+          "type": "string",
+          "description": "When publishing this repository was last attempted.",
+          "format": "date-time"
+        },
+        "base_branch": {
+          "type": "string",
+          "description": "The branch the merge request is opened against."
+        },
+        "commit": {
+          "type": "string",
+          "description": "The commit the approved text described and the push carried."
+        },
+        "failure": {
+          "type": "string",
+          "description": "Why this repository did not publish, in the words of whatever refused."
+        },
+        "forge": {
+          "type": "string",
+          "description": "Which forge the merge request is opened on."
+        },
+        "remote": {
+          "type": "string",
+          "description": "The Git remote the branch is pushed to."
+        },
+        "repository_id": {
+          "type": "string",
+          "description": "Identifies the repository within the project."
+        },
+        "request": {
+          "$ref": "#/$defs/merge_request",
+          "description": "The merge request that was opened, present exactly while the state is published."
+        },
+        "state": {
+          "type": "string",
+          "description": "Planned, published, or failed. A planned entry is one this publication had not attempted when it stopped, which is what makes an interrupted publication recoverable rather than mysterious."
+        }
+      },
+      "required": [
+        "repository_id",
+        "forge",
+        "remote",
+        "base_branch",
+        "commit",
+        "state",
+        "attempted_at"
+      ]
+    },
+    "review": {
+      "type": "object",
+      "description": "What is known about a task's work on the wire.",
+      "properties": {
+        "checks": {
+          "type": "array",
+          "description": "The results, each attributed to whoever produced it.",
+          "items": {
+            "$ref": "#/$defs/review_check"
+          }
+        },
+        "gated": {
+          "type": "boolean",
+          "description": "That a completion gate ran at least one of them. It is the difference between a verification and a claim about one."
+        },
+        "requested_at": {
+          "type": "string",
+          "description": "When the agent asked for review, or null if it has not.",
+          "format": "date-time"
+        },
+        "summary": {
+          "type": "string",
+          "description": "The agent's own account of what it did, which is a claim."
+        }
+      },
+      "required": [
+        "checks",
+        "gated",
+        "requested_at"
+      ]
+    },
+    "review_check": {
+      "type": "object",
+      "description": "One check result.",
+      "properties": {
+        "detail": {
+          "type": "string",
+          "description": "What the check said about itself: the agent's words, or the tail of what the command printed."
+        },
+        "id": {
+          "type": "string",
+          "description": "The check's identifier, as the project configured it."
+        },
+        "ran_at": {
+          "type": "string",
+          "description": "When the result was produced.",
+          "format": "date-time"
+        },
+        "reporter": {
+          "type": "string",
+          "description": "\"agent\" for a claimed result and \"provider\" for one a gate enforced."
+        },
+        "repository_id": {
+          "type": "string",
+          "description": "The repository the check ran in, empty for a project-wide check."
+        },
+        "status": {
+          "type": "string",
+          "description": "Passed, failed, skipped, or unknown. Unknown is a check that did not report \u2014 one that could not be started, or that ran out of time \u2014 and it is deliberately not a failure."
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "reporter",
+        "ran_at"
+      ]
+    },
+    "review_command": {
+      "type": "object",
+      "description": "One expanded external command.",
+      "properties": {
+        "arguments": {
+          "type": "array",
+          "description": "The argument vector, expanded by the daemon and never a shell string.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "directory": {
+          "type": "string",
+          "description": "The task worktree the command runs in, which is checked before it is returned and checked again before it is run."
+        },
+        "kind": {
+          "type": "string",
+          "description": "Diff, editor, or status."
+        },
+        "program": {
+          "type": "string",
+          "description": "The program to run, which is the project's own configuration."
+        },
+        "repository_id": {
+          "type": "string",
+          "description": "The repository the command runs in."
+        }
+      },
+      "required": [
+        "kind",
+        "repository_id",
+        "program",
+        "arguments",
+        "directory"
+      ]
+    },
+    "review_repository": {
+      "type": "object",
+      "description": "One repository's comparison against its recorded base.",
+      "properties": {
+        "access": {
+          "type": "string",
+          "description": "The access the task has to it: read_write or read_only."
+        },
+        "ahead": {
+          "type": "integer",
+          "description": "Ahead, Behind, and Merged come from the last observation: ahead of the recorded base, behind the base ref as it is now, and contained in it."
+        },
+        "base_commit": {
+          "type": "string",
+          "description": "The immutable commit the task started from, which never moves."
+        },
+        "base_ref": {
+          "type": "string",
+          "description": "The ref the base policy named and BaseCommit is what it resolved to. The commit is what every comparison uses, for the whole life of the task (invariant 8)."
+        },
+        "behind": {
+          "type": "integer",
+          "description": "How many commits the base branch has that the task branch does not."
+        },
+        "branch": {
+          "type": "string",
+          "description": "The task's branch in this repository."
+        },
+        "changed_files": {
+          "type": "integer",
+          "description": "Counts tracked and untracked files that differ from the base; Insertions and Deletions count tracked lines only."
+        },
+        "deletions": {
+          "type": "integer",
+          "description": "Lines removed since the base commit."
+        },
+        "dirty": {
+          "type": "boolean",
+          "description": "Whether the worktree holds uncommitted changes."
+        },
+        "head_commit": {
+          "type": "string",
+          "description": "What the worktree has checked out, empty when the agent has not committed. Committing is optional (FR-GIT-007)."
+        },
+        "insertions": {
+          "type": "integer",
+          "description": "Lines added since the base commit."
+        },
+        "merged": {
+          "type": "boolean",
+          "description": "Whether the task branch is contained in its base branch."
+        },
+        "repository_id": {
+          "type": "string",
+          "description": "Identifies the repository within the project."
+        },
+        "summarized_at": {
+          "type": "string",
+          "description": "When the comparison was made.",
+          "format": "date-time"
+        },
+        "worktree_path": {
+          "type": "string",
+          "description": "Where the task's worktree is on the host."
+        }
+      },
+      "required": [
+        "repository_id",
+        "access",
+        "worktree_path",
+        "base_ref",
+        "base_commit",
+        "changed_files",
+        "insertions",
+        "deletions",
+        "dirty",
+        "ahead",
+        "behind",
+        "merged",
+        "summarized_at"
+      ]
+    },
+    "review_status": {
+      "type": "object",
+      "description": "The response of every review action.",
+      "properties": {
+        "commands": {
+          "type": "array",
+          "description": "The configured external commands, expanded for this task and checked. The client runs them with its own terminal.",
+          "items": {
+            "$ref": "#/$defs/review_command"
+          }
+        },
+        "notes": {
+          "type": "array",
+          "description": "What a user should know: a repository that could not be read, a command that could not be expanded, or a count that means less than it looks like.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "repositories": {
+          "type": "array",
+          "description": "The per-repository comparisons, each against that repository's own recorded base commit (FR-REV-001).",
+          "items": {
+            "$ref": "#/$defs/review_repository"
+          }
+        },
+        "review": {
+          "$ref": "#/$defs/review",
+          "description": "The decision, the agent's summary, and the check results."
+        },
+        "task": {
+          "$ref": "#/$defs/task",
+          "description": "The task as it is now recorded."
+        }
+      },
+      "required": [
+        "task",
+        "review",
+        "repositories",
+        "commands",
+        "notes"
+      ]
+    },
+    "runtime": {
+      "type": "object",
+      "description": "A task's application runtime.",
+      "properties": {
+        "allocations": {
+          "type": "array",
+          "description": "The host ports Feat reserved for this task's reachable services, held until the runtime is destroyed. They are what the task will be published on; Ports is what the started containers turned out to publish, which is empty until something starts.",
+          "items": {
+            "$ref": "#/$defs/port_allocation"
+          }
+        },
+        "composition": {
+          "type": "array",
+          "description": "Composition, StaticOverrides, EnvFiles, and the two generated paths are the exact inputs this runtime was created from, kept so that a later action reaches the same resources even if the project's configuration has since been edited. They are the user's own paths, which are not secrets; no value from an environment file is ever read, let alone published.",
+          "items": {
+            "$ref": "#/$defs/runtime_source"
+          }
+        },
+        "env_files": {
+          "type": "array",
+          "description": "The environment files passed to Compose by path; no value in one is ever read.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "generated_include_path": {
+          "type": "string",
+          "description": "The document Feat wrote to join the repositories' own Compose files."
+        },
+        "generated_override_path": {
+          "type": "string",
+          "description": "The override Feat wrote for this task."
+        },
+        "health": {
+          "type": "string",
+          "description": "Separate from State: without a configured health check the honest answer is unknown."
+        },
+        "identity": {
+          "type": "string",
+          "description": "The unique runtime identity, which is what makes an action affect one task's services and no other's."
+        },
+        "networks": {
+          "type": "array",
+          "description": "And Volumes are what Compose reports as this project's. Volumes are listed because destroying a runtime retains every one of them, and a retained resource nobody can see is one nobody will remove.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "observed_at": {
+          "type": "string",
+          "description": "When the runtime was last observed.",
+          "format": "date-time"
+        },
+        "ports": {
+          "type": "array",
+          "description": "The publications the started containers turned out to have, empty until something starts.",
+          "items": {
+            "$ref": "#/$defs/port"
+          }
+        },
+        "provenance": {
+          "type": "array",
+          "description": "Says where each managed service's code comes from. It is resolved from configuration and the project's own Compose files when the runtime is, so a service that will not run the task's work says so before anything is started rather than after.",
+          "items": {
+            "$ref": "#/$defs/service_provenance"
+          }
+        },
+        "provider": {
+          "type": "string",
+          "description": "Identifies the runtime adapter, which in v0 is Docker Compose."
+        },
+        "services": {
+          "type": "array",
+          "description": "The services this task's runtime manages.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
+          "type": "string",
+          "description": "The observed state of the task's services."
+        },
+        "static_overrides": {
+          "type": "array",
+          "description": "The override files the project declares, by path.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "volumes": {
+          "type": "array",
+          "description": "The volumes Compose reports as this project's, which destroying a runtime retains.",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "provider",
+        "identity",
+        "services",
+        "provenance",
+        "allocations",
+        "ports",
+        "state",
+        "health",
+        "networks",
+        "volumes",
+        "composition",
+        "generated_include_path",
+        "static_overrides",
+        "env_files",
+        "generated_override_path",
+        "observed_at"
+      ]
+    },
+    "runtime_service": {
+      "type": "object",
+      "description": "One observed service of a task's runtime.",
+      "properties": {
+        "container": {
+          "type": "string",
+          "description": "The observed container, empty when the service has none."
+        },
+        "exit_code": {
+          "type": "integer",
+          "description": "The exit status of a service that has stopped."
+        },
+        "health": {
+          "type": "string",
+          "description": "The observed health, which is unknown without a configured health check."
+        },
+        "managed": {
+          "type": "boolean",
+          "description": "Whether the project's runtime.services names this one. A service that it does not name is one Compose started because a managed service depends on it; it belongs to this task's Compose project all the same, and Feat stops and removes it with the rest."
+        },
+        "name": {
+          "type": "string",
+          "description": "The service's name in the project's Compose files."
+        },
+        "state": {
+          "type": "string",
+          "description": "What the container runtime called it, and Status its own longer phrasing, kept verbatim so a client quotes the tool rather than paraphrasing it."
+        },
+        "status": {
+          "type": "string",
+          "description": "What the container runtime called the service's state, in its own words."
+        }
+      },
+      "required": [
+        "name",
+        "health",
+        "managed"
+      ]
+    },
+    "runtime_source": {
+      "type": "object",
+      "description": "One repository's contribution to a task's application.",
+      "properties": {
+        "directory": {
+          "type": "string",
+          "description": "The checkout its own Compose files' relative paths resolve against."
+        },
+        "files": {
+          "type": "array",
+          "description": "That repository's Compose files, in order.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "repository": {
+          "type": "string",
+          "description": "Identifies the repository within the project."
+        }
+      },
+      "required": [
+        "repository",
+        "directory",
+        "files"
+      ]
+    },
+    "runtime_status": {
+      "type": "object",
+      "description": "The response of every runtime action.",
+      "properties": {
+        "notes": {
+          "type": "array",
+          "description": "What a user should know about what they just started, in Feat's terms rather than the container runtime's. They are observations of the running containers and are recomputed by the next action.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "services": {
+          "type": "array",
+          "description": "What was observed: one entry per configured service, so that a service with no container is reported as one \u2014 a runtime missing half its services is not a runtime that is running \u2014 followed by everything else in the task's Compose project, which is everything Compose started because a configured service depends on it.",
+          "items": {
+            "$ref": "#/$defs/runtime_service"
+          }
+        },
+        "task": {
+          "$ref": "#/$defs/task",
+          "description": "The task as it is now recorded, carrying its runtime."
+        }
+      },
+      "required": [
+        "task",
+        "services",
+        "notes"
+      ]
+    },
+    "service_provenance": {
+      "type": "object",
+      "description": "Where one managed service's code comes from.",
+      "properties": {
+        "baked": {
+          "type": "array",
+          "description": "The repositories whose code reaches the service only through its image, so a change appears there once the image is built again and not before.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "built": {
+          "type": "array",
+          "description": "Whether the service's image is built from the task's work rather than mounted into it.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mounted": {
+          "type": "array",
+          "description": "And Built are the repositories whose task worktree the service mounts, and whose task worktree its image is built from.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "repositories": {
+          "type": "array",
+          "description": "The repositories that asked Feat to manage the service.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "runs_task_code": {
+          "type": "boolean",
+          "description": "Whether any of the task's work reaches the service."
+        },
+        "service": {
+          "type": "string",
+          "description": "The managed service this describes."
+        }
+      },
+      "required": [
+        "service",
+        "repositories",
+        "mounted",
+        "built",
+        "runs_task_code",
+        "baked"
+      ]
+    },
+    "session": {
+      "type": "object",
+      "description": "A task's native agent session.",
+      "properties": {
+        "control_path": {
+          "type": "string",
+          "description": "Where the agent's control files are, empty where there are none."
+        },
+        "created_at": {
+          "type": "string",
+          "description": "When the session was created.",
+          "format": "date-time"
+        },
+        "execution": {
+          "$ref": "#/$defs/execution",
+          "description": "The isolated environment the session runs in, or null when it runs on this host and there is nothing to identify."
+        },
+        "execution_mode": {
+          "type": "string",
+          "description": "Where the session runs: devcontainer or host."
+        },
+        "last_activity_at": {
+          "type": "string",
+          "description": "When Feat last saw the session do anything.",
+          "format": "date-time"
+        },
+        "last_event_sequence": {
+          "type": "integer",
+          "description": "The last control event Feat processed."
+        },
+        "process": {
+          "type": "string",
+          "description": "The observed process state. Idle never means complete."
+        },
+        "provider": {
+          "type": "string",
+          "description": "The agent adapter running the session, which in v0 is Claude Code."
+        },
+        "provider_session_id": {
+          "type": "string",
+          "description": "The agent's own identifier when it exposes one."
+        },
+        "tmux": {
+          "$ref": "#/$defs/tmux",
+          "description": "Where the session's terminal is, by stable identifier."
+        }
+      },
+      "required": [
+        "provider",
+        "execution_mode",
+        "tmux",
+        "process",
+        "execution",
+        "last_event_sequence",
+        "created_at",
+        "last_activity_at"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "description": "Records where a task brief came from.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Where the brief came from: prompt, markdown, or ticket."
+        },
+        "reference": {
+          "type": "string",
+          "description": "What it came from, which for a Markdown import is the file's path."
+        },
+        "ticket": {
+          "$ref": "#/$defs/ticket_reference",
+          "description": "The ticket the brief was composed from, present exactly for a ticket source. It travels in both directions: a client composing a brief from a ticket sends what it read, and a task carries it back so that a caller can say which ticket the work came from."
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "task": {
+      "type": "object",
+      "description": "One unit of agent work.",
+      "properties": {
+        "attention": {
+          "type": "string",
+          "description": "Records whether the user may need to intervene. It is separate from every other dimension on purpose."
+        },
+        "brief": {
+          "type": "string",
+          "description": "The task brief, in Markdown."
+        },
+        "created_at": {
+          "type": "string",
+          "description": "When the task was created.",
+          "format": "date-time"
+        },
+        "failure": {
+          "$ref": "#/$defs/task_failure",
+          "description": "Why the task is in `failed`, and null in every other state. It travels with the state because a client that can show one and not the other can only report that something went wrong."
+        },
+        "id": {
+          "type": "string",
+          "description": "The task's stable identifier."
+        },
+        "key": {
+          "type": "string",
+          "description": "The human-facing short identifier derived from the ID."
+        },
+        "project_id": {
+          "type": "string",
+          "description": "The project the task belongs to."
+        },
+        "publication": {
+          "$ref": "#/$defs/publication",
+          "description": "What the task has recorded about publishing \u2014 one entry per repository the last publication planned, with what came of it \u2014 or null for a task that has never published."
+        },
+        "repositories": {
+          "type": "array",
+          "description": "The repositories the task is bound to, with what each starts from.",
+          "items": {
+            "$ref": "#/$defs/task_repository"
+          }
+        },
+        "runtime": {
+          "$ref": "#/$defs/runtime",
+          "description": "The task's application runtime, or null when it has none."
+        },
+        "session": {
+          "$ref": "#/$defs/session",
+          "description": "The task's agent session, or null before it is launched."
+        },
+        "source": {
+          "$ref": "#/$defs/source",
+          "description": "Where the brief came from."
+        },
+        "title": {
+          "type": "string",
+          "description": "The task's short human-facing name."
+        },
+        "updated_at": {
+          "type": "string",
+          "description": "When the task last changed.",
+          "format": "date-time"
+        },
+        "verification": {
+          "$ref": "#/$defs/verification",
+          "description": "What the agent reported about its own checks, or null when it has reported none. It is the agent's claim rather than a result anything enforced, which is why the source is part of it."
+        },
+        "workflow": {
+          "type": "string",
+          "description": "The product-level state Feat decides."
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "project_id",
+        "title",
+        "brief",
+        "source",
+        "workflow",
+        "attention",
+        "repositories",
+        "session",
+        "runtime",
+        "verification",
+        "publication",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    "task_failure": {
+      "type": "object",
+      "description": "Why a task is in `failed`, in the words of whatever failed.",
+      "properties": {
+        "at": {
+          "type": "string",
+          "description": "When the task entered `failed`.",
+          "format": "date-time"
+        },
+        "reason": {
+          "type": "string",
+          "description": "What failed."
+        }
+      },
+      "required": [
+        "reason",
+        "at"
+      ]
+    },
+    "task_list": {
+      "type": "object",
+      "description": "The document `feat task list --json` prints. It is an envelope around the array rather than the array itself, so that every printed document is an object and a field can be added to one without changing what a parser is looking at.",
+      "properties": {
+        "tasks": {
+          "type": "array",
+          "description": "The tasks the list shows, newest first.",
+          "items": {
+            "$ref": "#/$defs/task"
+          }
+        },
+        "archived": {
+          "type": "integer",
+          "description": "How many archived tasks there are, whether or not this list shows them. Archived is terminal and nothing prunes it, so a list that carried every one would grow without bound while the tasks somebody is working on stayed few; they are left out unless --all was given, and this is what says how many. It counts the same tasks either way, because it is a fact about the tasks rather than about the list."
+        }
+      },
+      "required": [
+        "tasks",
+        "archived"
+      ]
+    },
+    "task_repository": {
+      "type": "object",
+      "description": "Binds a task to one repository of its project.",
+      "properties": {
+        "access": {
+          "type": "string",
+          "description": "The access the task has to it: read_write or read_only."
+        },
+        "base_commit": {
+          "type": "string",
+          "description": "The immutable recorded base. Review and cleanup compare against it for the lifetime of the task."
+        },
+        "base_ref": {
+          "type": "string",
+          "description": "The revision the base was resolved from, for a project whose base policy is explicit."
+        },
+        "branch": {
+          "type": "string",
+          "description": "The task's branch in this repository."
+        },
+        "container_path": {
+          "type": "string",
+          "description": "Where the worktree is mounted in the agent's environment, empty for host-native execution."
+        },
+        "observation": {
+          "$ref": "#/$defs/git_observation",
+          "description": "The last observed Git state, or null if never observed."
+        },
+        "repository_id": {
+          "type": "string",
+          "description": "Identifies the repository within the project."
+        },
+        "worktree_path": {
+          "type": "string",
+          "description": "Where the task's worktree is on the host."
+        }
+      },
+      "required": [
+        "repository_id",
+        "access",
+        "observation"
+      ]
+    },
+    "ticket_reference": {
+      "type": "object",
+      "description": "The ticket a task's brief was composed from.",
+      "properties": {
+        "change_available": {
+          "type": "boolean",
+          "description": "That the tracker has since shown something different from the snapshot."
+        },
+        "provider": {
+          "type": "string",
+          "description": "Which tracker the ticket came from, and is what the published shape's optional source fills."
+        },
+        "reference": {
+          "type": "string",
+          "description": "The ticket's own reference, exactly as the tracker command printed it."
+        },
+        "snapshot": {
+          "$ref": "#/$defs/ticket_snapshot",
+          "description": "The ticket as it was when Feat read it."
+        },
+        "url": {
+          "type": "string",
+          "description": "Where the ticket can be read."
+        }
+      },
+      "required": [
+        "reference",
+        "url",
+        "snapshot"
+      ]
+    },
+    "ticket_snapshot": {
+      "type": "object",
+      "description": "The ticket as it was when Feat read it.",
+      "properties": {
+        "body": {
+          "type": "string",
+          "description": "The ticket's body when Feat read it."
+        },
+        "state": {
+          "type": "string",
+          "description": "The ticket's state when Feat read it, in the tracker's own word."
+        },
+        "taken_at": {
+          "type": "string",
+          "description": "When the tracker command that printed it ran, which is what versions a snapshot: the published shape carries no revision of the tracker's own.",
+          "format": "date-time"
+        },
+        "title": {
+          "type": "string",
+          "description": "The ticket's title when Feat read it."
+        }
+      },
+      "required": [
+        "title",
+        "body",
+        "state",
+        "taken_at"
+      ]
+    },
+    "tmux": {
+      "type": "object",
+      "description": "Locates a session's terminal. These are execution references, never task identity (invariant 10).",
+      "properties": {
+        "pane": {
+          "type": "string",
+          "description": "The tmux pane identifier."
+        },
+        "session": {
+          "type": "string",
+          "description": "The tmux session identifier, never a display name."
+        },
+        "socket": {
+          "type": "string",
+          "description": "The tmux socket the session lives on, which is Feat's own."
+        },
+        "window": {
+          "type": "string",
+          "description": "The tmux window identifier, never an index."
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "description": "A task's check results, attributed to whoever produced them.",
+      "properties": {
+        "failed": {
+          "type": "integer",
+          "description": "How many of the agent's checks it reported as failing."
+        },
+        "other": {
+          "type": "integer",
+          "description": "How many of the agent's checks it reported as neither passing nor failing."
+        },
+        "passed": {
+          "type": "integer",
+          "description": "Passed, Failed, and Other count the results by outcome."
+        },
+        "reported_at": {
+          "type": "string",
+          "description": "When the agent reported them.",
+          "format": "date-time"
+        },
+        "source": {
+          "type": "string",
+          "description": "Who produced the results: \"agent\" for a result the agent claimed, \"provider\" for one a completion gate enforced. Only \"agent\" occurs in v0.1."
+        },
+        "summary": {
+          "type": "string",
+          "description": "The agent's account of what it did."
+        }
+      },
+      "required": [
+        "source",
+        "passed",
+        "failed",
+        "other",
+        "reported_at"
+      ]
+    }
+  }
+}

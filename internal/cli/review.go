@@ -27,10 +27,10 @@ the project configures, in the worktree of the repository you select, and takes
 the terminal back when you leave them.
 
 In a terminal this opens the review screen. Anywhere else it prints the same
-comparison and exits.`
+comparison and exits, which --json also asks for.`
 
 func newReviewCommand(env *environment) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "review <task>",
 		Short: "Review a task's changes against its recorded base commits",
 		Long:  withTaskArgument(reviewLong),
@@ -50,13 +50,18 @@ func newReviewCommand(env *environment) *cobra.Command {
 			caller := client.New(layout.Socket)
 			defer caller.Close()
 
-			if !env.interactive {
-				// A run with no terminal reports what it observed rather than
-				// opening a screen nobody can read, which is what `feat` itself
-				// does (ADR-027).
+			// A run with no terminal reports what it observed rather than
+			// opening a screen nobody can read, which is what `feat` itself
+			// does (ADR-027). Asking for a document says the same thing about a
+			// run that has a terminal: a caller who wants the comparison parsed
+			// is not asking for the screen.
+			if !env.interactive || wantsJSON(cmd) {
 				status, err := caller.Review(cmd.Context(), args[0], api.ReviewObserve)
 				if err != nil {
 					return err
+				}
+				if wantsJSON(cmd) {
+					return emitJSON(cmd.OutOrStdout(), status)
 				}
 				printReview(cmd.OutOrStdout(), status)
 				return nil
@@ -69,6 +74,8 @@ func newReviewCommand(env *environment) *cobra.Command {
 			})
 		},
 	}
+	addJSONFlag(cmd)
+	return cmd
 }
 
 // reviewCommand checks an expanded review command and builds the process.

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ma8el/feat/internal/config"
 	"github.com/ma8el/feat/internal/paths"
+	"github.com/ma8el/feat/internal/schematest"
 )
 
 // testEnvironment returns an environment rooted at a temporary home, so that a
@@ -407,7 +408,7 @@ func requireExampleUsesEverySchemaProperty(t *testing.T, body []byte) {
 		}
 	}
 
-	shape := additional(t, root, root.Properties["repositories"])
+	shape := against(root).Additional(t, root.Properties["repositories"])
 	if shape == nil {
 		t.Fatal("the schema describes no shape for a repository")
 	}
@@ -422,7 +423,7 @@ func requireExampleUsesEverySchemaProperty(t *testing.T, body []byte) {
 
 // propertyNames returns a schema object's property names in a stable order, so
 // that two failing runs report them the same way.
-func propertyNames(properties map[string]*schema) []string {
+func propertyNames(properties map[string]*schematest.Schema) []string {
 	sorted := make([]string, 0, len(properties))
 	for name := range properties {
 		sorted = append(sorted, name)
