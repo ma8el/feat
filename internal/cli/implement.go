@@ -65,20 +65,48 @@ type implementOptions struct {
 	dryRun       bool
 	tui          bool
 	asJSON       bool
+
+	// briefGiven and fileGiven report that the flag appeared, which is a
+	// different question from whether it holds anything.
+	//
+	// `--brief ""` names a source and supplies nothing. Reading that as though
+	// the flag were absent is what made `--brief "$DESC"` mean two things: with
+	// DESC unset it asked for a screen, and with DESC set to a space it created
+	// a task. Two nearly identical invocations diverged, and the quiet one was
+	// the one that wrote.
+	briefGiven bool
+	fileGiven  bool
 }
+
+// hasBrief and hasFile report that a source was named, by the flag appearing or
+// by it carrying something.
+//
+// A value is as good as the flag that carried it: only the command line can set
+// the two fields above, so reading the values as well means this value is
+// meaningful on its own, and a caller that builds one without them — every test
+// in this package — cannot quietly turn the blank-brief guard off.
+func (o implementOptions) hasBrief() bool { return o.briefGiven || o.brief != "" }
+func (o implementOptions) hasFile() bool  { return o.fileGiven || o.file != "" }
+
+// named reports whether the invocation said where the brief comes from.
+func (o implementOptions) named() bool { return o.hasBrief() || o.hasFile() }
 
 // complete reports whether the invocation says what the task is.
 //
-// A project and a brief are the whole of it. Everything else Feat resolves —
-// which repositories, from which commits, onto which branches and paths — and
-// --dry-run is how a caller reads that before it exists.
+// A project and a named brief source are the whole of it. Everything else Feat
+// resolves — which repositories, from which commits, onto which branches and
+// paths — and --dry-run is how a caller reads that before it exists.
+//
+// Whether the named source holds anything is a separate question, answered
+// where the brief is read. Answering it here would make an empty source look
+// like an absent one, which is how a blank brief reached a launch.
 //
 // --ticket is deliberately not a brief for this purpose. It names a document
 // somebody else may have written, which becomes the agent's instructions, and
 // what a user approves is the brief Feat composed from it rather than the
 // ticket (ADR-070). There is nobody to read it in a pipe.
 func (o implementOptions) complete() bool {
-	return o.project != "" && (o.brief != "" || o.file != "")
+	return o.project != "" && o.named()
 }
 
 func newImplementCommand(env *environment) *cobra.Command {
@@ -192,6 +220,9 @@ func readImplementFlags(cmd *cobra.Command) (implementOptions, error) {
 	if opts.repositories, err = cmd.Flags().GetStringArray("repository"); err != nil {
 		return implementOptions{}, err
 	}
+	// Whether the flag was named, rather than what it holds. See the fields.
+	opts.briefGiven = cmd.Flags().Changed("brief")
+	opts.fileGiven = cmd.Flags().Changed("file")
 	opts.asJSON = wantsJSON(cmd)
 	return opts, nil
 }
@@ -203,14 +234,13 @@ func readImplementFlags(cmd *cobra.Command) (implementOptions, error) {
 // worse than a flag that is refused: the user believes it worked.
 func (o implementOptions) check(interactive bool) error {
 	switch {
-	case o.ticket != "" && o.file != "",
-		o.ticket != "" && o.brief != "":
+	case o.ticket != "" && o.named():
 		// A brief comes from one source. Composing from a ticket over a
 		// document the user chose to import would silently discard one of the
 		// two things they asked for.
 		return errors.New(
 			"a task brief comes from one source: pass --brief, --file, or --ticket, and not two of them")
-	case o.brief != "" && o.file != "":
+	case o.hasBrief() && o.hasFile():
 		return errors.New(
 			"a task brief comes from one source: pass --brief or --file, not both")
 	case o.tui && o.dryRun:
@@ -277,20 +307,71 @@ func (o implementOptions) check(interactive bool) error {
 // recording, and the client is what reads it: no caller-supplied filesystem
 // path crosses the socket (ADR-028).
 func (o implementOptions) readBrief(stdin io.Reader) (string, api.Source, error) {
-	if o.brief != "" {
-		return o.brief, api.Source{Kind: string(domain.SourcePrompt)}, nil
+	document, source, err := o.resolveBrief(stdin)
+	if err != nil {
+		return "", api.Source{}, err
 	}
-	if o.file == "-" {
+
+	// One guard for every source rather than one per source. The daemon refuses
+	// a task with no brief before it creates anything, and so does the screen,
+	// which trims — but both compare against the empty string, so a brief of
+	// spaces is a brief to them. This is the same mistake made where there is no
+	// screen to say so, and it is caught before a draft exists rather than after
+	// one has been created and archived.
+	if o.named() && strings.TrimSpace(document) == "" {
+		return "", api.Source{}, o.blankBrief()
+	}
+	return document, source, nil
+}
+
+// blankBrief says which source was named and held nothing.
+func (o implementOptions) blankBrief() error {
+	switch {
+	case o.hasBrief():
+		return errors.New("--brief was given a blank task brief")
+	case o.file == "-":
+		return errors.New("standard input held no task brief")
+	default:
+		return fmt.Errorf("the task brief in %s is blank", o.file)
+	}
+}
+
+// resolveBrief reads whichever source was named.
+//
+// A brief typed into a flag and a brief piped in are both text the caller
+// supplied, so both are recorded as a prompt. Only a file has a path worth
+// recording, and the client is what reads it: no caller-supplied filesystem
+// path crosses the socket (ADR-028). What is sent is the content, with the path
+// recorded only so that the task can say where its brief came from.
+//
+// The reading of a file is internal/brief's, because the import screen applies
+// the same rule and internal/ui cannot import this package (ADR-083). What
+// stays here is the source the flag implies: the package that reads the file
+// knows nothing about the DTO, so each caller builds its own.
+func (o implementOptions) resolveBrief(stdin io.Reader) (string, api.Source, error) {
+	switch {
+	case o.hasBrief():
+		return o.brief, api.Source{Kind: string(domain.SourcePrompt)}, nil
+
+	case o.file == "-":
 		text, err := brief.ReadFrom(stdin)
 		if err != nil {
 			return "", api.Source{}, err
 		}
-		if strings.TrimSpace(text) == "" {
-			return "", api.Source{}, errors.New("standard input held no task brief")
-		}
 		return text, api.Source{Kind: string(domain.SourcePrompt)}, nil
+
+	case o.hasFile():
+		text, path, err := brief.Read(o.file)
+		if err != nil {
+			return "", api.Source{}, err
+		}
+		return text, api.Source{Kind: string(domain.SourceMarkdown), Reference: path}, nil
+
+	default:
+		// No source was named, so there is no document and nothing to refuse:
+		// this is the screen's starting state.
+		return "", api.Source{Kind: string(domain.SourcePrompt)}, nil
 	}
-	return readImportedBrief(o.file)
 }
 
 // createTask records a draft, resolves it, and launches what was resolved.
@@ -514,29 +595,6 @@ func renderTaskRepositories(out io.Writer, task api.Task) {
 	}
 	printf(out, "\n")
 	rows.render(out, "")
-}
-
-// readImportedBrief reads an imported Markdown brief.
-//
-// The client reads it, not the daemon: the file is one the user named, and no
-// caller-supplied filesystem path crosses the socket (ADR-028). What is sent is
-// the content, with the path recorded only so that the task can say where its
-// brief came from.
-//
-// The reading itself is internal/brief's, because the import screen applies the
-// same rule and internal/ui cannot import this package (ADR-083). What stays
-// here is the source the flag implies: the package that reads the file knows
-// nothing about the DTO, so each caller builds its own.
-func readImportedBrief(file string) (string, api.Source, error) {
-	if file == "" {
-		return "", api.Source{Kind: string(domain.SourcePrompt)}, nil
-	}
-
-	text, path, err := brief.Read(file)
-	if err != nil {
-		return "", api.Source{}, err
-	}
-	return text, api.Source{Kind: string(domain.SourceMarkdown), Reference: path}, nil
 }
 
 // describeBackend reports which daemon the dashboard is talking to.

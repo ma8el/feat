@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -668,17 +670,119 @@ func TestABriefFromAFlagOrAPipeIsRecordedAsOne(t *testing.T) {
 	}
 }
 
-// TestAnEmptyPipeIsRefusedWhereTheUserCanSeeIt.
+// TestABlankBriefIsRefusedWhateverNamedIt goes through the real flag parsing,
+// because the defect it guards is about the difference between a flag that was
+// not passed and one that was passed nothing — which only cobra can tell.
 //
-// The daemon refuses a task with no brief before it creates anything, and so
-// does the screen. A pipe that held nothing is the same mistake made where
-// there is no screen to say so.
-func TestAnEmptyPipeIsRefusedWhereTheUserCanSeeIt(t *testing.T) {
-	_, _, err := implementOptions{file: "-"}.readBrief(strings.NewReader("   \n\n"))
-	if err == nil {
-		t.Fatal("an empty pipe was accepted as a task brief")
+// The guard was written for `--file -` and applied there alone, while every
+// check downstream compares against the empty string exactly: the daemon's
+// before it creates anything, the domain's before a task may leave draft, and
+// the screen's, which trims but is a screen. So a brief of spaces was a brief,
+// and `--brief "$DESC"` meant two things — with DESC unset it asked for a
+// terminal, and with DESC set to a space it created branches and worktrees.
+// Two nearly identical invocations diverged, and the quiet one was the one that
+// wrote.
+//
+// These run without a daemon on purpose: the brief is read before one is looked
+// for, so the exit code being the ordinary failure rather than the absent
+// daemon's is how this test knows the refusal came from the brief.
+func TestABlankBriefIsRefusedWhateverNamedIt(t *testing.T) {
+	blank := filepath.Join(t.TempDir(), "blank.md")
+	if err := os.WriteFile(blank, []byte("   \n\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "standard input") {
-		t.Errorf("the error does not say where the brief was read from: %v", err)
+	empty := filepath.Join(t.TempDir(), "empty.md")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "--brief holding spaces",
+			args: []string{"implement", "--project", "app", "--brief", "   \n\n"},
+			want: "--brief was given a blank task brief",
+		},
+		{
+			name: "--brief holding nothing",
+			args: []string{"implement", "--project", "app", "--brief", ""},
+			want: "--brief was given a blank task brief",
+		},
+		{
+			name: "a file of whitespace",
+			args: []string{"implement", "--project", "app", "--file", blank},
+			want: "is blank",
+		},
+		{
+			// This one reached the daemon, which refused it after a draft had
+			// been created and archived: the right refusal in the wrong place.
+			name: "an empty file",
+			args: []string{"implement", "--project", "app", "--file", empty},
+			want: "is blank",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			machine := prepare(t)
+			code, stdout, stderr := machine.run(t, test.args...)
+
+			if code != ExitError {
+				t.Errorf("exit = %d, want %d; a blank brief is refused before a daemon is looked for",
+					code, ExitError)
+			}
+			if !strings.Contains(stderr, test.want) {
+				t.Errorf("stderr = %q, want it to mention %q", stderr, test.want)
+			}
+			if strings.TrimSpace(stdout) != "" {
+				t.Errorf("a refused run printed this:\n%s", stdout)
+			}
+		})
+	}
+}
+
+// TestAPipedBlankBriefIsRefused is the guard on the source that had it first,
+// kept so that moving the rule does not lose the case it was written for.
+func TestAPipedBlankBriefIsRefused(t *testing.T) {
+	machine := prepare(t)
+	machine.input = strings.NewReader("   \n\n")
+
+	code, _, stderr := machine.run(t, "implement", "--project", "app", "--file", "-")
+	if code != ExitError {
+		t.Errorf("exit = %d, want %d", code, ExitError)
+	}
+	if !strings.Contains(stderr, "standard input held no task brief") {
+		t.Errorf("stderr = %q, want it to say the pipe held nothing", stderr)
+	}
+}
+
+// TestABriefThatSaysSomethingIsNotRefused, so that the guard above cannot
+// quietly grow to cover a brief somebody wrote. It gets as far as looking for a
+// daemon, which is the step after the brief is read.
+func TestABriefThatSaysSomethingIsNotRefused(t *testing.T) {
+	machine := prepare(t)
+
+	code, _, stderr := machine.run(t, "implement", "--project", "app", "--brief", "Do the thing.")
+	if code != ExitNotRunning {
+		t.Errorf("exit = %d, want %d; a brief with words in it should reach the daemon check: %s",
+			code, ExitNotRunning, stderr)
+	}
+}
+
+// TestANamedSourceIsNotAnAbsentOne pins the distinction the fix rests on: a
+// flag that was passed nothing is a source that holds nothing, not a source
+// nobody named.
+func TestANamedSourceIsNotAnAbsentOne(t *testing.T) {
+	if (implementOptions{project: "app"}).complete() {
+		t.Error("an invocation naming no brief source is complete")
+	}
+	if !(implementOptions{project: "app", briefGiven: true}).complete() {
+		t.Error("`--brief \"\"` names a source, and the invocation it completes is refused for the blank")
+	}
+	// A value carries the same meaning as the flag that would have set it, so
+	// that a value built in a test cannot turn the guard off by omission.
+	if !(implementOptions{project: "app", brief: "  "}).complete() {
+		t.Error("a brief of spaces does not name a source")
 	}
 }
