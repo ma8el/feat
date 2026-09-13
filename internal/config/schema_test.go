@@ -1,9 +1,7 @@
 package config_test
 
 import (
-	"encoding/json"
 	"os"
-	gopath "path"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -11,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ma8el/feat/internal/config"
+	"github.com/ma8el/feat/internal/schematest"
 )
 
 // The JSON Schemas Feat publishes.
@@ -29,69 +28,28 @@ const (
 	ticketSchemaFile = "../../schema/feat-tickets.schema.json"
 )
 
-// schema is enough of JSON Schema to walk the document's shape.
-//
-// It is decoded strictly, so a keyword added to the published schema fails here
-// rather than being walked past. The alternative is a drift test that quietly
-// stops covering the part of the schema it does not understand.
-type schema struct {
-	Schema               string             `json:"$schema"`
-	ID                   string             `json:"$id"`
-	Title                string             `json:"title"`
-	Ref                  string             `json:"$ref"`
-	Type                 any                `json:"type"`
-	Properties           map[string]*schema `json:"properties"`
-	PropertyNames        *schema            `json:"propertyNames"`
-	AdditionalProperties json.RawMessage    `json:"additionalProperties"`
-	Items                *schema            `json:"items"`
-	MinItems             int                `json:"minItems"`
-	MinLength            int                `json:"minLength"`
-	MinProperties        int                `json:"minProperties"`
-	Pattern              string             `json:"pattern"`
-	Default              any                `json:"default"`
-	Defs                 map[string]*schema `json:"$defs"`
-	Description          string             `json:"description"`
-	Required             []string           `json:"required"`
-	Enum                 []any              `json:"enum"`
-	Const                any                `json:"const"`
-}
-
-// loadSchema reads the published project schema.
-func loadSchema(t *testing.T) *schema { return readSchema(t, schemaFile) }
-
 // readSchema reads one published schema.
-func readSchema(t *testing.T, path string) *schema {
+//
+// The model it decodes into, and the walk below, are internal/schematest's: the
+// same technique holds the output documents to their own types, and the two
+// cannot share a test file because a file under internal/config may not import
+// internal/api (ADR-094, ADR-099).
+func readSchema(t *testing.T, path string) *schematest.Schema {
 	t.Helper()
 
 	body, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("reading %s: %v", path, err)
 	}
-
-	var document schema
-	decoder := json.NewDecoder(strings.NewReader(string(body)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&document); err != nil {
-		// The struct above covers the keywords this test walks. A keyword it
-		// does not know means the schema grew something this test should learn
-		// about rather than ignore.
-		t.Fatalf("%s uses a keyword this test does not model: %v", path, err)
-	}
-	return &document
+	return schematest.Read(t, path, body)
 }
 
-// resolve follows a local "$ref".
-func (s *schema) resolve(t *testing.T, root *schema) *schema {
-	t.Helper()
-	if s.Ref == "" {
-		return s
-	}
-	name := strings.TrimPrefix(s.Ref, "#/$defs/")
-	target, ok := root.Defs[name]
-	if !ok {
-		t.Fatalf("the schema refers to %q, which it does not define", s.Ref)
-	}
-	return target
+// loadSchema reads the published project schema.
+func loadSchema(t *testing.T) *schematest.Schema { return readSchema(t, schemaFile) }
+
+// against compares one schema with the configuration structs it describes.
+func against(root *schematest.Schema) schematest.Comparison {
+	return schematest.Comparison{Root: root, Tag: "yaml", Fallback: schemaFile}
 }
 
 // TestSchemaMatchesTheConfigurationStructs keeps the published schema and the
@@ -103,143 +61,14 @@ func (s *schema) resolve(t *testing.T, root *schema) *schema {
 // removed would be the reverse. Both directions are checked.
 func TestSchemaMatchesTheConfigurationStructs(t *testing.T) {
 	root := loadSchema(t)
-	compareObject(t, root, root, reflect.TypeOf(config.Config{}), "")
+	against(root).CompareObject(t, root, reflect.TypeOf(config.Config{}), "")
 }
 
 // TestSettingsSchemaMatchesTheSettingsStruct is the same drift check for the
 // global settings file, which is the other document a user hand-edits.
 func TestSettingsSchemaMatchesTheSettingsStruct(t *testing.T) {
 	root := readSchema(t, settingsSchemaFile)
-	compareObject(t, root, root, reflect.TypeOf(config.Settings{}), "")
-}
-
-// compareObject checks one struct against one schema object.
-func compareObject(t *testing.T, root, node *schema, structType reflect.Type, path string) {
-	t.Helper()
-
-	fields := yamlFields(structType)
-	described := node.Properties
-
-	for name := range fields {
-		if _, ok := described[name]; !ok {
-			t.Errorf("%s: the Go type has %q and the schema does not\n"+
-				"\tAdd it to %s, or the field will work but be reported as unknown by an editor.",
-				join(path), name, document(root))
-		}
-	}
-	for name := range described {
-		if _, ok := fields[name]; !ok {
-			t.Errorf("%s: the schema has %q and the Go type does not\n"+
-				"\tRemove it from %s, or configuration an editor accepts will be rejected by Feat.",
-				join(path), name, document(root))
-		}
-	}
-
-	for name, field := range fields {
-		property, ok := described[name]
-		if !ok {
-			continue
-		}
-		compareField(t, root, property, field, join(path)+"."+name)
-	}
-}
-
-// compareField descends into a field's type.
-func compareField(t *testing.T, root, property *schema, fieldType reflect.Type, path string) {
-	t.Helper()
-
-	property = property.resolve(t, root)
-
-	switch fieldType.Kind() {
-	case reflect.Pointer:
-		compareField(t, root, property, fieldType.Elem(), path)
-
-	case reflect.Struct:
-		compareObject(t, root, property, fieldType, path)
-
-	case reflect.Slice:
-		element := fieldType.Elem()
-		if element.Kind() != reflect.Struct {
-			return
-		}
-		if property.Items == nil {
-			t.Errorf("%s: the Go type is a list of objects and the schema describes no items", path)
-			return
-		}
-		compareObject(t, root, property.Items.resolve(t, root), element, path+"[]")
-
-	case reflect.Map:
-		// A mapping keyed by an identifier: repositories, checks, and external
-		// resources. The schema describes the value under
-		// additionalProperties.
-		values := additional(t, root, property)
-		if values == nil {
-			t.Errorf("%s: the Go type is a mapping and the schema describes no value shape", path)
-			return
-		}
-		element := fieldType.Elem()
-		if element.Kind() == reflect.Slice {
-			element = element.Elem()
-			if values.Items == nil {
-				t.Errorf("%s: the Go type is a mapping to lists and the schema describes no items", path)
-				return
-			}
-			values = values.Items.resolve(t, root)
-		}
-		if element.Kind() == reflect.Struct {
-			compareObject(t, root, values, element, path+".*")
-		}
-	}
-}
-
-// additional returns the schema of a mapping's values.
-func additional(t *testing.T, root, node *schema) *schema {
-	t.Helper()
-	if len(node.AdditionalProperties) == 0 {
-		return nil
-	}
-	var values schema
-	if err := json.Unmarshal(node.AdditionalProperties, &values); err != nil {
-		// "additionalProperties": false, which is a closed object rather than a
-		// mapping.
-		return nil
-	}
-	return values.resolve(t, root)
-}
-
-// yamlFields returns a struct's YAML field names.
-func yamlFields(structType reflect.Type) map[string]reflect.Type {
-	fields := make(map[string]reflect.Type)
-	for i := range structType.NumField() {
-		field := structType.Field(i)
-		tag := field.Tag.Get("yaml")
-		if tag == "" || tag == "-" {
-			// Unexported bookkeeping such as the parsed durations and the file
-			// the configuration came from.
-			continue
-		}
-		name, _, _ := strings.Cut(tag, ",")
-		fields[name] = field.Type
-	}
-	return fields
-}
-
-func join(path string) string {
-	if path == "" {
-		return "(root)"
-	}
-	return path
-}
-
-// document names the schema file a drift message should point at.
-//
-// It is taken from the schema's own "$id", so that a message names the file the
-// reader has to edit rather than whichever one this test was first written for.
-func document(root *schema) string {
-	if root.ID == "" {
-		return schemaFile
-	}
-	return "schema/" + gopath.Base(root.ID)
+	against(root).CompareObject(t, root, reflect.TypeOf(config.Settings{}), "")
 }
 
 // TestSchemaDescribesEveryField keeps the schemas useful in an editor, where the
@@ -247,24 +76,7 @@ func document(root *schema) string {
 func TestSchemaDescribesEveryField(t *testing.T) {
 	for _, file := range []string{schemaFile, settingsSchemaFile, ticketSchemaFile} {
 		t.Run(filepath.Base(file), func(t *testing.T) {
-			root := readSchema(t, file)
-
-			var walk func(node *schema, path string)
-			walk = func(node *schema, path string) {
-				for name, property := range node.Properties {
-					where := path + "." + name
-					if property.Description == "" && property.Ref == "" {
-						t.Errorf("%s has no description", where)
-					}
-					if property.Ref == "" {
-						walk(property, where)
-					}
-				}
-			}
-			walk(root, "")
-			for name, definition := range root.Defs {
-				walk(definition, "$defs."+name)
-			}
+			schematest.Described(t, readSchema(t, file))
 		})
 	}
 }
@@ -285,7 +97,7 @@ func TestTicketSchemaPublishesTheShapeFeatActsOn(t *testing.T) {
 	if root.Items == nil {
 		t.Fatal("the document describes no ticket")
 	}
-	ticket := root.Items.resolve(t, root)
+	ticket := root.Items.Resolve(t, root)
 
 	want := []string{"reference", "title", "body", "url", "state", "source"}
 	var got []string
@@ -347,7 +159,7 @@ func TestSchemaAcceptsTheExampleConfigurations(t *testing.T) {
 
 // checkEnums verifies the example's closed-vocabulary values against the
 // schema, since a wrong value there is the mistake a schema most helps with.
-func checkEnums(t *testing.T, root *schema, cfg *config.Config) {
+func checkEnums(t *testing.T, root *schematest.Schema, cfg *config.Config) {
 	t.Helper()
 
 	for _, check := range []struct {
@@ -376,7 +188,7 @@ func checkEnums(t *testing.T, root *schema, cfg *config.Config) {
 }
 
 // vocabulary returns the values a schema node allows.
-func vocabulary(t *testing.T, root *schema, path string) []string {
+func vocabulary(t *testing.T, root *schematest.Schema, path string) []string {
 	t.Helper()
 
 	node := root

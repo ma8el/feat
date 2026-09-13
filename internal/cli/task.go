@@ -30,7 +30,11 @@ A field this build cannot fill is shown as "-" rather than as a value that was
 never measured.
 
 The TASK column is the short key derived from a task's identifier, and it is
-what every command that takes a task accepts.`
+what every command that takes a task accepts.
+
+--json prints every task, archived ones included, as a document. The table
+leaves them out because a screen has limited room; selecting on a task's
+workflow is what a script does anyway.`
 
 // taskArgument says what <task> is, wherever a command takes one.
 //
@@ -88,7 +92,7 @@ func newTaskCommand(env *environment, attach, review *cobra.Command) *cobra.Comm
 }
 
 func newTaskListCommand(env *environment) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List tasks across all projects",
 		Long:  taskListLong,
@@ -109,10 +113,15 @@ func newTaskListCommand(env *environment) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if wantsJSON(cmd) {
+				return emitJSON(cmd.OutOrStdout(), api.NewTaskList(tasks))
+			}
 			printTasks(cmd.OutOrStdout(), tasks, env.clock()())
 			return nil
 		},
 	}
+	addJSONFlag(cmd)
+	return cmd
 }
 
 // printTasks renders the task list.

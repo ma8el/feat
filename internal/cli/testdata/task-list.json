@@ -1,0 +1,121 @@
+{
+  "tasks": [
+    {
+      "id": "7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c",
+      "key": "7f3a1c2e",
+      "project_id": "example",
+      "title": "Add a scheduled export job",
+      "brief": "",
+      "source": {
+        "kind": "prompt"
+      },
+      "workflow": "review_requested",
+      "attention": "possibly_waiting",
+      "repositories": [
+        {
+          "repository_id": "core",
+          "access": "read_write",
+          "base_commit": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+          "branch": "feat/7f3a1c2e-add-a-scheduled-export-job",
+          "worktree_path": "/srv/state/worktrees/example/7f3a1c2e/core",
+          "observation": {
+            "dirty": true,
+            "ahead": 0,
+            "behind": 0,
+            "merged": false,
+            "changed_files": 7,
+            "observed_at": "2026-08-06T09:00:00Z"
+          }
+        }
+      ],
+      "session": {
+        "provider": "claude",
+        "execution_mode": "devcontainer",
+        "tmux": {},
+        "process": "running",
+        "execution": null,
+        "last_event_sequence": 0,
+        "created_at": "0001-01-01T00:00:00Z",
+        "last_activity_at": "0001-01-01T00:00:00Z"
+      },
+      "runtime": {
+        "provider": "compose",
+        "identity": "feat-example-7f3a1c2e",
+        "services": null,
+        "provenance": null,
+        "allocations": null,
+        "ports": null,
+        "state": "running",
+        "health": "unknown",
+        "networks": null,
+        "volumes": null,
+        "composition": null,
+        "generated_include_path": "",
+        "static_overrides": null,
+        "env_files": null,
+        "generated_override_path": "",
+        "observed_at": "0001-01-01T00:00:00Z"
+      },
+      "verification": null,
+      "publication": null,
+      "created_at": "2026-08-06T09:00:00Z",
+      "updated_at": "2026-08-06T09:00:00Z"
+    },
+    {
+      "id": "2c4e6a80-1b3d-4f52-8a7c-9e0d1f2a3b4c",
+      "key": "2c4e6a80",
+      "project_id": "example",
+      "title": "Retry failed exports",
+      "brief": "",
+      "source": {
+        "kind": "prompt"
+      },
+      "workflow": "draft",
+      "attention": "none",
+      "repositories": [
+        {
+          "repository_id": "core",
+          "access": "read_write",
+          "base_commit": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+          "branch": "feat/2c4e6a80-retry-failed-exports",
+          "worktree_path": "/srv/state/worktrees/example/2c4e6a80/core",
+          "observation": null
+        }
+      ],
+      "session": null,
+      "runtime": null,
+      "verification": null,
+      "publication": null,
+      "created_at": "2026-08-06T09:00:00Z",
+      "updated_at": "2026-08-06T09:00:00Z"
+    },
+    {
+      "id": "3d5f7b91-2c4e-4a63-8b7d-0f1e2a3b4c5d",
+      "key": "3d5f7b91",
+      "project_id": "example",
+      "title": "Abandoned before it started",
+      "brief": "",
+      "source": {
+        "kind": "prompt"
+      },
+      "workflow": "archived",
+      "attention": "none",
+      "repositories": [
+        {
+          "repository_id": "core",
+          "access": "read_write",
+          "base_commit": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+          "branch": "feat/2c4e6a80-retry-failed-exports",
+          "worktree_path": "/srv/state/worktrees/example/2c4e6a80/core",
+          "observation": null
+        }
+      ],
+      "session": null,
+      "runtime": null,
+      "verification": null,
+      "publication": null,
+      "created_at": "2026-08-06T09:00:00Z",
+      "updated_at": "2026-08-06T09:00:00Z"
+    }
+  ]
+}

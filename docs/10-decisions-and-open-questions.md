@@ -475,6 +475,22 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   mount check speaks about a repository a task mounts no worktree of, because
   every claim they make is about a worktree.
 
+- **[ADR-099 — An invocation that says what the task is creates it, and the commands that read print a document when asked](decisions/ADR-099-an-invocation-that-says-what-the-task-is-creates-it-and.md)** · accepted  
+  `feat implement --project P --brief "…"` creates and launches the task,
+  terminal or not; an invocation that does not say what the task is opens the
+  preparation screen as it always did, and `--tui` asks for that screen anyway.
+  The confirmation FR-TASK-003 requires is the invocation, which extends ADR-031:
+  a terminal is required to compose a task and not to create one. `--dry-run`
+  prints the proposal and creates nothing, and `--ticket` still needs a terminal,
+  because what the user approves is the brief composed from a ticket rather than
+  the ticket. No `--yes` and no `--force`. `--json` prints the document the
+  command already holds, never by default, on the four reading commands and on
+  `feat implement`; an error never appears in a document, because the exit codes
+  already say it. The shape is pinned to the Go types in both directions by
+  `schema/feat-output.schema.json` and promised by nothing, which the public
+  preview decides. It takes up the item ADR-095 scheduled, in a different shape
+  from the one that decision sketched, for the reason in its evidence 3.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is

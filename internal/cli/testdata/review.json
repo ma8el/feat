@@ -1,0 +1,90 @@
+{
+  "task": {
+    "id": "",
+    "key": "7f3a1c2e",
+    "project_id": "",
+    "title": "Add a scheduled export job",
+    "brief": "",
+    "source": {
+      "kind": ""
+    },
+    "workflow": "verification_failed",
+    "attention": "",
+    "repositories": null,
+    "session": null,
+    "runtime": null,
+    "verification": null,
+    "publication": null,
+    "created_at": "0001-01-01T00:00:00Z",
+    "updated_at": "0001-01-01T00:00:00Z"
+  },
+  "review": {
+    "summary": "Added the export job.",
+    "checks": [
+      {
+        "id": "unit",
+        "repository_id": "core",
+        "status": "failed",
+        "reporter": "provider",
+        "ran_at": null
+      },
+      {
+        "id": "lint",
+        "repository_id": "core",
+        "status": "passed",
+        "reporter": "agent",
+        "ran_at": null
+      }
+    ],
+    "gated": true,
+    "requested_at": null
+  },
+  "repositories": [
+    {
+      "repository_id": "core",
+      "access": "read_write",
+      "worktree_path": "/srv/worktrees/app/7f3a1c2e/core",
+      "base_ref": "",
+      "base_commit": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+      "head_commit": "0011223344556677889900aabbccddeeff001122",
+      "changed_files": 7,
+      "insertions": 214,
+      "deletions": 36,
+      "dirty": true,
+      "ahead": 3,
+      "behind": 0,
+      "merged": false,
+      "summarized_at": null
+    },
+    {
+      "repository_id": "schema",
+      "access": "read_only",
+      "worktree_path": "/srv/worktrees/app/7f3a1c2e/schema",
+      "base_ref": "",
+      "base_commit": "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c",
+      "changed_files": 0,
+      "insertions": 0,
+      "deletions": 0,
+      "dirty": false,
+      "ahead": 0,
+      "behind": 0,
+      "merged": false,
+      "summarized_at": null
+    }
+  ],
+  "commands": [
+    {
+      "kind": "diff",
+      "repository_id": "core",
+      "program": "git",
+      "arguments": [
+        "diff",
+        "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
+      ],
+      "directory": "/srv/worktrees/app/7f3a1c2e/core"
+    }
+  ],
+  "notes": [
+    "core has 2 untracked file(s)"
+  ]
+}

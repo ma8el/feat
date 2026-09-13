@@ -54,7 +54,7 @@ feat implement --plan
 feat project init [<project>]
 feat project add <project>
 feat project list
-feat project show <project>
+feat project show <project> [--json]
 feat project tickets <project>
 feat project schema
 feat project example
@@ -64,9 +64,9 @@ feat settings show
 feat settings path
 feat settings init
 feat settings edit
-feat task list
+feat task list [--json]
 feat task attach <task>
-feat task review <task>
+feat task review <task> [--json]
 feat task publish <task>
 feat task resume <task>
 feat task stop <task>
@@ -74,7 +74,7 @@ feat task cleanup <task>
 feat runtime create <task>
 feat runtime start <task>
 feat runtime stop <task>
-feat runtime status <task>
+feat runtime status <task> [--json]
 feat runtime logs <task>
 feat runtime destroy <task> [--yes]
 feat doctor
@@ -85,6 +85,8 @@ feat daemon run
 `feat` without arguments opens the dashboard. `feat implement` opens task preparation and creates nothing until the user confirms the final task brief and repository selection. Confirming creates exactly what was displayed: a draft that changed since the plan was shown is refused rather than launched, and `--project` preselects the project without removing the confirmation. See ADR-031.
 
 `feat project tickets` runs the project's configured tracker command and lists what it printed. `feat implement --ticket` runs the same command and matches the reference it was given against the ones that command emitted; Feat parses no part of a reference, and passes the command no filter. Selecting a ticket — by that flag, or from the same list offered while the brief is being written — composes a brief from it into the field a typed prompt is written in, so the confirmation, the fingerprint, and every other invariant of preparation apply unchanged. What the confirmation displays is that composed brief rather than the ticket it came from. See ADR-070 and ADR-071.
+
+`--json` prints what the command holds as a document instead of a table, on the four commands that report. It is never the default: a person at a terminal is the default reader. Standard output then carries one document or nothing — an error goes to standard error and is said by the exit code, which is already what a script reads. `schema/feat-output.schema.json` describes every document and a test holds it to the Go types in both directions; what is promised about it is the public preview's decision rather than this one's. See ADR-099.
 
 `feat project add` takes the project's identifier, which is also its configuration file's name; the daemon reads the file from the configuration directory rather than from a path a caller supplies. See ADR-028.
 
