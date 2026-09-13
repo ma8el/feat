@@ -94,6 +94,32 @@
         "primary"
       ]
     },
+    "draft_plan": {
+      "type": "object",
+      "description": "The response of POST /v1/task-drafts/{draft_id}/plan.",
+      "properties": {
+        "fingerprint": {
+          "type": "string",
+          "description": "Identifies this exact draft, and is what launching carries back."
+        },
+        "notes": {
+          "type": "array",
+          "description": "What happened while resolving that the user should know about without it stopping the task, such as a fetch that failed while an older remote-tracking ref was still available.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "task": {
+          "$ref": "#/$defs/task",
+          "description": "The draft as it is now recorded, carrying every resolved base and every proposed branch and worktree path."
+        }
+      },
+      "required": [
+        "task",
+        "notes",
+        "fingerprint"
+      ]
+    },
     "execution": {
       "type": "object",
       "description": "The isolated environment one agent session runs in.",
@@ -442,7 +468,7 @@
         },
         "status": {
           "type": "string",
-          "description": "Passed, failed, skipped, or unknown. Unknown is a check that did not report \u2014 one that could not be started, or that ran out of time \u2014 and it is deliberately not a failure."
+          "description": "Passed, failed, skipped, or unknown. Unknown is a check that did not report — one that could not be started, or that ran out of time — and it is deliberately not a failure."
         }
       },
       "required": [
@@ -806,7 +832,7 @@
         },
         "services": {
           "type": "array",
-          "description": "What was observed: one entry per configured service, so that a service with no container is reported as one \u2014 a runtime missing half its services is not a runtime that is running \u2014 followed by everything else in the task's Compose project, which is everything Compose started because a configured service depends on it.",
+          "description": "What was observed: one entry per configured service, so that a service with no container is reported as one — a runtime missing half its services is not a runtime that is running — followed by everything else in the task's Compose project, which is everything Compose started because a configured service depends on it.",
           "items": {
             "$ref": "#/$defs/runtime_service"
           }
@@ -986,7 +1012,7 @@
         },
         "publication": {
           "$ref": "#/$defs/publication",
-          "description": "What the task has recorded about publishing \u2014 one entry per repository the last publication planned, with what came of it \u2014 or null for a task that has never published."
+          "description": "What the task has recorded about publishing — one entry per repository the last publication planned, with what came of it — or null for a task that has never published."
         },
         "repositories": {
           "type": "array",

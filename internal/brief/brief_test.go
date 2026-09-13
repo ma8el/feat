@@ -168,3 +168,75 @@ func TestAnEmptyFileIsNotThisPackagesToRefuse(t *testing.T) {
 		t.Errorf("text = %q, want the empty file's own contents", text)
 	}
 }
+
+// TestAStreamIsReadWholeUpToTheLimit is `feat implement --file -`: a brief the
+// caller generated and piped in, which has no path to record.
+func TestAStreamIsReadWholeUpToTheLimit(t *testing.T) {
+	text, err := brief.ReadFrom(strings.NewReader("# Piped\n\nDo the thing.\n"))
+	if err != nil {
+		t.Fatalf("reading a stream: %v", err)
+	}
+	if text != "# Piped\n\nDo the thing.\n" {
+		t.Errorf("text = %q, want the whole stream", text)
+	}
+}
+
+// TestAStreamAtTheLimitIsRead pins the boundary from the accepting side, so
+// that the one-byte overread below cannot be mistaken for an off-by-one.
+func TestAStreamAtTheLimitIsRead(t *testing.T) {
+	text, err := brief.ReadFrom(strings.NewReader(strings.Repeat("x", brief.MaxBytes)))
+	if err != nil {
+		t.Fatalf("reading a stream of exactly MaxBytes: %v", err)
+	}
+	if len(text) != brief.MaxBytes {
+		t.Errorf("read %d bytes, want %d", len(text), brief.MaxBytes)
+	}
+}
+
+// TestAStreamOverTheLimitIsRefused is the half a file gets for free. A stream
+// has no size to ask for in advance, so the limit can only be found by reading
+// past it.
+func TestAStreamOverTheLimitIsRefused(t *testing.T) {
+	_, err := brief.ReadFrom(strings.NewReader(strings.Repeat("x", brief.MaxBytes+1)))
+	if err == nil {
+		t.Fatal("a stream over the limit was accepted")
+	}
+	if !strings.Contains(err.Error(), "limit") {
+		t.Errorf("error = %q, want it to say what the limit is", err)
+	}
+}
+
+// TestATitleIsTheDocumentsOwnName checks what a headless run gets when it
+// passes no title of its own, and what the screen prefills a field with.
+func TestATitleIsTheDocumentsOwnName(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		document string
+		want     string
+	}{
+		{name: "heading", document: "# Rename the runtime\n\nDo it everywhere.\n", want: "Rename the runtime"},
+		{name: "deeper heading", document: "### Rename the runtime\n", want: "Rename the runtime"},
+		{name: "leading blank lines", document: "\n\n  # Rename the runtime\n", want: "Rename the runtime"},
+		{name: "no heading", document: "Rename the runtime everywhere.\n\nAnd then stop.\n",
+			want: "Rename the runtime everywhere."},
+		{name: "empty", document: "   \n\n", want: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := brief.Title(test.document); got != test.want {
+				t.Errorf("Title = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+// TestALongTitleIsCutToSomethingATaskRowCanShow counts runes rather than bytes,
+// because a title cut mid-character is not a title.
+func TestALongTitleIsCutToSomethingATaskRowCanShow(t *testing.T) {
+	title := brief.Title("# " + strings.Repeat("é", 200))
+	if runes := len([]rune(title)); runes != 72 {
+		t.Errorf("title is %d runes, want 72", runes)
+	}
+	if strings.ContainsRune(title, '�') {
+		t.Errorf("title = %q, and a cut that splits a character is not a cut", title)
+	}
+}

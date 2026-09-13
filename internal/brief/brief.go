@@ -1,11 +1,13 @@
-// Package brief reads a task brief out of a Markdown file the user named.
+// Package brief reads a task brief and says what to call it.
 //
 // It is one rule with two callers, and neither may import the other:
 // `feat implement --file` reads the file before a screen exists, and the import
 // screen reads the file a user typed into it. internal/ui cannot import
 // internal/cli — the dependency runs the other way — so the policy lives in a
 // package both can call rather than in whichever of them wrote it first
-// (ADR-083).
+// (ADR-083). Title is here for the same reason and arrived the same way: the
+// screen guessed a title from an imported document long before a headless run
+// needed one, and a second guess would be a second answer.
 //
 // The client reads the file and the daemon never learns its path: no
 // caller-supplied filesystem path crosses the socket (ADR-028). What is sent is
@@ -21,6 +23,7 @@ package brief
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,4 +84,55 @@ func Read(path string) (text, absolute string, err error) {
 		return "", "", fmt.Errorf("reading the task brief: %w", err)
 	}
 	return string(content), absolute, nil
+}
+
+// ReadFrom returns the text of a brief arriving on a stream.
+//
+// It is what `feat implement --file -` reads, and it carries no path: a brief a
+// caller piped in is text they supplied rather than a document on disk, so
+// there is nothing to record as its origin.
+//
+// MaxBytes is enforced by reading one byte past it. A stream has no size to ask
+// for in advance, so the only way to refuse an over-large one is to notice that
+// it did not end where it had to.
+func ReadFrom(reader io.Reader) (string, error) {
+	content, err := io.ReadAll(io.LimitReader(reader, MaxBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("reading the task brief: %w", err)
+	}
+	if len(content) > MaxBytes {
+		return "", fmt.Errorf("the task brief is longer than the limit of %d bytes", MaxBytes)
+	}
+	return string(content), nil
+}
+
+// Title derives a title from a brief.
+//
+// The first Markdown heading is what the document calls itself; failing that,
+// the first line of text is. A caller who can change it should offer that —
+// which is why guessing is worth doing at all — and a caller who cannot has a
+// title derived from words they wrote rather than none.
+func Title(document string) string {
+	for _, line := range strings.Split(document, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if heading := strings.TrimLeft(line, "#"); heading != line {
+			return truncate(strings.TrimSpace(heading))
+		}
+		return truncate(line)
+	}
+	return ""
+}
+
+// titleLimit keeps a derived title to something a task row can show.
+const titleLimit = 72
+
+func truncate(title string) string {
+	runes := []rune(title)
+	if len(runes) <= titleLimit {
+		return title
+	}
+	return strings.TrimSpace(string(runes[:titleLimit]))
 }

@@ -21,17 +21,18 @@ const outputSchemaFile = "../../schema/feat-output.schema.json"
 
 // documents are the printed shapes, by the name each carries in the schema.
 //
-// Two of them are the daemon's own answers, unchanged: a command that prints a
-// document prints what it was already given, so there is one model for the
+// Three of them are the daemon's own answers, unchanged: a command that prints
+// a document prints what it was already given, so there is one model for the
 // socket and for the command line rather than a second to keep in step. The
-// other two are the shapes that had none — the envelope a list needs to be an
-// object, and the resolved project configuration, which `feat project show`
-// reads from the configuration directory rather than over the socket.
+// other three are the shapes that had none — the envelope a list needs to be an
+// object, the resolved project configuration, and the plan a dry run prints.
 var documents = map[string]reflect.Type{
 	"task_list":             reflect.TypeOf(api.TaskList{}),
 	"review_status":         reflect.TypeOf(api.ReviewStatus{}),
 	"runtime_status":        reflect.TypeOf(api.RuntimeStatus{}),
 	"project_configuration": reflect.TypeOf(api.ProjectConfiguration{}),
+	"draft_plan":            reflect.TypeOf(api.DraftPlan{}),
+	"task":                  reflect.TypeOf(api.Task{}),
 }
 
 // TestOutputSchemaMatchesTheGoTypes keeps the published shape and the types
