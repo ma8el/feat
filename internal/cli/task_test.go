@@ -68,10 +68,12 @@ func draftTask() api.Task {
 	}
 }
 
-// listed renders tasks the way `feat task list` does.
+// listed renders tasks the way `feat task list` does, through the same
+// selection the document goes through.
 func listed(tasks []api.Task) string {
 	var out bytes.Buffer
-	printTasks(&out, tasks, listTime)
+	shown, archived := listedTasks(tasks, false)
+	printTasks(&out, shown, archived, false, listTime)
 	return out.String()
 }
 

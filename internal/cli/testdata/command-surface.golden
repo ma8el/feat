@@ -35,7 +35,7 @@ feat skill show
 feat task
 feat task attach <task>
 feat task cleanup <task>
-feat task list [--json]
+feat task list [--all] [--json]
 feat task publish <task>
 feat task resume <task>
 feat task review <task> [--json]

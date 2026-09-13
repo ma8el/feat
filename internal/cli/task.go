@@ -24,7 +24,8 @@ const taskListLong = `List tasks across every registered project.
 
 Drafts appear alongside launched tasks and are marked as drafts: a draft has no
 worktree, no branch, and no terminal until it is confirmed. Archived tasks,
-which a cancelled draft becomes, are counted rather than listed.
+which a cancelled draft and a cleaned-up task both become, are counted rather
+than listed; --all lists them too.
 
 A field this build cannot fill is shown as "-" rather than as a value that was
 never measured.
@@ -32,9 +33,8 @@ never measured.
 The TASK column is the short key derived from a task's identifier, and it is
 what every command that takes a task accepts.
 
---json prints every task, archived ones included, as a document. The table
-leaves them out because a screen has limited room; selecting on a task's
-workflow is what a script does anyway.`
+--json prints the same tasks as a document, with a count of how many archived
+tasks there are whether or not it shows them.`
 
 // taskArgument says what <task> is, wherever a command takes one.
 //
@@ -109,19 +109,61 @@ func newTaskListCommand(env *environment) *cobra.Command {
 			caller := client.New(layout.Socket)
 			defer caller.Close()
 
+			all, err := cmd.Flags().GetBool("all")
+			if err != nil {
+				return err
+			}
+
 			tasks, err := caller.Tasks(cmd.Context())
 			if err != nil {
 				return err
 			}
+
+			shown, archived := listedTasks(tasks, all)
 			if wantsJSON(cmd) {
-				return emitJSON(cmd.OutOrStdout(), api.NewTaskList(tasks))
+				return emitJSON(cmd.OutOrStdout(), api.TaskList{Tasks: shown, Archived: archived})
 			}
-			printTasks(cmd.OutOrStdout(), tasks, env.clock()())
+			printTasks(cmd.OutOrStdout(), shown, archived, all, env.clock()())
 			return nil
 		},
 	}
+	cmd.Flags().Bool("all", false, "include archived tasks, which are left out by default")
 	addJSONFlag(cmd)
 	return cmd
+}
+
+// listedTasks is what a list shows, in the order it shows them, and how many
+// archived tasks there are.
+//
+// It is one rule with two renderings, so that the table a person reads and the
+// document a script parses are the same answer to the same question. They
+// disagreed once: the table hid archived tasks and counted them, and the
+// document carried every one. Archived is terminal and nothing prunes it, so
+// that document grew without bound while the table stayed the same size.
+//
+// The count is of every archived task, whether or not this list shows them. It
+// is a fact about the tasks rather than about the rendering, which is what lets
+// it mean the same thing in both: with --all it says how many of these are
+// archived, and without it how many are not here.
+func listedTasks(tasks []api.Task, all bool) (shown []api.Task, archived int) {
+	shown = make([]api.Task, 0, len(tasks))
+	for _, task := range tasks {
+		if task.Workflow == "archived" {
+			archived++
+			if !all {
+				continue
+			}
+		}
+		shown = append(shown, task)
+	}
+
+	sort.SliceStable(shown, func(i, j int) bool {
+		if !shown[i].CreatedAt.Equal(shown[j].CreatedAt) {
+			return shown[i].CreatedAt.After(shown[j].CreatedAt)
+		}
+		return shown[i].ID < shown[j].ID
+	})
+	return shown, archived
 }
 
 // printTasks renders the task list.
@@ -130,39 +172,27 @@ func newTaskListCommand(env *environment) *cobra.Command {
 // the Claude adapter and resource usage from the resource monitor; either is
 // shown as absent rather than dropped when there is nothing to report. PR state
 // is not required in v0.
-func printTasks(out io.Writer, tasks []api.Task, now time.Time) {
-	active, archived := 0, 0
-	for _, task := range tasks {
-		if task.Workflow == "archived" {
-			archived++
-			continue
-		}
-		active++
+func printTasks(out io.Writer, tasks []api.Task, archived int, all bool, now time.Time) {
+	// The line below is about what is missing, so it appears only when
+	// something is: a run that asked for every task is not missing any.
+	missing := 0
+	if !all {
+		missing = archived
 	}
 
-	if active == 0 {
+	if len(tasks) == 0 {
 		printf(out, "no tasks\n")
 		printf(out, "prepare one with `feat implement`\n")
-		if archived > 0 {
-			printf(out, "%d archived %s not shown\n", archived, plural(archived, "task", "tasks"))
+		if missing > 0 {
+			printf(out, "%d archived %s not shown; pass --all to list them\n",
+				missing, plural(missing, "task", "tasks"))
 		}
 		return
 	}
 
-	ordered := append([]api.Task(nil), tasks...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		if !ordered[i].CreatedAt.Equal(ordered[j].CreatedAt) {
-			return ordered[i].CreatedAt.After(ordered[j].CreatedAt)
-		}
-		return ordered[i].ID < ordered[j].ID
-	})
-
 	rows := &table{}
 	rows.add("TASK", "PROJECT", "TITLE", "WORKFLOW", "AGENT", "ATTENTION", "RUNTIME", "FILES", "ELAPSED")
-	for _, task := range ordered {
-		if task.Workflow == "archived" {
-			continue
-		}
+	for _, task := range tasks {
 		rows.add(
 			task.Key,
 			task.ProjectID,
@@ -177,8 +207,9 @@ func printTasks(out io.Writer, tasks []api.Task, now time.Time) {
 	}
 	rows.render(out, "")
 
-	if archived > 0 {
-		printf(out, "\n%d archived %s not shown\n", archived, plural(archived, "task", "tasks"))
+	if missing > 0 {
+		printf(out, "\n%d archived %s not shown; pass --all to list them\n",
+			missing, plural(missing, "task", "tasks"))
 	}
 }
 

@@ -468,7 +468,7 @@
         },
         "status": {
           "type": "string",
-          "description": "Passed, failed, skipped, or unknown. Unknown is a check that did not report — one that could not be started, or that ran out of time — and it is deliberately not a failure."
+          "description": "Passed, failed, skipped, or unknown. Unknown is a check that did not report \u2014 one that could not be started, or that ran out of time \u2014 and it is deliberately not a failure."
         }
       },
       "required": [
@@ -832,7 +832,7 @@
         },
         "services": {
           "type": "array",
-          "description": "What was observed: one entry per configured service, so that a service with no container is reported as one — a runtime missing half its services is not a runtime that is running — followed by everything else in the task's Compose project, which is everything Compose started because a configured service depends on it.",
+          "description": "What was observed: one entry per configured service, so that a service with no container is reported as one \u2014 a runtime missing half its services is not a runtime that is running \u2014 followed by everything else in the task's Compose project, which is everything Compose started because a configured service depends on it.",
           "items": {
             "$ref": "#/$defs/runtime_service"
           }
@@ -1012,7 +1012,7 @@
         },
         "publication": {
           "$ref": "#/$defs/publication",
-          "description": "What the task has recorded about publishing — one entry per repository the last publication planned, with what came of it — or null for a task that has never published."
+          "description": "What the task has recorded about publishing \u2014 one entry per repository the last publication planned, with what came of it \u2014 or null for a task that has never published."
         },
         "repositories": {
           "type": "array",
@@ -1090,18 +1090,23 @@
     },
     "task_list": {
       "type": "object",
-      "description": "The document `feat task list --json` prints.",
+      "description": "The document `feat task list --json` prints. It is an envelope around the array rather than the array itself, so that every printed document is an object and a field can be added to one without changing what a parser is looking at.",
       "properties": {
         "tasks": {
           "type": "array",
-          "description": "Every task the daemon knows about, archived ones included.",
+          "description": "The tasks the list shows, newest first.",
           "items": {
             "$ref": "#/$defs/task"
           }
+        },
+        "archived": {
+          "type": "integer",
+          "description": "How many archived tasks there are, whether or not this list shows them. Archived is terminal and nothing prunes it, so a list that carried every one would grow without bound while the tasks somebody is working on stayed few; they are left out unless --all was given, and this is what says how many. It counts the same tasks either way, because it is a fact about the tasks rather than about the list."
         }
       },
       "required": [
-        "tasks"
+        "tasks",
+        "archived"
       ]
     },
     "task_repository": {

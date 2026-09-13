@@ -19,19 +19,25 @@ package api
 // every document this CLI prints is an object and a field can be added to one
 // without changing what a parser is looking at.
 //
-// It carries archived tasks, which the table counts and does not show. Room on
-// a screen is why a table hides them; a document has no such limit, and
-// selecting on `workflow` is what a script does anyway.
+// It holds what the table holds. Archived is why the envelope earns its place:
+// a list that quietly left tasks out would be a document a caller could not
+// tell was partial.
 type TaskList struct {
+	// Tasks are the tasks the list shows, newest first.
 	Tasks []Task `json:"tasks"`
-}
-
-// NewTaskList wraps a task list as the document that prints.
-func NewTaskList(tasks []Task) TaskList {
-	if tasks == nil {
-		return TaskList{Tasks: []Task{}}
-	}
-	return TaskList{Tasks: tasks}
+	// Archived is how many archived tasks there are, whether or not this list
+	// shows them.
+	//
+	// Archived is terminal and nothing prunes it: every task ever cleaned up and
+	// every draft ever abandoned stays, so a list that carried them would grow
+	// without bound while the tasks somebody is working on stayed few. They are
+	// left out unless --all was given, and this is what says how many — so a
+	// caller can tell a partial list from a whole one.
+	//
+	// It counts the same tasks either way, because it is a fact about the tasks
+	// rather than about the list. Saying nought under --all would be a document
+	// reporting no archived tasks while carrying them.
+	Archived int `json:"archived"`
 }
 
 // ProjectConfiguration is the document `feat project show --json` prints: the

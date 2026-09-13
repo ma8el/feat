@@ -83,6 +83,16 @@ Evidence:
    ADR-094 recorded what this repository does about duplication that is not
    mandated by a boundary, and nothing mandates this one.
 
+9. **Archived is terminal and nothing prunes it.** A cleaned-up task and an
+   abandoned draft both become archived, and no command removes one: ADR-037
+   archives task metadata rather than deleting it, on purpose. So the set only
+   grows, and it grows fastest for exactly the caller this decision is for — a
+   script that rehearses with `--dry-run` archives a draft each time. Measured
+   on the first run of this work: three rehearsals and one launch left a table
+   of two rows and a document of five records, each carrying its whole brief. A
+   list that carried them would be unbounded where the list a person reads is
+   not, and the divergence was noticed by the first person to read both.
+
 Decisions:
 
 - **An invocation that fully specifies a task creates it, terminal or not; one
@@ -120,13 +130,28 @@ Decisions:
   default.** `feat task list`, `feat task review`, `feat runtime status`, `feat
   project show`, and `feat implement` take the flag; a person at a terminal is
   the default reader and the table is for them. `feat task list` wraps its array
-  in an object so that every printed document is one, and carries the archived
-  tasks the table hides, because room on a screen is why a table hides them and a
-  document has no such limit. `feat project show` is the one command with no
+  in an object so that every printed document is one. `feat project show` is the one command with no
   document already: it reads the configuration directory rather than the socket,
   so `api.ProjectConfiguration` describes what it prints — the mount mapping
   typed, and the rest as the resolved names and values the table shows, rather
   than a second model of the file `schema/feat-project.schema.json` describes.
+
+- **A filter belongs to the command, not to a rendering: `feat task list --all`
+  includes archived tasks in both.** Evidence 9. Without it the list holds what
+  the table has always held, so a caller can tell a partial list from a whole
+  one. The first form of this decision had the document carry every archived
+  task on the grounds that a screen has limited room and a document does not;
+  what that missed is that the set is unbounded, and it made one command give
+  two different answers depending on how it was asked.
+
+- **The count in the document is of archived tasks, not of omissions.** It
+  reports how many archived tasks there are whether or not the list shows them,
+  so it means one thing in both forms: with `--all`, how many of these are
+  archived; without it, how many are not here. A count of what the list left out
+  would read as nought under `--all` — a document reporting no archived tasks
+  while carrying three of them, which is the misreading a reader would make and
+  be right to. The rendering's own choices are not facts about the tasks, and a
+  document should carry the facts.
 
 - **An error does not appear in the document.** Standard output carries one
   document or nothing; the message goes to standard error and the process exits

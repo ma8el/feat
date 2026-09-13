@@ -68,7 +68,7 @@ feat settings show
 feat settings path
 feat settings init
 feat settings edit
-feat task list [--json]
+feat task list [--all] [--json]
 feat task attach <task>
 feat task review <task> [--json]
 feat task publish <task>
@@ -92,7 +92,7 @@ An invocation that says what the task is creates it, terminal or not: `--project
 
 `feat project tickets` runs the project's configured tracker command and lists what it printed. `feat implement --ticket` runs the same command and matches the reference it was given against the ones that command emitted; Feat parses no part of a reference, and passes the command no filter. Selecting a ticket — by that flag, or from the same list offered while the brief is being written — composes a brief from it into the field a typed prompt is written in, so the confirmation, the fingerprint, and every other invariant of preparation apply unchanged. What the confirmation displays is that composed brief rather than the ticket it came from, which is why `--ticket` needs a terminal and never creates a task on its own. See ADR-070, ADR-071, and ADR-099.
 
-`--json` prints what the command holds as a document instead of a table, on the four commands that report and on `feat implement`. It is never the default: a person at a terminal is the default reader. Standard output then carries one document or nothing — an error goes to standard error and is said by the exit code, which is already what a script reads. `schema/feat-output.schema.json` describes every document and a test holds it to the Go types in both directions; what is promised about it is the public preview's decision rather than this one's. See ADR-099.
+`--json` prints what the command holds as a document instead of a table, on the four commands that report and on `feat implement`. It is never the default: a person at a terminal is the default reader. It renders the answer the command already gives rather than a second one: `feat task list` leaves out archived tasks unless `--all` is given, in the table and in the document alike, and the document counts them either way so that a caller can tell a partial list from a whole one. Standard output then carries one document or nothing — an error goes to standard error and is said by the exit code, which is already what a script reads. `schema/feat-output.schema.json` describes every document and a test holds it to the Go types in both directions; what is promised about it is the public preview's decision rather than this one's. See ADR-099.
 
 `feat project add` takes the project's identifier, which is also its configuration file's name; the daemon reads the file from the configuration directory rather than from a path a caller supplies. See ADR-028.
 

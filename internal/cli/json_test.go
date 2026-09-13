@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ma8el/feat/internal/api"
 )
@@ -19,34 +20,117 @@ import (
 // The fixtures are the same wire payloads the table tests render, so the two
 // renderings of one response cannot drift apart in a way no test notices.
 
+// archivedTask is a draft that was abandoned before anything was created.
+func archivedTask() api.Task {
+	task := draftTask()
+	task.ID = "3d5f7b91-2c4e-4a63-8b7d-0f1e2a3b4c5d"
+	task.Key = "3d5f7b91"
+	task.Title = "Abandoned before it started"
+	task.Workflow = "archived"
+	return task
+}
+
 // TestTaskListDocument pins what `feat task list --json` prints.
 //
-// The archived task is in the fixture on purpose: the table counts it and does
-// not show it, and the document carries it, which is the one place the two
-// renderings deliberately disagree.
+// The archived task in the fixture is left out and counted, which is what the
+// table does with it: one selection, two renderings.
 func TestTaskListDocument(t *testing.T) {
-	archived := draftTask()
-	archived.ID = "3d5f7b91-2c4e-4a63-8b7d-0f1e2a3b4c5d"
-	archived.Key = "3d5f7b91"
-	archived.Title = "Abandoned before it started"
-	archived.Workflow = "archived"
+	shown, archived := listedTasks([]api.Task{launchedTask(), draftTask(), archivedTask()}, false)
 
 	var out bytes.Buffer
-	if err := emitJSON(&out, api.NewTaskList([]api.Task{launchedTask(), draftTask(), archived})); err != nil {
+	if err := emitJSON(&out, api.TaskList{Tasks: shown, Archived: archived}); err != nil {
 		t.Fatalf("printing the task list: %v", err)
 	}
 	compareDocument(t, "task-list.json", out.String())
+}
+
+// TestTheDocumentAndTheTableShowTheSameTasks is the property the count exists
+// to keep: what a script parses and what a person reads are the same answer to
+// the same question, including which tasks are in it.
+func TestTheDocumentAndTheTableShowTheSameTasks(t *testing.T) {
+	fixture := []api.Task{launchedTask(), draftTask(), archivedTask()}
+
+	for _, all := range []bool{false, true} {
+		shown, archived := listedTasks(fixture, all)
+
+		var table bytes.Buffer
+		printTasks(&table, shown, archived, all, listTime)
+
+		for _, task := range fixture {
+			listed := strings.Contains(table.String(), task.Key)
+			carried := false
+			for _, one := range shown {
+				if one.Key == task.Key {
+					carried = true
+				}
+			}
+			if listed != carried {
+				t.Errorf("--all=%v: the table %s task %s and the document %s it",
+					all, saidOrNot(listed), task.Key, saidOrNot(carried))
+			}
+		}
+	}
+}
+
+func saidOrNot(shown bool) string {
+	if shown {
+		return "shows"
+	}
+	return "leaves out"
+}
+
+// TestArchivedTasksAreLeftOutAndCounted.
+//
+// Archived is terminal and nothing prunes it, so a document that carried every
+// archived task would grow without bound while the tasks somebody is working on
+// stayed few. The count is what stops a caller mistaking a partial list for the
+// whole one.
+func TestArchivedTasksAreLeftOutAndCounted(t *testing.T) {
+	fixture := []api.Task{launchedTask(), draftTask(), archivedTask()}
+
+	shown, archived := listedTasks(fixture, false)
+	if len(shown) != 2 {
+		t.Errorf("the list carries %d tasks, want the two that are not archived", len(shown))
+	}
+	if archived != 1 {
+		t.Errorf("archived = %d, want the one left out", archived)
+	}
+
+	shown, archived = listedTasks(fixture, true)
+	if len(shown) != 3 {
+		t.Errorf("--all carries %d tasks, want every one", len(shown))
+	}
+	// The same number either way. It counts archived tasks rather than the
+	// list's own omissions, so a document carrying three of them never reports
+	// that there are none.
+	if archived != 1 {
+		t.Errorf("--all reports %d archived tasks while carrying one", archived)
+	}
+}
+
+// TestTheListIsNewestFirstInBothRenderings, so that a caller reading the
+// document and a person reading the table see the same task at the top.
+func TestTheListIsNewestFirstInBothRenderings(t *testing.T) {
+	older, newer := draftTask(), launchedTask()
+	older.CreatedAt = created.Add(-time.Hour)
+
+	shown, _ := listedTasks([]api.Task{older, newer}, false)
+	if len(shown) != 2 || shown[0].Key != newer.Key {
+		t.Errorf("the list starts with %+v, want the newest task first", shown)
+	}
 }
 
 // TestAnEmptyTaskListIsAnEmptyList checks the shape a machine reads when a
 // person would be told "no tasks": a document with nothing in it, rather than
 // the advice that follows the table or a null the caller has to guard.
 func TestAnEmptyTaskListIsAnEmptyList(t *testing.T) {
+	shown, archived := listedTasks(nil, false)
+
 	var out bytes.Buffer
-	if err := emitJSON(&out, api.NewTaskList(nil)); err != nil {
+	if err := emitJSON(&out, api.TaskList{Tasks: shown, Archived: archived}); err != nil {
 		t.Fatalf("printing an empty task list: %v", err)
 	}
-	if got := strings.TrimSpace(out.String()); got != "{\n  \"tasks\": []\n}" {
+	if got := strings.TrimSpace(out.String()); got != "{\n  \"tasks\": [],\n  \"archived\": 0\n}" {
 		t.Errorf("an empty list printed as:\n%s", got)
 	}
 }
