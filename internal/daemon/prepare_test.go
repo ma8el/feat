@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -99,6 +100,15 @@ type fakeGit struct {
 	// branches are the refs the fake has, so a deletion can report whether
 	// there was anything to delete.
 	branches map[string]bool
+	// contained makes the recorded base ref contain every branch, which is what
+	// `merge-base --is-ancestor` answers and what Feat's plan asks.
+	contained bool
+	// headBehind makes `git branch -d` refuse, the way it does in a checkout
+	// whose HEAD is behind the ref a task branched from. It is a separate
+	// setting from contained because the two questions are separate, and the
+	// pair of them is the state ADR-097 is about: Feat says contained, Git says
+	// not fully merged, and both are right.
+	headBehind bool
 	// failRemove makes removing a worktree fail once its path ends in this
 	// repository identifier.
 	failRemove string
@@ -232,7 +242,10 @@ func (f *fakeGit) RunWith(_ context.Context, dir string, env []string, args ...s
 		// never collides and a base policy that is not remote is visibly
 		// unresolvable — except for a branch the fake has been told exists,
 		// which is how a cleanup finds something to delete.
-		ref := args[len(args)-1]
+		// The peel suffix is stripped the way the package's own resolution
+		// strips it, so a branch a test says exists is found under the name it
+		// gave rather than under the name plus `^{commit}`.
+		ref := strings.TrimSuffix(args[len(args)-1], "^{commit}")
 		if strings.HasPrefix(ref, "refs/remotes/") {
 			f.mu.Lock()
 			defer f.mu.Unlock()
@@ -292,6 +305,15 @@ func (f *fakeGit) RunWith(_ context.Context, dir string, env []string, args ...s
 				Stderr: "error: branch '" + name + "' not found",
 			}
 		}
+		// Git's own refusal, in Git's own words. A fake that deleted whatever it
+		// was handed would let a caller that chose `-d` pass here and fail on a
+		// real checkout.
+		if f.headBehind && !slices.Contains(args, "-D") {
+			return "", &git.ExitError{
+				Args: args, Dir: dir, Code: 1,
+				Stderr: "error: the branch '" + name + "' is not fully merged",
+			}
+		}
 		delete(f.branches, name)
 		return "", nil
 
@@ -349,6 +371,11 @@ func (f *fakeGit) RunWith(_ context.Context, dir string, env []string, args ...s
 		return strconv.Itoa(f.ahead), nil
 
 	case args[0] == "merge-base":
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.contained {
+			return "", nil
+		}
 		return "", &git.ExitError{Args: args, Dir: dir, Code: 1}
 
 	default:

@@ -99,8 +99,16 @@ type BranchTarget struct {
 	HostPath string
 	// Present reports whether the branch exists now.
 	Present bool
-	// Merged reports whether the base ref contains the branch tip.
-	Merged bool
+	// Contained reports whether the ref the branch was made from contains its
+	// tip.
+	//
+	// It is deliberately not called merged. `git branch -d` uses that word for a
+	// different question — containment by the checkout's HEAD, or by the
+	// branch's own upstream, which a task branch never has — and the two answers
+	// disagree on any checkout whose HEAD is behind the base ref, which is the
+	// ordinary state under a remote base policy. Treating them as one answer is
+	// the defect ADR-097 records.
+	Contained bool
 	// Unpushed counts commits that exist only here. Without a remote-tracking
 	// branch, every commit the task made is unpushed.
 	Unpushed int
@@ -249,13 +257,18 @@ func (g *Git) branchTarget(ctx context.Context, repository CleanupRepository) (B
 		return target, problems
 	}
 
+	// Containment is asked about the recorded base ref and about nothing else. A
+	// base ref that is not configured, is no longer there, or cannot be compared
+	// leaves the answer at false, which warns and asks — the conservative end of
+	// a question Feat is deciding a force flag from (ADR-097).
 	if repository.BaseRef != "" {
-		if contained, err := g.Exists(ctx, repository.HostPath, repository.BaseRef); err == nil && contained {
-			merged, err := g.IsAncestor(ctx, repository.HostPath, ref, repository.BaseRef)
+		if present, err := g.Exists(ctx, repository.HostPath, repository.BaseRef); err == nil && present {
+			contained, err := g.IsAncestor(ctx, repository.HostPath, ref, repository.BaseRef)
 			if err != nil {
-				problem("checking whether branch %s is merged failed: %s", repository.Branch, err)
+				problem("checking whether %s contains branch %s failed: %s",
+					repository.BaseRef, repository.Branch, err)
 			} else {
-				target.Merged = merged
+				target.Contained = contained
 			}
 		}
 	}
@@ -288,7 +301,7 @@ func (g *Git) branchTarget(ctx context.Context, repository CleanupRepository) (B
 		target.Warnings = append(target.Warnings, fmt.Sprintf(
 			"the branch has %d unpushed commit%s", target.Unpushed, suffix(target.Unpushed)))
 	}
-	if !target.Merged {
+	if !target.Contained {
 		target.Warnings = append(target.Warnings, "the branch is not merged into "+repository.BaseRef)
 	}
 	return target, problems

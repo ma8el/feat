@@ -117,6 +117,11 @@ type CleanupRemoval struct {
 	Identity string `json:"identity"`
 	// Removed reports whether there was something to remove.
 	Removed bool `json:"removed"`
+	// Note is how the removal was performed, where that was not the only way it
+	// could have been. It is empty for the ordinary case, and carries the
+	// evidence behind a forced removal otherwise, so the event log says why one
+	// was allowed rather than only that it happened (ADR-097).
+	Note string `json:"note,omitempty"`
 }
 
 // CleanupResult is what the daemon reports after a cleanup.

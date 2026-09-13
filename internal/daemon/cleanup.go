@@ -124,6 +124,7 @@ func (s *service) resolveGitCleanup(
 			Detail:     "the task branch in " + branch.HostPath,
 			Present:    branch.Present,
 			Warnings:   branch.Warnings,
+			Contained:  branch.Contained,
 		})
 	}
 	for _, problem := range inventory.Problems {
@@ -789,12 +790,23 @@ func (s *service) removeBranches(
 	var removed []api.CleanupRemoval
 	for _, target := range plan.For(reconcile.ClassBranches) {
 		req := request[target.Repository]
+		// Two answers, carried separately because they are separate questions.
+		// The confirmation is what permits discarding work the base ref does not
+		// have; the containment answer is what keeps Feat from asking Git the
+		// question it never asked — `-d` tests the checkout's HEAD, and a
+		// checkout that has fetched is routinely behind the base ref a task
+		// branched from (ADR-097).
 		req.Force = target.Risky()
+		req.Contained = target.Contained
 
-		gone, err := s.git.DeleteBranch(ctx, target.Identity, req)
-		removed = append(removed, api.CleanupRemoval{
-			Class: string(reconcile.ClassBranches), Identity: target.Identity, Removed: gone,
-		})
+		deletion, err := s.git.DeleteBranch(ctx, target.Identity, req)
+		entry := api.CleanupRemoval{
+			Class: string(reconcile.ClassBranches), Identity: target.Identity, Removed: deletion.Deleted,
+		}
+		if deletion.Forced {
+			entry.Note = "forced, because " + deletion.Reason
+		}
+		removed = append(removed, entry)
 		if err != nil {
 			return removed, err
 		}
@@ -835,6 +847,10 @@ func (s *service) gitRemoveRequest(task *domain.Task) (map[domain.RepositoryID]g
 			Root:       root,
 			ProjectDir: projectDir,
 			Checkouts:  checkouts,
+			// Recorded rather than resolved: it names the evidence a forced
+			// branch deletion rests on, in what the cleanup reports and in the
+			// error if one fails. Nothing here decides anything from it.
+			BaseRef: binding.BaseRef,
 		}
 	}
 	return requests, nil
@@ -948,9 +964,16 @@ func (s *service) recordCleanup(
 ) {
 	names := make([]string, 0, len(removed))
 	for _, entry := range removed {
-		if entry.Removed {
-			names = append(names, entry.Identity)
+		if !entry.Removed {
+			continue
 		}
+		// With the note where there is one, because the log is where a removal
+		// that overrode a tool's own refusal leaves its account (ADR-097).
+		if entry.Note != "" {
+			names = append(names, entry.Identity+" ("+entry.Note+")")
+			continue
+		}
+		names = append(names, entry.Identity)
 	}
 
 	detail := "removed the " + class.Title()

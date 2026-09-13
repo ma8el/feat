@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -210,6 +211,133 @@ func TestNothingIsPrunedThatIsNotAnEmptyDirectoryBelowTheRoot(t *testing.T) {
 	for _, broad := range []string{"", "/", "/tmp"} {
 		if pruned := pruneGeneratedDirectories(filepath.Join(dir, "api"), RemoveRequest{Root: broad}); len(pruned) != 0 {
 			t.Errorf("a root of %q pruned %v", broad, pruned)
+		}
+	}
+}
+
+// branchFixture arranges a checkout whose HEAD is behind the ref a task branched
+// from — the ordinary state of any checkout that fetches, under a remote base
+// policy.
+//
+// That is the whole reproduction. `refs/heads/main` is where the last pull left
+// it, `refs/remotes/origin/main` has moved on, and the task branch was made from
+// the second, so Feat's question about it is answered yes and Git's is answered
+// no. containedByHead is left empty for the task branch, which is what makes
+// `git branch -d` refuse.
+func branchFixture(t *testing.T) (*fakeGit, string) {
+	t.Helper()
+
+	branch := "feat/0f8fad5b-a-title"
+	fake := newFakeGit()
+	fake.add("/checkout/api", &fakeRepository{
+		refs: map[string]string{
+			"refs/heads/" + branch:     commit("beef"),
+			"refs/remotes/origin/main": commit("beef"),
+			"refs/heads/main":          commit("1234"),
+			"HEAD":                     commit("1234"),
+		},
+		head:            "refs/heads/main",
+		containedByHead: map[string]bool{"main": true},
+	})
+	return fake, branch
+}
+
+// TestAContainedBranchIsDeletedWithoutAskingGitAboutHead is the flag decision,
+// and the defect it was changed for.
+//
+// Feat established that the ref the task branched from contains the branch, so
+// nothing is at risk, so the plan carries no warning — and a force derived from
+// the warnings therefore could not exist. `git branch -d` asks a different
+// question, about the checkout's HEAD, and answers it no. The deletion has to
+// follow what Feat established or it fails on every checkout that has fetched,
+// with nothing the user can select to change it (ADR-097).
+func TestAContainedBranchIsDeletedWithoutAskingGitAboutHead(t *testing.T) {
+	fake, branch := branchFixture(t)
+	adapter := New(fake)
+
+	deletion, err := adapter.DeleteBranch(context.Background(), branch, RemoveRequest{
+		HostPath:  "/checkout/api",
+		Contained: true,
+		BaseRef:   "refs/remotes/origin/main",
+	})
+	if err != nil {
+		t.Fatalf("deleting a branch its base ref contains: %v", err)
+	}
+	if !deletion.Deleted || !deletion.Forced {
+		t.Fatalf("the deletion reported %+v, want it deleted and forced", deletion)
+	}
+	// The evidence, not just the fact. A removal that overrode Git's own refusal
+	// says what it rested on, and the recorded base ref is that.
+	if !strings.Contains(deletion.Reason, "refs/remotes/origin/main") {
+		t.Errorf("the reason is %q, want it to name the ref containment was established against", deletion.Reason)
+	}
+	if !fake.ran("branch", "-D", "--", branch) {
+		t.Errorf("the deletion ran %v, want `branch -D -- %s`", fake.vectors(), branch)
+	}
+}
+
+// TestAnUncontainedBranchStillNeedsTheConfirmation is the half the change must
+// not weaken.
+//
+// A branch the base ref does not contain holds commits nothing else has. It
+// warns, and it is deleted only from a confirmation the user gave against that
+// warning (FR-CLEAN-003). Nothing about containment reaches it.
+func TestAnUncontainedBranchStillNeedsTheConfirmation(t *testing.T) {
+	fake, branch := branchFixture(t)
+	adapter := New(fake)
+	request := RemoveRequest{HostPath: "/checkout/api", BaseRef: "refs/remotes/origin/main"}
+
+	deletion, err := adapter.DeleteBranch(context.Background(), branch, request)
+	if err == nil {
+		t.Fatal("a branch that is neither contained nor confirmed was deleted")
+	}
+	if deletion.Forced {
+		t.Errorf("the refused deletion reported %+v, want nothing forced", deletion)
+	}
+	if !fake.ran("branch", "-d", "--", branch) {
+		t.Errorf("the deletion ran %v, want `branch -d -- %s`", fake.vectors(), branch)
+	}
+	// The error is in the plan's terms before it is in Git's. The failure this
+	// replaced said only that Git found the branch unmerged, which contradicted
+	// the plan the user had just read.
+	for _, want := range []string{"-d", "contained", "confirmed"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %v, want it to mention %q", err, want)
+		}
+	}
+
+	confirmed := request
+	confirmed.Force = true
+	deletion, err = adapter.DeleteBranch(context.Background(), branch, confirmed)
+	if err != nil {
+		t.Fatalf("a confirmed deletion of unmerged work failed: %v", err)
+	}
+	if !deletion.Deleted || !deletion.Forced {
+		t.Fatalf("the deletion reported %+v, want it deleted and forced", deletion)
+	}
+	if !strings.Contains(deletion.Reason, "confirmed") {
+		t.Errorf("the reason is %q, want it to name the confirmation", deletion.Reason)
+	}
+}
+
+// TestDeletingABranchThatIsAlreadyGoneRunsNoCommand keeps a partial cleanup
+// finishable: the user asked for the branch to be absent, and it is.
+func TestDeletingABranchThatIsAlreadyGoneRunsNoCommand(t *testing.T) {
+	fake, _ := branchFixture(t)
+	adapter := New(fake)
+
+	deletion, err := adapter.DeleteBranch(context.Background(), "feat/never-existed", RemoveRequest{
+		HostPath: "/checkout/api", Contained: true, BaseRef: "refs/remotes/origin/main",
+	})
+	if err != nil {
+		t.Fatalf("deleting an absent branch: %v", err)
+	}
+	if deletion.Deleted || deletion.Forced {
+		t.Errorf("the deletion reported %+v, want nothing deleted and nothing forced", deletion)
+	}
+	for _, vector := range fake.vectors() {
+		if strings.HasPrefix(vector, "branch ") {
+			t.Errorf("deleting an absent branch ran %q", vector)
 		}
 	}
 }

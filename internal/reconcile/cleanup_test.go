@@ -158,6 +158,41 @@ func TestAWarningThatAppearedSinceThePlanIsRefused(t *testing.T) {
 	}
 }
 
+// TestContainmentIsAnObservationRatherThanPartOfThePlan keeps the containment
+// answer where the warnings are.
+//
+// A branch becomes contained when the work it holds is merged, which can happen
+// between the plan being displayed and the cleanup being executed. That is the
+// same resource with a fresher answer, not a different one, so it must not
+// expire the token — and the confirmation the user gave against a plan that
+// warned about the branch must still be enough once it no longer does.
+func TestContainmentIsAnObservationRatherThanPartOfThePlan(t *testing.T) {
+	unmerged := plan(Target{
+		Class: ClassBranches, Identity: "feat/7f3a1c2e", Present: true,
+		Warnings: []string{"the branch is not merged into refs/remotes/origin/main"},
+	})
+	selection := choose(unmerged, ClassBranches)
+
+	merged := plan(Target{
+		Class: ClassBranches, Identity: "feat/7f3a1c2e", Present: true, Contained: true,
+	})
+	if unmerged.Token() != merged.Token() {
+		t.Fatal("the token changed because a branch became contained: " +
+			"a plan must not expire because somebody merged the work")
+	}
+	if err := merged.Check(selection); err != nil {
+		t.Errorf("a branch that became contained refused a selection made against it: %v", err)
+	}
+	if !merged.For(ClassBranches)[0].Contained {
+		t.Error("the containment answer did not survive into the target an adapter is given")
+	}
+	// And a contained branch is not risky, which is the whole reason the
+	// deletion flag could not be derived from the warnings (ADR-097).
+	if merged.For(ClassBranches)[0].Risky() {
+		t.Error("a contained branch was reported risky, so it would have had a warning to confirm")
+	}
+}
+
 // TestAPlanThatGainedOrLostAResourceIsRefused is the other half of the token's
 // job: what is removed has to be what the user read.
 func TestAPlanThatGainedOrLostAResourceIsRefused(t *testing.T) {

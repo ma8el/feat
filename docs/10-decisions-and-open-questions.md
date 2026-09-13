@@ -451,6 +451,14 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   log. It amends the reasoning ADR-036 recorded about when a gate may be assumed
   dead.
 
+- **[ADR-097 — A branch is deleted on the containment Feat established, not the one `git branch -d` asks about](decisions/ADR-097-a-branch-is-deleted-on-the-containment-feat-established.md)** · accepted  
+  Feat asks whether the base ref contains the branch; `git branch -d` asks about
+  HEAD. On any checkout that has fetched the two disagree, so a branch the plan
+  called merged carried no warning, got no force, and was refused by Git on every
+  retry while the archive refused to strand it. The flag now follows Feat's own
+  containment answer and the removal records what it forced on; an uncontained
+  branch still warns and is still deleted only on a confirmation.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is

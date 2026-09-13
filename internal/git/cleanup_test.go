@@ -119,8 +119,8 @@ func TestDirtyAndUnmergedWorkIsWarnedAbout(t *testing.T) {
 	}
 
 	branch := plan.Branches[0]
-	if branch.Merged {
-		t.Error("the branch was reported merged although the base does not contain it")
+	if branch.Contained {
+		t.Error("the branch was reported contained although the base ref does not contain it")
 	}
 	if branch.Unpushed != 2 || branch.Pushed {
 		t.Errorf("the branch reports %d unpushed commits and pushed=%t, want 2 and false",

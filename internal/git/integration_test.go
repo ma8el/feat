@@ -483,7 +483,7 @@ func TestRealCleanupPlanSeesDirtyAndUnmergedWork(t *testing.T) {
 		t.Errorf("the worktree was reported as %+v", target)
 	}
 	branch := cleanup.Branches[0]
-	if branch.Unpushed != 1 || branch.Merged || branch.Pushed {
+	if branch.Unpushed != 1 || branch.Contained || branch.Pushed {
 		t.Errorf("the branch was reported as %+v, want one unpushed, unmerged, never-pushed commit", branch)
 	}
 
@@ -585,18 +585,21 @@ func TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety(t *testing.T) {
 		t.Error("removing an absent worktree reported that something went")
 	}
 
-	// The branch is unmerged, so Git refuses -d and accepts -D. Both halves
-	// matter: the first is the safety, the second is that a confirmation can
-	// actually get past it.
+	// The branch is unmerged and Feat established no containment for it, so the
+	// deletion is `-d` and Git refuses it. Both halves matter: the first is the
+	// safety, the second is that a confirmation can actually get past it.
 	if _, err := adapter.DeleteBranch(context.Background(), branch, request); err == nil {
 		t.Error("an unmerged branch was deleted without a confirmation")
 	}
-	deleted, err := adapter.DeleteBranch(context.Background(), branch, confirmed)
+	deletion, err := adapter.DeleteBranch(context.Background(), branch, confirmed)
 	if err != nil {
 		t.Fatalf("a confirmed deletion of an unmerged branch failed: %v", err)
 	}
-	if !deleted {
+	if !deletion.Deleted {
 		t.Error("the deletion reported that there was nothing to delete")
+	}
+	if !deletion.Forced || !strings.Contains(deletion.Reason, "confirmed") {
+		t.Errorf("the deletion reported %+v, want it forced by the confirmation", deletion)
 	}
 	if exists, err := adapter.Exists(context.Background(), f.api, "refs/heads/"+branch); err != nil {
 		t.Fatalf("checking the branch: %v", err)
@@ -605,11 +608,217 @@ func TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety(t *testing.T) {
 	}
 
 	// And a branch that is already gone is not an error either.
-	if deleted, err := adapter.DeleteBranch(context.Background(), branch, confirmed); err != nil {
+	if deletion, err := adapter.DeleteBranch(context.Background(), branch, confirmed); err != nil {
 		t.Errorf("deleting an absent branch failed: %v", err)
-	} else if deleted {
+	} else if deletion.Deleted {
 		t.Error("deleting an absent branch reported that something went")
 	}
+}
+
+// advance pushes one commit to a bare repository through the seed checkout
+// `origin` left beside it, moving the remote ahead of every clone of it.
+func advance(t *testing.T, remotes, name, message string) string {
+	t.Helper()
+
+	seed := filepath.Join(remotes, name+"-seed")
+	write(t, seed, "CHANGELOG.md", message+"\n")
+	git(t, seed, "add", "CHANGELOG.md")
+	git(t, seed, "commit", "-m", message)
+	git(t, seed, "push", "origin", "main")
+	return git(t, seed, "rev-parse", "HEAD")
+}
+
+// TestRealContainedBranchIsDeletedWhereGitWouldRefuse is the disagreement
+// itself, and it exists only against real Git.
+//
+// A fake cannot stand in for it, because what is being checked is what `git
+// branch -d` asks: not whether the branch is contained by the ref Feat recorded
+// as its base, but whether it is contained by the checkout's HEAD or by the
+// branch's own upstream, which a task branch never has. The fixture is the
+// ordinary state of a checkout that fetches — `origin/main` carries a commit the
+// local `main` does not, and the task branched from `origin/main` under the
+// remote base policy — so Feat's plan reports the branch as contained with
+// nothing at risk while Git refuses to delete it.
+//
+// The three assertions are the three halves of the change: Git really does
+// refuse `-d` here, so the case is genuine; the deletion Feat performs succeeds
+// and says what it rested on; and a branch carrying a commit the base ref does
+// not have is refused exactly as before, because that one still needs a
+// confirmation (FR-CLEAN-003, ADR-097).
+func TestRealContainedBranchIsDeletedWhereGitWouldRefuse(t *testing.T) {
+	requireGit(t)
+	f := realProject(t)
+
+	// The remote moves on after the checkout was cloned, and nothing pulls. This
+	// is not an arranged edge case: it is where any checkout sits between one
+	// pull and the next.
+	ahead := advance(t, filepath.Join(f.dir, "remotes"), "api", "a commit the clone has not seen")
+	behind := git(t, f.api, "rev-parse", "HEAD")
+	if ahead == behind {
+		t.Fatal("the remote did not move, so the checkout is not behind it")
+	}
+
+	adapter := Host()
+	plan, err := adapter.Plan(context.Background(), f.req)
+	if err != nil {
+		t.Fatalf("planning: %v", err)
+	}
+	if _, err := adapter.Apply(context.Background(), plan, JournalFunc(
+		func(context.Context, Created) error { return nil },
+	)); err != nil {
+		t.Fatalf("applying: %v", err)
+	}
+	binding := plan.Repositories[0]
+	if binding.BaseCommit != ahead {
+		t.Fatalf("the task branched from %s, want the commit the remote moved to, %s", binding.BaseCommit, ahead)
+	}
+	if git(t, f.api, "rev-parse", "HEAD") != behind {
+		t.Fatal("preparing the task moved the ordinary checkout's HEAD, which it must never do")
+	}
+
+	// Feat's question, asked about the ref the task branched from.
+	inventory, err := adapter.CleanupPlanFor(context.Background(), cleanupOf(f, plan))
+	if err != nil {
+		t.Fatalf("planning cleanup: %v", err)
+	}
+	target := inventory.Branches[0]
+	if !target.Contained || target.Risky() {
+		t.Fatalf("the branch was reported as %+v, want it contained with nothing at risk", target)
+	}
+	removeWorktrees(t, adapter, f, plan)
+
+	// Git's question, asked about HEAD. It has to refuse, or the rest of this
+	// test is checking nothing.
+	refused := exec.Command("git", "branch", "-d", "--", binding.Branch)
+	refused.Dir = f.api
+	output, err := refused.CombinedOutput()
+	if err == nil {
+		t.Fatalf("`git branch -d` deleted a branch the checkout's HEAD does not contain:\n%s", output)
+	}
+	if !strings.Contains(string(output), "not fully merged") {
+		t.Fatalf("`git branch -d` failed for some other reason:\n%s", output)
+	}
+
+	// So the deletion follows what Feat established, and records what that was.
+	deletion, err := adapter.DeleteBranch(context.Background(), binding.Branch, RemoveRequest{
+		HostPath:  f.api,
+		Root:      f.root,
+		Checkouts: []string{f.api, f.store},
+		Contained: target.Contained,
+		BaseRef:   binding.BaseRef,
+	})
+	if err != nil {
+		t.Fatalf("deleting a branch its base ref contains: %v", err)
+	}
+	if !deletion.Deleted || !deletion.Forced || !strings.Contains(deletion.Reason, binding.BaseRef) {
+		t.Fatalf("the deletion reported %+v, want it deleted, forced, and resting on %s", deletion, binding.BaseRef)
+	}
+	if exists, err := adapter.Exists(context.Background(), f.api, "refs/heads/"+binding.Branch); err != nil {
+		t.Fatalf("checking the branch: %v", err)
+	} else if exists {
+		t.Error("the branch is still there")
+	}
+
+	// And nothing of the user's moved with it: the checkout is still on the
+	// commit it was on, still behind the remote, and still has its own branch.
+	if head := git(t, f.api, "rev-parse", "HEAD"); head != behind {
+		t.Errorf("the ordinary checkout's HEAD is %s, want the %s it was on", head, behind)
+	}
+	if exists, err := adapter.Exists(context.Background(), f.api, "refs/heads/main"); err != nil || !exists {
+		t.Errorf("the user's own branch is gone: exists=%t err=%v", exists, err)
+	}
+}
+
+// TestRealUncontainedBranchStillNeedsAConfirmation is the other side of the same
+// fixture: a branch the base ref does not contain warns and is deleted only on a
+// confirmation, on the very checkout where the containment question says yes for
+// a branch that has not moved.
+func TestRealUncontainedBranchStillNeedsAConfirmation(t *testing.T) {
+	requireGit(t)
+	f := realProject(t)
+	advance(t, filepath.Join(f.dir, "remotes"), "api", "a commit the clone has not seen")
+
+	adapter := Host()
+	plan, err := adapter.Plan(context.Background(), f.req)
+	if err != nil {
+		t.Fatalf("planning: %v", err)
+	}
+	if _, err := adapter.Apply(context.Background(), plan, JournalFunc(
+		func(context.Context, Created) error { return nil },
+	)); err != nil {
+		t.Fatalf("applying: %v", err)
+	}
+	binding := plan.Repositories[0]
+
+	// The agent commits, so the branch now holds something the base ref does not.
+	write(t, binding.WorktreePath, "feature.go", "package feature\n")
+	git(t, binding.WorktreePath, "add", "feature.go")
+	git(t, binding.WorktreePath, "commit", "-m", "the agent's work")
+
+	inventory, err := adapter.CleanupPlanFor(context.Background(), cleanupOf(f, plan))
+	if err != nil {
+		t.Fatalf("planning cleanup: %v", err)
+	}
+	target := inventory.Branches[0]
+	if target.Contained || !target.Risky() {
+		t.Fatalf("the branch was reported as %+v, want it uncontained and warned about", target)
+	}
+	removeWorktrees(t, adapter, f, plan)
+
+	request := RemoveRequest{
+		HostPath: f.api, Root: f.root, Checkouts: []string{f.api, f.store},
+		Contained: target.Contained, BaseRef: binding.BaseRef,
+	}
+	if _, err := adapter.DeleteBranch(context.Background(), binding.Branch, request); err == nil {
+		t.Fatal("a branch holding commits its base ref does not have was deleted without a confirmation")
+	}
+	if exists, err := adapter.Exists(context.Background(), f.api, "refs/heads/"+binding.Branch); err != nil || !exists {
+		t.Fatalf("the refused deletion still removed the branch: exists=%t err=%v", exists, err)
+	}
+
+	confirmed := request
+	confirmed.Force = true
+	deletion, err := adapter.DeleteBranch(context.Background(), binding.Branch, confirmed)
+	if err != nil {
+		t.Fatalf("a confirmed deletion was refused: %v", err)
+	}
+	if !deletion.Deleted || !strings.Contains(deletion.Reason, "confirmed") {
+		t.Errorf("the deletion reported %+v, want it resting on the confirmation", deletion)
+	}
+}
+
+// removeWorktrees removes the task's worktrees, which cleanup does before it
+// deletes a branch: Git refuses to delete a branch a worktree has checked out,
+// and the class order exists so that whatever holds a resource goes first
+// (FR-CLEAN-002).
+func removeWorktrees(t *testing.T, adapter *Git, f *realFixture, plan *Plan) {
+	t.Helper()
+
+	for _, repository := range plan.Repositories {
+		if _, err := adapter.RemoveWorktree(context.Background(), repository.WorktreePath, RemoveRequest{
+			HostPath: repository.HostPath, Root: f.root, Checkouts: []string{f.api, f.store}, Force: true,
+		}); err != nil {
+			t.Fatalf("removing the worktree of %s: %v", repository.ID, err)
+		}
+	}
+}
+
+// cleanupOf builds the cleanup inventory request for an applied plan, the way
+// the daemon builds it from the task's own record.
+func cleanupOf(f *realFixture, plan *Plan) CleanupRequest {
+	request := CleanupRequest{Project: plan.Project, Task: plan.Task, Root: f.root}
+	for _, repository := range plan.Repositories {
+		request.Repositories = append(request.Repositories, CleanupRepository{
+			ID:           repository.ID,
+			HostPath:     repository.HostPath,
+			Remote:       "origin",
+			WorktreePath: repository.WorktreePath,
+			Branch:       repository.Branch,
+			BaseRef:      repository.BaseRef,
+			BaseCommit:   repository.BaseCommit,
+		})
+	}
+	return request
 }
 
 // TestRealRemovalTakesTheDirectoriesTheTaskWasGiven is the other half of
