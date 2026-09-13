@@ -242,10 +242,14 @@ func (s *service) AttachInfo(ctx context.Context, id domain.TaskID) (api.AttachI
 		return api.AttachInfo{}, err
 	}
 
-	if task.Session.Tmux != terminal.Target || task.Session.Process != terminal.ProcessState() {
-		if err := task.Session.ReconcileTerminal(terminal.Target, terminal.ProcessState(), task.ID, s.now()); err != nil {
-			return api.AttachInfo{}, err
-		}
+	// Asked of the terminal and recorded only where the terminal establishes
+	// something, which is the rule reconciliation follows: attaching to a session
+	// the provider reported idle must not report it as running again (ADR-096).
+	target, process := task.Session.Tmux, task.Session.Process
+	if err := task.Session.ReconcileTerminal(terminal.Target, terminal.ProcessState(), task.ID, s.now()); err != nil {
+		return api.AttachInfo{}, err
+	}
+	if task.Session.Tmux != target || task.Session.Process != process {
 		if err := s.store.Tasks().Save(ctx, task); err != nil {
 			return api.AttachInfo{}, err
 		}

@@ -166,3 +166,85 @@ func TestRealDaemonRestartRediscoversTaggedTerminal(t *testing.T) {
 		t.Error("restart did not record a reconciliation event")
 	}
 }
+
+// TestRealReconcilingALiveTerminalRecordsOnlyWhatItCanSee is ADR-096's rule
+// against the real tool, because the rule is about what tmux can establish and a
+// fake is a statement of what somebody believed it establishes.
+//
+// A pane running a program and a pane whose program has exited are the two
+// answers a terminal has, and the test produces both: the first must leave a
+// session the provider reported idle exactly as it was, and the second must be
+// recorded, because no provider event may ever arrive to report it.
+func TestRealReconcilingALiveTerminalRecordsOnlyWhatItCanSee(t *testing.T) {
+	if !integrationtest.Enabled() {
+		t.Skipf("set %s=1 to run tests against real tmux", integrationtest.Env)
+	}
+	if _, err := exec.LookPath(tmux.Executable); err != nil {
+		integrationtest.Unavailable(t, integrationtest.Tmux, "tmux is not installed")
+	}
+
+	arranged := arrangeTask(t, newFakeGit())
+	ctx := context.Background()
+	if _, err := arranged.service.PrepareTask(ctx, arranged.ref, selection()); err != nil {
+		t.Fatalf("PrepareTask: %v", err)
+	}
+
+	runner := tmux.HostRunner{Timeout: 10 * time.Second}
+	t.Cleanup(func() {
+		_, _ = runner.Run(context.Background(), arranged.service.layout.TmuxSocket(), "kill-server")
+	})
+	task, err := arranged.service.PrepareTerminal(ctx, arranged.ref, tmux.CommandSpec{
+		Program: "/usr/bin/yes", Directory: arranged.home,
+	})
+	if err != nil {
+		t.Fatalf("PrepareTerminal: %v", err)
+	}
+
+	// What the provider reported: the turn ended and the grace period expired,
+	// with the pane still very much alive.
+	if err := task.Session.Observe(domain.ProcessIdle, time.Date(2026, 8, 5, 11, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("recording the idle session: %v", err)
+	}
+	if err := arranged.service.store.Tasks().Save(ctx, task); err != nil {
+		t.Fatalf("saving the idle session: %v", err)
+	}
+
+	if _, err := arranged.service.Reconcile(ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	recovered, err := arranged.service.store.Tasks().Load(ctx, arranged.ref)
+	if err != nil {
+		t.Fatalf("loading the task: %v", err)
+	}
+	if recovered.Session.Process != domain.ProcessIdle {
+		t.Errorf("process = %q, want idle: tmux sees a live pane and nothing finer",
+			recovered.Session.Process)
+	}
+	if recovered.Session.Tmux != task.Session.Tmux {
+		t.Errorf("target = %+v, want the live one %+v", recovered.Session.Tmux, task.Session.Tmux)
+	}
+
+	// The other answer tmux has. Feat sets remain-on-exit on every pane it
+	// creates, so the pane survives its program and is reported dead rather than
+	// disappearing (ADR-030).
+	if _, err := runner.Run(ctx, task.Session.Tmux.Socket,
+		"send-keys", "-t", task.Session.Tmux.Pane, "C-c"); err != nil {
+		t.Fatalf("ending the program in the pane: %v", err)
+	}
+	waitFor(t, func() bool {
+		found, live, err := arranged.service.terminals.Find(ctx, arranged.ref.Project, arranged.ref.Task)
+		return err == nil && live && !found.ProcessState().Alive()
+	})
+
+	if _, err := arranged.service.Reconcile(ctx); err != nil {
+		t.Fatalf("Reconcile after the program ended: %v", err)
+	}
+	recovered, err = arranged.service.store.Tasks().Load(ctx, arranged.ref)
+	if err != nil {
+		t.Fatalf("loading the task: %v", err)
+	}
+	if recovered.Session.Process.Alive() {
+		t.Errorf("process = %q, want a session recorded as over: nothing else will report it",
+			recovered.Session.Process)
+	}
+}

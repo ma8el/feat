@@ -335,11 +335,102 @@ func TestAgentSessionRequiresStableTmuxObjectIDs(t *testing.T) {
 	session := testSession(t)
 	reconciled := TmuxTarget{Socket: "/run/feat/tmux.sock", Session: "$9", Window: "@11", Pane: "%13"}
 	when := origin.Add(time.Minute)
-	if err := session.ReconcileTerminal(reconciled, ProcessRunning, testTask, when); err != nil {
+	if err := session.ReconcileTerminal(reconciled, ProcessStopped, testTask, when); err != nil {
 		t.Fatalf("ReconcileTerminal: %v", err)
 	}
-	if session.Tmux != reconciled || session.Process != ProcessRunning || session.LastActivityAt != when {
+	if session.Tmux != reconciled || session.Process != ProcessStopped || session.LastActivityAt != when {
 		t.Errorf("reconciled session = %+v", session)
+	}
+}
+
+// TestATerminalObservationSaysOnlyWhatATerminalCanSee is the rule ADR-096
+// records: a terminal sees alive, exited, or signalled and nothing finer, so it
+// may not decide between the states a provider reports through its hooks.
+//
+// The table is the whole rule. A live terminal under a session already recorded
+// in an alive state changes nothing — which is what stops an idle session being
+// promoted back to running and staying there, because the only path into idle is
+// a fresh end-of-turn event and a quiet session sends no more. A live terminal
+// under a session recorded as over is a session started again in it, which is
+// what a resume is. A terminal that has ended is always recorded, because no
+// provider event may arrive to report it.
+func TestATerminalObservationSaysOnlyWhatATerminalCanSee(t *testing.T) {
+	target := TmuxTarget{Socket: "/run/feat/tmux.sock", Session: "$9", Window: "@11", Pane: "%13"}
+	when := origin.Add(time.Minute)
+
+	for name, test := range map[string]struct {
+		recorded ProcessState
+		terminal ProcessState
+		want     ProcessState
+	}{
+		"an idle session in a live pane":     {ProcessIdle, ProcessRunning, ProcessIdle},
+		"a running session in a live pane":   {ProcessRunning, ProcessRunning, ProcessRunning},
+		"a starting session in a live pane":  {ProcessStarting, ProcessRunning, ProcessStarting},
+		"a stopped session in a live pane":   {ProcessStopped, ProcessRunning, ProcessRunning},
+		"a failed session in a live pane":    {ProcessFailed, ProcessRunning, ProcessRunning},
+		"an idle session in a dead pane":     {ProcessIdle, ProcessStopped, ProcessStopped},
+		"a running session in a killed pane": {ProcessRunning, ProcessFailed, ProcessFailed},
+		"a starting session in a dead pane":  {ProcessStarting, ProcessStopped, ProcessStopped},
+	} {
+		t.Run(name, func(t *testing.T) {
+			session := testSession(t)
+			if err := session.Observe(test.recorded, origin); err != nil {
+				t.Fatalf("arranging the recorded state: %v", err)
+			}
+			session.RecordTurnEnd(origin)
+
+			if err := session.ReconcileTerminal(target, test.terminal, testTask, when); err != nil {
+				t.Fatalf("ReconcileTerminal: %v", err)
+			}
+			if session.Process != test.want {
+				t.Errorf("process = %q, want %q", session.Process, test.want)
+			}
+			if session.Tmux != target {
+				t.Errorf("target = %+v, want the one the terminal reported", session.Tmux)
+			}
+			// An observation that recorded nothing is not activity either: a
+			// session Feat has heard nothing from must not look like one that
+			// spoke, whether through its last activity or through the turn end
+			// still waiting to become idle.
+			if recorded := session.Process != test.recorded; recorded {
+				if !session.TurnEndedAt.IsZero() {
+					t.Error("an observation recorded a process state and kept the pending turn end")
+				}
+				if session.LastActivityAt != when {
+					t.Errorf("last activity = %s, want the moment of the observation", session.LastActivityAt)
+				}
+				return
+			}
+			if session.TurnEndedAt.IsZero() {
+				t.Error("an observation that recorded nothing dropped the pending turn end")
+			}
+			if session.LastActivityAt != origin {
+				t.Errorf("last activity = %s, want the moment the session last said something", session.LastActivityAt)
+			}
+		})
+	}
+}
+
+// TestAnObservedProcessDropsATurnEndNothingApplied is the other half of that
+// rule: a turn end is a transition waiting to be applied, and every observation
+// of the process either applies it or supersedes it (ADR-096).
+func TestAnObservedProcessDropsATurnEndNothingApplied(t *testing.T) {
+	for _, state := range []ProcessState{ProcessStarting, ProcessRunning, ProcessIdle, ProcessStopped, ProcessFailed} {
+		session := testSession(t)
+		session.RecordTurnEnd(origin)
+		if err := session.Observe(state, origin.Add(time.Minute)); err != nil {
+			t.Fatalf("Observe(%q): %v", state, err)
+		}
+		if !session.TurnEndedAt.IsZero() {
+			t.Errorf("observing %q left the turn end recorded", state)
+		}
+	}
+
+	session := testSession(t)
+	session.RecordTurnEnd(origin)
+	session.ClearTurnEnd()
+	if !session.TurnEndedAt.IsZero() {
+		t.Error("ClearTurnEnd left the turn end recorded")
 	}
 }
 

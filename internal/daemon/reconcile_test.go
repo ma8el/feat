@@ -544,3 +544,82 @@ func TestReconciliationSerialisesItsWritesWithEveryOtherWriter(t *testing.T) {
 			after.Session.LastEventSequence)
 	}
 }
+
+// TestAReconcilePassLeavesAnIdleSessionIdle is the rule ADR-096 records, in the
+// place the defect was measured.
+//
+// Reconcile is an API request rather than a startup step: the dashboard makes it
+// on the `r` key, on a resume, on a stop, and after every cleanup action. A pass
+// that wrote what tmux can see straight onto the session promoted a task that
+// had correctly gone idle back to running — 53 times in the record of 80 tasks
+// this was measured from, the most frequent event of its kind — and it stayed
+// there, because the only path into idle is a new end-of-turn event arming a
+// fresh grace period and a quiet session sends no more.
+func TestAReconcilePassLeavesAnIdleSessionIdle(t *testing.T) {
+	live := launch(t, hostFixture, installed(), false)
+	live.start(t)
+
+	live.hook(t, "Stop", `{"session_id":"claude-session-1","stop_hook_active":false}`)
+	live.timer.fire()
+	if got := live.task(t).Session.Process; got != domain.ProcessIdle {
+		t.Fatalf("process = %q, want an idle session to reconcile", got)
+	}
+
+	// Three passes, because one that is wrong is wrong every time the user
+	// presses the key.
+	for range 3 {
+		reconciled(t, live.service)
+	}
+
+	task := live.task(t)
+	if task.Session.Process != domain.ProcessIdle {
+		t.Errorf("process after reconciling = %q, want idle: a live pane says nothing "+
+			"about whether the agent in it is running or idle", task.Session.Process)
+	}
+	for _, event := range history(t, live) {
+		if event.Type == domain.EventReconciled &&
+			event.From == string(domain.ProcessIdle) && event.To == string(domain.ProcessRunning) {
+			t.Errorf("the pass recorded %s -> %s, which is the event ADR-096 says cannot be produced",
+				event.From, event.To)
+		}
+	}
+}
+
+// TestAReconcilePassStillRecordsWhatATerminalCanSee is the other half of that
+// rule: saying less must not mean saying nothing.
+//
+// A live pane under a session recorded as over is a session that has been
+// started in it again, which is what a resume is, and a pane that has ended is
+// something no provider event may ever arrive to report.
+func TestAReconcilePassStillRecordsWhatATerminalCanSee(t *testing.T) {
+	live := launch(t, hostFixture, installed(), false)
+	live.start(t)
+
+	// The record a resume leaves behind just before the agent is started again:
+	// the machine was asked, answered that nothing was there, and the session was
+	// marked over.
+	task := live.task(t)
+	if err := task.Session.Observe(domain.ProcessStopped, reconcileTime); err != nil {
+		t.Fatalf("recording the ended session: %v", err)
+	}
+	if err := live.service.store.Tasks().Save(context.Background(), task); err != nil {
+		t.Fatalf("saving the ended session: %v", err)
+	}
+
+	reconciled(t, live.service)
+
+	if got := live.task(t).Session.Process; got != domain.ProcessRunning {
+		t.Errorf("process = %q, want running: a live pane under a session recorded as "+
+			"over is a session running in it again", got)
+	}
+	restarted := false
+	for _, event := range history(t, live) {
+		if event.Type == domain.EventReconciled &&
+			event.From == string(domain.ProcessStopped) && event.To == string(domain.ProcessRunning) {
+			restarted = true
+		}
+	}
+	if !restarted {
+		t.Error("the pass recorded nothing about a session running again in its pane")
+	}
+}

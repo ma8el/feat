@@ -51,9 +51,10 @@
       "window": "@9",
       "pane": "%14"
     },
-    "process": "stopped",
+    "process": "running",
     "control_path": "/srv/state/control/example/3e5a7c91",
     "last_event_sequence": 9,
+    "turn_ended_at": "2026-08-04T10:05:00Z",
     "created_at": "2026-08-04T09:35:00Z",
     "last_activity_at": "2026-08-04T10:05:00Z"
   },

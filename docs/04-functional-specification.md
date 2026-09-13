@@ -163,6 +163,8 @@ The Claude adapter MUST use provider hooks and explicit control messages for sta
 
 A provider end-of-turn signal SHOULD become `idle` after a configurable short grace period. Notifications SHOULD be suppressed while the user is attached.
 
+The pending transition MUST be recorded before it is applied and MUST survive a daemon that stops inside the grace period, measured from the moment the provider reported the turn ending. Nothing else produces `idle`: a session that has finished speaking sends no further end-of-turn signal, so a transition lost with the process that was holding it is lost for good (ADR-096).
+
 ### FR-AGENT-008 — Review request
 
 Semantic review completion MUST require an explicit provider event or control message. An ordinary idle/Stop event MUST NOT become `ready_for_review`.
@@ -356,6 +358,8 @@ The daemon MUST be the sole state writer. Snapshot writes MUST use atomic replac
 ### FR-STATE-003 — Reconciliation
 
 Startup MUST reconcile persisted tasks with tmux, Git worktrees, Compose projects, control workspaces, and review state.
+
+Reconciliation MUST also be available on demand, because a user who suspects the record is stale asks rather than restarts. A pass therefore runs beside everything else a daemon is doing, and MUST record only what an observation establishes: where an observation cannot distinguish between the states a task's record already holds, the record stands, and a pass MUST NOT treat work this daemon is doing as work an interrupted one left behind (ADR-096).
 
 ### FR-STATE-004 — No automatic restart
 

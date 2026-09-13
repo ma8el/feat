@@ -38,6 +38,17 @@ type AgentSession struct {
 	// LastEventSequence is the sequence number of the last control event Feat
 	// processed, so a replay after a restart neither repeats nor skips one.
 	LastEventSequence uint64
+	// TurnEndedAt is the turn end an idle grace period is still counting from.
+	// It is set exactly when the provider has reported a turn ending and nothing
+	// has been observed about the process since.
+	//
+	// It is recorded because the grace period that decides what an ended turn
+	// means is held by a timer in memory, while the message that reported the
+	// turn end is settled in the outbox as soon as it is applied. Without this
+	// field a daemon stopping inside the grace period loses the transition for
+	// good: the only other path into idle is a fresh end-of-turn event, and a
+	// session that has finished speaking sends no more (ADR-096).
+	TurnEndedAt time.Time
 	// CreatedAt is when the session was launched.
 	CreatedAt time.Time
 	// LastActivityAt is when the session last produced an event.
@@ -202,6 +213,13 @@ func NewAgentSession(provider string, mode ExecutionMode, target TmuxTarget, con
 // other: a daemon that restarts finds a session already running, and a session
 // may fail from any state. Reaching idle in particular says nothing about the
 // task's workflow state (invariant 13).
+//
+// It also drops a recorded turn end, which is what keeps that record meaning one
+// thing. A turn end is a transition nothing has applied yet, held about the
+// process the session was last reported in; an observation of that process
+// either is the transition — the session went idle — or supersedes it: the
+// session ended, failed, or is running something else. In every case there is
+// nothing left for a restart to re-arm (ADR-096).
 func (s *AgentSession) Observe(state ProcessState, now time.Time) error {
 	if !state.Valid() {
 		return &ValidationError{
@@ -211,22 +229,78 @@ func (s *AgentSession) Observe(state ProcessState, now time.Time) error {
 		}
 	}
 	s.Process = state
+	s.TurnEndedAt = time.Time{}
 	s.LastActivityAt = normalizeTime(now)
 	return nil
 }
 
-// ReconcileTerminal records the stable target and process state observed from
-// tmux after a daemon restart. Both are observations: user renames and window
-// indexes never alter task identity.
-func (s *AgentSession) ReconcileTerminal(target TmuxTarget, state ProcessState, task TaskID, now time.Time) error {
+// ReconcileTerminal records the stable target of the terminal a session was
+// found in, and whatever that terminal can establish about its process.
+//
+// The target is always adopted: user renames and window indexes never alter task
+// identity, so the identifiers the terminal reports are the ones to keep.
+//
+// The process state is adopted only where the terminal establishes something.
+// A terminal sees alive, exited, or signalled and nothing finer, so a live
+// terminal under a session already recorded in an alive state says nothing that
+// is not already recorded — and writing what it can say anyway is what promoted
+// a session the provider had reported idle back to running, for the rest of its
+// life (ADR-096). Whether a session is running or idle is the provider's to
+// report through its hooks, and a live terminal is not an observation of it.
+//
+// What it still establishes is a terminal that has ended, which no provider
+// event may arrive to report, and a live terminal under a session recorded as
+// over, which is a session that has been started again in it.
+func (s *AgentSession) ReconcileTerminal(target TmuxTarget, terminal ProcessState, task TaskID, now time.Time) error {
 	if err := target.Validate(task); err != nil {
 		return err
 	}
-	if err := s.Observe(state, now); err != nil {
-		return err
+	if !terminal.Valid() {
+		return &ValidationError{
+			Entity: "agent session",
+			ID:     task.String(),
+			Field:  "process",
+			Reason: "must be a documented process state, but is " + quote(string(terminal)),
+		}
 	}
+
 	s.Tmux = target
+	if state, observed := reconciledProcess(s.Process, terminal); observed {
+		return s.Observe(state, now)
+	}
 	return nil
+}
+
+// reconciledProcess is what a terminal observation may record over a session's
+// recorded process state, and whether it may record anything at all.
+func reconciledProcess(recorded, terminal ProcessState) (ProcessState, bool) {
+	if !terminal.Alive() {
+		return terminal, true
+	}
+	if recorded.Alive() {
+		return recorded, false
+	}
+	return ProcessRunning, true
+}
+
+// RecordTurnEnd notes the turn end an idle grace period is counting from.
+//
+// It is recorded before the transition it arms is applied, which is the ordering
+// every other resource in Feat is created under: plan, record, then apply, so
+// that an interruption leaves a record naming what was decided rather than
+// losing it (ADR-096).
+func (s *AgentSession) RecordTurnEnd(ended time.Time) {
+	s.TurnEndedAt = normalizeTime(ended)
+}
+
+// ClearTurnEnd drops a recorded turn end because the session spoke again.
+//
+// Observe drops one too, and this is the other half: several of the things a
+// session says — it asked a question, it requested review, it drafted a
+// publication — are activity that changes no process state, so there is no
+// observation to carry the drop.
+func (s *AgentSession) ClearTurnEnd() {
+	s.TurnEndedAt = time.Time{}
 }
 
 // RecordEvent advances the last processed control-event sequence.
