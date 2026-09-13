@@ -481,16 +481,33 @@ func TestRealWorktreeMountsAreAskedOfGit(t *testing.T) {
 		t.Fatalf("real Git reported %d mounts, want the ignored one twice:%s",
 			len(reported), render(findings))
 	}
-	// Inside the container path, where the mount point would have to be a file:
-	// real Git says the path is not tracked, and the task would fail to start.
-	if fatal := severity(t, reported, project.SeverityError); !strings.Contains(
-		fatal.Summary, "/srv/api/.env") {
-		t.Errorf("the error does not name the target: %q", fatal.Summary)
+
+	// The two findings are told apart by the path each names, not by severity.
+	// This test demands Git and not Docker, so the runtime that decides the
+	// target side's severity may be absent or not answering here, and asserting
+	// an error would be asserting something about a machine this test says
+	// nothing about. Only the container path appears in the target finding, and
+	// only the resolved host path in the source one.
+	target := naming(t, reported, "/srv/api/.env")
+	source := naming(t, reported, filepath.Join(api, ".env"))
+
+	// Inside the container path: real Git says the path is not tracked, so a
+	// worktree would not hold it. Whether that stops a task is the runtime's to
+	// say, and Feat's expectation of the runtime in front of this test is what
+	// its severity has to match.
+	want := project.SeverityWarning
+	if project.RefusesFileMountPoint(t.Context(), project.HostRunner{}) {
+		want = project.SeverityError
+	}
+	if target.Severity != want {
+		t.Errorf("the target finding is %q, want %q for the runtime Feat sees here",
+			target.Severity, want)
 	}
 	// And outside it, where the same ignored file is only a path the mount needs.
-	if soft := severity(t, reported, project.SeverityWarning); !strings.Contains(
-		soft.Summary, filepath.Join(api, ".env")) {
-		t.Errorf("the warning does not name the ignored path: %q", soft.Summary)
+	// That severity is the runtime's business nowhere: no mount point is created
+	// inside a worktree for it.
+	if source.Severity != project.SeverityWarning {
+		t.Errorf("the source finding is %q, want warning", source.Severity)
 	}
 	// The tracked file is recognised by its path in the repository rather than
 	// by its base name, so neither finding is about it — by its source and by

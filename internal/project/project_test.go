@@ -242,6 +242,26 @@ func finding(t *testing.T, findings []project.Finding, check string) project.Fin
 	return project.Finding{}
 }
 
+// naming returns the one finding whose summary names a path, from findings
+// already narrowed to a single check.
+//
+// It is how two findings about one check are told apart where their severities
+// are not a safe discriminator — where one of them depends on the machine the
+// test is running on, which is true of anything the container runtime decides.
+func naming(t *testing.T, findings []project.Finding, path string) project.Finding {
+	t.Helper()
+	var found []project.Finding
+	for _, candidate := range findings {
+		if strings.Contains(candidate.Summary, path) {
+			found = append(found, candidate)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("%d findings name %s, want one; got %s", len(found), path, render(findings))
+	}
+	return found[0]
+}
+
 // severity returns the one finding of a severity, from findings already narrowed
 // to a single check.
 //

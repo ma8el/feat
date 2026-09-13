@@ -646,8 +646,12 @@ func (c *checker) checkMounts(
 //     both.
 //
 // So it is answered from what the daemon says it is, and it answers no wherever
-// Feat has not established one, including where there is no Docker to ask: a
-// diagnostic with nothing to go on is not a runtime that permits this. Answering
+// Feat has not established one: a diagnostic with nothing to go on is not a
+// runtime that permits this. That covers a machine with no Docker and, just as
+// ordinarily, one whose Docker is installed and not running — `feat doctor` is
+// most useful on a machine that is not fully working, and a stopped daemon
+// answers no question about what a running one would do. Such a run already
+// reports the stopped daemon itself, which is the finding to act on. Answering
 // no under-claims on purpose. The finding is still reported, one severity lower,
 // and a launch that then fails is explained where it happens
 // (internal/runtime/compose/explain.go) — so a missed pre-flight costs a run,
