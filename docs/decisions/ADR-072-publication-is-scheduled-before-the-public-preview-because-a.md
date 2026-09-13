@@ -68,6 +68,19 @@ not a schedule. A capability wanted earlier than its phase is scheduled where it
 is wanted and says so in both places, which is what Phase 1, Phase 3, and Phase 6
 now do.
 
+Amended by ADR-095: the second pass over the wizard is no longer one of the two
+items that come last within Phase 1, because it no longer waits on dogfood runs —
+they have happened, and the four things it was waiting to hear are recorded. It
+ships in `v0.1.1`, ahead of the public preview, and what comes last within the
+milestone is the first-task documentation alone. Evidence 4 stands as the reason
+Phase 1 is partly downstream of the dogfood; what changes is which side of the
+milestone the wizard's own work sits on. Machine-readable output moves for a
+different reason than the one rejected above: the interleaving this decision
+refused was an argument about an audience that was not there yet, made while the
+dogfood still could not finish a task. It can now, and what wants the output and
+the two-phase `implement` is somebody scripting around an installed build rather
+than a public reader.
+
 What this does not decide is whether host-native execution earns its place in the
 public preview. Evidence 5 is an argument about exercise rather than about worth:
 the user it serves is somebody with no devcontainer, which is a real audience

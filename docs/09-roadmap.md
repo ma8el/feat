@@ -32,9 +32,9 @@ describes. The dogfood cannot finish a task without the first, and this
 milestone's documentation is written against dogfood runs.
 
 What is left before a new macOS or Linux user can run Feat outside the reference
-project. Two of these come last within the milestone, because they wait on
-dogfood runs rather than on anything listed here — the first-task documentation
-and the second pass over the wizard, each of which says so where it appears:
+project. One of these comes last within the milestone, because it waits on
+dogfood runs rather than on anything listed here — the first-task documentation,
+which says so where it appears:
 
 - **Linux notifications.** `internal/notify` reports its own absence on Linux
   rather than pretending to deliver. The attention badges in the dashboard work
@@ -54,24 +54,6 @@ and the second pass over the wizard, each of which says so where it appears:
   that compares field names in both directions; publishing it is what makes it a
   compatibility surface. The generated completion command is registered and
   hidden until it is supported.
-- **Machine-readable output for the reading commands, and a two-phase
-  command-line `implement`.** Every command prints a table a person reads and
-  nothing else can parse, so a user scripting around Feat has the socket or
-  screen-scraping. `task list`, `task review`, `runtime status`, and
-  `project show` are the ones with something to say, and the schema they would
-  publish is the one this milestone finalizes. Task creation belongs to the same
-  work: `feat implement` refuses without a terminal, so a script, a queue, or CI
-  cannot create a task at all — while the daemon behind it already treats the
-  confirmation as a value rather than a key press, the plan fingerprint ADR-031
-  has `launch` carry back. One command that resolves a draft and prints its plan,
-  and a second that launches it by that fingerprint, keeps FR-TASK-003 and
-  ADR-031 literally rather than by analogy; it is the opposite of the unattended
-  path [08-v0-scope.md](08-v0-scope.md) excludes, which is what a `--yes` flag
-  would build instead. It waits for this milestone rather than arriving earlier
-  because it publishes a command surface and a JSON shape together, and building
-  it first would fix the shape before the decision that finalizes it. Taking it
-  up needs an ADR of its own: it moves ADR-028's terminal-independence principle
-  onto task creation and decides what confirming means without a screen.
 - **A Homebrew formula and tap.** The release binaries and the `go install`
   instructions belong to `v0.1.0`, because they are what a tag emits. A tap is a
   second repository with a formula to keep in step, and it waits here for the
@@ -91,19 +73,6 @@ and the second pass over the wizard, each of which says so where it appears:
   in the definition of done for public v0 rather than in the v0.1 acceptance
   criteria, and it is best written against what the dogfood runs turned out to
   need.
-- **A second pass over the onboarding wizard**, against what public users hit.
-  `feat project init` (ADR-062) exists because dogfooding showed manual
-  configuration to be the hardest step; what is left is whatever a machine that
-  has never run Feat turns out to need, which the first-task documentation above
-  is written against. Two findings from running it against the reference project
-  are held for this milestone:
-  - the managed-services proposal offers every service a repository's files
-    declare, including a database that runs none of its code, so a user
-    accepting the proposal manages more than the project meant;
-  - the agent's environment is answered before the application, so the agent's
-    Compose question cannot exclude the files the application will claim. It now
-    proposes nothing rather than guessing, and asking the application first would
-    let it propose what is left — which reorders the whole conversation.
 - **Verified absence of telemetry.**
 
 Shortcut was a conditional item here, admitted only if all core reliability work
@@ -121,6 +90,31 @@ implementation behind the execution interface left to write, because host
 execution is the absence of a container environment rather than another kind of
 one. The bullet that said otherwise was written in the project skeleton, before
 the capability existed (ADR-090).
+
+Two more items have left this milestone, and the release they left for is the
+reason. `v0.1.1` carries the functional changes of the public preview ahead of
+it, on ADR-090's terms and as an internal pre-release, so that they can be
+installed and used on real work before this milestone's documentation is written
+against runs (ADR-095).
+
+- **Machine-readable output for the reading commands, and a two-phase
+  command-line `implement`**, which moved as one item because a command surface
+  and the JSON shape it prints are one decision, and because a script, a queue,
+  or CI cannot create a task at all until the two-phase command exists. The
+  compatibility surface this milestone finalizes is the configuration schema
+  above; what holds the printed shape to the Go types is a test travelling with
+  the commands that print it. Taking the work up still needs an ADR of its own,
+  for what confirming means without a screen.
+- **The second pass over the onboarding wizard.** It waited on dogfood runs, and
+  the runs have happened. Two of its four inputs are the ones this milestone
+  recorded — the managed-services proposal offers every service a repository's
+  files declare, including a database that runs none of the project's code, and
+  the agent's environment is answered before the application's, so the agent's
+  Compose question cannot exclude the files the application will claim — and two
+  come from the `v0.1.0` acceptance run, which found that the wizard asks about
+  neither the forge nor the tracker command and that both had to be added by
+  hand. It also has to precede the first-task documentation above rather than
+  follow it, or that documentation publishes the hand-editing as the path.
 
 Done when the public-v0 definition of done passes on macOS and Linux, host-native
 and devcontainer modes use the same task domain, the installation and first-task

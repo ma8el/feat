@@ -224,7 +224,7 @@ Included:
 - Apache 2.0 license and contribution documentation
 - no telemetry
 
-Publication and the ticket adapter arrive before this milestone rather than inside it, in that order, because the dogfood cannot finish a task without the first (ADR-072). Host-native agent execution has left this list because it was delivered in v0.1, and release binaries and `go install` because `v0.1.0` publishes them (ADR-090). This replaces the condition recorded here previously, which admitted Shortcut into v0.2 only if core reliability was already complete and required that it not delay public preview.
+Publication and the ticket adapter arrive before this milestone rather than inside it, in that order, because the dogfood cannot finish a task without the first (ADR-072). Host-native agent execution has left this list because it was delivered in v0.1, and release binaries and `go install` because `v0.1.0` publishes them (ADR-090). The second pass over the onboarding wizard and the machine-readable output of the reading commands, with the two-phase `feat implement` that prints the same shape, arrive in `v0.1.1` for a reason of the same shape: they change what Feat does, and this milestone's documentation is written against runs of a build that already has them (ADR-095). What is left of *clearer project registration* here is the manual path and its documentation, and what the *JSON Schema* line still finalizes is `schema/feat-project.schema.json`, which describes configuration a user writes rather than output Feat prints. This replaces the condition recorded here previously, which admitted Shortcut into v0.2 only if core reliability was already complete and required that it not delay public preview.
 
 ## Explicit v0 non-goals
 
