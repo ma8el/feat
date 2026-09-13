@@ -276,6 +276,13 @@ func Published() *domain.Task {
 // It runs on the host, so it records no execution environment: the fixtures
 // above cover the devcontainer case, and a host session that carried one would
 // be a record of something the domain refuses.
+//
+// It is also the session caught inside the idle grace period, which is the third
+// state a session can be in and which the fixture above cannot hold: its turn
+// has ended and nothing has applied it yet, so the process is still running and
+// the turn end is recorded against it. Every observation of a process drops that
+// record, so an idle or stopped session carrying one would be a snapshot no
+// daemon writes (ADR-096).
 func PublishedSession() *domain.AgentSession {
 	session, err := domain.NewAgentSession(
 		"claude",
@@ -286,8 +293,9 @@ func PublishedSession() *domain.AgentSession {
 	)
 	must(err)
 
-	must(session.Observe(domain.ProcessStopped, after(35)))
+	must(session.Observe(domain.ProcessRunning, after(35)))
 	must(session.RecordEvent(9, after(35)))
+	session.RecordTurnEnd(after(35))
 	return session
 }
 

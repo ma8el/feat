@@ -441,6 +441,16 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   second pass moves because the runs it waited on have happened; Linux stays in
   v0.2 entire.
 
+- **[ADR-096 — Reconciliation says what it can see, and a live daemon's own work is not something to recover from](decisions/ADR-096-reconciliation-says-what-it-can-see-and-a-live-daemons-own.md)** · accepted  
+  Reconcile is a request the dashboard makes, not a startup step, and two places
+  in it wrote over state the live daemon owned: a live tmux pane promoted an idle
+  session back to running, and a running completion gate was recovered as an
+  interrupted one. A pass now records only what an observation establishes, a
+  turn end is written down before the timer that applies it, the startup grace
+  covers a resume, and a gate that cannot start reaches the user rather than the
+  log. It amends the reasoning ADR-036 recorded about when a gate may be assumed
+  dead.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is

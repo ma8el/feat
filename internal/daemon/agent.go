@@ -245,6 +245,19 @@ func (s *service) applyAgentEvent(ctx context.Context, task *domain.Task, event 
 		s.record(ctx, task, domain.Event{Type: domain.EventPublicationChanged, Detail: event.Summary})
 	}
 
+	// Recorded before it is applied, and so before the message that reported it
+	// is settled in the outbox. The timer armed below is in memory: a daemon that
+	// stopped inside the grace period used to lose the transition for good,
+	// because a settled message is never read again and nothing else arms one
+	// (ADR-096). This is the one place in the agent path that did not already
+	// plan, record, then apply.
+	switch {
+	case change.arms:
+		task.Session.RecordTurnEnd(event.OccurredAt)
+	case change.cancels:
+		task.Session.ClearTurnEnd()
+	}
+
 	if err := s.store.Tasks().Save(ctx, task); err != nil {
 		return err
 	}
@@ -270,12 +283,18 @@ func (s *service) applyAgentEvent(ctx context.Context, task *domain.Task, event 
 func (s *service) notifyChange(ctx context.Context, task *domain.Task, workflowMoved, processMoved bool) {
 	if workflowMoved {
 		if condition, ok := notify.ForWorkflow(task.Workflow); ok {
-			if condition == notify.ConditionReviewRequested && s.gateWillRun(task) {
-				// The gate is about to run the project's checks, so this task is
-				// not with the user yet. Telling them now and again when the
-				// checks finish would be two interruptions for one arrival, and
-				// the second one is the one that means something (ADR-036).
-				return
+			if condition == notify.ConditionReviewRequested {
+				if will, known := s.gateWillRun(task); will || !known {
+					// The gate is about to run the project's checks, so this task
+					// is not with the user yet. Telling them now and again when
+					// the checks finish would be two interruptions for one
+					// arrival, and the second one is the one that means something
+					// (ADR-036). The same holds when Feat cannot tell whether a
+					// gate will run: the gate fails on the same configuration a
+					// moment later and reports it as blocked, which is the later
+					// moment (ADR-096).
+					return
+				}
 			}
 			s.notifyTask(ctx, task, condition, 0)
 			return
@@ -486,6 +505,56 @@ func (s *service) armIdle(ctx context.Context, task *domain.Task, ended time.Tim
 	})
 }
 
+// rearmIdle restores the idle transitions a stopped daemon was holding in memory.
+//
+// A turn end is recorded on the session before the timer that acts on it is
+// armed, so a daemon that stopped inside the grace period left a record of a
+// decision nothing had applied. This is where that record is read: for every
+// session still recorded as running with a turn end pending, the grace period is
+// armed again from the moment the provider reported, so a period that has
+// already passed becomes idle at once rather than restarting the clock.
+//
+// It runs after the control poller has caught up on the outbox, so a turn that
+// ended while the daemon was down is armed by the message reporting it and this
+// only re-arms what no message will.
+//
+// A failure to read a project's tasks is logged rather than returned. Nothing
+// here is recovery a user asked for: it is the daemon restoring its own pending
+// work, and a state directory it cannot list is already reported by the
+// reconciliation pass that ran before it.
+func (s *service) rearmIdle(ctx context.Context) {
+	projects, err := s.store.Projects().List(ctx)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "listing projects to restore pending idle transitions",
+			slog.Any("error", err))
+		return
+	}
+	for _, project := range projects {
+		tasks, err := s.store.Tasks().List(ctx, project.ID)
+		if err != nil {
+			s.logger.ErrorContext(ctx, "listing a project's tasks to restore pending idle transitions",
+				slog.String("project", project.ID.String()), slog.Any("error", err))
+			continue
+		}
+		for _, task := range tasks {
+			if task.Session == nil || task.Session.TurnEndedAt.IsZero() {
+				continue
+			}
+			// A turn end is dropped by every observation of the process, so a
+			// session carrying one is normally running. The guard is here anyway,
+			// so that nothing is scheduled — or logged as restored — for a
+			// session becomeIdle would refuse.
+			if task.Session.Process != domain.ProcessRunning {
+				continue
+			}
+			s.logger.InfoContext(ctx, "restoring an idle transition a restart interrupted",
+				slog.String("task", task.ID.String()),
+				slog.Time("turn_ended", task.Session.TurnEndedAt))
+			s.armIdle(ctx, task, task.Session.TurnEndedAt)
+		}
+	}
+}
+
 // cancelIdle drops a pending idle transition because the session did something.
 //
 // It drops the pending idle notification with it. An agent that started talking
@@ -498,6 +567,9 @@ func (s *service) cancelIdle(id domain.TaskID) {
 
 // armStartup starts the period after which an agent that has not reported
 // starting is treated as needing the user.
+//
+// It is armed by every launch and by every resume, because both start a process
+// that has said nothing yet, and cancelled by the first agent event of any kind.
 //
 // An agent can be blocked before it emits anything at all. Claude asks for
 // workspace trust on a directory it has not seen before, and every task worktree
@@ -534,8 +606,18 @@ func (s *service) reportSilentStart(ctx context.Context, id domain.TaskID) {
 			slog.String("task", id.String()), slog.Any("error", err))
 		return
 	}
-	// Anything at all from the session means this no longer applies.
-	if task.Workflow != domain.WorkflowPreparing || task.Session == nil {
+	// Anything at all from the session means this no longer applies, and the
+	// timer that reached here is cancelled by every agent event there is. So what
+	// is left to check is not the workflow: a resumed session is launched into a
+	// task that is already working, or that is in a review state its previous
+	// life reached, and the guard that asked for `preparing` let exactly those
+	// through unreported — two of the three longest-stuck tasks in the record
+	// that produced ADR-096 were resumes that then said nothing at all.
+	//
+	// An archived task is the one case with nothing to say: it has been cleaned
+	// up, its terminal is gone, and there is nobody for an attention state to
+	// reach.
+	if task.Session == nil || task.Workflow == domain.WorkflowArchived {
 		return
 	}
 

@@ -1503,3 +1503,150 @@ func TestControlWorkspaceIsOutsideTheSnapshotDirectory(t *testing.T) {
 }
 
 var _ = store.Ref
+
+// TestAResumedSessionThatReportsNothingIsMarkedWaiting is the half of the
+// startup grace that a resume fell through.
+//
+// An agent can be blocked before it emits anything at all — Claude asks for
+// workspace trust on a directory it has not seen before, and a resumed session
+// is started in a fresh process like any other. The guard asked for a task in
+// `preparing`, and a resume leaves the workflow where it was, so the two
+// longest-stuck tasks in the record ADR-096 was measured from were resumes that
+// reported nothing and said `working` for the rest of their lives.
+func TestAResumedSessionThatReportsNothingIsMarkedWaiting(t *testing.T) {
+	live := launch(t, hostFixture, installed(), false)
+	live.start(t)
+
+	// The agent died while nothing was watching, so only the process moved: the
+	// task is still working, which is where a resume finds it.
+	task := live.task(t)
+	task.Session.ProviderSessionID = "e3f1a0c2-0000-4000-8000-1234567890ab"
+	if err := task.Session.Observe(domain.ProcessFailed, reconcileTime); err != nil {
+		t.Fatalf("recording the failed process: %v", err)
+	}
+	if err := live.service.store.Tasks().Save(context.Background(), task); err != nil {
+		t.Fatalf("saving the failed process: %v", err)
+	}
+
+	resumed, err := live.service.Resume(context.Background(), live.ref.Task)
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if resumed.Workflow != domain.WorkflowWorking {
+		t.Fatalf("workflow = %q, want working: a resume leaves the work where it was", resumed.Workflow)
+	}
+
+	// The startup grace expires and the resumed agent has said nothing.
+	live.timer.fire()
+
+	task = live.task(t)
+	if task.Attention != domain.AttentionPossiblyWaiting {
+		t.Errorf("attention = %q, want possibly_waiting: nothing has been heard from the resumed session",
+			task.Attention)
+	}
+	// Possibly waiting rather than needs-input, because the provider reported
+	// nothing: Feat knows it has not heard, and does not know the agent is
+	// blocked.
+	said := false
+	for _, event := range history(t, live) {
+		if event.Type == domain.EventAttentionChanged && event.To == string(domain.AttentionPossiblyWaiting) &&
+			strings.Contains(event.Detail, "has not reported starting") {
+			said = true
+		}
+	}
+	if !said {
+		t.Error("the task's history does not say why it needs the user")
+	}
+}
+
+// TestASilentStartIsNotReportedForAnArchivedTask keeps the widened guard honest:
+// a task that was cleaned up while its agent was starting has nobody an
+// attention state could reach.
+func TestASilentStartIsNotReportedForAnArchivedTask(t *testing.T) {
+	live := launch(t, hostFixture, installed(), false)
+
+	task := live.task(t)
+	if err := task.TransitionTo(domain.WorkflowArchived, reconcileTime); err != nil {
+		t.Fatalf("archiving the task: %v", err)
+	}
+	if err := live.service.store.Tasks().Save(context.Background(), task); err != nil {
+		t.Fatalf("saving the archived task: %v", err)
+	}
+
+	live.timer.fire()
+
+	if got := live.task(t).Attention; got != domain.AttentionNone {
+		t.Errorf("attention = %q, want none: an archived task has no terminal to attach to", got)
+	}
+}
+
+// TestAnEndedTurnSurvivesADaemonThatStopsInsideTheGracePeriod is the third
+// defect ADR-096 records.
+//
+// The end-of-turn message is settled in the outbox as soon as it is applied, and
+// the timer that would act on it is in memory, so a daemon stopping inside the
+// grace period — five seconds by default — used to lose the transition for good:
+// the message is never read again, and nothing else arms one. The turn end is
+// therefore recorded on the session before it is applied, and re-armed from that
+// record when the daemon starts.
+func TestAnEndedTurnSurvivesADaemonThatStopsInsideTheGracePeriod(t *testing.T) {
+	live := launch(t, hostFixture, installed(), false)
+	live.start(t)
+
+	live.hook(t, "Stop", `{"session_id":"claude-session-1","stop_hook_active":false}`)
+
+	task := live.task(t)
+	if task.Session.TurnEndedAt.IsZero() {
+		t.Fatal("the end of the turn was applied to a timer and never written down")
+	}
+	if task.Session.Process != domain.ProcessRunning {
+		t.Fatalf("process = %q, want running until the grace period passes", task.Session.Process)
+	}
+
+	// The daemon stops inside the grace period, which cancels every pending
+	// transition it was holding, and starts again over the same state directory.
+	live.service.idle.cancelAll()
+	timer := newTestTimer()
+	restarted := restartWith(t, live, func(options *Options) { options.Timer = timer })
+	restarted.rearmIdle(context.Background())
+
+	if _, armed := timer.armed(); !armed {
+		t.Fatal("the restarted daemon armed nothing for a turn that had ended")
+	}
+	timer.fire()
+
+	recovered, err := restarted.Task(context.Background(), live.ref.Task)
+	if err != nil {
+		t.Fatalf("loading the task: %v", err)
+	}
+	if recovered.Session.Process != domain.ProcessIdle {
+		t.Errorf("process after the restart = %q, want idle: the transition was recorded before it was applied",
+			recovered.Session.Process)
+	}
+	if !recovered.Session.TurnEndedAt.IsZero() {
+		t.Error("the applied turn end is still recorded, so the next startup would arm it again")
+	}
+}
+
+// TestATurnThatContinuedIsNotReArmedAfterARestart is what stops the record
+// above from becoming a transition nobody is owed.
+func TestATurnThatContinuedIsNotReArmedAfterARestart(t *testing.T) {
+	live := launch(t, hostFixture, installed(), false)
+	live.start(t)
+
+	live.hook(t, "Stop", `{"session_id":"claude-session-1","stop_hook_active":false}`)
+	// A turn that ends and immediately continues is not a session waiting for
+	// anybody, and the record has to say so as the timer did.
+	live.hook(t, "UserPromptSubmit", `{"session_id":"claude-session-1"}`)
+
+	if ended := live.task(t).Session.TurnEndedAt; !ended.IsZero() {
+		t.Fatalf("the session still records a turn ending at %s after it continued", ended)
+	}
+
+	timer := newTestTimer()
+	restarted := restartWith(t, live, func(options *Options) { options.Timer = timer })
+	restarted.rearmIdle(context.Background())
+	if _, armed := timer.armed(); armed {
+		t.Error("the restarted daemon armed an idle transition for a turn that continued")
+	}
+}

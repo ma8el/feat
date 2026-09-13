@@ -1002,8 +1002,16 @@ func history(t *testing.T, live *session) []domain.Event {
 // restarted process reads what the previous one wrote.
 func restart(t *testing.T, live *session) *service {
 	t.Helper()
+	return restartWith(t, live, nil)
+}
 
-	instance, err := New(Options{
+// restartWith is restart for a test that needs to change the second daemon's
+// options — a scheduler it can fire, most often, because what a restart has to
+// pick up is usually something that was waiting on a timer.
+func restartWith(t *testing.T, live *session, adjust func(*Options)) *service {
+	t.Helper()
+
+	options := Options{
 		Layout:      live.service.layout,
 		Environment: live.env,
 		Build:       testBuild,
@@ -1012,7 +1020,11 @@ func restart(t *testing.T, live *session) *service {
 		Agent:       agenttest.New(),
 		Notifier:    newFakeNotifier(),
 		Now:         func() time.Time { return reconcileTime },
-	})
+	}
+	if adjust != nil {
+		adjust(&options)
+	}
+	instance, err := New(options)
 	if err != nil {
 		t.Fatalf("restarting the daemon: %v", err)
 	}
@@ -1260,5 +1272,113 @@ func TestAGateDoesNotRebuildAControlWorkspaceThatWasRemoved(t *testing.T) {
 	}
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Errorf("the verdict rebuilt the control workspace %s: %v", root, err)
+	}
+}
+
+// TestAReconcilePassDuringALiveGateLeavesItRunning is the second half of
+// ADR-096, in the place it was measured.
+//
+// A gate does not outlive the process that started it, which is true of the
+// process and false of the call: Reconcile is an API request the dashboard makes
+// on a key press, on a resume, on a stop, and after every cleanup action. A pass
+// that read every task in `verifying` as an interrupted gate moved one back to
+// `review_requested` five seconds after its own gate started, recording a daemon
+// restart there had not been; the checks then passed into a task that was no
+// longer verifying, so finishGate recorded the results and skipped both the
+// transition and the notification. The checks passed and nobody was told.
+func TestAReconcilePassDuringALiveGateLeavesItRunning(t *testing.T) {
+	live := launchForReview(t, nil)
+	live.watchable()
+	live.checks.released = make(chan struct{})
+
+	request := live.write(t, control.TypeReviewRequested, `{"summary":"ready"}`)
+	live.deliver(t)
+	waitFor(t, func() bool { return live.task(t).Workflow == domain.WorkflowVerifying })
+
+	// The user presses `r` while the suite runs, which is what the dashboard
+	// does after a cleanup action too.
+	reconciled(t, live.service)
+
+	if got := live.task(t).Workflow; got != domain.WorkflowVerifying {
+		t.Errorf("workflow during a live gate = %q, want verifying: this daemon is running the checks", got)
+	}
+	for _, event := range history(t, live.session) {
+		if strings.Contains(event.Detail, "interrupted") {
+			t.Errorf("the pass recorded %q about a gate that was running", event.Detail)
+		}
+	}
+
+	close(live.checks.released)
+	live.awaitGate(t)
+
+	task := live.task(t)
+	if task.Workflow != domain.WorkflowReadyForReview {
+		t.Errorf("workflow after the checks passed = %q, want ready_for_review", task.Workflow)
+	}
+	told := false
+	for _, notification := range live.notifier.sent() {
+		if strings.Contains(notification.Body, "ready") {
+			told = true
+		}
+	}
+	if !told {
+		t.Errorf("the checks passed and nobody was told: %+v", live.notifier.sent())
+	}
+	if verdict := readVerdict(t, live.session, request); !strings.Contains(verdict, control.VerificationPassed) {
+		t.Errorf("the waiting agent was answered %q", firstLine(verdict))
+	}
+}
+
+// TestAGateThatCannotStartReachesTheUser is the same mistake one step earlier.
+//
+// gateWillRun answered false for a configuration it could not read, so the
+// review request was announced at once as though no gate were configured, and
+// beginGate then failed on the same file with the failure reaching only the
+// daemon's log: the task sat in review_requested with no verdict and the agent's
+// helper waited out its acknowledge timeout. Recorded twice on 2026-09-01, while
+// the project file was mid-edit. A run that establishes nothing already has a
+// landing — verification_blocked (ADR-055) — and a gate that cannot start lands
+// there too.
+func TestAGateThatCannotStartReachesTheUser(t *testing.T) {
+	live := launchForReview(t, nil)
+	live.watchable()
+
+	// The project file, mid-edit. Everything Feat needs to run the checks is in
+	// it, so this is the difference between "no checks are configured" and "Feat
+	// cannot tell".
+	broken := filepath.Join(live.service.layout.ProjectConfigDir(), "app.yaml")
+	if err := os.WriteFile(broken, []byte("version: 1\nproject:\n  id: app\n  name: [unclosed\n"), 0o600); err != nil {
+		t.Fatalf("breaking the project configuration: %v", err)
+	}
+
+	request := live.write(t, control.TypeReviewRequested, `{"summary":"ready"}`)
+	live.deliver(t)
+	live.awaitGate(t)
+
+	task := live.task(t)
+	if task.Workflow != domain.WorkflowReviewRequested {
+		t.Errorf("workflow = %q, want review_requested: nothing was established about the work", task.Workflow)
+	}
+
+	// The user is told, once, and about the thing that is theirs to fix.
+	sent := live.notifier.sent()
+	if len(sent) != 1 {
+		t.Fatalf("the user was interrupted %d time(s): %+v", len(sent), sent)
+	}
+	if !strings.Contains(sent[0].Body, "checks could not run") {
+		t.Errorf("the notification says %q, want it to name a gate that could not run", sent[0].Body)
+	}
+	if !anyEvent(history(t, live.session), "could not run the project's configured checks") {
+		t.Error("the task's history says nothing about the gate that could not start")
+	}
+
+	// And the agent stops waiting, with a report that says the failure is not
+	// its own to fix.
+	verdict := readVerdict(t, live.session, request)
+	if !strings.Contains(verdict, control.VerificationBlocked) {
+		t.Errorf("the waiting agent was answered %q", firstLine(verdict))
+	}
+	if !strings.Contains(verdict, "do not change the configuration") {
+		t.Errorf("the agent's report does not say whose the failure is: %s", verdict)
 	}
 }

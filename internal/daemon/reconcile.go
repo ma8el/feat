@@ -254,8 +254,11 @@ func (s *service) reconcileTerminal(
 		return nil
 	}
 
-	from := domain.ProcessStarting
-	if current.Session == nil {
+	// A task whose record names no session and whose tagged terminal is there:
+	// the terminal is adopted into a session that starts where every session
+	// starts, because nothing has been heard from an agent in it.
+	adopted := current.Session == nil
+	if adopted {
 		cfg, err := config.Load(s.layout.ProjectConfigDir(), current.ProjectID.String(), s.configOptions())
 		if err != nil {
 			return err
@@ -270,23 +273,36 @@ func (s *service) reconcileTerminal(
 		if err := current.AttachSession(session, s.now()); err != nil {
 			return err
 		}
-	} else {
-		from = current.Session.Process
 	}
 
-	changed := current.Session.Tmux != terminal.Target || from != terminal.ProcessState()
+	from := current.Session.Process
+	target := current.Session.Tmux
+	// What the terminal establishes and no more. A live pane under a session
+	// already recorded in an alive state establishes nothing the record does not
+	// already hold, and the promotion that used to happen here is what took a
+	// session the provider had reported idle back to running for the rest of its
+	// life — 53 times in the record that produced ADR-096.
 	if err := current.Session.ReconcileTerminal(terminal.Target, terminal.ProcessState(), current.ID, s.now()); err != nil {
 		return err
 	}
 	if err := s.store.Tasks().Save(ctx, current); err != nil {
 		return err
 	}
-	if changed {
-		s.record(ctx, current, domain.Event{
+	if adopted || target != current.Session.Tmux || from != current.Session.Process {
+		event := domain.Event{
 			Type: domain.EventReconciled, From: string(from), To: string(current.Session.Process),
 			Detail: "rediscovered tagged tmux terminal " + terminal.Target.Session + "/" +
 				terminal.Target.Window + "/" + terminal.Target.Pane,
-		})
+		}
+		if adopted {
+			// There was no state to move from: the session this names is the one
+			// the line above created, and a from that repeated the to would read
+			// as a transition that did not happen.
+			event.From = ""
+			event.Detail = "adopted the tagged tmux terminal " + terminal.Target.Session + "/" +
+				terminal.Target.Window + "/" + terminal.Target.Pane + ", which the task's record did not name"
+		}
+		s.record(ctx, current, event)
 	}
 
 	status := reconcile.StatusPresent
@@ -945,12 +961,26 @@ func (s *service) reconcileControl(ctx context.Context, tasks []*domain.Task, re
 // reconcileReviews returns a task whose completion gate a restart interrupted.
 //
 // A gate does not outlive the process that started it, so a task recorded as
-// verifying is claiming that checks are running when nothing is. What
-// reconciliation adds is that this is reported rather than only done (ADR-036
-// evidence 2).
+// verifying with no gate running is claiming that checks are running when
+// nothing is. What reconciliation adds is that this is reported rather than only
+// done (ADR-036 evidence 2).
+//
+// "With no gate running" is the part ADR-036 left implicit and this pass read as
+// always true. Reconcile is an API request as much as a startup step — the
+// dashboard makes it on a key press, on a resume, on a stop, and after every
+// cleanup action — so the gates this daemon is running are asked about rather
+// than assumed absent. A task whose checks are running now is not recovering
+// from anything, and reconciliation says nothing about it: the pass that did say
+// something moved the task back to review_requested five seconds after its gate
+// started, and the checks then passed into a task that was no longer verifying,
+// so the results were recorded and neither the transition nor the notification
+// happened (ADR-096).
 func (s *service) reconcileReviews(ctx context.Context, tasks []*domain.Task, report *reconcile.Report) {
 	for _, task := range tasks {
 		if task.Workflow != domain.WorkflowVerifying {
+			continue
+		}
+		if s.gate.isRunning(task.ID) {
 			continue
 		}
 		if err := s.recoverGate(ctx, task); err != nil {
@@ -970,6 +1000,12 @@ func (s *service) reconcileReviews(ctx context.Context, tasks []*domain.Task, re
 
 // recoverGate returns one interrupted task to its review request, under its own
 // lock.
+//
+// What it records says that the checks are not running, which is what the caller
+// established, rather than naming the restart that usually caused it. A gate
+// this daemon released without finishing — a run whose bookkeeping failed — is
+// the same state reached without a restart, and an event claiming one would be
+// as untrue there as it was for a gate that was still running (ADR-096).
 func (s *service) recoverGate(ctx context.Context, task *domain.Task) error {
 	defer s.locks.lock(task.ID)()
 
@@ -981,7 +1017,7 @@ func (s *service) recoverGate(ctx context.Context, task *domain.Task) error {
 		return nil
 	}
 	return s.transition(ctx, current, domain.WorkflowReviewRequested,
-		"the configured checks were interrupted by a daemon restart and did not finish; "+
+		"the configured checks were interrupted and did not finish, and no daemon is running them now; "+
 			"run them again from review")
 }
 

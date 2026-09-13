@@ -385,6 +385,12 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 	// long ago becomes idle at once rather than restarting the clock.
 	d.service.pollControl(ctx)
 
+	// And a turn that ended shortly before the daemon stopped left a record with
+	// no timer behind it, because the timer was in memory and the message that
+	// armed it is settled. The grace period is five seconds by default, so this
+	// is the window a restart falls inside most often (ADR-096).
+	d.service.rearmIdle(ctx)
+
 	// Everything above is catching up on what happened while the daemon was
 	// stopped. From here on a change is news, and news is what a notification is
 	// for: a restart that announced every turn that ended overnight would be

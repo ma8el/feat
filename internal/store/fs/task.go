@@ -146,8 +146,13 @@ type sessionDocument struct {
 	ControlPath       string             `json:"control_path,omitempty"`
 	Execution         *executionDocument `json:"execution,omitempty"`
 	LastEventSequence uint64             `json:"last_event_sequence"`
-	CreatedAt         time.Time          `json:"created_at"`
-	LastActivityAt    time.Time          `json:"last_activity_at"`
+	// TurnEndedAt is the end-of-turn a restart has to re-arm the idle grace
+	// period from. It is an added optional field at the same schema version, as
+	// failureDocument above is: a snapshot written before it decodes to no
+	// pending turn end, which is the truth about a session that had none.
+	TurnEndedAt    time.Time `json:"turn_ended_at,omitzero"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastActivityAt time.Time `json:"last_activity_at"`
 }
 
 // executionDocument records the environment an agent session runs in.
@@ -388,6 +393,7 @@ func encodeTask(task *domain.Task) taskDocument {
 			ControlPath:       task.Session.ControlPath,
 			Execution:         encodeExecution(task.Session.Execution),
 			LastEventSequence: task.Session.LastEventSequence,
+			TurnEndedAt:       task.Session.TurnEndedAt.UTC(),
 			CreatedAt:         task.Session.CreatedAt.UTC(),
 			LastActivityAt:    task.Session.LastActivityAt.UTC(),
 		}
@@ -607,6 +613,7 @@ func decodeTask(document taskDocument, brief string) *domain.Task {
 			ControlPath:       document.Session.ControlPath,
 			Execution:         decodeExecution(document.Session.Execution),
 			LastEventSequence: document.Session.LastEventSequence,
+			TurnEndedAt:       document.Session.TurnEndedAt.UTC(),
 			CreatedAt:         document.Session.CreatedAt.UTC(),
 			LastActivityAt:    document.Session.LastActivityAt.UTC(),
 		}

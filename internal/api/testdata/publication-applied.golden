@@ -53,7 +53,7 @@
         "window": "@9",
         "pane": "%14"
       },
-      "process": "stopped",
+      "process": "running",
       "control_path": "/srv/state/control/example/3e5a7c91",
       "execution": null,
       "last_event_sequence": 9,

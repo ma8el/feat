@@ -356,6 +356,22 @@ func (g *gates) claim(id domain.TaskID, cancel context.CancelFunc) bool {
 	return true
 }
 
+// isRunning reports whether this daemon is running the task's gate.
+//
+// It is what tells an interrupted gate from a live one. A gate does not outlive
+// the process that started it, which is true of the process and false of the
+// call: Reconcile is an API request the dashboard makes on a key press, on a
+// resume, on a stop, and after every cleanup action, and a task whose checks
+// this daemon is running at that moment is not recovering from anything
+// (ADR-096).
+func (g *gates) isRunning(id domain.TaskID) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	_, running := g.running[id]
+	return running
+}
+
 // release ends one task's run and announces it.
 func (g *gates) release(id domain.TaskID) {
 	g.mu.Lock()
@@ -465,7 +481,7 @@ func (s *service) beginGate(
 ) (run []review.Check, skipped []domain.Check, ok bool, err error) {
 	defer s.locks.lock(id)()
 
-	task, cfg, err := s.reviewTask(ctx, id)
+	task, err := s.Task(ctx, id)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -473,6 +489,17 @@ func (s *service) beginGate(
 		// Something moved the task between the request and this run. The gate
 		// does not drag it back.
 		return nil, nil, false, nil
+	}
+
+	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
+	if err != nil {
+		// The gate cannot start, which is not the same as there being nothing to
+		// run. Recorded against the task rather than only in the daemon's log:
+		// twice on 2026-09-01 a project file that was mid-edit left a task in
+		// review_requested with no verdict and an agent waiting out its
+		// acknowledge timeout, and the only account of it was a log line nobody
+		// was reading (ADR-096).
+		return nil, nil, false, s.blockGate(ctx, task, request, translateConfig(err))
 	}
 
 	run, skipped = s.taskChecks(cfg, task)
@@ -491,6 +518,25 @@ func (s *service) beginGate(
 		return nil, nil, false, err
 	}
 	return run, skipped, true, nil
+}
+
+// blockGate records that a task's checks could not be started at all.
+//
+// It is the landing ADR-055 defined for a run that established nothing, reached
+// one step earlier: nothing was run, so nothing is claimed about the work, the
+// review request stands where it already is, and the user is the one told —
+// because this is the project's configuration or the environment the checks run
+// in, which is theirs to fix and not the agent's.
+//
+// The waiting agent is answered too. A review request made through the generated
+// helper is a command the session is blocked on, and a gate that fails silently
+// leaves it there until the acknowledge timeout expires.
+func (s *service) blockGate(ctx context.Context, task *domain.Task, request string, cause error) error {
+	detail := "Feat could not run the project's configured checks: " + cause.Error() +
+		". The review request stands, and nothing was established about the work"
+	s.record(ctx, task, domain.Event{Type: domain.EventReviewChanged, Detail: detail})
+	s.notifyTask(ctx, task, notify.ConditionVerificationBlocked, 0)
+	return s.answer(task, request, control.VerificationBlocked, blockedReport(cause.Error()))
 }
 
 // finishGate records what the checks reported and decides where the task lands.
@@ -699,18 +745,26 @@ func (s *service) gateFor(cfg *config.Config, task *domain.Task) agent.Gate {
 }
 
 // gateWillRun reports whether a completion gate will answer this task's review
-// request.
+// request, and whether Feat can tell at all.
 //
 // It is asked by the notification policy, which is the one place that has to
 // know before the gate has started: a task whose checks are about to run has not
 // arrived with the user yet.
-func (s *service) gateWillRun(task *domain.Task) bool {
+//
+// The second result is the distinction this used to collapse. A project that
+// configures no checks for the repositories this task holds is the honest case
+// for announcing the request now, because there is no later moment. A
+// configuration Feat cannot read is not that case: the gate reaches the same
+// file a moment later, fails on it, and says so itself (blockGate) — so a
+// notification here would be the first of two about one arrival, and the wrong
+// one of the two (ADR-096).
+func (s *service) gateWillRun(task *domain.Task) (will, known bool) {
 	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
 	if err != nil {
-		return false
+		return false, false
 	}
 	checks, _ := s.taskChecks(cfg, task)
-	return len(checks) > 0
+	return len(checks) > 0, true
 }
 
 // gateAcknowledge is how long the agent waits to hear that Feat has its request
@@ -821,12 +875,7 @@ func gateReport(results []domain.Check, verdict review.Verdict) string {
 	case review.OutcomePassed:
 		return "Feat ran the project's configured checks and they passed: " + verdict.Summary + "."
 	case review.OutcomeBlocked:
-		fmt.Fprintf(&b, "Feat could not run the project's configured checks: %s.\n"+
-			"Nothing has been established about your work, in either direction. This is the "+
-			"project's check configuration or the environment the checks run in, which is the "+
-			"user's to fix and not yours: do not change the configuration that decides how your "+
-			"work is verified. Feat has told them, and your review request stands.\n",
-			verdict.Summary)
+		b.WriteString(blockedReport(verdict.Summary))
 	default:
 		fmt.Fprintf(&b, "Feat ran the project's configured checks: %s.\n", verdict.Summary)
 	}
@@ -844,6 +893,21 @@ func gateReport(results []domain.Check, verdict review.Verdict) string {
 		}
 	}
 	return b.String()
+}
+
+// blockedReport is what the agent is told when nothing was established.
+//
+// It is shared by the run that established nothing and the run that could not
+// start, because the agent's position is identical in both: there is no verdict,
+// the reason is not its own, and the thing to do about it is nothing. The helper
+// exits zero on it, so the session is not sent back into its loop over a check
+// that never ran.
+func blockedReport(reason string) string {
+	return fmt.Sprintf("Feat could not run the project's configured checks: %s.\n"+
+		"Nothing has been established about your work, in either direction. This is the "+
+		"project's check configuration or the environment the checks run in, which is the "+
+		"user's to fix and not yours: do not change the configuration that decides how your "+
+		"work is verified. Feat has told them, and your review request stands.\n", reason)
 }
 
 // containerChecks runs a check inside a task's execution environment.

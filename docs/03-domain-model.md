@@ -91,6 +91,11 @@ Properties:
 - process state;
 - control-workspace path;
 - last observed event sequence;
+- the turn end an idle grace period is still counting from, when there is one.
+  It is recorded before the transition it arms is applied, so a daemon that stops
+  inside the grace period re-arms it from the record rather than losing it; every
+  observation of the process drops it, because an observation either is that
+  transition or supersedes it (ADR-096);
 - creation and last-activity timestamps;
 - the execution environment the session runs in, when that is not the host: its
   adapter, its identity, the exact inputs it was started from, the generated
