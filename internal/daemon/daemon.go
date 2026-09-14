@@ -124,6 +124,11 @@ type Options struct {
 	EventBuffer int
 	// Heartbeat is the event-stream keepalive interval. Zero uses the default.
 	Heartbeat time.Duration
+	// RecordInterval is how often the endpoint record is published again, so
+	// that the system's temporary-directory cleaner never finds it abandoned
+	// (ADR-101). Zero uses the default; a negative value turns it off, which
+	// only a test that pins what the record says wants.
+	RecordInterval time.Duration
 	// Ready is called once the daemon is listening and its endpoint record is
 	// published. It lets a caller wait for readiness without polling.
 	Ready func(Endpoint)
@@ -359,6 +364,14 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 	// once ownership is established. Nothing is serving yet, so this is not a
 	// concurrent write.
 	d.service.endpoint = ownership.Endpoint()
+
+	// The record on disk is the same fact, and it is the copy something else can
+	// remove: macOS collects files under the runtime directory that have gone
+	// three days untouched, and a daemon that stays up longer than that used to
+	// lose the only thing `feat daemon stop` could read. Publishing it again on
+	// a schedule keeps it from being classified as abandoned, and restores it if
+	// it was. Ownership stops this before it removes the record (ADR-101).
+	ownership.keepRecord(d.opts.RecordInterval)
 
 	// The state directory is checked before anything writes to it. A directory
 	// written by a newer Feat is refused rather than overwritten, because that

@@ -506,6 +506,23 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   both carry a proposal. It extends ADR-063 to the new questions, amends ADR-062's
   account of what the wizard asks, and takes up the item ADR-095 scheduled.
 
+- **[ADR-101 — A daemon's endpoint record is republished for as long as it runs, and stop asks the daemon when the record is gone](decisions/ADR-101-a-daemons-endpoint-record-is-republished-for-as-long-as.md)** · accepted  
+  A macOS daemon that stays up past three days loses `endpoint.json` to the
+  system's temporary-directory cleaner, keeps serving, and becomes one that
+  `feat daemon status` describes in full and `feat daemon stop` reports does not
+  exist. `Stop` now takes the process identifier from `/v1/health` when the
+  record cannot supply one — any unusable record, not only a missing one — and
+  the record is published again hourly for as long as ownership is held, which
+  `Release` stops before removing it. Republishing rather than touching
+  timestamps is what restores a record already collected. The candidate fix of
+  holding the record open was eliminated by measuring the cleaner: `dirhelper`
+  imports nothing that can see an open descriptor, so the correlation the field
+  report found had the wrong mechanism, and age being a conjunct of the rule is
+  what makes a schedule correct without a complete account of it. Answering
+  without a record is no longer diagnosed as a daemon still starting. It amends
+  ADR-027, keeping both the location its evidence 1 argues for and the lock its
+  evidence 3 makes the authority on liveness.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is

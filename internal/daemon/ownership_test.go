@@ -178,6 +178,94 @@ func TestAcquireRefusesASecondDaemon(t *testing.T) {
 	}
 }
 
+// TestAcquireDistinguishesACollectedRecordFromAStartingDaemon covers the
+// misdiagnosis that cost an afternoon.
+//
+// Holding the lock without a published record was modelled as a daemon still
+// starting up, so the message said to wait. On macOS the common cause is a
+// daemon whose record the temporary-directory cleaner collected days ago, and
+// telling that user to wait sends them to wait for something that finished
+// happening a week earlier (ADR-101).
+func TestAcquireDistinguishesACollectedRecordFromAStartingDaemon(t *testing.T) {
+	layout := testLayout(t)
+
+	first, err := Acquire(layout, testBuild, time.Now(), nil)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	t.Cleanup(func() { _ = first.Release() })
+
+	// What the cleaner does, in one call.
+	if err := os.Remove(layout.EndpointFile()); err != nil {
+		t.Fatalf("removing the endpoint record: %v", err)
+	}
+
+	_, err = Acquire(layout, testBuild, time.Now(), nil)
+
+	var running *AlreadyRunningError
+	if !errors.As(err, &running) {
+		t.Fatalf("error = %v, want an *AlreadyRunningError", err)
+	}
+	if running.HasEndpoint {
+		t.Fatal("the record was removed, so it cannot have been read")
+	}
+	if !running.Answering {
+		t.Error("the daemon holding the lock is listening, and the error does not say so")
+	}
+	if strings.Contains(running.Error(), "has not published its endpoint yet") {
+		t.Errorf("the message tells the user to wait for a daemon that is already serving: %v", running)
+	}
+	if !strings.Contains(running.Error(), "feat daemon stop") {
+		t.Errorf("the message does not name what still reaches the daemon: %v", running)
+	}
+}
+
+// TestDiagnoseNamesARecordThatIsMissingFromARunningDaemon covers the same state
+// from the reading side.
+func TestDiagnoseNamesARecordThatIsMissingFromARunningDaemon(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status Status
+		want   string
+	}{
+		{
+			name:   "answering with a record",
+			status: Status{Answering: true, HasEndpoint: true, ProcessAlive: true},
+			want:   "a daemon is running",
+		},
+		{
+			name:   "answering without one",
+			status: Status{Answering: true},
+			want:   "a daemon is running, and its endpoint record is missing",
+		},
+		{
+			// Unusable for the same reason and reached by the same fallback, so
+			// it must not be described as an absent one.
+			name:   "answering with one that cannot be read",
+			status: Status{Answering: true, EndpointError: errors.New("not readable JSON")},
+			want:   "its endpoint record is not readable: not readable JSON",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.status.Diagnose(); !strings.Contains(got, test.want) {
+				t.Errorf("Diagnose() = %q, want it to contain %q", got, test.want)
+			}
+			if !test.status.Running() {
+				t.Error("a daemon that answers is running, whatever its record says")
+			}
+		})
+	}
+
+	// RecordMissing is the predicate the status command branches on, and it is
+	// about a daemon that is serving — not about one that is gone.
+	if (Status{HasEndpoint: false}).RecordMissing() {
+		t.Error("nothing answering and no record is not a daemon with a missing record")
+	}
+	if !(Status{Answering: true}).RecordMissing() {
+		t.Error("answering without a record is exactly the case RecordMissing names")
+	}
+}
+
 // TestAcquireReclaimsAStaleSocket covers the rule that a stale socket is
 // diagnosed and safely recovered.
 //

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ma8el/feat/internal/client"
 	"github.com/ma8el/feat/internal/paths"
 )
 
@@ -72,6 +74,46 @@ func ReadEndpoint(layout paths.Layout) (Endpoint, error) {
 			path, endpoint.SchemaVersion, endpointSchemaVersion)
 	}
 	return endpoint, nil
+}
+
+// askEndpoint asks a running daemon to describe itself.
+//
+// It is the second way to learn what ReadEndpoint reads, and the better
+// authority of the two: the record is a file that something else can remove, and
+// on macOS something does — the temporary-directory cleaner collects it out from
+// under a daemon that has been up for three days (ADR-101). The daemon itself
+// cannot go missing while it is answering.
+//
+// api.Daemon already carries every field the record holds. Its doc comment
+// describes PID as "the process identifier, which is also what stops it", which
+// is this call anticipated.
+func askEndpoint(ctx context.Context, layout paths.Layout) (Endpoint, error) {
+	if !Answering(layout.Socket) {
+		return Endpoint{}, ErrNotRunning
+	}
+
+	daemon := client.New(layout.Socket)
+	defer daemon.Close()
+
+	health, err := daemon.Health(ctx)
+	if err != nil {
+		return Endpoint{}, fmt.Errorf("asking the daemon on %s to identify itself: %w", layout.Socket, err)
+	}
+	if health.Daemon.PID <= 0 {
+		// Refused by name rather than signalled: kill(2) reads a non-positive
+		// identifier as a process group or as every process this user owns.
+		return Endpoint{}, fmt.Errorf("the daemon on %s reported process identifier %d, which is not a process",
+			layout.Socket, health.Daemon.PID)
+	}
+
+	return Endpoint{
+		SchemaVersion: endpointSchemaVersion,
+		PID:           health.Daemon.PID,
+		Socket:        health.Daemon.Socket,
+		Version:       health.Daemon.Version,
+		Commit:        health.Daemon.Commit,
+		StartedAt:     health.Daemon.StartedAt,
+	}, nil
 }
 
 // writeEndpoint publishes the record by atomic replacement, so a client never

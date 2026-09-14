@@ -44,6 +44,12 @@ func serve(t *testing.T, opts Options) *running {
 	if opts.Heartbeat == 0 {
 		opts.Heartbeat = -1
 	}
+	// Nor is an hourly rewrite of the endpoint record, for the same reason: a
+	// test that reads the record should see what startup published. The test
+	// that means to exercise republishing asks for it.
+	if opts.RecordInterval == 0 {
+		opts.RecordInterval = -1
+	}
 	// No test drives the real Docker. A test that means to exercise a
 	// devcontainer arranges its own fake; one that does not gets a fake that
 	// refuses, so a launch reaching Docker by accident fails loudly here rather

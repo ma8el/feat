@@ -14,7 +14,11 @@ import (
 // The three observations are kept apart because their combinations are what a
 // diagnosis is made of: a socket with nothing answering is stale, a record whose
 // process is gone explains why, and a socket that answers without a record is a
-// daemon in the middle of starting.
+// daemon whose record has been removed while it ran — by the system's
+// temporary-directory cleaner, which is the common way, or by a daemon in the
+// moment between binding the socket and writing the file, which lasts
+// microseconds. Both are daemons that can be stopped, so they are diagnosed
+// together and neither is told to wait (ADR-101).
 type Status struct {
 	// Endpoint is the published record, valid when HasEndpoint is true.
 	Endpoint Endpoint
@@ -38,9 +42,26 @@ func (s Status) Running() bool { return s.Answering }
 // next start reclaims it (ADR-027).
 func (s Status) StaleSocket() bool { return s.SocketPresent && !s.Answering }
 
+// RecordMissing reports a daemon that is answering while its endpoint record is
+// not readable.
+//
+// It is a running daemon and nothing about it needs repairing: `feat daemon
+// stop` asks the daemon itself for what the record would have said, and a daemon
+// built since ADR-101 publishes the record again within the hour.
+func (s Status) RecordMissing() bool { return s.Answering && !s.HasEndpoint }
+
 // Diagnose explains the status in one line, in the terms the user can act on.
 func (s Status) Diagnose() string {
 	switch {
+	case s.Answering && s.EndpointError != nil:
+		// Also a record that cannot give a caller a process identifier, and
+		// reached the same way, so it is told apart from an absent one here
+		// rather than described as one.
+		return "a daemon is running, and its endpoint record is not readable: " +
+			s.EndpointError.Error() + "; `feat daemon stop` asks the daemon itself"
+	case s.RecordMissing():
+		return "a daemon is running, and its endpoint record is missing; " +
+			"`feat daemon stop` asks the daemon itself"
 	case s.Answering:
 		return "a daemon is running"
 	case s.StaleSocket() && s.HasEndpoint && !s.ProcessAlive:

@@ -5,11 +5,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/ma8el/feat/internal/integrationtest"
+	"github.com/ma8el/feat/internal/paths"
 )
 
 // TestBinaryLifecycle exercises `feat daemon start`, `status`, and `stop` as
@@ -23,37 +25,7 @@ func TestBinaryLifecycle(t *testing.T) {
 		t.Skipf("set %s=1 to run the tests that build and run the binary", integrationtest.Env)
 	}
 
-	binary := buildBinary(t)
-	layout := testLayout(t)
-	environment := append(userEnvironment(),
-		"FEAT_RUNTIME_DIR="+layout.Runtime,
-		"XDG_DATA_HOME="+filepath.Dir(layout.State),
-		"XDG_CONFIG_HOME="+filepath.Dir(layout.Config),
-	)
-
-	// The state directory is <XDG_DATA_HOME>/feat, so the layout the binary
-	// resolves has to match the one this test asserts against.
-	stateParent := filepath.Dir(layout.State)
-	if filepath.Base(layout.State) != "feat" {
-		layout.State = filepath.Join(stateParent, "feat")
-	}
-
-	run := func(t *testing.T, args ...string) (string, int) {
-		t.Helper()
-
-		command := exec.Command(binary, args...)
-		command.Env = environment
-		output, err := command.CombinedOutput()
-
-		code := 0
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			code = exit.ExitCode()
-		} else if err != nil {
-			t.Fatalf("running %s %v: %v", binary, args, err)
-		}
-		return string(output), code
-	}
+	layout, run := binaryHarness(t)
 
 	// Nothing is running yet, and that is reported as its own exit code rather
 	// than as a failure.
@@ -173,6 +145,146 @@ func TestBinaryLifecycle(t *testing.T) {
 	if _, err := os.Lstat(layout.LogFile()); err != nil {
 		t.Errorf("no daemon log at %s: %v", layout.LogFile(), err)
 	}
+}
+
+// TestBinaryStopsADaemonWhoseRecordWasRemoved is the regression for a daemon
+// that outlived its own endpoint record.
+//
+// On macOS the per-user temporary directory is swept of files that have gone
+// three days untouched, and the endpoint record used to be written once and
+// never again — so every daemon that stayed up past its third day became one
+// that `feat daemon status` could describe and `feat daemon stop` could not
+// find, reporting instead that nothing was running. Recovery meant sending the
+// signal by hand (ADR-101).
+//
+// It belongs here rather than in internal/cli for the reason the restart
+// assertion above gives: stopping a daemon signals a process, and the only
+// process a test can safely signal is one it started itself.
+func TestBinaryStopsADaemonWhoseRecordWasRemoved(t *testing.T) {
+	if !integrationtest.Enabled() {
+		t.Skipf("set %s=1 to run the tests that build and run the binary", integrationtest.Env)
+	}
+
+	layout, run := binaryHarness(t)
+
+	// collect is what the cleaner did, in one call.
+	collect := func(t *testing.T) {
+		t.Helper()
+		if err := os.Remove(layout.EndpointFile()); err != nil {
+			t.Fatalf("removing the endpoint record: %v", err)
+		}
+	}
+
+	if output, code := run(t, "daemon", "start"); code != 0 {
+		t.Fatalf("start: exit %d\n%s", code, output)
+	}
+	t.Cleanup(func() {
+		if Answering(layout.Socket) {
+			run(t, "daemon", "stop")
+		}
+	})
+
+	started, err := ReadEndpoint(layout)
+	if err != nil {
+		t.Fatalf("reading the endpoint of the daemon just started: %v", err)
+	}
+	collect(t)
+
+	// The daemon is untouched by the loss and still describes itself.
+	output, code := run(t, "daemon", "status")
+	if code != 0 {
+		t.Fatalf("status without a record: exit %d, want 0 — the daemon is answering\n%s", code, output)
+	}
+	if !strings.Contains(output, "endpoint record") || !strings.Contains(output, "missing") {
+		t.Errorf("status does not report the missing record:\n%s", output)
+	}
+
+	// This is the command that used to exit 4 saying no daemon was running.
+	output, code = run(t, "daemon", "stop")
+	if code != 0 {
+		t.Fatalf("stop without a record: exit %d, want 0\n%s", code, output)
+	}
+	if !strings.Contains(output, "daemon stopped") {
+		t.Errorf("stop does not report what it stopped:\n%s", output)
+	}
+	if !strings.Contains(output, strconv.Itoa(started.PID)) {
+		t.Errorf("stop does not name pid %d, which it took from the daemon itself:\n%s", started.PID, output)
+	}
+	if Answering(layout.Socket) {
+		t.Error("the daemon still answers after a stop that reported success")
+	}
+
+	// And the same for restart, which is the other command the record blocked.
+	if output, code := run(t, "daemon", "start"); code != 0 {
+		t.Fatalf("starting a second daemon: exit %d\n%s", code, output)
+	}
+	before, err := ReadEndpoint(layout)
+	if err != nil {
+		t.Fatalf("reading the second daemon's endpoint: %v", err)
+	}
+	collect(t)
+
+	output, code = run(t, "daemon", "restart")
+	if code != 0 {
+		t.Fatalf("restart without a record: exit %d, want 0\n%s", code, output)
+	}
+	if !strings.Contains(output, "daemon stopped") || !strings.Contains(output, "daemon started") {
+		t.Errorf("restart does not report both halves:\n%s", output)
+	}
+	if strings.Contains(output, "no daemon was running") {
+		t.Errorf("restart did not find the daemon it was answering, and started a second one:\n%s", output)
+	}
+
+	after, err := ReadEndpoint(layout)
+	if err != nil {
+		t.Fatalf("reading the endpoint after the restart: %v", err)
+	}
+	if after.PID == before.PID {
+		t.Errorf("the daemon after the restart is pid %d, the same process as before", after.PID)
+	}
+	if !Answering(layout.Socket) {
+		t.Error("nothing answers on the socket after a restart")
+	}
+}
+
+// binaryHarness builds the binary and returns a runtime layout of its own,
+// together with a function that runs the binary against it as a user's shell
+// would.
+func binaryHarness(t *testing.T) (paths.Layout, func(*testing.T, ...string) (string, int)) {
+	t.Helper()
+
+	binary := buildBinary(t)
+	layout := testLayout(t)
+	environment := append(userEnvironment(),
+		"FEAT_RUNTIME_DIR="+layout.Runtime,
+		"XDG_DATA_HOME="+filepath.Dir(layout.State),
+		"XDG_CONFIG_HOME="+filepath.Dir(layout.Config),
+	)
+
+	// The state directory is <XDG_DATA_HOME>/feat, so the layout the binary
+	// resolves has to match the one a test asserts against.
+	stateParent := filepath.Dir(layout.State)
+	if filepath.Base(layout.State) != "feat" {
+		layout.State = filepath.Join(stateParent, "feat")
+	}
+
+	run := func(t *testing.T, args ...string) (string, int) {
+		t.Helper()
+
+		command := exec.Command(binary, args...)
+		command.Env = environment
+		output, err := command.CombinedOutput()
+
+		code := 0
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			code = exit.ExitCode()
+		} else if err != nil {
+			t.Fatalf("running %s %v: %v", binary, args, err)
+		}
+		return string(output), code
+	}
+	return layout, run
 }
 
 // userEnvironment is this process's environment with Feat's own bookkeeping
