@@ -453,7 +453,7 @@ func (w *Wizard) question() Question {
 				w.checkout.Remote+" is "+w.checkout.RemoteURL+
 					", which is not a host Feat recognises; a self-hosted instance is not guessable")
 		}
-		if len(w.draft.Repositories) == 0 {
+		if w.firstForge() {
 			question.Detail = []string{
 				"Where a task's finished work is proposed. Feat pushes the task branch and",
 				"opens one merge request per changed repository, from this machine with the",
@@ -877,6 +877,15 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 
 	case stageRepositoryAccess:
 		w.pending.DefaultAccess = answer
+		if !domain.DefaultAccess(answer).Permits(domain.TaskAccessReadWrite) {
+			// A repository no task may ever write to is one no task may ever
+			// publish, so there is nothing to ask it. The rule is the domain's
+			// rather than a mode named here: read-only is the one mode a task
+			// cannot promote, and publication refuses a binding that is not
+			// read-write in every place it looks at one.
+			w.keepRepository()
+			break
+		}
 		w.stage = stageRepositoryForge
 
 	case stageRepositoryForge:
@@ -886,9 +895,7 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 		if answer != noForge {
 			w.pending.Forge = answer
 		}
-		w.draft.Repositories = append(w.draft.Repositories, w.pending)
-		w.pending = config.DraftRepository{}
-		w.stage = stageAnotherRepository
+		w.keepRepository()
 
 	case stageEditable:
 		for i, repository := range w.draft.Repositories {
@@ -1090,6 +1097,33 @@ func (w *Wizard) nextContributor() {
 // firstContributor reports whether the repository under the cursor is the first
 // one asked about, which is the one the explanation belongs to.
 func (w *Wizard) firstContributor() bool { return w.contributor == 0 }
+
+// keepRepository records the repository being answered and moves to the offer of
+// another.
+//
+// Two answers end a repository, because one of them is asked only sometimes: a
+// repository a task may write to is asked where it publishes, and one that can
+// never be written to is finished at its access mode.
+func (w *Wizard) keepRepository() {
+	w.draft.Repositories = append(w.draft.Repositories, w.pending)
+	w.pending = config.DraftRepository{}
+	w.stage = stageAnotherRepository
+}
+
+// firstForge reports whether the repository being answered is the first one
+// asked where it publishes, which is the one the explanation belongs to.
+//
+// Not the first repository, for the reason firstRuntimeMount is not either: a
+// repository no task may write to is never asked, so the group starts at the
+// first one that may be.
+func (w *Wizard) firstForge() bool {
+	for _, repository := range w.draft.Repositories {
+		if domain.DefaultAccess(repository.DefaultAccess).Permits(domain.TaskAccessReadWrite) {
+			return false
+		}
+	}
+	return true
+}
 
 // keepContribution records the answered contribution on its repository.
 //

@@ -25,12 +25,13 @@ Flow:
    back is printed under a marker below what is already there rather than
    erasing it. A terminal that says it is `dumb` or says nothing at all gets the
    line conversation, which prints a prompt and reads a typed answer.
-2. Feat asks which repositories take part, how each takes part by default and
-   where each publishes its merge requests, whether a task runs application
-   services, where the agent runs, and finally what command prints the project's
-   tickets. The order is the file's: the application is answered before the
-   agent's environment, so the agent's Compose question can offer the files no
-   repository claimed. Only the questions somebody needs cost them anything —
+2. Feat asks which repositories take part, how each takes part by default and —
+   for each one a task may write to — where it publishes its merge requests,
+   whether a task runs application services, where the agent runs, and finally
+   what command prints the project's tickets. The order is the file's: the
+   application is answered before the agent's environment, so the agent's
+   Compose question can offer the files no repository claimed. Only the
+   questions somebody needs cost them anything —
    every one of them proposes an answer, and a project with no forge, no tracker,
    and no application services says so by pressing Enter (ADR-100). It does not
    ask what verifies the work: `checks:` is written by hand into the file it

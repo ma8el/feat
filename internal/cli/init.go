@@ -19,7 +19,7 @@ import (
 const initLong = `Write a project's configuration by answering questions.
 
 A project is one YAML file. This asks what has to be decided — which
-repositories take part and where each publishes, whether a task runs application
+repositories take part and where they publish, whether a task runs application
 services, where the agent runs, and where your tickets come from — and fills in
 everything Feat has a default for, so the file it produces states your decisions
 and nothing else. Every question proposes an answer, so a project that needs

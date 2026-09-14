@@ -1437,3 +1437,115 @@ func TestTheSectionsAreAskedInTheOrderTheyAreNamed(t *testing.T) {
 		t.Errorf("the sections were entered as %v, want %v", sections, want)
 	}
 }
+
+// TestARepositoryNoTaskCanWriteToIsNotAskedWhereItPublishes is the answer that
+// would have been unreachable configuration.
+//
+// Four of the five access modes can become read-write in some task — omitted,
+// selectable, and stable_read_only all permit it once the repository is
+// explicitly selected — so a forge may yet be used and the question is worth
+// asking. read_only is the one that cannot: a repository a project declared
+// read-only must not become writable because one task asked, and publication
+// refuses a binding that is not read-write everywhere it looks at one.
+//
+// It would not have been inert, which is what makes it worth refusing rather
+// than tolerating. `feat doctor` collects the forges every repository declares
+// without looking at access, so accepting the proposal on a read-only
+// repository whose remote is on github.com buys a standing warning demanding a
+// command line for a repository that can never use it.
+func TestARepositoryNoTaskCanWriteToIsNotAskedWhereItPublishes(t *testing.T) {
+	flow, _ := start(t, "app")
+	answers(t, flow,
+		"",    // display name
+		"",    // the checkout: the api repository, whose remote is on github.com
+		"api", // its identifier
+		string(domain.DefaultAccessReadOnly),
+	)
+
+	question, _ := flow.Step()
+	if question.ID != "repository.another" {
+		t.Fatalf("a read-only repository was asked %s, and no task can publish it", question.ID)
+	}
+
+	// Every other mode is asked, including the three that take a decision per
+	// task: a repository selected read-write once has a merge request to open.
+	for _, access := range []domain.DefaultAccess{
+		domain.DefaultAccessReadWrite,
+		domain.DefaultAccessSelectable,
+		domain.DefaultAccessStableReadOnly,
+		domain.DefaultAccessOmitted,
+	} {
+		asked, _ := start(t, "app")
+		answers(t, asked, "", "", "api", string(access))
+
+		if question, _ := asked.Step(); question.ID != "repository.forge" {
+			t.Errorf("a %s repository is asked %s, and a task may yet write to it",
+				access, question.ID)
+		}
+	}
+}
+
+// TestTheForgeExplanationLandsOnTheFirstRepositoryAskedForOne is the detail
+// block following the group rather than the repositories.
+//
+// A project whose first repository is read-only never sees that question, so
+// counting repositories would have put the explanation on nothing and left the
+// repository that was asked with a bare prompt.
+func TestTheForgeExplanationLandsOnTheFirstRepositoryAskedForOne(t *testing.T) {
+	flow, _ := start(t, "app")
+	answers(t, flow,
+		"",                                    // display name
+		"",                                    // the api checkout
+		"api",                                 // its identifier
+		string(domain.DefaultAccessReadOnly),  // never published, so never asked
+		"y",                                   // a second repository
+		"store",                               // its checkout
+		"store",                               // its identifier
+		string(domain.DefaultAccessReadWrite), // this one a task may write to
+	)
+
+	question, _ := flow.Step()
+	if question.ID != "repository.forge" {
+		t.Fatalf("the second repository is asked %s, want where it publishes", question.ID)
+	}
+	if len(question.Detail) == 0 {
+		t.Errorf("the first repository asked where it publishes gets no explanation: %+v", question)
+	}
+}
+
+// TestTheOnlyEditableRepositoryIsPromotedWithoutItsForgeBeingAsked is the gap
+// ADR-100 states rather than closes, checked so that it stays the one it says.
+//
+// A project whose repositories are all read-only has no editable workspace, so
+// the flow asks which one a task may edit and promotes it. That repository was
+// never asked where it publishes, because when it was answered it was one no
+// task could write to. What comes out is a configuration Feat accepts with an
+// optional section missing, and not a broken one.
+func TestTheOnlyEditableRepositoryIsPromotedWithoutItsForgeBeingAsked(t *testing.T) {
+	flow, _ := start(t, "app")
+	answers(t, flow,
+		"",    // display name
+		"",    // the api checkout
+		"api", // its identifier
+		string(domain.DefaultAccessReadOnly),
+		"n", // no second repository
+	)
+
+	question, _ := flow.Step()
+	if question.ID != "project.editable" {
+		t.Fatalf("a project with no editable repository is asked %s", question.ID)
+	}
+	answers(t, flow, "api", "n", "", "")
+
+	review, err := flow.Review()
+	if err != nil {
+		t.Fatalf("the promoted repository does not compose a configuration: %v", err)
+	}
+	text := string(review.Text)
+	if !strings.Contains(text, "default_access: read_write") {
+		t.Errorf("the repository a task may edit was not promoted:\n%s", text)
+	}
+	if strings.Contains(text, "forge:") {
+		t.Errorf("a forge was written for a repository that was never asked for one:\n%s", text)
+	}
+}

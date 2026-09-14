@@ -78,16 +78,34 @@ Evidence:
 
 Decisions:
 
-- **Every repository is asked where it publishes, and the remote proposes the
-  answer.** A closed question between a repository's access and the offer of
-  another, with the forges configuration accepts and then `none`. A remote on
-  `github.com` or `gitlab.com` proposes that forge and says which remote it was
-  read from; any other host proposes `none` and says that the remote was read
-  and not recognised, because a default a user cannot tell from a finding is a
-  value that appeared out of nowhere. Exactly those two hosts and no subdomain
-  of either: GitHub Enterprise and a self-hosted GitLab are both unguessable,
-  which is evidence 2's own point. `none` is the absence of the section rather
-  than a value in it — configuration has no forge kind meaning "nowhere".
+- **Every repository a task may write to is asked where it publishes.** A closed
+  question between a repository's access and the offer of another, carrying the
+  forges configuration accepts and then `none`. Four of the five access modes
+  reach it: `omitted`, `selectable`, and `stable_read_only` all permit read-write
+  once the repository is explicitly selected, so a forge may yet be used.
+  `read_only` is the one that cannot — a repository a project declared read-only
+  must not become writable because one task asked — and publication refuses a
+  binding that is not read-write in every place it looks at one, so an answer
+  there is configuration no task can reach. It would not be inert either, which
+  is what makes it worth refusing rather than tolerating: `feat doctor` collects
+  the forges the repositories declare without looking at access, so accepting the
+  proposal on a read-only repository whose remote is on `github.com` buys a
+  standing warning demanding a command line for a repository that can never use
+  it. `DefaultAccess.Permits` decides this rather than a mode named in the
+  wizard, so a sixth mode would be followed rather than missed. One gap is left
+  rather than closed: a project whose repositories are all read-only is asked
+  which one a task may edit, and the one promoted there was never asked where it
+  publishes. That path exists only because a project with no editable workspace
+  has to be given one, and what it produces is a configuration Feat accepts with
+  an optional section missing, which is added by editing the file.
+- **The remote proposes the answer, and says so.** A remote on `github.com` or
+  `gitlab.com` proposes that forge and names the remote it was read from; any
+  other host proposes `none` and says that the remote was read and not
+  recognised, because a default a user cannot tell from a finding is a value that
+  appeared out of nowhere. Exactly those two hosts and no subdomain of either:
+  GitHub Enterprise and a self-hosted GitLab are both unguessable, which is
+  evidence 2's own point. `none` is the absence of the section rather than a
+  value in it — configuration has no forge kind meaning "nowhere".
 - **The list of forges is the domain's, read by both the question and the
   rejection.** `domain.ForgeKinds` is new, `ForgeKind.Valid` answers from it, and
   `config.forgeKinds` and the wizard's options both read it. A question offering
