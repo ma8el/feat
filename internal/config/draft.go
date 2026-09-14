@@ -43,6 +43,10 @@ type Draft struct {
 	Runtime *DraftRuntime
 	// Checks are verification commands, in the order they were answered.
 	Checks []DraftCheck
+	// Tracker is the command that prints the project's tickets, as an argument
+	// vector. An empty vector writes no tracker section, which is a project
+	// whose tasks are all written by hand.
+	Tracker []string
 }
 
 // DraftRepository is one repository of a drafted project.
@@ -58,6 +62,10 @@ type DraftRepository struct {
 	// nil value writes no runtime section for it, which is a repository whose
 	// code no service runs.
 	Runtime *DraftRepositoryRuntime
+	// Forge is where this repository's merge requests are opened. An empty
+	// value writes no forge section, which is a repository Feat never
+	// publishes.
+	Forge string
 	// DefaultBranch is the branch a base policy resolves against.
 	DefaultBranch string
 	// Remote is the Git remote a base policy fetches.
@@ -180,6 +188,7 @@ func (d Draft) Render() []byte {
 	d.renderAgent(doc)
 	d.renderRuntime(doc)
 	d.renderChecks(doc)
+	d.renderTracker(doc)
 
 	return doc.bytes()
 }
@@ -223,6 +232,14 @@ func (d Draft) renderRepositories(doc *document) {
 				doc.comment(3, "The services you reach from this machine.")
 				doc.list(3, "reachable", runtime.Reachable)
 			}
+		}
+		if repository.Forge != "" {
+			doc.key(2, "forge")
+			doc.comment(3,
+				"Where this repository's merge requests are opened. Feat publishes from this",
+				"machine with the forge's own CLI, using the authentication you already have",
+				"there; the agent environment never receives a token.")
+			doc.field(3, "kind", repository.Forge)
 		}
 		doc.field(2, "default_branch", repository.DefaultBranch)
 		doc.field(2, "remote", repository.Remote)
@@ -323,6 +340,31 @@ func (d Draft) renderChecks(doc *document) {
 			doc.field(3, "execution", check.Execution)
 		}
 	}
+}
+
+// renderTracker writes where the project's tickets come from.
+//
+// The kind is not written. A configured command is the only one there is and
+// resolution fills it in, so writing it down would be the generated file
+// stating a default rather than a decision — and `command` under the key is
+// what makes the section exist, so there is no null-mapping problem to solve
+// the way the runtime's provider solves one (ADR-071).
+func (d Draft) renderTracker(doc *document) {
+	if len(d.Tracker) == 0 {
+		return
+	}
+	doc.blank()
+	doc.comment(0,
+		"Where this project's tickets come from. `feat project tickets` lists what the",
+		"command printed, and `feat implement --ticket <reference>` composes a task brief",
+		"from one, which you read and edit before it is what the agent is told to do.")
+	doc.key(0, "tracker")
+	doc.comment(1,
+		"It runs on this machine as you, with no shell: Feat expands nothing and passes",
+		"no filter, so which tickets are yours is the command's decision. It prints them",
+		"as JSON in the shape of schema/feat-tickets.schema.json, which `feat doctor`",
+		"checks by running it.")
+	doc.list(1, "command", d.Tracker)
 }
 
 // checkedRepositories returns the repositories that have checks, in the order

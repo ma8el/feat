@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ma8el/feat/internal/api"
+	"github.com/ma8el/feat/internal/wizard"
 )
 
 // wizardScreen opens the project wizard on a dashboard, with a machine under it
@@ -206,9 +207,22 @@ func TestTheWizardAsksTheFlowsQuestions(t *testing.T) {
 	}
 
 	// The proposal is in the field, so Enter accepts it as it does at a shell.
+	//
+	// And the trail names every part of the file, in the order they are asked:
+	// the application before the agent's environment, and the tracker last
+	// (ADR-100). It is the flow's list rather than one written here, so the
+	// screen and the questions cannot disagree about what comes next.
 	view := content(model)
-	if !strings.Contains(view, "project") || !strings.Contains(view, "repositories") {
-		t.Errorf("the trail does not show where the answers are:\n%s", view)
+	trail := 0
+	for _, section := range wizard.Sections() {
+		at := strings.Index(view, string(section))
+		if at < 0 {
+			t.Fatalf("the trail does not name %q:\n%s", section, view)
+		}
+		if at < trail {
+			t.Errorf("the trail draws %q out of the order it is asked in:\n%s", section, view)
+		}
+		trail = at
 	}
 
 	// Identifier, name, and then the checkout, which is the answer Git is asked
@@ -345,7 +359,9 @@ func TestTabStepsThroughEveryCandidate(t *testing.T) {
 	model = enter(t, model, 1)             // blank finishes the file loop
 	model = answerWizard(t, model, "dev")  // the service this repository manages
 	model = answerWizard(t, model, "/app") // where that service expects its source
-	model = enter(t, model, 2)             // reachable and the environment file
+	// Reachable, the environment file, the execution mode, and the tracker: the
+	// agent's environment is answered after the application's now (ADR-100).
+	model = enter(t, model, 4)
 	if model.wizard.step != wizardReviewing {
 		t.Fatalf("the step is %v, want the composed configuration", model.wizard.step)
 	}
@@ -437,11 +453,21 @@ func TestSteppingBackReachesTheAnswerBefore(t *testing.T) {
 	}
 }
 
+// wizardQuestions is how many questions the smallest project answers: an
+// identifier, a name, a checkout, its identifier, its access, its forge, no
+// second repository, no application services, an execution mode, and no tracker
+// command.
+//
+// It is named rather than written into each caller because two of them are new
+// and the number moved once already. A test that answers one too few stops
+// somewhere reportable, which is what atReview checks.
+const wizardQuestions = 10
+
 // atReview opens the wizard, answers every question, and stops at the file.
 func atReview(t *testing.T, width int) Model {
 	t.Helper()
 
-	model := enter(t, sized(wizardScreen(t, newFakeBackend()), width, 44), 8)
+	model := enter(t, sized(wizardScreen(t, newFakeBackend()), width, 44), wizardQuestions)
 	if model.wizard.step != wizardReviewing {
 		t.Fatalf("after every question the step is %v, want the review", model.wizard.step)
 	}
@@ -527,7 +553,7 @@ func TestScrollingTheFileDoesNotResizeTheDialog(t *testing.T) {
 // implements it: the whole file is displayed, and writing it is a separate act.
 func TestNothingIsWrittenBeforeTheFileIsConfirmed(t *testing.T) {
 	backend := newFakeBackend()
-	model := enter(t, wizardScreen(t, backend), 8)
+	model := enter(t, wizardScreen(t, backend), wizardQuestions)
 
 	if model.wizard.step != wizardReviewing {
 		t.Fatalf("after every question the step is %v, want the review", model.wizard.step)
@@ -603,7 +629,7 @@ func TestTheWrittenProjectIsCheckedAgainstTheMachine(t *testing.T) {
 		Host: []api.Finding{{Check: "git", Severity: api.SeverityOK, Summary: "git version 2.52.0"}},
 	}
 
-	model := enter(t, wizardScreen(t, backend), 9)
+	model := enter(t, wizardScreen(t, backend), wizardQuestions+1)
 	if model.wizard.step != wizardChecking {
 		t.Fatalf("the step is %v, want the check", model.wizard.step)
 	}
@@ -642,7 +668,7 @@ func TestTheWrittenProjectIsCheckedAgainstTheMachine(t *testing.T) {
 // path, from a dashboard with no project to one with a registered project.
 func TestRegisteringIsOfferedAndAnswered(t *testing.T) {
 	backend := newFakeBackend()
-	model := enter(t, wizardScreen(t, backend), 10)
+	model := enter(t, wizardScreen(t, backend), wizardQuestions+2)
 
 	if model.wizard.step != wizardRegistering {
 		t.Fatalf("the step is %v, want the registration offer", model.wizard.step)
@@ -685,7 +711,7 @@ func TestAFailedRegistrationStillReportsTheFile(t *testing.T) {
 	backend := newFakeBackend()
 	backend.registerErr = errors.New("the daemon is not running")
 
-	model := enter(t, wizardScreen(t, backend), 11)
+	model := enter(t, wizardScreen(t, backend), wizardQuestions+3)
 
 	view := content(model)
 	if !strings.Contains(view, "repo.yaml") {

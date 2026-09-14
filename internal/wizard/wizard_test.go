@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ma8el/feat/internal/config"
+	"github.com/ma8el/feat/internal/domain"
 	"github.com/ma8el/feat/internal/paths"
 )
 
@@ -43,7 +44,14 @@ func (h *fakeHost) Inspect(_ context.Context, path string) (Checkout, error) {
 	switch path {
 	case filepath.Join(h.root, "api"):
 		h.inspected++
-		return Checkout{Root: path, Remote: "origin", DefaultBranch: "main"}, nil
+		return Checkout{
+			Root: path, Remote: "origin",
+			// A host Feat recognises, which is what the forge question proposes
+			// from. The repository beside it has no remote at all, so the two
+			// cover both halves of that proposal (ADR-100).
+			RemoteURL:     "git@github.com:acme/api.git",
+			DefaultBranch: "main",
+		}, nil
 	case filepath.Join(h.root, "store"):
 		h.inspected++
 		return Checkout{Root: path}, nil
@@ -57,6 +65,10 @@ func (h *fakeHost) ComposeFiles(dir string) []string {
 		return []string{
 			filepath.Join(dir, "compose.yaml"),
 			filepath.Join(dir, "compose.override.yaml"),
+			// The agent's own, in the directory the Dev Containers specification
+			// keeps one in. It is what is left over once the application has
+			// claimed the two above it.
+			filepath.Join(dir, ".devcontainer", "compose.yaml"),
 		}
 	}
 	return nil
@@ -76,8 +88,9 @@ func (h *fakeHost) ComposeServices(files ...string) []string {
 // questions, and where the agent's own container holds a checkout is a
 // different question from where an application's services expect its source.
 //
-// The api checkout's own files declare two services, one mounting it at /srv
-// and publishing a port and one built from it. The devcontainer kept in a
+// The api checkout's own files declare three services: one mounting it at /srv
+// and publishing a port, one built from it, and a database that runs none of its
+// code and is therefore not something a task manages. The devcontainer kept in a
 // directory of its own mounts api at /opt/api and says nothing Feat can read
 // about the store checkout — an interpolated source is a value Feat must not
 // resolve, so it is named rather than derived from.
@@ -87,7 +100,10 @@ func (h *fakeHost) Compose(projectDir, repository string, files ...string) Compo
 		return Composition{}
 	}
 
-	if projectDir == filepath.Join(h.root, "devcontainer") {
+	// Either devcontainer: the one kept in a directory of its own, and the one
+	// kept beside the api checkout in the directory the specification names.
+	switch filepath.Base(projectDir) {
+	case "devcontainer", ".devcontainer":
 		if repository != filepath.Join(h.root, "api") {
 			return Composition{Undecided: []string{files[0] + ": service dev: a volume"}}
 		}
@@ -98,9 +114,10 @@ func (h *fakeHost) Compose(projectDir, repository string, files ...string) Compo
 		return Composition{}
 	}
 	return Composition{
-		Services:      []string{"dev", "worker"},
+		Services:      []string{"db", "dev", "worker"},
 		ContainerPath: "/srv",
 		Reachable:     []string{"dev"},
+		Mounted:       []string{"dev"},
 		Baked:         []string{"worker"},
 	}
 }
@@ -177,9 +194,11 @@ func TestTheFlowComposesAConfigurationFromWhatItIsTold(t *testing.T) {
 		"",        // the checkout: the working directory, which is a repository
 		"",        // repository identifier: api
 		"",        // default access: read_write
+		"",        // forge: github, read from the remote rather than asked for
 		"n",       // no second repository
-		"",        // execution mode: host
 		"n",       // no application services
+		"",        // execution mode: host
+		"",        // no tracker command
 	)
 
 	if !flow.Complete() {
@@ -201,9 +220,11 @@ func TestTheFlowComposesAConfigurationFromWhatItIsTold(t *testing.T) {
 	text := string(review.Text)
 	for _, want := range []string{
 		"id: app", "name: Example",
-		// Both were read from the checkout rather than asked for, which is what
-		// the wizard exists to do.
-		"default_branch: main", "remote: origin",
+		// All three were read from the checkout rather than asked for, which is
+		// what the wizard exists to do. The forge is the third: the remote's host
+		// is one Feat recognises, so the question proposed it and Enter took it
+		// (ADR-100).
+		"default_branch: main", "remote: origin", "kind: github",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the configuration does not contain %q:\n%s", want, text)
@@ -234,12 +255,14 @@ func TestVerificationIsNotAsked(t *testing.T) {
 	// about a command.
 	for _, mode := range []string{config.ModeHost, config.ModeDevcontainer} {
 		flow, host := start(t, "app")
-		answers(t, flow, "", "", "api", "", "n", mode)
+		// Display name, the checkout, its identifier, its access, its forge, no
+		// second repository, no application services, and then the mode.
+		answers(t, flow, "", "", "api", "", "", "n", "n", mode)
 		if mode == config.ModeDevcontainer {
 			answers(t, flow,
 				filepath.Join(host.root, "api", "compose.yaml"), "", "dev", "developer", "/srv/api", "n")
 		}
-		answers(t, flow, "n") // no application services, which used to be followed by the checks
+		answers(t, flow, "") // no tracker command, which is where the checks used to be
 
 		if !flow.Complete() {
 			question, _ := flow.Step()
@@ -256,7 +279,10 @@ func TestARepositoryWithNoRemoteDecidesTheBasePolicy(t *testing.T) {
 	answers(t, flow,
 		"app", "",
 		"store", // a checkout with no remote
-		"", "", "n",
+		"",      // its identifier
+		"",      // default access
+		"",      // forge: none, because there is no remote to read one from
+		"n",     // no second repository
 	)
 
 	// It says so where it is decided, rather than deciding quietly.
@@ -265,7 +291,7 @@ func TestARepositoryWithNoRemoteDecidesTheBasePolicy(t *testing.T) {
 		t.Errorf("the notes do not say why: %v", question.Notes)
 	}
 
-	answers(t, flow, "", "")
+	answers(t, flow, "", "", "")
 	review, err := flow.Review()
 	if err != nil {
 		t.Fatalf("the answers do not compose a configuration: %v", err)
@@ -316,12 +342,12 @@ func TestARefusedAnswerChangesNothing(t *testing.T) {
 // field it names.
 func TestSteppingBackUndoesTheAnswer(t *testing.T) {
 	flow, _ := start(t, "")
-	answers(t, flow, "app", "", "", "api", "read_write", "y")
+	answers(t, flow, "app", "", "", "api", "read_write", "", "y")
 
 	// A second repository was asked for; stepping back twice returns to the
-	// question that asked for it, and then to the first repository's access.
+	// question that asked for it, and then to the first repository's forge.
 	if !flow.Back() {
-		t.Fatal("nothing to step back to after six answers")
+		t.Fatal("nothing to step back to after seven answers")
 	}
 	question, _ := flow.Step()
 	if question.ID != "repository.another" {
@@ -330,7 +356,7 @@ func TestSteppingBackUndoesTheAnswer(t *testing.T) {
 
 	// Answering it the other way now composes a project with one repository,
 	// with nothing of the second left in it.
-	answers(t, flow, "n", "", "")
+	answers(t, flow, "n", "", "", "")
 	review, err := flow.Review()
 	if err != nil {
 		t.Fatalf("the answers do not compose a configuration: %v", err)
@@ -378,22 +404,18 @@ func TestANamedProjectStartsAtTheSecondQuestion(t *testing.T) {
 // decides which questions exist, which is why this is a flow and not a form.
 func TestTheDevcontainerQuestionsFollowTheMode(t *testing.T) {
 	flow, host := start(t, "")
-	answers(t, flow, "app", "", "", "api", "", "n", "devcontainer")
+	answers(t, flow, "app", "", "", "api", "", "", "n", "n", "devcontainer")
 
-	// Nothing is proposed. The files beside a repository are overwhelmingly its
-	// application's rather than the agent's container's, and this section is
-	// asked before the one that would know which: proposing one of them offered
-	// an application file for the devcontainer, and the empty answer that was
-	// meant to finish the loop accepted it.
+	// What is proposed is what is left. The application was asked about first,
+	// so the files it claimed are out of this list, and the one in a
+	// `.devcontainer` directory heads what remains — which is where a project
+	// following the specification keeps the thing this question is about.
 	question, _ := flow.Step()
 	if question.ID != "agent.compose" {
 		t.Fatalf("the first devcontainer question is %s", question.ID)
 	}
-	if question.Proposed != "" {
-		t.Errorf("the devcontainer's Compose question proposes %q, and it cannot know", question.Proposed)
-	}
-	if err := flow.Answer(context.Background(), ""); err == nil {
-		t.Error("an empty answer was accepted for a question with nothing to propose")
+	if want := filepath.Join(host.root, "api", devcontainerDir, "compose.yaml"); question.Proposed != want {
+		t.Errorf("the devcontainer's Compose question proposes %q, want %q", question.Proposed, want)
 	}
 	answers(t, flow, filepath.Join(host.root, "api", "compose.yaml"), "")
 
@@ -411,7 +433,7 @@ func TestTheDevcontainerQuestionsFollowTheMode(t *testing.T) {
 	if err := flow.Answer(context.Background(), "root"); err == nil {
 		t.Error("the agent was allowed to run as root in the devcontainer")
 	}
-	answers(t, flow, "developer", "/srv/api", "y", "feat-claude", "n")
+	answers(t, flow, "developer", "/srv/api", "y", "feat-claude", "")
 
 	if !flow.Complete() {
 		question, _ := flow.Step()
@@ -451,12 +473,15 @@ func TestTheAgentsMountIsProposedFromItsOwnComposeFiles(t *testing.T) {
 		"",             // the checkout: the working directory, which is the api repository
 		"api",          // repository identifier
 		"",             // default access: read_write
+		"",             // forge: github, read from the remote
 		"y",            // a second repository
 		"store",        // its checkout
 		"store",        // its identifier
 		"",             // default access: selectable
+		"",             // forge: none, because it has no remote
 		"n",            // no third repository
 		"",             // the repository a task works in: api
+		"n",            // no application services
 		"devcontainer", // execution mode
 		agentFile,
 		"",          // no more Compose files
@@ -498,7 +523,7 @@ func TestTheAgentsMountIsProposedFromItsOwnComposeFiles(t *testing.T) {
 	answers(t, flow,
 		"",  // the default
 		"n", // no configuration volume for Claude
-		"n", // no application services
+		"",  // no tracker command
 	)
 
 	review, err := flow.Review()
@@ -529,12 +554,15 @@ func TestAMountInsideAnotherRepositorysMountIsRefusedWhereItIsGiven(t *testing.T
 		"",             // the checkout: the working directory, which is the api repository
 		"api",          // repository identifier
 		"",             // default access: read_write
+		"",             // forge: github, read from the remote
 		"y",            // a second repository
 		"store",        // its checkout
 		"store",        // its identifier
 		"",             // default access: selectable
+		"",             // forge: none, because it has no remote
 		"n",            // no third repository
 		"",             // the repository a task works in: api
+		"n",            // no application services
 		"devcontainer", // execution mode
 		filepath.Join(host.root, "devcontainer", "compose.yaml"),
 		"",          // no more Compose files
@@ -569,7 +597,7 @@ func TestAMountInsideAnotherRepositorysMountIsRefusedWhereItIsGiven(t *testing.T
 	answers(t, flow,
 		"/opt/store", // somewhere else entirely
 		"n",          // no configuration volume for Claude
-		"n",          // no application services
+		"",           // no tracker command
 	)
 
 	review, err := flow.Review()
@@ -589,9 +617,12 @@ func TestAMountInsideAnotherRepositorysMountIsRefusedWhereItIsGiven(t *testing.T
 // A runtime is composed of its repositories, so it is answered where the code
 // is: each repository is asked what it brings, what its services are, and where
 // those services expect its source. The proposals come from that repository's
-// own Compose files, read structurally, and the question is asked with the
-// agent running on this host — which is the mode the runtime container path
-// used to be skipped for (ADR-065 evidence 6).
+// own Compose files, read structurally.
+//
+// It is asked before the execution mode is known at all, which is the strongest
+// form of what ADR-065 evidence 6 asks for: the runtime container path used to
+// be skipped for a host-native agent, and now the question cannot even see which
+// mode this project will run in.
 func TestTheApplicationIsAnsweredOneRepositoryAtATime(t *testing.T) {
 	flow, _ := start(t, "app")
 	answers(t, flow,
@@ -599,8 +630,8 @@ func TestTheApplicationIsAnsweredOneRepositoryAtATime(t *testing.T) {
 		"",    // the checkout: the working directory, which is the api repository
 		"api", // repository identifier
 		"",    // default access: read_write
+		"",    // forge: github, read from the remote
 		"n",   // no second repository
-		"",    // execution mode: host, which has no agent container at all
 		"y",   // the project runs application services
 	)
 
@@ -617,9 +648,21 @@ func TestTheApplicationIsAnsweredOneRepositoryAtATime(t *testing.T) {
 	}
 	answers(t, flow, "", "")
 
+	// The services that run this repository's code, and not every service its
+	// files declare: the database among them runs none of it, so a user
+	// accepting the proposal would have been managing more than the project
+	// meant (ADR-100).
 	services, _ := flow.Step()
 	if services.ID != "runtime.services" || services.Proposed != "dev worker" {
-		t.Fatalf("the services question proposes %q, want what the files declare", services.Proposed)
+		t.Fatalf("the services question proposes %q, want the services that run this "+
+			"repository's code", services.Proposed)
+	}
+	notes := strings.Join(services.Notes, " ")
+	if !strings.Contains(notes, "db, dev, worker") {
+		t.Errorf("the services the files declare are not all reported: %v", services.Notes)
+	}
+	if !strings.Contains(notes, "not proposed") || !strings.Contains(notes, "depend on") {
+		t.Errorf("the service left out of the proposal is not explained: %v", services.Notes)
 	}
 	answer(t, flow, "dev worker")
 
@@ -646,6 +689,8 @@ func TestTheApplicationIsAnsweredOneRepositoryAtATime(t *testing.T) {
 	answers(t, flow,
 		"", // reachable: the proposal
 		"", // no environment file
+		"", // execution mode: host, which has no agent container at all
+		"", // no tracker command
 	)
 
 	if !flow.Complete() {
@@ -691,8 +736,8 @@ func TestBlankFinishesAFileLoop(t *testing.T) {
 		"",    // the checkout: the working directory, which is the api repository
 		"api", // repository identifier
 		"",    // default access: read_write
+		"",    // forge: github, read from the remote
 		"n",   // no second repository
-		"",    // execution mode: host
 		"y",   // the project runs application services
 		"y",   // api brings Compose files
 	)
@@ -734,7 +779,7 @@ func TestBlankFinishesAFileLoop(t *testing.T) {
 
 	// The one file answered is the one recorded — not it plus whatever was in
 	// the brackets when Enter was pressed.
-	answers(t, flow, "dev worker", "", "", "")
+	answers(t, flow, "dev worker", "", "", "", "", "")
 	review, err := flow.Review()
 	if err != nil {
 		t.Fatalf("the answers do not compose a configuration: %v", err)
@@ -755,7 +800,7 @@ func TestTheProposalIsTheHeadOfTheCandidates(t *testing.T) {
 	flow, _ := start(t, "")
 
 	for _, value := range []string{
-		"app", "Example", "", "", "", "n", "", "n",
+		"app", "Example", "", "", "", "", "n", "n", "", "",
 	} {
 		question, ok := flow.Step()
 		if !ok {
@@ -794,8 +839,8 @@ func TestTheFilesBesideARepositoryAreOfferedAndNotOnlyNamed(t *testing.T) {
 		"",    // the checkout: the working directory, which is the api repository
 		"api", // repository identifier
 		"",    // default access: read_write
+		"",    // forge: github, read from the remote
 		"n",   // no second repository
-		"",    // execution mode: host
 		"y",   // the project runs application services
 		"y",   // api brings Compose files
 	)
@@ -832,13 +877,13 @@ func TestARepeatedFileQuestionAsksForAnOverride(t *testing.T) {
 	}{
 		{
 			name:    "the agent's own container",
-			answers: []string{"", "", "api", "", "n", "devcontainer"},
+			answers: []string{"", "", "api", "", "", "n", "n", "devcontainer"},
 			id:      "agent.compose",
 			repeat:  "Compose override file (blank to finish)",
 		},
 		{
 			name:    "a repository's part of the application",
-			answers: []string{"", "", "api", "", "n", "", "y", "y"},
+			answers: []string{"", "", "api", "", "", "n", "y", "y"},
 			id:      "runtime.compose",
 			// Named, because this loop runs once per repository and the file
 			// belongs to whichever it is on.
@@ -883,7 +928,7 @@ func TestARepeatedFileQuestionAsksForAnOverride(t *testing.T) {
 func TestAProjectThatIsAlreadyConfiguredIsRefused(t *testing.T) {
 	flow, host := start(t, "")
 	answer(t, flow, "app")
-	answers(t, flow, "", "", "api", "", "n", "", "")
+	answers(t, flow, "", "", "api", "", "", "n", "n", "", "")
 
 	if _, err := flow.Write(); err != nil {
 		t.Fatalf("writing the configuration: %v", err)
@@ -906,7 +951,7 @@ func TestAProjectThatIsAlreadyConfiguredIsRefused(t *testing.T) {
 // of the protection an existing configuration has.
 func TestWritingNeverReplacesAFile(t *testing.T) {
 	flow, _ := start(t, "")
-	answers(t, flow, "app", "", "", "api", "", "n", "", "")
+	answers(t, flow, "app", "", "", "api", "", "", "n", "n", "", "")
 
 	file, err := flow.Write()
 	if err != nil {
@@ -944,40 +989,23 @@ func mustReview(t *testing.T, flow *Wizard) Review {
 func TestEveryMountQuestionSaysWhatMakesAnAnswerCorrect(t *testing.T) {
 	flow, host := start(t, "app")
 	answers(t, flow,
-		"",             // display name
-		"",             // the checkout: the working directory, which is the api repository
-		"api",          // repository identifier
-		"",             // default access: read_write
-		"y",            // a second repository
-		"store",        // its checkout
-		"store",        // its identifier
-		"",             // default access: selectable
-		"n",            // no third repository
-		"",             // the repository a task works in: api
-		"devcontainer", // execution mode
-		filepath.Join(host.root, "devcontainer", "compose.yaml"),
-		"",          // no more Compose files
-		"dev",       // the service the agent runs in
-		"developer", // the user it runs as
-	)
-
-	// Both repositories, and not the first alone.
-	for _, repository := range []string{"api", "store"} {
-		mount, _ := flow.Step()
-		if mount.ID != "agent.mount" {
-			t.Fatalf("the agent's mount for %s is asked as %s", repository, mount.ID)
-		}
-		mustCarryTheMergeRule(t, mount, repository)
-		answer(t, flow, "")
-	}
-
-	answers(t, flow,
-		"n", // no configuration volume for Claude
-		"y", // the project runs application services
-		"y", // api brings Compose files
-		"",  // the file it proposes
-		"",  // no more of them
-		"",  // the services it declares
+		"",      // display name
+		"",      // the checkout: the working directory, which is the api repository
+		"api",   // repository identifier
+		"",      // default access: read_write
+		"",      // forge: github, read from the remote
+		"y",     // a second repository
+		"store", // its checkout
+		"store", // its identifier
+		"",      // default access: selectable
+		"",      // forge: none, because it has no remote
+		"n",     // no third repository
+		"",      // the repository a task works in: api
+		"y",     // the project runs application services
+		"y",     // api brings Compose files
+		"",      // the file it proposes
+		"",      // no more of them
+		"",      // the services it declares
 	)
 
 	first, _ := flow.Step()
@@ -999,6 +1027,27 @@ func TestEveryMountQuestionSaysWhatMakesAnAnswerCorrect(t *testing.T) {
 		t.Fatalf("the question after store's services is %s, want where they expect its source", second.ID)
 	}
 	mustCarryTheMergeRule(t, second, "store")
+
+	answers(t, flow,
+		"",             // store's mount point: blank, because its files state none
+		"",             // reachable: none of them
+		"",             // no environment file
+		"devcontainer", // execution mode
+		filepath.Join(host.root, "devcontainer", "compose.yaml"),
+		"",          // no more Compose files
+		"dev",       // the service the agent runs in
+		"developer", // the user it runs as
+	)
+
+	// Both repositories, and not the first alone.
+	for _, repository := range []string{"api", "store"} {
+		mount, _ := flow.Step()
+		if mount.ID != "agent.mount" {
+			t.Fatalf("the agent's mount for %s is asked as %s", repository, mount.ID)
+		}
+		mustCarryTheMergeRule(t, mount, repository)
+		answer(t, flow, "")
+	}
 }
 
 // theMergeRule is what each group has to keep saying: an override that replaces
@@ -1052,16 +1101,40 @@ func TestAProposalReadFromAComposeFileNamesTheFile(t *testing.T) {
 	flow, host := start(t, "app")
 	agentFile := filepath.Join(host.root, "devcontainer", "compose.yaml")
 	answers(t, flow,
-		"", "", "api", "", "y", "store", "store", "", "n", "",
+		"", "", "api", "", "", "y", "store", "store", "", "", "n", "",
+		"y", // the project runs application services
+		"y", // api brings Compose files
+		"",  // the file it proposes
+		"",  // no more of them
+		"",  // the services it declares
+	)
+
+	// The runtime's own proposal, read out of the files answered two questions
+	// ago, names the file it came out of.
+	runtime, _ := flow.Step()
+	notes := strings.Join(runtime.Notes, " ")
+	if runtime.ID != "runtime.mount" || runtime.Proposed != "/srv" {
+		t.Fatalf("the runtime mount is %s proposing %q", runtime.ID, runtime.Proposed)
+	}
+	if !strings.Contains(notes, "read from") ||
+		!strings.Contains(notes, filepath.Join(host.root, "api", "compose.yaml")) {
+		t.Errorf("the file api's runtime mount point was read from is not named: %v", runtime.Notes)
+	}
+
+	answers(t, flow,
+		"",  // the mount point those files state
+		"",  // reachable: the service that publishes a port
+		"n", // store brings no Compose files
+		"",  // no environment file
 		"devcontainer", agentFile,
 		"",          // no more Compose files
 		"dev",       // the service the agent runs in
 		"developer", // the user it runs as
 	)
 
-	// The derivation names the file it came out of.
+	// The agent's derivation names the file it came out of too.
 	mount, _ := flow.Step()
-	notes := strings.Join(mount.Notes, " ")
+	notes = strings.Join(mount.Notes, " ")
 	if mount.Proposed != "/opt/api" {
 		t.Fatalf("the mount for api proposes %q, want the path those files mount it at", mount.Proposed)
 	}
@@ -1082,26 +1155,397 @@ func TestAProposalReadFromAComposeFileNamesTheFile(t *testing.T) {
 	if !strings.Contains(notes, "interpolate") {
 		t.Errorf("the entry left unread is not named beside the default it caused: %v", second.Notes)
 	}
+}
 
+// TestTheForgeIsProposedFromTheRemoteAndAskedOtherwise is the inference ADR-071
+// allows, made in the one place it can be made.
+//
+// Configuration is loaded without Git, so nothing downstream can look at a
+// remote; the wizard can, and what it does with it is propose. A host Feat
+// recognises proposes its forge and says where that came from; a host it does
+// not — a self-hosted instance, which is most of why this field is declared —
+// proposes none and says that it read the remote and could not tell.
+func TestTheForgeIsProposedFromTheRemoteAndAskedOtherwise(t *testing.T) {
+	flow, _ := start(t, "app")
+	answers(t, flow, "", "", "api", "")
+
+	question, _ := flow.Step()
+	if question.ID != "repository.forge" {
+		t.Fatalf("the question after a repository's access is %s, want its forge", question.ID)
+	}
+	if question.Proposed != "github" {
+		t.Errorf("the forge for a github.com remote is proposed as %q", question.Proposed)
+	}
+	if notes := strings.Join(question.Notes, " "); !strings.Contains(notes, "read from origin") {
+		t.Errorf("the proposal does not say where it came from: %v", question.Notes)
+	}
+	// Offered rather than assumed: a repository on a recognised host that Feat
+	// should never publish is still one answer away.
+	if !containsString(question.Options, noForge) {
+		t.Errorf("the question offers %v, and a repository may publish nowhere", question.Options)
+	}
+
+	// The second repository has no remote at all, so there is nothing to read
+	// and nothing is claimed to have been read.
+	answers(t, flow, "", "y", "store", "store", "")
+	second, _ := flow.Step()
+	if second.ID != "repository.forge" || second.Proposed != noForge {
+		t.Fatalf("the forge for a repository with no remote is %s proposing %q",
+			second.ID, second.Proposed)
+	}
+	if notes := strings.Join(second.Notes, " "); strings.Contains(notes, "read from") {
+		t.Errorf("a repository with no remote reports a forge read from one: %v", second.Notes)
+	}
+
+	answers(t, flow, "", "n", "", "n", "", "")
+	review, err := flow.Review()
+	if err != nil {
+		t.Fatalf("the answers do not compose a configuration: %v", err)
+	}
+	// One forge section, on the repository that answered one. "none" is the
+	// absence of the section rather than a value in it.
+	text := string(review.Text)
+	if strings.Count(text, "forge:") != 1 || !strings.Contains(text, "kind: github") {
+		t.Errorf("the forge sections are not the one that was answered:\n%s", text)
+	}
+}
+
+// TestTheForgeQuestionOffersExactlyWhatConfigurationAccepts pins the two lists
+// together.
+//
+// A question offering a forge the configuration refuses would be a conversation
+// that composes a file Feat will not load; one missing a forge it accepts would
+// be a field the wizard cannot reach. Both are read off domain.ForgeKinds, and
+// this is what says so out loud (ADR-094's form, ADR-100's case).
+func TestTheForgeQuestionOffersExactlyWhatConfigurationAccepts(t *testing.T) {
+	options := forgeOptions()
+	if got := options[len(options)-1]; got != noForge {
+		t.Errorf("the last option is %q, want the answer for a repository Feat never publishes", got)
+	}
+
+	offered := options[:len(options)-1]
+	for _, kind := range offered {
+		if !domain.ForgeKind(kind).Valid() {
+			t.Errorf("the question offers %q, which configuration refuses", kind)
+		}
+	}
+	for _, kind := range domain.ForgeKinds() {
+		if !containsString(offered, string(kind)) {
+			t.Errorf("configuration accepts %q and the question does not offer it: %v", kind, offered)
+		}
+	}
+	if containsString(offered, noForge) {
+		t.Errorf("%q is offered as a forge kind, and it is the absence of one", noForge)
+	}
+}
+
+// TestTheHostOfARemoteIsReadInEitherFormOrNotAtAll covers the parsing the
+// proposal rests on, including the forms that name no host.
+func TestTheHostOfARemoteIsReadInEitherFormOrNotAtAll(t *testing.T) {
+	for _, tc := range []struct {
+		remote string
+		forge  string
+	}{
+		{"https://github.com/acme/api.git", "github"},
+		{"git@github.com:acme/api.git", "github"},
+		{"ssh://git@github.com/acme/api.git", "github"},
+		{"https://GitHub.com/acme/api", "github"},
+		{"git@gitlab.com:acme/api.git", "gitlab"},
+		{"https://gitlab.com:8443/acme/api.git", "gitlab"},
+		// A self-hosted instance, which is not guessable and is the case the
+		// declaration exists for (ADR-071).
+		{"git@gitlab.example.com:acme/api.git", ""},
+		{"https://github.acme.example/acme/api.git", ""},
+		// Neither a forge nor a mistake: a remote may be a directory.
+		{"/srv/mirrors/api.git", ""},
+		{"../api.git", ""},
+		{"", ""},
+	} {
+		if got := forgeFor(tc.remote); got != tc.forge {
+			t.Errorf("%q proposes the forge %q, want %q", tc.remote, got, tc.forge)
+		}
+	}
+}
+
+// TestTheTrackerIsAskedLastAndIsOptional is the question that may have no answer
+// yet.
+//
+// A tracker is a command the user writes, so demanding one would put a thing to
+// go away and build in the middle of configuring a project. It is asked once,
+// last, and an empty answer is an answer: the section can be added to the file
+// afterwards, which is the case ADR-093 gives the skill (ADR-100).
+func TestTheTrackerIsAskedLastAndIsOptional(t *testing.T) {
+	blank, _ := start(t, "app")
+	answers(t, blank, "", "", "api", "", "", "n", "n", "")
+
+	question, ok := blank.Step()
+	if !ok || question.ID != "tracker.command" {
+		t.Fatalf("the last question is %s, want the tracker command", question.ID)
+	}
+	if !question.Optional || question.Proposed != "" {
+		t.Errorf("the tracker question is optional=%v proposing %q, and a project may have none",
+			question.Optional, question.Proposed)
+	}
+	if question.Section != SectionTracker || question.Heading == "" {
+		t.Errorf("the tracker question is in section %q under heading %q",
+			question.Section, question.Heading)
+	}
+	answer(t, blank, "")
+	if text := string(mustReview(t, blank).Text); strings.Contains(text, "tracker:") {
+		t.Errorf("a blank answer wrote a tracker section:\n%s", text)
+	}
+
+	// And an answer is the argument vector the configuration holds, split the
+	// way the user typed it: a quoted argument is one word, because the command
+	// is run directly and a shell is never involved.
+	given, _ := start(t, "app")
+	answers(t, given, "", "", "api", "", "", "n", "n", "",
+		`feat-tickets --query 'assigned to me' --json`)
+
+	text := string(mustReview(t, given).Text)
+	for _, want := range []string{
+		"tracker:", "- feat-tickets", "- --query", "- assigned to me", "- --json",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the tracker command does not hold %q:\n%s", want, text)
+		}
+	}
+	// The kind is resolution's, so a generated file does not state it.
+	if strings.Contains(text, "kind: command") {
+		t.Errorf("the wizard wrote the tracker kind, which is a default:\n%s", text)
+	}
+}
+
+// TestATrackerCommandThatCannotBeReadIsRefusedWhereItWasTyped is the rejection
+// that has to happen at the question rather than at the end of the run.
+//
+// A quote that never closes and a program that is not named both compose a
+// configuration Feat refuses, and meeting that refusal after the last question
+// ends the conversation and takes every answer with it — which is the failure
+// the mount questions already learned from.
+func TestATrackerCommandThatCannotBeReadIsRefusedWhereItWasTyped(t *testing.T) {
+	flow, _ := start(t, "app")
+	answers(t, flow, "", "", "api", "", "", "n", "n", "")
+
+	for _, tc := range []struct{ answer, says string }{
+		{`feat-tickets --query 'assigned to me`, "never closed"},
+		{`""`, "name the program"},
+	} {
+		err := flow.Answer(context.Background(), tc.answer)
+		if err == nil {
+			t.Fatalf("%q was accepted as a tracker command", tc.answer)
+		}
+		if !strings.Contains(err.Error(), tc.says) {
+			t.Errorf("the refusal of %q does not say why: %v", tc.answer, err)
+		}
+		again, ok := flow.Step()
+		if !ok || again.ID != "tracker.command" {
+			t.Fatalf("a refused tracker command moved the flow to %s", again.ID)
+		}
+	}
+}
+
+// TestTheAgentsComposeQuestionProposesWhatTheApplicationLeft is finding 4 of the
+// second pass, which is the one that reorders the rest.
+//
+// The agent's environment used to be answered before the application's, so this
+// question could not tell a devcontainer's Compose file from an application's
+// and honestly proposed neither. The application is asked first now, so what is
+// left is a list — and the file in a `.devcontainer` directory heads it
+// (ADR-100).
+func TestTheAgentsComposeQuestionProposesWhatTheApplicationLeft(t *testing.T) {
+	flow, host := start(t, "app")
+	claimed := filepath.Join(host.root, "api", "compose.yaml")
 	answers(t, flow,
-		"",  // the default
-		"n", // no configuration volume for Claude
-		"y", // the project runs application services
-		"y", // api brings Compose files
-		"",  // the file it proposes
-		"",  // no more of them
-		"",  // the services it declares
+		"",      // display name
+		"",      // the checkout: the api repository
+		"api",   // its identifier
+		"",      // default access: read_write
+		"",      // forge: github
+		"n",     // no second repository
+		"y",     // the project runs application services
+		"y",     // api brings Compose files
+		claimed, // the base file, which the application now owns
+		"",      // no more of them
+		"dev",   // the service it manages
+		"/srv",  // where that service expects its source
+		"",      // reachable: none
+		"",      // no environment file
+		"devcontainer",
 	)
 
-	// The runtime's own proposal, read out of the files answered two questions
-	// ago, says the same thing.
-	runtime, _ := flow.Step()
-	notes = strings.Join(runtime.Notes, " ")
-	if runtime.ID != "runtime.mount" || runtime.Proposed != "/srv" {
-		t.Fatalf("the runtime mount is %s proposing %q", runtime.ID, runtime.Proposed)
+	question, _ := flow.Step()
+	if question.ID != "agent.compose" {
+		t.Fatalf("the first devcontainer question is %s", question.ID)
 	}
-	if !strings.Contains(notes, "read from") ||
-		!strings.Contains(notes, filepath.Join(host.root, "api", "compose.yaml")) {
-		t.Errorf("the file api's runtime mount point was read from is not named: %v", runtime.Notes)
+	want := filepath.Join(host.root, "api", devcontainerDir, "compose.yaml")
+	if question.Proposed != want {
+		t.Errorf("the agent's Compose question proposes %q, want %q", question.Proposed, want)
+	}
+	// And the file the application took is neither proposed nor offered, with
+	// the reason said out loud: a file Feat withheld and a file Feat never found
+	// are otherwise the same absence.
+	if containsString(question.Candidates, claimed) {
+		t.Errorf("the file the application claimed is offered for the agent: %v", question.Candidates)
+	}
+	notes := strings.Join(question.Notes, " ")
+	if !strings.Contains(notes, "application already claims them") || !strings.Contains(notes, claimed) {
+		t.Errorf("the question does not say which files were left out: %v", question.Notes)
+	}
+}
+
+// TestTheSectionsAreAskedInTheOrderTheyAreNamed checks the two halves of the
+// reorder together: the path an asker draws, and the questions behind it.
+//
+// The application before the agent is what lets the question above propose
+// anything at all, and the tracker last is what keeps a command the user may not
+// have written out of the middle of the run (ADR-100).
+func TestTheSectionsAreAskedInTheOrderTheyAreNamed(t *testing.T) {
+	want := []Section{
+		SectionProject, SectionRepositories, SectionServices, SectionAgent, SectionTracker,
+	}
+	if !slices.Equal(Sections(), want) {
+		t.Errorf("the sections are %v, want %v", Sections(), want)
+	}
+
+	flow, _ := start(t, "")
+	var asked []string
+	var sections []Section
+	for _, value := range []string{"app", "", "", "api", "", "", "n", "n", "", ""} {
+		question, ok := flow.Step()
+		if !ok {
+			t.Fatalf("answering %q, but every question has been answered", value)
+		}
+		asked = append(asked, question.ID)
+		if len(sections) == 0 || sections[len(sections)-1] != question.Section {
+			sections = append(sections, question.Section)
+		}
+		answer(t, flow, value)
+	}
+
+	wantAsked := []string{
+		"project.id", "project.name",
+		"repository.path", "repository.id", "repository.access", "repository.forge",
+		"repository.another", "runtime.wanted", "agent.mode", "tracker.command",
+	}
+	if !slices.Equal(asked, wantAsked) {
+		t.Errorf("the questions asked were\n%v\nwant\n%v", asked, wantAsked)
+	}
+	// Each section is entered once and in the order it is named, so the trail an
+	// asker draws never goes backwards.
+	if !slices.Equal(sections, want) {
+		t.Errorf("the sections were entered as %v, want %v", sections, want)
+	}
+}
+
+// TestARepositoryNoTaskCanWriteToIsNotAskedWhereItPublishes is the answer that
+// would have been unreachable configuration.
+//
+// Four of the five access modes can become read-write in some task — omitted,
+// selectable, and stable_read_only all permit it once the repository is
+// explicitly selected — so a forge may yet be used and the question is worth
+// asking. read_only is the one that cannot: a repository a project declared
+// read-only must not become writable because one task asked, and publication
+// refuses a binding that is not read-write everywhere it looks at one.
+//
+// It would not have been inert, which is what makes it worth refusing rather
+// than tolerating. `feat doctor` collects the forges every repository declares
+// without looking at access, so accepting the proposal on a read-only
+// repository whose remote is on github.com buys a standing warning demanding a
+// command line for a repository that can never use it.
+func TestARepositoryNoTaskCanWriteToIsNotAskedWhereItPublishes(t *testing.T) {
+	flow, _ := start(t, "app")
+	answers(t, flow,
+		"",    // display name
+		"",    // the checkout: the api repository, whose remote is on github.com
+		"api", // its identifier
+		string(domain.DefaultAccessReadOnly),
+	)
+
+	question, _ := flow.Step()
+	if question.ID != "repository.another" {
+		t.Fatalf("a read-only repository was asked %s, and no task can publish it", question.ID)
+	}
+
+	// Every other mode is asked, including the three that take a decision per
+	// task: a repository selected read-write once has a merge request to open.
+	for _, access := range []domain.DefaultAccess{
+		domain.DefaultAccessReadWrite,
+		domain.DefaultAccessSelectable,
+		domain.DefaultAccessStableReadOnly,
+		domain.DefaultAccessOmitted,
+	} {
+		asked, _ := start(t, "app")
+		answers(t, asked, "", "", "api", string(access))
+
+		if question, _ := asked.Step(); question.ID != "repository.forge" {
+			t.Errorf("a %s repository is asked %s, and a task may yet write to it",
+				access, question.ID)
+		}
+	}
+}
+
+// TestTheForgeExplanationLandsOnTheFirstRepositoryAskedForOne is the detail
+// block following the group rather than the repositories.
+//
+// A project whose first repository is read-only never sees that question, so
+// counting repositories would have put the explanation on nothing and left the
+// repository that was asked with a bare prompt.
+func TestTheForgeExplanationLandsOnTheFirstRepositoryAskedForOne(t *testing.T) {
+	flow, _ := start(t, "app")
+	answers(t, flow,
+		"",                                    // display name
+		"",                                    // the api checkout
+		"api",                                 // its identifier
+		string(domain.DefaultAccessReadOnly),  // never published, so never asked
+		"y",                                   // a second repository
+		"store",                               // its checkout
+		"store",                               // its identifier
+		string(domain.DefaultAccessReadWrite), // this one a task may write to
+	)
+
+	question, _ := flow.Step()
+	if question.ID != "repository.forge" {
+		t.Fatalf("the second repository is asked %s, want where it publishes", question.ID)
+	}
+	if len(question.Detail) == 0 {
+		t.Errorf("the first repository asked where it publishes gets no explanation: %+v", question)
+	}
+}
+
+// TestTheOnlyEditableRepositoryIsPromotedWithoutItsForgeBeingAsked is the gap
+// ADR-100 states rather than closes, checked so that it stays the one it says.
+//
+// A project whose repositories are all read-only has no editable workspace, so
+// the flow asks which one a task may edit and promotes it. That repository was
+// never asked where it publishes, because when it was answered it was one no
+// task could write to. What comes out is a configuration Feat accepts with an
+// optional section missing, and not a broken one.
+func TestTheOnlyEditableRepositoryIsPromotedWithoutItsForgeBeingAsked(t *testing.T) {
+	flow, _ := start(t, "app")
+	answers(t, flow,
+		"",    // display name
+		"",    // the api checkout
+		"api", // its identifier
+		string(domain.DefaultAccessReadOnly),
+		"n", // no second repository
+	)
+
+	question, _ := flow.Step()
+	if question.ID != "project.editable" {
+		t.Fatalf("a project with no editable repository is asked %s", question.ID)
+	}
+	answers(t, flow, "api", "n", "", "")
+
+	review, err := flow.Review()
+	if err != nil {
+		t.Fatalf("the promoted repository does not compose a configuration: %v", err)
+	}
+	text := string(review.Text)
+	if !strings.Contains(text, "default_access: read_write") {
+		t.Errorf("the repository a task may edit was not promoted:\n%s", text)
+	}
+	if strings.Contains(text, "forge:") {
+		t.Errorf("a forge was written for a repository that was never asked for one:\n%s", text)
 	}
 }

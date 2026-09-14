@@ -491,6 +491,21 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   preview decides. It takes up the item ADR-095 scheduled, in a different shape
   from the one that decision sketched, for the reason in its evidence 3.
 
+- **[ADR-100 — The wizard reaches the forge and the tracker, and the application is answered before the agent](decisions/ADR-100-the-wizard-reaches-the-forge-and-the-tracker-and-the.md)** · accepted  
+  `feat project init` asks every repository a task may write to where it
+  publishes — `read_only` is the one mode that can never be promoted, so an
+  answer there would be configuration no task can reach — proposing the forge a
+  `github.com` or `gitlab.com` remote names and `none` for any other host, which
+  is the inference ADR-071 prescribed and nothing implemented; and it
+  asks once, last, and optionally for the tracker command, because a tracker is a
+  command the user may not have written yet. The application is answered before
+  the agent's environment, so the agent's Compose question offers the files no
+  repository's runtime claimed instead of proposing nothing, and the
+  managed-services question proposes only the services that run the repository's
+  code — Compose starts what they depend on. Neither addition is mandatory and
+  both carry a proposal. It extends ADR-063 to the new questions, amends ADR-062's
+  account of what the wizard asks, and takes up the item ADR-095 scheduled.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is

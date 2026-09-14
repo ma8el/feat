@@ -61,6 +61,12 @@ type Composition struct {
 	ContainerPath string
 	// Reachable are the services that publish a host port.
 	Reachable []string
+	// Mounted are the services that mount the repository itself, at whatever
+	// path each of them names. Together with Baked they are the services that
+	// run this repository's code, which is what a task runs and therefore what
+	// Feat proposes to manage: a database beside them runs none of it, and
+	// Compose starts it anyway as a dependency of the ones that do (ADR-100).
+	Mounted []string
 	// Baked are the services built from this repository. Such a service has no
 	// mount to replace, so Feat points its build context at the task's worktree
 	// instead — which is worth saying while the user is deciding what to manage
@@ -85,6 +91,10 @@ type Checkout struct {
 	Root string
 	// Remote is the first remote the repository has, or empty for none.
 	Remote string
+	// RemoteURL is where that remote points, as Git has it written down. It is
+	// what the forge question proposes from, and it is empty for a repository
+	// with no remote — which is a repository that publishes nowhere.
+	RemoteURL string
 	// DefaultBranch is the branch the remote publishes, or the branch checked
 	// out where there is no remote, or empty for neither.
 	DefaultBranch string

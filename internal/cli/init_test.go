@@ -31,6 +31,9 @@ type checkoutHost struct {
 type checkoutAnswers struct {
 	// remotes are the remote names, in the order `git remote` prints them.
 	remotes []string
+	// url is where the first of them points, which is what the forge question
+	// proposes from.
+	url string
 	// head is the branch the remote publishes, empty when it publishes none.
 	head string
 	// current is the branch checked out, empty for a detached HEAD.
@@ -53,6 +56,11 @@ func (h checkoutHost) Run(ctx context.Context, dir, name string, args ...string)
 		return dir, nil
 	case line == "git remote":
 		return strings.Join(answers.remotes, "\n"), nil
+	case strings.HasPrefix(line, "git remote get-url "):
+		if answers.url == "" {
+			return "", &notInstalled{name: "no such remote"}
+		}
+		return answers.url, nil
 	case strings.HasPrefix(line, "git symbolic-ref --quiet --short refs/remotes/"):
 		if answers.head == "" {
 			return "", &notInstalled{name: "no head"}
@@ -91,7 +99,12 @@ func prepareWizard(t *testing.T) *wizardMachine {
 	return &wizardMachine{
 		machine: m,
 		runner: checkoutHost{repositories: map[string]checkoutAnswers{
-			api:   {remotes: []string{"origin"}, head: "main", current: "feature/x"},
+			api: {
+				remotes: []string{"origin"},
+				url:     "git@github.com:acme/api.git",
+				head:    "main",
+				current: "feature/x",
+			},
 			store: {current: "trunk"},
 		}},
 	}
@@ -146,9 +159,11 @@ func TestProjectInitWritesAConfigurationThatLoads(t *testing.T) {
 		m.repository("api"), // path of the checkout
 		"api",               // repository identifier
 		"",                  // default access: read_write
+		"",                  // forge: github, read from the remote
 		"n",                 // no second repository
-		"",                  // execution mode: host
 		"",                  // no application services
+		"",                  // execution mode: host
+		"",                  // no tracker command
 		"",                  // write it
 		"n",                 // do not run diagnostics
 	), "project", "init")
@@ -227,9 +242,11 @@ func TestProjectInitPrintsTheFlowsOwnLines(t *testing.T) {
 		m.repository("api"), // path of the checkout
 		"api",               // repository identifier
 		"",                  // default access: read_write
+		"",                  // forge: github, read from the remote
 		"n",                 // no second repository
-		"",                  // execution mode: host
 		"",                  // no application services
+		"",                  // execution mode: host
+		"",                  // no tracker command
 		"n",                 // do not write it
 	), "project", "init")
 
@@ -270,18 +287,20 @@ func TestProjectInitConfiguresADevcontainerFromWhatItFinds(t *testing.T) {
 		m.repository("api"),   // first checkout
 		"api",                 // repository identifier
 		"",                    // read_write
+		"",                    // forge: github, read from the remote
 		"y",                   // add another repository
 		m.repository("store"), // second checkout
 		"store",               // repository identifier
 		"",                    // selectable
+		"",                    // forge: none, because it has no remote
 		"n",                   // no third repository
 		"",                    // primary repository: api
+		"n",                   // no application services
 		"devcontainer",        // execution mode
-		// Named rather than accepted from a proposal: the agent's Compose
-		// question is asked before the application section exists, so it has
-		// nothing to tell a devcontainer's file from an application's and
-		// proposes neither.
-		filepath.Join(m.repository("api"), "compose.yaml"),
+		// The one file beside a repository, which nothing claimed because this
+		// project runs no application services. A project that does would have
+		// this file offered for its application first and left out here.
+		"",          // Compose file: the proposal
 		"",          // no second Compose file
 		"",          // service: dev, which the file defines
 		"developer", // container user
@@ -289,7 +308,7 @@ func TestProjectInitConfiguresADevcontainerFromWhatItFinds(t *testing.T) {
 		"",          // mount for store: /srv/store
 		"",          // give Claude a volume
 		"",          // volume name: feat-claude
-		"n",         // no application services
+		"",          // no tracker command
 		"",          // write it
 		"n",         // do not run diagnostics
 	), "project", "init")
@@ -361,16 +380,18 @@ func TestProjectInitSaysWhatElseItFoundBesideTheProposal(t *testing.T) {
 		m.repository("api"), // path of the checkout
 		"api",               // repository identifier
 		"",                  // default access: read_write
+		"",                  // forge: github, read from the remote
 		"n",                 // no second repository
-		"",                  // execution mode: host
 		"y",                 // the project runs application services
 		"y",                 // api brings Compose files
 		"",                  // Compose file: the proposal, which is the base file
 		"",                  // no more Compose files
-		"",                  // services: dev worker, which the files define
+		"dev worker",        // the services those files define
 		"/srv/api",          // where those services expect the source
 		"",                  // reachable: none of them publishes a port
 		"",                  // no environment file
+		"",                  // execution mode: host
+		"",                  // no tracker command
 		"n",                 // do not write it
 	), "project", "init")
 
@@ -399,9 +420,12 @@ func TestProjectInitResolvesBasesLocallyWithoutARemote(t *testing.T) {
 	m := prepareWizard(t)
 
 	code, stdout, stderr := m.converse(t, answers(
-		"app", "", m.repository("store"), "store", "", "n",
-		"", // host
-		"n",
+		"app", "", m.repository("store"), "store", "",
+		"",  // forge: none, because this checkout has no remote
+		"n", // no second repository
+		"n", // no application services
+		"",  // execution mode: host
+		"",  // no tracker command
 		"",  // write it
 		"n", // no diagnostics
 	), "project", "init")
@@ -435,7 +459,7 @@ func TestProjectInitAsksAgainRatherThanFailingAtTheEnd(t *testing.T) {
 		"",                  // display name
 		missing,             // rejected: not a Git repository
 		m.repository("api"), // accepted
-		"api", "", "n", "", "", "", "n",
+		"api", "", "", "n", "", "", "", "", "n",
 	), "project", "init")
 
 	if code != ExitOK {
@@ -456,7 +480,7 @@ func TestProjectInitWritesNothingUntilItIsConfirmed(t *testing.T) {
 	m := prepareWizard(t)
 
 	code, stdout, stderr := m.converse(t, answers(
-		"app", "", m.repository("api"), "api", "", "n", "", "",
+		"app", "", m.repository("api"), "api", "", "", "n", "n", "", "",
 		"n", // do not write it
 	), "project", "init")
 
@@ -477,7 +501,7 @@ func TestProjectInitDryRunWritesNothing(t *testing.T) {
 	m := prepareWizard(t)
 
 	code, stdout, stderr := m.converse(t, answers(
-		"app", "", m.repository("api"), "api", "", "n", "", "",
+		"app", "", m.repository("api"), "api", "", "", "n", "n", "", "",
 	), "project", "init", "--dry-run")
 
 	if code != ExitOK {
@@ -568,7 +592,7 @@ func TestProjectInitChecksTheProjectAgainstTheMachine(t *testing.T) {
 	m := prepareWizard(t)
 
 	code, stdout, stderr := m.converse(t, answers(
-		"app", "", m.repository("api"), "api", "", "n", "", "",
+		"app", "", m.repository("api"), "api", "", "", "n", "n", "", "",
 		"",  // write it
 		"y", // check it against this machine
 	), "project", "init")
@@ -593,7 +617,7 @@ func TestProjectInitRegistersWithARunningDaemon(t *testing.T) {
 	m.serve(t)
 
 	code, stdout, stderr := m.converse(t, answers(
-		"app", "", m.repository("api"), "api", "", "n", "", "",
+		"app", "", m.repository("api"), "api", "", "", "n", "n", "", "",
 		"",  // write it
 		"n", // do not diagnose
 		"y", // register it
@@ -639,9 +663,11 @@ func TestTheBackendBuildsTheWizardTheDashboardAsks(t *testing.T) {
 		m.repository("api"), // path of the checkout
 		"api",               // repository identifier
 		"",                  // default access: read_write
+		"",                  // forge: github, read from the remote
 		"n",                 // no second repository
-		"",                  // execution mode: host
 		"n",                 // no application services
+		"",                  // execution mode: host
+		"",                  // no tracker command
 	} {
 		if err := flow.Answer(context.Background(), answer); err != nil {
 			t.Fatalf("answering %q: %v", answer, err)
@@ -682,6 +708,12 @@ func TestInspectAndComposeDiscoveryFeedTheProposals(t *testing.T) {
 	}
 	if checkout.Remote != "origin" || checkout.DefaultBranch != "main" {
 		t.Errorf("inspection found remote %q and branch %q", checkout.Remote, checkout.DefaultBranch)
+	}
+	// And where that remote points, which is the third discovery: it is what
+	// the forge question proposes from, and the flow never runs Git itself
+	// (ADR-100).
+	if want := "git@github.com:acme/api.git"; checkout.RemoteURL != want {
+		t.Errorf("inspection found the remote URL %q, want %q", checkout.RemoteURL, want)
 	}
 
 	files := project.ComposeFiles(m.repository("api"))

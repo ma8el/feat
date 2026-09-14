@@ -985,8 +985,18 @@ func isRoot(user string) bool {
 
 // forgeKinds names the forges Feat publishes to, so that a rejection says what
 // would have been accepted.
+//
+// The list is the domain's, because the same list is what `feat project init`
+// offers: a rejection naming forges the question does not offer, or a question
+// offering one this would refuse, is the drift reading it from one place
+// prevents (ADR-100).
 func forgeKinds() []string {
-	return []string{string(domain.ForgeGitHub), string(domain.ForgeGitLab)}
+	kinds := domain.ForgeKinds()
+	names := make([]string, len(kinds))
+	for i, kind := range kinds {
+		names[i] = string(kind)
+	}
+	return names
 }
 
 // accessModes lists the documented default access modes.

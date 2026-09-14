@@ -47,6 +47,9 @@ func devcontainerDraft() Draft {
 		Services:      []string{"app", "worker"},
 		Reachable:     []string{"app"},
 	}
+	draft.Repositories[0].Forge = "github"
+	// The second repository publishes nowhere, which is what makes the forge a
+	// repository's own rather than the project's (ADR-071).
 	draft.Repositories = append(draft.Repositories, DraftRepository{
 		ID:                 "store",
 		HostPath:           "/checkouts/store",
@@ -69,6 +72,7 @@ func devcontainerDraft() Draft {
 		Command:    []string{"go", "test", "./..."},
 		Execution:  ExecutionAgent,
 	}}
+	draft.Tracker = []string{"feat-tickets", "--mine"}
 	return draft
 }
 
@@ -117,6 +121,9 @@ func TestADraftWritesWhatWasDecidedAndNothingElse(t *testing.T) {
 		"branch_template", "worktree_root", "base_policy", "provider",
 		"container_path", "compose_files", "service:", "user:", "control_path",
 		"config_volume", "runtime:", "checks:", "review:", "notifications:", "resources:",
+		// Both are asked for and both are optional, so a project that declined
+		// them states neither (ADR-100).
+		"forge:", "tracker:",
 	} {
 		if strings.Contains(host, absent) {
 			t.Errorf("a host-mode project with no runtime writes %q:\n%s", absent, host)
@@ -160,10 +167,27 @@ func TestADevcontainerDraftWritesEveryFieldItsModeNeeds(t *testing.T) {
 		"checks:",
 		"- id: test",
 		"execution: agent",
+		"forge:",
+		"kind: github",
+		"tracker:",
+		"- feat-tickets",
+		"- --mine",
 	} {
 		if !strings.Contains(rendered, present) {
 			t.Errorf("the rendering does not write %q:\n%s", present, rendered)
 		}
+	}
+
+	// The kind is the one field of the tracker section resolution fills in, so
+	// a generated file that stated it would be writing a default down (ADR-071).
+	if strings.Contains(rendered, "kind: command") {
+		t.Errorf("the rendering writes the tracker kind, which resolution fills in:\n%s", rendered)
+	}
+	// And the repository that publishes nowhere has no forge section, however
+	// many the one beside it has.
+	if strings.Count(rendered, "forge:") != 1 {
+		t.Errorf("one repository declares a forge and the rendering writes %d:\n%s",
+			strings.Count(rendered, "forge:"), rendered)
 	}
 }
 
