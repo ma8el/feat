@@ -32,6 +32,7 @@ func (h *machineHost) Inspect(ctx context.Context, path string) (wizard.Checkout
 	return wizard.Checkout{
 		Root:          checkout.Root,
 		Remote:        checkout.Remote,
+		RemoteURL:     checkout.RemoteURL,
 		DefaultBranch: checkout.DefaultBranch,
 	}, nil
 }
@@ -66,6 +67,13 @@ func (h *machineHost) Compose(projectDir, repository string, files ...string) wi
 	}
 	proposed.ContainerPath, _ = composition.SourceTarget(services)
 	for _, service := range composition.Services {
+		// The two ways a service runs this repository's code, kept apart because
+		// they mean different things to the questions that follow: a mounted
+		// service has a container path to agree with, and a baked one has a build
+		// context Feat redirects instead (ADR-065 evidence 4).
+		if len(service.SourceTargets) > 0 {
+			proposed.Mounted = append(proposed.Mounted, service.Name)
+		}
 		if service.BuildsFromSource {
 			proposed.Baked = append(proposed.Baked, service.Name)
 		}

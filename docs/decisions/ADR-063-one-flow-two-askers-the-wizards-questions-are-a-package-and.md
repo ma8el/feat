@@ -80,3 +80,12 @@ not — a cursor on the closed questions, `esc` to step back out of an answer,
 `tab` to complete one — is what that change deletes. All three are both askers'
 now, drawn by one extracted widget. What the dialog still adds is what a screen
 adds: the trail, the file scrolled in a pane, and the two screens after it.
+
+Extended by ADR-100 to the questions the wizard's second pass adds — where a
+repository publishes, and the command that prints the project's tickets — and
+checked rather than assumed while they were being added. Neither asker branches
+on a question's identifier, so both questions appear in both without either
+knowing they exist, which is the property this decision was written to produce.
+The one place the flow's text is still ahead of an asker is the one ADR-084
+recorded: the line fallback names a key it has not got, and draws neither the
+candidates nor the sentence an optional question carries.

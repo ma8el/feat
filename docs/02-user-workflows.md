@@ -25,17 +25,25 @@ Flow:
    back is printed under a marker below what is already there rather than
    erasing it. A terminal that says it is `dumb` or says nothing at all gets the
    line conversation, which prints a prompt and reads a typed answer.
-2. Feat asks which repositories take part and how each takes part by default,
-   where the agent runs, which provider CLI it uses, and whether a task runs
-   application services. It does not ask what verifies the work: `checks:` is
-   written by hand into the file it produces, and `feat project init` says so
-   once, where the file has just been written (ADR-078).
+2. Feat asks which repositories take part, how each takes part by default and
+   where each publishes its merge requests, whether a task runs application
+   services, where the agent runs, and finally what command prints the project's
+   tickets. The order is the file's: the application is answered before the
+   agent's environment, so the agent's Compose question can offer the files no
+   repository claimed. Only the questions somebody needs cost them anything —
+   every one of them proposes an answer, and a project with no forge, no tracker,
+   and no application services says so by pressing Enter (ADR-100). It does not
+   ask what verifies the work: `checks:` is written by hand into the file it
+   produces, and `feat project init` says so once, where the file has just been
+   written (ADR-078).
 3. Feat answers from the host what the host can answer: whether a path is a Git
-   repository, its working-tree root, its remote, its default branch, the
-   Compose files beside it, and the services those files declare. Each is shown
-   as a proposal, and pressing Enter accepts it. `tab` puts a proposal in the
-   field to be edited rather than retyped, and steps through whatever else was
-   found beside it (ADR-077).
+   repository, its working-tree root, its remote and where that remote points,
+   its default branch, the Compose files beside it, and the services those files
+   declare. Each is shown as a proposal, and pressing Enter accepts it. A remote
+   on a host Feat recognises proposes that forge, and a host it does not —
+   a self-hosted instance — is asked about rather than guessed at (ADR-071).
+   `tab` puts a proposal in the field to be edited rather than retyped, and steps
+   through whatever else was found beside it (ADR-077).
 4. Feat validates the composed configuration, displays the whole file, and
    writes nothing until the user confirms. An existing configuration is never
    overwritten.

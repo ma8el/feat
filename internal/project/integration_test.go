@@ -143,6 +143,12 @@ func TestRealCheckoutIsInspected(t *testing.T) {
 	if checkout.Remote != "origin" {
 		t.Errorf("the remote is %q, want %q", checkout.Remote, "origin")
 	}
+	// Where that remote points, which is what the forge question proposes from.
+	// Asked of Git rather than assumed, because `remote get-url` is the command
+	// whose output shape this reads (ADR-100).
+	if checkout.RemoteURL != origin {
+		t.Errorf("the remote URL is %q, want %q", checkout.RemoteURL, origin)
+	}
 	if checkout.DefaultBranch != "trunk" {
 		t.Errorf("the default branch is %q, want the branch the remote publishes", checkout.DefaultBranch)
 	}
@@ -167,6 +173,9 @@ func TestRealCheckoutIsInspected(t *testing.T) {
 	}
 	if solo.Remote != "" {
 		t.Errorf("a repository with no remote answers with %q", solo.Remote)
+	}
+	if solo.RemoteURL != "" {
+		t.Errorf("a repository with no remote answers with the URL %q", solo.RemoteURL)
 	}
 	if solo.DefaultBranch != "trunk" {
 		t.Errorf("the default branch is %q, want the branch that is checked out", solo.DefaultBranch)

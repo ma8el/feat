@@ -43,17 +43,33 @@ const (
 	SectionAgent Section = "agent"
 	// SectionServices is the application runtime.
 	SectionServices Section = "services"
+	// SectionTracker is where the project's tickets come from.
+	//
+	// It is its own section rather than a question of the project's, because a
+	// forge and a tracker are different questions with different owners and the
+	// configuration keeps them apart for that reason: the forge belongs to a
+	// repository and is asked with one, and the tracker belongs to the project
+	// and is asked once (ADR-071).
+	SectionTracker Section = "tracker"
 )
 
 // Sections are the sections in the order they are asked, for an asker that
 // wants to show the whole path rather than the step.
+//
+// The application comes before the agent, which is the reverse of the order
+// these were first asked in. The agent's Compose question can then offer the
+// files the application did not claim, where before it could only propose
+// nothing: which files define a container the agent works in is a question
+// about what is left over, and nothing was left over yet (ADR-100).
 //
 // Verification is not among them. `checks:` is still configuration, still
 // validated by `feat doctor`, and still documented in the example file — it is
 // no longer a question, because a gate configured in passing is a gate that
 // fails on the machine it was configured from (ADR-078).
 func Sections() []Section {
-	return []Section{SectionProject, SectionRepositories, SectionAgent, SectionServices}
+	return []Section{
+		SectionProject, SectionRepositories, SectionServices, SectionAgent, SectionTracker,
+	}
 }
 
 // Question is one thing to ask, and everything needed to ask it.
@@ -201,19 +217,12 @@ const (
 	stageRepositoryPath
 	stageRepositoryID
 	stageRepositoryAccess
+	stageRepositoryForge
 	stageAnotherRepository
 	// stageEditable is asked only when no repository can be written to, and
 	// stagePrimary only when more than one can.
 	stageEditable
 	stagePrimary
-	stageMode
-	// The devcontainer stages, asked only in that mode.
-	stageComposeFile
-	stageService
-	stageUser
-	stageMount
-	stageClaudeVolume
-	stageVolumeName
 	stageRuntimeWanted
 	// The application stages, asked once per repository: a runtime is composed
 	// of its repositories, so what it is made of is answered where the code is.
@@ -223,6 +232,21 @@ const (
 	stageRuntimeMount
 	stageRuntimeReachable
 	stageRuntimeEnvFile
+	// The agent's own environment, after the application rather than before it,
+	// so that its Compose question knows which files are already spoken for.
+	stageMode
+	// The devcontainer stages, asked only in that mode.
+	stageComposeFile
+	stageService
+	stageUser
+	stageMount
+	stageClaudeVolume
+	stageVolumeName
+	// stageTracker is asked last, because it is the one question whose answer
+	// may not exist yet: a tracker is a command the user writes, and asking for
+	// it earlier would put a thing to go away and build in the middle of
+	// configuring a project (ADR-100).
+	stageTracker
 	// stageComplete is every question answered, and the file not yet written.
 	stageComplete
 )
@@ -403,6 +427,46 @@ func (w *Wizard) question() Question {
 			Proposed: proposed,
 		}
 
+	case stageRepositoryForge:
+		question := Question{
+			ID: "repository.forge", Section: SectionRepositories, Kind: KindChoice,
+			Prompt: "Where does " + w.pending.ID + " publish merge requests?",
+			// none last: it is the answer for a repository Feat leaves alone,
+			// and the forges are what the question is about.
+			Options:  forgeOptions(),
+			Proposed: noForge,
+		}
+		switch kind := forgeFor(w.checkout.RemoteURL); {
+		case kind != "":
+			// The inference ADR-071 allows, made where it can be made: a
+			// proposal the user accepts into their own file, rather than a value
+			// Feat derives behind them. Where it came from is said for the reason
+			// every other read proposal says it.
+			question.Proposed = kind
+			question.Notes = append(question.Notes,
+				"read from "+w.checkout.Remote+": "+w.checkout.RemoteURL)
+		case w.checkout.RemoteURL != "":
+			// The self-hosted case, which is most of why this field is declared
+			// at all. Saying that the host was read and not recognised is what
+			// tells a user the default is a default rather than a finding.
+			question.Notes = append(question.Notes,
+				w.checkout.Remote+" is "+w.checkout.RemoteURL+
+					", which is not a host Feat recognises; a self-hosted instance is not guessable")
+		}
+		if len(w.draft.Repositories) == 0 {
+			question.Detail = []string{
+				"Where a task's finished work is proposed. Feat pushes the task branch and",
+				"opens one merge request per changed repository, from this machine with the",
+				"forge's own command line and the authentication you already have there — the",
+				"agent is never given a token, and the words it writes are shown to you before",
+				"anything is sent.",
+				"",
+				"It is per repository because a repository lives on exactly one forge and a",
+				"task may span several. Choose none for a repository Feat never publishes.",
+			}
+		}
+		return question
+
 	case stageAnotherRepository:
 		return Question{
 			ID: "repository.another", Section: SectionRepositories, Kind: KindConfirm,
@@ -449,18 +513,45 @@ func (w *Wizard) question() Question {
 			ID: "agent.compose", Section: SectionAgent, Kind: KindText,
 			Prompt: "Compose file",
 		}
+		// What is beside the repositories and is not already the application's,
+		// which is a list this question could not have before the application was
+		// asked about first: until then nothing was claimed, so everything was a
+		// candidate and the honest proposal was none (ADR-100).
+		found := w.unclaimedComposeFiles()
+		question.Candidates = found
+
+		others := found
 		if len(w.files) == 0 {
 			question.Detail = []string{
 				"The Compose files that define the container the agent works in, and the",
 				"service it runs in. Feat starts that service for a task and never gives it",
-				"Docker. They are not the application's own Compose files: those belong to",
-				"the repositories that bring them, and are asked for further down.",
+				"Docker. They are not the application's own Compose files: those are the ones",
+				"you have just been asked about, and they are left out of what is offered here.",
 			}
-			return question
+			if len(others) > 0 {
+				question.Proposed, others = others[0], others[1:]
+			}
+		} else {
+			// Finishing is only offered once there is one, because the section is
+			// meaningless without it. The repeat proposes nothing, for the reason
+			// the application's loop proposes nothing: an empty answer means "no
+			// more", and a proposal is what an empty answer takes (ADR-077).
+			question.Prompt, question.Optional = overridePrompt(""), true
 		}
-		// Finishing is only offered once there is one, because the section is
-		// meaningless without it.
-		question.Prompt, question.Optional = overridePrompt(""), true
+		if len(others) > 0 {
+			note := "others found beside your repositories: " + strings.Join(others, ", ")
+			if question.Proposed == "" {
+				note += "; press tab to use one of them"
+			}
+			question.Notes = append(question.Notes, note)
+		}
+		if claimed := w.claimedComposeFiles(); len(claimed) > 0 {
+			// Why a file the user knows is there is not in the list. Without it,
+			// a file Feat deliberately withheld and a file Feat never found look
+			// identical from here.
+			question.Notes = append(question.Notes,
+				"not offered, because the application already claims them: "+strings.Join(claimed, ", "))
+		}
 		return question
 
 	case stageService:
@@ -546,10 +637,15 @@ func (w *Wizard) question() Question {
 		return Question{
 			ID: "runtime.wanted", Section: SectionServices, Kind: KindConfirm,
 			Heading: "Application services",
+			// What the agent's environment is and how it differs from this is
+			// drawn on the agent's own Compose question, which is asked after
+			// these and names the files this section claimed. Saying it here as
+			// well presumed both halves before the user had been shown either,
+			// and a project whose agent runs on this host has no second
+			// environment to be told apart from.
 			Detail: []string{
-				"The application under development, run per task. They are separate from",
-				"the agent's own environment, and in this version they start only when you",
-				"ask for them.",
+				"The runtime for the application under development. Feat creates one per",
+				"task, and in this version its services start only when you ask.",
 			},
 			Prompt: "Does a task run application services?", Proposed: "n",
 		}
@@ -625,8 +721,11 @@ func (w *Wizard) question() Question {
 	case stageRuntimeServices:
 		return Question{
 			ID: "runtime.services", Section: SectionServices, Kind: KindText,
-			Prompt:   "Services Feat manages from " + w.draft.Repositories[w.contributor].ID,
-			Proposed: strings.Join(w.composition.Services, " "),
+			Prompt: "Services Feat manages from " + w.draft.Repositories[w.contributor].ID,
+			// The services that run this repository's code, rather than every
+			// service its files declare: what is left out is named in a note, and
+			// is still an answer a user may type (ADR-100).
+			Proposed: strings.Join(w.running(), " "),
 		}
 
 	case stageRuntimeMount:
@@ -698,6 +797,29 @@ func (w *Wizard) question() Question {
 		}
 		return question
 
+	case stageTracker:
+		return Question{
+			ID: "tracker.command", Section: SectionTracker, Kind: KindText,
+			Heading: "Tickets",
+			Detail: []string{
+				"Where this project's tickets come from: a command of yours that prints them",
+				"as JSON. `feat project tickets` lists what it printed, and",
+				"`feat implement --ticket <reference>` composes a task brief from one, which",
+				"you read and edit before it is what the agent is told to do.",
+				"",
+				"Feat runs it on this machine as you and expands nothing, so name a program on",
+				"your path or write the path in full. It is passed no filter: which tickets are",
+				"yours is the command's decision, and `feat doctor` runs it and checks that",
+				"what it printed is the shape Feat publishes.",
+				"",
+				"Leave it blank for a project whose tasks are all written by hand, or for one",
+				"whose tracker command you have not written yet. The section can be added to",
+				"the file afterwards.",
+			},
+			Prompt:   "Command that prints your tickets, or blank for none",
+			Optional: true,
+		}
+
 	}
 	return Question{}
 }
@@ -755,6 +877,15 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 
 	case stageRepositoryAccess:
 		w.pending.DefaultAccess = answer
+		w.stage = stageRepositoryForge
+
+	case stageRepositoryForge:
+		// none is the absence of the section rather than a value in it: the
+		// configuration has no forge kind meaning "nowhere", and a repository
+		// that publishes nowhere is one the section is left off (ADR-071).
+		if answer != noForge {
+			w.pending.Forge = answer
+		}
 		w.draft.Repositories = append(w.draft.Repositories, w.pending)
 		w.pending = config.DraftRepository{}
 		w.stage = stageAnotherRepository
@@ -766,16 +897,16 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 			}
 		}
 		w.draft.Primary = answer
-		w.stage = stageMode
+		w.stage = stageRuntimeWanted
 
 	case stagePrimary:
 		w.draft.Primary = answer
-		w.stage = stageMode
+		w.stage = stageRuntimeWanted
 
 	case stageMode:
 		w.draft.Execution.Mode = answer
 		if answer != config.ModeDevcontainer {
-			w.stage = stageRuntimeWanted
+			w.stage = stageTracker
 			break
 		}
 		w.files = nil
@@ -817,7 +948,7 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 
 	case stageVolumeName:
 		w.draft.Execution.ClaudeConfigVolume = answer
-		w.stage = stageRuntimeWanted
+		w.stage = stageTracker
 
 	case stageRuntimeCompose:
 		if answer == "" {
@@ -866,7 +997,7 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 	case stageRuntimeEnvFile:
 		if answer == "" {
 			w.draft.Runtime = &config.DraftRuntime{EnvFiles: w.envFiles}
-			w.stage = stageComplete
+			w.stage = stageMode
 			break
 		}
 		path, err := w.host.Absolute(answer)
@@ -875,6 +1006,18 @@ func (w *Wizard) apply(ctx context.Context, answer string) error {
 		}
 		w.envFiles = append(w.envFiles, path)
 		w.notes = w.existence(path)
+
+	case stageTracker:
+		if answer == "" {
+			w.stage = stageComplete
+			break
+		}
+		command, err := commandWords(answer)
+		if err != nil {
+			return err
+		}
+		w.draft.Tracker = command
+		w.stage = stageComplete
 
 	}
 	return nil
@@ -905,11 +1048,11 @@ func (w *Wizard) confirmed(yes bool) error {
 			w.stage = stageVolumeName
 			return nil
 		}
-		w.stage = stageRuntimeWanted
+		w.stage = stageTracker
 
 	case stageRuntimeWanted:
 		if !yes {
-			w.stage = stageComplete
+			w.stage = stageMode
 			return nil
 		}
 		w.contributor = -1
@@ -974,6 +1117,17 @@ func (w *Wizard) readComposition() {
 	if len(w.composition.Services) > 0 {
 		w.notes = append(w.notes, "services defined there: "+strings.Join(w.composition.Services, ", "))
 	}
+	if idle := w.idle(); len(idle) > 0 {
+		// Why the proposal is shorter than the list above it. Feat addresses the
+		// managed services by name and Compose starts what they depend on, so a
+		// database left out of the proposal still runs — what it is spared is
+		// being created, started, stopped, and destroyed per task, and being
+		// given an override entry for a worktree it has no use for (ADR-100).
+		w.notes = append(w.notes,
+			"not proposed, because they run none of this repository's code: "+strings.Join(idle, ", ")+
+				" — Feat starts whatever the managed services depend on, and name one here to "+
+				"manage it yourself")
+	}
 	if len(w.composition.Undecided) > 0 {
 		// Named rather than resolved. Feat never interpolates a "${...}", so an
 		// entry containing one is a value it could not derive, and saying which
@@ -1006,6 +1160,42 @@ func (w *Wizard) agentComposition(hostPath string) Composition {
 	return w.host.Compose(filepath.Dir(files[0]), hostPath, files...)
 }
 
+// running are the services that run this repository's code: the ones whose
+// files mount it, and the ones built from it.
+//
+// It is what the managed-services question proposes, and it is narrower than
+// what the files declare. A managed service is one Feat creates, starts, stops,
+// and destroys for a task, and one the generated override writes an entry for —
+// so a database, which runs none of the project's code and has no worktree to be
+// given, is not one a task manages. It still runs: Feat addresses the managed
+// services by name and Compose brings up what they depend on (ADR-100).
+//
+// The order is the composition's, which is the order the files declare, so that
+// the proposal reads the way the file does.
+func (w *Wizard) running() []string {
+	var found []string
+	for _, service := range w.composition.Services {
+		if containsString(w.composition.Mounted, service) ||
+			containsString(w.composition.Baked, service) {
+			found = append(found, service)
+		}
+	}
+	return found
+}
+
+// idle are the services the files declare that run none of this repository's
+// code, which is the rest of them.
+func (w *Wizard) idle() []string {
+	var found []string
+	running := w.running()
+	for _, service := range w.composition.Services {
+		if !containsString(running, service) {
+			found = append(found, service)
+		}
+	}
+	return found
+}
+
 // provenance says which of the named services build this repository into their
 // image rather than mounting it.
 //
@@ -1035,7 +1225,7 @@ func (w *Wizard) afterRepositories() stage {
 		return stageEditable
 	case 1:
 		w.draft.Primary = editable[0]
-		return stageMode
+		return stageRuntimeWanted
 	default:
 		return stagePrimary
 	}
@@ -1172,6 +1362,72 @@ func (w *Wizard) unansweredContributions() []string {
 		found = append(found, path)
 	}
 	return found
+}
+
+// devcontainerDir is the directory the Dev Containers specification puts a
+// project's container definition in.
+//
+// It is a place worth looking rather than a rule about what is there: Feat
+// neither reads `devcontainer.json` nor implements that specification, and its
+// own `devcontainer` mode means the agent runs in a configured Compose service.
+// What it is used for here is an ordering — a Compose file kept in that
+// directory is a better first proposal for the agent's own container than a file
+// at the root of a checkout, which is ordinarily the application's.
+const devcontainerDir = ".devcontainer"
+
+// unclaimedComposeFiles are the Compose files found beside the project's
+// repositories that nothing has spoken for: not the application's, and not
+// already answered in this loop.
+//
+// Every repository is looked beside, rather than the primary one only. The
+// agent's container is the project's and is kept wherever the user keeps it, and
+// a project whose devcontainer sits beside its second repository is not unusual.
+//
+// The ones in a `.devcontainer` directory come first, because that is the
+// directory the thing this question is about is ordinarily kept in. The rest
+// follow in the order they were found, which is Compose's own order of
+// preference.
+func (w *Wizard) unclaimedComposeFiles() []string {
+	claimed := w.claimedComposeFiles()
+
+	var devcontainer, beside []string
+	for _, repository := range w.draft.Repositories {
+		for _, path := range w.host.ComposeFiles(repository.HostPath) {
+			if containsString(w.files, path) || containsString(claimed, path) ||
+				containsString(devcontainer, path) || containsString(beside, path) {
+				continue
+			}
+			if filepath.Base(filepath.Dir(path)) == devcontainerDir {
+				devcontainer = append(devcontainer, path)
+				continue
+			}
+			beside = append(beside, path)
+		}
+	}
+	return append(devcontainer, beside...)
+}
+
+// claimedComposeFiles are the Compose files the application already took.
+//
+// They are read back off the repositories rather than remembered, because that
+// is where the answer was recorded and because stepping back out of one of those
+// answers has to take the claim with it. A contribution's files were rewritten
+// relative to its checkout when it was kept, so they are resolved against it
+// again here (keepContribution).
+func (w *Wizard) claimedComposeFiles() []string {
+	var claimed []string
+	for _, repository := range w.draft.Repositories {
+		if repository.Runtime == nil {
+			continue
+		}
+		for _, file := range repository.Runtime.ComposeFiles {
+			if !filepath.IsAbs(file) {
+				file = filepath.Join(repository.HostPath, file)
+			}
+			claimed = append(claimed, file)
+		}
+	}
+	return claimed
 }
 
 // unconfigured reports a project that already has a configuration.
@@ -1323,6 +1579,157 @@ func containerPath(value string) error {
 	return nil
 }
 
+// noForge is the answer for a repository Feat never publishes.
+//
+// It is not a forge kind. The configuration has no value meaning "nowhere" —
+// the section is simply absent — so this is a word the question offers and the
+// answer drops, rather than one that reaches a file (ADR-071).
+const noForge = "none"
+
+// forgeOptions are the answers the forge question offers: the forges a
+// repository may declare, and then none.
+//
+// The forges are the domain's list rather than one written here, so that the
+// question cannot offer a kind the configuration would refuse, nor miss one it
+// would accept (ADR-100).
+func forgeOptions() []string {
+	kinds := domain.ForgeKinds()
+	options := make([]string, 0, len(kinds)+1)
+	for _, kind := range kinds {
+		options = append(options, string(kind))
+	}
+	return append(options, noForge)
+}
+
+// forgeFor proposes the forge a remote URL names, or nothing where its host is
+// not one Feat recognises.
+//
+// Exactly those two hosts, and no subdomain of either: a GitHub Enterprise
+// instance and a self-hosted GitLab are both on hosts nobody can derive a forge
+// from, and this is a proposal a user accepts rather than a value Feat writes —
+// so being wrong costs them a correction and being silent costs them one
+// keystroke (ADR-071).
+func forgeFor(remoteURL string) string {
+	switch remoteHost(remoteURL) {
+	case "github.com":
+		return string(domain.ForgeGitHub)
+	case "gitlab.com":
+		return string(domain.ForgeGitLab)
+	default:
+		return ""
+	}
+}
+
+// remoteHost is the host a Git remote points at, in either of the two forms a
+// clone leaves behind, and empty for a remote that names no host at all.
+//
+// The second form is the reason this is not net/url: `git@github.com:acme/api`
+// is what an SSH clone writes and it is not a URL, so parsing it as one yields a
+// scheme of "git@github.com" and no host. A path with no colon before its first
+// slash is a local remote, which names no host and proposes nothing.
+func remoteHost(remote string) string {
+	remote = strings.TrimSpace(remote)
+	if remote == "" {
+		return ""
+	}
+
+	if scheme := strings.Index(remote, "://"); scheme >= 0 {
+		authority := remote[scheme+len("://"):]
+		if slash := strings.Index(authority, "/"); slash >= 0 {
+			authority = authority[:slash]
+		}
+		return hostOf(authority)
+	}
+
+	colon := strings.Index(remote, ":")
+	if slash := strings.Index(remote, "/"); colon < 0 || (slash >= 0 && slash < colon) {
+		return ""
+	}
+	return hostOf(remote[:colon])
+}
+
+// hostOf takes the host out of an authority: neither the user in front of it nor
+// the port behind it is part of one.
+func hostOf(authority string) string {
+	if at := strings.LastIndex(authority, "@"); at >= 0 {
+		authority = authority[at+1:]
+	}
+	// A bracketed authority is an IPv6 address, whose own colons are not a port
+	// separator. Neither form names a forge Feat recognises; this is here so
+	// that one is not mistaken for a truncated host name.
+	if !strings.HasPrefix(authority, "[") {
+		if colon := strings.Index(authority, ":"); colon >= 0 {
+			authority = authority[:colon]
+		}
+	}
+	return strings.ToLower(strings.Trim(authority, "[]"))
+}
+
+// commandWords splits a command the way the user typed it into the argument
+// vector configuration holds.
+//
+// Quotes are honoured, because a real tracker command carries an argument with a
+// space in it and splitting one into pieces produces a configuration that is
+// wrong in a way nothing downstream can explain: `feat doctor` would run it and
+// report that the output is not the published shape, which says nothing about
+// the typing. Single quotes are literal, double quotes take a backslash escape,
+// and a backslash outside either escapes the character after it — which is a
+// shell's own reading of the same line, minus every expansion, because Feat runs
+// the vector directly and expands nothing.
+//
+// An unterminated quote is refused where it was typed rather than corrected, for
+// the reason every other rejection in this flow is: the answer is still there to
+// be given again.
+func commandWords(value string) ([]string, error) {
+	var (
+		words   []string
+		current strings.Builder
+		// quote is the quote character a word is inside, or nought outside one.
+		quote rune
+		// started reports that a word is being built, which is what tells an
+		// empty quoted argument apart from the space between two words.
+		started bool
+	)
+
+	runes := []rune(value)
+	for i := 0; i < len(runes); i++ {
+		char := runes[i]
+		switch {
+		case char == '\\' && quote != '\'' && i+1 < len(runes):
+			i++
+			current.WriteRune(runes[i])
+			started = true
+		case quote != 0 && char == quote:
+			quote = 0
+		case quote != 0:
+			current.WriteRune(char)
+		case char == '\'' || char == '"':
+			quote = char
+			started = true
+		case char == ' ' || char == '\t':
+			if started {
+				words = append(words, current.String())
+				current.Reset()
+				started = false
+			}
+		default:
+			current.WriteRune(char)
+			started = true
+		}
+	}
+	if quote != 0 {
+		return nil, fmt.Errorf("the %c quote is never closed", quote)
+	}
+	if started {
+		words = append(words, current.String())
+	}
+
+	if len(words) == 0 || strings.TrimSpace(words[0]) == "" {
+		return nil, errors.New("name the program to run, or leave this blank for no tracker")
+	}
+	return words, nil
+}
+
 // accessModes lists the default access modes, in the order the question offers
 // them: the two a user picks between most often first.
 func accessModes() []string {
@@ -1399,6 +1806,7 @@ func cloneDraft(draft config.Draft) config.Draft {
 	copied := draft
 	copied.Repositories = append([]config.DraftRepository(nil), draft.Repositories...)
 	copied.Execution.ComposeFiles = append([]string(nil), draft.Execution.ComposeFiles...)
+	copied.Tracker = append([]string(nil), draft.Tracker...)
 
 	copied.Checks = make([]config.DraftCheck, len(draft.Checks))
 	for i, check := range draft.Checks {
@@ -1439,6 +1847,7 @@ func cloneComposition(composition Composition) Composition {
 	copied := composition
 	copied.Services = append([]string(nil), composition.Services...)
 	copied.Reachable = append([]string(nil), composition.Reachable...)
+	copied.Mounted = append([]string(nil), composition.Mounted...)
 	copied.Baked = append([]string(nil), composition.Baked...)
 	copied.Undecided = append([]string(nil), composition.Undecided...)
 	return copied

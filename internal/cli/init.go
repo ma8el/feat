@@ -19,9 +19,11 @@ import (
 const initLong = `Write a project's configuration by answering questions.
 
 A project is one YAML file. This asks what has to be decided — which
-repositories take part, where the agent runs, whether a task runs application
-services — and fills in everything Feat has a default for, so the file it
-produces states your decisions and nothing else.
+repositories take part and where each publishes, whether a task runs application
+services, where the agent runs, and where your tickets come from — and fills in
+everything Feat has a default for, so the file it produces states your decisions
+and nothing else. Every question proposes an answer, so a project that needs
+none of the optional parts is a run of pressing Enter.
 
 What it can find out, it finds out rather than asking: whether a directory is a
 Git repository, which remote and default branch it has, which Compose files are
@@ -286,9 +288,8 @@ func (c *conversation) introduce(question wizard.Question) {
 // what came before it.
 func (c *conversation) announce(question wizard.Question) {
 	// A heading whenever there is one, rather than once per section: a section
-	// can hold more than one headed group — where the agent runs and which
-	// provider CLI it expects are both about the agent — and the flow sets a
-	// heading on the first question of a group for exactly that reason.
+	// can hold more than one headed group, and the flow sets a heading on the
+	// first question of a group for exactly that reason.
 	switch {
 	case question.Heading != "":
 		c.rule()

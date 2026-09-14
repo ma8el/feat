@@ -41,6 +41,15 @@ type Checkout struct {
 	// Remote is the remote a base policy would fetch: "origin" when there is
 	// one, otherwise the only other remote, otherwise empty.
 	Remote string
+	// RemoteURL is where that remote points, exactly as Git has it written
+	// down: an HTTPS URL, an SSH URL, or the `user@host:path` form a clone over
+	// SSH usually leaves behind.
+	//
+	// It is reported rather than interpreted. What a caller does with it is
+	// propose the forge whose host it names, which is a proposal about
+	// somebody's hosting arrangement rather than a fact about the checkout
+	// (ADR-071, ADR-100).
+	RemoteURL string
 	// DefaultBranch is the branch the remote publishes as its head, or the
 	// branch currently checked out when it publishes none.
 	DefaultBranch string
@@ -70,6 +79,7 @@ func Inspect(ctx context.Context, runner Runner, dir string) (Checkout, error) {
 	}
 
 	checkout.Remote = remoteOf(ctx, runner, checkout.Root)
+	checkout.RemoteURL = remoteURLOf(ctx, runner, checkout.Root, checkout.Remote)
 	checkout.DefaultBranch = branchOf(ctx, runner, checkout.Root, checkout.Remote)
 	return checkout, nil
 }
@@ -104,6 +114,25 @@ func remoteOf(ctx context.Context, runner Runner, root string) string {
 // defaultRemote is the remote name every clone creates, and the one Feat
 // defaults to when configuration names none.
 const defaultRemote = "origin"
+
+// remoteURLOf reads where a remote points.
+//
+// The fetch URL, which is the one `get-url` reports without `--push`: a
+// repository whose pushes go somewhere else is a repository whose merge
+// requests are opened where its code is read from, and the fetch URL is the one
+// every clone has. A repository with no remote is asked nothing, and a remote
+// Git will not answer for answers nothing — neither is a failure, because the
+// caller proposes from this and asks where it has nothing to propose.
+func remoteURLOf(ctx context.Context, runner Runner, root, remote string) string {
+	if remote == "" {
+		return ""
+	}
+	output, err := runner.Run(ctx, root, gitExecutable, "remote", "get-url", remote)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(output)
+}
 
 // branchOf resolves the branch a base policy would use.
 //

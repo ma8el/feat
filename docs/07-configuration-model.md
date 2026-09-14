@@ -527,7 +527,10 @@ forge and a publication is one merge request per changed repository. It carries
 a kind alone: the project path and the host are in the repository's own Git
 remote, and what cannot be read from there is which forge a self-hosted instance
 is. That is declared rather than guessed, because guessing wrong would open a
-merge request somewhere the user did not mean.
+merge request somewhere the user did not mean. `feat project init` proposes it
+from the remote's host where that host is `github.com` or `gitlab.com`, and
+proposes none for any other — which is a proposal the user accepts into their own
+file, not a value Feat derives for them (ADR-100).
 
 The tracker belongs to the project, because the thing a ticket seeds is a task
 and a task belongs to one project. Feat does not model where tickets live at
@@ -549,7 +552,10 @@ would have to map onto every tracker's query language; which tickets are the
 user's is the command's decision. `tracker.kind` has one value, `command`, and
 is kept because the configuration file is a compatibility surface: a
 discriminator added later means either a breaking change or an inference from
-which fields happen to be present.
+which fields happen to be present. `feat project init` asks for the command
+once, last, and optionally, because a tracker is a command the user writes and
+may not have written yet; an empty answer writes no section, and the section can
+be added to the file afterwards (ADR-100).
 
 The output is validated against the published schema by `feat doctor`, and
 bounded in size for the reason a control message is: it becomes a brief, and a

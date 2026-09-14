@@ -85,3 +85,13 @@ daemon, which is why the widget is in the command rather than the dashboard's
 dialog, and its scrollback is what somebody debugging their own configuration
 reads back, which is why the widget is inline, prints the answered question as a
 permanent line, and never rewrites one. What moves is "not a screen".
+
+Amended by ADR-100, which is the second pass over the same conversation: it asks
+each repository where it publishes and asks once, optionally and last, for the
+tracker command, and it answers the application before the agent's environment so
+that the agent's Compose question can offer what is left. Everything this
+decision settled about the command is untouched — nothing is written until it is
+confirmed, an existing configuration is never replaced, and the file is the
+user's from then on. What changes is which questions it holds and the order they
+are asked in, and both additions reach configuration this decision's own last
+sentence left to the file rather than widening what the wizard may write.

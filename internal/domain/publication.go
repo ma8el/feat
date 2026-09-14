@@ -6,7 +6,10 @@ import "time"
 //
 // It is declared in project configuration rather than derived from the remote,
 // because inference works only where the remote's host is one Feat recognises:
-// a self-hosted instance is not guessable (ADR-071).
+// a self-hosted instance is not guessable (ADR-071). What that leaves is a
+// proposal rather than a derivation, and `feat project init` is where it is
+// made: a recognised host proposes its forge and the user accepts it into their
+// own file, and every other host is asked about (ADR-100).
 type ForgeKind string
 
 // Forges Feat publishes to.
@@ -17,8 +20,24 @@ const (
 	ForgeGitLab ForgeKind = "gitlab"
 )
 
+// ForgeKinds are the forges a repository may declare, in the order a question
+// or a rejection lists them.
+//
+// It is the list Valid answers from, so that a caller offering the kinds and a
+// caller refusing one cannot disagree about what they are: the wizard's question
+// and the configuration's rejection both read this rather than each writing the
+// pair out (ADR-100).
+func ForgeKinds() []ForgeKind { return []ForgeKind{ForgeGitHub, ForgeGitLab} }
+
 // Valid reports whether the kind is a forge Feat publishes to.
-func (k ForgeKind) Valid() bool { return k == ForgeGitHub || k == ForgeGitLab }
+func (k ForgeKind) Valid() bool {
+	for _, kind := range ForgeKinds() {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
 
 // Publication is what publishing one task would do, and what came of it.
 //

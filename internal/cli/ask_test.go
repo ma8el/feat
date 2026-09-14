@@ -291,11 +291,13 @@ func TestSteppingBackReopensTheQuestionBeforeIt(t *testing.T) {
 		{value: m.repository("api")}, // the checkout
 		{value: "api"},               // repository identifier
 		{value: "read_write"},        // how it takes part by default
+		{value: "github"},            // where it publishes merge requests
 		{value: "n"},                 // no second repository
-		{back: true},                 // at the execution mode, back out of that answer
+		{back: true},                 // at the application section, back out of that answer
 		{value: "n"},                 // no second repository, again
-		{value: "host"},              // where the agent runs
 		{value: "n"},                 // no application services
+		{value: "host"},              // where the agent runs
+		{value: ""},                  // no tracker command
 	}}
 	talk := &conversation{
 		prompter: prompter{in: bufio.NewReader(strings.NewReader("")), out: &out},
@@ -312,9 +314,9 @@ func TestSteppingBackReopensTheQuestionBeforeIt(t *testing.T) {
 
 	want := []string{
 		"project.id", "project.name", "repository.path", "repository.id",
-		"repository.access", "repository.another", "agent.mode",
+		"repository.access", "repository.forge", "repository.another", "runtime.wanted",
 		// What the step back reached, and everything it undid asked again.
-		"repository.another", "agent.mode", "runtime.wanted",
+		"repository.another", "runtime.wanted", "agent.mode", "tracker.command",
 	}
 	if got := strings.Join(answers.asked, " "); got != strings.Join(want, " ") {
 		t.Errorf("the questions asked were\n%s\nwant\n%s", got, strings.Join(want, " "))
@@ -331,7 +333,7 @@ func TestSteppingBackReopensTheQuestionBeforeIt(t *testing.T) {
 	// With one blank line over it and not two. The question stepped back out of
 	// had opened a section, so the transcript already ended in a blank, and a
 	// second one reads as something dropped rather than as a separator.
-	if !strings.Contains(transcript, "the task.\n\n  ↩ back to: ") {
+	if !strings.Contains(transcript, "when you ask.\n\n  ↩ back to: ") {
 		t.Errorf("the marker is not one blank line under what came before it:\n%s", transcript)
 	}
 	if !strings.Contains(transcript, "mode: host") {
@@ -352,8 +354,8 @@ func TestEachPartOfTheTranscriptIsSeparatedFromTheLast(t *testing.T) {
 	var out bytes.Buffer
 	answers := &scriptedAsker{out: &out, replies: []reply{
 		{value: "app"}, {value: "Example"}, {value: m.repository("api")},
-		{value: "api"}, {value: "read_write"}, {value: "n"},
-		{value: "host"}, {value: "n"},
+		{value: "api"}, {value: "read_write"}, {value: "github"}, {value: "n"},
+		{value: "n"}, {value: "host"}, {value: ""},
 	}}
 	talk := &conversation{
 		prompter: prompter{in: bufio.NewReader(strings.NewReader("")), out: &out},
@@ -370,7 +372,7 @@ func TestEachPartOfTheTranscriptIsSeparatedFromTheLast(t *testing.T) {
 	transcript := out.String()
 	rule := strings.Repeat("─", ruleWidth)
 	for _, opened := range []string{
-		"Repositories", "Where the agent runs", "Application services",
+		"Repositories", "Application services", "Where the agent runs", "Tickets",
 		// The file is the largest part of all, and the last thing the user is
 		// asked to read before they are asked to keep it.
 		filepath.Join(m.layout.ProjectConfigDir(), "app.yaml"),
