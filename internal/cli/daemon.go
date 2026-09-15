@@ -77,7 +77,12 @@ after checking that nothing is serving on it.`,
 					printf(out, "a feat daemon is already running: pid %d on %s\n",
 						status.Endpoint.PID, status.Endpoint.Socket)
 				} else {
-					printf(out, "a feat daemon is already answering on %s\n", layout.Socket)
+					// It is answering, so it is not starting up; its record was
+					// removed while it ran. Saying which commands still reach it
+					// is the actionable part (ADR-101).
+					printf(out, "a feat daemon is already answering on %s, and its endpoint record is missing\n",
+						layout.Socket)
+					printf(out, "it is running normally; `feat daemon stop` and `feat daemon restart` ask the daemon itself\n")
 				}
 				return nil
 			}
@@ -231,6 +236,21 @@ tell the two apart without reading the output.`,
 			}
 			if health.Detail != "" {
 				printf(out, "detail:   %s\n", health.Detail)
+			}
+			if status.RecordMissing() {
+				// Everything above came from the daemon over the socket, so the
+				// report is complete and correct; what is missing is the file a
+				// client would otherwise read. Diagnose is not reached from
+				// here, because this branch is the running one (ADR-101).
+				if status.EndpointError != nil {
+					printf(out, "\nthe endpoint record %s is not readable (%v),\n",
+						layout.EndpointFile(), status.EndpointError)
+					printf(out, "and the daemon is running normally;\n")
+				} else {
+					printf(out, "\nthe endpoint record %s is missing, and the daemon is running normally;\n",
+						layout.EndpointFile())
+				}
+				printf(out, "a daemon of this build publishes it again within the hour\n")
 			}
 			if note := buildSkew(env, health.Daemon.Version); note != "" {
 				printf(out, "\n%s\n", note)

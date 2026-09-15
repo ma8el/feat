@@ -159,6 +159,14 @@ func WaitUntilReady(ctx context.Context, layout paths.Layout, timeout time.Durat
 //
 // It returns the record of the daemon it stopped, so a caller can report which
 // process it was.
+//
+// The record is where the process identifier comes from, and the socket is where
+// it comes from when the record cannot supply one. A daemon that is answering is
+// a daemon that can be stopped, and for three days of uptime on macOS the record
+// is the only part of that pair the system takes away (ADR-101). The fallback
+// covers any unusable record rather than only a missing one, because a record
+// that is corrupt or of a schema this build does not understand leaves the same
+// predicament: a live daemon nobody can stop.
 func Stop(ctx context.Context, layout paths.Layout, timeout time.Duration) (Endpoint, error) {
 	if timeout <= 0 {
 		timeout = defaultStopTimeout
@@ -166,7 +174,15 @@ func Stop(ctx context.Context, layout paths.Layout, timeout time.Duration) (Endp
 
 	endpoint, err := ReadEndpoint(layout)
 	if err != nil {
-		return Endpoint{}, err
+		served, askErr := askEndpoint(ctx, layout)
+		if askErr != nil {
+			// Nothing answered either, so the record's own failure is the
+			// actionable one. Reporting why the socket did not answer instead
+			// would describe the second thing that was tried rather than the
+			// state the caller is in.
+			return Endpoint{}, err
+		}
+		endpoint = served
 	}
 	if !processExists(endpoint.PID) {
 		// The record outlived its process. Feat reports that rather than

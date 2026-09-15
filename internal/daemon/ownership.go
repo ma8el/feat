@@ -1,12 +1,14 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	iofs "io/fs"
 	"log/slog"
 	"net"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/ma8el/feat/internal/paths"
@@ -16,6 +18,17 @@ import (
 // stale. A local daemon that is alive accepts immediately.
 const probeTimeout = 250 * time.Millisecond
 
+// defaultRecordInterval is how often a daemon publishes its endpoint record
+// again.
+//
+// The record is written once at startup and would otherwise never be touched
+// again, and macOS reaps files under the per-user temporary directory that are
+// more than three days old — which is where the runtime directory lives, for the
+// reason ADR-027 gives and this decision keeps. An hour is two orders of
+// magnitude inside that threshold, and the write is a 230-byte atomic
+// replacement, so the margin costs nothing worth measuring (ADR-101).
+const defaultRecordInterval = time.Hour
+
 // Ownership is one daemon's exclusive claim on the runtime directory: the
 // advisory lock, the listening socket, and the published endpoint record.
 type Ownership struct {
@@ -24,6 +37,8 @@ type Ownership struct {
 	listener net.Listener
 	endpoint Endpoint
 	logger   *slog.Logger
+	keeper   *recordKeeper
+	repeats  *repeats
 }
 
 // Acquire claims the runtime directory and starts listening.
@@ -52,14 +67,20 @@ func Acquire(layout paths.Layout, build Build, now time.Time, logger *slog.Logge
 		if errors.Is(err, errLockHeld) {
 			// The lock is the authority on liveness; the record only explains
 			// who holds it, and a daemon that is still starting has not written
-			// one yet.
+			// one yet. Whether it is answering separates that daemon from one
+			// whose record was removed while it ran, which is the case the
+			// message would otherwise misdiagnose (ADR-101).
 			endpoint, readErr := ReadEndpoint(layout)
-			return nil, &AlreadyRunningError{Endpoint: endpoint, HasEndpoint: readErr == nil}
+			return nil, &AlreadyRunningError{
+				Endpoint:    endpoint,
+				HasEndpoint: readErr == nil,
+				Answering:   Answering(layout.Socket),
+			}
 		}
 		return nil, err
 	}
 
-	ownership := &Ownership{layout: layout, lock: lock, logger: logger}
+	ownership := &Ownership{layout: layout, lock: lock, logger: logger, repeats: newRepeats()}
 	if err := ownership.reclaimSocket(); err != nil {
 		return nil, errors.Join(err, lock.release())
 	}
@@ -101,11 +122,106 @@ func (o *Ownership) Listener() net.Listener { return o.listener }
 // Endpoint returns the published record.
 func (o *Ownership) Endpoint() Endpoint { return o.endpoint }
 
+// keepRecord publishes the record again on an interval, for as long as ownership
+// is held. A negative interval turns it off, which only a test wants, and zero
+// uses the default.
+//
+// It belongs to ownership rather than to the serving loop because Release must
+// stop it before removing the record. A keeper that outlived Release would write
+// the record back after the daemon had given up the directory, leaving a file
+// that names a process which is no longer running and whose identifier the
+// system is free to reuse — the one outcome worse than the record going missing,
+// because a record that cannot go stale cannot be recognised as stale (ADR-027,
+// evidence 1).
+func (o *Ownership) keepRecord(interval time.Duration) {
+	if interval < 0 {
+		return
+	}
+	if interval == 0 {
+		interval = defaultRecordInterval
+	}
+	o.keeper = &recordKeeper{}
+	o.keeper.start(o, interval)
+}
+
+// republish writes the record again.
+//
+// Its contents do not change after Acquire, so this is idempotent. It is a
+// rewrite rather than a touch on purpose: a record that has already been
+// collected comes back, where setting timestamps on a path that no longer exists
+// would fail and keep failing.
+func (o *Ownership) republish() error {
+	return writeEndpoint(o.layout.EndpointFile(), o.endpoint)
+}
+
+// recordKeeper republishes one daemon's endpoint record until it is stopped.
+type recordKeeper struct {
+	once   sync.Once
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+// start begins republishing in the background.
+func (k *recordKeeper) start(o *Ownership, interval time.Duration) {
+	keeping, cancel := context.WithCancel(context.Background())
+	k.cancel = cancel
+	k.done = make(chan struct{})
+
+	go func() {
+		defer close(k.done)
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-keeping.Done():
+				return
+			case <-ticker.C:
+				if err := o.republish(); err != nil {
+					// A daemon that is serving must not stop because a
+					// 230-byte write failed. The next tick tries again, and
+					// the failure is the same one each time, so it is reported
+					// once rather than every hour.
+					if o.repeats.changed("endpoint record", err.Error()) {
+						o.logger.Warn("republishing the endpoint record",
+							slog.String("record", o.layout.EndpointFile()),
+							slog.Any("error", err))
+					}
+					continue
+				}
+				o.repeats.clear("endpoint record")
+			}
+		}
+	}()
+}
+
+// stop ends republishing and waits for it to finish, so that no write is in
+// flight once it returns.
+func (k *recordKeeper) stop() {
+	if k == nil {
+		return
+	}
+	k.once.Do(func() {
+		if k.cancel == nil {
+			return
+		}
+		k.cancel()
+		<-k.done
+	})
+}
+
 // Release gives up ownership: it stops listening, removes the socket and the
 // record, and unlocks. It is safe to call twice, because a failed acquisition
 // releases what it had already taken.
 func (o *Ownership) Release() error {
 	var failures []error
+
+	// First, and before the record is removed: nothing may write it back after
+	// this point. stop waits for an in-flight republish to finish, so the
+	// removal below cannot race one.
+	o.keeper.stop()
+	o.keeper = nil
 
 	if o.listener != nil {
 		// Closing a Unix listener removes the socket file it created.

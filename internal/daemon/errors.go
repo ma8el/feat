@@ -26,16 +26,28 @@ type AlreadyRunningError struct {
 	// Endpoint is the record the running daemon wrote, if it could be read.
 	Endpoint Endpoint
 	// HasEndpoint reports whether the record was readable. A daemon that is
-	// starting up holds the lock before it writes the record.
+	// starting up holds the lock before it writes the record, and a daemon whose
+	// record the system collected holds it without one.
 	HasEndpoint bool
+	// Answering reports whether the daemon holding the lock is serving on the
+	// socket. It is what separates those two: a daemon that answers has finished
+	// starting, so its missing record was removed rather than not yet written.
+	Answering bool
 }
 
 func (e *AlreadyRunningError) Error() string {
-	if !e.HasEndpoint {
+	switch {
+	case e.HasEndpoint:
+		return fmt.Sprintf("a feat daemon is already running: pid %d on %s since %s",
+			e.Endpoint.PID, e.Endpoint.Socket, e.Endpoint.StartedAt.Format(time.RFC3339))
+	case e.Answering:
+		// Naming the wait would send the user to wait for something that
+		// finished happening, possibly days ago (ADR-101).
+		return "a feat daemon is already running and answering, but its endpoint record has been removed; " +
+			"`feat daemon stop` asks the daemon itself, and `feat daemon restart` replaces it"
+	default:
 		return "a feat daemon is already running: it holds the ownership lock but has not published its endpoint yet"
 	}
-	return fmt.Sprintf("a feat daemon is already running: pid %d on %s since %s",
-		e.Endpoint.PID, e.Endpoint.Socket, e.Endpoint.StartedAt.Format(time.RFC3339))
 }
 
 // ForeignSocketError reports a socket that answers requests while the ownership
