@@ -90,21 +90,22 @@ Evidence:
    | sysctl | `kern.boottime`, `kern.safeboot`, and nothing else |
 
    There is no `libproc`, no `proc_listpids`, no `proc_pidinfo`, and no `fcntl`
-   or `flock`. Nothing in that list can ask whether a file is open. And `unlink`
-   succeeds on an open file in any case — it removes the directory entry and the
-   inode outlives it — so a held descriptor could not have protected the *path*
-   even if something had checked. Reasoning from the survivors got the
-   correlation right and the mechanism wrong, and the fix it recommended would
-   have been built on a mechanism that does not exist.
-7. **Age is nonetheless a conjunct of whatever the rule is, which is enough to
-   fix it without knowing the rest.** `CLEAN_FILES_OLDER_THAN_DAYS` and
-   `dirhelper`'s own `Cleaning %s older than %ld days` put age in the predicate;
-   evidence 5 puts something else in it as well. What that something else is —
-   the two socket survivors are not regular files, and the third survivor is a
-   zero-byte regular file where the casualty was 230 bytes — does not need
-   answering, because a record that is never old is spared under either reading.
-   A fix that turns on age is correct without a complete account of the rule; a
-   fix that turns on an exemption would have needed one.
+   or `flock`; nothing in that list is an obvious way to ask whether a file is
+   open, and `unlink` succeeds on an open file in any case, removing the
+   directory entry while the inode outlives it. **The conclusion drawn from this
+   — that a held descriptor therefore cannot protect the path — was wrong, and
+   evidence 10 measured the opposite.** The import table is a true observation
+   that does not support the inference: not finding the API one would expect is
+   not evidence that the behaviour is absent. It is recorded here with its
+   refutation rather than removed, because it is the reasoning that nearly
+   selected a different fix.
+7. **Age is a conjunct of the rule, which is what the fix turns on.**
+   `CLEAN_FILES_OLDER_THAN_DAYS` and `dirhelper`'s own `Cleaning %s older than
+   %ld days` put age in the predicate, evidence 5 shows something else is in it
+   as well, and evidence 10 measures both halves directly: of files identical
+   but for their age, the old ones went and the fresh one stayed. A record that
+   is never old is therefore spared whatever else the predicate contains. This is
+   the load-bearing claim, and it is the one that survived the probe unchanged.
 8. **The daemon already publishes everything the record holds.** `api.Daemon`
    carries version, commit, process identifier, start time, and socket — the
    whole of `Endpoint` but its schema version — and its own doc comment
@@ -116,6 +117,31 @@ Evidence:
    service interface and not the reverse. Nothing denies the other direction, and
    `internal/daemon` already used the client in its tests. No architectural rule
    had to move.
+10. **The probe confirmed the age conjunct and refuted evidence 6's inference.**
+    Five files were left in this machine's `$TMPDIR` on 2026-09-14 19:41,
+    back-dated five days with `touch -t` so the cleaner's own 03:35 run would see
+    them as beyond the threshold, and read on 2026-09-15 07:36. Every one of them
+    had the same timestamps but for `b`, and every one was a regular file:
+
+    | probe | age | size | held by | outcome |
+    | --- | --- | --- | --- | --- |
+    | `a-old-closed` | old | 230 | nobody | **reaped** |
+    | `README` | old | 490 | nobody | **reaped** |
+    | `c-old-empty` | old | 0 | nobody | **reaped** |
+    | `b-fresh-closed` | fresh | 230 | nobody | survived |
+    | `d-old-heldopen` | old | 230 | a `sleep` holding a read descriptor | survived |
+    | `e-old-flocked` | old | 230 | a `perl` holding `LOCK_EX` | survived |
+
+    Three findings, in the order they matter. **Age is in the predicate**: `a`
+    went and `b` stayed, alike in everything else. **Being held open by a live
+    process spares a file**: `d` and `e` carried the same access, modification
+    and change times as `a` and outlived it, with a plain descriptor sufficing
+    and a lock adding nothing. So the field report's account of the survivors was
+    right and evidence 6's refutation of it was wrong. **Size is not the rule**:
+    `c` was zero bytes, old, and reaped, which disposes of the confound in
+    evidence 5 — what spares `daemon.lock` is the descriptor `Ownership` holds on
+    it, not its being empty. The mechanism by which `dirhelper` avoids an in-use
+    file is still not established; what is established is that it does.
 
 Decisions:
 
@@ -174,17 +200,40 @@ Four things this deliberately does not do:
   directory after checking the lock. That is still the safer decision and it is
   untouched.
 - **Weaken the lock**, or make the record anything the lock depends on.
-- **Hold the record open for the daemon's lifetime**, which was the preferred
-  candidate before evidence 6.
+- **Hold the record open for the daemon's lifetime.** Evidence 10 shows this
+  would work on this platform today, so it is a choice and not an exclusion.
+  Three things decide it against. It cannot restore a record that is already
+  gone, where republishing self-heals — and the daemon this was found on was
+  already in that state, so a fix that only prevents the next occurrence would
+  not have recovered the machine it was written for. It rests on undocumented
+  behaviour: `CLEAN_FILES_OLDER_THAN_DAYS` names the age rule in a file anyone
+  can read, while the in-use exemption is visible only by experiment and has no
+  stated contract to hold it still across releases, and Linux's own runtime
+  directory is swept by different rules entirely. And it contradicts how the
+  record is written: `writeEndpoint` replaces it by atomic rename, so a
+  descriptor held across a write would refer to an unlinked inode, and keeping
+  one would mean giving up the atomicity that keeps a client from reading a
+  half-written record.
 
-A trigger for revisiting, recorded so the unanswered half of the rule has a name
-rather than being forgotten: which property besides age spares `daemon.lock` —
-its size or its being a regular file versus a socket — is not established, and
-nothing here depends on the answer. A probe of back-dated files was left in this
-machine's `$TMPDIR` on 2026-09-14 to settle it against the cleaner's own 03:35
-run. If it finds that age is *not* in the predicate after all, the hourly
-republish is inert and this decision needs reopening, which is the outcome worth
-watching for.
+One property of the schedule, found by reading the record the morning after
+evidence 10 and worth recording because it is the residual case. The keeper's
+ticker is monotonic and a suspended machine does not advance it: a daemon started
+at 20:01 had republished at 21:01, 22:01 and 23:01, the lid closed at 23:14, and
+nothing had been written when the machine woke eight hours later. The cleaner's
+threshold is wall-clock, and `launchd` runs a `StartCalendarInterval` job it
+missed once the machine is awake — so a laptop suspended across the threshold can
+be swept before the keeper's next tick, and lose the record for up to an hour.
+An hour against three days is a margin of seventy-two, so this does not put the
+record at risk in ordinary use; and for the window it does open, the other half
+of this decision is exactly the cover — `feat daemon stop` asks the daemon and
+does not care that the record is missing. The two halves are complements rather
+than alternatives, which is the reason to have built both.
+
+A trigger for revisiting: the mechanism behind the in-use exemption in evidence
+10 is unknown, so if a future macOS sweeps a file that a process holds open,
+nothing in this decision changes — the fix does not rely on it. What would
+require reopening is the opposite: evidence that age has left the predicate,
+which would make the hourly republish inert. That is the outcome to watch for.
 
 Consequence: `internal/daemon/endpoint.go` gains `askEndpoint`, which turns an
 `api.Health` into an `Endpoint`; `internal/daemon/spawn.go`'s `Stop` falls back

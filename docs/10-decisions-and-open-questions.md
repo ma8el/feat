@@ -514,14 +514,15 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   record cannot supply one — any unusable record, not only a missing one — and
   the record is published again hourly for as long as ownership is held, which
   `Release` stops before removing it. Republishing rather than touching
-  timestamps is what restores a record already collected. The candidate fix of
-  holding the record open was eliminated by measuring the cleaner: `dirhelper`
-  imports nothing that can see an open descriptor, so the correlation the field
-  report found had the wrong mechanism, and age being a conjunct of the rule is
-  what makes a schedule correct without a complete account of it. Answering
-  without a record is no longer diagnosed as a daemon still starting. It amends
-  ADR-027, keeping both the location its evidence 1 argues for and the lock its
-  evidence 3 makes the authority on liveness.
+  timestamps is what restores a record already collected. A probe of back-dated
+  files measured the cleaner rather than reasoning about it, and settled that age
+  is in its predicate, that a zero-byte file is not exempt, and that a file held
+  open by a live process is — so holding the record open would also have worked
+  and is declined on other grounds, chief among them that it cannot restore a
+  record already gone. Answering without a record is no longer diagnosed as a
+  daemon still starting. It amends ADR-027, keeping both the location its
+  evidence 1 argues for and the lock its evidence 3 makes the authority on
+  liveness.
 
 ## Open questions
 
