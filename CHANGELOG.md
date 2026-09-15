@@ -4,6 +4,118 @@ Written by hand, one section per tag, newest first. Each section is the body of
 its own GitHub release: `.goreleaser.yaml` publishes the section for the tag it
 is building, so what is written here is what a reader sees on the release page.
 
+## v0.1.1 — 2026-09-15
+
+Four fixes and four additions. The fixes are all things that happened while using
+it: a task stuck showing `running` after its agent had gone idle, a review
+request arriving while its checks were still running, a cleanup that could not
+delete a branch and then could not archive the task, and a daemon that could not
+be stopped once it had been up for three days. The last two had no way out but
+the shell.
+
+The additions are creating a task from a script with no terminal, `--json` on the
+commands that report, a setup wizard that asks where a repository publishes and
+what command prints your tickets, and a `feat doctor` check for a mount that
+would stop a task before it started.
+
+Everything `v0.1.0` said about itself still holds: pre-release, macOS, Claude
+Code, no telemetry, and no compatibility promise about the configuration or the
+command line.
+
+### Fixed
+
+**A task that said `running` while its agent sat idle.** Refreshing the dashboard
+wrote what tmux could see over what Claude's hooks had reported, and tmux cannot
+tell a running session from an idle one. Reconciliation now says only what it can
+see: a live pane under a session already recorded as alive is left alone. A
+resumed session that never reports is marked as needing you, and an ended turn
+survives a daemon restart inside its grace period (ADR-096).
+
+**A review request that arrived while its checks were still running.** The same
+refresh told a task whose checks were running that they had been interrupted by a
+daemon restart that never happened — after which the results were recorded, the
+task stayed where it was, and nobody was told the checks had passed.
+Reconciliation now asks whether a gate is actually running before it says one was
+interrupted, and a gate that cannot start reaches you instead of the log
+(ADR-096).
+
+**A cleanup that could not delete a branch, and a task that could then never be
+archived.** Feat asked whether a branch was contained by the ref it branched
+from; `git branch -d` asks whether it is contained by the checkout's HEAD. On any
+checkout that has fetched, the two disagree, so Feat saw nothing at risk, offered
+no confirmation, and sent a command Git refused — while archiving was refused
+over the branch still present. Deletion now follows the containment Feat
+established, and records what it forced on (ADR-097).
+
+**A daemon that outlived its own endpoint record.** On macOS a daemon up for more
+than three days lost `endpoint.json` to the system's temporary-directory cleaner,
+kept serving, and became one `feat daemon status` could describe and `feat daemon
+stop` reported did not exist. The record is now republished hourly, and `stop`
+asks the daemon over its socket when the record is missing or unreadable
+(ADR-101).
+
+### Added
+
+**Creating a task without a terminal.** An invocation that says what the task is
+creates it: `--project` and either `--brief` or `--file`, with `--file -` reading
+the brief from a pipe. The confirmation is the invocation. `--dry-run` prints the
+same proposal and creates nothing, `--tui` opens the preparation screen when the
+flags would otherwise have been enough, and everything that worked before works
+unchanged. There is no `--yes`: a flag that skips a confirmation somebody was
+shown is the unattended path v0 excludes, and `--ticket` still needs a terminal,
+because what you approve is the brief Feat composed rather than the ticket it came
+from (ADR-099).
+
+**`--json` on the commands that report.** `feat task list`, `feat task review`,
+`feat runtime status`, `feat project show`, and `feat implement` print a document
+instead of a table. Standard output carries one document or nothing; an error
+goes to standard error and is said by the exit code. The shape is described by
+`schema/feat-output.schema.json` and held to the Go types by a test — it is
+deliberate and visible, and it is promised by nothing until the public preview
+decides what a caller may rely on (ADR-099).
+
+**The wizard reaches the forge and the tracker.** `feat project init` asks where
+each repository a task may write to publishes its merge requests, proposing the
+forge its remote names where that host is `github.com` or `gitlab.com` and saying
+so — a self-hosted GitLab or a GitHub Enterprise instance is not guessable, and
+is asked about rather than guessed at. It also asks, last and optionally, for the
+command that prints your tickets. The application is now answered before the
+agent's environment, which is what lets the agent's Compose question offer the
+files no repository claimed, and the managed-services question proposes the
+services that run a repository's code rather than every service its files declare
+(ADR-100).
+
+**A mount that would stop a task before it started.** `feat doctor` reports a bind
+mount writing a file into where Feat mounts a task's worktree, on a path the
+worktree would not hold — the masking pattern that stopped a task launching on a
+real project. Where Feat establishes that this machine's container runtime
+refuses such a mount point it fails the diagnosis; where it has not, it warns and
+names both outcomes, because a native Linux daemon creates the file and starts
+the container (ADR-098).
+
+### Changed
+
+`feat task list` leaves archived tasks out of the table **and** the document
+unless `--all` is given, and counts them either way. Before this, the table hid
+them and a script saw every one.
+
+`feat doctor` can now report something it did not before, and on Docker Desktop
+it can fail a project that previously passed. The mount it names would have
+failed at container creation.
+
+A brief that is blank is refused where you typed it, whichever flag named it,
+rather than creating a task with nothing in it.
+
+### Installing
+
+```sh
+go install github.com/ma8el/feat/cmd/feat@v0.1.1
+```
+
+Or download the archive for your architecture from the release page.
+`checksums.txt` beside it is what there is to verify it with; the archives are
+not code-signed or notarized.
+
 ## v0.1.0 — 2026-09-03
 
 The first release. Nothing was tagged before it, so this entry says what

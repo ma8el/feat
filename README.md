@@ -21,7 +21,7 @@ environment. A task may span several repositories.
 
 > **Status: alpha.** The v0.1 scope is complete and Feat is being used on real
 > work, on macOS, with Claude in a devcontainer or on the host. The first
-> release, `v0.1.0`, packages that scope for its author and is marked
+> release, `v0.1.1`, packages that scope for its author and is marked
 > pre-release.
 
 ## Installing
@@ -51,9 +51,9 @@ page](https://github.com/ma8el/feat/releases) has one `tar.gz` per macOS
 architecture — `arm64` for Apple Silicon, `amd64` for an Intel Mac:
 
 ```sh
-curl -LO https://github.com/ma8el/feat/releases/download/v0.1.0/feat_0.1.0_darwin_arm64.tar.gz
-tar xzf feat_0.1.0_darwin_arm64.tar.gz
-mv feat_0.1.0_darwin_arm64/feat /usr/local/bin/   # or anywhere on your PATH
+curl -LO https://github.com/ma8el/feat/releases/download/v0.1.1/feat_0.1.1_darwin_arm64.tar.gz
+tar xzf feat_0.1.1_darwin_arm64.tar.gz
+mv feat_0.1.1_darwin_arm64/feat /usr/local/bin/   # or anywhere on your PATH
 feat version
 ```
 
