@@ -32,8 +32,9 @@ feat doctor                  diagnostics
 
 Every command that acts on an existing task is a subcommand of `feat task`, and
 `feat implement` is at the top level because it produces a task rather than
-taking one. `feat attach` and `feat review` are hidden top-level aliases holding
-the same implementation as the commands they stand for. See ADR-040.
+taking one. `feat attach`, `feat review`, and `feat tickets` are hidden
+top-level aliases holding the same implementation as the commands they stand
+for. See ADR-040.
 
 Opening the TUI checks the local Unix socket and starts the daemon in the background if absent. Explicit daemon commands remain available. launchd/systemd installation is later work.
 

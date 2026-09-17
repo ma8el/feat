@@ -14,6 +14,7 @@ import (
 	"github.com/ma8el/feat/internal/daemon"
 	"github.com/ma8el/feat/internal/paths"
 	"github.com/ma8el/feat/internal/project"
+	"github.com/ma8el/feat/internal/tracker"
 )
 
 // workingHost answers diagnostic commands as a machine with everything
@@ -98,6 +99,10 @@ type machine struct {
 	// input is what a command reading standard input finds there. A nil reader
 	// leaves the process's own, which no test should reach.
 	input io.Reader
+	// tracker answers a project's ticket command for the daemon serve starts.
+	// A nil runner would run the configured command on this host, which no test
+	// should reach either: it would ask the running user's tracker.
+	tracker tracker.Runner
 }
 
 // prepare builds an isolated machine for a command test.
@@ -180,6 +185,7 @@ func (m *machine) serve(t *testing.T) {
 			Layout:      m.layout,
 			Environment: m.env,
 			Build:       daemon.Build{Version: "v0.0.0-test"},
+			Tracker:     m.tracker,
 			Ready:       func(endpoint daemon.Endpoint) { ready <- endpoint },
 		})
 	}()

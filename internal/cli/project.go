@@ -27,7 +27,12 @@ exists. Either way the file stays where it is and remains the source of truth.
 Run ` + "`feat doctor`" + ` before registering: it validates the file and checks
 the host without registering anything.`
 
-func newProjectCommand(env *environment) *cobra.Command {
+// newProjectCommand groups the commands that register and inspect a project.
+//
+// Tickets is passed in rather than built here because it also appears at the
+// top level under a shorter name, and an alias holds the body of the command it
+// stands for rather than a second one of its own (ADR-040).
+func newProjectCommand(env *environment, tickets *cobra.Command) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "project",
 		Short: "Manage registered projects",
@@ -40,7 +45,7 @@ func newProjectCommand(env *environment) *cobra.Command {
 		newProjectListCommand(env),
 		newProjectSchemaCommand(),
 		newProjectShowCommand(env),
-		newProjectTicketsCommand(env),
+		tickets,
 	)
 	return cmd
 }
@@ -314,23 +319,34 @@ func describeProject(cfg *config.Config) api.ProjectConfiguration {
 	return described
 }
 
+const projectTicketsLong = `Run the project's configured tracker command and show what it printed.
+
+With a project alone, list the tickets. The command decides which tickets are
+yours. Feat passes it no filter and parses no part of what comes back beyond
+checking it against the shape it publishes, which is why a state here is the
+tracker's own word rather than one of Feat's.
+
+With a ticket as well, print that one ticket as the brief Feat would compose
+from it: its title, a line naming the ticket, its state, and where it can be
+read, and then its description under a heading that marks where the ticket's
+own words begin. It is the document ` + "`feat implement --ticket`" + ` puts in the
+brief field, and nothing else is printed with it.
+
+The reference is matched exactly as the command printed it, which is what the
+first column of the list shows. ` + "`feat implement --ticket`" + ` runs this same
+command again and matches the same way.
+
+--json prints the list, or the one ticket, as a JSON document instead.
+
+Nothing is created by reading. Run ` + "`feat doctor`" + ` to check the command itself,
+which validates its output without a running daemon.`
+
 func newProjectTicketsCommand(env *environment) *cobra.Command {
-	return &cobra.Command{
-		Use:   "tickets <project>",
-		Short: "List the tickets the project's tracker prints",
-		Long: `Run the project's configured tracker command and list what it printed.
-
-The command decides which tickets are yours. Feat passes it no filter and parses
-no part of what comes back beyond checking it against the shape it publishes,
-which is why a state here is the tracker's own word rather than one of Feat's.
-
-The reference in the first column is what ` + "`feat implement --ticket`" + ` takes: it
-runs this same command again and matches what you typed against what the command
-printed.
-
-Nothing is created by listing. Run ` + "`feat doctor`" + ` to check the command itself,
-which validates its output without a running daemon.`,
-		Args: checkArgs(cobra.ExactArgs(1)),
+	cmd := &cobra.Command{
+		Use:   "tickets <project> [<ticket>]",
+		Short: "List the project's tickets, or show one",
+		Long:  projectTicketsLong,
+		Args:  checkArgs(cobra.RangeArgs(1, 2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			layout, err := env.resolve()
 			if err != nil {
@@ -340,10 +356,14 @@ which validates its output without a running daemon.`,
 			if err := domain.ProjectID(id).Validate(); err != nil {
 				return err
 			}
+			reference := ""
+			if len(args) == 2 {
+				reference = args[1]
+			}
 
 			// The daemon runs the tracker command, because that is where every
 			// credentialed provider call is made and where a ticket becomes a
-			// task (ADR-070). Listing changes nothing, and it still does not
+			// task (ADR-070). Reading changes nothing, and it still does not
 			// start a daemon: a command that reaches somebody's tracker should
 			// not start a background process to do it.
 			if status := daemon.Inspect(layout); !status.Running() {
@@ -352,15 +372,56 @@ which validates its output without a running daemon.`,
 			caller := client.New(layout.Socket)
 			defer caller.Close()
 
-			list, err := caller.Tickets(cmd.Context(), id)
-			if err != nil {
-				return err
-			}
-
-			printTickets(cmd.OutOrStdout(), id, list)
-			return nil
+			return runTickets(cmd.Context(), cmd.OutOrStdout(), caller, id, reference, wantsJSON(cmd))
 		},
 	}
+	addJSONFlag(cmd)
+	return cmd
+}
+
+// ticketLister is what reading a project's tickets needs from the daemon.
+//
+// It is an interface so that what the command prints can be tested against a
+// list arranged in the test, without a socket or a tracker.
+type ticketLister interface {
+	Tickets(ctx context.Context, id string) (api.TicketList, error)
+}
+
+// runTickets reads a project's tickets once and prints the list, or the one
+// ticket a reference names.
+//
+// Both forms run the same command once: there is no endpoint for one ticket,
+// because the tracker command prints a list and Feat matches within it
+// (ADR-071). A reference that is not among what it printed is an error, and an
+// error is never on standard output: the document is there or nothing is.
+func runTickets(ctx context.Context, out io.Writer, caller ticketLister, id, reference string, asJSON bool) error {
+	list, err := caller.Tickets(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if reference == "" {
+		if asJSON {
+			return emitJSON(out, list)
+		}
+		printTickets(out, id, list)
+		return nil
+	}
+
+	ticket, err := api.FindTicket(list.Tickets, reference)
+	if err != nil {
+		return err
+	}
+	// The reference a task from this ticket would record, snapshot and all, so
+	// that the document printed here and the brief the preparation screen
+	// composes are one document rather than two renderings (ADR-070).
+	found := api.NewTicketReference(ticket, list.ReadAt)
+	if asJSON {
+		return emitJSON(out, found)
+	}
+	_, brief := found.ComposeBrief()
+	printf(out, "%s", brief)
+	return nil
 }
 
 // printTickets renders what a tracker printed.
@@ -398,6 +459,7 @@ func printTickets(out io.Writer, id string, list api.TicketList) {
 	tickets.render(out, "")
 
 	printf(out, "\nread at %s\n", list.ReadAt.Local().Format(time.RFC3339))
+	printf(out, "read one with `feat tickets %s <ticket>`\n", id)
 	printf(out, "start one with `feat implement --project %s --ticket <ticket>`\n", id)
 }
 

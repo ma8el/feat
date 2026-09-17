@@ -102,6 +102,7 @@ feat implement                       # or: feat implement --file task.md
 feat implement --ticket ACME-14      # or choose one from the list it offers
 feat implement --project myproject   # when several are registered
 feat implement --plan                # or press p on the review step
+feat tickets myproject               # what the tracker prints; ACME-14 after it reads one
 ```
 
 Preparation asks where the brief comes from — typed here, composed from one of

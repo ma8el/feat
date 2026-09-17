@@ -101,10 +101,11 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 		"feat project add":    true,
 		"feat project list":   true,
 		"feat project show":   true,
-		// Listing tickets reaches the daemon, which runs the project's tracker
+		// Reading tickets reaches the daemon, which runs the project's tracker
 		// command. Invoking it here would ask the running user's tracker for
-		// their tickets.
+		// their tickets, under either name.
 		"feat project tickets": true,
+		"feat tickets":         true,
 		// The two emitters print documents embedded in the binary and read
 		// nothing from the machine at all.
 		"feat project schema":  true,
@@ -198,8 +199,9 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 // were before the alias was made a copy instead.
 func TestAnAliasIsOneImplementationUnderTwoNames(t *testing.T) {
 	aliases := map[string]string{
-		"feat attach": "feat task attach",
-		"feat review": "feat task review",
+		"feat attach":  "feat task attach",
+		"feat review":  "feat task review",
+		"feat tickets": "feat project tickets",
 	}
 
 	commands := map[string]*cobra.Command{}

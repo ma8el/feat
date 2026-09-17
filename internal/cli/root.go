@@ -198,17 +198,21 @@ func NewRootCommand(opts Options) *cobra.Command {
 	})
 
 	// Attaching and reviewing are typed all day, so they keep the short names
-	// they had before ADR-040 moved them under `feat task`.
+	// they had before ADR-040 moved them under `feat task`. Reading tickets is
+	// typed the same way, while looking for the next piece of work, and earns a
+	// short name by the same rule.
 	attach, review := newAttachCommand(env), newReviewCommand(env)
+	tickets := newProjectTicketsCommand(env)
 
 	root.AddCommand(
 		newImplementCommand(env),
-		newProjectCommand(env),
+		newProjectCommand(env, tickets),
 		newSettingsCommand(env),
 		newSkillCommand(env),
 		newTaskCommand(env, attach, review),
 		aliasOf(attach, "feat task attach"),
 		aliasOf(review, "feat task review"),
+		aliasOf(tickets, "feat project tickets"),
 		newRuntimeCommand(env),
 		newDoctorCommand(env),
 		newDaemonCommand(env),
