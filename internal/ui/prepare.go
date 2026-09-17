@@ -753,33 +753,16 @@ func (p prepareModel) afterTickets(want string) (prepareModel, tea.Cmd) {
 
 // chooseByReference finds the ticket `--ticket` named.
 //
-// Feat parses no reference. What it does is match what the user typed against
-// what the command emitted, so a tracker whose references are issue numbers,
-// story keys, or anything else works without Feat knowing the shape of one
-// (ADR-071). A reference the command did not emit is reported with what it did,
-// because the command decides what the user's tickets are and the answer may
-// simply be that this one is not among them.
+// The matching is api.FindTicket's, so that this screen and `feat tickets`
+// answer a reference the same way: exactly as the command printed it, with a
+// miss reported as what the command did print (ADR-071).
 func (p prepareModel) chooseByReference(want string) (prepareModel, tea.Cmd) {
-	var matched []api.Ticket
-	for _, ticket := range p.tickets {
-		if ticket.Reference == want {
-			matched = append(matched, ticket)
-		}
+	ticket, err := api.FindTicket(p.tickets, want)
+	if err != nil {
+		p.err = err
+		return p.afterTickets(want)
 	}
-
-	switch len(matched) {
-	case 1:
-		return p.composeFrom(matched[0])
-	case 0:
-		p.err = fmt.Errorf("the project's tracker printed no ticket %s; it printed %s",
-			want, references(p.tickets))
-	default:
-		// A merged command labels each ticket with the tracker it came from, and
-		// two trackers can use the same key. Feat picks neither.
-		p.err = fmt.Errorf("the project's tracker printed %d tickets called %s, from %s; "+
-			"select one from the list instead", len(matched), want, sources(matched))
-	}
-	return p.afterTickets(want)
+	return p.composeFrom(ticket)
 }
 
 // composeFrom fills the title and brief from a ticket and returns to the brief.
@@ -1031,39 +1014,6 @@ func namedDirectory(value string) (typed, listed string) {
 		return typed, ""
 	}
 	return typed, expanded
-}
-
-// references lists what a tracker printed, for a reference it did not.
-//
-// It is bounded because the list is somebody's whole backlog and this is one
-// line of an error message.
-func references(tickets []api.Ticket) string {
-	if len(tickets) == 0 {
-		return "nothing"
-	}
-	const shown = 5
-	named := make([]string, 0, shown)
-	for _, ticket := range tickets[:min(shown, len(tickets))] {
-		named = append(named, ticket.Reference)
-	}
-	listed := strings.Join(named, ", ")
-	if len(tickets) > shown {
-		return fmt.Sprintf("%s and %d more", listed, len(tickets)-shown)
-	}
-	return listed
-}
-
-// sources names the trackers a merged command drew an ambiguous reference from.
-func sources(tickets []api.Ticket) string {
-	named := make([]string, 0, len(tickets))
-	for _, ticket := range tickets {
-		if ticket.Source == "" {
-			named = append(named, "an unlabelled tracker")
-			continue
-		}
-		named = append(named, ticket.Source)
-	}
-	return strings.Join(named, " and ")
 }
 
 // enterRepositories moves to the access selection, seeding it from the

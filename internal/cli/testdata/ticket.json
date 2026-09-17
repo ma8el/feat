@@ -1,0 +1,10 @@
+{
+  "reference": "142",
+  "url": "https://tracker.example.invalid/issues/142",
+  "snapshot": {
+    "title": "Rate-limit the export endpoint",
+    "body": "Exports are unbounded and a single client can saturate the worker pool.\r\nAdd a per-token limit of 5 concurrent exports and return 429 above it.\r\n",
+    "state": "open",
+    "taken_at": "2026-09-17T08:42:03Z"
+  }
+}

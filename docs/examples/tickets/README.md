@@ -33,8 +33,9 @@ loader as a `~`.
 
 Then run `feat doctor`. It runs the command and validates what it printed, so a
 mapping that is wrong is found there rather than when you are trying to start
-work. `feat project tickets <project>` lists what it returns, and
-`feat implement --ticket <reference>` composes a task brief from one.
+work. `feat tickets <project>` lists what it returns, `feat tickets <project>
+<reference>` prints one as the brief Feat would compose from it, and
+`feat implement --ticket <reference>` composes that brief into a task.
 
 The command is held as an argument vector, so a script is not required: the
 whole pipeline can go in the configuration if you would rather keep it there.

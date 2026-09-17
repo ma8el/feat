@@ -15,7 +15,7 @@ feat project init [<project>] [--dry-run]
 feat project list
 feat project schema
 feat project show <project> [--json]
-feat project tickets <project>
+feat project tickets <project> [<ticket>] [--json]
 feat review <task> [--json]
 feat runtime
 feat runtime create <task>
@@ -40,4 +40,5 @@ feat task publish <task>
 feat task resume <task>
 feat task review <task> [--json]
 feat task stop <task>
+feat tickets <project> [<ticket>] [--json]
 feat version

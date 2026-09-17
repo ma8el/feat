@@ -1152,13 +1152,72 @@
         "observation"
       ]
     },
+    "ticket": {
+      "type": "object",
+      "description": "One of a project's tickets, in the shape schema/feat-tickets.schema.json publishes: what the project's tracker command printed, validated and carried unchanged. Feat parses no part of it (ADR-071).",
+      "properties": {
+        "body": {
+          "type": "string",
+          "description": "The ticket's description, which may be empty. It is text a brief is composed from rather than instructions Feat acts on."
+        },
+        "reference": {
+          "type": "string",
+          "description": "The tracker's own identifier for the ticket, exactly as the command printed it. It is what `feat tickets <project> <ticket>` and `feat implement --ticket` match against."
+        },
+        "source": {
+          "type": "string",
+          "description": "Which tracker the ticket came from, present where a command merging several trackers labelled it and absent for a project drawing on one."
+        },
+        "state": {
+          "type": "string",
+          "description": "The ticket's state in the tracker's own vocabulary. Feat maps it onto none of its own."
+        },
+        "title": {
+          "type": "string",
+          "description": "The ticket's title."
+        },
+        "url": {
+          "type": "string",
+          "description": "Where the ticket can be read."
+        }
+      },
+      "required": [
+        "reference",
+        "title",
+        "body",
+        "url",
+        "state"
+      ]
+    },
+    "ticket_list": {
+      "type": "object",
+      "description": "The document `feat tickets <project> --json` prints: what the project's tracker command printed, and when. It is the daemon's own answer, unchanged.",
+      "properties": {
+        "read_at": {
+          "type": "string",
+          "description": "When the tracker command ran. It is on the list rather than on each ticket because one run produced all of them, and it is what a snapshot taken from one of them records as the moment Feat read it.",
+          "format": "date-time"
+        },
+        "tickets": {
+          "type": "array",
+          "description": "The tickets, in the order the command printed them. Empty when the command printed none, which is an answer: which tickets are the user's is the command's decision.",
+          "items": {
+            "$ref": "#/$defs/ticket"
+          }
+        }
+      },
+      "required": [
+        "read_at",
+        "tickets"
+      ]
+    },
     "ticket_reference": {
       "type": "object",
-      "description": "The ticket a task's brief was composed from.",
+      "description": "The ticket a task's brief was composed from. It is also the document `feat tickets <project> <ticket> --json` prints, built from what the tracker printed at that moment, so that what a caller reads and what a task from the ticket would record are one shape.",
       "properties": {
         "change_available": {
           "type": "boolean",
-          "description": "That the tracker has since shown something different from the snapshot."
+          "description": "That the tracker has since shown something different from the snapshot. It is false on a reference `feat tickets` has just built, because there has been no later reading to differ."
         },
         "provider": {
           "type": "string",
