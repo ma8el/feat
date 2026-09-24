@@ -36,10 +36,8 @@ func request() forge.Request {
 }
 
 // TestTheAdapterBuildsAnArgumentVectorAndRunsItWhereTheRepositoryIs pins the
-// command.
-//
-// The title and the body are agent-authored text the user approved, and each is
-// one element of a vector: nothing is handed to a shell to re-split.
+// command. The title and the body are agent-authored text the user approved, and
+// each is one element of a vector, so nothing is handed to a shell to re-split.
 func TestTheAdapterBuildsAnArgumentVectorAndRunsItWhereTheRepositoryIs(t *testing.T) {
 	gh := &fakeGh{output: forge.Output{
 		Stdout: "https://github.com/example/api/pull/42\n",
@@ -83,11 +81,8 @@ func TestTheAdapterBuildsAnArgumentVectorAndRunsItWhereTheRepositoryIs(t *testin
 }
 
 // TestATitleAndBodyAreWhatMakeGhNonInteractive is the property that stands in
-// for glab's --yes.
-//
-// gh has no confirmation flag. Supplying both is what keeps it from prompting,
-// and without them it refuses rather than waiting for a terminal the daemon does
-// not have — so the body is always passed, empty included.
+// for glab's --yes. gh has no confirmation flag, so supplying both is what keeps
+// it from prompting and the body is always passed, empty included.
 func TestATitleAndBodyAreWhatMakeGhNonInteractive(t *testing.T) {
 	gh := &fakeGh{output: forge.Output{Stdout: "https://github.com/example/api/pull/7"}}
 
@@ -115,13 +110,10 @@ func TestATitleAndBodyAreWhatMakeGhNonInteractive(t *testing.T) {
 	}
 }
 
-// TestABodyOfAHyphenIsOrdinaryTextHere is the difference from GitLab, and it is
-// deliberate.
-//
-// glab reads a description of exactly "-" as a request to open an editor and its
-// adapter refuses that one value. gh puts that meaning on --body-file and treats
-// --body as text whatever it says, so copying the refusal here would refuse
-// something that works.
+// TestABodyOfAHyphenIsOrdinaryTextHere is the deliberate difference from GitLab.
+// glab reads a description of exactly "-" as a request to open an editor; gh
+// puts that meaning on --body-file and treats --body as text, so copying the
+// refusal would refuse something that works.
 func TestABodyOfAHyphenIsOrdinaryTextHere(t *testing.T) {
 	gh := &fakeGh{output: forge.Output{Stdout: "https://github.com/example/api/pull/8"}}
 
@@ -173,10 +165,9 @@ func TestSuccessWithNoURLIsRefusedRatherThanRecordedAsNothing(t *testing.T) {
 	}
 }
 
-// TestAnEnterpriseHostIsReadTheSameWay keeps the pattern off github.com.
-//
-// GitHub Enterprise is on whatever host the user runs, so the URL is matched on
-// the path GitHub uses for a pull request rather than on a domain.
+// TestAnEnterpriseHostIsReadTheSameWay keeps the pattern off github.com. GitHub
+// Enterprise runs on the user's own host, so the URL is matched on the path
+// GitHub uses for a pull request rather than on a domain.
 func TestAnEnterpriseHostIsReadTheSameWay(t *testing.T) {
 	gh := &fakeGh{output: forge.Output{
 		Stdout: "https://github.example.internal/example/api/pull/915\n",

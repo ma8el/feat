@@ -105,7 +105,7 @@ Bad: *An unanswerable question refuses. Feat cannot say the tree is unheld while
 
 Good: *If Docker won't report container state, this refuses rather than guessing.*
 
-**Comments.** Say why, not what: a constraint, a non-obvious reason, a pointer to the decision that settled it. Three lines is the budget for an inline comment. Package overviews in `doc.go` are exempt, and that's where the long version belongs. Don't narrate the implementation or record what the code used to do — Git holds that.
+**Comments.** Say why, not what: a constraint, a non-obvious reason, a pointer to the decision that settled it. Three lines is the budget for a comment on a declaration. A block that explains a whole package or a whole file carries the long version; the package one lives in `doc.go`. Don't narrate the implementation or record what the code used to do — Git holds that.
 
 Rationale lives in the ADRs under `docs/decisions/`. A comment cites the decision by number and stops: `// ADR-059: the containers must be gone before the tree is removed.` Don't re-derive the argument in the code. If a comment holds a fact its ADR doesn't, move the fact into the ADR.
 

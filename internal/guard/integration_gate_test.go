@@ -12,9 +12,8 @@ import (
 )
 
 // runPattern is the -run expression `make test-real` and CI both use to select
-// the opt-in tier. It is written out again here on purpose: this test's whole
-// job is to notice when a gated test stops matching it, which it could not do by
-// reading the same value the runner reads.
+// the opt-in tier. It is written out again here on purpose, because a test that
+// read the runner's own value could not notice a gated test drifting from it.
 var runPattern = regexp.MustCompile(`^Test(Real|Binary)`)
 
 // envIntegrationName is the variable that opts a run in to the tier.
@@ -26,19 +25,15 @@ const integrationPackage = "integrationtest"
 // TestEveryGatedTestIsNamedForTheRunPattern checks that a test which refuses to
 // run without FEAT_INTEGRATION is one the integration runner selects.
 //
-// The two halves are held together by convention alone: the gate is a check
-// inside the function, and the selection is `-run 'TestBinary|TestReal'` on the
-// command line. A gated test named anything else runs nowhere — not under
-// `go test ./...`, which its own gate turns off, and not under `make test-real`,
-// which never selects it — and nothing says so. It reads as a proof the
-// repository has and the machine is never asked to make.
+// Convention alone holds the two halves together: the gate is a check inside the
+// function, and the selection is `-run 'TestBinary|TestReal'` on the command
+// line. A gated test named anything else runs nowhere and nothing says so, so it
+// reads as a proof the repository has and never makes.
 //
-// What counts as gated is a call to integrationtest.Enabled, a read of the
-// variable by name, or a demand made of this run through
-// integrationtest.Unavailable — directly, or through a helper in the same
-// package, which is how every file in the tier is written. A test that gated
-// itself some third way would not be seen here, which is the reason the
-// mechanism is one package rather than a habit.
+// Gated means a call to integrationtest.Enabled, a read of the variable by name,
+// or a demand through integrationtest.Unavailable, directly or through a helper
+// in the same package. A test that gated itself some third way would be invisible
+// here, which is why the mechanism is one package rather than a habit.
 func TestEveryGatedTestIsNamedForTheRunPattern(t *testing.T) {
 	root := repoRoot(t)
 
@@ -66,9 +61,8 @@ func TestEveryGatedTestIsNamedForTheRunPattern(t *testing.T) {
 		}
 	}
 
-	// A convention this test cannot find any instance of is a convention that
-	// has been renamed out from under it, which is the failure it exists to
-	// prevent happening silently.
+	// A convention this test finds no instance of has been renamed out from
+	// under it, which is the failure it exists to catch.
 	if gatedTests == 0 {
 		t.Errorf("no gated test was found anywhere in the repository, "+
 			"so this guard is checking nothing. Either the tier is gone or it stopped gating on %s.",
@@ -81,9 +75,9 @@ type function struct {
 	decl *ast.FuncDecl
 	file string
 	line int
-	// fset is the file set the declaration was parsed with, so that a node
-	// inside the body can be reported at its own line rather than at the
-	// function's. TestEverySkipTheGatedTierCanReachIsDemandable names a call.
+	// fset is the file set the declaration was parsed with, so a node inside
+	// the body is reported at its own line rather than at the function's.
+	// TestEverySkipTheGatedTierCanReachIsDemandable names a call.
 	fset *token.FileSet
 }
 
@@ -92,8 +86,8 @@ type function struct {
 type testPackage struct {
 	functions map[string]function
 	// integrationConsts are package-level constants whose value is the name of
-	// the opt-in variable. Two daemon files were invisible to a grep for that
-	// name because they share one.
+	// the opt-in variable. Two daemon files share one, which made them
+	// invisible to a grep for that name.
 	integrationConsts map[string]bool
 }
 
@@ -186,8 +180,8 @@ func (p testPackage) gated() []string {
 		}
 	}
 
-	// The gate usually lives in a helper — requireTmux, realDocker — so the
-	// property propagates to whatever calls it, and to whatever calls that.
+	// The gate usually lives in a helper such as requireTmux, so the property
+	// propagates to whatever calls it and to whatever calls that.
 	for changed := true; changed; {
 		changed = false
 		for name, function := range p.functions {
@@ -242,11 +236,9 @@ func (p testPackage) gatesDirectly(decl *ast.FuncDecl) bool {
 }
 
 // gatesThroughHelper reports whether a call into the integrationtest package is
-// this function deciding whether it may run.
-//
-// Enabled is the question. Unavailable is a demand, and it counts only when it
-// is made of the test itself: the package's own tests pass a recorder to it to
-// observe what it does, and they belong in the unit tier.
+// this function deciding whether it may run. Enabled is the question, and
+// Unavailable is a demand that counts only when made of the test itself; the
+// package's own tests pass a recorder to it and belong in the unit tier.
 func gatesThroughHelper(name string, call *ast.CallExpr) bool {
 	switch name {
 	case "Enabled":
@@ -298,8 +290,8 @@ func isTestFunction(decl *ast.FuncDecl) bool {
 	if !found {
 		return false
 	}
-	// "Test" alone, and "Testify", are not test functions: the character after
-	// the prefix must not be lower case.
+	// "Test" alone and "Testify" are not test functions, so the character
+	// after the prefix must not be lower case.
 	if rest == "" || strings.ToUpper(rest[:1]) != rest[:1] {
 		return false
 	}

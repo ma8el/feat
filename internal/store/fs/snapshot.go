@@ -22,11 +22,9 @@ const (
 	daemonSchemaVersion  = 1
 )
 
-// migration upgrades a stored document from one schema version to the next.
-//
-// A migration works on the generic decoded document rather than on a struct,
-// so that the code implementing an upgrade does not have to keep a copy of
-// every historical Go type around to describe the version it starts from.
+// migration upgrades a stored document from one schema version to the next. It
+// works on the generic decoded document, so an upgrade does not need a copy of
+// every historical Go type to describe the version it starts from.
 type migration struct {
 	// from is the version this migration reads.
 	from int
@@ -34,11 +32,9 @@ type migration struct {
 	apply func(document map[string]any) error
 }
 
-// codec reads and writes one kind of versioned document.
-//
-// v0.1 has one version of each document, so every migration list below is
-// empty. The mechanism exists anyway: a migration that is designed after the
-// first state directory exists in the wild is a migration designed too late.
+// codec reads and writes one kind of versioned document. v0.1 has one version of
+// each, so every migration list below is empty; the mechanism is here already
+// because the first state directory in the wild is too late to design it.
 type codec struct {
 	// kind names the document in error messages, such as "task".
 	kind string
@@ -154,11 +150,8 @@ func (c codec) migrationFrom(version int) (migration, bool) {
 }
 
 // writeSnapshot replaces a document, retaining the previous one when it was
-// written by an older build.
-//
-// Migrations are one-way, so the retained copy is the only way back to the
-// state a downgrade could read. It is written before the replacement, because a
-// backup written afterwards is a backup of the wrong thing.
+// written by an older build. Migrations are one-way, so the retained copy is the
+// only state a downgrade could read, and it is written before the replacement.
 func (s *Store) writeSnapshot(c codec, path string, document any) error {
 	encoded, err := c.marshal(document)
 	if err != nil {
@@ -185,8 +178,8 @@ func (s *Store) retainPrevious(c codec, path string) error {
 		SchemaVersion int `json:"schema_version"`
 	}
 	if err := json.Unmarshal(raw, &header); err != nil {
-		// An unreadable document is not something to preserve silently; the
-		// replacement itself is what repairs the state directory.
+		// An unreadable document is not worth preserving, and the replacement
+		// is what repairs the state directory.
 		return nil
 	}
 	if header.SchemaVersion < 1 || header.SchemaVersion >= c.version {

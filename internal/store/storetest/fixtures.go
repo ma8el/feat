@@ -15,7 +15,7 @@ const (
 	// PrimaryRepositoryID is the fixture project's editable primary repository.
 	PrimaryRepositoryID = domain.RepositoryID("core")
 	// SecondaryRepositoryID is a second repository the fixture task binds
-	// read-only, so that multi-repository behaviour is exercised everywhere the
+	// read-only, so multi-repository behaviour is exercised wherever the
 	// fixtures are used.
 	SecondaryRepositoryID = domain.RepositoryID("schema")
 	// TaskID is the fixture task.
@@ -24,14 +24,12 @@ const (
 	// and after confirmation can both be exercised. A draft is a task in draft
 	// state rather than an entity of its own (ADR-031).
 	DraftID = domain.TaskID("2c4e6a80-1b3d-4f52-8a7c-9e0d1f2a3b4c")
-	// FailedID is a fixture task whose launch failed. It is a fixture of its own
-	// because the state excludes the one above: a task carries the reason it
-	// failed only while it is failed, so no single fixture can cover both.
+	// FailedID is a fixture task whose launch failed. It is separate because a
+	// task carries the reason it failed only while it is failed.
 	FailedID = domain.TaskID("5d9b0e14-7c2a-42f6-8b31-0a4c6e8d1f35")
 	// PublishedID is a fixture task that came from a ticket and has been
-	// published. It is a fixture of its own for the same reason as the one
-	// above: a brief comes from one source, so a task built from a Markdown
-	// file can never also carry the ticket it was composed from.
+	// published. It is separate for the same reason: a brief comes from one
+	// source, so a Markdown task never also carries a ticket.
 	PublishedID = domain.TaskID("3e5a7c91-8d2b-4e60-b1f3-6c8a0d2e4f68")
 )
 
@@ -44,8 +42,8 @@ const (
 	SecondaryBaseCommit = "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c"
 	// PrimaryHeadCommit is the fixture task branch's current commit.
 	PrimaryHeadCommit = "0011223344556677889900aabbccddeeff001122"
-	// SecondaryHeadCommit is the second repository's task branch commit, which
-	// a publication describes separately from the first: one merge request per
+	// SecondaryHeadCommit is the second repository's task branch commit. A
+	// publication describes it separately, because one merge request per
 	// repository means one commit per repository.
 	SecondaryHeadCommit = "aabbccddeeff00112233445566778899aabbccdd"
 )
@@ -85,12 +83,10 @@ func Project() *domain.Project {
 	return project
 }
 
-// Task returns a fixture task that binds two repositories, owns an agent
-// session and a runtime, and has reached review.
-//
-// It is built the way the daemon builds one: a draft is shaped, confirmed, and
-// then only observed. Anything the domain would reject is therefore rejected
-// here too.
+// Task returns a fixture task that binds two repositories, owns an agent session
+// and a runtime, and has reached review. It is built the way the daemon builds
+// one — shaped as a draft, confirmed, then only observed — so anything the domain
+// rejects is rejected here too.
 func Task() *domain.Task {
 	source := domain.TaskSource{Kind: domain.SourceMarkdown, Reference: "/srv/briefs/example.md"}
 	task, err := domain.NewTask(TaskID, ProjectID, "Add a scheduled export", source, Origin)
@@ -144,19 +140,14 @@ func Task() *domain.Task {
 	return task
 }
 
-// Failed returns a fixture task whose launch failed after its container
-// existed.
+// Failed returns a fixture task whose launch failed after its container existed.
+// The task is `failed`, no session was recorded, and the reason the transition
+// carried is the only explanation. That reason is verbatim from a launch the
+// mount rules refused, because a tidy sentence would not show what a panel has
+// to render.
 //
-// It is the state a user meets and can do least about: the task is `failed`, no
-// session was ever recorded, and the only thing that explains it is the reason
-// the transition carried. The reason here is a real one, verbatim from a launch
-// refused by the mount rules, because a fixture with a tidy sentence in it would
-// not show what a panel has to render.
-//
-// It is also the fixture that carries the plan-first mode, because this is the
-// task the mode has to survive on: the value is recorded at confirmation and
-// read when the session is built, and a launch that failed between the two is
-// resumed by a retry that reads the record.
+// It also carries the plan-first mode, which is the task the mode has to survive
+// on: a retry after a failed launch reads this record (ADR-085).
 func Failed() *domain.Task {
 	task, err := domain.NewTask(FailedID, ProjectID, "Add a rate limit",
 		domain.TaskSource{Kind: domain.SourcePrompt}, Origin)
@@ -183,16 +174,12 @@ func Failed() *domain.Task {
 }
 
 // Published returns a fixture task composed from a ticket and published to two
-// forges, one of which refused it.
+// forges, one of which refused it. It carries the two states the fixtures above
+// cannot hold: a ticket source, and a publication record.
 //
-// It carries the two states the fixtures above cannot: a brief comes from one
-// source, so a task imported from Markdown never also holds a ticket, and a
-// task that has not been published holds no publication record.
-//
-// The publication is deliberately a partial one. A failure on one repository
-// does not abort the others, and what is left behind is a recorded state rather
-// than one to be undone, so the record a user meets after a publication that
-// went half way is exactly this one (ADR-073).
+// The publication is deliberately partial. A failure on one repository does not
+// abort the others, and what is left is a recorded state rather than one to be
+// undone (ADR-073).
 func Published() *domain.Task {
 	source := domain.TaskSource{Kind: domain.SourceTicket, Ticket: &domain.ExternalTaskReference{
 		Provider:  "tracker",
@@ -258,11 +245,9 @@ func Published() *domain.Task {
 		Reference: "!128",
 		URL:       "https://forge.example.com/example/core/-/merge_requests/128",
 	}, after(37)))
-	// The refusal is one repository's own — a protected branch or a missing
-	// project is true of one forge and not the others — which is why a failure
-	// does not abort the repositories after it (ADR-073 evidence 3). It is
-	// verbatim from the forge, because a second account of one event helps
-	// nobody.
+	// The refusal is local to one repository, which is why a failure does not
+	// abort the repositories after it (ADR-073 evidence 3). It is verbatim
+	// from the forge, because rewording it would be a second account.
 	must(task.RecordPublicationFailure(SecondaryRepositoryID,
 		"HTTP 403: Resource not accessible by personal access token "+
 			"(https://api.github.com/repos/example/schema/pulls)",
@@ -271,18 +256,13 @@ func Published() *domain.Task {
 	return task
 }
 
-// PublishedSession returns the agent session of the published fixture task.
+// PublishedSession returns the agent session of the published fixture task. It
+// runs on the host, so it records no execution environment; the fixtures above
+// cover the devcontainer case.
 //
-// It runs on the host, so it records no execution environment: the fixtures
-// above cover the devcontainer case, and a host session that carried one would
-// be a record of something the domain refuses.
-//
-// It is also the session caught inside the idle grace period, which is the third
-// state a session can be in and which the fixture above cannot hold: its turn
-// has ended and nothing has applied it yet, so the process is still running and
-// the turn end is recorded against it. Every observation of a process drops that
-// record, so an idle or stopped session carrying one would be a snapshot no
-// daemon writes (ADR-096).
+// It is also the session caught inside the idle grace period: its turn has
+// ended, nothing has applied it, and the process is still running. An idle or
+// stopped session carrying a turn end is a snapshot no daemon writes (ADR-096).
 func PublishedSession() *domain.AgentSession {
 	session, err := domain.NewAgentSession(
 		"claude",
@@ -299,12 +279,10 @@ func PublishedSession() *domain.AgentSession {
 	return session
 }
 
-// Draft returns a fixture task that has been resolved but not confirmed.
-//
-// It is what the preparation screen shows just before the user confirms: a
-// brief, a repository selection, resolved immutable bases, and proposed
-// branches and worktree paths — none of which exists on the host yet, because
-// nothing is created before confirmation (FR-TASK-003).
+// Draft returns a fixture task that has been resolved but not confirmed. It is
+// what the preparation screen shows: a brief, a repository selection, resolved
+// bases, and proposed branches and worktree paths. None of it exists on the host
+// yet, because nothing is created before confirmation (FR-TASK-003).
 func Draft() *domain.Task {
 	task, err := domain.NewTask(DraftID, ProjectID, "Add a scheduled export job",
 		domain.TaskSource{Kind: domain.SourcePrompt}, Origin)
@@ -352,11 +330,9 @@ func Session() *domain.AgentSession {
 	return session
 }
 
-// Execution returns the fixture agent execution environment.
-//
-// The session it belongs to is a devcontainer one, so the environment is
-// present: a host session records none, which the domain enforces rather than
-// leaves to convention.
+// Execution returns the fixture agent execution environment. Its session is a
+// devcontainer one, so the environment is present; the domain enforces that a
+// host session records none.
 func Execution() *domain.ExecutionEnvironment {
 	environment := &domain.ExecutionEnvironment{
 		Provider:              "compose",
@@ -386,19 +362,18 @@ func Runtime() *domain.RuntimeEnvironment {
 		GeneratedOverridePath: "/srv/state/runtime/example/7f3a1c2e/compose.generated.yaml",
 		EnvFiles:              []string{"/srv/repositories/core/.env"},
 		Services:              []string{"web", "worker", "assets"},
-		// One service of each kind there is: one the task's worktree is mounted
-		// into, one whose image was built from it and shows a change only when it
-		// is built again, and one the task reaches not at all — which is the
-		// failure that looks like success, so it is the one a fixture must carry
-		// through a round trip (ADR-065).
+		// One service of each kind: one the worktree is mounted into, one built
+		// from it that shows a change only when rebuilt, and one the task does
+		// not reach at all. The last is the failure that looks like success
+		// (ADR-065).
 		Provenance: []domain.ServiceProvenance{
 			{Service: "web", Repositories: []string{"core"}, Mounted: []string{"core"}},
 			{Service: "worker", Repositories: []string{"core"}, Built: []string{"core"}},
 			{Service: "assets", Repositories: []string{"core"}},
 		},
-		// The allocation is held while the runtime exists and released when it
-		// becomes absent, so a round trip that lost it would give a second task a
-		// port this one's containers are bound to.
+		// The allocation is held while the runtime exists, so a round trip that
+		// lost it would give a second task a port these containers are bound
+		// to.
 		Allocations: []domain.PortAllocation{
 			{Service: "web", ContainerPort: 8080, HostPort: 21000, Protocol: "tcp", HostIP: "127.0.0.1"},
 		},
@@ -416,10 +391,8 @@ func Runtime() *domain.RuntimeEnvironment {
 
 // Review returns the fixture review: a requested review whose two repositories
 // were each compared against their own recorded base commit, with the check the
-// gate ran.
-//
-// It holds no decision, because a review does not: the fixture task's workflow
-// is where approval is recorded (ADR-047).
+// gate ran. It holds no decision; the task's workflow records approval
+// (ADR-047).
 func Review() *domain.Review {
 	review, err := domain.NewReview(TaskID, after(30))
 	must(err)
@@ -499,9 +472,9 @@ func Events() []domain.Event {
 	return []domain.Event{created, working, observed, runtime, idle, attention, review, reconciled}
 }
 
-// must stops a fixture that the domain rejects. A fixture is written by hand,
-// so a rejection is a mistake in the fixture rather than a condition a test
-// should carry on with.
+// must stops a fixture the domain rejects. A fixture is written by hand, so a
+// rejection is a mistake in the fixture rather than a condition to carry on
+// with.
 func must(err error) {
 	if err != nil {
 		panic(fmt.Sprintf("storetest: the domain rejected a fixture: %v", err))

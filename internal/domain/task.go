@@ -14,11 +14,10 @@ var commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 // Task is the aggregate root for one unit of agent work.
 //
 // A task's shape is mutable while it is a draft and frozen afterwards. That one
-// rule carries several requirements at once: nothing is created before the user
-// confirms a draft (FR-TASK-003), the brief the agent receives is the brief the
-// user accepted, and a resolved base commit never changes for the lifetime of a
-// task (invariant 8). Everything a task observes later - states, Git
-// observations, the session, the runtime - keeps changing.
+// rule carries three requirements: nothing is created before the user confirms a
+// draft (FR-TASK-003), the agent receives the brief the user accepted, and a
+// resolved base commit never changes (invariant 8). What the task observes later
+// keeps changing.
 type Task struct {
 	// ID is the stable identity of the task.
 	ID TaskID
@@ -32,40 +31,24 @@ type Task struct {
 	Brief string
 	// Source records where the brief came from.
 	Source TaskSource
-	// PlanFirst asks the task's agent to plan its work and wait for the user's
-	// approval before it changes anything, rather than starting from the brief
-	// and editing.
-	//
-	// It is part of the shape a confirmation freezes, because it is consumed
-	// after the task has left draft: the launch that reads it can fail, and the
-	// retry that follows reads the record rather than the request that started
-	// the first attempt.
+	// PlanFirst asks the task's agent to plan its work and wait for approval
+	// before changing anything. The confirmation freezes it, because a failed
+	// launch is retried from this record rather than from the original request
+	// (ADR-085).
 	PlanFirst bool
 	// Workflow is the product-level state.
 	Workflow WorkflowState
 	// Attention records whether the user may need to intervene.
-	//
-	// docs/03-domain-model.md lists an attention state on both the task and the
-	// agent session. Feat keeps one authoritative copy here: a second copy on
-	// the session would be a second source of truth for the same question, and
-	// the dashboard, notifications, and review all ask it of the task.
+	// docs/03-domain-model.md lists the state on the task and on the session;
+	// the task holds the only copy, because the dashboard, notifications, and
+	// review all ask the task.
 	Attention AttentionState
 	// Repositories are the repositories bound to the task. A task may bind
 	// several (invariant 5).
 	Repositories []TaskRepository
 	// Failure is why the task last entered `failed`, and is nil in every other
-	// state.
-	//
-	// The reason existed before this field and was reachable from nowhere: it is
-	// the detail of the workflow transition, which lives in the task's event log
-	// on disk and in whatever error the caller saw once. A user looking at a
-	// failed task a minute later was told the state and never the cause. The
-	// state carries its own explanation instead, because the two are the same
-	// fact and a state a user cannot act on is one that only describes itself.
-	//
-	// It is maintained with the state rather than beside it: FailWith records it
-	// and TransitionTo clears it, so a task that has left `failed` cannot go on
-	// explaining a failure it recovered from.
+	// state. FailWith records it and TransitionTo clears it, so the state and its
+	// explanation cannot be written apart (ADR-060).
 	Failure *TaskFailure
 	// Session is the task's single agent session (invariant 2). It is nil until
 	// the task is launched.
@@ -82,11 +65,9 @@ type Task struct {
 	UpdatedAt time.Time
 }
 
-// TaskFailure is why a task is in `failed`, and when it got there.
-//
-// The reason is whatever the act that failed reported, kept verbatim: it is the
-// same sentence the user would have seen at the moment, and rewording it here
-// would produce a second account of one event.
+// TaskFailure is why a task is in `failed`, and when it got there. The reason is
+// kept verbatim, because rewording what the caller was told would produce a
+// second account of one event (ADR-060).
 type TaskFailure struct {
 	// Reason is what failed, in the words of whatever failed.
 	Reason string
@@ -104,12 +85,8 @@ const (
 	// SourceMarkdown is a brief imported from a Markdown file.
 	SourceMarkdown SourceKind = "markdown"
 	// SourceTicket is a brief composed from a ticket the project's tracker
-	// listed.
-	//
-	// What the user confirms is that composed brief rather than the ticket it
-	// came from: a ticket is written by whoever filed it and becomes the
-	// agent's instructions, so reviewing one document and sending another would
-	// make the confirmation a formality (ADR-070).
+	// listed. The user confirms the composed brief, never the ticket behind it
+	// (ADR-070).
 	SourceTicket SourceKind = "ticket"
 )
 
@@ -126,20 +103,14 @@ type TaskSource struct {
 	Ticket *ExternalTaskReference
 }
 
-// ExternalTaskReference is the ticket a task came from, as Feat read it.
-//
-// It is provider-neutral because the tracker is a configured command rather
-// than an adapter per service: what Feat holds is the shape it publishes as
-// schema/feat-tickets.schema.json, and the command's output conforms to it
-// (ADR-071). It is what lets a merge request name the ticket it closes, and
-// what a ticket observed again later is compared against.
+// ExternalTaskReference is the ticket a task came from, as Feat read it. It is
+// provider-neutral because the tracker is a configured command whose output
+// conforms to schema/feat-tickets.schema.json (ADR-071). A merge request names
+// the ticket from it, and a later reading is compared against it.
 type ExternalTaskReference struct {
-	// Provider is which tracker the ticket came from, and is what the published
-	// shape's optional `source` fills.
-	//
-	// It is optional because a project drawing on one tracker has nothing to
-	// disambiguate; a command that merges two labels each ticket with it
-	// (ADR-071).
+	// Provider is which tracker the ticket came from, filled from the published
+	// shape's optional `source`. It is optional because a project drawing on one
+	// tracker has nothing to disambiguate (ADR-071).
 	Provider string
 	// Reference is the tracker's own identifier for the ticket.
 	Reference string
@@ -148,27 +119,19 @@ type ExternalTaskReference struct {
 	// Snapshot is the ticket as Feat last read it.
 	Snapshot TicketSnapshot
 	// ChangeAvailable reports that the tracker has since shown something
-	// different from the snapshot.
-	//
-	// It is an indicator rather than an update: a ticket that changes never
-	// silently alters the context an agent is already working from, so what
-	// Feat does with a change is tell the user (FR-TASK-005).
+	// different from the snapshot. It is an indicator rather than an update: a
+	// changed ticket never silently alters the context an agent works from, so
+	// Feat tells the user instead (FR-TASK-005).
 	ChangeAvailable bool
 }
 
 // ComposeBrief renders a task title and a task brief from the ticket.
 //
-// The composed brief is what the user reads and confirms, and it is what
-// reaches the agent. A ticket is written by whoever filed it and becomes the
-// agent's instructions, so displaying the ticket and sending something else
-// would make the confirmation a formality (ADR-070). Everything this reference
-// carries is therefore in the document: nothing Feat recorded about the ticket
-// is held back from the screen that asks whether to go ahead.
-//
-// It composes from the record rather than from what a tracker printed, so the
-// brief and the ticket the task keeps cannot describe different things. The
-// brief is a starting point: it is composed into the same editable field a
-// typed prompt is written in, so what launches is whatever the user left there.
+// The document carries everything this reference holds, because the user
+// confirms what reaches the agent and nothing is held back from that screen
+// (ADR-070). It composes from the record rather than from what a tracker
+// printed, so the brief and the stored ticket cannot describe different things.
+// The result lands in the same editable field a typed prompt is written in.
 func (r ExternalTaskReference) ComposeBrief() (title, brief string) {
 	title = r.Reference + ": " + r.Snapshot.Title
 
@@ -184,9 +147,8 @@ func (r ExternalTaskReference) ComposeBrief() (title, brief string) {
 	fmt.Fprintf(&out, "Ticket %s (%s)%s: %s\n", r.Reference, r.Snapshot.State, provenance, r.URL)
 
 	if body := ticketText(r.Snapshot.Body); body != "" {
-		// The heading marks where Feat stops writing and the ticket starts. What
-		// follows it was written by whoever filed the ticket, which is the whole
-		// reason the user reads this document before it becomes a task.
+		// The heading marks where Feat stops writing and the ticket starts,
+		// because what follows was written by whoever filed it.
 		fmt.Fprintf(&out, "\n## From the ticket\n\n%s\n", body)
 		return title, out.String()
 	}
@@ -194,26 +156,20 @@ func (r ExternalTaskReference) ComposeBrief() (title, brief string) {
 	return title, out.String()
 }
 
-// ticketText normalises a ticket description for a Markdown document.
-//
-// Carriage returns are removed because trackers reached through a web form
-// return them — a GitHub issue body arrives with CRLF line endings — and a brief
-// that carries them is a document whose editor, diff, and terminal all disagree
-// about what is on a line.
+// ticketText normalises a ticket description for a Markdown document. Trackers
+// filled through a web form return CRLF line endings, and a brief carrying them
+// is a document whose editor, diff, and terminal disagree about lines.
 func ticketText(body string) string {
 	return strings.TrimSpace(strings.ReplaceAll(body, "\r\n", "\n"))
 }
 
-// TicketSnapshot is the ticket as it was when Feat read it.
+// TicketSnapshot is the ticket as it was when Feat read it. It holds what the
+// published shape carries and nothing richer; story points, epics, and custom
+// fields belong in the brief, which is Markdown (ADR-071).
 //
-// It holds what the published shape carries and nothing richer — no story
-// points, epics, sprints, or custom fields, which Feat would carry without
-// doing anything with them. Anything richer belongs in the brief, which is
-// Markdown and holds whatever the user wants (ADR-071).
-//
-// The snapshot is immutable while the agent works, and what versions it is when
-// it was taken: the published shape carries no revision of the tracker's own,
-// and a change is found by running the command again and comparing.
+// It is immutable while the agent works, and the time it was taken is what
+// versions it. The published shape carries no revision of the tracker's own, so
+// a change is found by running the command again and comparing.
 type TicketSnapshot struct {
 	// Title is the ticket's own title.
 	Title string
@@ -385,12 +341,10 @@ func (t *Task) Repository(id RepositoryID) (*TaskRepository, bool) {
 	return nil, false
 }
 
-// ResolveBase records the base ref and the commit it resolved to.
-//
-// Re-resolving is allowed while the task is a draft, because a draft may be
-// refreshed before the user confirms it. Once the task leaves draft the
-// recorded commit is immutable (invariant 8): review, cleanup, and every diff
-// compare against it for the lifetime of the task.
+// ResolveBase records the base ref and the commit it resolved to. A draft may be
+// re-resolved before the user confirms it; once the task leaves draft the commit
+// is immutable, and review, cleanup, and every diff compare against it
+// (invariant 8).
 func (t *Task) ResolveBase(id RepositoryID, ref, commit string, now time.Time) error {
 	binding, ok := t.Repository(id)
 	if !ok {
@@ -451,14 +405,12 @@ func (t *Task) ObserveRepository(id RepositoryID, observation GitObservation, no
 	return nil
 }
 
-// TransitionTo moves the task to the next workflow state.
+// TransitionTo moves the task to the next workflow state. It rejects a state the
+// transition table does not allow and a state the task is not ready for, and
+// both produce a *TransitionError naming what is missing.
 //
-// It rejects a state the transition table does not allow, and a state the task
-// is not ready for. Both produce a *TransitionError naming what is missing.
-//
-// Leaving `failed` discards the recorded failure. A task that has been put back
-// to work is no longer explained by what went wrong before, and a stale reason
-// beside a live state is worse than none: it is read as current.
+// Leaving `failed` discards the recorded failure, because a stale reason beside
+// a live state is read as current (ADR-060).
 func (t *Task) TransitionTo(next WorkflowState, now time.Time) error {
 	if !next.Valid() {
 		return &TransitionError{
@@ -499,16 +451,9 @@ func (t *Task) TransitionTo(next WorkflowState, now time.Time) error {
 	return nil
 }
 
-// FailWith moves the task to `failed` and records why.
-//
-// It is the only way the reason is recorded, so that the state and its
-// explanation cannot be written apart: a caller that transitions without one
-// leaves a task saying it failed and nothing else, which is the defect this
-// exists to close.
-//
-// The reason is required. Whatever failed knows what it was, and "failed for an
-// unknown reason" is a sentence Feat should never have to write about its own
-// operations.
+// FailWith moves the task to `failed` and records why. It is the only path that
+// records the reason, and the reason is required, so no caller can leave a task
+// saying it failed and nothing else (ADR-060).
 func (t *Task) FailWith(reason string, now time.Time) error {
 	if strings.TrimSpace(reason) == "" {
 		return &ValidationError{
@@ -525,11 +470,9 @@ func (t *Task) FailWith(reason string, now time.Time) error {
 	return nil
 }
 
-// SetAttention records whether the user may need to intervene.
-//
-// Attention is observed rather than decided, so any documented value may follow
-// any other. What must never happen is a workflow transition derived from it,
-// which the workflow transition table prevents.
+// SetAttention records whether the user may need to intervene. Attention is
+// observed rather than decided, so any documented value may follow any other,
+// and no workflow transition is ever derived from it.
 func (t *Task) SetAttention(attention AttentionState, now time.Time) error {
 	if !attention.Valid() {
 		return &ValidationError{
@@ -658,10 +601,9 @@ func (t *Task) Validate() error {
 			return err
 		}
 		for _, entry := range t.Publication.Repositories {
-			// A publication of a repository the task does not bind names a
-			// branch that was never created. The selection is frozen when a
-			// task leaves draft, so this can only be a record edited or written
-			// by something else.
+			// A publication of an unbound repository names a branch that was
+			// never created. Selection freezes when a task leaves draft, so
+			// only an edited record can reach this.
 			if _, bound := t.Repository(entry.RepositoryID); !bound {
 				return &ValidationError{
 					Entity: "task",
@@ -689,15 +631,13 @@ func (t *Task) Validate() error {
 // empty string when it can.
 //
 // Leaving draft requires everything the user confirmed: a brief, a repository
-// selection, and a resolved immutable base for every selected repository, with
-// a branch and worktree wherever the agent may write (invariants 6 and 7).
-// Running states additionally require the agent session the task owns
-// (invariant 2).
+// selection, and a resolved base per repository, with a branch and worktree
+// wherever the agent may write (invariants 6 and 7). Running states also require
+// the agent session (invariant 2).
 //
-// A draft has none of that yet, and an archived task no longer needs it: a draft
-// the user cancels before confirming it is archived without ever having a brief,
-// a base, or a session, and refusing to record that would leave the cancelled
-// draft with nowhere to go.
+// Draft and archived are exempt. A cancelled draft is archived without ever
+// having a brief, a base, or a session, and refusing that would leave it nowhere
+// to go.
 func (t *Task) notReadyFor(state WorkflowState) string {
 	if state == WorkflowDraft || state == WorkflowArchived {
 		return ""
@@ -810,12 +750,9 @@ func (s TaskSource) Validate(task TaskID) error {
 	return nil
 }
 
-// Validate reports whether the ticket reference is internally consistent.
-//
-// What it checks is what Feat itself needs to act on the ticket: something to
-// name it by, somewhere to read it, and a snapshot that was taken at a knowable
-// time. The ticket's own vocabulary — what its states are called, what its
-// reference looks like — belongs to the tracker rather than to Feat (ADR-071).
+// Validate reports whether the ticket reference is internally consistent: a name
+// for the ticket, somewhere to read it, and a snapshot taken at a knowable time.
+// The ticket's own vocabulary belongs to the tracker, not to Feat (ADR-071).
 func (r ExternalTaskReference) Validate(task TaskID) error {
 	if r.Reference == "" {
 		return &ValidationError{
@@ -850,9 +787,8 @@ func (r ExternalTaskReference) Validate(task TaskID) error {
 		}
 	}
 	if r.Snapshot.TakenAt.IsZero() {
-		// A snapshot is what versions itself: the published shape carries no
-		// revision of the tracker's own, so a snapshot with no time is one
-		// nothing can say anything about later.
+		// The published shape carries no revision of the tracker's own, so the
+		// time is the only thing that versions a snapshot.
 		return &ValidationError{
 			Entity: "task",
 			ID:     task.String(),

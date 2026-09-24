@@ -9,11 +9,9 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 )
 
-// daemonDocument is the stored form of the durable daemon record.
-//
-// It carries no process identifier, socket path, or lock, and it never will:
-// those live in the runtime directory, which does not survive a reboot, and a
-// durable copy of one would describe a daemon that is not running (ADR-027).
+// daemonDocument is the stored form of the durable daemon record. It carries no
+// process identifier, socket path, or lock: those belong to the runtime
+// directory, and a durable copy would outlive the daemon it describes (ADR-027).
 type daemonDocument struct {
 	SchemaVersion int       `json:"schema_version"`
 	UpdatedAt     time.Time `json:"updated_at"`
@@ -69,9 +67,9 @@ func (d daemonStore) Load(ctx context.Context) (*domain.DaemonRecord, error) {
 		EndedCleanly: document.EndedCleanly,
 		Version:      document.Version,
 	}
-	// A record from a newer state schema is returned rather than rejected here.
-	// Storage reports what it read; refusing to run against it is a decision,
-	// and the daemon is where decisions are made.
+	// A record from a newer state schema is returned rather than rejected.
+	// Storage reports what it read, and the daemon decides whether to run
+	// against it.
 	if record.StateSchema <= domain.StateSchemaVersion {
 		if err := record.Validate(); err != nil {
 			return nil, corrupt("daemon record", "daemon", path, err)

@@ -5,11 +5,9 @@ import (
 	"time"
 )
 
-// Event is one recorded change in a task's state.
-//
-// Events are the task's history and, later, the payload of the daemon's event
-// stream. They carry state changes only: never terminal output, never file
-// contents, and never a secret value.
+// Event is one recorded change in a task's state. It is the task's history and
+// the payload of the daemon's event stream, and it carries state changes only:
+// never terminal output, never file contents, never a secret value.
 type Event struct {
 	// Sequence orders the events of one task. It is assigned by the event log
 	// when the event is appended, starting at 1.
@@ -37,7 +35,7 @@ type Event struct {
 // EventType identifies what an event describes.
 type EventType string
 
-// Event types. Each names one state dimension, because the dimensions are
+// Event types. Each names one state dimension, because the dimensions stay
 // separate: a process going idle and a task becoming ready for review are
 // different events, and no reader should have to infer one from the other.
 const (
@@ -45,9 +43,8 @@ const (
 	// Confirmation is a workflow transition and is recorded as one.
 	EventTaskCreated EventType = "task_created"
 	// EventTaskUpdated records a change to a draft's editable shape: its title,
-	// its brief, its repository selection, or the plan resolved for it. Only a
-	// draft can produce one, because a task's shape is frozen when it leaves
-	// draft.
+	// brief, repository selection, or resolved plan. Only a draft produces one,
+	// because a task's shape freezes when it leaves draft.
 	EventTaskUpdated EventType = "task_updated"
 	// EventWorkflowChanged records a workflow state transition.
 	EventWorkflowChanged EventType = "task_workflow_changed"
@@ -60,67 +57,39 @@ const (
 	// EventRuntimeChanged records an application runtime state change.
 	EventRuntimeChanged EventType = "runtime_state_changed"
 	// EventReviewChanged records a change to what is known about a task's work:
-	// an agent's own report of it, or the results a completion gate produced.
-	//
-	// It carries no from and no to, because a review holds no state of its own to
-	// move between. The user's decision is a workflow transition and is recorded
-	// as one (ADR-047); what this event has to say is in its detail.
+	// the agent's own report, or the results a completion gate produced. It
+	// carries no from and no to; the user's decision is a workflow transition
+	// and is recorded as one (ADR-047).
 	EventReviewChanged EventType = "review_state_changed"
 	// EventExecutionChanged records a change to the agent's execution
-	// environment: the identity it was given before it was created, and what was
-	// observed of it afterwards.
-	//
-	// It exists because the environment is created before the session that
-	// records it can exist — a session needs the terminal that runs inside the
-	// container — so the event log is where the identity of a container is
-	// written down first. An interruption between the two therefore still leaves
-	// a durable record naming what may exist (ADR-033).
+	// environment: the identity assigned before creation, and what was observed
+	// afterwards. The environment precedes the session that records it, so an
+	// interruption between the two still leaves a record of what may exist
+	// (ADR-033).
 	EventExecutionChanged EventType = "agent_execution_changed"
 	// EventReconciled records that startup reconciliation compared desired and
 	// observed state for the task.
 	EventReconciled EventType = "task_reconciled"
 	// EventNotificationSent records that Feat interrupted the user about this
-	// task, and why.
-	//
-	// A desktop notification is gone the moment it is dismissed, so without this
-	// there would be no record that Feat asked for somebody's attention. That
-	// matters twice: a user who half-saw one can find out what it was, and how
-	// many idle notifications turned out to be false is measurable.
-	//
-	// It is deliberately not itself a notifiable change. Recording an event
-	// publishes it, and a notification that notified about itself would be a loop
-	// at the speed of the event bus.
+	// task, and why. A dismissed desktop notification leaves nothing behind, so
+	// this is the only record that Feat asked for attention (ADR-039). It is
+	// never itself notifiable: recording an event publishes it, and notifying
+	// about a notification would loop.
 	EventNotificationSent EventType = "notification_sent"
 	// EventControlRefused records that a message the agent wrote was refused,
-	// and why.
-	//
-	// It exists because a refusal is the agent's own account of what it tried,
-	// and the only other record of it is a line in the daemon's log. A user
-	// whose agent asked for a capability Feat grants to nobody should be able to
-	// see that it asked and that Feat said no, on the task it happened to,
-	// rather than by reading the log of a background process.
+	// and why. The refusal belongs on the task it happened to, so a user can see
+	// what the agent asked for without reading the daemon's log.
 	EventControlRefused EventType = "control_message_refused"
 	// EventPublicationChanged records that a publication planned, published, or
-	// failed for one of a task's repositories.
-	//
-	// It exists for the reason EventCleanedUp does, and for a stronger one. A
-	// publication creates a resource on somebody else's server, one repository
-	// at a time, and does not roll back: a partial one is a recorded state. The
-	// record on the task says what exists now, and this says what happened and
-	// when — including a publication that stopped half way, which is the case a
-	// user most needs an account of (ADR-073).
-	//
-	// It carries no from and no to. A publication is per repository and a task
-	// has no publication state of its own to move between; what this event has
-	// to say is in its detail.
+	// failed for one of a task's repositories. A publication applies one
+	// repository at a time and does not roll back, so a partial one needs an
+	// account of what happened and when (ADR-073). It carries no from and no to,
+	// because a task has no publication state of its own.
 	EventPublicationChanged EventType = "task_publication_changed"
 	// EventCleanedUp records that a cleanup removed one class of the resources a
-	// task owned, or failed part way through removing it.
-	//
-	// It is what makes an archived task explainable. The snapshot keeps what the
-	// task was, and this keeps what became of what it owned — including a
-	// removal that stopped half way, which is the case a user most needs an
-	// account of (FR-CLEAN-001, ADR-037).
+	// task owned, or failed part way through removing it. The snapshot keeps
+	// what the task was; this keeps what became of what it owned (FR-CLEAN-001,
+	// ADR-037).
 	EventCleanedUp EventType = "task_resources_removed"
 )
 
@@ -137,10 +106,8 @@ func (t EventType) Valid() bool {
 	}
 }
 
-// Validate reports whether the event is internally consistent.
-//
-// The sequence is not checked here: it belongs to the log the event is appended
-// to, which assigns it.
+// Validate reports whether the event is internally consistent. The sequence is
+// not checked here, because the log that appends the event assigns it.
 func (e Event) Validate() error {
 	if err := e.ProjectID.Validate(); err != nil {
 		return err

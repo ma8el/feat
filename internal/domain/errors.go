@@ -38,11 +38,9 @@ func (e *ValidationError) Error() string {
 // Unwrap reports the error class.
 func (e *ValidationError) Unwrap() error { return ErrInvalid }
 
-// TransitionError reports a rejected state change.
-//
-// It carries the states involved and, when the target state was reachable in
-// principle, the precondition that blocked it, so the message can name what the
-// caller has to do next.
+// TransitionError reports a rejected state change. It carries the states
+// involved and, when the target was reachable, the precondition that blocked
+// it, so the message can name what the caller has to do next.
 type TransitionError struct {
 	// Entity names the kind of entity, such as "task".
 	Entity string
@@ -109,8 +107,8 @@ func (e *InvariantError) Error() string {
 // Unwrap reports the error class.
 func (e *InvariantError) Unwrap() error { return ErrInvariant }
 
-// subject renders the "<entity> <id>" prefix shared by every domain error, so
-// that a message always names the resource it is about.
+// subject renders the "<entity> <id>" prefix every domain error opens with, so
+// a message always names the resource it is about.
 func subject(entity, id string) string {
 	if id == "" {
 		return entity

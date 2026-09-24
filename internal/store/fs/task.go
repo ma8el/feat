@@ -11,12 +11,9 @@ import (
 	"github.com/ma8el/feat/internal/store"
 )
 
-// taskDocument is the stored form of a task.
-//
-// The brief is not here. It is a Markdown document the user wrote and the agent
-// reads, so it is stored as Markdown in prompt.md (FR-STATE-001) rather than
-// escaped into a JSON string, and this document is the record of everything
-// else.
+// taskDocument is the stored form of a task, apart from the brief. The brief is
+// a Markdown document the user wrote and the agent reads, so it lives in
+// prompt.md rather than escaped into a JSON string (FR-STATE-001).
 type taskDocument struct {
 	SchemaVersion int            `json:"schema_version"`
 	ID            string         `json:"id"`
@@ -25,9 +22,8 @@ type taskDocument struct {
 	Title         string         `json:"title"`
 	Source        sourceDocument `json:"source"`
 	// PlanFirst is an added optional field at the same schema version, on the
-	// rule the failure and the ticket below follow: a snapshot written before
-	// this build has no key and decodes to false, which is how every task that
-	// was never asked to plan first was launched.
+	// rule the failure and the ticket below follow. An older snapshot has no key
+	// and decodes to false, which is how such a task was launched.
 	PlanFirst    bool                     `json:"plan_first,omitempty"`
 	Workflow     string                   `json:"workflow"`
 	Attention    string                   `json:"attention"`
@@ -45,16 +41,13 @@ type sourceDocument struct {
 	Ticket    *ticketDocument `json:"ticket,omitempty"`
 }
 
-// ticketDocument is the ticket a task was composed from.
-//
-// The snapshot is stored with the reference rather than beside it, because the
-// two are read together: what the ticket said when Feat read it is the thing a
-// change is compared against, and a reference with no snapshot could not answer
-// whether anything changed (ADR-071).
+// ticketDocument is the ticket a task was composed from. The snapshot is stored
+// with the reference because a change is found by comparing against it
+// (ADR-071).
 //
 // Like the failure below, it is an added optional field at the same schema
-// version: a task written by an earlier build has no ticket and decodes to
-// none, which is the truth about a brief that came from somewhere else.
+// version: an older task has no ticket and decodes to none, which is the truth
+// about a brief that came from somewhere else.
 type ticketDocument struct {
 	Provider        string                 `json:"provider,omitempty"`
 	Reference       string                 `json:"reference"`
@@ -71,17 +64,12 @@ type ticketSnapshotDocument struct {
 }
 
 // publicationDocument is what publishing a task planned to do and what came of
-// it.
-//
-// The plan is written before anything is attempted and every result before the
-// next repository begins, so this document is what an interrupted publication
-// is read from: a repository still recorded as planned is one nothing was
-// attempted for, and a merge request that exists is always named here
+// it. An interrupted publication is read from here: a repository still recorded
+// as planned was never attempted, and an open merge request is always named
 // (ADR-073).
 //
-// It is an added optional field at the same schema version, on the same rule as
-// the ticket above: a task that never published has no publication, which is
-// what a document written before this build decodes to.
+// It is an added optional field at the same schema version, on the rule the
+// ticket above follows.
 type publicationDocument struct {
 	Repositories []repositoryPublicationDocument `json:"repositories,omitempty"`
 	PlannedAt    time.Time                       `json:"planned_at"`
@@ -105,13 +93,10 @@ type mergeRequestDocument struct {
 	URL       string `json:"url"`
 }
 
-// failureDocument is why a task is in `failed`.
-//
-// It is an added optional field at the same schema version, which is what this
-// codec's rule allows: a build that adds a field without changing the meaning of
-// the existing ones stays readable by the build before it. A snapshot written
-// earlier has no failure and decodes to none, which is the truth about a record
-// that never held one.
+// failureDocument is why a task is in `failed`. It is an added optional field at
+// the same schema version, which this codec allows: adding a field without
+// changing the existing ones keeps the document readable by the build before it
+// (ADR-060).
 type failureDocument struct {
 	Reason string    `json:"reason"`
 	At     time.Time `json:"at"`
@@ -146,22 +131,19 @@ type sessionDocument struct {
 	ControlPath       string             `json:"control_path,omitempty"`
 	Execution         *executionDocument `json:"execution,omitempty"`
 	LastEventSequence uint64             `json:"last_event_sequence"`
-	// TurnEndedAt is the end-of-turn a restart has to re-arm the idle grace
-	// period from. It is an added optional field at the same schema version, as
-	// failureDocument above is: a snapshot written before it decodes to no
-	// pending turn end, which is the truth about a session that had none.
+	// TurnEndedAt is the end-of-turn a restart re-arms the idle grace period
+	// from. It is an added optional field at the same schema version, as
+	// failureDocument above is; an older snapshot decodes to no pending turn
+	// end, which is the truth about a session that had none.
 	TurnEndedAt    time.Time `json:"turn_ended_at,omitzero"`
 	CreatedAt      time.Time `json:"created_at"`
 	LastActivityAt time.Time `json:"last_activity_at"`
 }
 
-// executionDocument records the environment an agent session runs in.
-//
-// It is absent for host execution, where the environment is the machine the
-// daemon is on and there is nothing to identify. The observed fields are written
-// as they were last seen and are never treated as current on the way back in:
-// reconciliation asks the environment (ADR-029's rule for worktrees, applied to
-// containers).
+// executionDocument records the environment an agent session runs in, and is
+// absent for host execution. The observed fields are written as they were last
+// seen and are never current on the way back in; reconciliation asks the
+// environment (ADR-029's rule for worktrees, applied to containers).
 type executionDocument struct {
 	Provider              string    `json:"provider"`
 	Identity              string    `json:"identity"`
@@ -227,10 +209,9 @@ type portDocument struct {
 	HostIP string `json:"host_ip,omitempty"`
 }
 
-// allocationDocument is one host port Feat reserved for one service.
-//
-// It is stored apart from the observed publications because it is held: it is
-// what keeps a second task off this port, and what a destroy gives back.
+// allocationDocument is one host port Feat reserved for one service. It is
+// stored apart from the observed publications because it is held: it keeps a
+// second task off this port, and a destroy gives it back.
 type allocationDocument struct {
 	Service       string `json:"service"`
 	ContainerPort int    `json:"container_port"`
@@ -241,11 +222,9 @@ type allocationDocument struct {
 
 type taskStore struct{ store *Store }
 
-// Save records the task.
-//
-// The brief is written before the snapshot, so that a crash between the two
-// leaves a task whose brief is older than its snapshot rather than a snapshot
-// that refers to a brief which was never written.
+// Save records the task. The brief is written before the snapshot, so a crash
+// between the two leaves a stale brief rather than a snapshot referring to a
+// brief that was never written.
 func (t taskStore) Save(ctx context.Context, task *domain.Task) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -281,11 +260,9 @@ func (t taskStore) Load(ctx context.Context, ref store.TaskRef) (*domain.Task, e
 	return t.store.loadTask(ref, dir)
 }
 
-// List returns every task of one project, ordered by identifier.
-//
-// A directory without a task snapshot is skipped. That is what an interrupted
-// creation leaves behind, and reporting it as a task would invent one; naming
-// it as an orphaned resource belongs to reconciliation.
+// List returns every task of one project, ordered by identifier. A directory
+// without a task snapshot is skipped, because an interrupted creation leaves one
+// and reporting it would invent a task. Reconciliation names it as an orphan.
 func (t taskStore) List(ctx context.Context, project domain.ProjectID) ([]*domain.Task, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

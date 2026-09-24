@@ -85,12 +85,10 @@ func TestSequencesContinueAfterARestart(t *testing.T) {
 	}
 }
 
-// TestReplayIgnoresOnlyAnIncompleteFinalRecord checks what replay may drop.
-//
-// A record is complete when it is terminated by a newline. An unterminated final
-// record is what a crash during an append leaves behind. Anything else that
-// cannot be read is corruption, and quietly dropping it would rewrite a history
-// that later reconciliation depends on.
+// TestReplayIgnoresOnlyAnIncompleteFinalRecord checks what replay may drop. A
+// newline terminates a complete record, so an unterminated final one is a crash
+// during an append. Anything else that cannot be read is corruption, and
+// dropping it would rewrite a history reconciliation depends on.
 func TestReplayIgnoresOnlyAnIncompleteFinalRecord(t *testing.T) {
 	complete := func(sequence int) string {
 		return `{"schema_version":1,"sequence":` + strconv.Itoa(sequence) +

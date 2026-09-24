@@ -13,28 +13,21 @@ import (
 )
 
 // The project-shape rules are stated twice, and ADR-094 keeps them that way.
-// `config.validateProject` and `config.validateRepositories` refuse a file, in
-// file vocabulary, collecting every problem in it (ADR-028);
-// `domain.Project.Validate` refuses a registration record, returning the first
-// violation, as the storage-integrity gate against a hand-edited snapshot.
-// Merging them would put one audience's error handling on the other's path, and
-// the domain has to stay importable by both.
+// `config.validateProject` refuses a file in file vocabulary, collecting every
+// problem in it (ADR-028). `domain.Project.Validate` refuses a registration
+// record, returning the first violation, as the gate against a hand-edited
+// snapshot. Merging them would put one audience's error handling on the other's
+// path.
 //
-// What nothing enforced is that the two still say the same thing. Five rules are
-// shared — a name, at least one repository, no repository named twice, a primary
-// repository that is one of them, and a primary a task can edit (FR-PROJ-003) —
-// and a change to one copy alone lets a project register that its own snapshot
-// then refuses, or refuses one the snapshot would have accepted.
+// Nothing enforced that the two still say the same thing. Five rules are shared
+// — a name, at least one repository, no repository named twice, a primary that
+// is one of them, and a primary a task can edit (FR-PROJ-003) — and changing one
+// copy alone lets a project register that its own snapshot then refuses.
 //
 // These three tests pin the correspondence and nothing else. They assert accept
-// or reject, never the words: the messages differ on purpose, because one names
-// a line in a file the user wrote and the other names a record, and a test that
-// held them identical would be asking for the merge this decision refused.
-//
-// They also stay on the five shared rules. Everything else either validator
-// checks is one-sided deliberately — the configuration refuses a field the
-// selected execution mode would ignore, the domain refuses timestamps no file
-// can state — and reaching further would pin rules that are meant to differ.
+// or reject, never the words, because the messages differ on purpose. They also
+// stay on the five shared rules: everything else either validator checks is
+// one-sided deliberately, and reaching further would pin rules meant to differ.
 
 // projectShapeDocument renders a project configuration from the two blocks the
 // shared rules live in. Everything around them is the smallest configuration
@@ -54,8 +47,8 @@ agent:
 }
 
 // The blocks the cases below are built from. `app` is editable and `docs` is
-// not, which is what lets a case point the primary at a repository a task could
-// never write to without changing anything else.
+// not, so a case can point the primary at a repository a task could never write
+// to without changing anything else.
 const (
 	shapeProjectBlock = `  id: shape
   name: Shape
@@ -75,16 +68,14 @@ const (
 const shapeConfigFile = "shape.yaml"
 
 // shapeRegisteredAt is when the record under test is registered. It is fixed
-// because the domain refuses a project with no creation time, and a clock
-// reading is not what any of this is about.
+// because the domain refuses a project with no creation time, and no case here
+// is about a clock.
 var shapeRegisteredAt = time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 
 // TestTheProjectShapeRulesAgreeAcrossTheConfigAndTheDomain asks both validators
-// about the same project and requires one answer.
-//
-// Three of the five rules are reachable this way. The two that are not have
-// their own tests below, because the shape of their correspondence is different
-// rather than because they matter less.
+// about the same project and requires one answer. Three of the five rules are
+// reachable this way; the other two correspond differently and have their own
+// tests below.
 func TestTheProjectShapeRulesAgreeAcrossTheConfigAndTheDomain(t *testing.T) {
 	cases := []struct {
 		rule     string
@@ -97,20 +88,19 @@ func TestTheProjectShapeRulesAgreeAcrossTheConfigAndTheDomain(t *testing.T) {
 			accepted: true,
 		},
 		{
-			// The two halves of this case cannot be separated: a project with no
-			// repositories has no valid primary either, so what is pinned is that
-			// an empty project is refused rather than which of the two rules each
-			// validator refused it with.
+			// The two halves of this case cannot be separated. A project with
+			// no repositories has no valid primary either, so what is pinned is
+			// the refusal rather than which rule produced it.
 			rule:     "a project with no repositories at all",
 			document: projectShapeDocument(shapeProjectBlock, ""),
 			accepted: false,
 		},
 		{
-			// Both validators check membership for the sake of a better message
-			// rather than a different verdict: a primary naming no repository of
-			// the project has no access mode either, which the rule below refuses
-			// on its own in both packages. So what this case pins is the pair, and
-			// what either side loses by dropping its half is an explanation.
+			// Both validators check membership for a better message rather than
+			// a different verdict. A primary naming no repository of the
+			// project has no access mode either, which the rule below refuses
+			// on its own in both packages, so dropping a half costs only an
+			// explanation.
 			rule: "a primary that is not one of the project's repositories",
 			document: projectShapeDocument(`  id: shape
   name: Shape
@@ -167,15 +157,10 @@ func TestTheProjectShapeRulesAgreeAcrossTheConfigAndTheDomain(t *testing.T) {
 // TestAConfiguredProjectAlwaysRegistersUnderAName holds the name rule, whose two
 // copies correspond in a way the table above cannot express.
 //
-// The domain refuses a project with no name. A configuration cannot present one:
-// resolution fills the name from the identifier before validation sees it, so
-// `config.validateProject`'s own name rule is reached only by a document that
-// states no identifier either — which both paths refuse for the identifier.
-//
-// So the correspondence here is that the configuration path guarantees the name
-// the domain requires, and this test fails if it stops: without the default, the
-// configuration would refuse a document that names nothing, and a document Feat
-// accepts today would stop being one.
+// The domain refuses a project with no name, and a configuration cannot present
+// one: resolution fills the name from the identifier before validation sees it.
+// So the correspondence is that the configuration path guarantees the name the
+// domain requires, and this fails if the default goes away.
 func TestAConfiguredProjectAlwaysRegistersUnderAName(t *testing.T) {
 	document := projectShapeDocument(`  id: shape
   primary_repository: app`, shapeRepositoriesBlock)
@@ -203,15 +188,13 @@ func TestAConfiguredProjectAlwaysRegistersUnderAName(t *testing.T) {
 // TestNeitherPathAcceptsAProjectThatNamesOneRepositoryTwice holds the last of
 // the five, whose copies also correspond asymmetrically.
 //
-// The configuration's answer is structural rather than a rule: repositories are
-// a mapping keyed by identifier and the decoder is strict, so a document naming
-// one twice is refused before a Config exists. The domain's is a check, because
-// a snapshot on disk is a document nobody decoded strictly. Both refuse, which
-// is what this pins; only the domain's copy can be reached with a record.
+// The configuration's answer is structural: repositories are a mapping keyed by
+// identifier and the decoder is strict, so a document naming one twice is
+// refused before a Config exists. The domain's is a check, because a snapshot on
+// disk was never decoded strictly. This pins that both refuse.
 //
-// The record is the one the valid document registers as, with one of its own
-// repositories repeated, so that nothing here re-states the mapping from
-// configuration to domain that project.FromConfig owns.
+// The record is the one the valid document registers as, with a repository
+// repeated, so nothing here restates the mapping project.FromConfig owns.
 func TestNeitherPathAcceptsAProjectThatNamesOneRepositoryTwice(t *testing.T) {
 	twice := projectShapeDocument(shapeProjectBlock, `  app:
     host_path: /repositories/app
@@ -241,11 +224,8 @@ func TestNeitherPathAcceptsAProjectThatNamesOneRepositoryTwice(t *testing.T) {
 }
 
 // configPathAccepts reports whether the configuration path accepts a document,
-// and what it said if it did not.
-//
-// Decoding, resolution, and validation are one path here because a refusal is a
-// refusal wherever the document is stopped: the user is told no, and which stage
-// said it is this package's business rather than the rule's.
+// and what it said if it did not. Decoding, resolution, and validation are one
+// path here, because the user is told no wherever the document is stopped.
 func configPathAccepts(t *testing.T, document string) (bool, error) {
 	t.Helper()
 
@@ -259,23 +239,19 @@ func configPathAccepts(t *testing.T, document string) (bool, error) {
 	return true, nil
 }
 
-// registers maps a document onto the record it is registered as, and reports
-// the domain's verdict on it.
-//
-// It goes through project.FromConfig rather than a mapping written here, so that
-// what the domain judges is what a registration actually produces. Its own
-// comment says why it validates a configuration that has already been validated:
-// the two rule sets are maintained separately, and the day they disagree the
-// disagreement should stop a registration rather than be recorded as state.
-// This test is the day arriving in CI instead.
+// registers maps a document onto the record it is registered as, and reports the
+// domain's verdict on it. It goes through project.FromConfig rather than a
+// mapping written here, so what the domain judges is what a registration
+// produces. This test is the two rule sets disagreeing in CI rather than on a
+// user's machine.
 func registers(t *testing.T, document string) (*domain.Project, error) {
 	t.Helper()
 
 	cfg, err := resolvedConfig(t, document)
 	if err != nil {
-		// Every case states a project the file format can express, so a document
-		// that never becomes a configuration is a broken case rather than a
-		// verdict about the domain.
+		// Every case states a project the file format can express, so a
+		// document that never becomes a configuration is a broken case rather
+		// than a verdict about the domain.
 		t.Fatalf("the document does not resolve, so no record can be registered from it: %v", err)
 	}
 	return project.FromConfig(cfg, shapeRegisteredAt)

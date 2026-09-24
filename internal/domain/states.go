@@ -1,17 +1,11 @@
 package domain
 
-// The four state dimensions in docs/03-domain-model.md are deliberately not
-// collapsed into one enum. They also differ in kind, which decides how this
-// package validates them:
-//
-//   - workflow state is decided by Feat, so it has a transition table and every
-//     change is checked against it;
-//   - process, attention, and runtime states are observations of a world Feat
-//     does not control, so only their values are checked. Rejecting an
-//     observation because it does not follow the expected order would make the
-//     stored state a claim about the world rather than a record of it, which is
-//     exactly what CLAUDE.md forbids when it says never to assume persisted
-//     desired state equals observed state.
+// The four state dimensions in docs/03-domain-model.md stay separate, and they
+// differ in how this package validates them. Feat decides workflow state, so a
+// transition table checks every change. Process, attention, and runtime states
+// are observations of a world Feat does not control, so only their values are
+// checked. Rejecting an observation for arriving out of order would record what
+// Feat expected rather than what it saw.
 
 // WorkflowState is the product-level state of a task.
 type WorkflowState string
@@ -41,46 +35,24 @@ const (
 
 // workflowTransitions lists the states reachable from each workflow state.
 //
-// Every edge below is required by a documented workflow:
+// Two rows carry a constraint the table itself does not show. Working has no
+// edge to ready_for_review, because semantic completion needs the agent's own
+// review request (FR-AGENT-008), and such an edge is the shape a
+// Stop-means-complete bug would take. Review_requested reaches ready_for_review
+// directly for a project with no configured checks, which would otherwise leave
+// the task waiting on a gate that has nothing to run
+// (docs/02-user-workflows.md §6).
 //
-//   - draft to preparing is the confirmation step in FR-TASK-003. A draft has
-//     no other outgoing edge because nothing exists to fail or to review yet.
-//   - preparing to working is a successful launch; preparing to failed is a
-//     lifecycle that broke half way through.
-//   - working to review_requested is the explicit provider event required by
-//     FR-AGENT-008. There is deliberately no edge from working to
-//     ready_for_review, because that is the shape a Stop-means-complete bug
-//     would take.
-//   - review_requested to verifying to ready_for_review or verification_failed
-//     is the completion gate in docs/02-user-workflows.md §6. The direct edge
-//     from review_requested to ready_for_review covers a project with no
-//     configured checks, where there is nothing to verify; without a gate a
-//     task otherwise stays in review_requested.
-//   - verifying back to review_requested is a gate that did not finish, which a
-//     daemon restart produces. Without it the task would rest in verifying for
-//     ever, claiming that checks are running when nothing is (ADR-036).
-//   - verification_failed to review_requested is an agent that fixed what the
-//     gate caught and asked again. Without it a task whose checks failed once
-//     could never be reviewed again without a user typing something first.
-//   - ready_for_review to review_requested is the user running the checks again
-//     on work that already passed them, having changed something themselves
-//     while reading it. It is the same edge as the one above, from the other
-//     outcome of the same gate, and it adds no path into a review state: the
-//     agent's request is what the task returns to, and the gate decides where it
-//     lands next, as it did the first time (ADR-087).
-//   - review_requested, ready_for_review, and verification_failed back to
-//     working are the conservative revision transition in FR-AGENT-009, and they
-//     are the whole of what leaving a review state means now: a task is sent
-//     back by attaching and typing, and finished by publishing and cleaning up.
-//     There is no approved and no changes_requested, which were reached once and
-//     never in fifty-one tasks and which nothing read (FR-REV-004, ADR-086).
-//   - failed to preparing or working are recovery edges, so a lifecycle that
-//     broke half way through can be resumed rather than recreated.
+// The remaining edges are recorded elsewhere. The gate and its interrupted-run
+// return are in ADR-036, the re-run of checks on work that passed in ADR-087,
+// and the removal of approved and changes_requested in ADR-086. Revision
+// returns a task to working (FR-AGENT-009), and failed returns to preparing or
+// working so a broken lifecycle can be resumed rather than recreated.
 //
 // Archived is reachable from every other state and has no outgoing edge,
 // because cleanup archives task metadata whenever the user asks for it
-// (docs/02-user-workflows.md §11). It is handled in CanTransitionTo rather than
-// repeated in every row here.
+// (docs/02-user-workflows.md §11). CanTransitionTo handles it rather than every
+// row repeating it.
 var workflowTransitions = map[WorkflowState][]WorkflowState{
 	WorkflowDraft:              {WorkflowPreparing},
 	WorkflowPreparing:          {WorkflowWorking, WorkflowFailed},
@@ -171,9 +143,8 @@ func (s ProcessState) Valid() bool {
 
 // Alive reports whether the state describes a process that has not ended.
 //
-// Idle is alive: a session that finished a turn is a session still sitting in
-// its terminal, which is the distinction that keeps idle a process observation
-// rather than a claim about the work.
+// Idle is alive: a session that finished a turn is still sitting in its
+// terminal.
 func (s ProcessState) Alive() bool {
 	switch s {
 	case ProcessStarting, ProcessRunning, ProcessIdle:
@@ -244,8 +215,8 @@ func (s RuntimeState) Valid() bool {
 }
 
 // HealthState is the health of a runtime's services, which is separate from
-// whether its containers are running. Without configured health checks the
-// honest answer is unknown.
+// whether its containers are running. A runtime with no configured health check
+// reports unknown.
 type HealthState string
 
 // Health states.
@@ -311,12 +282,11 @@ func (a DefaultAccess) CanBeReadWrite() bool {
 
 // Permits reports whether a task may bind the repository with the given access.
 //
-// Read-only is always available: taking less than the default is a choice a task
-// may always make. Read-write is not, and the asymmetry is the point — a
-// repository a project declared read-only must not become writable because one
-// task asked. The modes that say nothing about writing, because they leave the
-// repository out of a task by default, permit either once the user has
-// explicitly selected the repository.
+// Read-only is always available, because a task may take less access than the
+// default. Read-write is not: a repository a project declared read-only must not
+// become writable because one task asked. The modes that leave the repository
+// out of a task by default say nothing about writing, so they permit either once
+// the user has explicitly selected the repository.
 func (a DefaultAccess) Permits(access TaskAccess) bool {
 	if !a.Valid() || !access.Valid() {
 		return false

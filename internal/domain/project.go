@@ -5,12 +5,10 @@ import (
 	"time"
 )
 
-// Project is a locally registered development topology.
-//
-// The entity holds the parts of a project that tasks depend on: identity and
-// repository topology. The agent, runtime, review, and notification profiles
-// stay in the configuration model, which resolves them into an immutable launch
-// snapshot per task (docs/07-configuration-model.md).
+// Project is a locally registered development topology: identity and repository
+// topology, the parts tasks depend on. The agent, runtime, review, and
+// notification profiles stay in the configuration model, which resolves them
+// into an immutable launch snapshot per task (docs/07-configuration-model.md).
 type Project struct {
 	// ID identifies the project locally.
 	ID ProjectID
@@ -73,11 +71,9 @@ func (p *Project) Repository(id RepositoryID) (Repository, bool) {
 	return Repository{}, false
 }
 
-// Validate reports whether the project is internally consistent.
-//
-// It checks what the domain owns: identity, uniqueness, and the primary
-// repository rule. Whether a host path really contains a Git repository is a
-// host question that belongs to project diagnostics.
+// Validate reports whether the project is internally consistent: identity,
+// uniqueness, and the primary repository rule. Whether a host path holds a Git
+// repository is a host question, and belongs to project diagnostics.
 func (p *Project) Validate() error {
 	if err := p.ID.Validate(); err != nil {
 		return err
@@ -133,8 +129,8 @@ func (p *Project) Validate() error {
 
 // Validate reports whether the repository entry is internally consistent.
 func (r Repository) Validate(project ProjectID) error {
-	// The identifier is checked with the project in the subject, so that a
-	// message about one repository of several says which project it is in.
+	// The project goes into the subject, so a message about one repository of
+	// several says which project it is in.
 	id := project.String() + "/" + r.ID.String()
 	if err := validateSafeID("repository", id, "id", r.ID.String()); err != nil {
 		return err

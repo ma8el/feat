@@ -8,11 +8,10 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 )
 
-// Adapter is one Git forge.
-//
-// Neither method exposes a forge type: an adapter receives resolved values and
-// returns a normalized merge request, so that a second forge changes no caller
-// and a future external plugin protocol stays possible (ADR-024).
+// Adapter is one Git forge. Neither method exposes a forge type: an adapter
+// takes resolved values and returns a normalized merge request, so a second
+// forge changes no caller and an external plugin protocol stays possible
+// (ADR-024).
 type Adapter interface {
 	// Kind is the forge this adapter publishes to.
 	Kind() domain.ForgeKind
@@ -23,14 +22,10 @@ type Adapter interface {
 	Open(ctx context.Context, req Request) (domain.MergeRequest, error)
 }
 
-// Built names the forges this build has an adapter for, in the order the
-// roadmap adds them.
-//
-// It is a declaration rather than a discovery. The daemon composes the registry
-// it publishes through, and a guard test holds the two together, so a forge that
-// is configurable but not yet built is refused by name and reported by
-// `feat doctor` rather than found out at the moment a branch has been pushed and
-// the merge request cannot be opened (ADR-070, ADR-074).
+// Built names the forges this build has an adapter for, in the order the roadmap
+// adds them. It is a declaration, held against the daemon's registry by a guard
+// test, so a configurable forge with no adapter is refused by name rather than
+// after the branch has been pushed (ADR-070, ADR-074).
 var Built = []domain.ForgeKind{domain.ForgeGitLab, domain.ForgeGitHub}
 
 // Available reports whether this build opens merge requests on a forge.
@@ -43,12 +38,10 @@ func Available(kind domain.ForgeKind) bool {
 	return false
 }
 
-// Request is one merge request to open.
-//
-// Every value here is final. The words are the agent's, read and edited by the
-// user before anything reached this package; the branches and the remote are
-// what the publication planned. An adapter reads no configuration and resolves
-// nothing (ADR-029's rule for Git, applied here).
+// Request is one merge request to open, and every value in it is final. The user
+// read and edited the agent's words before they reached here, and the
+// publication planned the branches and the remote. An adapter reads no
+// configuration and resolves nothing (ADR-029's rule for Git, applied here).
 type Request struct {
 	// Directory is the task worktree the forge CLI runs in. A forge CLI resolves
 	// which project it is talking to from the repository it is run inside, so
@@ -68,13 +61,10 @@ type Request struct {
 	Body string
 }
 
-// Validate reports whether the request can be opened.
-//
-// The rules are about what survives an argument vector and what a forge needs,
-// and they are checked here rather than in each adapter so that every forge
-// refuses the same request for the same reason. Nothing here judges the prose:
-// a description can say anything, which is exactly why the user reads it before
-// it is sent (ADR-070).
+// Validate reports whether the request can be opened. The rules are about what
+// survives an argument vector and what a forge needs, and they live here so
+// every forge refuses the same request for the same reason. Nothing judges the
+// prose, which is why the user reads it before it is sent (ADR-070).
 func (r Request) Validate() error {
 	for _, field := range []struct{ name, value string }{
 		{"directory", r.Directory},
@@ -97,8 +87,7 @@ func (r Request) Validate() error {
 		{"title", r.Title},
 	} {
 		// A value a CLI reads as an option is a flag of somebody else's
-		// choosing, which is the rule internal/git states for Git's arguments
-		// and holds identically here.
+		// choosing, which is internal/git's rule for Git's arguments.
 		if strings.HasPrefix(field.value, "-") {
 			return fmt.Errorf("a merge request %s must not start with %q, which a command line reads as an "+
 				"option, but %q does", field.name, "-", field.value)
@@ -147,23 +136,18 @@ type Output struct {
 // Succeeded reports whether the command exited cleanly.
 func (o Output) Succeeded() bool { return o.ExitCode == 0 }
 
-// Runner runs one forge CLI on the trusted host.
-//
-// It is an interface for the reason git.Runner and agent.Runner are: a test can
-// arrange an unauthenticated CLI, a protected branch, or a forge that answers
-// with something unparseable without needing a forge in that state.
+// Runner runs one forge CLI on the trusted host. It is an interface for the
+// reason git.Runner and agent.Runner are: a test can arrange an unauthenticated
+// CLI or a protected branch without needing a forge in that state.
 type Runner interface {
 	// Run executes the command and returns what it produced. A command that ran
 	// and failed is not an error; a command that could not be started is.
 	Run(ctx context.Context, command Command) (Output, error)
 }
 
-// Error reports a forge CLI that ran and refused.
-//
-// It carries what the CLI said, because that is the sentence the user would
-// have read had they run the command themselves — a protected branch, a project
-// that does not exist, a session that is no longer authenticated — and a second
-// account of one event helps nobody.
+// Error reports a forge CLI that ran and refused. It carries what the CLI said,
+// because that is the sentence the user would have read had they run the command
+// themselves, and rewording it would be a second account of one event.
 type Error struct {
 	// Forge is the forge that refused.
 	Forge domain.ForgeKind
@@ -185,15 +169,13 @@ func (e *Error) Error() string {
 }
 
 // MaxDetail bounds what a forge's own output contributes to a recorded failure.
-//
-// The reason is recorded on the task and shown on a screen, and a CLI that
+// The reason is recorded on the task and shown on a screen, so a CLI that
 // printed a page of advice would otherwise put the page there.
 const MaxDetail = 1 << 10
 
-// Detail reduces a CLI's output to the part worth recording.
-//
-// The last lines are kept rather than the first: a CLI prints its progress and
-// then its refusal, so the end is where the reason is.
+// Detail reduces a CLI's output to the part worth recording. It keeps the last
+// lines rather than the first, because a CLI prints its progress and then its
+// refusal.
 func Detail(output Output) string {
 	text := strings.TrimSpace(output.Stderr)
 	if text == "" {

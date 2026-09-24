@@ -27,9 +27,9 @@ func repoRoot(t *testing.T) string {
 	return root
 }
 
-// skippedDirs are excluded from repository-wide source scans. testdata is
-// excluded because fixtures legitimately contain sample paths and identifiers
-// that never reach the binary.
+// skippedDirs are excluded from repository-wide source scans. testdata is among
+// them because fixtures legitimately hold sample paths and identifiers that
+// never reach the binary.
 var skippedDirs = map[string]bool{
 	".git":         true,
 	"bin":          true,

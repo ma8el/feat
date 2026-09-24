@@ -2,14 +2,10 @@ package domain
 
 import "time"
 
-// ForgeKind is the forge one repository publishes to.
-//
-// It is declared in project configuration rather than derived from the remote,
-// because inference works only where the remote's host is one Feat recognises:
-// a self-hosted instance is not guessable (ADR-071). What that leaves is a
-// proposal rather than a derivation, and `feat project init` is where it is
-// made: a recognised host proposes its forge and the user accepts it into their
-// own file, and every other host is asked about (ADR-100).
+// ForgeKind is the forge one repository publishes to. It is declared in project
+// configuration rather than derived from the remote, because a self-hosted
+// instance is not guessable (ADR-071). `feat project init` proposes one for a
+// recognised host and asks about every other (ADR-100).
 type ForgeKind string
 
 // Forges Feat publishes to.
@@ -20,13 +16,9 @@ const (
 	ForgeGitLab ForgeKind = "gitlab"
 )
 
-// ForgeKinds are the forges a repository may declare, in the order a question
-// or a rejection lists them.
-//
-// It is the list Valid answers from, so that a caller offering the kinds and a
-// caller refusing one cannot disagree about what they are: the wizard's question
-// and the configuration's rejection both read this rather than each writing the
-// pair out (ADR-100).
+// ForgeKinds are the forges a repository may declare, in the order a question or
+// a rejection lists them. Valid answers from this list, so the wizard's question
+// and configuration's rejection cannot disagree about what they are (ADR-100).
 func ForgeKinds() []ForgeKind { return []ForgeKind{ForgeGitHub, ForgeGitLab} }
 
 // Valid reports whether the kind is a forge Feat publishes to.
@@ -39,21 +31,14 @@ func (k ForgeKind) Valid() bool {
 	return false
 }
 
-// Publication is what publishing one task would do, and what came of it.
+// Publication is what publishing one task would do, and what came of it. It is
+// per repository, because one action opens one merge request per changed
+// repository and can legitimately reach two forges (ADR-073).
 //
-// It is per repository rather than per task because a publication is one merge
-// request per changed repository and a repository's forge is its own, so one
-// action can legitimately reach two forges (ADR-073). The plan is recorded
-// before anything is attempted and every result is recorded before the next
-// repository begins, which is the same order task preparation uses and for a
-// stronger reason: a worktree Feat forgot is on the user's disk, and a merge
-// request Feat forgot is on somebody else's server (ADR-029, ADR-073
-// evidence 1).
-//
-// A partial publication is therefore a recorded state rather than one to be
-// undone. Nothing here rolls back: deleting a merge request that was just
-// opened is destructive, can fail on its own account, and cannot recall a
-// notification that has already gone out.
+// The plan is recorded before anything is attempted and each result before the
+// next repository begins, because a merge request Feat forgot is on somebody
+// else's server (ADR-029, ADR-073 evidence 1). Nothing here rolls back, so a
+// partial publication is a recorded state rather than one to be undone.
 type Publication struct {
 	// Repositories are the planned repositories in the order they are applied,
 	// each carrying its own result once it has one.
@@ -69,9 +54,9 @@ type PublicationState string
 
 // Publication states.
 const (
-	// PublicationPlanned is a repository the publication has not attempted
-	// yet. It is what an interruption leaves behind, and it is why the plan is
-	// recorded first: what was not attempted is named rather than deduced.
+	// PublicationPlanned is a repository the publication has not attempted yet.
+	// An interruption leaves this behind, so what was not attempted is named
+	// rather than deduced.
 	PublicationPlanned PublicationState = "planned"
 	// PublicationPublished is a repository whose merge request Feat opened.
 	PublicationPublished PublicationState = "published"
@@ -104,11 +89,9 @@ type RepositoryPublication struct {
 	Remote string
 	// BaseBranch is the branch the merge request asks to merge into.
 	BaseBranch string
-	// Commit is the commit the agent's draft describes.
-	//
-	// It is recorded with the plan so that a draft written before further work
-	// is refused rather than published, as a confirmation fingerprint refuses a
-	// draft that changed after it was displayed (ADR-070, ADR-031).
+	// Commit is the commit the agent's draft describes. It is recorded with the
+	// plan, so a draft written before further work is refused rather than
+	// published (ADR-070, ADR-031).
 	Commit string
 	// State is what has become of this repository.
 	State PublicationState
@@ -133,19 +116,14 @@ type MergeRequest struct {
 	URL string
 }
 
-// PlanPublication records what publishing this task would do, before anything
-// is attempted.
+// PlanPublication records what publishing this task would do, before anything is
+// attempted. Entries carry no result: RecordPublished and
+// RecordPublicationFailure record those one repository at a time, so the record
+// is never ahead of the forge.
 //
-// Entries carry no result: a result is recorded by RecordPublished or
-// RecordPublicationFailure, one repository at a time, so that the record is
-// never ahead of the forge.
-//
-// Re-planning keeps every merge request already opened. A repository that
-// published is kept as it was recorded — skipped as already published rather
-// than as stale, which is what lets a refusal keep its one meaning (ADR-073) —
-// and a repository the new plan leaves out is kept as well, because a record
-// that can forget a merge request is the one hazard this ordering exists to
-// remove.
+// Re-planning keeps every merge request already opened, including one the new
+// plan leaves out. A record that can forget a merge request is the hazard this
+// ordering removes (ADR-073).
 func (t *Task) PlanPublication(entries []RepositoryPublication, now time.Time) error {
 	planned := make([]RepositoryPublication, 0, len(entries))
 	seen := make(map[RepositoryID]bool, len(entries))
@@ -194,9 +172,8 @@ func (t *Task) PlanPublication(entries []RepositoryPublication, now time.Time) e
 		planned = append(planned, entry)
 	}
 
-	// Whatever the new plan does not name and Feat has already published. It is
-	// kept after the plan rather than in place of it, so the order the
-	// repositories are applied in is the order this plan asked for.
+	// Whatever the new plan does not name and Feat has already published. It
+	// goes after the plan, so the apply order is the order this plan asked for.
 	if t.Publication != nil {
 		for _, recorded := range t.Publication.Repositories {
 			if recorded.State == PublicationPublished && !seen[recorded.RepositoryID] {
@@ -214,12 +191,9 @@ func (t *Task) PlanPublication(entries []RepositoryPublication, now time.Time) e
 	return nil
 }
 
-// RecordPublished records the merge request one repository's publication
-// opened.
-//
-// It is called before the next repository is attempted, so that an interruption
-// leaves a record naming what exists rather than one that has to be discovered
-// on the forge afterwards (ADR-073).
+// RecordPublished records the merge request one repository's publication opened.
+// It is called before the next repository is attempted, so an interruption
+// leaves a record naming what exists on the forge (ADR-073).
 func (t *Task) RecordPublished(repository RepositoryID, request MergeRequest, now time.Time) error {
 	entry, err := t.planned(repository)
 	if err != nil {
@@ -251,11 +225,9 @@ func (t *Task) RecordPublished(repository RepositoryID, request MergeRequest, no
 	return nil
 }
 
-// RecordPublicationFailure records why one repository did not publish.
-//
-// The reason is kept in the words of whatever failed, because it is the same
-// sentence the user would have seen at the moment and a second account of one
-// event helps nobody.
+// RecordPublicationFailure records why one repository did not publish. The
+// reason is kept in the words of whatever failed, because rewording it would
+// produce a second account of one event.
 func (t *Task) RecordPublicationFailure(repository RepositoryID, reason string, now time.Time) error {
 	entry, err := t.planned(repository)
 	if err != nil {
@@ -278,11 +250,9 @@ func (t *Task) RecordPublicationFailure(repository RepositoryID, reason string, 
 	return nil
 }
 
-// planned returns the entry a result may be recorded against.
-//
-// A repository that already published is refused rather than overwritten: a
-// re-publication skips it, and recording a second merge request over the first
-// would leave the first one open with nothing naming it.
+// planned returns the entry a result may be recorded against. A repository that
+// already published is refused rather than overwritten, because a second merge
+// request written over the first would leave the first open and unnamed.
 func (t *Task) planned(repository RepositoryID) (*RepositoryPublication, error) {
 	if t.Publication == nil {
 		return nil, &ValidationError{
@@ -344,11 +314,8 @@ func (p *Publication) Repository(id RepositoryID) (RepositoryPublication, bool) 
 }
 
 // Pending returns the repositories the publication has not attempted, in the
-// order it would attempt them.
-//
-// It is what an interrupted publication is asked for: the plan was recorded
-// before anything was applied, so what remains is named rather than worked out
-// from what the forges happen to hold.
+// order it would attempt them. An interrupted publication resumes from this,
+// because the plan was recorded before anything was applied.
 func (p *Publication) Pending() []RepositoryPublication {
 	var pending []RepositoryPublication
 	for _, entry := range p.Repositories {
@@ -408,11 +375,8 @@ func (p *Publication) Validate(task TaskID) error {
 }
 
 // Validate reports whether one repository's part of a publication is internally
-// consistent.
-//
-// The result fields are checked against the state rather than on their own: a
-// published repository with no merge request would be a record that cannot name
-// what it created, which is the whole hazard here.
+// consistent. The result fields are checked against the state, because a
+// published repository with no merge request cannot name what it created.
 func (r RepositoryPublication) Validate(task TaskID) error {
 	if err := r.validatePlan(task); err != nil {
 		return err

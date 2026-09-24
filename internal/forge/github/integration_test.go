@@ -24,12 +24,9 @@ func requireGh(t *testing.T) {
 }
 
 // TestRealGhAcceptsTheFlagsThisAdapterPasses is the verification
-// docs/06-technical-architecture.md requires of a provider CLI.
-//
-// A fake runner pins the argument vector, which is enough to know what Feat
-// sends and not enough to know that gh still accepts it. The failure this exists
-// to catch is the quiet kind: a renamed flag turns every publication into a
-// refusal the user reads as their own project being wrong.
+// docs/06-technical-architecture.md requires of a provider CLI. A fake runner
+// pins what Feat sends and cannot know that gh still accepts it. A renamed flag
+// would turn every publication into a refusal the user reads as their own fault.
 func TestRealGhAcceptsTheFlagsThisAdapterPasses(t *testing.T) {
 	requireGh(t)
 
@@ -60,22 +57,18 @@ func TestRealGhAcceptsTheFlagsThisAdapterPasses(t *testing.T) {
 }
 
 // TestRealGhRefusesRatherThanPromptsWithoutATitleAndBody is what this adapter
-// relies on in place of a confirmation flag.
+// relies on in place of a confirmation flag. gh has no `--yes`, so supplying a
+// title and a body is what keeps it non-interactive.
 //
-// glab has `--yes`; gh has nothing equivalent, and what keeps it non-interactive
-// is that a title and a body are supplied. This checks the other side of that:
-// that gh, given neither and no terminal, says so and exits rather than waiting
-// for one. A daemon has no terminal to answer on, so the difference between
-// those two behaviours is the difference between a failed publication and a
-// hung one.
-//
-// It needs no account. gh refuses for want of the flags before it needs a
-// credential.
+// This checks the other side: gh given neither and no terminal exits rather than
+// waiting. The daemon has no terminal to answer on, so the two behaviours are a
+// failed publication and a hung one. It needs no account, because gh refuses for
+// want of the flags before it needs a credential.
 func TestRealGhRefusesRatherThanPromptsWithoutATitleAndBody(t *testing.T) {
 	requireGh(t)
 
-	// Short, because what would fail this test is gh waiting. A prompt with no
-	// terminal would hold until the context ends rather than answering.
+	// Short, because what fails this test is gh waiting. A prompt with no
+	// terminal holds until the context ends rather than answering.
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -97,8 +90,8 @@ func TestRealGhRefusesRatherThanPromptsWithoutATitleAndBody(t *testing.T) {
 
 	command := exec.CommandContext(ctx, github.Executable, "pr", "create", "--head", "feat/x", "--base", "main")
 	command.Dir = repository
-	// A token that is not one: it gets gh past "log in first" and no further, so
-	// what is measured is the flag handling rather than the authentication.
+	// A token that is not one. It gets gh past "log in first" and no further,
+	// so what is measured is the flag handling rather than authentication.
 	command.Env = append(command.Environ(), "GH_TOKEN=not-a-token", "GH_PROMPT_DISABLED=")
 	output, err := command.CombinedOutput()
 

@@ -6,14 +6,9 @@ import (
 	"regexp"
 )
 
-// safeIDPattern is the documented safe pattern for the identifiers a user
-// chooses in project configuration (docs/07-configuration-model.md validation
-// rules).
-//
-// These identifiers reach file paths, generated branch names, tmux object
-// metadata, and Compose project names, so the pattern is the intersection of
-// what those accept rather than merely what a filesystem tolerates. It excludes
-// "." and "/" so that no identifier can ever escape a directory it names.
+// safeIDPattern constrains a user-chosen identifier to what file paths, branch
+// names, tmux metadata, and Compose project names all accept. Excluding "." and
+// "/" keeps one inside the directory it names (docs/07-configuration-model.md).
 var safeIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 // taskIDPattern matches a version 4 UUID in canonical lowercase form.
@@ -55,10 +50,9 @@ type TaskKey string
 // String returns the key as a plain string.
 func (k TaskKey) String() string { return string(k) }
 
-// NewTaskID returns a new random task identifier.
-//
-// It panics only if the operating system's randomness source fails, which the
-// standard library already treats as unrecoverable.
+// NewTaskID returns a new random task identifier. It panics only if the
+// operating system's randomness source fails, which the standard library
+// already treats as unrecoverable.
 func NewTaskID() TaskID {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -85,11 +79,9 @@ func (id TaskID) Validate() error {
 	return nil
 }
 
-// Key returns the human-facing short identifier of the task.
-//
-// The key is derived from the identifier rather than stored beside it, so the
-// two can never disagree. Callers that need keys to be unique within a project
-// resolve a collision by generating another task identifier.
+// Key returns the human-facing short identifier of the task. It is derived
+// rather than stored beside the identifier, so the two can never disagree; a
+// caller that needs keys unique within a project regenerates the identifier.
 func (id TaskID) Key() TaskKey { return TaskKey(id[:8]) }
 
 // String returns the identifier as a plain string.

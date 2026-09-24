@@ -6,11 +6,9 @@ import (
 )
 
 // TestBroadDirectoriesAreRefused checks the list that configuration validation
-// and the Git adapter share.
-//
-// It is one list on purpose: the package that decides whether a configured
-// worktree root is acceptable and the package that creates and later removes
-// directories under it must answer the same question the same way.
+// and the Git adapter share. It is one list on purpose, so the package that
+// accepts a worktree root and the package that removes directories under it
+// answer the same question the same way.
 func TestBroadDirectoriesAreRefused(t *testing.T) {
 	broad := []string{
 		"/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/media", "/mnt",
@@ -61,11 +59,10 @@ func TestDepthCountsComponentsBelowTheRoot(t *testing.T) {
 	}
 }
 
-// TestUnderIsDirectional checks the containment test cleanup depends on.
-//
-// A sibling whose name merely starts with the root's name is the case worth
-// stating: "/state/feat-old" is not inside "/state/feat", and treating it as
-// though it were would put somebody else's directory in a removal plan.
+// TestUnderIsDirectional checks the containment test cleanup depends on. A
+// sibling whose name starts with the root's is the case worth stating:
+// "/state/feat-old" is not inside "/state/feat", and treating it as though it
+// were would put somebody else's directory in a removal plan.
 func TestUnderIsDirectional(t *testing.T) {
 	const root = "/state/feat"
 

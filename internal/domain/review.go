@@ -5,16 +5,12 @@ import "time"
 // Review is the evidence about one task's work: what changed, what the agent
 // claimed about it, and what the checks found.
 //
-// It is a task-level aggregate of repository-level comparisons: every changed
-// repository is compared against its own recorded base commit (FR-REV-001),
-// which is why the base is recorded here as well as on the binding. A review
-// that outlives a rebase, a branch move, or a configuration edit still knows
-// what it was reviewing.
+// Every changed repository is compared against its own recorded base commit
+// (FR-REV-001), which the summary repeats so a review outliving a rebase or a
+// configuration edit still knows what it was reviewing.
 //
-// What it deliberately does not hold is the user's decision. That is the task's
-// workflow state, which is the only record of it: an aggregate carrying its own
-// copy was a second answer to one question, and the two could disagree
-// (ADR-047).
+// It does not hold the user's decision. The task's workflow state is the only
+// record of that, because two copies could disagree (ADR-047).
 type Review struct {
 	// TaskID is the task under review.
 	TaskID TaskID
@@ -109,24 +105,18 @@ type Check struct {
 	// Reporter records who ran the check.
 	Reporter CheckReporter
 	// Detail is what the check said about itself: an agent's own words for a
-	// reported result, and a bounded excerpt of the command's output for a
-	// gated one.
-	//
-	// It is shown on the review screen and stored in the task's review
-	// document, and it is deliberately never put into an event payload. A
-	// failing check prints whatever the project's own program prints, which is
-	// the one thing a person reviewing a failure needs and is not something
-	// Feat can promise anything about (ADR-036). Whoever fills it bounds it;
-	// MaxCheckDetail is the limit a stored review will accept.
+	// reported result, and a bounded excerpt of the command's output for a gated
+	// one. It reaches the review screen and the review document, never an event
+	// payload, because Feat can promise nothing about what a project's own
+	// program prints (ADR-036). MaxCheckDetail bounds what a review will accept.
 	Detail string
 	// RanAt is when the check ran, or the zero time if it has not.
 	RanAt time.Time
 }
 
-// MaxCheckDetail bounds the excerpt a check result carries.
-//
-// It is large enough for the tail of a failing test run, which is where the
-// reason usually is, and small enough that a review document stays a document.
+// MaxCheckDetail bounds the excerpt a check result carries: large enough for the
+// tail of a failing test run, small enough that a review document stays a
+// document.
 const MaxCheckDetail = 4 << 10
 
 // NewReview creates an empty review for a task.
@@ -141,10 +131,9 @@ func NewReview(task TaskID, now time.Time) (*Review, error) {
 	return review, nil
 }
 
-// RecordRequest records that the agent explicitly requested review.
-//
-// Requesting review is a semantic event the agent has to emit; an idle or
-// end-of-turn signal never reaches this method (FR-AGENT-008).
+// RecordRequest records that the agent explicitly requested review. Requesting
+// review is a semantic event the agent emits; an idle or end-of-turn signal
+// never reaches this method (FR-AGENT-008).
 func (r *Review) RecordRequest(summary string, checks []Check, now time.Time) error {
 	for _, check := range checks {
 		if err := check.Validate(r.TaskID); err != nil {
@@ -158,17 +147,13 @@ func (r *Review) RecordRequest(summary string, checks []Check, now time.Time) er
 	return nil
 }
 
-// RecordChecks records the results a completion gate produced.
+// RecordChecks records the results a completion gate produced. A result
+// overwrites the one recorded for the same identity and clears nothing else, so
+// an agent's claim about a check the gate did not run stays, marked as a claim.
 //
-// A check is identified by its repository and its identifier together, and a
-// result overwrites the one recorded for the same identity. What it deliberately
-// does not do is clear the rest: an agent's claim about a check the gate did not
-// run stays, marked as the claim it is, because removing it would be Feat
-// deciding that a report it did not verify never happened.
-//
-// The results a gate produces are attributed to the provider, and the caller may
-// not say otherwise: the difference between an enforced result and an asserted
-// one is the whole reason the field exists (FR-AGENT-006, ADR-036).
+// Gated results are attributed to the provider and the caller may not say
+// otherwise, because an enforced result and an asserted one are what the
+// reporter field exists to tell apart (FR-AGENT-006, ADR-036).
 func (r *Review) RecordChecks(checks []Check, now time.Time) error {
 	for _, check := range checks {
 		if check.Reporter != ReporterProvider {
@@ -205,13 +190,10 @@ func (r *Review) RecordChecks(checks []Check, now time.Time) error {
 
 // supersedes reports whether a gated result replaces a recorded one.
 //
-// A check is identified by its repository and its identifier together, so two
-// repositories that both configure a check called "test" keep their own results.
-// The exception is a result recorded against no repository at all, which is what
-// an agent's claim looks like when it names a check by identifier alone: Feat
-// has now run the configured check of that identifier, and keeping the claim
-// beside the evidence would count one check twice and show a user a check that
-// both passed and failed.
+// Repository and identifier together name a check, so two repositories that both
+// configure "test" keep their own results. A claim recorded against no
+// repository is the exception: the gate has now run that check, and keeping the
+// claim beside the evidence would show one check as both passed and failed.
 func supersedes(gated, recorded Check) bool {
 	if gated.ID != recorded.ID {
 		return false
@@ -220,9 +202,8 @@ func supersedes(gated, recorded Check) bool {
 }
 
 // Gated reports whether a completion gate produced any of the recorded results.
-//
-// It is what tells a claim from an enforced result, and the answer is per review
-// rather than per check because that is the question the dashboard asks.
+// The answer is per review rather than per check, because that is what the
+// dashboard asks.
 func (r *Review) Gated() bool {
 	for _, check := range r.Checks {
 		if check.Reporter == ReporterProvider {

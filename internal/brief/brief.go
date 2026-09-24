@@ -1,23 +1,18 @@
 // Package brief reads a task brief and says what to call it.
 //
-// It is one rule with two callers, and neither may import the other:
+// It is one rule with two callers that cannot import each other:
 // `feat implement --file` reads the file before a screen exists, and the import
 // screen reads the file a user typed into it. internal/ui cannot import
-// internal/cli — the dependency runs the other way — so the policy lives in a
-// package both can call rather than in whichever of them wrote it first
-// (ADR-083). Title is here for the same reason and arrived the same way: the
-// screen guessed a title from an imported document long before a headless run
-// needed one, and a second guess would be a second answer.
+// internal/cli, so the policy lives in a package both call (ADR-083). Title is
+// here for the same reason, because a second guess would be a second answer.
 //
-// The client reads the file and the daemon never learns its path: no
-// caller-supplied filesystem path crosses the socket (ADR-028). What is sent is
-// the text, and the path is recorded only so that a task can say where its brief
-// came from. Building that record is the caller's, because this package knows
-// nothing about api.Source and a package that reads a file should not have to.
+// The client reads the file and the daemon never learns its path, because no
+// caller-supplied filesystem path crosses the socket (ADR-028). The text is what
+// is sent; the path is recorded only so a task can say where its brief came
+// from, and the caller builds that record.
 //
-// What it does not decide is whether the text is a brief anybody wants. An empty
-// document is refused where the user can do something about it — the screen they
-// typed the path into — rather than here.
+// This package does not decide whether the text is a brief anybody wants. An
+// empty document is refused where the user can do something about it.
 package brief
 
 import (
@@ -31,19 +26,15 @@ import (
 	"github.com/ma8el/feat/internal/paths"
 )
 
-// MaxBytes bounds an imported brief on the client side.
-//
-// The daemon applies its own limit of the same size; reading a whole disk image
-// into memory before being told so is worth avoiding here as well.
+// MaxBytes bounds an imported brief on the client side. The daemon applies its
+// own limit of the same size, and this one avoids reading a whole disk image
+// into memory before hearing it.
 const MaxBytes = 256 << 10
 
 // Read returns the text of the file at path and the absolute path it was read
-// from.
-//
-// A leading "~" is expanded, the path is made absolute, a directory is refused,
-// and so is a file above MaxBytes — the size is read from the directory entry
-// rather than by reading and counting, so an over-large file is refused without
-// being loaded.
+// from. It expands a leading "~", refuses a directory, and refuses a file above
+// MaxBytes. The size comes from the directory entry, so an over-large file is
+// refused without being loaded.
 func Read(path string) (text, absolute string, err error) {
 	if strings.TrimSpace(path) == "" {
 		return "", "", errors.New("name the file the task brief is in")
@@ -51,9 +42,8 @@ func Read(path string) (text, absolute string, err error) {
 
 	expanded := path
 	if strings.HasPrefix(path, "~") {
-		// Only a "~" needs the home directory, and only then is a machine that
-		// cannot name one a problem: an ordinary path resolves without it, and a
-		// command that already worked there goes on working.
+		// Only a "~" needs the home directory. An ordinary path resolves
+		// without one, so a machine that cannot name a home keeps working.
 		env, err := paths.Current()
 		if err != nil {
 			return "", "", err
@@ -86,15 +76,12 @@ func Read(path string) (text, absolute string, err error) {
 	return string(content), absolute, nil
 }
 
-// ReadFrom returns the text of a brief arriving on a stream.
-//
-// It is what `feat implement --file -` reads, and it carries no path: a brief a
-// caller piped in is text they supplied rather than a document on disk, so
-// there is nothing to record as its origin.
+// ReadFrom returns the text of a brief arriving on a stream, which is what
+// `feat implement --file -` reads. It carries no path, because piped text is not
+// a document on disk and has no origin to record.
 //
 // MaxBytes is enforced by reading one byte past it. A stream has no size to ask
-// for in advance, so the only way to refuse an over-large one is to notice that
-// it did not end where it had to.
+// for in advance, so an over-large one is caught by not ending where it had to.
 func ReadFrom(reader io.Reader) (string, error) {
 	content, err := io.ReadAll(io.LimitReader(reader, MaxBytes+1))
 	if err != nil {
@@ -106,12 +93,9 @@ func ReadFrom(reader io.Reader) (string, error) {
 	return string(content), nil
 }
 
-// Title derives a title from a brief.
-//
-// The first Markdown heading is what the document calls itself; failing that,
-// the first line of text is. A caller who can change it should offer that —
-// which is why guessing is worth doing at all — and a caller who cannot has a
-// title derived from words they wrote rather than none.
+// Title derives a title from a brief: the first Markdown heading, or failing
+// that the first line of text. A caller who can offer an edit should; one who
+// cannot gets a title from the user's own words rather than none.
 func Title(document string) string {
 	for _, line := range strings.Split(document, "\n") {
 		line = strings.TrimSpace(line)

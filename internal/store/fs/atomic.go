@@ -16,7 +16,7 @@ const (
 
 // interruption is a test hook. Returning an error makes the store behave as if
 // the process died at that point: the error reaches the caller and nothing is
-// cleaned up, which is what a real crash leaves behind.
+// cleaned up, as a real crash would leave it.
 type interruption func(point, path string) error
 
 // at reports an interruption when a test installed one.
@@ -28,14 +28,10 @@ func (s *Store) at(point, path string) error {
 }
 
 // replaceFile writes data to path by writing a temporary file in the same
-// directory, flushing it, and renaming it over the target.
-//
-// The rename is what makes a snapshot safe: a reader either sees the previous
-// file or the new one, never a half-written mixture, whatever moment the
-// process dies at. A crash before the rename leaves a temporary file behind.
-// That file is inert, because every read opens an exact snapshot name and every
-// listing ignores anything else; reporting and removing such leftovers belongs
-// to reconciliation.
+// directory, flushing it, and renaming it over the target. The rename is what
+// makes a snapshot safe: a reader sees the previous file or the new one, never a
+// mixture. A crash before it leaves an inert temporary file, which every read
+// and every listing ignores and reconciliation reports.
 func (s *Store) replaceFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, dirPerm); err != nil {
@@ -84,12 +80,9 @@ func (s *Store) replaceFile(path string, data []byte) error {
 	return syncDir(dir)
 }
 
-// appendLine appends one newline-terminated record to a log.
-//
-// It repairs an incomplete final record first. A crash during an earlier append
-// can leave a record without its newline, and appending after it would join two
-// records into one unreadable line: an interrupted write must cost the record
-// it was writing, never the record after it.
+// appendLine appends one newline-terminated record to a log. It repairs an
+// incomplete final record first, because appending after a record that lost its
+// newline would join two into one unreadable line.
 func (s *Store) appendLine(path string, line []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), dirPerm); err != nil {
 		return fmt.Errorf("creating %s: %w", filepath.Dir(path), err)

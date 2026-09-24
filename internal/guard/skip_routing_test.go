@@ -14,30 +14,22 @@ const unavailableHelper = integrationPackage + ".Unavailable"
 // TestEverySkipTheGatedTierCanReachIsDemandable checks that a gated test which
 // gives up on this machine gives up through the demand mechanism.
 //
-// It is the sibling of TestEveryGatedTestIsNamedForTheRunPattern, and it guards
-// the half that one does not. That test checks a gated function's *name*, so the
-// integration runner selects it. This checks what the function does when the
-// machine will not answer: a bare t.Skip prints "ok" for the package, so a run
-// that demanded Docker and got a Docker which could not start a container
-// reports green having proved nothing — which is the whole of G6-05, one layer
-// in from where it was fixed.
+// It is the sibling of TestEveryGatedTestIsNamedForTheRunPattern, which checks a
+// gated function's name so the runner selects it. This checks what the function
+// does when the machine will not answer: a bare t.Skip prints "ok" for the
+// package, so a run that demanded Docker and met one that could not start a
+// container reports green having proved nothing (G6-05).
 //
-// It is not a hypothetical. The demand mechanism landed, and one batch later a
-// new t.Skipf on a Docker that would not start a privileged container removed
-// the only real-Docker proof of a critical fix, with nothing to object
-// (execution/compose/integration_test.go:883, and the non-root skip at :64 that
-// reached every TestReal in the file through realTask).
+// It is not hypothetical. One batch after the demand mechanism landed, a new
+// t.Skipf removed the only real-Docker proof of a critical fix with nothing to
+// object (execution/compose/integration_test.go:883, and the non-root skip at
+// :64 that reached every TestReal in the file through realTask).
 //
-// The scope is everything a gated test can reach, not the gated tests
-// themselves. Both of those skips were in helpers — one of them a helper that
-// asks nothing about the tier — and a guard that read only the test functions
-// would have seen neither.
-//
-// The one skip that is not a bailout is the tier opt-in itself: `if
-// !integrationtest.Enabled() { t.Skipf("set FEAT_INTEGRATION=1 …") }` is how a
-// run says it did not ask for this tier, and there is nothing to demand of a
-// machine that was never asked. It is recognised by the question it is under
-// rather than by its text, so a skip cannot be exempted by wording.
+// The scope is everything a gated test can reach rather than the gated tests
+// themselves, because both of those skips were in helpers. The one skip that is
+// not a bailout is the tier opt-in, which says the run did not ask for this
+// tier. It is recognised by the question it sits under rather than by its text,
+// so no wording can exempt a skip.
 func TestEverySkipTheGatedTierCanReachIsDemandable(t *testing.T) {
 	root := repoRoot(t)
 
@@ -63,8 +55,8 @@ func TestEverySkipTheGatedTierCanReachIsDemandable(t *testing.T) {
 		}
 	}
 
-	// The same reasoning as the sibling test's own count: a convention nothing
-	// matches is one that has been renamed out from under its guard.
+	// The sibling test counts for the same reason. A convention nothing
+	// matches has been renamed out from under its guard.
 	if examined == 0 {
 		t.Errorf("no function reachable from a gated test was found anywhere in the repository, "+
 			"so this guard is checking nothing. Either the tier is gone or it stopped gating on %s.",
@@ -80,14 +72,13 @@ type skipCall struct {
 }
 
 // reachableFromGatedTests returns the names, sorted, of the functions in this
-// package that a gated test runs: the gated tests themselves and, transitively,
-// the package-local functions they call.
+// package that a gated test runs: the gated tests, and transitively the
+// package-local functions they call.
 //
-// It walks callers to callees, which is the opposite direction from gated(). A
-// helper is gated when it decides the tier for whoever calls it; a helper is
-// reachable when somebody gated calls it. agentUser is the case that needs both
-// to be separate: it asks nothing about the tier, so it is not gated, and every
-// TestReal in its file reaches it through realTask.
+// It walks callers to callees, the opposite direction from gated(). A helper is
+// gated when it decides the tier for its caller and reachable when somebody
+// gated calls it. agentUser needs both to be separate: it asks nothing about the
+// tier, and every TestReal in its file reaches it through realTask.
 func (p testPackage) reachableFromGatedTests() []string {
 	reachable := map[string]bool{}
 	for _, name := range p.gated() {
@@ -118,10 +109,8 @@ func (p testPackage) reachableFromGatedTests() []string {
 }
 
 // unroutedSkips returns the calls in a function that end a test without asking
-// what this run demanded.
-//
-// Any receiver counts, not only one named t: a helper takes testing.TB under
-// whatever name its author chose, and the skip is the same skip.
+// what this run demanded. Any receiver counts, not only one named t, because a
+// helper takes testing.TB under whatever name its author chose.
 func (p testPackage) unroutedSkips(fn function) []skipCall {
 	exempt := p.tierBranches(fn.decl)
 
@@ -157,11 +146,9 @@ func (p testPackage) unroutedSkips(fn function) []skipCall {
 type span struct{ from, to token.Pos }
 
 // tierBranches returns the parts of a body that run because of what this run
-// asked for rather than because of what this machine can do.
-//
-// Both arms of the question are exempt. `if !Enabled() { skip }` and
-// `if Enabled() { … } else { skip }` say the same thing, and a guard that
-// recognised only the first would be a guard against one spelling.
+// asked for rather than what this machine can do. Both arms are exempt, because
+// `if !Enabled() { skip }` and `if Enabled() { … } else { skip }` say the same
+// thing and a guard against one spelling guards nothing.
 func (p testPackage) tierBranches(decl *ast.FuncDecl) []span {
 	var exempt []span
 	ast.Inspect(decl.Body, func(node ast.Node) bool {

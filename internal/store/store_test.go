@@ -11,9 +11,9 @@ import (
 )
 
 // TestErrorsExplainWhatTheUserCanDo checks the messages an implementation
-// produces. Storage errors are read by someone whose state directory is in an
-// unexpected condition, so each has to name the record, the file, and the
-// difference between "absent", "unreadable", and "written by a newer build".
+// produces. A reader has a state directory in an unexpected condition, so the
+// message names the record, the file, and which of absent, unreadable, or
+// written-by-a-newer-build it is.
 func TestErrorsExplainWhatTheUserCanDo(t *testing.T) {
 	tests := map[string]struct {
 		err     error
@@ -101,7 +101,7 @@ func TestTaskRefValidatesBothIdentifiers(t *testing.T) {
 }
 
 // TestRefAddressesATask checks the helper that derives a reference from a task,
-// which is what keeps a task's own project from being second-guessed.
+// so no caller second-guesses which project owns it.
 func TestRefAddressesATask(t *testing.T) {
 	task, err := domain.NewTask("7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c", "example", "Title",
 		domain.TaskSource{Kind: domain.SourcePrompt}, time.Date(2026, time.August, 4, 9, 30, 0, 0, time.UTC))

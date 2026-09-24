@@ -58,9 +58,8 @@ func TestResolveBuildIdentity(t *testing.T) {
 			want:   identity{version: "v0.4.1", commit: unknown, date: unknown},
 		},
 		{
-			// `go install ...@latest` against a repository with no tag, which
-			// is the install path a tester takes today. The version the
-			// toolchain derived carries the commit and its timestamp, so the
+			// `go install ...@latest` against a repository with no tag. The
+			// derived version carries the commit and its timestamp, so the
 			// binary knows all three fields without a checkout to read.
 			name:   "a binary installed at a pseudo-version reads the commit out of it",
 			linked: nothingLinked,
@@ -93,8 +92,8 @@ func TestResolveBuildIdentity(t *testing.T) {
 		},
 		{
 			// The same checkout with uncommitted changes. The toolchain marks
-			// the version; we mark the revision the tree has moved past, the
-			// way `git describe --dirty` does.
+			// the version, and Feat marks the revision the tree moved past,
+			// the way `git describe --dirty` does.
 			name:   "a dirty checkout build marks the revision",
 			linked: nothingLinked,
 			build:  embeds(pseudo+dirtyMetadata, vcs(fullRevision, committedAt, true)...),
@@ -240,11 +239,9 @@ func TestGetReportsRuntimeIdentity(t *testing.T) {
 }
 
 // TestGetReadsThisBinarysBuildInformation pins the wiring: the linked values and
-// the information the toolchain embedded in *this* binary, resolved the one way.
-//
-// What it can prove depends on the machine — a test binary built inside a Git
-// worktree carries no vcs settings to find, which is most of why
-// integration_test.go builds one somewhere the toolchain will stamp.
+// what the toolchain embedded in this binary, resolved the one way. What it can
+// prove depends on the machine, because a test binary built inside a Git
+// worktree carries no vcs settings; integration_test.go covers the rest.
 func TestGetReadsThisBinarysBuildInformation(t *testing.T) {
 	embedded, _ := debug.ReadBuildInfo()
 	want := resolve(identity{version: version, commit: commit, date: date}, embedded)

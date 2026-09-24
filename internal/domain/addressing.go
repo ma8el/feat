@@ -8,34 +8,22 @@ import (
 // taskIDLength is the length of a task identifier in canonical form.
 const taskIDLength = 36
 
-// taskRefHyphens are the positions a canonical task identifier holds a "-".
-//
-// A reference is a prefix of that layout, so this is what says where a hyphen
-// belongs rather than a regular expression per accepted length.
+// taskRefHyphens are the positions a canonical task identifier holds a "-". A
+// reference is a prefix of that layout, so one map serves every accepted length
+// where a regular expression would need one pattern per length.
 var taskRefHyphens = map[int]bool{8: true, 13: true, 18: true, 23: true}
 
-// TaskRef is how a user names a task.
-//
-// It exists because the identifier a user can see and the identifier a command
-// accepted were not the same thing. Lists show the eight-character key derived
-// from a task identifier — the dashboard, `feat task list`, and every desktop
-// notification — while the identifier itself appears only in the dashboard's
-// task detail. A reference closes that: the key, the whole identifier, and any
-// prefix of it are all ways of naming the same task.
-//
-// It is deliberately not a free-form search. A reference is a prefix of a task
-// identifier and nothing else, so no title, branch, or repository name can ever
-// become a way of addressing a task by accident.
+// TaskRef is how a user names a task: the eight-character key, the whole
+// identifier, or any prefix of it. It is never a free-form search, so no title,
+// branch, or repository name can become a way of addressing a task by accident.
 type TaskRef string
 
 // String returns the reference as a plain string.
 func (r TaskRef) String() string { return string(r) }
 
-// Validate reports whether the reference could name a task.
-//
-// The rule is the shape of the identifier it abbreviates: lowercase hexadecimal
-// with a "-" exactly where a canonical identifier has one. Case is folded before
-// the check, because an identifier copied out of somewhere else is still that
+// Validate reports whether the reference could name a task: lowercase
+// hexadecimal with a "-" exactly where a canonical identifier has one. Case is
+// folded first, because an identifier copied from elsewhere is still that
 // identifier.
 func (r TaskRef) Validate() error {
 	invalid := func(reason string) error {
@@ -64,11 +52,9 @@ func (r TaskRef) Validate() error {
 	return nil
 }
 
-// Exact returns the identifier when the reference is already a whole one.
-//
-// It is what lets a caller holding a full identifier skip resolution entirely:
-// an identifier names exactly one task by construction, so there is nothing to
-// resolve and no reason to read every task to find that out.
+// Exact returns the identifier when the reference is already a whole one. A
+// caller holding one can skip resolution, because an identifier names exactly
+// one task by construction.
 func (r TaskRef) Exact() (TaskID, bool) {
 	if len(r) != taskIDLength {
 		return "", false
@@ -83,11 +69,9 @@ func (r TaskRef) Exact() (TaskID, bool) {
 // normalized folds the reference to the case a task identifier is written in.
 func (r TaskRef) normalized() string { return strings.ToLower(string(r)) }
 
-// AmbiguousMatch is one task a reference could have named.
-//
-// It carries the key and the project rather than the whole task, because it
-// exists to be read back to the user: those are the two columns `feat task list`
-// prints, so a user can find the row the message is talking about.
+// AmbiguousMatch is one task a reference could have named. It carries the key
+// and the project rather than the whole task, because those are the columns
+// `feat task list` prints and the user has to find the row in that output.
 type AmbiguousMatch struct {
 	// Key is the task's short human-facing identifier.
 	Key TaskKey
@@ -96,11 +80,8 @@ type AmbiguousMatch struct {
 }
 
 // AmbiguousTaskError reports a reference that names more than one task.
-//
-// Ambiguity is reported rather than resolved to either candidate. It is the rule
-// ADR-029 applied to a colliding branch name, for the same reason: a user acting
-// on a task Feat picked for them would be acting on something they did not
-// choose, and `feat task cleanup` is one of the commands that takes a task.
+// Ambiguity is reported rather than resolved to a candidate, as ADR-029 does
+// for a colliding branch name. `feat task cleanup` takes a task reference.
 type AmbiguousTaskError struct {
 	// Ref is what the user typed, unchanged.
 	Ref TaskRef
@@ -129,15 +110,13 @@ func (e *AmbiguousTaskError) Unwrap() error { return ErrInvalid }
 
 // ResolveTask picks the one task a reference names.
 //
-// It reports false rather than an error when nothing matches, because what to
-// say about a task that is not there depends on where the question came from,
-// and this package knows nothing about commands. Ambiguity is an error here,
-// because that answer is the same wherever it was asked.
+// No match reports false rather than an error, because what to say about a
+// missing task depends on the command that asked and this package knows none of
+// them. Ambiguity is an error, because that answer is the same everywhere.
 //
-// Every task is a candidate, archived ones included: a cancelled draft becomes
-// archived and `feat task cleanup` still has to be able to name one. An archived task
-// can therefore make a reference ambiguous, which is reported. Preferring a live
-// task would be the guess this function exists to refuse.
+// Archived tasks are candidates too, since `feat task cleanup` has to name a
+// cancelled draft. Preferring a live task would be the guess this function
+// refuses to make.
 func ResolveTask(ref TaskRef, tasks []*Task) (*Task, bool, error) {
 	if err := ref.Validate(); err != nil {
 		return nil, false, err

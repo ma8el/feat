@@ -9,11 +9,9 @@ import (
 	"time"
 )
 
-// Build identity, overridden at link time. See the Makefile's LDFLAGS.
-//
-// A binary installed with `go install github.com/ma8el/feat/cmd/feat@latest`
-// never sees those flags, so each of these keeps its placeholder and the build
-// information the toolchain embedded answers for it instead.
+// Build identity, overridden at link time. See the Makefile's LDFLAGS. A binary
+// installed with `go install ...@latest` never sees those flags, so each keeps
+// its placeholder and the toolchain's embedded information answers instead.
 var (
 	version = devVersion
 	commit  = unknown
@@ -25,9 +23,9 @@ const (
 	devVersion = "dev"
 	unknown    = "unknown"
 
-	// devel is what the toolchain records as the main module's version when it
-	// could not derive one from version control. It names no build, so it is
-	// worth less than the placeholder it would replace.
+	// devel is the main module's version when the toolchain could not derive
+	// one from version control. It names no build, so it is worth less than the
+	// placeholder it would replace.
 	devel = "(devel)"
 
 	// shortCommitLen is the revision length a Go pseudo-version carries, and
@@ -69,9 +67,9 @@ type Info struct {
 	Arch      string
 }
 
-// identity is the part of Info that a build has to be told: the three fields
-// with a link-time source and an embedded one. The rest of Info is the running
-// process describing itself and is never in doubt.
+// identity is the part of Info a build has to be told: the three fields with a
+// link-time source and an embedded one. The rest of Info is the running process
+// describing itself.
 type identity struct {
 	version string
 	commit  string
@@ -95,9 +93,9 @@ func Get() Info {
 	}
 }
 
-// resolve settles version, commit, and date one field at a time. Each is
-// independent, because a build can know its revision without knowing its
-// version, and learning one must not blank the other.
+// resolve settles version, commit, and date one field at a time. A build can
+// know its revision without knowing its version, so learning one must not blank
+// the other.
 func resolve(linked identity, bi *debug.BuildInfo) identity {
 	var embedded identity
 	if bi != nil {
@@ -112,14 +110,12 @@ func resolve(linked identity, bi *debug.BuildInfo) identity {
 }
 
 // firstKnown returns the linked value, then the embedded one, then the
-// placeholder that says nobody knew.
+// placeholder that says nobody knew. Absent means empty or still the declared
+// placeholder.
 //
-// Absent means empty, or still the placeholder the variable is declared with.
-// The Makefile's own fallbacks are those same two words on purpose — `git
-// describe ... || echo dev`, `git rev-parse ... || echo unknown` — so a `make
-// build` on a machine where Git could not answer counts as a build with nothing
-// linked, and the toolchain gets its turn. The price is that `-X ...version=dev`
-// cannot insist on the literal word, which nothing wants to.
+// The Makefile falls back to those same two words on purpose, so a `make build`
+// where Git could not answer counts as nothing linked and the toolchain gets its
+// turn. The price is that `-X ...version=dev` cannot insist on the literal word.
 func firstKnown(linked, embedded, placeholder string) string {
 	if linked != "" && linked != placeholder {
 		return linked
@@ -131,20 +127,17 @@ func firstKnown(linked, embedded, placeholder string) string {
 }
 
 // fromBuildInfo reads the identity the toolchain embedded. Fields it cannot
-// answer come back empty, so that the caller keeps whatever it already knew.
+// answer come back empty, so the caller keeps whatever it already knew.
 //
-// There are two sources and they overlap. The main module's version is present
-// in every module build, and when the toolchain derived it from a commit it
-// carries that commit and its timestamp — which is all an installed binary ever
-// learns, because a module downloaded from a proxy has no checkout to have vcs
-// settings. A build inside a checkout has those settings too, and they are the
-// better answer: a full revision, and whether the tree had moved past it.
+// The two sources overlap. Every module build carries the main module's version,
+// which names a commit and its timestamp when the toolchain derived it from one;
+// that is all an installed binary learns, because a module from a proxy has no
+// checkout. A build inside a checkout also has vcs settings, which are better: a
+// full revision, and whether the tree had moved past it.
 //
-// The timestamp both sources carry is the revision's, not the moment the
-// compiler ran; the toolchain records no build time at all. That is the contract
-// ADR-092 states for the field across every kind of build: the commit's date
-// wherever the source can date itself, and a build clock only where nothing else
-// saw the build, which is `make build` alone.
+// Both timestamps are the revision's rather than the compile moment, because the
+// toolchain records no build time. ADR-092 sets that contract: the commit's date
+// wherever the source can date itself, and a build clock only for `make build`.
 func fromBuildInfo(bi *debug.BuildInfo) identity {
 	var embedded identity
 	if v := bi.Main.Version; v != devel {
@@ -175,8 +168,8 @@ func fromBuildInfo(bi *debug.BuildInfo) identity {
 }
 
 // fromPseudoVersion reads the revision and its timestamp out of a module version
-// the toolchain derived from a commit. A version that names a tag instead —
-// v0.4.1, or v0.4.1-rc.1 — describes no single commit, and comes back empty.
+// the toolchain derived from a commit. A version naming a tag, such as v0.4.1,
+// describes no single commit and comes back empty.
 func fromPseudoVersion(moduleVersion string) (revision, timestamp string) {
 	base, _, _ := strings.Cut(moduleVersion, "+")
 

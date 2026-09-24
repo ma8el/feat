@@ -29,7 +29,7 @@ func TestNoReferenceProjectIdentifiers(t *testing.T) {
 			}
 			value, err := strconv.Unquote(lit.Value)
 			if err != nil {
-				// Not a literal we can interpret; nothing to check.
+				// Not a literal this can interpret, so there is nothing to check.
 				return true
 			}
 
