@@ -30,12 +30,10 @@ type Store interface {
 	Daemons() DaemonStore
 }
 
-// DaemonStore persists what the state directory remembers about the daemons
-// that have owned it.
-//
-// It is one record for the whole installation rather than one per run: what the
-// next daemon needs to know is the state of the directory it is about to write
-// to and how the previous run ended, not a history of every run (ADR-037).
+// DaemonStore persists what the state directory remembers about the daemons that
+// have owned it. It keeps one record for the installation rather than one per
+// run, because the next daemon needs the state of the directory and how the
+// previous run ended, not a history (ADR-037).
 type DaemonStore interface {
 	// Save records the state, replacing any earlier record.
 	Save(ctx context.Context, record *domain.DaemonRecord) error
@@ -54,12 +52,9 @@ type ProjectStore interface {
 	List(ctx context.Context) ([]*domain.Project, error)
 }
 
-// TaskStore persists tasks.
-//
-// Tasks are addressed by project and task identifier together. That mirrors
-// task ownership: a task belongs to exactly one project (invariant 1), and a
-// caller that has a task identifier without knowing its project has lost the
-// relationship rather than found a shortcut.
+// TaskStore persists tasks. A task is addressed by project and task identifier
+// together, which mirrors ownership: a task belongs to exactly one project
+// (invariant 1).
 type TaskStore interface {
 	// Save records the task, replacing any earlier snapshot of it.
 	Save(ctx context.Context, task *domain.Task) error

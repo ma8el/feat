@@ -16,12 +16,9 @@ import (
 var errCrash = errors.New("simulated crash")
 
 // TestACrashNeverLeavesAPartiallyReplacedSnapshot checks the atomicity rule at
-// every point of a replacement.
-//
-// The store is interrupted while replacing an existing snapshot with a different
-// one. Before the rename the previous snapshot must still be the current one and
-// must still be complete; after the rename the new one must be, because that is
-// the moment the replacement happens.
+// every point of a replacement. The store is interrupted mid-replacement: before
+// the rename the previous snapshot is still current and still complete, and
+// after it the new one is, because the rename is when the replacement happens.
 func TestACrashNeverLeavesAPartiallyReplacedSnapshot(t *testing.T) {
 	tests := map[string]struct {
 		point    string
@@ -44,8 +41,8 @@ func TestACrashNeverLeavesAPartiallyReplacedSnapshot(t *testing.T) {
 				t.Fatalf("saving the first snapshot: %v", err)
 			}
 
-			// A snapshot that differs in size as well as in content, so that a
-			// replacement that wrote in place would leave a mixture of the two.
+			// A snapshot that differs in size as well as in content, so a
+			// replacement written in place would leave a mixture of the two.
 			after := storetest.Project()
 			after.Name = "Renamed"
 			after.Repositories = after.Repositories[:1]

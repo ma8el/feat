@@ -52,11 +52,9 @@ type Store struct {
 
 var _ store.Store = (*Store)(nil)
 
-// Open prepares a store under root, creating the directory if it is missing.
-//
-// The caller supplies the root rather than resolving it here, so that this
-// package stays independent of the user's environment and a test can run
-// against a temporary directory.
+// Open prepares a store under root, creating the directory if it is missing. The
+// caller supplies the root, so this package stays independent of the user's
+// environment and a test can run against a temporary directory.
 func Open(root string) (*Store, error) {
 	if !filepath.IsAbs(root) {
 		return nil, fmt.Errorf("state directory %q must be an absolute path", root)

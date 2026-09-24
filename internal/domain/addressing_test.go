@@ -7,8 +7,7 @@ import (
 )
 
 // The identifiers this file resolves between. The first two share the prefix
-// "7f", which is what makes ambiguity testable without contriving a collision;
-// the third shares nothing with either.
+// "7f", so ambiguity is testable without contriving a collision.
 const (
 	firstTask  = TaskID("7f3a1c2e-5b6d-4a80-9c1f-2d3e4f5a6b7c")
 	secondTask = TaskID("7fb90cd4-1e2f-4a3b-8c4d-5e6f7a8b9c0d")
@@ -16,12 +15,8 @@ const (
 )
 
 // TestATaskIsNamedByWhatAUserCanSee is ADR-038's rule that a task can be named
-// by what a user can see.
-//
-// Every list prints the eight-character key and nothing else, so the key has to
-// name a task. The whole identifier keeps working because the dashboard's task
-// detail prints that, and a prefix works because there is no reason for it not
-// to once the key does.
+// by what a user can see. Every list prints the eight-character key, the
+// dashboard's task detail prints the identifier, and a prefix of either works.
 func TestATaskIsNamedByWhatAUserCanSee(t *testing.T) {
 	tasks := []*Task{taskWithID(t, firstTask), taskWithID(t, thirdTask)}
 
@@ -49,12 +44,9 @@ func TestATaskIsNamedByWhatAUserCanSee(t *testing.T) {
 }
 
 // TestAnAmbiguousReferenceIsReportedRatherThanResolved is the other half of that
-// criterion: a name that matches two tasks is reported rather than resolved to
-// either.
-//
-// The message has to be actable on, which means naming the candidates in the
-// terms the lists print them in. A user who is told only that their reference
-// was ambiguous has been told to guess again.
+// rule: a name matching two tasks is reported rather than resolved to either.
+// The message names the candidates the way the lists print them, so the user can
+// act on it.
 func TestAnAmbiguousReferenceIsReportedRatherThanResolved(t *testing.T) {
 	tasks := []*Task{taskWithID(t, firstTask), taskWithID(t, secondTask), taskWithID(t, thirdTask)}
 
@@ -97,9 +89,8 @@ func TestAnAmbiguousReferenceIsReportedRatherThanResolved(t *testing.T) {
 	}
 }
 
-// TestAmbiguityIsReportedInAStableOrder keeps one message from depending on the
-// order storage happened to read projects in. A user comparing two runs should
-// not have to work out whether anything changed.
+// TestAmbiguityIsReportedInAStableOrder keeps the message from depending on the
+// order storage read projects in, so two runs can be compared.
 func TestAmbiguityIsReportedInAStableOrder(t *testing.T) {
 	forward := []*Task{taskWithID(t, firstTask), taskWithID(t, secondTask)}
 	backward := []*Task{taskWithID(t, secondTask), taskWithID(t, firstTask)}
@@ -116,12 +107,9 @@ func TestAmbiguityIsReportedInAStableOrder(t *testing.T) {
 }
 
 // TestAnArchivedTaskIsStillAddressable checks that a task nothing lists any more
-// can still be named.
-//
-// A cancelled draft becomes archived and `feat task cleanup` still has to reach one,
-// so archived tasks are candidates. The consequence is that one can make a
-// reference ambiguous, which is reported rather than resolved by preferring the
-// live task: preferring one would be the guess this whole rule refuses.
+// can still be named, because `feat task cleanup` has to reach a cancelled
+// draft. An archived task can therefore make a reference ambiguous, and
+// preferring the live one would be the guess this rule refuses.
 func TestAnArchivedTaskIsStillAddressable(t *testing.T) {
 	archived := taskWithID(t, firstTask)
 	archived.Workflow = WorkflowArchived
@@ -141,11 +129,8 @@ func TestAnArchivedTaskIsStillAddressable(t *testing.T) {
 }
 
 // TestAReferenceThatNamesNothingIsNotAnError checks the distinction the resolver
-// draws for its caller.
-//
-// What to say about a task that is not there depends on where the question came
-// from, and this package knows nothing about commands. Ambiguity is an error
-// because that answer is the same wherever it was asked.
+// draws for its caller. What to say about a missing task depends on the command
+// that asked; ambiguity is an error, because that answer is the same everywhere.
 func TestAReferenceThatNamesNothingIsNotAnError(t *testing.T) {
 	task, found, err := ResolveTask("deadbeef", []*Task{taskWithID(t, firstTask)})
 
@@ -157,11 +142,9 @@ func TestAReferenceThatNamesNothingIsNotAnError(t *testing.T) {
 	}
 }
 
-// TestAReferenceIsAPrefixOfAnIdentifierAndNothingElse checks the shape rule.
-//
-// A reference is deliberately not a search: it is a prefix of a task identifier,
-// so no title, branch, or path a user typed can become a way of addressing a
-// task, and nothing from a request can traverse a directory.
+// TestAReferenceIsAPrefixOfAnIdentifierAndNothingElse checks the shape rule. A
+// reference is not a search, so no title, branch, or path a user typed becomes a
+// way of addressing a task, and nothing in a request traverses a directory.
 func TestAReferenceIsAPrefixOfAnIdentifierAndNothingElse(t *testing.T) {
 	valid := []TaskRef{
 		"7",
@@ -203,8 +186,8 @@ func TestAReferenceIsAPrefixOfAnIdentifierAndNothingElse(t *testing.T) {
 }
 
 // TestResolvingRefusesAMalformedReferenceBeforeReadingAnything checks that the
-// shape rule runs first. A reference that could never name a task should not
-// decide anything by matching nothing.
+// shape rule runs first, so a reference that could never name a task decides
+// nothing by matching nothing.
 func TestResolvingRefusesAMalformedReferenceBeforeReadingAnything(t *testing.T) {
 	_, found, err := ResolveTask("../escape", []*Task{taskWithID(t, firstTask)})
 
@@ -213,10 +196,9 @@ func TestResolvingRefusesAMalformedReferenceBeforeReadingAnything(t *testing.T) 
 	}
 }
 
-// TestAWholeIdentifierNeedsNoResolution checks the path the dashboard takes.
-//
-// It holds identifiers already, so every request it makes would otherwise read
-// every task to learn what it knew before it asked.
+// TestAWholeIdentifierNeedsNoResolution checks the path the dashboard takes. It
+// holds identifiers already, so every request would otherwise read every task to
+// learn what it knew before it asked.
 func TestAWholeIdentifierNeedsNoResolution(t *testing.T) {
 	id, exact := TaskRef(firstTask).Exact()
 	if !exact {
@@ -243,8 +225,8 @@ func TestAWholeIdentifierNeedsNoResolution(t *testing.T) {
 	}
 }
 
-// taskWithID builds a task with a chosen identifier, so that a test can arrange
-// the collisions resolution is about.
+// taskWithID builds a task with a chosen identifier, so a test can arrange the
+// collisions resolution is about.
 func taskWithID(t *testing.T, id TaskID) *Task {
 	t.Helper()
 

@@ -13,13 +13,10 @@ import (
 
 var update = flag.Bool("update", false, "rewrite golden files")
 
-// TestStoredFormat pins the layout and the content of the state directory.
-//
-// The files are a compatibility surface: docs/07-configuration-model.md requires
-// every schema change to be explicit and migrated. Comparing against golden
-// files makes an accidental change to the format fail here, where the fix is to
-// add a schema version and a migration, rather than in a user's state directory
-// after an upgrade.
+// TestStoredFormat pins the layout and the content of the state directory. The
+// files are a compatibility surface, and docs/07-configuration-model.md requires
+// every schema change to be explicit and migrated. Golden files make an
+// accidental change fail here rather than in a user's state directory.
 func TestStoredFormat(t *testing.T) {
 	ctx := context.Background()
 	filestore := newStore(t)
@@ -33,10 +30,9 @@ func TestStoredFormat(t *testing.T) {
 	if err := filestore.Tasks().Save(ctx, task); err != nil {
 		t.Fatalf("saving the task: %v", err)
 	}
-	// A second task, because the ticket a brief was composed from and the
-	// publication a task recorded are shapes the first one cannot hold: a brief
-	// comes from one source, and a task that was never published has no
-	// publication.
+	// A second task, because a ticket source and a publication are shapes the
+	// first cannot hold: a brief comes from one source, and a task that never
+	// published has no publication.
 	if err := filestore.Tasks().Save(ctx, published); err != nil {
 		t.Fatalf("saving the published task: %v", err)
 	}

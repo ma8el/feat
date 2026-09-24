@@ -38,13 +38,10 @@ func TestANewRuntimeHasObservedNothing(t *testing.T) {
 	}
 }
 
-// TestRecordedInputsChangeOnlyWhileNothingExists is what keeps an action from
-// reaching a different Compose project than the one it was told about.
-//
-// A user may edit their configuration at any time. While the task owns
-// resources, the inputs those resources were created from are what a stop or a
-// destroy must use; once nothing is left, re-resolving can orphan nothing and
-// the fixed configuration is the one the user wants.
+// TestRecordedInputsChangeOnlyWhileNothingExists keeps an action from reaching a
+// different Compose project than the one it was told about. A stop or a destroy
+// uses the inputs the resources were created from; once nothing is left,
+// re-resolving can orphan nothing.
 func TestRecordedInputsChangeOnlyWhileNothingExists(t *testing.T) {
 	runtime := NewRuntimeEnvironment(inputs("feat-example-7f3a1c2e"))
 
@@ -67,13 +64,10 @@ func TestRecordedInputsChangeOnlyWhileNothingExists(t *testing.T) {
 	}
 }
 
-// TestPortsAreHeldUntilNothingIsLeft is what makes several tasks able to run one
-// application.
-//
-// A host port is global to the machine, so an allocation is only worth anything
-// while it is held against every other task — and holding one after the
-// containers are gone would leak a port nothing is bound to. Both halves are
-// checked here because they are one rule: the runtime's own state decides.
+// TestPortsAreHeldUntilNothingIsLeft is what lets several tasks run one
+// application. A host port is global to the machine, so an allocation is worth
+// something only while it is held, and holding one after the containers are gone
+// leaks it. Both halves are checked here, because the runtime's state decides.
 func TestPortsAreHeldUntilNothingIsLeft(t *testing.T) {
 	held := inputs("feat-example-7f3a1c2e")
 	held.Allocations = []PortAllocation{
@@ -81,7 +75,7 @@ func TestPortsAreHeldUntilNothingIsLeft(t *testing.T) {
 	}
 	runtime := NewRuntimeEnvironment(held)
 
-	// A runtime nothing has created holds nothing: the ports are chosen again,
+	// A runtime nothing has created holds nothing. The ports are chosen again,
 	// against what the other tasks hold, when there is something to publish.
 	if !runtime.ReleasePorts(origin) {
 		t.Error("a runtime that has created nothing kept a host port no container is bound to")
@@ -110,12 +104,8 @@ func TestPortsAreHeldUntilNothingIsLeft(t *testing.T) {
 }
 
 // TestAGeneratedVariableNamesItsServiceSafely pins the rendering configuration
-// refuses collisions against.
-//
-// The rule is lossy on purpose — an environment variable name has no room for
-// the dots and hyphens a Compose service name allows — and both halves of it
-// have to be one rule: the daemon generates these names and configuration
-// refuses two services that would produce the same one.
+// refuses collisions against. The rule is lossy on purpose, because a variable
+// name has no room for the dots and hyphens a Compose service name allows.
 func TestAGeneratedVariableNamesItsServiceSafely(t *testing.T) {
 	for service, want := range map[string]string{
 		"api":     "FEAT_HOST_PORT_API",
@@ -132,17 +122,11 @@ func TestAGeneratedVariableNamesItsServiceSafely(t *testing.T) {
 	}
 }
 
-// TestAGeneratedVariableSaysTheAddressIsTheHostsPins the prefix rather than the
-// rendering, because the prefix is the whole of what a user sees at the moment
-// this value is misused.
-//
-// The variable carries a published port, which belongs to the host's network
-// namespace: read inside a container that address is the container's own
-// loopback, and with Feat's default binding the host's port is not reachable
-// from a container at all. Under FEAT_URL_ nothing about the name said so, and
-// a service that called a sibling at ${FEAT_URL_api} got a connection refused
-// against itself — a failure with no message naming the cause. Documentation is
-// not present where the string is typed; the name is (G4-08).
+// TestAGeneratedVariableSaysTheAddressIsTheHosts pins the prefix rather than the
+// rendering, because the prefix is all a user sees where this value is written.
+// The variable carries a published port, which inside a container resolves to
+// that container's own loopback. Under FEAT_URL_ a sibling call failed as a
+// connection refused against itself, with nothing naming the cause (G4-08).
 func TestAGeneratedVariableSaysTheAddressIsTheHosts(t *testing.T) {
 	for _, generated := range []string{PortVariable("api"), URLVariable("api")} {
 		if !strings.HasPrefix(generated, "FEAT_HOST_") {
@@ -158,12 +142,9 @@ func TestAGeneratedVariableSaysTheAddressIsTheHosts(t *testing.T) {
 	}
 }
 
-// TestAnAllocationSaysWhereItIsReached keeps the address a user is given, and
-// the one a service is told, the same value.
-//
-// The loopback addresses are said as localhost, which is the name that reaches
-// them and the one a user types; an address of this machine that is not loopback
-// is said as itself, because it is where the service is and nowhere else is.
+// TestAnAllocationSaysWhereItIsReached keeps the address a user is given and the
+// one a service is told the same value. The loopback addresses are said as
+// localhost; an address of this machine that is not loopback is said as itself.
 func TestAnAllocationSaysWhereItIsReached(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		allocation  PortAllocation
@@ -184,26 +165,24 @@ func TestAnAllocationSaysWhereItIsReached(t *testing.T) {
 			addressable: true,
 		},
 		// A binding on every interface is reached at localhost from here, which
-		// is the half of it this address answers. What else such a binding
-		// allows is the other half, and BoundEverywhere is the question a
-		// surface asks for it.
+		// is what this address answers. What else it allows is what a surface
+		// asks BoundEverywhere for.
 		"every address": {
 			allocation:  PortAllocation{HostPort: 21003, Protocol: "tcp", HostIP: "0.0.0.0"},
 			address:     "localhost:21003",
 			url:         "http://localhost:21003",
 			addressable: true,
 		},
-		// Its IPv6 counterpart, which is reached the same way and would
-		// otherwise print as "[::]:21006" — an address a browser takes and a
-		// user would not type.
+		// Its IPv6 counterpart, reached the same way. It would otherwise print
+		// as "[::]:21006", which no user would type.
 		"every address, in IPv6": {
 			allocation:  PortAllocation{HostPort: 21006, Protocol: "tcp", HostIP: "::"},
 			address:     "localhost:21006",
 			url:         "http://localhost:21006",
 			addressable: true,
 		},
-		// One address of the machine, which is not this machine's loopback: the
-		// service is there and a user told localhost could not reach it.
+		// One address of the machine that is not its loopback. The service is
+		// there, and a user told localhost could not reach it.
 		"one the project chose": {
 			allocation:  PortAllocation{HostPort: 21004, Protocol: "tcp", HostIP: "192.168.64.7"},
 			address:     "192.168.64.7:21004",
@@ -236,15 +215,10 @@ func TestAnAllocationSaysWhereItIsReached(t *testing.T) {
 	}
 }
 
-// TestTheAddressAPortIsDialledAtDoesNotSayWhatItIsOpenTo is why the binding is
-// a second question rather than something a surface can read off the address.
-//
-// Two publications, one on the loopback address and one on every interface,
-// produce the same "localhost:21000" — which is correct for both, because that
-// is what dials them from here. One of them is also open to every network this
-// machine is joined to and to every container on it. A surface holding only the
-// address cannot tell the two apart, so nothing derived from it may be presented
-// as an answer about exposure.
+// TestTheAddressAPortIsDialledAtDoesNotSayWhatItIsOpenTo is why the binding is a
+// second question rather than something read off the address. A loopback
+// publication and one on every interface both dial as "localhost:21000", and
+// only the second is open to every network this machine is joined to.
 func TestTheAddressAPortIsDialledAtDoesNotSayWhatItIsOpenTo(t *testing.T) {
 	loopback := PortAllocation{Service: "api", HostPort: 21000, Protocol: "tcp", HostIP: "127.0.0.1"}
 	everywhere := PortAllocation{Service: "api", HostPort: 21000, Protocol: "tcp", HostIP: "0.0.0.0"}
@@ -262,18 +236,16 @@ func TestTheAddressAPortIsDialledAtDoesNotSayWhatItIsOpenTo(t *testing.T) {
 	}
 }
 
-// TestWhatBindsEveryInterfaceIsNamedExactly pins the set, in both directions.
-//
-// The false answers matter as much as the true ones: an address of this machine
-// reported as a wildcard would have a user widen a range they never opened, and
-// a wildcard reported as an address of this machine is the defect itself.
+// TestWhatBindsEveryInterfaceIsNamedExactly pins the set, in both directions. A
+// machine address reported as a wildcard has a user widen a range they never
+// opened, and a wildcard reported as a machine address is the defect itself.
 func TestWhatBindsEveryInterfaceIsNamedExactly(t *testing.T) {
 	for address, want := range map[string]bool{
 		"0.0.0.0": true,
 		"::":      true,
 		// As a Compose file may write an IPv6 literal, and as Docker reports one.
 		"[::]": true,
-		// A record written before Feat had a bind address of its own: its
+		// A record written before Feat had a bind address of its own. Its
 		// containers were given every address, so that is what it says.
 		"":             true,
 		"127.0.0.1":    false,
@@ -288,11 +260,9 @@ func TestWhatBindsEveryInterfaceIsNamedExactly(t *testing.T) {
 	}
 }
 
-// TestObservedResourcesAreSeparateFromState keeps the two questions apart.
-//
-// The state says whether the application is up; the resources say what exists
-// because of it, which is what a user needs in order to reach it and what
-// cleanup needs in order to say what it would retain.
+// TestObservedResourcesAreSeparateFromState keeps the two questions apart. The
+// state says whether the application is up; the resources say what exists
+// because of it, which is what a user reaches it by and what cleanup explains.
 func TestObservedResourcesAreSeparateFromState(t *testing.T) {
 	runtime := NewRuntimeEnvironment(inputs("feat-example-7f3a1c2e"))
 
@@ -314,19 +284,13 @@ func TestObservedResourcesAreSeparateFromState(t *testing.T) {
 	}
 }
 
-// TestEveryChangeToARuntimeAdvancesItsGeneration is what lets a reader of this
-// record tell it apart from one that has been changed back into its own shape.
+// TestEveryChangeToARuntimeAdvancesItsGeneration lets a reader tell this record
+// apart from one changed back into the same shape. A destroy and the create
+// after it leave identity, state, health, and port numbers as they were, so only
+// the generation can say they are different (ADR-065 evidence 16).
 //
-// A destroy and the create after it leave the identity, the state, the health
-// and the port numbers exactly as they were, so nothing about the record's
-// contents says it is a different one — and an answer about the record before
-// the pair, applied after it, releases ports that are bound (ADR-065 evidence
-// 16). The generation is the only thing that can say so, and it can only say it
-// if every change moves it.
-//
-// The clock is deliberately held still throughout, because that is the case a
-// timestamp cannot answer and this exists to answer: the daemon reads its clock
-// once per operation, and two operations can share a reading.
+// The clock is held still throughout, because that is the case a timestamp
+// cannot answer: the daemon reads its clock once per operation.
 func TestEveryChangeToARuntimeAdvancesItsGeneration(t *testing.T) {
 	held := inputs("feat-example-7f3a1c2e")
 	held.Allocations = []PortAllocation{
@@ -376,7 +340,7 @@ func TestEveryChangeToARuntimeAdvancesItsGeneration(t *testing.T) {
 	}
 	moved("released ports")
 
-	// And a call that changes nothing does not move it, or every poll of an
+	// A call that changes nothing leaves it alone, or every poll of an
 	// unchanged runtime would look like somebody acting on it.
 	unchanged := runtime.Generation
 	if runtime.ReleasePorts(origin) || runtime.ResolveProvenance(runtime.Provenance, origin) {

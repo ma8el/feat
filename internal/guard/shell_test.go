@@ -32,13 +32,13 @@ var commandArgIndex = map[string]int{
 }
 
 // TestNoShellCommandInterpolation checks the CLAUDE.md architectural rule that
-// Git, tmux, and Docker Compose are invoked through argument vectors rather
-// than interpolated shell commands.
+// Git, tmux, and Docker Compose are invoked through argument vectors rather than
+// interpolated shell commands.
 //
-// A file that must spawn a shell because a shell is what it is testing is
-// exempted through testdata/shell-exemptions.txt, which states the reason. The
-// exemption lives there rather than in a //nolint comment so that every
-// deliberate use stays visible in one reviewable place (ADR-025).
+// A file that spawns a shell because a shell is what it tests is exempted
+// through testdata/shell-exemptions.txt, which states the reason. It lives there
+// rather than in a //nolint comment, so every deliberate use stays in one
+// reviewable place (ADR-025).
 func TestNoShellCommandInterpolation(t *testing.T) {
 	root := repoRoot(t)
 	exempt := loadShellExemptions(t)

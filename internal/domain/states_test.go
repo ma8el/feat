@@ -6,11 +6,9 @@ import (
 )
 
 // TestWorkflowTransitionsMatchTheLifecycle pins the transition table against the
-// lifecycle in docs/03-domain-model.md and docs/02-user-workflows.md.
-//
-// The expectation is written out rather than derived from the table, so that
-// widening the lifecycle is a deliberate edit in two places instead of a
-// side effect of one.
+// lifecycle in docs/03-domain-model.md and docs/02-user-workflows.md. The
+// expectation is written out rather than derived, so widening the lifecycle
+// takes a deliberate edit in two places.
 func TestWorkflowTransitionsMatchTheLifecycle(t *testing.T) {
 	want := map[WorkflowState][]WorkflowState{
 		WorkflowDraft:              {WorkflowPreparing, WorkflowArchived},
@@ -43,12 +41,8 @@ func TestWorkflowTransitionsMatchTheLifecycle(t *testing.T) {
 }
 
 // TestIdleIsNotCompletion checks invariant 13 as a property of the lifecycle: no
-// state reaches ready_for_review without passing through an explicit review
-// request.
-//
-// A Stop or end-of-turn signal is an observation of a process. The shape a
-// "Stop means done" defect would take is exactly an edge into a review state
-// from somewhere the agent never asked for review.
+// state reaches ready_for_review without an explicit review request. A "Stop
+// means done" defect would take exactly the shape of such an edge.
 func TestIdleIsNotCompletion(t *testing.T) {
 	allowed := map[WorkflowState]bool{
 		WorkflowReviewRequested: true,
@@ -136,11 +130,8 @@ func TestPrimaryRepositoryAccess(t *testing.T) {
 }
 
 // TestTaskAccessCannotExceedTheConfiguredDefault checks the asymmetry a task's
-// repository selection rests on.
-//
-// Taking less access than the project configured is always available to a task.
-// Taking more is not: a repository a project declared read-only must not become
-// writable because one task asked for it.
+// repository selection rests on. Taking less access than the project configured
+// is always available; taking more is not.
 func TestTaskAccessCannotExceedTheConfiguredDefault(t *testing.T) {
 	writable := map[DefaultAccess]bool{
 		DefaultAccessReadWrite:      true,

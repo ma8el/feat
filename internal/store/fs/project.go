@@ -10,13 +10,10 @@ import (
 	"github.com/ma8el/feat/internal/store"
 )
 
-// projectDocument is the stored form of a project.
-//
-// The first three fields are the header every generated document carries
-// (docs/07-configuration-model.md). The document is a deliberate copy of the
-// domain type rather than the domain type itself: the file format is a
-// compatibility surface with a migration policy, and it must not change because
-// a Go field was renamed.
+// projectDocument is the stored form of a project. The first three fields are
+// the header every generated document carries (docs/07-configuration-model.md).
+// It copies the domain type rather than reusing it, so a renamed Go field cannot
+// change a file format that carries a migration policy.
 type projectDocument struct {
 	SchemaVersion     int                  `json:"schema_version"`
 	ID                string               `json:"id"`
@@ -71,11 +68,9 @@ func (p projectStore) Load(ctx context.Context, id domain.ProjectID) (*domain.Pr
 	return p.store.loadProject(id, filepath.Join(dir, projectFile))
 }
 
-// List returns every registered project, ordered by identifier.
-//
-// Entries that are not project directories are skipped rather than reported:
-// the state directory is a directory on the user's machine, and an unrelated
-// file in it is not a corrupt project.
+// List returns every registered project, ordered by identifier. Entries that are
+// not project directories are skipped, because the state directory sits on the
+// user's machine and an unrelated file in it is not a corrupt project.
 func (p projectStore) List(ctx context.Context) ([]*domain.Project, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

@@ -19,7 +19,7 @@ import (
 // TestTaskWithSeveralRepositoriesRoundTripsExactly checks that a task survives a
 // round trip unchanged. The fixture binds two repositories with different
 // access, owns a session and a runtime, and carries observations, so a field the
-// mapping forgets is a field that comes back changed.
+// mapping forgets comes back changed.
 func TestTaskWithSeveralRepositoriesRoundTripsExactly(t *testing.T) {
 	ctx := context.Background()
 	fixture := storetest.Task()
@@ -59,12 +59,10 @@ func TestTaskWithSeveralRepositoriesRoundTripsExactly(t *testing.T) {
 	}
 }
 
-// TestAFailedTaskKeepsItsReason is the round trip that matters for a task
-// nobody is looking at yet.
-//
-// The reason a task failed is what a user reads minutes or hours later, which is
-// after a daemon restart as often as not. A field that survived only in memory
-// would answer the question exactly when it is not being asked.
+// TestAFailedTaskKeepsItsReason is the round trip that matters for a task nobody
+// is looking at yet. A user reads the reason minutes or hours later, often after
+// a daemon restart, so a field that survived only in memory would be gone by
+// then (ADR-060).
 func TestAFailedTaskKeepsItsReason(t *testing.T) {
 	ctx := context.Background()
 	fixture := storetest.Failed()
@@ -93,12 +91,10 @@ func TestAFailedTaskKeepsItsReason(t *testing.T) {
 }
 
 // TestAPublishedTaskKeepsWhatItPublishedAndWhatItDidNot is the round trip a
-// partial publication depends on.
-//
-// A merge request Feat opened is on somebody else's server, so a record that
-// lost it after a restart would leave a resource nothing can name; a repository
-// still recorded as planned is one nothing was attempted for, and that is
-// exactly what an interrupted publication has to be able to say (ADR-073).
+// partial publication depends on. A record that lost a merge request after a
+// restart would leave a resource on somebody else's server that nothing can
+// name, and a repository still recorded as planned was never attempted
+// (ADR-073).
 func TestAPublishedTaskKeepsWhatItPublishedAndWhatItDidNot(t *testing.T) {
 	ctx := context.Background()
 	fixture := storetest.Published()
@@ -140,11 +136,9 @@ func TestAPublishedTaskKeepsWhatItPublishedAndWhatItDidNot(t *testing.T) {
 }
 
 // TestATicketedTaskKeepsTheSnapshotItWasComposedFrom checks the source of a
-// brief that came from a tracker.
-//
-// The snapshot is what a change is compared against, so a round trip that lost
-// it would leave Feat unable to say whether the ticket still says what the task
-// was created from (FR-TASK-005).
+// brief that came from a tracker. The snapshot is what a change is compared
+// against, so losing it in a round trip would leave Feat unable to say whether
+// the ticket still reads as it did (FR-TASK-005).
 func TestATicketedTaskKeepsTheSnapshotItWasComposedFrom(t *testing.T) {
 	ctx := context.Background()
 	fixture := storetest.Published()
@@ -176,8 +170,7 @@ func TestATicketedTaskKeepsTheSnapshotItWasComposedFrom(t *testing.T) {
 
 // TestASnapshotWithoutAFailureIsNotACorruptOne is the compatibility rule the
 // codec states: a field added at the same schema version leaves an older
-// document readable, and a task written before this build simply has no reason
-// recorded.
+// document readable, and such a task has no reason recorded.
 func TestASnapshotWithoutAFailureIsNotACorruptOne(t *testing.T) {
 	ctx := context.Background()
 	filestore := newStore(t)
@@ -216,12 +209,9 @@ func TestASnapshotWithoutAFailureIsNotACorruptOne(t *testing.T) {
 }
 
 // TestASnapshotWithoutAPlanFirstKeyIsNotAPlanningTask is the same compatibility
-// rule for the mode a task is launched in.
-//
-// It is worth its own test because the field is a boolean with no absent form:
-// a decoder that got it wrong would not fail, it would launch every task
-// written by an earlier build into plan mode, which is not what any of them was
-// confirmed as.
+// rule for the mode a task is launched in. The field is a boolean with no absent
+// form, so a decoder that got it wrong would not fail: it would launch every
+// older task into plan mode, which is not what any of them was confirmed as.
 func TestASnapshotWithoutAPlanFirstKeyIsNotAPlanningTask(t *testing.T) {
 	ctx := context.Background()
 	filestore := newStore(t)
@@ -266,10 +256,9 @@ func TestASnapshotWithoutAPlanFirstKeyIsNotAPlanningTask(t *testing.T) {
 	}
 }
 
-// TestAnOrdinaryTaskWritesNoPlanFirstKey keeps the absent form absent.
-//
-// The field is additive and omitted when false, which is what lets a build
-// before this one read a snapshot this one wrote.
+// TestAnOrdinaryTaskWritesNoPlanFirstKey keeps the absent form absent. The field
+// is additive and omitted when false, which is what lets an earlier build read a
+// snapshot this one wrote.
 func TestAnOrdinaryTaskWritesNoPlanFirstKey(t *testing.T) {
 	ctx := context.Background()
 	filestore := newStore(t)
@@ -293,18 +282,15 @@ func TestAnOrdinaryTaskWritesNoPlanFirstKey(t *testing.T) {
 }
 
 // TestFixturesPopulateEveryPersistedField is what makes the round-trip tests
-// mean something: a field that no fixture sets would round-trip perfectly
-// without ever being written.
+// mean something. A field no fixture sets would round-trip perfectly without
+// ever being written.
 func TestFixturesPopulateEveryPersistedField(t *testing.T) {
 	fixtures := map[string][]any{
 		"project": {storetest.Project()},
-		// Two tasks, because two of a task's fields exclude each other: the
-		// reason it failed exists only while it is failed, and the fixture that
-		// has reached review cannot also be.
-		// The published fixture carries the third pair that excludes the
-		// others: a brief comes from one source, so a task imported from
-		// Markdown never also holds the ticket it was composed from, and a task
-		// that was never published holds no publication record.
+		// Two tasks, because some of a task's fields exclude each other. A
+		// failure reason exists only while the task is failed, which the
+		// fixture that reached review is not. The published fixture carries
+		// the ticket and the publication, which a Markdown brief never holds.
 		"task":   {storetest.Task(), storetest.Failed(), storetest.Published()},
 		"review": {storetest.Review()},
 	}
@@ -363,14 +349,10 @@ func TestReviewRoundTripsExactly(t *testing.T) {
 	}
 }
 
-// TestAReviewWrittenBeforeTheDecisionMovedStillLoads covers the one risk ADR-047
-// took by removing two stored fields without moving the schema version.
-//
-// A document written by an earlier build carries `status` and `decided_at`. The
-// decision they held is the task's workflow state, which the task snapshot beside
-// this one already records, so nothing has to be upgraded — but a state directory
-// that had been in use had to keep loading, and the next save had to stop writing
-// what nothing reads.
+// TestAReviewWrittenBeforeTheDecisionMovedStillLoads covers the risk ADR-047 took
+// by removing two stored fields without moving the schema version. An older
+// document carries `status` and `decided_at`, the task snapshot beside it
+// already records that decision, and a directory in use has to keep loading.
 func TestAReviewWrittenBeforeTheDecisionMovedStillLoads(t *testing.T) {
 	ctx := context.Background()
 	ref := store.TaskRef{Project: storetest.ProjectID, Task: storetest.TaskID}
@@ -418,8 +400,8 @@ func TestAReviewWrittenBeforeTheDecisionMovedStillLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the rewritten review: %v", err)
 	}
-	// The top-level keys rather than the text: a check result carries a status of
-	// its own, which is a different field and stays.
+	// The top-level keys rather than the text. A check result carries a status
+	// of its own, which is a different field and stays.
 	var document map[string]any
 	if err := json.Unmarshal(rewritten, &document); err != nil {
 		t.Fatalf("decoding the rewritten review: %v", err)
@@ -486,8 +468,8 @@ func TestMissingBriefIsReportedAsCorruptState(t *testing.T) {
 }
 
 // TestMissingRecordsReportNotFound checks that an absent record is
-// distinguishable from a failure, since the daemon has to create what is absent
-// and stop for what failed.
+// distinguishable from a failure. The daemon creates what is absent and stops
+// for what failed.
 func TestMissingRecordsReportNotFound(t *testing.T) {
 	ctx := context.Background()
 	filestore := newStore(t)
@@ -552,9 +534,9 @@ func TestListingIgnoresEntriesThatAreNotRecords(t *testing.T) {
 }
 
 // TestUnsafeIdentifiersNeverReachTheFilesystem checks that storage validates
-// identifiers itself rather than trusting a caller to have done it. A record
-// name is a path segment, and a path segment that traverses a directory is how
-// state outside the store gets read or replaced.
+// identifiers itself rather than trusting the caller. A record name is a path
+// segment, and one that traverses a directory reads or replaces state outside
+// the store.
 func TestUnsafeIdentifiersNeverReachTheFilesystem(t *testing.T) {
 	ctx := context.Background()
 	filestore := newStore(t)
@@ -626,8 +608,8 @@ func TestStoredStateIsPrivateToTheUser(t *testing.T) {
 }
 
 // TestSavesAreSerialized exercises the store the way the daemon uses it: several
-// requests writing and reading at once. It is a race-detector test; what it
-// asserts is that no read fails and no write corrupts another.
+// requests writing and reading at once. It is a race-detector test, and it
+// asserts that no read fails and no write corrupts another.
 func TestSavesAreSerialized(t *testing.T) {
 	ctx := context.Background()
 	filestore := newStore(t)

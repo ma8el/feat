@@ -10,21 +10,13 @@ import (
 // UnpopulatedFields returns the fields of value that are zero everywhere they
 // occur.
 //
-// It exists to keep a round-trip test honest. A round-trip proves that
-// persistence preserves the fields the fixture sets, and says nothing about the
-// ones it leaves at their zero value: a field that is never persisted and never
-// populated round-trips perfectly. Asserting that this function returns nothing
-// turns "the fixture happens to cover the mapping" into a checked property.
+// It keeps a round-trip test honest. A round trip proves nothing about a field
+// the fixture left at its zero value, because one that is never persisted and
+// never populated round-trips perfectly.
 //
-// Field paths ignore slice indexes, so a field set on one element of a slice
-// counts as populated: a read-only repository binding legitimately has no
-// branch, and requiring one everywhere would describe a task that cannot exist.
-//
-// Several values of one type may be passed, and a field any of them populates
-// counts as covered. Some fields exclude each other — a task carries the reason
-// it failed only while it is failed, and the fixture that is in review cannot
-// also be — so coverage of those is a union over fixtures rather than a demand
-// that one fixture hold a state no task could be in.
+// Field paths ignore slice indexes, so a field set on one element counts as
+// populated: a read-only binding legitimately has no branch. Several values may
+// be passed and coverage is their union, because some fields exclude each other.
 func UnpopulatedFields(values ...any) []string {
 	populated := make(map[string]bool)
 	for _, value := range values {
@@ -41,8 +33,8 @@ func UnpopulatedFields(values ...any) []string {
 	return unpopulated
 }
 
-// timeType is treated as a leaf: a timestamp is populated or it is not, and its
-// internal representation is not a field anyone persists.
+// timeType is a leaf: a timestamp is populated or it is not, and its internal
+// representation is not a field anyone persists.
 var timeType = reflect.TypeOf(time.Time{})
 
 func walk(path string, value reflect.Value, populated map[string]bool) {

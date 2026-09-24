@@ -32,11 +32,9 @@ func (e *NotFoundError) Error() string {
 // Unwrap reports the error class.
 func (e *NotFoundError) Unwrap() error { return ErrNotFound }
 
-// CorruptError reports stored data that cannot be interpreted.
-//
-// It names the file, and the record within it where that is meaningful, because
-// the user's recovery options are to repair or to discard the file, and neither
-// is possible without knowing which one it is.
+// CorruptError reports stored data that cannot be interpreted. It names the
+// file, and the record within it where that means something, because repairing
+// or discarding the file needs to know which one it is.
 type CorruptError struct {
 	// Kind names the record, such as "task".
 	Kind string
@@ -67,10 +65,8 @@ func (e *CorruptError) Unwrap() error { return e.Err }
 func (e *CorruptError) Is(target error) bool { return target == ErrCorrupt }
 
 // SchemaError reports a record whose schema version this binary cannot read.
-//
-// Migrations are one-way (docs/07-configuration-model.md), so a newer record is
-// not something a caller can work around: the message has to say that the state
-// directory belongs to a newer Feat.
+// Migrations are one-way (docs/07-configuration-model.md), so a caller cannot
+// work around a newer record and the message says where it came from.
 type SchemaError struct {
 	// Kind names the record, such as "task".
 	Kind string

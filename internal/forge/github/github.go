@@ -9,32 +9,24 @@ import (
 	"github.com/ma8el/feat/internal/forge"
 )
 
-// Executable is the GitHub command line.
-//
-// It is a constant rather than a configured value, for the reason the agent's
-// executable is: a project that could name the program the daemon runs on its
-// owner's behalf would be naming a program, and which forge a repository
-// publishes to is already declared by repositories.<id>.forge.kind.
+// Executable is the GitHub command line. It is a constant rather than a
+// configured value, for the reason the agent's executable is: a project that
+// names the program the daemon runs on its owner's behalf is naming a program,
+// and repositories.<id>.forge.kind already says which forge to publish to.
 const Executable = "gh"
 
 // Verified is the gh release this adapter's flags and behaviour were checked
-// against, as docs/06-technical-architecture.md requires of a provider CLI.
-//
-// It is recorded rather than enforced, for the reason the GitLab adapter records
-// its own: another version is far more likely to work than not, and refusing to
-// publish because a user upgraded gh would be Feat inventing a failure.
+// against, as docs/06-technical-architecture.md requires of a provider CLI. It
+// is recorded rather than enforced, because refusing to publish when a user
+// upgraded gh would be Feat inventing a failure.
 const Verified = "2.97.0"
 
-// Flags are the gh flags this adapter passes, exported so that the opt-in test
-// which asks an installed gh whether it still accepts them has one list to check
-// rather than a copy of it.
+// Flags are the gh flags this adapter passes, exported so the opt-in test that
+// asks an installed gh whether it still accepts them reads one list.
 //
-// There is deliberately no confirmation flag among them. gh has no equivalent of
-// glab's `--yes`: supplying a title and a body is what makes it non-interactive,
-// and without them it refuses — "must provide `--title` and `--body` … when not
-// running interactively" — rather than waiting for a terminal the daemon does
-// not have. That refusal is worth more than a flag would be, because it fails
-// loudly where the other failure mode is a publication that hangs.
+// None of them is a confirmation flag. gh has no equivalent of glab's `--yes`:
+// a title and a body are what make it non-interactive, and without them it
+// refuses rather than waiting for a terminal the daemon does not have.
 var Flags = []string{
 	"--head",
 	"--base",
@@ -60,28 +52,17 @@ func (Adapter) Kind() domain.ForgeKind { return domain.ForgeGitHub }
 
 // Open opens one pull request and returns where it can be read.
 //
-// The repository is resolved by gh from the one the command runs in, which is
-// the task's own worktree: a linked worktree shares its remotes with the
-// checkout it came from, so the repository is the one the branch was just pushed
-// to. Feat does not derive an owner/repo pair from the remote URL, for the
-// reason a forge is declared rather than inferred — a GitHub Enterprise host is
-// not something to guess a repository path out of (ADR-071).
+// gh resolves the repository from the directory it runs in, which is the task's
+// worktree, and a linked worktree shares the remotes of the checkout it came
+// from. Feat derives no owner/repo pair from the remote URL, because a GitHub
+// Enterprise host is not something to guess a repository path out of (ADR-071).
+// `--head` names a branch of that same repository, since Feat pushes to the
+// repository's own remote and there is no fork to qualify.
 //
-// `--head` names a branch of that same repository, which is what a task branch
-// is: Feat pushes to the repository's own remote, so there is no fork to
-// qualify it with.
-//
-// Two things this deliberately does not do, both because gh does not need them
-// and glab did. It passes no confirmation flag, because a title and a body are
-// what make gh non-interactive. And it refuses no description: glab reads a
-// description of exactly "-" as a request to open an editor, where gh puts that
-// special meaning on `--body-file` and treats `--body` as text whatever it says.
-// Both were checked against the version above rather than assumed, as was the
-// third asymmetry: gh writes no recovery file of its own. glab saves one when a
-// creation fails and can load a previous attempt's options back out of it, which
-// its adapter is careful never to ask for; gh's `--recover` takes an explicit
-// file name and nothing is written without one, so there is nothing here for a
-// stale attempt to come back through.
+// Two of glab's hazards do not arise here, both checked against the version
+// above. gh reads `--body` as text whatever it says, putting the editor meaning
+// on `--body-file`; and gh writes no recovery file unless `--recover` names one,
+// so no previous attempt's options can come back through.
 func (a Adapter) Open(ctx context.Context, req forge.Request) (domain.MergeRequest, error) {
 	if err := req.Validate(); err != nil {
 		return domain.MergeRequest{}, err
@@ -92,8 +73,8 @@ func (a Adapter) Open(ctx context.Context, req forge.Request) (domain.MergeReque
 		"--head", req.SourceBranch,
 		"--base", req.TargetBranch,
 		"--title", req.Title,
-		// Always passed, empty body included: without it gh refuses for want of
-		// a terminal to ask on.
+		// Always passed, empty body included. Without it gh refuses for want
+		// of a terminal to ask on.
 		"--body", req.Body,
 	}
 
@@ -127,19 +108,15 @@ func (a Adapter) Open(ctx context.Context, req forge.Request) (domain.MergeReque
 	return request, nil
 }
 
-// urlPattern matches the pull request URL gh prints when it has created one.
-//
-// It is anchored on the path GitHub uses for a pull request rather than on a
-// host, because GitHub Enterprise is on whatever host the user runs; and it is a
-// pattern rather than "the last line", because gh prints progress around it.
+// urlPattern matches the pull request URL gh prints when it has created one. It
+// anchors on GitHub's pull request path rather than on a host, because GitHub
+// Enterprise runs on the user's own; and it is a pattern rather than "the last
+// line", because gh prints progress around it.
 var urlPattern = regexp.MustCompile(`https?://[^\s"'<>]+/pull/(\d+)`)
 
-// parse reads the pull request out of what gh printed.
-//
-// The reference is derived from the URL rather than parsed separately: GitHub's
-// own name for a pull request is "#<number>", and the number in the URL is that
-// number. Reading one value twice from one string is how the two are guaranteed
-// to describe the same request.
+// parse reads the pull request out of what gh printed. The reference comes from
+// the URL rather than from a second reading, so the two cannot describe
+// different requests. GitHub's own name for a pull request is "#<number>".
 func parse(output forge.Output) (domain.MergeRequest, bool) {
 	for _, stream := range []string{output.Stdout, output.Stderr} {
 		match := urlPattern.FindStringSubmatch(stream)

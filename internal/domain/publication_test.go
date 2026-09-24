@@ -11,12 +11,9 @@ import (
 // can never reach: a read-only binding has no task branch (invariant 7).
 const testReadOnly = RepositoryID("docs")
 
-// publishableTask returns a launched task binding two repositories a
-// publication may reach and one it may not.
-//
-// Two, because one merge request per changed repository is only interesting
-// with more than one; and the read-only third, because what a publication
-// refuses is as much part of the shape as what it records.
+// publishableTask returns a launched task binding two repositories a publication
+// may reach and one it may not. One merge request per changed repository is only
+// interesting above one, and what a publication refuses is part of the shape.
 func publishableTask(t *testing.T) *Task {
 	t.Helper()
 
@@ -75,11 +72,8 @@ func plan() []RepositoryPublication {
 }
 
 // TestAPlanIsRecordedBeforeAnythingIsAttempted is the ordering ADR-073 requires.
-//
-// A merge request is on somebody else's server and cannot be un-created, so
-// every repository a publication could reach is written down before the first
-// one is attempted. Anything that reads the record then knows what exists and
-// what does not, rather than having to ask the forges.
+// A merge request cannot be un-created, so every repository a publication could
+// reach is written down first and a reader never has to ask the forges.
 func TestAPlanIsRecordedBeforeAnythingIsAttempted(t *testing.T) {
 	task := publishableTask(t)
 
@@ -110,11 +104,8 @@ func TestAPlanIsRecordedBeforeAnythingIsAttempted(t *testing.T) {
 }
 
 // TestAnInterruptedPublicationNamesWhatItDidNotAttempt is the property the
-// ordering buys.
-//
-// Half a publication is a recorded state rather than one to be undone, so what
-// the user is owed is which repositories published and which did not — and the
-// ones that did not are named rather than deduced.
+// ordering buys. Half a publication is a recorded state rather than one to be
+// undone, so what did not publish is named rather than deduced.
 func TestAnInterruptedPublicationNamesWhatItDidNotAttempt(t *testing.T) {
 	task := publishableTask(t)
 	if err := task.PlanPublication(plan(), origin); err != nil {
@@ -147,11 +138,8 @@ func TestAnInterruptedPublicationNamesWhatItDidNotAttempt(t *testing.T) {
 }
 
 // TestOneRepositorysFailureLeavesTheOthersRecordable checks that a failure is
-// recorded rather than allowed to end the publication.
-//
-// Where the cause is common the user reads it several times, which costs
-// nothing; where it is local to one repository, the others still land
-// (ADR-073 evidence 3).
+// recorded rather than allowed to end the publication. A common cause is read
+// several times; a local one still lets the rest land (ADR-073 evidence 3).
 func TestOneRepositorysFailureLeavesTheOthersRecordable(t *testing.T) {
 	task := publishableTask(t)
 	if err := task.PlanPublication(plan(), origin); err != nil {
@@ -183,11 +171,9 @@ func TestOneRepositorysFailureLeavesTheOthersRecordable(t *testing.T) {
 }
 
 // TestRepublishingSkipsWhatAlreadyPublished checks that a second publication
-// cannot forget or replace a merge request the first one opened.
-//
-// A repository that published is skipped as already published rather than as
-// stale, which is what lets a staleness refusal keep its one meaning: that the
-// draft describes a commit which is no longer current (ADR-073).
+// cannot forget or replace a merge request the first opened. It is skipped as
+// already published rather than as stale, so a staleness refusal keeps its one
+// meaning: the draft describes a commit that is no longer current (ADR-073).
 func TestRepublishingSkipsWhatAlreadyPublished(t *testing.T) {
 	task := publishableTask(t)
 	if err := task.PlanPublication(plan(), origin); err != nil {
@@ -349,9 +335,9 @@ func TestAResultIsRefusedWithoutAPlanThatNamesIt(t *testing.T) {
 	}
 }
 
-// TestAnInconsistentPublicationDoesNotValidate covers the records storage must
-// refuse on the way in and on the way out, since a document edited by hand or
-// written by another build reaches the domain the same way.
+// TestAnInconsistentPublicationDoesNotValidate covers the records storage refuses
+// on the way in and on the way out. A document edited by hand and one written by
+// another build reach the domain the same way.
 func TestAnInconsistentPublicationDoesNotValidate(t *testing.T) {
 	for name, breakIt := range map[string]func(publication *Publication){
 		"published with no merge request": func(p *Publication) {

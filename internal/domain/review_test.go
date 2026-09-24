@@ -18,11 +18,8 @@ func newTestReview(t *testing.T) *Review {
 }
 
 // TestGatedResultsDoNotEraseAgentClaims is half of FR-AGENT-006 in the
-// aggregate: after a gate has run, a result it enforced and a result the agent
-// asserted are both present and still tell each other apart.
-//
-// A gate that cleared everything it did not run would be Feat deciding that a
-// report it had not verified never happened.
+// aggregate: after a gate runs, an enforced result and an asserted one are both
+// present and still tell each other apart.
 func TestGatedResultsDoNotEraseAgentClaims(t *testing.T) {
 	review := newTestReview(t)
 	now := time.Now()
@@ -72,10 +69,10 @@ func TestGatedResultsDoNotEraseAgentClaims(t *testing.T) {
 	}
 }
 
-// TestChecksOfTwoRepositoriesAreDistinct checks that a check identity is its
-// repository and its identifier together. Two repositories that both configure a
-// check called "test" are the ordinary case in a multi-repository project, and
-// one overwriting the other would report half the work.
+// TestChecksOfTwoRepositoriesAreDistinct checks that repository and identifier
+// together name a check. Two repositories both configuring "test" is ordinary in
+// a multi-repository project, and one overwriting the other reports half the
+// work.
 func TestChecksOfTwoRepositoriesAreDistinct(t *testing.T) {
 	review := newTestReview(t)
 	now := time.Now()
@@ -95,9 +92,9 @@ func TestChecksOfTwoRepositoriesAreDistinct(t *testing.T) {
 	}
 }
 
-// TestAGateCannotRecordAnAgentClaim checks that the reporter of a gated result
-// is not something a caller chooses. The distinction between an enforced result
-// and an asserted one is what the field exists for.
+// TestAGateCannotRecordAnAgentClaim checks that a caller does not choose the
+// reporter of a gated result. Telling an enforced result from an asserted one is
+// what the field exists for.
 func TestAGateCannotRecordAnAgentClaim(t *testing.T) {
 	review := newTestReview(t)
 

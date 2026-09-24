@@ -31,11 +31,9 @@ type eventDocument struct {
 
 type eventStore struct{ store *Store }
 
-// Append records one event and returns it with its assigned sequence number.
-//
-// The log assigns the sequence rather than the caller. Ordering is a property
-// of the log, and a caller that supplied its own numbers would have to know
-// what every other caller had already written.
+// Append records one event and returns it with its assigned sequence number. The
+// log assigns the sequence, because a caller supplying its own would have to
+// know what every other caller had already written.
 func (e eventStore) Append(ctx context.Context, ref store.TaskRef, event domain.Event) (domain.Event, error) {
 	if err := ctx.Err(); err != nil {
 		return domain.Event{}, err
@@ -79,11 +77,9 @@ func (e eventStore) Append(ctx context.Context, ref store.TaskRef, event domain.
 	return event, nil
 }
 
-// Replay returns the task's recorded history in order.
-//
-// It takes the same lock an append takes, so a replay that runs while an event
-// is being written sees the log either before or after that event, rather than
-// mistaking a record still being written for a crash.
+// Replay returns the task's recorded history in order. It takes the lock an
+// append takes, so a replay during a write sees the log before or after that
+// event rather than mistaking a partial record for a crash.
 func (e eventStore) Replay(ctx context.Context, ref store.TaskRef) (store.EventLog, error) {
 	if err := ctx.Err(); err != nil {
 		return store.EventLog{}, err
@@ -112,12 +108,10 @@ func (s *Store) lastSequence(key string, ref store.TaskRef, path string) (uint64
 	return last.Sequence, nil
 }
 
-// readLog reads and decodes an event log.
-//
-// A record is complete when it is terminated by a newline. An unterminated
-// final record is what a crash during an append leaves behind, so it is ignored
-// and reported. Anything else that fails to decode is corruption: dropping a
-// malformed record in the middle of a history would quietly rewrite it.
+// readLog reads and decodes an event log. A newline terminates a complete
+// record, so an unterminated final one is a crash during an append and is
+// ignored and reported. Anything else that fails to decode is corruption,
+// because dropping a record mid-history would quietly rewrite it.
 func readLog(ref store.TaskRef, path string) (store.EventLog, error) {
 	raw, err := readFile(path)
 	if errors.Is(err, iofs.ErrNotExist) {

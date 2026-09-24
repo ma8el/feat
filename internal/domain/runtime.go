@@ -7,12 +7,9 @@ import (
 	"time"
 )
 
-// RuntimeEnvironment is the application environment associated with one task.
-//
-// It is a separate concept from the agent execution environment even when both
-// use the same Compose project: the agent's environment is how the agent runs,
-// and this is the application the user tests. Keeping them apart is what lets
-// Feat manage Docker on the host without ever giving the agent Docker access.
+// RuntimeEnvironment is the application environment associated with one task. It
+// stays separate from the agent's execution environment even when both use
+// Compose: that is how the agent runs, and this is what the user tests.
 type RuntimeEnvironment struct {
 	// Provider identifies the runtime adapter, such as the Compose adapter.
 	Provider string
@@ -61,40 +58,19 @@ type RuntimeEnvironment struct {
 	// ObservedAt is when the state, health, and resource lists were last
 	// observed.
 	ObservedAt time.Time
-	// Generation counts how many times this record has been changed.
-	//
-	// It is what tells this record apart from one that was destroyed and
-	// re-created while a question about it was in flight. Everything else about
-	// the two can match: the identity is derived from the task, a re-created
-	// runtime is running again, and the allocator hands back the lowest free
-	// port — which is the number the destroy released. An answer taken before
-	// that pair and written down after it records absent and gives the new
-	// containers' ports away, which is the defect ADR-065 evidence 16 records,
-	// and no comparison of the record's shape can see it.
-	//
-	// It counts rather than timestamps because a timestamp is not fine enough to
-	// be a guard: the daemon reads its clock once per operation, so two
-	// operations can share a reading, and a test that holds the clock still
-	// would make every record look unchanged.
-	//
-	// It starts at one, because a record that exists has been written once.
+	// Generation counts how many times this record has been changed, so a stale
+	// answer cannot be written over a runtime that was destroyed and re-created
+	// while the question was in flight (ADR-065 evidence 16). It counts rather
+	// than timestamps, because the daemon reads its clock once per operation. It
+	// starts at one, because a record that exists has been written once.
 	Generation uint64
 }
 
-// ServiceProvenance is where one managed service's code comes from.
-//
-// It is a state rather than a note because every way of getting this wrong is
-// silent: the containers start, the application serves, and every record Feat
-// keeps stays correct while the user looks at a healthy runtime that is not
-// running their task (ADR-065 evidence 7). A service the task cannot reach is
-// something to know before a start rather than after one, so this is resolved
-// from configuration and from the project's own Compose files rather than
-// inspected out of the containers.
-//
-// The two routes are separate because they behave differently. A worktree the
-// service mounts shows a change as soon as it is written; code the service baked
-// into its image shows one when the image is built again, and an agent confined
-// to a devcontainer has no Docker and can build nothing (ADR-065 evidence 9).
+// ServiceProvenance is where one managed service's code comes from. Getting it
+// wrong is silent — a healthy runtime that is not running the task's work — so it
+// is resolved before a start, from configuration and the project's own Compose
+// files (ADR-065 evidence 7). Mounted and built are kept apart because a mount
+// is current when a file is written and an image is not (ADR-065 evidence 9).
 type ServiceProvenance struct {
 	// Service is the managed service.
 	Service string
@@ -112,10 +88,9 @@ type ServiceProvenance struct {
 func (p ServiceProvenance) RunsTaskCode() bool { return len(p.Mounted) > 0 || len(p.Built) > 0 }
 
 // Baked are the repositories whose code reaches the service through its image
-// alone, so that a change appears there only once the image is built again.
-//
-// A repository that is also mounted is not one of them: the mount is what the
-// service reads, and it is current the moment the file is written.
+// alone, so a change appears there only once the image is built again. A
+// repository that is also mounted is not one of them, because the mount is what
+// the service reads.
 func (p ServiceProvenance) Baked() []string {
 	if len(p.Built) == 0 {
 		return nil
@@ -141,28 +116,19 @@ type PortAssignment struct {
 	ContainerPort int
 	// HostPort is the port published on the host.
 	HostPort int
-	// HostIP is the address the container runtime reported the port bound on.
-	//
-	// It is read back rather than assumed, and it is the one field of an
-	// observation that can contradict the allocation beside it: a record saying
-	// a service is reached on this machine alone, next to a binding on every
-	// interface, is a disagreement a user can only see if the address is
-	// observed. It is empty when the runtime reported none.
+	// HostIP is the address the container runtime reported the port bound on. It
+	// is read back rather than assumed, so a binding wider than the allocation
+	// asked for is visible. It is empty when the runtime reported none.
 	HostIP string
 }
 
-// PortAllocation is one host port Feat reserved for one service of one task.
-//
-// It is an intention rather than an observation, which is what separates it
-// from PortAssignment: this is the port the generated override tells Compose to
-// publish, and that is the port `docker compose ps` reported afterwards. Both
-// are kept because they can disagree — a container that never started publishes
-// nothing — and a record that conflated them could not say which.
+// PortAllocation is one host port Feat reserved for one service of one task. It
+// is an intention, where PortAssignment is what `docker compose ps` reported;
+// both are kept because a container that never started publishes nothing.
 //
 // A host port is global to the machine, so an allocation is held against every
-// other task for as long as the runtime exists and released when it becomes
-// absent. That is the whole of what makes several tasks able to run the same
-// application at once (ADR-065 evidence 8).
+// other task while the runtime exists and released when it becomes absent. That
+// is what lets several tasks run the same application (ADR-065 evidence 8).
 type PortAllocation struct {
 	// Service is the managed service the port belongs to.
 	Service string
@@ -175,39 +141,25 @@ type PortAllocation struct {
 	// allocations may share a number when their protocols differ.
 	Protocol string
 	// HostIP is the host address this port is published on: the one the
-	// project's own Compose file named, or the project's configured
-	// runtime.bind_address when it named none. It is carried so that a project
-	// which deliberately publishes on the loopback address keeps doing so, and
-	// so that what Feat tells a user their service is at is read from the same
-	// field the generated document binds.
-	//
-	// It is empty only in a record written before Feat had a bind address of its
-	// own, which is read as every address because that is what such a record's
-	// containers were given.
+	// project's Compose file named, or its configured runtime.bind_address. Feat
+	// tells the user an address read from the same field the generated document
+	// binds. It is empty only in a record written before Feat had a bind
+	// address, and such a record's containers were given every address.
 	HostIP string
 }
 
-// Address is where the service is reached from this machine.
-//
-// A service on a loopback or wildcard binding is reached at localhost, which is
-// the name a browser and a shell both take and the one a user would type. A
-// service published on some particular address of this machine is reached there
-// and nowhere else, so that address is what is said.
-//
-// The literal address is not lost by saying the name: HostIP carries it, so a
-// client that needs to know which interface was bound reads that rather than
-// parsing this.
+// Address is where the service is reached from this machine. A loopback or
+// wildcard binding is reached at localhost, which is what a user would type; a
+// particular address is said as itself. A client that needs the literal address
+// reads HostIP rather than parsing this.
 func (p PortAllocation) Address() string {
 	return net.JoinHostPort(p.host(), strconv.Itoa(p.HostPort))
 }
 
-// URL is the address as a client would open it, and whether there is one.
-//
-// Only a stream port has one: a URL for a datagram port would be a sentence
-// nothing could use, and the port on its own is still worth telling a service.
-// The scheme is http because Feat cannot know what a service speaks and http is
-// what a development service speaks; a project that terminates TLS itself
-// composes its own address from the port.
+// URL is the address as a client would open it, and whether there is one. Only
+// a stream port has one. The scheme is http because Feat cannot know what a
+// service speaks; a project terminating TLS composes its own address from the
+// port.
 func (p PortAllocation) URL() (string, bool) {
 	if p.Protocol != "tcp" {
 		return "", false
@@ -215,14 +167,11 @@ func (p PortAllocation) URL() (string, bool) {
 	return "http://" + p.Address(), true
 }
 
-// host names the machine address a publication is reached at.
-//
-// The loopback addresses are named rather than printed, because localhost is
-// what reaches them and is what a user types. A wildcard binding is reached at
-// localhost from here too, which is true of it and is the useful half: what such
-// a binding also allows is the other half, and it is said beside the address by
-// a surface that asks BoundEverywhere rather than folded into the address
-// itself, which has to stay the one a client dials.
+// host names the machine address a publication is reached at. The loopback
+// addresses become localhost, and so does a wildcard binding, which is reached
+// there too. What such a binding also allows is said beside the address by a
+// surface that asks BoundEverywhere, because this has to stay what a client
+// dials.
 func (p PortAllocation) host() string {
 	trimmed := unbracket(p.HostIP)
 	switch {
@@ -234,19 +183,12 @@ func (p PortAllocation) host() string {
 }
 
 // BoundEverywhere reports whether a host address publishes on every interface
-// the machine has.
+// the machine has. The unspecified addresses say so, and so does an empty one.
 //
-// The unspecified addresses say so — "0.0.0.0" and "::" — and so does an empty
-// one: a publication with no address of its own is bound on all of them, which
-// is what an allocation written before Feat had a bind address describes.
-//
-// It is exported because the answer cannot be recovered from Address, and is
-// acted on where that is printed. A port on the loopback address and a port on
-// every interface are both dialled at localhost from this machine and read
-// identically there, while one of them is open to every network this machine is
-// joined to and to every container on it. A surface that says only where to dial
-// says nothing about which of the two a user has (docs/05 § Published ports and
-// who can reach them).
+// It is exported because Address cannot answer it: a loopback port and a port on
+// every interface are both dialled at localhost, while one of them is open to
+// every network this machine is joined to (docs/05-security-model.md §
+// Published ports and who can reach them).
 func BoundEverywhere(hostIP string) bool {
 	switch unbracket(hostIP) {
 	case "", "0.0.0.0", "::":
@@ -262,13 +204,9 @@ func unbracket(hostIP string) string {
 }
 
 // PortVariable is the generated variable naming one service's allocated host
-// port, and URLVariable the address it makes.
-//
-// The naming rule lives in the domain because two packages depend on it being
-// one rule: the daemon generates these variables, and configuration refuses a
-// project where two service names would produce the same one before it can
-// generate anything. A collision would be one service silently receiving
-// another's address.
+// port, and URLVariable the address it makes. The naming rule lives in the
+// domain because the daemon generates the variables and configuration refuses a
+// project whose service names would collide into one.
 func PortVariable(service string) string { return portVariablePrefix + variableToken(service) }
 
 // URLVariable names the address of one service's allocated host port.
@@ -276,27 +214,20 @@ func URLVariable(service string) string { return urlVariablePrefix + variableTok
 
 // The prefixes of the generated addressing variables.
 //
-// HOST is in the name because the name is the only thing present where this
-// value is used: someone writing ${FEAT_HOST_URL_api} into a service's
-// environment is reading the prefix and nothing else. These carry a host
-// address — a published port belongs to the host's network namespace, so inside
-// a container it is that container's own loopback — and a service calling a
-// sibling wants the Compose service name and the container port instead. Under
-// the older FEAT_URL_ the mistake was available and its failure was a silent
-// connection refused against the caller's own loopback (G4-08, ADR-065's
-// amendment of 2026-08-22).
+// HOST is in the name because the name is all a user sees where the value is
+// written. These carry a host address, and a service calling a sibling wants
+// the Compose service name and the container port instead. Under the older
+// FEAT_URL_ that mistake failed as a silent connection refused (G4-08,
+// ADR-065's amendment of 2026-08-22).
 const (
 	portVariablePrefix = "FEAT_HOST_PORT_"
 	urlVariablePrefix  = "FEAT_HOST_URL_"
 )
 
 // variableToken renders a service name as part of an environment variable name:
-// upper case, with everything that is not a letter or a digit replaced.
-//
-// Compose service names allow dots and hyphens, which an environment variable
-// name does not, so the rendering is lossy by construction — "web-app" and
-// "web.app" are one name here. Configuration refuses a project where two
-// services collide rather than letting one of them receive the other's port.
+// upper case, with everything that is not a letter or a digit replaced. The
+// rendering is lossy, because Compose allows dots and hyphens where a variable
+// name does not, so configuration refuses a project whose services collide.
 func variableToken(service string) string {
 	rendered := make([]rune, 0, len(service))
 	for _, r := range service {
@@ -345,11 +276,10 @@ func (r *RuntimeEnvironment) Validate(task TaskID) error {
 	return nil
 }
 
-// RuntimeInputs are the exact values a runtime was created from.
-//
-// They are recorded rather than recomputed because an action taken later must
-// reach the resources the task already owns, and the project's configuration may
-// have been edited since (docs/07-configuration-model.md).
+// RuntimeInputs are the exact values a runtime was created from. They are
+// recorded rather than recomputed, because a later action must reach the
+// resources the task owns and configuration may have been edited since
+// (docs/07-configuration-model.md).
 type RuntimeInputs struct {
 	Provider              string
 	Identity              string
@@ -360,17 +290,15 @@ type RuntimeInputs struct {
 	EnvFiles              []string
 	Services              []string
 	// Allocations are the host ports reserved for this runtime. They are an
-	// input rather than an observation because they are held: while resources
-	// exist the recorded ones are what the generated override publishes, so a
-	// second task cannot be given a port the first is still using.
+	// input rather than an observation because they are held: the generated
+	// override publishes the recorded ones, so a second task cannot be given a
+	// port the first is still using.
 	Allocations []PortAllocation
 }
 
-// RuntimeSource is one repository's contribution to a task's application.
-//
-// A runtime is composed of its repositories rather than of a flat list of
-// files, because which repository a file came from is what decides the
-// directory its relative paths resolve against (ADR-065).
+// RuntimeSource is one repository's contribution to a task's application. A
+// runtime is composed of repositories rather than of a flat list of files,
+// because the repository decides what relative paths resolve against (ADR-065).
 type RuntimeSource struct {
 	// Repository identifies the repository within the project.
 	Repository string
@@ -382,24 +310,18 @@ type RuntimeSource struct {
 }
 
 // NewRuntimeEnvironment records a task's application runtime before anything
-// exists for it.
-//
-// It starts absent with unknown health, which is what a runtime nothing has
-// created is: state and health are observations, and nothing has observed
-// anything yet.
+// exists for it. It starts absent with unknown health, because state and health
+// are observations and nothing has been observed yet.
 func NewRuntimeEnvironment(inputs RuntimeInputs) *RuntimeEnvironment {
 	runtime := &RuntimeEnvironment{State: RuntimeAbsent, Health: HealthUnknown, Generation: 1}
 	runtime.apply(inputs)
 	return runtime
 }
 
-// ReplaceInputs re-resolves the runtime from current configuration.
-//
-// It is refused unless the runtime is absent — never created, or destroyed
-// since. While resources exist, the recorded inputs are what an action must act
-// on: a user who edits their Compose files with services running must not have
-// the next stop reach a different Compose project, and a user who fixed them
-// after destroying everything should get the fixed ones.
+// ReplaceInputs re-resolves the runtime from current configuration. It is
+// refused unless the runtime is absent: a user who edits their Compose files
+// with services running must not have the next stop reach a different Compose
+// project, and one who fixed them after destroying everything gets the fix.
 func (r *RuntimeEnvironment) ReplaceInputs(inputs RuntimeInputs, now time.Time) error {
 	if r.State != RuntimeAbsent {
 		return &InvariantError{
@@ -414,12 +336,9 @@ func (r *RuntimeEnvironment) ReplaceInputs(inputs RuntimeInputs, now time.Time) 
 	return nil
 }
 
-// changed records that the runtime was written to.
-//
-// Every method that alters the record ends with it, so that a change nothing
-// else can see still moves the counter which says the record has moved: the two
-// halves are one act, and a mutator that touched only the moment would leave a
-// stale answer looking current.
+// changed records that the runtime was written to. Every method that alters the
+// record ends with it, so no change leaves the generation behind and a stale
+// answer looking current.
 func (r *RuntimeEnvironment) changed(now time.Time) {
 	r.Generation++
 	r.ObservedAt = normalizeTime(now)
@@ -438,15 +357,10 @@ func (r *RuntimeEnvironment) apply(inputs RuntimeInputs) {
 	r.Allocations = inputs.Allocations
 }
 
-// ReleasePorts gives up the host ports this runtime held.
-//
-// It is refused while anything exists, for the reason ReplaceInputs is: a port
-// released while a container is still bound to it is a port a second task would
-// be given and could not bind. An absent runtime holds nothing, so its ports
-// belong to whichever task asks next.
-//
-// It reports whether anything was released, so a caller saves and says so only
-// when there is something to say.
+// ReleasePorts gives up the host ports this runtime held. It is refused while
+// anything exists, because a port released under a live container is one a
+// second task would be given and could not bind. It reports whether anything
+// was released, so a caller saves only when there is something to save.
 func (r *RuntimeEnvironment) ReleasePorts(now time.Time) bool {
 	if r.State != RuntimeAbsent || len(r.Allocations) == 0 {
 		return false
@@ -457,9 +371,7 @@ func (r *RuntimeEnvironment) ReleasePorts(now time.Time) bool {
 }
 
 // Allocation returns the first host port reserved for one service, which is the
-// address that service is reached at.
-//
-// The first rather than the only: a service publishing several ports has one
+// address that service is reached at. A service publishing several ports has one
 // allocation per port, and the first is the one its generated variables name.
 func (r *RuntimeEnvironment) Allocation(service string) (PortAllocation, bool) {
 	for _, allocation := range r.Allocations {
@@ -472,15 +384,11 @@ func (r *RuntimeEnvironment) Allocation(service string) (PortAllocation, bool) {
 
 // ResolveProvenance records where each managed service's code comes from.
 //
-// It is not part of RuntimeInputs, which are frozen while resources exist,
-// because the mounts and build contexts of the generated override are resolved
-// from current configuration every time that document is written. A frozen
-// provenance beside a recomputed document would be a record contradicting the
-// file Feat had just generated, which is the class of quiet disagreement this
-// state exists to remove.
-//
-// It reports whether anything changed, so that a caller saves and says so only
-// when there is something to say.
+// It stays out of RuntimeInputs, which freeze while resources exist, because the
+// generated override resolves its mounts and build contexts from current
+// configuration each time it is written. A frozen provenance would contradict
+// the file Feat had just generated. It reports whether anything changed, so a
+// caller saves only when there is something to save.
 func (r *RuntimeEnvironment) ResolveProvenance(provenance []ServiceProvenance, now time.Time) bool {
 	if sameProvenance(r.Provenance, provenance) {
 		return false
@@ -529,10 +437,9 @@ func sameStrings(a, b []string) bool {
 	return true
 }
 
-// Observe records the runtime state and health a runtime adapter reported.
-//
-// Runtime state is an observation. A stopped runtime found during recovery is
-// reported as stopped and is never restarted for the user (FR-STATE-004).
+// Observe records the runtime state and health a runtime adapter reported. A
+// stopped runtime found during recovery is reported as stopped and is never
+// restarted for the user (FR-STATE-004).
 func (r *RuntimeEnvironment) Observe(state RuntimeState, health HealthState, now time.Time) error {
 	if !state.Valid() {
 		return &ValidationError{
@@ -556,12 +463,10 @@ func (r *RuntimeEnvironment) Observe(state RuntimeState, health HealthState, now
 	return nil
 }
 
-// ObserveResources records the ports, networks, and volumes an adapter saw.
-//
-// They are separate from Observe because they answer a different question. The
+// ObserveResources records the ports, networks, and volumes an adapter saw. The
 // state says whether the application is up; these say what exists because of it,
-// which is what a user needs in order to reach the application and what cleanup
-// needs in order to explain what it would retain (FR-CLEAN-001, FR-CLEAN-004).
+// which is what a user reaches it by and what cleanup explains it would retain
+// (FR-CLEAN-001, FR-CLEAN-004).
 func (r *RuntimeEnvironment) ObserveResources(ports []PortAssignment, networks, volumes []string, now time.Time) {
 	r.Ports = ports
 	r.Networks = networks

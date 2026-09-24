@@ -68,9 +68,8 @@ func TestUndocumentedTransitionTargetIsRejected(t *testing.T) {
 }
 
 // TestConfirmationRequiresEverythingTheUserAccepted checks the preconditions for
-// leaving draft: a task is confirmed with a brief, a repository selection, a
-// resolved base for every selected repository, and a branch wherever the agent
-// may write.
+// leaving draft: a brief, a repository selection, a resolved base per
+// repository, and a branch wherever the agent may write.
 func TestConfirmationRequiresEverythingTheUserAccepted(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -139,9 +138,8 @@ func TestConfirmationRequiresEverythingTheUserAccepted(t *testing.T) {
 }
 
 // TestACancelledDraftCanBeArchived checks that a draft the user abandons before
-// confirming it can still be recorded. Nothing was created for it, so it has no
-// brief, no base, and no session, and the readiness rules that apply to a live
-// task must not apply to it.
+// confirming it can still be recorded. Nothing was created for it, so the
+// readiness rules a live task carries must not apply to it.
 func TestACancelledDraftCanBeArchived(t *testing.T) {
 	task := draftTask(t)
 
@@ -210,13 +208,9 @@ func TestShapeFreezesWhenTheTaskLeavesDraft(t *testing.T) {
 }
 
 // TestPlanFirstIsSetOnADraftAndSurvivesConfirmation checks the half of the rule
-// above that the frozen-shape test cannot: the mode is set while the task is a
-// draft, and it is still there once the task has left one.
-//
-// It matters because the value is written at confirmation and read later, when
-// the session is built. A launch can fail between the two, and the retry that
-// follows reads this record rather than the request that started the first
-// attempt.
+// above that the frozen-shape test cannot: the mode is set on a draft and is
+// still there afterwards. A launch can fail between the confirmation that writes
+// it and the session that reads it, and the retry reads this record (ADR-085).
 func TestPlanFirstIsSetOnADraftAndSurvivesConfirmation(t *testing.T) {
 	task := draftTask(t)
 	if task.PlanFirst {
@@ -347,13 +341,9 @@ func TestAgentSessionRequiresStableTmuxObjectIDs(t *testing.T) {
 // records: a terminal sees alive, exited, or signalled and nothing finer, so it
 // may not decide between the states a provider reports through its hooks.
 //
-// The table is the whole rule. A live terminal under a session already recorded
-// in an alive state changes nothing — which is what stops an idle session being
-// promoted back to running and staying there, because the only path into idle is
-// a fresh end-of-turn event and a quiet session sends no more. A live terminal
-// under a session recorded as over is a session started again in it, which is
-// what a resume is. A terminal that has ended is always recorded, because no
-// provider event may arrive to report it.
+// The table is the whole rule. A live terminal changes nothing under a session
+// already alive, records running under one recorded as over, which is what a
+// resume is, and a terminal that has ended is always recorded.
 func TestATerminalObservationSaysOnlyWhatATerminalCanSee(t *testing.T) {
 	target := TmuxTarget{Socket: "/run/feat/tmux.sock", Session: "$9", Window: "@11", Pane: "%13"}
 	when := origin.Add(time.Minute)
@@ -388,10 +378,9 @@ func TestATerminalObservationSaysOnlyWhatATerminalCanSee(t *testing.T) {
 			if session.Tmux != target {
 				t.Errorf("target = %+v, want the one the terminal reported", session.Tmux)
 			}
-			// An observation that recorded nothing is not activity either: a
-			// session Feat has heard nothing from must not look like one that
-			// spoke, whether through its last activity or through the turn end
-			// still waiting to become idle.
+			// An observation that recorded nothing is not activity. A session
+			// Feat has heard nothing from must not look like one that spoke,
+			// through its last activity or through a pending turn end.
 			if recorded := session.Process != test.recorded; recorded {
 				if !session.TurnEndedAt.IsZero() {
 					t.Error("an observation recorded a process state and kept the pending turn end")
@@ -499,9 +488,9 @@ func TestObservationsDoNotChangeTheWorkflow(t *testing.T) {
 }
 
 // TestValidateRejectsHandBuiltInconsistency checks that a task assembled by
-// setting fields directly, rather than through the methods, is still caught. The
-// store validates everything it writes and reads, so this is what stops an
-// inconsistent aggregate from becoming the recorded state.
+// setting fields directly is still caught. The store validates everything it
+// writes and reads, which is what keeps an inconsistent aggregate out of the
+// recorded state.
 func TestValidateRejectsHandBuiltInconsistency(t *testing.T) {
 	tests := map[string]func(*Task){
 		"a running task without a session": func(task *Task) { task.Session = nil },

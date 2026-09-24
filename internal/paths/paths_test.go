@@ -63,9 +63,9 @@ func TestResolveFallsBackToHome(t *testing.T) {
 	}
 }
 
-// TestResolveIgnoresRelativeXDGValues pins the XDG rule that a relative value
-// is invalid and must be ignored. Honouring one would resolve state against
-// whatever directory the process happens to be started in.
+// TestResolveIgnoresRelativeXDGValues pins the XDG rule that a relative value is
+// invalid and must be ignored. Honouring one would resolve state against
+// whatever directory the process was started in.
 func TestResolveIgnoresRelativeXDGValues(t *testing.T) {
 	env := testEnv("/base/dev", 7, "linux", map[string]string{
 		EnvConfigHome: "relative/config",
@@ -150,13 +150,9 @@ func TestResolveRejectsRelativeRuntimeOverride(t *testing.T) {
 }
 
 // TestResolveRejectsARuntimeOverrideFeatWouldTakeOver covers what the variable
-// costs when it is pointed at a directory somebody else uses.
-//
-// The daemon treats the resolved runtime directory as its own: it restricts it
-// to the current user and fills it with the socket, the lock, the endpoint
-// record, and the tmux socket. FEAT_RUNTIME_DIR=$HOME is the plausible mistake,
-// because the over-long-socket message tells the user to set this variable to a
-// shorter directory, and it ends with the home directory at mode 0700.
+// costs when it names a directory somebody else uses. The daemon restricts its
+// runtime directory to the current user, so FEAT_RUNTIME_DIR=$HOME ends with the
+// home directory at mode 0700.
 func TestResolveRejectsARuntimeOverrideFeatWouldTakeOver(t *testing.T) {
 	for name, override := range map[string]string{
 		"the home directory":     "/base/dev",
@@ -179,8 +175,8 @@ func TestResolveRejectsARuntimeOverrideFeatWouldTakeOver(t *testing.T) {
 		})
 	}
 
-	// A directory inside one of them is the answer the message points at, and it
-	// has to work, or the variable would have no usable value at all.
+	// A directory inside one of them is what the message points at, so it has
+	// to work or the variable would have no usable value.
 	env := testEnv("/base/dev", 501, "linux", map[string]string{EnvRuntimeOverride: "/base/dev/.feat-run"})
 	layout, err := Resolve(env)
 	if err != nil {
@@ -245,9 +241,9 @@ func TestSocketPathLimitBoundary(t *testing.T) {
 	}
 }
 
-// TestResolveCreatesNothing pins the package's contract: it answers where a
-// file belongs. Creating a directory here would mean every command that only
-// wants to print a path leaves state behind.
+// TestResolveCreatesNothing pins the package's contract: it answers where a file
+// belongs. Creating a directory here would leave state behind after every
+// command that only wanted to print a path.
 func TestResolveCreatesNothing(t *testing.T) {
 	home := t.TempDir()
 	env := testEnv(home, 501, "linux", map[string]string{
@@ -320,8 +316,8 @@ func TestExpand(t *testing.T) {
 }
 
 // TestExpandRejectsAnotherUsersHome keeps configuration from reaching into a
-// home directory Feat cannot resolve. Silently treating "~other" as a relative
-// directory named "~other" would be worse than refusing it.
+// home directory Feat cannot resolve. Treating "~other" as a relative directory
+// of that name would be worse than refusing it.
 func TestExpandRejectsAnotherUsersHome(t *testing.T) {
 	env := testEnv("/base/dev", 501, "linux", nil)
 

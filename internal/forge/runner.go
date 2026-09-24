@@ -9,22 +9,16 @@ import (
 	"time"
 )
 
-// commandTimeout bounds one forge command.
-//
-// Opening a merge request crosses a network to somebody else's server, so the
-// bound is generous rather than tight. What it prevents is a request that will
-// never answer — a proxy that accepted the connection and stopped talking, or a
-// CLI that decided to prompt — from holding a publication open for ever while
-// the repositories after it wait.
+// commandTimeout bounds one forge command. Opening a merge request crosses a
+// network, so the bound is generous. It stops a request that will never answer —
+// a stalled proxy, or a CLI that decided to prompt — from holding a publication
+// open while the repositories after it wait.
 const commandTimeout = 2 * time.Minute
 
-// HostRunner runs a forge CLI on the machine Feat is running on.
-//
-// It runs on the trusted host with the user's own environment, which is where
-// the credential already is and the only place Feat makes a credentialed
-// provider call. Nothing here adds a token, and nothing here passes one to an
-// agent: the agent environment receives no provider credential at all
-// (ADR-070).
+// HostRunner runs a forge CLI on the machine Feat is running on, with the user's
+// own environment. That is where the credential already is and the only place
+// Feat makes a credentialed provider call; the agent environment receives no
+// provider credential (ADR-070).
 type HostRunner struct {
 	// Timeout bounds one command. Zero uses commandTimeout.
 	Timeout time.Duration
@@ -35,10 +29,9 @@ var _ Runner = HostRunner{}
 // Run executes one forge command as an argument vector.
 //
 // A command that ran and refused is not an error: a protected branch and an
-// unauthenticated session are answers, and the adapter turns them into a
-// recorded failure for one repository rather than into a failure of the
-// publication. A command that could not be started is an error, because nothing
-// was established about the forge at all.
+// unauthenticated session are answers, and the adapter records them as one
+// repository's failure. A command that could not be started is an error,
+// because nothing was established about the forge.
 func (r HostRunner) Run(ctx context.Context, command Command) (Output, error) {
 	timeout := r.Timeout
 	if timeout <= 0 {
@@ -51,12 +44,9 @@ func (r HostRunner) Run(ctx context.Context, command Command) (Output, error) {
 	// argument is one vector element; nothing reaches a shell.
 	process := exec.CommandContext(ctx, command.Program, command.Arguments...)
 	process.Dir = command.Directory
-	// The environment is left as this process's, which is the user's: the
-	// authentication they already have on this host is what makes the call. Feat
-	// adds nothing to it — a forge CLI that is not logged in says so rather than
-	// being handed a credential from somewhere Feat invented — and it passes
-	// nothing to an agent, whose environment receives no provider token at all
-	// (ADR-070).
+	// The environment stays this process's, which is the user's, so their own
+	// authentication makes the call. Feat adds no token here and passes none to
+	// an agent (ADR-070).
 
 	var stdout, stderr bytes.Buffer
 	process.Stdout = &stdout

@@ -104,48 +104,36 @@ func (l Layout) EndpointFile() string { return filepath.Join(l.Runtime, endpoint
 // LogFile returns the path of the daemon log.
 func (l Layout) LogFile() string { return filepath.Join(l.State, logsDirName, daemonLogName) }
 
-// ControlRoot returns the directory holding every task control workspace.
+// ControlRoot returns the directory holding every task control workspace. It is
+// under the state directory but outside the per-task snapshot directory, because
+// this tree is mounted into the agent's environment and must not carry a task's
+// snapshot, event log, or stored brief with it (ADR-032).
 //
-// It is under the state directory but outside the per-task snapshot directory:
-// a control workspace is the one tree an agent writes to, and it is mounted into
-// the agent's execution environment, so it must not carry a task's snapshot, its
-// event log, or its stored brief along with it (ADR-032).
-//
-// The per-task path below this one is built by internal/control, which validates
-// the identifiers first. This package joins constants only, which is what keeps
-// it a standard-library leaf.
+// internal/control builds the per-task path below it and validates the
+// identifiers first. This package joins constants only, which keeps it a leaf.
 func (l Layout) ControlRoot() string { return filepath.Join(l.State, controlDirName) }
 
-// ExecutionRoot returns the directory holding generated execution inputs.
+// ExecutionRoot returns the directory holding generated execution inputs. It
+// sits beside the control root because the snapshot directory holds only what
+// the store owns, and because these files decide what a task's container mounts.
+// Unlike the control workspace, this tree is mounted nowhere (ADR-033).
 //
-// It sits beside the control root rather than inside a task's snapshot
-// directory, for two reasons. The snapshot directory holds the documents the
-// store owns, and a file an execution adapter writes is not one of them; and
-// what a task's container mounts is decided here, so it must be somewhere the
-// agent never sees — unlike the control workspace, this tree is not mounted
-// anywhere (ADR-033).
-//
-// The per-task path below this one is built by the daemon, which validates the
-// identifiers first, exactly as internal/control does beneath ControlRoot.
+// The daemon builds the per-task path below it and validates the identifiers
+// first, as internal/control does beneath ControlRoot.
 func (l Layout) ExecutionRoot() string { return filepath.Join(l.State, executionDirName) }
 
 // RuntimeRoot returns the directory holding generated application runtime
-// inputs.
+// inputs. It is separate from the execution root for the reason the two adapters
+// are: that one decides what the agent's container reaches, and this one what
+// the application runs. Both are host-only and mounted nowhere (ADR-034).
 //
-// It sits beside the execution root and is separate from it for the reason the
-// two adapters are separate: one decides what the agent's own container can
-// reach, and this one decides what the application under development runs. Both
-// are host-only and neither is mounted anywhere (ADR-034).
-//
-// The per-task path below this one is built by the daemon, which validates the
-// identifiers first, exactly as internal/control does beneath ControlRoot.
+// The daemon builds the per-task path below it and validates the identifiers
+// first, as internal/control does beneath ControlRoot.
 func (l Layout) RuntimeRoot() string { return filepath.Join(l.State, runtimeDirName) }
 
-// TmuxSocket returns the dedicated tmux server socket.
-//
-// It shares the owner-only runtime directory with the daemon's ephemeral
-// ownership files, but it has a different lifetime: stopping the daemon leaves
-// tmux and every task terminal running (ADR-030).
+// TmuxSocket returns the dedicated tmux server socket. It shares the owner-only
+// runtime directory with the daemon's ownership files but outlives them:
+// stopping the daemon leaves tmux and every task terminal running (ADR-030).
 func (l Layout) TmuxSocket() string { return filepath.Join(l.Runtime, tmuxSocketName) }
 
 // Resolve returns the layout the environment implies.
@@ -183,13 +171,10 @@ func Resolve(env Environment) (Layout, error) {
 	return layout, nil
 }
 
-// Expand resolves a leading "~" against the user's home directory and cleans
-// the result.
-//
-// Only the current user's home is expandable. A "~other" form is rejected
-// rather than resolved, because configuration that reaches into another user's
-// home is far more likely to be a mistake than an intention, and Feat has no
-// business guessing which.
+// Expand resolves a leading "~" against the user's home directory and cleans the
+// result. A "~other" form is rejected rather than resolved, because
+// configuration reaching into another user's home is more likely a mistake than
+// an intention.
 func (e Environment) Expand(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("path must not be empty")
@@ -244,9 +229,9 @@ func (e Environment) runtimeDir() (string, error) {
 	if dir := e.lookup(EnvRuntimeDir); filepath.IsAbs(dir) {
 		return filepath.Join(dir, dirName), nil
 	}
-	// TMPDIR is per-user on macOS, and /tmp is shared with every other user, so
-	// the user id is part of the name in both cases: the daemon of one user
-	// must never resolve to the ownership files of another.
+	// TMPDIR is per-user on macOS and /tmp is shared, so the user id goes in
+	// the name either way. One user's daemon must never resolve to another's
+	// ownership files.
 	if dir := e.lookup(EnvTempDir); filepath.IsAbs(dir) {
 		return filepath.Join(dir, dirName+"-"+strconv.Itoa(e.UID)), nil
 	}
@@ -255,21 +240,15 @@ func (e Environment) runtimeDir() (string, error) {
 
 // checkOwnable refuses a runtime directory the daemon must not claim as its own.
 //
-// The other three branches above each append a component of Feat's own — feat,
-// or feat-<uid> — so the directory the daemon ends up owning is one it created.
-// The override replaces the path as a whole, and what it names is then treated
-// as Feat's: the daemon restricts it to this user and puts the socket, the
-// ownership lock, the endpoint record, and the tmux socket directly in it. So
-// FEAT_RUNTIME_DIR=$HOME chmods the home directory to 0700 — and it is a
-// plausible value to try, because the message about an over-long socket path
-// says to set this variable to a shorter directory.
+// The branches above append a component of Feat's own, so the daemon ends up
+// owning a directory it created. The override replaces the path entirely, and
+// the daemon then restricts it to this user, so FEAT_RUNTIME_DIR=$HOME chmods
+// the home directory to 0700.
 //
-// Broad is the question this package already asks about directories Feat must
-// not own, and it is the right one for /tmp, /var, and every one-component path.
-// It does not answer for the home directory, which is deep enough and is an
-// ordinary worktree root — the case Broad exists for. Rather than widen Broad
-// and start refusing worktree roots that are fine, the one directory the
-// difference turns on is named here, beside the caller whose question it is.
+// Broad answers for /tmp, /var, and every one-component path, but not for the
+// home directory, which is deep enough and is an ordinary worktree root. Widening
+// Broad would start refusing worktree roots that are fine, so the one directory
+// the difference turns on is named here instead.
 func (e Environment) checkOwnable(dir string) error {
 	if Broad(dir) {
 		return fmt.Errorf(
@@ -310,11 +289,9 @@ func (e Environment) goos() string {
 	return e.GOOS
 }
 
-// SocketTooLongError reports a socket path the operating system cannot bind.
-//
-// The kernel copies the path into a fixed-size field, so an over-long path
-// fails at bind time with a message that says nothing about the length. Feat
-// reports it while it still has the context to explain it.
+// SocketTooLongError reports a socket path the operating system cannot bind. The
+// kernel copies the path into a fixed-size field, so an over-long one fails at
+// bind time with a message that says nothing about length.
 type SocketTooLongError struct {
 	// Path is the resolved socket path.
 	Path string

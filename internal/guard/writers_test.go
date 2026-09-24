@@ -13,24 +13,21 @@ var storagePackages = []string{
 	"github.com/ma8el/feat/internal/store/fs",
 }
 
-// storageReaders are the only packages allowed to import them.
-//
-// The daemon is the sole reader and writer of persistent state (ADR-008), so
-// everything else asks it over the socket. storetest is fixtures, and the store's
-// own packages obviously import themselves.
+// storageReaders are the only packages allowed to import them. The daemon is the
+// sole reader and writer of persistent state (ADR-008), so everything else asks
+// it over the socket; the store's own packages import themselves.
 var storageReaders = []string{
 	"internal/daemon/",
 	"internal/store/",
 }
 
 // TestOnlyTheDaemonReachesPersistentState checks that the daemon is the only
-// state writer.
+// state writer. depguard enforces the same boundary for the packages that exist
+// today, and this states the rule positively, so a package added later is
+// covered without an edit to the lint configuration.
 //
-// depguard enforces the same boundary for the packages that exist today; this
-// test states the rule positively, so that a package added later is covered
-// without anyone remembering to add it to the lint configuration. Test files are
-// exempt: a test may arrange state directly, which is how the daemon's own tests
-// set up a project without an endpoint that can create one yet.
+// Test files are exempt. A test may arrange state directly, which is how the
+// daemon's own tests set up a project before an endpoint can create one.
 func TestOnlyTheDaemonReachesPersistentState(t *testing.T) {
 	root := repoRoot(t)
 

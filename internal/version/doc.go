@@ -4,10 +4,9 @@
 // version command, the health screen, and later `feat doctor` all need the same
 // build identity, and none of them should depend on each other for it.
 //
-// Identity has two sources. The Makefile links it in; where it did not — above
-// all in a binary a tester installed with `go install ...@latest`, which never
-// sees the Makefile at all — the build information the toolchain embedded
-// answers instead, field by field.
+// Identity has two sources. The Makefile links it in, and where it did not the
+// toolchain's embedded build information answers instead, field by field. A
+// binary installed with `go install ...@latest` never sees the Makefile.
 //
 // This package must remain a leaf: it imports only the standard library.
 package version

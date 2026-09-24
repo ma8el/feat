@@ -1,10 +1,9 @@
 // Package storetest provides deterministic fixtures for tests that need a
 // project, a task, a review, or an event history.
 //
-// It is test support and is imported only by tests. It lives outside the test
-// files of one package because storage, the daemon, the API, and the TUI all
-// need the same canned state, and a fixture that each of them redefines is a
-// fixture they will each define differently.
+// It is test support and is imported only by tests. It lives outside one
+// package's test files because storage, the daemon, the API, and the TUI all
+// need the same canned state, and each would otherwise define it differently.
 //
 // Two properties are deliberate:
 //

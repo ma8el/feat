@@ -6,10 +6,9 @@ import (
 	"testing"
 )
 
-// TestSafeIdentifiersRejectUnsafeValues checks the documented safe pattern for
-// user-chosen identifiers. These reach file paths, branch names, and Compose
-// project names, so a value that traverses a directory or that a tool would
-// reinterpret must not be an identifier at all.
+// TestSafeIdentifiersRejectUnsafeValues checks the safe pattern for user-chosen
+// identifiers. They reach file paths, branch names, and Compose project names,
+// so a value that traverses a directory must not be an identifier at all.
 func TestSafeIdentifiersRejectUnsafeValues(t *testing.T) {
 	valid := []string{"core", "a", "team-core", "team_core", "core2", strings.Repeat("a", 64)}
 	for _, value := range valid {

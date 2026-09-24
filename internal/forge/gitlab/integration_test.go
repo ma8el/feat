@@ -12,23 +12,18 @@ import (
 )
 
 // TestRealGlabAcceptsTheFlagsThisAdapterPasses is the verification
-// docs/06-technical-architecture.md requires of a provider CLI.
+// docs/06-technical-architecture.md requires of a provider CLI. A fake runner
+// pins what Feat sends and cannot know that glab still accepts it. A renamed
+// flag would turn every publication into a refusal the user reads as their own
+// fault.
 //
-// A fake runner pins the argument vector, which is enough to know what Feat
-// sends and not enough to know that glab still accepts it. The adapter was
-// written on a machine with no glab on it, so this is where the flags are
-// checked against the installed one — and the failure it exists to catch is the
-// quiet kind: a renamed flag turns every publication into a refusal the user
-// reads as their own project being wrong.
+// It needs no account, no network, and no project: `glab mr create --help`
+// prints its own flags. That is why a maintainer with glab installed can make
+// this mandatory without anybody being made to install it.
 //
-// It asks glab a question and needs nothing else. There is no account, no
-// network, and no project involved: `glab mr create --help` prints its own
-// flags. That is why glab is demandable without being demanded — a maintainer
-// with one installed can make this mandatory, and nobody is made to install it.
-//
-// The version it ran against is logged rather than asserted, so that a failure
-// here can be read beside gitlab.Verified without this test deciding which
-// releases a user may have.
+// The version it ran against is logged rather than asserted, so a failure can be
+// read beside gitlab.Verified without this test deciding which releases a user
+// may have.
 func TestRealGlabAcceptsTheFlagsThisAdapterPasses(t *testing.T) {
 	if !integrationtest.Enabled() {
 		t.Skipf("set %s=1 to run the tests that use a real glab", integrationtest.Env)

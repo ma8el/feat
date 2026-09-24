@@ -12,26 +12,23 @@ import (
 )
 
 // The decision log is one file per decision under decisionsDir, with
-// decisionIndex naming every one of them (ADR-089). The index keeps its place in
-// CLAUDE.md's reading order, so what an agent reads before writing anything is
-// the shape of every decision and where each one lives.
+// decisionIndex naming every one (ADR-089). The index keeps its place in
+// CLAUDE.md's reading order, so an agent reads the shape of every decision and
+// where each one lives before writing anything.
 //
-// These six guards are here rather than beside the documents because the
-// failure they are written against is silent. A section dropped or half-copied
-// by a future reorganisation turns nothing red; an ADR written on two branches
-// at once merges into a document with one number twice; a reference to a
-// decision nobody wrote reads exactly like a reference to one somebody did; a
-// status written a second way is a status nothing can read; and half a
-// supersession leaves the decision that was superseded saying so and the one
-// that superseded it never having heard of it.
+// These six guards are here because every failure they are written against is
+// silent. A reorganisation drops a section; two branches each write ADR-101; a
+// reference to a decision nobody wrote reads like any other; a status written a
+// second way is one nothing can read; and half a supersession leaves the
+// decision that won never having heard of the one that lost.
 const (
 	decisionsDir  = "docs/decisions"
 	decisionIndex = "docs/10-decisions-and-open-questions.md"
 )
 
 // adrReference matches a decision named anywhere in the repository. Every
-// reference in this tree is a bare name of this shape — there is not one
-// anchor-style link — which is what made the split free.
+// reference in this tree is a bare name of this shape, with not one anchor-style
+// link, which is what made the split free.
 var adrReference = regexp.MustCompile(`ADR-([0-9]{3})`)
 
 // decisionFileName matches the name of a decision file: the zero-padded number
@@ -53,42 +50,31 @@ var statusLine = regexp.MustCompile(`(?m)^Status:.*$`)
 // statusForm is the one way a status is written: no padding, no trailing
 // whitespace, one word.
 //
-// One word is a decision rather than a convenience. The form a decision log
-// usually reaches for, `superseded by ADR-065`, puts a relation between two
-// decisions inside a string — where a reader looking for the reasoning does not
-// meet it, and where the relation guard below, which reads the body, cannot see
-// it. ADR-089 says the same thing from the other end. Widening this to admit a
-// multi-word value is therefore a change to where a relation lives, not a
-// loosening of a format.
+// One word is a decision rather than a convenience. `superseded by ADR-065` puts
+// a relation inside a string, where a reader looking for the reasoning does not
+// meet it and where the relation guard below cannot see it (ADR-089). Admitting
+// a multi-word value moves where a relation lives.
 var statusForm = regexp.MustCompile(`^Status: ([a-z_]+)$`)
 
-// decisionStatuses is the closed set of statuses a decision may carry.
-//
-// It holds `accepted` alone because that is what every decision in this log
-// says. It is deliberately not seeded with the statuses a decision log usually
-// grows — proposed, rejected, superseded — because a value nothing uses is a
-// value nobody has decided the meaning of, and the first decision to need one
-// should add it here on purpose rather than find it already waiting.
+// decisionStatuses is the closed set of statuses a decision may carry. It holds
+// `accepted` alone because that is what every decision in this log says. A value
+// nothing uses is one nobody has decided the meaning of, so the first decision
+// to need another adds it here on purpose.
 var decisionStatuses = map[string]bool{
 	"accepted": true,
 }
 
-// A relation statement is how one decision records what it does to another:
-// this log writes it as an emphatic lead — **Superseded for ports by ADR-065.**,
-// **Extended by ADR-065**, **supersedes** ADR-034's rule — and that emphasis is
-// what tells it from the same verb used in ordinary prose, of which there are
-// five occurrences that mean nothing of the kind.
+// A relation statement is how one decision records what it does to another. This
+// log writes it as an emphatic lead — **Superseded for ports by ADR-065.** — and
+// that emphasis is what tells it from the same verb in ordinary prose, of which
+// there are five occurrences meaning nothing of the kind. So a relation is a
+// bold span carrying a verb, and the decision it relates to is the first one
+// named inside that span or just after it.
 //
-// So a relation is a bold span carrying one of the verbs, and the decision it
-// relates to is the first one named inside that span or just after it.
-//
-// Each verb is listed in all three forms a statement is written in — the base,
-// the third person, and the past participle — because which one an author
-// reaches for depends on which end they are writing from: the decision that
-// lost says it was superseded, and the decision that won says it supersedes.
-// Carrying only some forms is this guard's own failure mode reproduced inside
-// it: **Extends ADR-034** would go unmatched, and an unmatched relation is one
-// whose far end nothing then checks. A verb added later gets three forms too.
+// Each verb is listed in all three forms, because the decision that lost says it
+// was superseded and the one that won says it supersedes. Carrying only some
+// forms would leave **Extends ADR-034** unmatched, and an unmatched relation is
+// one whose far end nothing checks. A verb added later gets three forms too.
 var (
 	boldSpan     = regexp.MustCompile(`(?s)\*\*(.+?)\*\*`)
 	relationVerb = regexp.MustCompile(`(?i)\b(supersede|supersedes|superseded|extend|extends|extended)\b`)
@@ -106,14 +92,12 @@ type relation struct {
 }
 
 // knownRelations are the relation statements this log held when the guard was
-// written: ADR-034 twice, ADR-041, and ADR-065, at lines 91, 203, 152 and 129 of
-// their own files. They are pinned because the expensive way for this guard to
-// fail is to stop matching — a reciprocity check over an empty set passes, and
-// passes silently, which is worse than not having one.
+// written. They are pinned because the expensive way for this guard to fail is
+// to stop matching: a reciprocity check over an empty set passes silently.
 //
-// The guard requires these to be among what it matched and does not require the
-// set to be exactly these, so that a new decision recording a supersession is
-// checked for reciprocity rather than being made to edit this list first.
+// The guard requires these to be among what it matched rather than to be all of
+// it, so a new decision recording a supersession is checked for reciprocity
+// without having to edit this list first.
 var knownRelations = []relation{
 	{source: "034", target: "065", verb: "superseded"},
 	{source: "034", target: "065", verb: "extended"},
@@ -122,9 +106,8 @@ var knownRelations = []relation{
 }
 
 // decisionScanSkips are the directories a repository-wide scan for references
-// does not descend into. testdata is deliberately not among them: a fixture that
-// cites a decision cites one, and a citation that does not resolve is as broken
-// there as anywhere else.
+// does not descend into. testdata is deliberately not among them, because a
+// citation that does not resolve is as broken in a fixture as anywhere else.
 var decisionScanSkips = map[string]bool{
 	".git":         true,
 	"bin":          true,
@@ -134,8 +117,7 @@ var decisionScanSkips = map[string]bool{
 }
 
 // decisionFile is one file under docs/decisions, as it is named and as its
-// heading claims to be. The two are separate fields because the point of
-// reading both is that they can disagree.
+// heading claims to be. The two are separate fields because they can disagree.
 type decisionFile struct {
 	name    string // ADR-NNN-slug.md
 	number  string // the three digits in the name
@@ -162,11 +144,10 @@ func TestEveryDecisionFileIsNamedForItsOwnHeading(t *testing.T) {
 	}
 }
 
-// TestNoTwoDecisionsClaimOneNumber is the guard against the collision that made
-// the split worth making: two branches each appending a decision take the next
-// free number, and in one document Git merges both cleanly into one heading
-// twice. As files it is a name that has to be resolved by a person — unless a
-// slug differs, which is the case this test is for.
+// TestNoTwoDecisionsClaimOneNumber guards the collision that made the split
+// worth making. Two branches each take the next free number, and in one document
+// Git merges both cleanly into one heading twice. As files the collision is
+// usually a name conflict, unless the slugs differ, which is this test's case.
 func TestNoTwoDecisionsClaimOneNumber(t *testing.T) {
 	claimed := map[string][]string{}
 	for _, decision := range decisionFiles(t, repoRoot(t)) {
@@ -229,11 +210,9 @@ func TestTheIndexAndTheDecisionFilesNameEachOther(t *testing.T) {
 }
 
 // TestEveryADRReferenceResolvesToOneDecision walks the whole repository, because
-// the references are spread over it: the specification documents, the index, the
-// decisions themselves, and more than a thousand Go comments. Each of them names
-// a decision by bare number, so each of them is a link that a reorganisation, a
-// renumbering, or a reference to a decision reserved on another branch can break
-// without anything else noticing.
+// references are spread over the specification, the index, the decisions, and
+// more than a thousand Go comments. Each names a decision by bare number, so a
+// renumbering or a reference reserved on another branch breaks one silently.
 func TestEveryADRReferenceResolvesToOneDecision(t *testing.T) {
 	root := repoRoot(t)
 
@@ -261,14 +240,12 @@ func TestEveryADRReferenceResolvesToOneDecision(t *testing.T) {
 
 // TestEveryDecisionCarriesOneStatusFromTheClosedSet holds the one field of a
 // decision that is read rather than prose. The index prints it beside every
-// title, so a status written a second way — padded, capitalised, trailing a
-// space, or a word nobody has defined — is a value that reads fine to a person
-// and is a different value to anything mechanical.
+// title, so a status that is padded, capitalised, or a word nobody defined reads
+// fine to a person and differently to anything mechanical.
 //
 // The trailing-space form is not hypothetical: 43 of these files inherited
-// `Status: accepted` with two spaces after it from the document they were split
-// out of, where it was a Markdown hard break, and nothing in the toolchain
-// noticed until this guard.
+// `Status: accepted` with two spaces after it, a Markdown hard break in the
+// document they were split out of, and nothing noticed until this guard.
 func TestEveryDecisionCarriesOneStatusFromTheClosedSet(t *testing.T) {
 	for _, decision := range decisionFiles(t, repoRoot(t)) {
 		lines := statusLine.FindAllString(decision.body, -1)
@@ -301,21 +278,17 @@ func TestEveryDecisionCarriesOneStatusFromTheClosedSet(t *testing.T) {
 }
 
 // TestARelationBetweenDecisionsIsAnsweredByBothOfThem checks the half of a
-// supersession that is easy to leave out. Recording that this decision was
-// superseded is the natural half to write, because it is written while reading
-// the decision that lost; the decision that won is somewhere else and is
-// finished. A log where only one end of the relation knows about it sends a
-// reader who arrives from the other end straight past it.
+// supersession that is easy to leave out. The decision that lost is the natural
+// place to record it, and a log where only that end knows sends a reader
+// arriving from the other end straight past.
 //
-// What counts as an answer is a mention, not a matching relation statement: the
-// decision that won ordinarily explains the change in its own terms rather than
-// restating the relation, which is what ADR-043 does for ADR-041. What is being
-// guarded is that the two ends know about each other at all.
+// An answer is a mention rather than a matching statement, because the decision
+// that won ordinarily explains the change in its own terms, as ADR-043 does for
+// ADR-041. What is guarded is that the two ends know about each other.
 //
-// Two limits, stated rather than discovered. A bare citation creates no
-// obligation, so a decision may cite any other freely. And a relation statement
-// that names no decision — "superseded by a later decision" — is read as prose
-// and skipped, because a relation this cannot follow is one it cannot check.
+// Two limits. A bare citation creates no obligation, so a decision may cite any
+// other freely. And a relation that names no decision is read as prose and
+// skipped, because this cannot follow it.
 func TestARelationBetweenDecisionsIsAnsweredByBothOfThem(t *testing.T) {
 	decisions := decisionFiles(t, repoRoot(t))
 
@@ -375,8 +348,8 @@ func TestARelationBetweenDecisionsIsAnsweredByBothOfThem(t *testing.T) {
 }
 
 // decisionFiles reads the decision directory and reports what it holds. It
-// judges nothing beyond the shape of a name, so that each guard above can fail
-// for its own reason with its own remedy.
+// judges nothing beyond the shape of a name, so each guard above fails for its
+// own reason with its own remedy.
 func decisionFiles(t *testing.T, root string) []decisionFile {
 	t.Helper()
 
@@ -421,18 +394,16 @@ func decisionFiles(t *testing.T, root string) []decisionFile {
 	return found
 }
 
-// textFile is one file of the repository and what it holds, read once so that
-// the scan for references neither opens anything twice nor has to decide what a
-// text file is from its name.
+// textFile is one file of the repository and what it holds, read once so the
+// scan for references opens nothing twice and decides nothing from a name.
 type textFile struct {
 	rel  string
 	body string
 }
 
 // referencingFiles returns every text file in the repository, as paths relative
-// to the module root together with their contents. A file is text when it holds
-// no NUL byte, which is what keeps this from maintaining a list of extensions
-// that would be out of date the first time somebody adds a file type.
+// to the module root with their contents. A file is text when it holds no NUL
+// byte, so this keeps no list of extensions to fall out of date.
 func referencingFiles(t *testing.T, root string) []textFile {
 	t.Helper()
 

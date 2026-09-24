@@ -10,14 +10,10 @@ import (
 	"github.com/ma8el/feat/internal/store"
 )
 
-// reviewDocument is the stored form of a task's review state.
-//
-// It carried a status and a decision time until ADR-047. Both were the user's
-// decision, which the task's own workflow state records, and a document written
-// by an earlier build still carries them: they are ignored on read and gone from
-// the file the next save writes. The schema version does not move for that,
-// because nothing has to be upgraded — no information is lost that the task
-// snapshot beside it does not already hold.
+// reviewDocument is the stored form of a task's review state. It carried a
+// status and a decision time until ADR-047; an older document still holds them,
+// and they are ignored on read and dropped by the next save. The schema version
+// does not move, because the task snapshot already records that decision.
 type reviewDocument struct {
 	SchemaVersion     int                        `json:"schema_version"`
 	ID                string                     `json:"id"`

@@ -10,16 +10,14 @@ import (
 )
 
 // The completion gate is `make check`, which CLAUDE.md declares work complete
-// against. Two of its properties are configuration rather than code,
-// and both were wrong: the tier that proves anything about Git, tmux and Docker
-// downgraded a missing tool to a skip, and a skipped package prints "ok"; and CI
-// ran the same tier without -count=1 against a warm test cache, so a re-run
-// requested precisely to re-exercise the tools could replay a cached PASS.
+// against. Two of its properties live in configuration rather than code, and
+// both were once wrong: the integration tier downgraded a missing tool to a
+// skip, and a skipped package prints "ok"; and CI ran the tier without -count=1
+// against a warm cache, so a re-run could replay a cached PASS.
 //
-// Nothing in a Go test suite notices either. These two tests are where the
-// configuration is held, because the alternative is that a future edit to a
-// Makefile line or a workflow step quietly returns the gate to reporting on
-// nothing.
+// Nothing in a Go test suite notices either. These two tests hold that
+// configuration, so an edit to a Makefile line or a workflow step cannot return
+// the gate to reporting on nothing.
 
 const (
 	makefilePath = "Makefile"
@@ -30,13 +28,9 @@ const (
 )
 
 // TestTheCompletionGateRunsTheIntegrationTierAndDemandsItsTools reads the
-// Makefile.
-//
-// `make check` including test-real is what makes the tier part of the gate at
-// all; -count=1 is what stops Go replaying a cached pass about tools it cannot
-// observe; and FEAT_INTEGRATION_REQUIRE is what turns an absent tool from a skip
-// into a failure. Remove any one and `make check` goes green having proved less
-// than it says, which is exactly what it did.
+// Makefile. Running test-real is what puts the tier in the gate, -count=1 stops
+// Go replaying a cached pass about tools it cannot observe, and
+// FEAT_INTEGRATION_REQUIRE turns an absent tool from a skip into a failure.
 func TestTheCompletionGateRunsTheIntegrationTierAndDemandsItsTools(t *testing.T) {
 	makefile := readRepoFile(t, makefilePath)
 
@@ -68,11 +62,10 @@ func TestTheCompletionGateRunsTheIntegrationTierAndDemandsItsTools(t *testing.T)
 	}
 }
 
-// TestCIRunsTheIntegrationTierForReal reads the workflow.
-//
-// It asserts of every step that opts in to the tier what the Makefile asserts of
-// test-real. CI had neither property, which is how a green tick on a pull
-// request came to mean less than the same command on a laptop.
+// TestCIRunsTheIntegrationTierForReal reads the workflow. It asserts of every
+// step that opts in to the tier what the Makefile asserts of test-real, because
+// CI had neither property and a green tick meant less than the same command on a
+// laptop.
 func TestCIRunsTheIntegrationTierForReal(t *testing.T) {
 	var workflow struct {
 		Jobs map[string]struct {
@@ -135,9 +128,9 @@ func targetPrerequisites(makefile, target string) ([]string, bool) {
 		if !found || strings.TrimSpace(name) != target {
 			continue
 		}
-		// A double-colon rule, or an assignment such as "check: = x", is not
-		// what this repository writes; a leading "=" is the only ambiguity
-		// worth refusing.
+		// This repository writes no double-colon rule and no assignment such
+		// as "check: = x", so a leading "=" is the only ambiguity worth
+		// refusing.
 		if strings.HasPrefix(rest, "=") {
 			continue
 		}
@@ -163,8 +156,8 @@ func targetRecipe(makefile, target string) (string, bool) {
 				recipe = append(recipe, strings.TrimPrefix(line, "\t"))
 				continue
 			}
-			// Comments and blank lines sit inside a recipe in this Makefile;
-			// anything else at column zero ends it.
+			// Comments and blank lines sit inside a recipe in this Makefile.
+			// Anything else at column zero ends it.
 			if strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "" {
 				continue
 			}

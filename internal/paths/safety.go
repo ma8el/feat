@@ -5,13 +5,10 @@ import (
 	"strings"
 )
 
-// broadPaths are directories Feat must never own.
-//
-// Feat creates task worktrees under a configured root and later removes them,
-// so a root that resolves to a shared directory turns a routine cleanup into a
-// destructive one. Every name below is one component deep, which Depth already
-// rejects; the list is kept because it says which directories the rule is about,
-// and because a later entry may well be deeper than one component.
+// broadPaths are directories Feat must never own. Feat creates and later removes
+// task worktrees under a configured root, so a root resolving to a shared
+// directory turns a routine cleanup into a destructive one. Every name here is
+// one component deep, which Depth already rejects; a later entry may not be.
 var broadPaths = map[string]bool{
 	"/": true, "/bin": true, "/boot": true, "/dev": true, "/etc": true,
 	"/home": true, "/lib": true, "/media": true, "/mnt": true, "/opt": true,
@@ -20,14 +17,9 @@ var broadPaths = map[string]bool{
 }
 
 // Broad reports whether a path is a directory Feat must not create or remove
-// task resources under.
-//
-// It is deliberately the same question for the package that validates a
-// configured worktree root and for the package that creates and later removes
-// directories beneath it: one list, one answer, checked in both places.
-//
-// A relative path is broad, because a path Feat cannot resolve is a path it must
-// not act on.
+// task resources under. Configuration validation and the code that removes
+// directories ask the same question of one list. A relative path is broad,
+// because Feat must not act on a path it cannot resolve.
 func Broad(path string) bool {
 	if path == "" {
 		return true
@@ -48,12 +40,10 @@ func Depth(path string) int {
 	return len(strings.Split(trimmed, "/"))
 }
 
-// Under reports whether target is root itself or a path inside it.
-//
-// Both are cleaned first, so "a/b/../b" and "a/b" are the same directory. Neither
-// is resolved through symbolic links: that is a question about the filesystem as
-// it is right now, and the caller that is about to create or remove something
-// asks it of the filesystem rather than of a string.
+// Under reports whether target is root itself or a path inside it. Both are
+// cleaned first, so "a/b/../b" and "a/b" are one directory. Neither is resolved
+// through symbolic links: the caller about to create or remove something asks
+// that of the filesystem rather than of a string.
 func Under(root, target string) bool {
 	if root == "" || target == "" {
 		return false

@@ -36,12 +36,9 @@ func request() forge.Request {
 }
 
 // TestTheAdapterBuildsAnArgumentVectorAndRunsItWhereTheProjectIs pins the
-// command.
-//
-// The title and the description are agent-authored text the user approved, and
-// each is one element of a vector: nothing is handed to a shell to re-split. The
-// description is always passed, empty included, because a missing --description
-// is what sends glab to an editor a daemon has no terminal for.
+// command. The title and description are agent-authored text the user approved,
+// and each is one element of a vector. The description is always passed, empty
+// included, because a missing one sends glab to an editor.
 func TestTheAdapterBuildsAnArgumentVectorAndRunsItWhereTheProjectIs(t *testing.T) {
 	glab := &fakeGlab{output: forge.Output{
 		Stdout: "Creating merge request for feat/7f3a1c2e-rate-limit into main\n" +
@@ -115,12 +112,9 @@ func TestAnEmptyDescriptionIsStillPassed(t *testing.T) {
 	t.Errorf("the command does not pass --description at all: %v", arguments)
 }
 
-// TestAForgeThatRefusesIsTheRepositorysFailureAndNotThePublications is
-// ADR-073's rule as this adapter sees it.
-//
-// A CLI that ran and refused is an answer — a protected branch, a project that
-// is not there, a session that is no longer authenticated — and what it said is
-// what the user would have read had they run it themselves.
+// TestAForgeThatRefusesIsTheRepositorysFailureAndNotThePublications is ADR-073's
+// rule as this adapter sees it. A CLI that ran and refused is an answer, and
+// what it said is what the user would have read had they run it themselves.
 func TestAForgeThatRefusesIsTheRepositorysFailureAndNotThePublications(t *testing.T) {
 	glab := &fakeGlab{output: forge.Output{
 		ExitCode: 1,
@@ -144,12 +138,9 @@ func TestAForgeThatRefusesIsTheRepositorysFailureAndNotThePublications(t *testin
 }
 
 // TestSuccessWithNoURLIsRefusedRatherThanRecordedAsNothing is the case a record
-// cannot be honest about.
-//
-// The whole point of recording a result before the next repository begins is
-// that Feat can name what exists. A run that reported success and printed no URL
-// leaves nothing to name, so it is a failure that says where to look rather than
-// a merge request recorded without an address.
+// cannot be honest about. Recording a result before the next repository begins
+// exists so Feat can name what exists, and a success that printed no URL leaves
+// nothing to name, so it is a failure that says where to look.
 func TestSuccessWithNoURLIsRefusedRatherThanRecordedAsNothing(t *testing.T) {
 	glab := &fakeGlab{output: forge.Output{Stdout: "done\n"}}
 
@@ -190,14 +181,12 @@ func TestARequestThatCannotBeSentIsRefusedBeforeTheCLIRuns(t *testing.T) {
 }
 
 // TestADescriptionGlabWouldReadAsAModeSwitchIsRefused is the one value the
-// neutral rules cannot catch.
+// neutral rules cannot catch. A description is the one field where a leading
+// hyphen is ordinary prose, so it is not refused for starting with one.
 //
-// A description is the one field where a leading hyphen is ordinary prose — a
-// Markdown list — so it is not refused for starting with one. A description of
-// exactly "-" is glab's own documented shorthand for "open an editor", and a
-// daemon has no terminal to open one on. It is refused rather than altered:
-// what was displayed is what is sent, so a description Feat quietly changed
-// would be worse than one it declined to send (ADR-070).
+// A description of exactly "-" is glab's shorthand for "open an editor", which a
+// daemon has no terminal for. It is refused rather than altered, because what
+// was displayed is what is sent (ADR-070).
 func TestADescriptionGlabWouldReadAsAModeSwitchIsRefused(t *testing.T) {
 	glab := &fakeGlab{}
 
@@ -222,13 +211,10 @@ func TestADescriptionGlabWouldReadAsAModeSwitchIsRefused(t *testing.T) {
 	}
 }
 
-// TestTheAdapterNeverAsksGlabToRecoverAPreviousAttempt is what keeps the
-// approval meaningful across a retry.
-//
-// glab writes a recovery file when a creation fails and loads the options back
-// out of it when --recover is given. Feat must never take that path: what is
-// sent has to be the words the user just read, not the ones a previous attempt
-// left on disk.
+// TestTheAdapterNeverAsksGlabToRecoverAPreviousAttempt keeps the approval
+// meaningful across a retry. glab writes a recovery file when a creation fails
+// and loads the options back out of it when --recover is given, and what is sent
+// has to be the words the user just read (ADR-074).
 func TestTheAdapterNeverAsksGlabToRecoverAPreviousAttempt(t *testing.T) {
 	glab := &fakeGlab{output: forge.Output{
 		Stdout: "https://gitlab.example.com/app/api/-/merge_requests/4",
@@ -260,10 +246,9 @@ func TestTheURLIsReadFromWhicheverStreamGlabUsed(t *testing.T) {
 	}
 }
 
-// TestACLIThatCouldNotBeStartedIsNotARefusal keeps the two apart.
-//
-// A glab that could not be started establishes nothing about the forge, and it
-// is a different thing from one that ran and said no.
+// TestACLIThatCouldNotBeStartedIsNotARefusal keeps the two apart. A glab that
+// could not be started establishes nothing about the forge, which is a different
+// thing from one that ran and said no.
 func TestACLIThatCouldNotBeStartedIsNotARefusal(t *testing.T) {
 	glab := &fakeGlab{err: errors.New("exec: \"glab\": executable file not found in $PATH")}
 

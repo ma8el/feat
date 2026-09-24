@@ -5,9 +5,9 @@
 // Phase 3, ADR-070).
 //
 // Everything GitLab-specific lives here — the executable, its flags, and the
-// shape of what it prints — so that internal/forge stays a description of what
-// publishing is and the daemon never learns what a merge request is called on
-// one forge rather than another.
+// shape of what it prints — so internal/forge stays a description of what
+// publishing is and the daemon never learns what one forge calls a merge
+// request.
 //
 // The CLI is run already authenticated, on the trusted host, with the user's own
 // environment. This package passes no token, reads no configuration, and writes

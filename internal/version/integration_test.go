@@ -22,17 +22,13 @@ const identityModule = "feat.test/identity"
 // TestRealBuildIdentityIsStampedByTheToolchain builds this package's source in a
 // throwaway Git repository and asks the resulting binary what build it is.
 //
-// The unit tests hand resolve a *debug.BuildInfo we wrote ourselves, which
-// proves what we do with build information and nothing about what the toolchain
-// actually records. This is the other half, and it cannot be had inside the
-// repository: `go build` stamps no vcs settings at all when the module sits in a
-// Git worktree — which every Feat task checkout is, and which is why a plain
-// build here still reports "dev". A fresh repository is somewhere the toolchain
-// will answer.
+// The unit tests hand resolve a *debug.BuildInfo we wrote, which proves nothing
+// about what the toolchain records. That half cannot be had inside this
+// repository: `go build` stamps no vcs settings for a module in a Git worktree,
+// which every Feat task checkout is, so a plain build here reports "dev".
 //
-// The module it builds is a copy of this package's sources, so what runs is the
-// working tree rather than whatever is committed, and it has no requirements, so
-// the build needs no network and no module cache.
+// The module is a copy of this package's sources, so what runs is the working
+// tree, and it has no requirements, so the build needs no network.
 func TestRealBuildIdentityIsStampedByTheToolchain(t *testing.T) {
 	goTool := requireToolchain(t)
 	requireGit(t)

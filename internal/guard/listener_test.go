@@ -34,14 +34,13 @@ var networkArgIndex = map[string]int{
 	"DialContext":  1,
 }
 
-// TestNoNetworkListenerOrDial checks that no TCP listener is opened, and the
-// security rule that the local API is a Unix-domain socket only (ADR-009).
+// TestNoNetworkListenerOrDial checks the security rule that the local API is a
+// Unix-domain socket only (ADR-009). It reads source rather than observing a
+// process, because a runtime assertion sees only the listeners one code path
+// opened.
 //
-// It is a source rule rather than a runtime assertion because that is where it
-// can be complete: a test can only observe the listeners a particular code path
-// opened, while this covers every one in the repository, including in tests.
-// Tests are deliberately included — an HTTP test server that binds a loopback
-// port would make the rule true of the product and false of its test suite.
+// Tests are deliberately included. An HTTP test server binding a loopback port
+// would make the rule true of the product and false of its test suite.
 func TestNoNetworkListenerOrDial(t *testing.T) {
 	root := repoRoot(t)
 
@@ -61,8 +60,8 @@ func TestNoNetworkListenerOrDial(t *testing.T) {
 			if !ok {
 				return true
 			}
-			// Only the standard library packages that can open a socket are
-			// interesting; a method with the same name on another type is not.
+			// Only the standard library packages that can open a socket
+			// matter. A method of the same name on another type does not.
 			if pkg.Name != "net" && pkg.Name != "http" && pkg.Name != "httptest" {
 				return true
 			}
@@ -83,9 +82,9 @@ func TestNoNetworkListenerOrDial(t *testing.T) {
 			}
 			literal, ok := call.Args[index].(*ast.BasicLit)
 			if !ok || literal.Kind != token.STRING {
-				// A network chosen at runtime. Nothing in Feat does this, and if
-				// something starts to, the reviewer should see a variable
-				// network rather than a hidden "tcp".
+				// A network chosen at runtime. Nothing in Feat does this, and a
+				// reviewer should meet a variable network rather than a
+				// hidden "tcp".
 				t.Errorf("%s:%d: %s.%s takes its network from a variable\n"+
 					"\tPass \"unix\" literally, so that this rule can be checked.",
 					rel, line, pkg.Name, name)

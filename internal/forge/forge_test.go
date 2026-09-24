@@ -8,12 +8,9 @@ import (
 )
 
 // TestOnlyABuiltForgeIsAvailable is the question `feat doctor` and the daemon
-// both ask before a repository is published.
-//
-// A forge kind can be added to the domain and to configuration before its
-// adapter exists — that is the order GitHub arrived in — and while it is in that
-// state a user must be told at configuration time rather than after a branch has
-// been pushed and the request cannot be opened (ADR-074).
+// both ask before a repository is published. A forge kind can reach the domain
+// and configuration before its adapter exists, and a user must be told then
+// rather than after a branch has been pushed (ADR-074).
 func TestOnlyABuiltForgeIsAvailable(t *testing.T) {
 	for _, kind := range forge.Built {
 		if !forge.Available(kind) {
@@ -24,9 +21,9 @@ func TestOnlyABuiltForgeIsAvailable(t *testing.T) {
 		}
 	}
 
-	// A kind no adapter covers. It is not a configuration a user can write —
-	// validation refuses a kind outside the domain's own — so this is the guard
-	// for the next forge to be added rather than a state anybody is in today.
+	// A kind no adapter covers. Validation refuses a kind outside the domain's
+	// own, so this guards the next forge to be added rather than a state
+	// anybody is in today.
 	if forge.Available(domain.ForgeKind("bitbucket")) {
 		t.Error("a forge with no adapter reads as available")
 	}
