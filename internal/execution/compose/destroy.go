@@ -9,24 +9,22 @@ import (
 )
 
 // composeProjectLabel is the label Docker Compose puts on every resource it
-// creates, naming the project it belongs to. It is Compose's own, not Feat's:
-// asking Docker which volumes carry it is how the exact set a task owns is
-// resolved without reading any Compose file, and therefore without rendering
-// the values of the project's environment files (ADR-028, ADR-034).
+// creates, naming the project it belongs to. It is Compose's own rather than
+// Feat's: asking Docker which volumes carry it resolves the exact set a task owns
+// without reading any Compose file, and so without rendering the values of the
+// project's environment files (ADR-028, ADR-034).
 const composeProjectLabel = "com.docker.compose.project"
 
 // Stop stops this task's agent containers and keeps them.
 //
-// `stop` rather than `down`: what a user is asking for is the task's agent to
-// sleep, and the container that comes back has the same identity, the same
-// generated mounts, and the same volumes as the one that went away. Removing it
-// is cleanup's, and cleanup asks first.
+// `stop` rather than `down`: the container that comes back has the same identity,
+// the same generated mounts, and the same volumes as the one that went away.
+// Removing it is cleanup's, and cleanup asks first.
 //
 // It names no service, so it stops the whole of this task's Compose project.
 // Stopping only the agent service would leave whatever the devcontainer's own
 // file starts beside it — a database, a message broker — running and holding its
-// resources with no agent to use them, which is the shape ADR-034 evidence 12
-// recorded for the application runtime and is no different here.
+// resources with no agent to use them (ADR-034 evidence 12).
 func (e *Environment) Stop(ctx context.Context) (execution.State, error) {
 	output, err := e.runner.Run(ctx, e.invoke("stop"))
 	if err != nil {
@@ -41,12 +39,12 @@ func (e *Environment) Stop(ctx context.Context) (execution.State, error) {
 
 // Destroy removes the containers and networks of this task's agent environment.
 //
-// It is the method ADR-033 deferred to whatever owns what cleanup retains.
-// Three things it deliberately does not do, each a rule rather than an omission:
+// It is the method ADR-033 deferred to whatever owns what cleanup retains. Three
+// things it deliberately does not do:
 //
 //   - no --volumes, so every volume survives. A task's Claude configuration
-//     volume in particular holds a login, and removing it is a separate choice a
-//     user makes explicitly (FR-CLEAN-004);
+//     volume holds a login, and removing it is a separate choice a user makes
+//     explicitly (FR-CLEAN-004);
 //   - no --remove-orphans, because an orphan is a container Feat did not put
 //     there;
 //   - nothing outside this Compose project, so the user's own containers are
@@ -67,22 +65,22 @@ func (e *Environment) Destroy(ctx context.Context) (execution.State, error) {
 // Volumes lists the named volumes Compose labelled with this task's project.
 //
 // It asks Docker rather than reading the Compose files, so the answer is what
-// exists rather than what was declared, and a volume the project declares
-// external carries another project's label — or none — and cannot appear here.
-// That makes "cleanup never touches an external resource" a property of the
-// enumeration rather than a filter somebody has to remember to apply.
+// exists rather than what was declared. A volume the project declares external
+// carries another project's label, or none, and cannot appear here, so cleanup
+// leaves external resources alone by construction rather than by a filter
+// somebody has to remember.
 func (e *Environment) Volumes(ctx context.Context) ([]string, error) {
 	return listVolumes(ctx, e.runner, e.docker, e.spec.Directory, e.spec.Identity)
 }
 
-// RemoveVolumes removes the named volumes, one at a time, and reports which
-// were removed.
+// RemoveVolumes removes the named volumes, one at a time, and reports which were
+// removed.
 //
 // By name rather than through `docker compose down --volumes`, which is all or
 // nothing: a plan that names exactly what will go, and a command that removes
 // exactly that, is what FR-CLEAN-001 means by resolving the exact task-owned
-// resources. A volume that is already gone is not an error, and a volume still
-// in use is reported with the reason rather than forced (ADR-037).
+// resources. A volume that is already gone is not an error, and a volume still in
+// use is reported with the reason rather than forced (ADR-037).
 func (e *Environment) RemoveVolumes(ctx context.Context, names []string) ([]string, error) {
 	return removeVolumes(ctx, e.runner, e.docker, e.spec.Directory, names)
 }
@@ -92,9 +90,8 @@ func (e *Environment) RemoveVolumes(ctx context.Context, names []string) ([]stri
 // separate concepts and ADR-034 pays a hundred lines to keep them so.
 //
 // The directory is where the command runs. These two read no file and would
-// answer the same from anywhere, so it buys nothing here beyond the rule it
-// keeps whole: no invocation this adapter makes runs from a directory Feat did
-// not choose.
+// answer the same from anywhere, so it keeps one rule whole: no invocation this
+// adapter makes runs from a directory Feat did not choose.
 func listVolumes(ctx context.Context, runner Runner, docker, directory, identity string) ([]string, error) {
 	output, err := runner.Run(ctx, execution.Invocation{
 		Program: docker,
@@ -139,8 +136,7 @@ func removeVolumes(ctx context.Context, runner Runner, docker, directory string,
 		if !output.Succeeded() {
 			reported := firstLine(output.Stderr, output.Stdout)
 			if strings.Contains(strings.ToLower(reported), "no such volume") {
-				// Already gone. A cleanup of something that is not there is a
-				// success: the user asked for it to be absent, and it is.
+				// Already gone, which is the state the caller asked for.
 				continue
 			}
 			return removed, fmt.Errorf("removing volume %s failed: %s", name, reported)

@@ -30,9 +30,9 @@ import (
 //     double-quoted scalar, so no path can turn into YAML syntax.
 //
 // The file is left alone when its contents already match. Every runtime command
-// needs it — a status of a runtime that was never created included — so it is
-// written whenever the adapter is built, and rewriting it four times a minute
-// per task would be four writes a minute nothing reads differently.
+// needs it, including a status of a runtime that was never created, so it is
+// written whenever the adapter is built; rewriting it on every one of those would
+// be writes nothing reads differently.
 func writeInclude(spec runtime.Spec) error {
 	document, err := includeDocument(spec)
 	if err != nil {

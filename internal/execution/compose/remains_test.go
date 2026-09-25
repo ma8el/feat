@@ -15,11 +15,10 @@ import (
 const identity = "feat-agent-app-" + string(task)
 
 // byName returns the project addressed by name over a fake Docker, with the two
-// enumerations arranged to answer nothing.
-//
-// Both are arranged even when a test only cares about one of them, because the
-// fake refuses an unarranged command: a test that left the networks unanswered
-// would be testing an error rather than an absence.
+// enumerations arranged to answer nothing. Both are arranged even when a test
+// only cares about one of them, because the fake refuses an unarranged command: a
+// test that left the networks unanswered would be testing an error rather than an
+// absence.
 func byName(t *testing.T, docker *composetest.Docker) *compose.Project {
 	t.Helper()
 
@@ -45,13 +44,11 @@ func networksOf(name string) string {
 }
 
 // TestAProjectIsAskedByNameAndNeverByFile is what makes this usable at all for
-// the task it exists for.
-//
-// A launch that fails after its container exists usually fails because the
-// project's own Compose file changed, and the container has to be recreated
-// under it. Reading that file to find what the launch left would be reading the
-// thing that moved, so every invocation here carries the project name and no
-// --file at all.
+// the task it exists for. A launch that fails after its container exists usually
+// fails because the project's own Compose file changed, and the container has to
+// be recreated under it. Reading that file to find what the launch left would be
+// reading the thing that moved, so every invocation here carries the project name
+// and no --file at all.
 func TestAProjectIsAskedByNameAndNeverByFile(t *testing.T) {
 	docker := composetest.New()
 	project := byName(t, docker)
@@ -133,7 +130,6 @@ func TestRemainsNamesWhatIsLeftOfAProject(t *testing.T) {
 }
 
 // TestOnlyContainersHoldAMount is what the control workspace ordering rule reads.
-//
 // A network holds no bind mount, so a project reduced to one must not keep a
 // cleanup waiting for something that will never let go.
 func TestOnlyContainersHoldAMount(t *testing.T) {
@@ -187,14 +183,12 @@ func TestAProjectNameDockerMustNotBeGivenIsRefused(t *testing.T) {
 // `docker compose --project-name X ps` with no --file and no working directory
 // runs wherever the daemon was started, and Compose finds its own files by
 // walking up from there. A user who runs `feat daemon start` from an application
-// repository — the repository that by construction holds the Compose files —
-// gives every one of these invocations a compose.yaml to discover. What that
-// does to the answer is Compose's business and not the product's, which is the
-// defect: what `ps` and `down` act on stops being a question Feat controls.
+// repository gives every one of these invocations a compose.yaml to discover, so
+// what `ps` and `down` act on stops being a question Feat controls.
 //
-// So it is checked on the invocation rather than on the answer: both the flag
-// and the process's own working directory, because either one alone leaves the
-// other deciding.
+// It is checked on the invocation rather than on the answer: both the flag and
+// the process's own working directory, because either one alone leaves the other
+// deciding.
 func TestAProjectRunsWhereFeatSaysAndNotWhereTheDaemonStands(t *testing.T) {
 	docker := composetest.New()
 	directory := t.TempDir()
@@ -235,11 +229,8 @@ func TestAProjectRunsWhereFeatSaysAndNotWhereTheDaemonStands(t *testing.T) {
 }
 
 // TestAProjectRefusesADirectoryItCannotStandIn keeps the requirement from being
-// satisfiable by omission.
-//
-// An empty directory is exactly the value that reintroduces the defect, and a
-// relative one resolves against the daemon's own working directory, which is the
-// same thing said differently.
+// satisfiable by omission. An empty directory is the value that reintroduces the
+// defect, and a relative one resolves against the daemon's own working directory.
 func TestAProjectRefusesADirectoryItCannotStandIn(t *testing.T) {
 	for _, directory := range []string{"", "relative/path", "."} {
 		if _, err := compose.ByName(identity, directory, compose.Options{Runner: composetest.New()}); err == nil {
@@ -253,14 +244,14 @@ func TestAProjectRefusesADirectoryItCannotStandIn(t *testing.T) {
 // succeeding in.
 //
 // `feat task stop` keeps a task's containers on purpose (ADR-057), so an exited
-// container is an ordinary overnight state rather than a leftover. A release
-// rule that counts it as holding the control workspace refuses a cleanup that
-// would have worked — and the information to tell them apart is in the same `ps`
+// container is an ordinary overnight state rather than a leftover. A release rule
+// that counts it as holding the control workspace refuses a cleanup that would
+// have worked, and the information to tell the two apart is in the same `ps`
 // output the rule already reads.
 //
-// A container Compose reported without a state is counted as holding, which is
-// the other half of the same rule: this decides whether a directory is removed
-// under something, so what nothing established must not read as released.
+// A container Compose reported without a state counts as holding. This decides
+// whether a directory is removed under something, so an unestablished state must
+// not read as released.
 func TestAStoppedContainerHoldsNothing(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		state string

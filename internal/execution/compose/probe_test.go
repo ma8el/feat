@@ -114,12 +114,11 @@ func TestAHealthyContainerIsAccepted(t *testing.T) {
 	}
 }
 
-// TestARootAgentIsRefused is acceptance criterion 3, checked against the
-// process rather than against the configuration.
-//
-// Configuration already refuses a root user, so this is the second of the two
-// places it is checked: a container whose image ignores the configured user, or
-// whose user resolves to uid 0, is caught here and nowhere else.
+// TestARootAgentIsRefused is acceptance criterion 3, checked against the process
+// rather than against the configuration. Configuration already refuses a root
+// user, so this is the second of the two places it is checked: a container whose
+// image ignores the configured user, or whose user resolves to uid 0, is caught
+// here and nowhere else.
 func TestARootAgentIsRefused(t *testing.T) {
 	err := check(t, healthy().Answer(probeKey("id", "-u"), "0\n").Answer(probeKey("id", "-un"), "root\n"))
 
@@ -130,11 +129,10 @@ func TestARootAgentIsRefused(t *testing.T) {
 	}
 }
 
-// TestAnUnreadableIdentityIsRefusedRatherThanAssumed keeps a probe that could
-// not answer from being read as a non-root answer.
-//
-// The conservative direction matters: assuming non-root would let exactly the
-// configuration this check exists for through.
+// TestAnUnreadableIdentityIsRefusedRatherThanAssumed keeps a probe that could not
+// answer from being read as a non-root answer. The conservative direction
+// matters: assuming non-root would let exactly the configuration this check
+// exists for through.
 func TestAnUnreadableIdentityIsRefusedRatherThanAssumed(t *testing.T) {
 	err := check(t, healthy().Answer(probeKey("id", "-u"), "who knows\n"))
 
@@ -143,9 +141,8 @@ func TestAnUnreadableIdentityIsRefusedRatherThanAssumed(t *testing.T) {
 	}
 }
 
-// TestADockerClientInTheContainerIsRefused is the other half of criterion 4.
-//
-// A socket is refused by the mount check; a client is refused here. Both are
+// TestADockerClientInTheContainerIsRefused is the other half of criterion 4. A
+// socket is refused by the mount check and a client is refused here. Both are
 // needed: a client with no socket today is a capability waiting for a mount
 // somebody adds later, and agent.capabilities.docker says denied.
 func TestADockerClientInTheContainerIsRefused(t *testing.T) {
@@ -159,12 +156,9 @@ func TestADockerClientInTheContainerIsRefused(t *testing.T) {
 }
 
 // TestAClientUnderAnotherNameIsRefusedToo widens the same criterion to what a
-// container client actually is.
-//
-// podman and nerdctl speak the Docker API — podman ships a `docker` alias for
-// exactly that reason — so an image carrying either has the capability
-// agent.capabilities.docker declares denied. Probing one name and reporting "no
-// Docker client" would be a claim about something nobody looked at.
+// container client actually is. podman and nerdctl speak the Docker API — podman
+// ships a `docker` alias for exactly that reason — so an image carrying either
+// has the capability agent.capabilities.docker declares denied.
 func TestAClientUnderAnotherNameIsRefusedToo(t *testing.T) {
 	for _, client := range []string{"podman", "nerdctl"} {
 		t.Run(client, func(t *testing.T) {
@@ -180,12 +174,10 @@ func TestAClientUnderAnotherNameIsRefusedToo(t *testing.T) {
 }
 
 // TestADockerEndpointInTheEnvironmentIsRefused is the clause of the Docker
-// boundary that had no check at all.
-//
-// docs/05-security-model.md forbids Docker-over-TCP credentials beside the
-// socket, and a daemon reached over the network is the same capability as a
-// mounted one: no mount to see, and nothing in the container to find by
-// probing for executables.
+// boundary that had no check at all. docs/05-security-model.md forbids
+// Docker-over-TCP credentials beside the socket, and a daemon reached over the
+// network is the same capability as a mounted one: no mount to see, and nothing
+// in the container to find by probing for executables.
 func TestADockerEndpointInTheEnvironmentIsRefused(t *testing.T) {
 	err := check(t, healthy().Answer("inspect --type container --format {{json .Config.Env}} c0ffee",
 		`["PATH=/usr/bin","DOCKER_HOST=tcp://198.51.100.7:2375","DOCKER_TLS_VERIFY=1"]`))
@@ -221,11 +213,9 @@ func TestTheEnvironmentIsReadFromTheContainerRatherThanTheConfiguration(t *testi
 }
 
 // TestAMissingHookToolIsRefused covers the failure that would otherwise be
-// silent.
-//
-// The generated hooks are shell scripts. An image without mktemp runs the agent
-// perfectly well and reports nothing at all, which looks like a task that is
-// working rather than one that is broken.
+// silent. The generated hooks are shell scripts, and an image without mktemp runs
+// the agent perfectly well and reports nothing at all, which looks like a task
+// that is working rather than one that is broken.
 func TestAMissingHookToolIsRefused(t *testing.T) {
 	err := check(t, healthy().Fail(probeKey("mktemp", "-u"),
 		`exec: "mktemp": executable file not found in $PATH`, 126))
@@ -237,11 +227,10 @@ func TestAMissingHookToolIsRefused(t *testing.T) {
 	}
 }
 
-// TestAToolThatRunsAndFailsIsPresent keeps the presence probe from confusing
-// "the image does not have it" with "it disagreed".
-//
-// busybox's touch prints usage and exits 1 for --help, and an image built on
-// busybox is not an image missing touch.
+// TestAToolThatRunsAndFailsIsPresent keeps the presence probe from confusing "the
+// image does not have it" with "it disagreed". busybox's touch prints usage and
+// exits 1 for --help, and an image built on busybox is not an image missing
+// touch.
 func TestAToolThatRunsAndFailsIsPresent(t *testing.T) {
 	report := inspect(t, healthy().Fail(probeKey("touch", "--help"), "BusyBox v1.36 usage: touch", 1))
 
@@ -250,11 +239,10 @@ func TestAToolThatRunsAndFailsIsPresent(t *testing.T) {
 	}
 }
 
-// TestAnUnwritableControlWorkspaceIsRefused is ADR-033 evidence 5.
-//
-// A control workspace the agent cannot write to is a session that reports
-// nothing, and the cause — a container uid that does not match the host's — is
-// invisible from inside Feat unless it is probed for.
+// TestAnUnwritableControlWorkspaceIsRefused is ADR-033 evidence 5. A control
+// workspace the agent cannot write to is a session that reports nothing, and the
+// cause — a container uid that does not match the host's — is invisible from
+// inside Feat unless it is probed for.
 func TestAnUnwritableControlWorkspaceIsRefused(t *testing.T) {
 	err := check(t, healthy().Fail(probeKey("touch", "/feat/.feat-write-probe"),
 		"touch: cannot touch '/feat/.feat-write-probe': Permission denied", 1))
@@ -292,11 +280,10 @@ func TestEveryProblemIsReportedTogether(t *testing.T) {
 	}
 }
 
-// TestEveryProbeRunsAsTheAgentsOwnUser checks that the answers describe the
-// user the agent will be.
-//
-// A probe that ran as root would answer a question nobody asked: whether root
-// can write the control workspace is not whether the agent can.
+// TestEveryProbeRunsAsTheAgentsOwnUser checks that the answers describe the user
+// the agent will be. A probe that ran as root would answer a question nobody
+// asked: whether root can write the control workspace is not whether the agent
+// can.
 func TestEveryProbeRunsAsTheAgentsOwnUser(t *testing.T) {
 	docker := healthy()
 	inspect(t, docker)
@@ -312,24 +299,20 @@ func TestEveryProbeRunsAsTheAgentsOwnUser(t *testing.T) {
 }
 
 // granted renders one `docker inspect` answer for .HostConfig from the fields a
-// test cares about, over the defaults an ordinary container has.
-//
-// The defaults live in composetest beside the ones New arranges, so that the
-// healthy container and a container granted one thing cannot disagree about
-// every field neither of them names.
+// test cares about, over the defaults an ordinary container has. The defaults
+// live in composetest beside the ones New arranges, so that the healthy container
+// and a container granted one thing cannot disagree about every field neither of
+// them names.
 func granted(fields map[string]any) string {
 	return composetest.HostConfiguration(fields)
 }
 
 // TestAContainerGrantedMoreThanItsMountsIsRefused is G4-04.
 //
-// The launch inspection asked the container two questions — its mounts and its
-// environment — and nothing about what it was granted. So a check that refuses
-// a home-directory mount accepted a privileged container, which is strictly
-// more than that mount would have given away: CAP_SYS_ADMIN remounts the
-// read-only control workspace read-write and mounts the host's filesystem from
-// a block device, and the read-only half of what Feat grants held only because
-// nobody had added the line.
+// A check that refuses a home-directory mount accepted a privileged container,
+// which is strictly more than that mount would have given away: CAP_SYS_ADMIN
+// remounts the read-only control workspace read-write and mounts the host's
+// filesystem from a block device.
 func TestAContainerGrantedMoreThanItsMountsIsRefused(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		granted  map[string]any
@@ -421,11 +404,10 @@ func TestAContainerGrantedMoreThanItsMountsIsRefused(t *testing.T) {
 // TestTheLaunchAsksWhatTheContainerWasGranted pins the question rather than the
 // outcome.
 //
-// A rule can only be enforced about a field somebody asked for, and the
-// blindness G4-04 records was exactly a missing question: `{{json .Mounts}}`
-// and `{{json .Config.Env}}` and nothing else. A test that only checked the
-// refusals would pass again the day the third question was dropped and the
-// evidence went back to being unread.
+// A rule can only be enforced about a field somebody asked for, and the blindness
+// G4-04 records was exactly a missing question: `{{json .Mounts}}` and `{{json
+// .Config.Env}}` and nothing else. A test that only checked the refusals would
+// pass again the day the third question was dropped.
 func TestTheLaunchAsksWhatTheContainerWasGranted(t *testing.T) {
 	docker := healthy()
 	report := inspect(t, docker)
@@ -444,11 +426,10 @@ func TestTheLaunchAsksWhatTheContainerWasGranted(t *testing.T) {
 }
 
 // TestAnUnreadableGrantIsRefusedRatherThanAssumed keeps an answer nobody could
-// read from being treated as an empty one.
-//
-// It is the direction TestAnUnreadableIdentityIsRefusedRatherThanAssumed takes,
-// for the same reason: assuming the reassuring answer lets exactly the
-// container this check exists for through.
+// read from being treated as an empty one. It is the direction
+// TestAnUnreadableIdentityIsRefusedRatherThanAssumed takes, for the same reason:
+// assuming the reassuring answer lets exactly the container this check exists for
+// through.
 func TestAnUnreadableGrantIsRefusedRatherThanAssumed(t *testing.T) {
 	err := check(t, healthy().Inspect("c0ffee", "HostConfig", "null"))
 
@@ -481,12 +462,11 @@ func TestADebuggersCapabilityIsAccepted(t *testing.T) {
 // TestAPrivilegedContainerIsNotSentToALineNobodyWrote keeps the unmasked-paths
 // refusal from firing twice about one Compose file.
 //
-// Docker reports MaskedPaths and ReadonlyPaths as null for a privileged
-// container and as [] for one given systempaths=unconfined, so the two arrive
-// here looking alike. The privileged refusal already names the line that
-// produced them; a second one telling the reader to remove a security_opt entry
-// their file does not contain is the message socketProblem's own comment refuses
-// to write.
+// Docker reports MaskedPaths and ReadonlyPaths as null for a privileged container
+// and as [] for one given systempaths=unconfined, so the two arrive here looking
+// alike. The privileged refusal already names the line that produced them, and a
+// second one would send the reader to a security_opt entry their file does not
+// contain.
 func TestAPrivilegedContainerIsNotSentToALineNobodyWrote(t *testing.T) {
 	err := check(t, healthy().Inspect("c0ffee", "HostConfig", granted(map[string]any{
 		"Privileged": true, "MaskedPaths": nil, "ReadonlyPaths": nil,
@@ -503,21 +483,20 @@ func TestAPrivilegedContainerIsNotSentToALineNobodyWrote(t *testing.T) {
 // permissiveProfile is a seccomp profile that allows every syscall, which is
 // what `seccomp=unconfined` is under another name.
 //
-// It is the shape a container reports a custom profile in — Docker sends the
-// file's contents rather than its path, so this is the whole value — and it is
-// deliberately the permissive one: a rule that refused only the word
-// "unconfined" is bypassed by four lines of JSON, and saying so out loud is the
-// alternative this fix chose over pretending otherwise.
+// It is the shape a container reports a custom profile in: Docker sends the
+// file's contents rather than its path, so this is the whole value. It is
+// deliberately the permissive one, because a rule that refused only the word
+// "unconfined" is bypassed by four lines of JSON.
 const permissiveProfile = `{"defaultAction":"SCMP_ACT_ALLOW"}`
 
 // TestACustomSecurityPolicyIsReportedAndNotRefused is the other half of the
 // security_opt rule, and the decision behind it.
 //
-// A profile replaces the runtime's default rather than removing it, and it can
-// be stricter or can allow everything. Feat compares names and does not read
+// A profile replaces the runtime's default rather than removing it, and it can be
+// stricter or can allow everything. Feat compares names and does not read
 // policies, so refusing here would refuse the project that hardened its own
-// container and would be answered by deleting the profile. What is left is
-// ADR-066's answer: say what was found, and say what it does not establish.
+// container and would be answered by deleting the profile. ADR-066's answer is to
+// say what was found, and to say what it does not establish.
 func TestACustomSecurityPolicyIsReportedAndNotRefused(t *testing.T) {
 	said := warnings(t, healthy().Inspect("c0ffee", "HostConfig", granted(map[string]any{
 		"SecurityOpt": []string{"seccomp=" + permissiveProfile},
@@ -550,13 +529,12 @@ func TestACustomSecurityPolicyIsReportedAndNotRefused(t *testing.T) {
 // asymmetry to a test.
 //
 // apparmor=unconfined is refused and label=disable is not, which is a decision
-// rather than an oversight: docker-default is loaded for every container and
+// rather than an oversight. docker-default is loaded for every container and
 // costs a project nothing to keep, while on an SELinux host Feat generates its
-// bind mounts with no :z and offers no configuration key for one — so
-// label=disable may be what makes Feat's own mounts work there, and a refusal
-// whose remedy the product does not offer is one nobody can act on. Docker also
-// adds label=disable itself to every privileged container, so it is not reliably
-// a line the project wrote.
+// bind mounts with no :z and offers no configuration key for one, so
+// label=disable may be what makes Feat's own mounts work there. Docker also adds
+// label=disable itself to every privileged container, so it is not reliably a
+// line the project wrote.
 func TestAnSELinuxLabelOptionIsReportedRatherThanRefused(t *testing.T) {
 	said := warnings(t, healthy().Inspect("c0ffee", "HostConfig", granted(map[string]any{
 		"SecurityOpt": []string{"label=disable"},
@@ -571,10 +549,8 @@ func TestAnSELinuxLabelOptionIsReportedRatherThanRefused(t *testing.T) {
 // from being a report on every container that configures anything.
 //
 // no-new-privileges is the flag that stops a setuid binary handing privilege
-// back — a container carrying it is doing better than the default, and warning
-// about that teaches a reader to skip the warning that means something. It is
-// the reasoning TestAToolThatWouldAskForAPasswordIsNotAGrant follows about an
-// image that merely has sudo.
+// back. A container carrying it is doing better than the default, and warning
+// about that teaches a reader to skip the warning that means something.
 func TestAnOptionThatOnlyConfinesFurtherIsNotWarnedAbout(t *testing.T) {
 	said := warnings(t, healthy().Inspect("c0ffee", "HostConfig", granted(map[string]any{
 		"SecurityOpt": []string{"no-new-privileges=true"},
@@ -589,9 +565,9 @@ func TestAnOptionThatOnlyConfinesFurtherIsNotWarnedAbout(t *testing.T) {
 //
 // The root refusal reads `id -u` as the configured user, which answers what the
 // agent starts as. An image that also installs `sudo` and writes NOPASSWD makes
-// that answer true of the probe and not of the session: the check passes, and
-// the agent is uid 0 one command later with the runtime's default capabilities,
-// which include CAP_DAC_OVERRIDE. Nothing asked, so nothing said.
+// that answer true of the probe and not of the session: the check passes, and the
+// agent is uid 0 one command later with the runtime's default capabilities, which
+// include CAP_DAC_OVERRIDE.
 func TestAContainerThatReturnsRootWithoutAPasswordIsReported(t *testing.T) {
 	said := warnings(t, healthy().Answer(probeKey("sudo", "-n", "true"), ""))
 
@@ -615,12 +591,10 @@ func TestAContainerThatReturnsRootWithoutAPasswordIsReported(t *testing.T) {
 }
 
 // TestAnEscalationToolUnderAnotherNameIsReportedToo widens the same finding to
-// what the question actually is.
-//
-// `sudo` is one binary that hands privilege back and the dogfood image is one
-// image. A check written for the name rather than for the capability is
-// answered by installing the other one, which is the shape ContainerClients was
-// widened for after the same reasoning about `podman`.
+// what the question actually is. `sudo` is one binary that hands privilege back,
+// and a check written for the name rather than for the capability is answered by
+// installing the other one — the shape ContainerClients was widened for after the
+// same reasoning about `podman`.
 func TestAnEscalationToolUnderAnotherNameIsReportedToo(t *testing.T) {
 	for _, tool := range compose.EscalationTools {
 		t.Run(tool.Name, func(t *testing.T) {
@@ -638,9 +612,9 @@ func TestAnEscalationToolUnderAnotherNameIsReportedToo(t *testing.T) {
 // image that has `sudo` with an image that gives the agent anything.
 //
 // A sudoers file that grants the agent nothing is the non-root requirement
-// holding, demonstrated rather than assumed. Warning about it would be a warning
-// on every image built from a distribution base, which teaches a user to skip
-// the one that means something.
+// holding, demonstrated rather than assumed. Warning about it would warn on every
+// image built from a distribution base, which teaches a user to skip the one that
+// means something.
 func TestAToolThatWouldAskForAPasswordIsNotAGrant(t *testing.T) {
 	docker := healthy().Fail(probeKey("sudo", "-n", "true"),
 		"sudo: a password is required", 1)
@@ -654,12 +628,10 @@ func TestAToolThatWouldAskForAPasswordIsNotAGrant(t *testing.T) {
 	}
 }
 
-// TestTheLaunchAsksWhetherTheAgentCanBecomeRoot pins the question rather than
-// the outcome, for the reason TestTheLaunchAsksWhatTheContainerWasGranted pins
-// its own: a rule can only be enforced about something somebody asked for, and
-// G7-05 is a missing question rather than a wrong answer. A test that checked
-// only the warning would pass again on the day the probe was dropped and every
-// container went back to answering `dev`.
+// TestTheLaunchAsksWhetherTheAgentCanBecomeRoot pins the question rather than the
+// outcome, for the reason TestTheLaunchAsksWhatTheContainerWasGranted pins its
+// own. G7-05 is a missing question rather than a wrong answer, and a test that
+// checked only the warning would pass again on the day the probe was dropped.
 func TestTheLaunchAsksWhetherTheAgentCanBecomeRoot(t *testing.T) {
 	docker := healthy()
 	inspect(t, docker)
@@ -671,12 +643,10 @@ func TestTheLaunchAsksWhetherTheAgentCanBecomeRoot(t *testing.T) {
 	}
 }
 
-// TestEveryEscalationProbeRefusesToPrompt keeps a probe from being the thing
-// that hangs a launch.
-//
-// Each of these tools asks for a password on a terminal when it needs one, and
-// the probe runs without a terminal to ask on. The non-interactive flag is what
-// turns "wait for somebody" into "answer no", so it is checked over the list
+// TestEveryEscalationProbeRefusesToPrompt keeps a probe from being the thing that
+// hangs a launch. Each of these tools asks for a password on a terminal when it
+// needs one, and the probe runs without a terminal to ask on. The non-interactive
+// flag turns "wait for somebody" into "answer no", so it is checked over the list
 // rather than in the one test that happens to arrange a tool.
 func TestEveryEscalationProbeRefusesToPrompt(t *testing.T) {
 	for _, tool := range compose.EscalationTools {
@@ -699,16 +669,16 @@ func TestAHealthyContainerIsWarnedAboutNothing(t *testing.T) {
 // actually takes.
 //
 // Every other test of this states the mount; this one starts from what `docker
-// inspect` reports about a container and lets the adapter ask the second
-// question for itself. The Compose file behind it is six lines a reviewer reads
-// as a named volume:
+// inspect` reports about a container and lets the adapter ask the second question
+// for itself. The Compose file behind it is six lines a reviewer reads as a named
+// volume:
 //
 //	volumes: {hostrun: {driver: local, driver_opts: {type: none, device: /var/run, o: bind}}}
 //	services: {dev: {volumes: [hostrun:/mnt/probe]}}
 //
-// The container path is deliberately not /var/run. Landing on a known socket
-// path is refused by a rule of its own, and a fixture that leant on it would
-// pass with the device unread — which is the defect.
+// The container path is deliberately not /var/run. Landing on a known socket path
+// is refused by a rule of its own, and a fixture that leant on it would pass with
+// the device unread, which is the defect.
 func TestABindBackedVolumeIsRefusedAtLaunch(t *testing.T) {
 	err := check(t, healthy().
 		Inspect("c0ffee", "Mounts", `[{"Type":"volume","Name":"hostrun",`+

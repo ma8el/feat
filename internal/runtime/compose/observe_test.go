@@ -43,10 +43,10 @@ func observed(t *testing.T, services []string, answer string) runtime.State {
 // containers into a runtime state.
 //
 // It is a table for the reason ADR-026 made the workflow transitions one and
-// ADR-032 the agent events: what "degraded" means is a product decision, and a
-// product decision should be readable as itself rather than reconstructed from
-// the order of a few conditions. The row that matters most is the last: a
-// container with no health check is running with health unknown, never healthy.
+// ADR-032 the agent events: what "degraded" means is a product decision, and it
+// should be readable as itself rather than reconstructed from the order of a few
+// conditions. The last row is a container with no health check, which is running
+// with health unknown and never healthy.
 func TestWhatTheContainersSayIsWhatTheRuntimeIs(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		services  []string
@@ -114,9 +114,8 @@ func TestWhatTheContainersSayIsWhatTheRuntimeIs(t *testing.T) {
 		},
 		// The ordinary stop. `docker compose stop` sends SIGTERM and kills a
 		// container that does not exit, and a service running as PID 1 has no
-		// default handler for it — so the service the user just stopped exits
-		// 137. Reading that as a failure would report every stop as one, which
-		// real Docker demonstrated and no fixture would have.
+		// default handler for it, so the service the user just stopped exits
+		// 137. Reading that as a failure would report every stop as one.
 		"stopped by the signal a stop sends": {
 			services: []string{"api"},
 			answer: `{"ID":"c1","Service":"api","State":"exited","Status":"Exited (137) 1 second ago",` +
@@ -167,10 +166,9 @@ func TestWhatTheContainersSayIsWhatTheRuntimeIs(t *testing.T) {
 //
 // Compose starts whatever a managed service depends on. Reporting only the
 // managed ones let a database keep running with the state reading "stopped", so
-// every container of the project is reported — and one that has finished cleanly
-// is reported without changing what the runtime is, because a one-shot migration
-// doing its job is the ordinary path and a state that cries wolf on the ordinary
-// path is one people learn to ignore.
+// every container of the project is reported. One that has finished cleanly is
+// reported without changing what the runtime is, because a one-shot migration
+// doing its job is the ordinary path.
 func TestWhatComposeStartedAlongTheWayIsReported(t *testing.T) {
 	running := runtimetest.Container("api", "c1", "running", "Up 2 seconds")
 
@@ -287,12 +285,11 @@ func TestPublishedPortsAreReportedFromTheRunningContainers(t *testing.T) {
 
 // TestTheObservedBindingCanContradictTheAllocation is G4-18.
 //
-// `docker compose ps` reports the address each port is bound on and the decoder
-// dropped it, so the one place in the product that genuinely reads back what
-// Docker did threw away the field that could have told a user their service was
-// answering on every interface while the record beside it said localhost. A
-// container observed on a wider binding than the task recorded is exactly the
-// disagreement that had no way of being seen.
+// `docker compose ps` reports the address each port is bound on, and the decoder
+// dropped it. That field is what tells a user their service is answering on every
+// interface while the record beside it says localhost, and a container observed on
+// a wider binding than the task recorded is the one disagreement nothing else
+// would see.
 func TestTheObservedBindingCanContradictTheAllocation(t *testing.T) {
 	state := observed(t, []string{"api"},
 		`{"ID":"c1","Service":"api","State":"running","Status":"Up","Publishers":[`+

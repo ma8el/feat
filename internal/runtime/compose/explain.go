@@ -16,11 +16,10 @@ var portPattern = regexp.MustCompile(`[0-9.]+:([0-9]+)`)
 // explain adds what Feat knows about a failure the container runtime reported in
 // its own terms.
 //
-// The runtime's message is accurate and describes a resource, not a decision.
-// Feat knows which decision produced that resource, and saying so turns "port is
-// already allocated" into something the user can act on. Nothing is added when
-// Feat has nothing to add: a guess dressed as an explanation is worse than the
-// original message.
+// The runtime's message describes a resource rather than a decision. Feat knows
+// which decision produced that resource, and saying so turns "port is already
+// allocated" into something the user can act on. Nothing is added when Feat has
+// nothing to add.
 func (r *Runtime) explain(reported string) string {
 	lowered := strings.ToLower(reported)
 

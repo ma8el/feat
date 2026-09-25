@@ -24,16 +24,16 @@ type mount struct {
 // Inspect reports what the running containers turned out to mount.
 //
 // It exists for one failure that is otherwise silent. A repository's
-// container_path is the path the *agent's* Compose files mount it at, and the
+// container_path is the path the agent's Compose files mount it at, and the
 // application's Compose files are a different set that may use another path.
 // Compose merges by target, so a path that disagrees leaves the base file's own
-// mount in place and adds Feat's beside it — and the services then run the
-// user's ordinary checkout while every record Feat keeps about the task is
-// correct. The user changes something, nothing happens, and nothing anywhere
-// says why (ADR-034, and ADR-033 evidence 1 for the same shape one zone over).
+// mount in place and adds Feat's beside it. The services then run the user's
+// ordinary checkout while every record Feat keeps about the task is correct, and
+// nothing says why (ADR-034, and ADR-033 evidence 1 for the same shape one zone
+// over).
 //
-// It reads the containers rather than the resolved Compose configuration, for
-// the reason ADR-033 gives: `docker compose config` renders the values of the
+// It reads the containers rather than the resolved Compose configuration, for the
+// reason ADR-033 gives: `docker compose config` renders the values of the
 // project's environment files, and a container is evidence about what exists
 // rather than a claim about what was asked for.
 //
@@ -97,11 +97,10 @@ func (r *Runtime) mounts(ctx context.Context, container string) ([]runtime.Obser
 	return observed, nil
 }
 
-// notes says, in Feat's terms, what is worth knowing about what just started.
-//
-// One note per repository rather than one per mount: a project with four
-// services mounting the same checkout has one problem, and four copies of it
-// would be a wall of text a user learns to skip.
+// notes says, in Feat's terms, what is worth knowing about what just started. One
+// note per repository rather than one per mount: a project with four services
+// mounting the same checkout has one problem, and four copies of it would be a
+// wall of text a user learns to skip.
 func (r *Runtime) notes(mounts []runtime.ObservedMount) []string {
 	affected := make(map[string][]string)
 
@@ -135,9 +134,8 @@ func (r *Runtime) notes(mounts []runtime.ObservedMount) []string {
 	return notes
 }
 
-// checkout reports the ordinary checkout a mount exposes, and "" otherwise.
-//
-// The checkout itself, anything containing it, and anything inside it all count,
+// checkout reports the ordinary checkout a mount exposes, and "" otherwise. The
+// checkout itself, anything containing it, and anything inside it all count,
 // because each of them puts the user's working copy in front of the application
 // instead of the task's worktree.
 func (r *Runtime) checkout(observed runtime.ObservedMount) string {
@@ -178,12 +176,12 @@ func unique(values []string) []string {
 // virtualPrefixes are the paths a container runtime puts in front of a host path
 // when it reports one back.
 //
-// Docker Desktop shares the host filesystem through its own virtual machine, so
-// a bind source can be reported as /host_mnt/Users/... rather than /Users/....
-// The prefixes are stripped explicitly rather than matched by suffix: a suffix
-// comparison would make /elsewhere/repos/api look like the configured
-// /repos/api, and a check that reports a repository the user does not have is a
-// check they will learn to ignore.
+// Docker Desktop shares the host filesystem through its own virtual machine, so a
+// bind source can be reported as /host_mnt/Users/... rather than /Users/.... The
+// prefixes are stripped explicitly rather than matched by suffix: a suffix
+// comparison would make /elsewhere/repos/api look like the configured /repos/api,
+// and a check that reports a repository the user does not have is one they learn
+// to ignore.
 var virtualPrefixes = []string{"/host_mnt", "/run/desktop/mnt/host"}
 
 // normalize strips a container runtime's own prefix and cleans the path.

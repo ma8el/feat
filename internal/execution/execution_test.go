@@ -37,11 +37,10 @@ func valid() execution.Spec {
 }
 
 // TestASpecificationIsCheckedBeforeItCanCreateAnything covers the values that
-// end up in a command that mounts the user's filesystem.
-//
-// Each case is a way a specification can be wrong that nothing downstream would
-// catch: a container would simply be created with the wrong mounts, and every
-// record Feat kept about it would be correct.
+// end up in a command that mounts the user's filesystem. Each case is a way a
+// specification can be wrong that nothing downstream would catch: the container
+// would be created with the wrong mounts, and every record Feat kept about it
+// would be correct.
 func TestASpecificationIsCheckedBeforeItCanCreateAnything(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		change   func(*execution.Spec)
@@ -105,8 +104,8 @@ func TestASpecificationIsCheckedBeforeItCanCreateAnything(t *testing.T) {
 			change: func(s *execution.Spec) {
 				s.Mounts[0].Source = "/repos/app/api/"
 			},
-			// Refused for being uncleaned, before the comparison below is
-			// reached. Both refuse it; this one refuses it first.
+			// Refused for being uncleaned before the comparison below is
+			// reached. Both rules refuse it, and this one refuses it first.
 			contains: "written cleanly",
 		},
 		"the ordinary checkout is named with a trailing separator": {
@@ -139,11 +138,9 @@ func TestASpecificationIsCheckedBeforeItCanCreateAnything(t *testing.T) {
 }
 
 // TestMountingTheOrdinaryCheckoutIsRefused is the narrow statement of ADR-033
-// evidence 1, at the layer that can make it without a container.
-//
-// The failure it prevents is silent: the agent holds both its task worktree and
-// the user's own working copy, and everything Feat records about the task is
-// correct. Leaving the user's own checkout alone is what this protects.
+// evidence 1, at the layer that can make it without a container. The failure it
+// prevents is silent: the agent holds both its task worktree and the user's own
+// working copy, and everything Feat records about the task is correct.
 func TestMountingTheOrdinaryCheckoutIsRefused(t *testing.T) {
 	spec := valid()
 	spec.Mounts = append(spec.Mounts, execution.Mount{
@@ -204,11 +201,9 @@ func TestACommandIsAnArgumentVector(t *testing.T) {
 }
 
 // TestVariablesRenderInAFixedOrder pins that a generated command is the same
-// command every time.
-//
-// Environment entries reach an argument vector, and Go's map iteration order
-// does not repeat. Without this, a test that pins a command would pass or fail
-// depending on the run, which is worse than not pinning it at all.
+// command every time. Environment entries reach an argument vector and Go's map
+// iteration order does not repeat, so without this a test that pinned a command
+// would pass or fail depending on the run.
 func TestVariablesRenderInAFixedOrder(t *testing.T) {
 	command := execution.Command{
 		Program: "claude",

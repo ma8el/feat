@@ -17,9 +17,9 @@ import (
 //
 // They make what a task owns discoverable without reading any persistent state,
 // which is how reconciliation resolves it and how this package lists a task's
-// networks and volumes. The kind label separates an application service
-// from the agent's own container: both are Feat's, and only one of them is the
-// environment the user is testing.
+// networks and volumes. The kind label separates an application service from the
+// agent's own container: both are Feat's, and only one is the environment the
+// user is testing.
 const (
 	LabelOwner   = "dev.feat.owner"
 	LabelProject = "dev.feat.project"
@@ -61,9 +61,9 @@ func writeOverride(spec runtime.Spec, defined []string) error {
 // replaceFile writes one generated document and replaces the file atomically.
 //
 // A half-written Compose document is one Docker Compose would read and refuse,
-// and the moment it would read it is the moment a user asked for their
-// application: the rename is what keeps a crashed write from becoming a start
-// that fails for a reason nothing explains.
+// and it would read it at the moment a user asked for their application. The
+// rename keeps a crashed write from becoming a start that fails for a reason
+// nothing explains.
 func replaceFile(path string, document []byte, what string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, overrideDirPerm); err != nil {
@@ -93,17 +93,16 @@ func replaceFile(path string, document []byte, what string) error {
 
 // overrideDocument renders the Compose override for one task's application.
 //
-// Four things about it are load-bearing rather than stylistic, and each is
+// These things about it are load-bearing rather than stylistic, and each is
 // pinned by a test:
 //
 //   - every mount uses the long form, so a path containing a colon is a value
-//     rather than a syntax error waiting to happen;
+//     rather than a syntax error;
 //   - every scalar is written as a JSON string, which is a valid YAML
 //     double-quoted scalar, so no path, name, or generated value can turn into
 //     YAML syntax;
 //   - container_name is reset. It is global to the Docker daemon, so a base file
-//     carrying one could be brought up for exactly one task, and one task per
-//     machine is not the product;
+//     carrying one could be brought up for exactly one task;
 //   - a managed service receives the worktrees of the repository whose services
 //     it is among, and no others;
 //   - a managed service whose image is built from a repository builds from the
@@ -114,18 +113,15 @@ func replaceFile(path string, document []byte, what string) error {
 //     declared reachable is published on the host ports Feat allocated for this
 //     task, and every other service publishes nothing. A published port is
 //     global to the machine exactly as a container_name is global to the Docker
-//     daemon, so one left as configured is one task at a time — which is the
-//     failure allocation exists to remove (ADR-065 evidence 8, superseding
-//     ADR-034).
+//     daemon, so one left as configured is one task at a time (ADR-065
+//     evidence 8, superseding ADR-034).
 //
-// Two kinds of service appear in it, and the difference is what Feat was asked
-// to do. A managed service — one the project names — is redirected at the task's
-// worktrees, published on the ports Feat allocated for it, and told which task
-// it is serving. A service that only appears because a managed one depends on it
-// is given the things without which the task's project is not really its own:
-// both values that are global to the machine removed, and Feat's ownership
-// labels. Nothing else, because the project did not ask Feat to manage it
-// (ADR-034, ADR-065).
+// Two kinds of service appear in it. A managed service — one the project names —
+// is redirected at the task's worktrees, published on the ports Feat allocated
+// for it, and told which task it is serving. A service that only appears because
+// a managed one depends on it loses both values that are global to the machine
+// and carries Feat's ownership labels, and nothing else, because the project did
+// not ask Feat to manage it (ADR-034, ADR-065).
 //
 // It is generated text and never carries a value read from an environment file,
 // because nothing that reads one ever reaches this function.
@@ -170,7 +166,7 @@ func overrideDocument(spec runtime.Spec, defined []string) ([]byte, error) {
 		}
 
 		// The worktrees of the repository whose services these are, and no
-		// others: a service that runs one repository's code has no reason to
+		// others. A service that runs one repository's code has no reason to
 		// hold another's, and mounting every worktree into every service would
 		// make two repositories expecting their source at the same path a
 		// collision rather than the ordinary arrangement it is.
@@ -217,24 +213,22 @@ func overrideDocument(spec runtime.Spec, defined []string) ([]byte, error) {
 
 // writePorts renders one service's publications.
 //
-// A service with none is written as an empty reset rather than left out, which
-// is the whole of what keeps a base file's fixed port from reaching the host: a
-// key absent from an override is a key the merged project keeps.
+// A service with none is written as an empty reset rather than left out, which is
+// what keeps a base file's fixed port from reaching the host: a key absent from an
+// override is a key the merged project keeps.
 //
 // A service with publications takes the override tag rather than the reset one.
 // Compose merges a service's ports by appending, so an entry added beside the
-// project's own would publish both — the allocated port and the fixed one this
-// exists to replace — and only replacing the whole list removes it.
+// project's own would publish both the allocated port and the fixed one this
+// exists to replace, and only replacing the whole list removes it.
 //
 // The long form, for the reason the mounts use it: every part is a value in its
 // own field, so nothing here depends on how a colon in a value would be read.
 //
-// host_ip is written for every publication rather than only for one whose
-// project named an address. Compose's default is every interface, so a
-// publication with the key left out is the widest binding there is, chosen by
-// omission — which is what this generator used to do while the comment beside it
-// said localhost (G4-01). The address is required by Spec.Validate, so there is
-// no case here in which there is none to write.
+// host_ip is written for every publication rather than only for one whose project
+// named an address. Compose's default is every interface, so a publication with
+// the key left out is the widest binding there is, chosen by omission (G4-01).
+// The address is required by Spec.Validate, so there is never none to write.
 func writePorts(b *strings.Builder, publications []runtime.Publication) {
 	if len(publications) == 0 {
 		b.WriteString("    ports: !reset []\n")
@@ -272,7 +266,7 @@ func writeLabels(b *strings.Builder, spec runtime.Spec) {
 // They are sorted, because the order Compose lists them in is the order of the
 // project's files and a generated document should be the same document every
 // time. Each name reaches the document through quote and never reaches an
-// argument vector, so there is nothing here a name could be mistaken for.
+// argument vector.
 func dependencyServices(managed, defined []string) []string {
 	named := make(map[string]bool, len(managed))
 	for _, service := range managed {
@@ -294,9 +288,9 @@ func dependencyServices(managed, defined []string) []string {
 // quote renders a value as a YAML double-quoted scalar.
 //
 // YAML 1.2 is a superset of JSON and its double-quoted scalars use JSON's
-// escaping, so a JSON string is a correct YAML scalar. Doing it this way means
-// no path, name, or generated value can be read as YAML syntax, and the rule is
-// one function rather than a habit each call site has to remember.
+// escaping, so a JSON string is a correct YAML scalar. One function rather than
+// a habit each call site remembers means no path, name, or generated value can
+// be read as YAML syntax.
 func quote(value string) string {
 	encoded, err := json.Marshal(value)
 	if err != nil {

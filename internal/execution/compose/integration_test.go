@@ -23,11 +23,10 @@ import (
 // port, and whether two containers built from one file can run at once.
 //
 // They run under FEAT_INTEGRATION, as every TestReal suite in this repository
-// does. A machine with no Docker daemon — which macOS CI runners do not have —
-// skips them unless the run demanded Docker, in which case it fails: a
-// skipped package still prints "ok", so the demand is the only thing that
-// stops a stopped Docker Desktop from taking every proof below out of the
-// gate quietly (G6-05).
+// does. A machine with no Docker daemon, which macOS CI runners do not have,
+// skips them unless the run demanded Docker, in which case it fails: a skipped
+// package still prints "ok", so the demand is the only thing that stops a stopped
+// Docker Desktop from taking every proof below out of the gate quietly (G6-05).
 
 // realDocker ends the test unless this machine can run the tests below.
 func realDocker(t *testing.T) {
@@ -49,11 +48,10 @@ func realDocker(t *testing.T) {
 // It is the uid of whoever runs the test rather than a fixed number, because a
 // Linux bind mount carries the host's own ownership: a worktree this test wrote
 // belongs to the user running it, and a container user with a different uid
-// cannot write it. That is not a defect in the test — it is exactly what Check
-// refuses a launch over, and what agent.execution.user exists to let a project
-// get right — so the fixture arranges what a real Linux project must. A machine
-// whose Docker maps ownership instead, as Docker Desktop does, is unaffected by
-// which uid this is.
+// cannot write it. That is what Check refuses a launch over and what
+// agent.execution.user exists to let a project get right, so the fixture arranges
+// what a real Linux project must. A machine whose Docker maps ownership instead,
+// as Docker Desktop does, is unaffected by which uid this is.
 func agentUser(t *testing.T) string {
 	t.Helper()
 
@@ -63,9 +61,9 @@ func agentUser(t *testing.T) string {
 		// subject of these tests: there is no non-root uid that could write it.
 		//
 		// Through the demand rather than as a bare skip, because realTask reaches
-		// this and almost every TestReal below reaches realTask: a run as root
-		// dropped the whole container-boundary suite while Docker was demanded and
-		// answering, and printed "ok".
+		// this and almost every TestReal below reaches realTask. A run as root
+		// would otherwise drop the whole container-boundary suite while Docker was
+		// demanded and answering, and print "ok".
 		integrationtest.Unavailable(t, integrationtest.Docker,
 			"this run is root, and these tests need a non-root user "+
 				"because the agent's container user must not be root")
@@ -344,11 +342,11 @@ func TestRealAReadOnlyMountIsObservedReadOnly(t *testing.T) {
 //
 // Compose merges a service's volumes by target, and the whole mount design rests
 // on that replacement. What it does with a target that means the same path
-// written differently is a property of the tool, and the three outcomes are all
-// acceptable — the project's file may be refused outright, the two entries may
+// written differently is a property of the tool, and three outcomes are
+// acceptable: the project's file may be refused outright, the two entries may
 // fold into one read-only mount, or a second writable mount may appear and be
-// refused by the check. What must not happen is the fourth: a path the task
-// holds read-only, writable, in a container Feat then starts an agent in.
+// refused by the check. The fourth must not happen — a path the task holds
+// read-only, writable, in a container Feat then starts an agent in.
 func TestRealAReadOnlyPathIsNeverQuietlyWritable(t *testing.T) {
 	realDocker(t)
 
@@ -538,14 +536,14 @@ func TestRealADockerEndpointIsFoundInTheContainersOwnEnvironment(t *testing.T) {
 //
 // The fixture carries a fixed container name and a published host port, both of
 // which are global and both of which would make the second container fail to
-// start. That is the whole reason the generated override resets them, and this
-// is what proves the reset works against the tool rather than against a golden
-// file (ADR-033 evidence 3).
+// start. That is why the generated override resets them, and this proves the
+// reset works against the tool rather than against a golden file (ADR-033
+// evidence 3).
 //
 // It carries them twice over: on the service Feat starts and on the one Compose
 // starts because that service depends on it. The second is the defect F7-01
-// names, and it fails here as a launch rather than as an assertion — the second
-// task's `up` is refused by Docker over the first task's `db`.
+// names, and it fails here as a launch rather than as an assertion, because the
+// second task's `up` is refused by Docker over the first task's `db`.
 func TestRealThreeTasksRunSideBySide(t *testing.T) {
 	realDocker(t)
 
@@ -649,12 +647,11 @@ func TestRealTheOverrideRemovesWhatWouldCollide(t *testing.T) {
 // TestRealAStoppedEnvironmentKeepsItsContainerAndComesBack is the lifecycle a
 // user drives, against the container runtime that decides it.
 //
-// The three claims a fake cannot answer: that `stop` leaves the container in
-// place rather than removing it as `down` would, that what comes back after a
-// second `up` is the same container rather than a new one, and that what the
-// agent wrote inside it survives the round trip. The last is what makes a stop
-// reversible in the sense a user means — a container that came back empty would
-// be a launch wearing a resume's name (ADR-057).
+// Three claims a fake cannot answer: that `stop` leaves the container in place
+// rather than removing it as `down` would, that what comes back after a second
+// `up` is the same container rather than a new one, and that what the agent wrote
+// inside it survives the round trip. The last is what makes a stop reversible in
+// the sense a user means (ADR-057).
 func TestRealAStoppedEnvironmentKeepsItsContainerAndComesBack(t *testing.T) {
 	realDocker(t)
 
@@ -766,9 +763,8 @@ func TestRealAProjectIsFoundAndRemovedByNameAlone(t *testing.T) {
 		t.Errorf("removing by name left %s", after.Describe())
 	}
 
-	// And again over nothing: a removal of what is already absent is what a
-	// user asked for, so it succeeds rather than reporting a project that is
-	// not there.
+	// And again over nothing: removing what is already absent succeeds rather
+	// than reporting a project that is not there.
 	if err := project.Destroy(context.Background()); err != nil {
 		t.Errorf("removing an empty project reported a failure: %v", err)
 	}
@@ -778,12 +774,11 @@ func TestRealAProjectIsFoundAndRemovedByNameAlone(t *testing.T) {
 // decides it.
 //
 // The finding turns on a fact about Docker rather than about Feat: a `local`
-// volume whose driver options bind a host path is reported with the volume's
-// own mountpoint as its source, and never with the device. That is what makes
-// the plain `- ${HOME}:/host-home` refused and the same thing through a volume
-// accepted, and it is why removing the type filter would not have fixed it —
-// there is nothing in the mount record to compare. It was measured by hand on
-// 2026-08-19; this is where it stops being a measurement somebody remembers.
+// volume whose driver options bind a host path is reported with the volume's own
+// mountpoint as its source, and never with the device. That is what makes the
+// plain `- ${HOME}:/host-home` refused and the same thing through a volume
+// accepted, and why removing the type filter would not have fixed it: there is
+// nothing in the mount record to compare. It was measured by hand on 2026-08-19.
 //
 // The home directory is the device for the reason
 // TestRealAMountOfTheHomeDirectoryIsRefused mounts it: it is the one forbidden
@@ -899,12 +894,11 @@ func TestRealAContainerGrantedMoreThanItsMountsIsRefused(t *testing.T) {
 	if err := environment.Prepare(context.Background()); err != nil {
 		// A daemon that will not run a privileged container at all leaves nothing
 		// to inspect, and the refusal did happen one layer down — but it happened
-		// somewhere Feat does not control and cannot report on, and this is the
-		// only real-Docker proof that Feat's own check reads .HostConfig and
-		// refuses what it finds. Through the demand, so a run that asked for
+		// somewhere Feat does not control and cannot report on. This is the only
+		// real-Docker proof that Feat's own check reads .HostConfig and refuses
+		// what it finds, so it goes through the demand: a run that asked for
 		// Docker and got one which cannot arrange the subject says so instead of
-		// printing "ok" (this skip was added one batch after the demand landed and
-		// walked straight around it).
+		// printing "ok".
 		integrationtest.Unavailable(t, integrationtest.Docker,
 			"this machine's Docker would not start the privileged container this check inspects: %v", err)
 	}
@@ -1145,11 +1139,10 @@ func firstNonEmpty(values ...string) string {
 // The launch reads `id -u` as the configured user, and an image that also grants
 // that user passwordless root makes the answer true of the probe rather than of
 // the session. Both halves of the distinction Feat draws are properties of sudo
-// and of nothing Feat wrote — `sudo -n true` exits zero under a NOPASSWD rule
-// and non-zero under one that asks — so a fake can only restate whichever answer
-// its author assumed. Under the second, silence is the correct behaviour: an
-// image that merely carries sudo is an image where the requirement holds, and
-// warning about it would teach a user to skip the warning that means something.
+// rather than of anything Feat wrote: `sudo -n true` exits zero under a NOPASSWD
+// rule and non-zero under one that asks, so a fake can only restate whichever
+// answer its author assumed. Under the second, silence is correct, because an
+// image that merely carries sudo is an image where the requirement holds.
 //
 // It is one container and two sudoers files rather than two containers, because
 // what separates the arms is the rule and nothing else.

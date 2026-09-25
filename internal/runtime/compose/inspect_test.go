@@ -11,12 +11,12 @@ import (
 // TestAServiceRunningTheOrdinaryCheckoutIsReported is the failure this package is
 // least able to see on its own.
 //
-// A repository's container_path is the path the *agent's* Compose files mount it
+// A repository's container_path is the path the agent's Compose files mount it
 // at. The application's Compose files are a different set and may use another
-// path, and Compose replaces a mount only when the target matches — so a
-// mismatch leaves the base file's own mount in place and the services run the
-// user's ordinary checkout. Everything Feat generated is correct, every record it
-// keeps is correct, and the user's change simply has no effect.
+// path, and Compose replaces a mount only when the target matches, so a mismatch
+// leaves the base file's own mount in place and the services run the user's
+// ordinary checkout. Everything Feat generated is correct, every record it keeps
+// is correct, and the user's change has no effect.
 func TestAServiceRunningTheOrdinaryCheckoutIsReported(t *testing.T) {
 	docker := runtimetest.New().
 		Answer("inspect --type container --format {{json .Mounts}} c0ffee",

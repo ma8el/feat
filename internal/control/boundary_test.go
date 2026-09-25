@@ -13,11 +13,10 @@ import (
 // workspace exists to draw.
 //
 // Everything under the workspace is reachable from a container, so a path the
-// host built from validated identifiers still says only where a file belongs.
-// If the host then trusts the filesystem underneath it, an agent that replaces
-// a name with a symbolic link decides where the daemon's own writes land — and
-// the daemon is the trusted process. Every case below plants a link and asks
-// for the write it would redirect.
+// host built from validated identifiers still says only where a file belongs. If
+// the host then trusts the filesystem underneath it, an agent that replaces a
+// name with a symbolic link decides where the daemon's own writes land. Every
+// case below plants a link and asks for the write it would redirect.
 func TestAPlantedLinkNeverRedirectsAHostWrite(t *testing.T) {
 	// The record of applied messages is the one write that truncates, which
 	// makes it the one that would do the most damage somewhere else.
