@@ -8,19 +8,13 @@ import (
 	"strings"
 )
 
-// ErrNotFound reports a ref, branch, or commit that does not exist.
-//
-// Git answers that question with exit code 1 and no output, which is not a
-// failure of the command. Callers ask it often — a base ref that is not there
-// yet, a branch a collision check is looking for — so it is a sentinel rather
-// than a message to parse.
+// ErrNotFound reports a ref, branch, or commit that does not exist. Git answers
+// that question with exit code 1 and no output, which is not a failure of the
+// command, so callers get a sentinel rather than a message to parse.
 var ErrNotFound = errors.New("not found")
 
-// Git runs Git commands for one machine.
-//
-// Every command is an argument vector. Nothing in this package builds a command
-// string, and nothing is handed to a shell to re-split (CLAUDE.md architectural
-// rules).
+// Git runs Git commands for one machine. Every command is an argument vector;
+// nothing here builds a command string or hands one to a shell to re-split.
 type Git struct {
 	runner Runner
 }
@@ -38,12 +32,10 @@ func Host() *Git { return New(HostRunner{}) }
 
 // IsRepository reports whether dir is inside a Git repository.
 //
-// Only Git's own answer counts as an answer. A command that never ran — no
-// executable on the path, no file descriptors left to give it, a timeout — says
-// nothing about what is in dir, and reporting it as "not a Git repository" sends
-// the user to inspect a checkout that is fine. That is not hypothetical: file
-// descriptor exhaustion elsewhere in Feat surfaced here as a working repository
-// being declared not to be one.
+// Only Git's own answer counts. A command that never ran — no executable on the
+// path, no file descriptors left, a timeout — says nothing about dir. Reporting
+// it as "not a Git repository" sends the user to inspect a checkout that is
+// fine, which is what file descriptor exhaustion elsewhere in Feat once did.
 func (g *Git) IsRepository(ctx context.Context, dir string) error {
 	if _, err := g.runner.Run(ctx, dir, "rev-parse", "--git-dir"); err != nil {
 		if _, ran := exitCode(err); !ran {
@@ -54,17 +46,13 @@ func (g *Git) IsRepository(ctx context.Context, dir string) error {
 	return nil
 }
 
-// Fetch updates the remote-tracking refs of one remote.
+// Fetch updates the remote-tracking refs of one remote. It never touches the
+// working tree, the index, or a local branch, so a user with uncommitted work
+// in their ordinary checkout is unaffected (FR-GIT-001).
 //
-// It never touches the working tree, the index, or a local branch, which is what
-// FR-GIT-001 requires: Feat fetches and never pulls, so a user with uncommitted
-// work in their ordinary checkout is unaffected by a task being prepared beside
-// it.
-//
-// The command is deliberately plain. `--prune` would delete remote-tracking refs
-// the user still has branches on, `--tags` and `--all` would update refs no base
-// policy reads, and each of them is a change to the user's repository that Feat
-// was not asked to make.
+// The command is deliberately plain. `--prune` would delete remote-tracking
+// refs the user still has branches on, and `--tags` and `--all` would update
+// refs no base policy reads.
 func (g *Git) Fetch(ctx context.Context, dir, remote string) error {
 	if err := checkArgument("remote", remote); err != nil {
 		return err
@@ -73,11 +61,10 @@ func (g *Git) Fetch(ctx context.Context, dir, remote string) error {
 	return err
 }
 
-// Commit resolves a revision to the full object name of a commit.
-//
-// The revision may name a branch, a remote-tracking ref, a tag, or HEAD; what is
-// returned is always a commit, because that is what Feat records. A revision
-// that does not resolve returns an error matching ErrNotFound.
+// Commit resolves a revision to the full object name of a commit. The revision
+// may name a branch, a remote-tracking ref, a tag, or HEAD, and what comes back
+// is always a commit, because that is what Feat records. A revision that does
+// not resolve returns an error matching ErrNotFound.
 func (g *Git) Commit(ctx context.Context, dir, revision string) (string, error) {
 	if err := checkArgument("revision", revision); err != nil {
 		return "", err
@@ -107,8 +94,8 @@ func (g *Git) Exists(ctx context.Context, dir, revision string) (bool, error) {
 }
 
 // Head returns the ref HEAD points at, such as "refs/heads/main", and reports
-// whether HEAD is attached to one at all. A detached HEAD is not an error: it is
-// how a read-only task worktree is checked out.
+// whether HEAD is attached to one at all. A detached HEAD is not an error: it
+// is how a read-only task worktree is checked out.
 func (g *Git) Head(ctx context.Context, dir string) (string, bool, error) {
 	output, err := g.runner.Run(ctx, dir, "symbolic-ref", "--quiet", "HEAD")
 	if err != nil {
@@ -137,11 +124,9 @@ type Worktree struct {
 }
 
 // Worktrees lists the working trees registered with a repository, including the
-// user's ordinary checkout.
-//
-// This is how Feat learns what a repository already has: a path Git has
-// registered cannot be used for a second worktree, and a branch already checked
-// out somewhere cannot be checked out again.
+// user's ordinary checkout. A path Git has registered cannot be used for a
+// second worktree, and a branch already checked out somewhere cannot be checked
+// out again.
 func (g *Git) Worktrees(ctx context.Context, dir string) ([]Worktree, error) {
 	output, err := g.runner.Run(ctx, dir, "worktree", "list", "--porcelain")
 	if err != nil {
@@ -150,11 +135,9 @@ func (g *Git) Worktrees(ctx context.Context, dir string) ([]Worktree, error) {
 	return parseWorktrees(output), nil
 }
 
-// parseWorktrees reads the porcelain worktree list.
-//
-// The format is one record per working tree, separated by a blank line, with one
-// attribute per line. It is a stable, documented format, which is why the
-// porcelain form is used rather than the human-readable one.
+// parseWorktrees reads the porcelain worktree list. The format is one record
+// per working tree, separated by a blank line, with one attribute per line, and
+// it is documented and stable where the human-readable form is not.
 func parseWorktrees(output string) []Worktree {
 	var (
 		list    []Worktree
@@ -208,19 +191,17 @@ func parseWorktrees(output string) []Worktree {
 type WorktreeSpec struct {
 	// Path is the absolute path to create the worktree at.
 	Path string
-	// Branch is the new branch to create and check out. An empty branch checks
-	// the base commit out detached, which is what a read-only task repository
-	// gets: a reproducible tree with no branch to commit to by accident.
+	// Branch is the new branch to create and check out. An empty branch checks the
+	// base commit out detached, which is what a read-only task repository gets: a
+	// reproducible tree with no branch to commit to by accident.
 	Branch string
 	// Commit is the immutable base commit to check out.
 	Commit string
 }
 
-// AddWorktree creates one task worktree.
-//
-// Git creates the directory, writes the administrative files under the
-// repository's common directory, and checks the tree out — or it fails and
-// leaves neither. That atomicity is why Feat never has to undo half of a
+// AddWorktree creates one task worktree. Git creates the directory, writes the
+// administrative files under the repository's common directory, and checks the
+// tree out, or it fails and leaves neither, so Feat never undoes half a
 // worktree.
 func (g *Git) AddWorktree(ctx context.Context, dir string, spec WorktreeSpec) error {
 	if err := checkArgument("worktree path", spec.Path); err != nil {
@@ -246,9 +227,8 @@ func (g *Git) AddWorktree(ctx context.Context, dir string, spec WorktreeSpec) er
 }
 
 // Dirty reports whether a working tree has uncommitted or untracked changes.
-//
-// `--no-optional-locks` keeps the observation from writing to the index, so
-// observing a repository never competes with a user working in it.
+// `--no-optional-locks` keeps the observation from writing to the index, so it
+// never competes with a user working in the repository.
 func (g *Git) Dirty(ctx context.Context, worktree string) (bool, error) {
 	output, err := g.runner.Run(ctx, worktree, "--no-optional-locks", "status", "--porcelain")
 	if err != nil {
@@ -294,11 +274,8 @@ func (g *Git) IsAncestor(ctx context.Context, dir, ancestor, descendant string) 
 }
 
 // ChangedFiles counts the files in a worktree that differ from a base commit,
-// including files that were never added.
-//
-// A file that is both modified and untracked cannot exist, but a file may appear
-// in both lists across repositories, so the names are collected in a set rather
-// than counted twice.
+// including files that were never added. The two lists Git returns are merged
+// through a set, so a name reported by both is counted once.
 func (g *Git) ChangedFiles(ctx context.Context, worktree, base string) (int, error) {
 	if !commitPattern.MatchString(base) {
 		return 0, fmt.Errorf("a change summary compares against a resolved commit, but %q is not one", base)
@@ -328,11 +305,10 @@ func (g *Git) ChangedFiles(ctx context.Context, worktree, base string) (int, err
 // survive an argument vector intact.
 //
 // Remote names, branch names, and refs come from configuration and from task
-// preparation. They are not shell input — this package never builds a command
-// string — but a value beginning with "-" is still read by Git as an option, and
-// `--upload-pack=...` in place of a remote name is a command of the user's
-// choosing running on their machine. Validating the value is cheaper and clearer
-// than relying on every Git subcommand to honour "--".
+// preparation. A value beginning with "-" is read by Git as an option, and
+// `--upload-pack=...` in place of a remote name runs a command of the caller's
+// choosing on the user's machine. Validating here is clearer than relying on
+// every Git subcommand to honour "--".
 func checkArgument(kind, value string) error {
 	switch {
 	case value == "":

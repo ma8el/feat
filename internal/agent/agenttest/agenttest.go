@@ -1,8 +1,8 @@
 // Package agenttest provides a fake agent execution environment.
 //
-// It exists so that the branches that decide whether a launch is refused — a
-// missing executable, an unauthenticated provider CLI, a probe that fails — can
-// be tested without a machine that has each of those states. It is test support
+// It exists so the branches that decide whether a launch is refused — a missing
+// executable, an unauthenticated provider CLI, a probe that fails — can be
+// tested without a machine that has each of those states. It is test support
 // only and is never linked into a running daemon.
 package agenttest
 
@@ -19,8 +19,8 @@ import (
 //
 // Responses are keyed by the whole command line, so a test states what a
 // specific probe answers rather than what any probe answers. An unanswered
-// probe reports the executable as absent, which is the honest default: an
-// environment a test did not describe does not have the tool.
+// probe reports the executable as absent, because an environment a test did not
+// describe does not have the tool.
 type Runner struct {
 	mu sync.Mutex
 	// responses maps a command line to what running it produces.

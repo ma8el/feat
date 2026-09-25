@@ -12,20 +12,16 @@ import (
 // Provider is the adapter identifier recorded on an agent session.
 const Provider = "claude"
 
-// Executable is the Claude Code command.
-//
-// It is a constant rather than a configured value: a project that could name
-// the agent's executable would be a project that could name a program the
-// daemon starts on its owner's behalf, and the agent provider is already
-// declared by agent.provider.
+// Executable is the Claude Code command. It is a constant rather than a
+// configured value, because a project that could name the agent's executable
+// could name any program the daemon starts on its owner's behalf. Which
+// provider runs is already declared by agent.provider.
 const Executable = "claude"
 
 // planMode is Claude's own name for the permission mode that investigates and
-// proposes without editing.
-//
-// Read from the installed 2.1.236 rather than from memory: `--permission-mode
-// <mode>` takes exactly one value, out of acceptEdits, auto, bypassPermissions,
-// manual, dontAsk, and plan.
+// proposes without editing. Read from the installed 2.1.236 rather than from
+// memory: `--permission-mode <mode>` takes exactly one value, out of
+// acceptEdits, auto, bypassPermissions, manual, dontAsk, and plan.
 const planMode = "plan"
 
 // Adapter implements agent.Adapter for Claude Code.
@@ -48,7 +44,7 @@ func (Adapter) ID() string { return Provider }
 // the task brief, and returns how to launch the native interactive CLI.
 //
 // Everything generated goes into the host-only area of the control workspace,
-// which is outside every repository: a checked-in CLAUDE.md and a project's own
+// which is outside every repository. A checked-in CLAUDE.md and a project's own
 // settings keep applying, because Feat adds a settings file rather than
 // replacing the user's (FR-AGENT-003, docs/06-technical-architecture.md).
 func (a Adapter) Prepare(_ context.Context, req agent.PrepareRequest) (agent.LaunchSpec, error) {
@@ -65,9 +61,9 @@ func (a Adapter) Prepare(_ context.Context, req agent.PrepareRequest) (agent.Lau
 		return agent.LaunchSpec{}, fmt.Errorf("task %s has no brief, and the brief is what the session starts from", req.Task.ID)
 	}
 
-	// The brief first. It is what the agent reads, and the launch below names
-	// its path, so a launch that started before it existed would point the agent
-	// at a file that is not there.
+	// The brief first. It is what the agent reads, and the launch below names its
+	// path, so a launch that started before it existed would point the agent at a
+	// file that is not there.
 	if err := req.Control.WriteBrief(req.Task.Brief); err != nil {
 		return agent.LaunchSpec{}, err
 	}
@@ -78,23 +74,20 @@ func (a Adapter) Prepare(_ context.Context, req agent.PrepareRequest) (agent.Lau
 	}
 
 	arguments := []string{
-		// --add-dir is variadic, so it must never be the last flag before
-		// the prompt: it would swallow the prompt as a second directory and
-		// the session would start with no task at all. Another flag after it
-		// ends the list. This ordering is load-bearing and is pinned by a
-		// test.
+		// --add-dir is variadic, so it must never be the last flag before the
+		// prompt: it would swallow the prompt as a second directory and the
+		// session would start with no task at all. Another flag after it ends
+		// the list, and a test pins the ordering.
 		//
 		// It exists because the control workspace is outside the working
-		// directory, so without it the session's first act is to ask
-		// permission to read the brief Feat wrote for it — on every task
-		// launch. A permission dialog nobody needed teaches a user to click
-		// through the ones that matter. It grants tool access to one
-		// directory Feat generated for this task and widens nothing else.
+		// directory, so without it the session's first act on every launch is
+		// to ask permission to read the brief Feat wrote for it. It grants tool
+		// access to one directory Feat generated for this task and widens
+		// nothing else.
 		"--add-dir", req.Workspace.ControlPath,
 		// The generated settings are added to the user's own rather than
-		// replacing them, and --setting-sources is deliberately not narrowed:
-		// the project's checked-in configuration is part of how the user
-		// works and Feat has no business switching it off.
+		// replacing them, and --setting-sources is deliberately not narrowed.
+		// The project's checked-in configuration is part of how the user works.
 		"--settings", generated.settingsPath,
 		"--append-system-prompt-file", generated.instructionsPath,
 	}
@@ -102,36 +95,32 @@ func (a Adapter) Prepare(_ context.Context, req agent.PrepareRequest) (agent.Lau
 	if req.Resume != "" {
 		// --resume takes an optional value, so it has the same hazard --add-dir
 		// has and one more: given no value it opens an interactive picker. The
-		// identifier is therefore always passed explicitly, and the flag is
-		// never the last thing before a positional argument.
+		// identifier is therefore always passed explicitly, and the flag is never
+		// the last thing before a positional argument.
 		if err := checkSessionID(req.Resume); err != nil {
 			return agent.LaunchSpec{}, err
 		}
 		arguments = append(arguments, "--resume", req.Resume)
 		// No prompt. A resumed session already holds the conversation this task
 		// has had, and a prompt invented here would be Feat putting words in the
-		// user's mouth. The session comes back where it was, and what happens
-		// next is theirs (ADR-037).
+		// user's mouth (ADR-037).
 		//
 		// And no permission mode, for the same reason and with a worse symptom.
-		// Plan mode is a property of starting from the brief, not of the task's
-		// life: a resumed session re-entered in it looks exactly like one that
-		// resumed correctly — same terminal, same history — except that the agent
-		// now refuses to edit and re-plans work the user approved an hour ago.
+		// Plan mode belongs to starting from the brief rather than to the task's
+		// life. A resumed session re-entered in it looks exactly like one that
+		// resumed correctly, except that the agent refuses to edit and re-plans
+		// work the user approved an hour ago.
 	} else {
-		// The mode is read off the task rather than taken as a field of its own
-		// on PrepareRequest: the task is already here, and a second copy of one
-		// fact is what domain.Task's own Attention comment refuses.
+		// The mode is read off the task rather than taken as a field of its own on
+		// PrepareRequest, because the task is already here and a second copy of one
+		// fact is a second answer.
 		//
-		// It goes beside the prompt because it belongs to the same act. Every
-		// case follows from that one rule: a fresh launch plans, a resume does
-		// not, a session that never reported an identifier is a fresh launch and
-		// plans again because nothing was planned or done, and a retry of a
-		// launch that failed is a fresh launch for the same reason.
+		// It goes beside the prompt because it belongs to the same act. A fresh
+		// launch plans and a resume does not, so a session that never reported an
+		// identifier plans again, and so does a retry of a launch that failed.
 		//
 		// --permission-mode takes exactly one value, so it is safe after the
-		// variadic --add-dir and it keeps --add-dir non-final, which the comment
-		// above requires.
+		// variadic --add-dir and it keeps --add-dir non-final.
 		if req.Task.PlanFirst {
 			arguments = append(arguments, "--permission-mode", planMode)
 		}
@@ -149,12 +138,11 @@ func (a Adapter) Prepare(_ context.Context, req agent.PrepareRequest) (agent.Lau
 	return spec, nil
 }
 
-// sessionIDPattern is what Claude Code's own session identifiers look like.
-//
-// It is checked rather than trusted because the value reaches an argument
-// vector: it comes from a provider message, and a message an agent could write
-// is not a value to pass through unexamined (docs/05-security-model.md, control
-// workspace validation).
+// sessionIDPattern is what Claude Code's own session identifiers look like. It
+// is checked rather than trusted because the value comes from a provider
+// message and reaches an argument vector, and a message an agent could write is
+// not passed through unexamined (docs/05-security-model.md, control workspace
+// validation).
 var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 
 // checkSessionID refuses a recorded identifier that is not one.
@@ -168,8 +156,8 @@ func checkSessionID(id string) error {
 // ParseEvent normalizes one control message into an agent event.
 //
 // A provider event carries Claude's own hook payload, which only this package
-// reads. An agent-authored message carries a document this package defines for
-// the purpose, so that the agent has one documented way to say "this is ready".
+// reads. An agent-authored message carries a document this package defines, so
+// the agent has one documented way to say "this is ready".
 func (a Adapter) ParseEvent(_ context.Context, message control.Message) (agent.Event, bool, error) {
 	switch message.Type {
 	case control.TypeProviderEvent:
@@ -183,8 +171,8 @@ func (a Adapter) ParseEvent(_ context.Context, message control.Message) (agent.E
 	case control.TypePublicationDraft:
 		return parsePublicationDraft(message)
 	case control.TypeRuntimeRequested:
-		// A runtime request never reaches an adapter: the protocol refuses it
-		// for want of a capability before anything is asked to interpret it.
+		// A runtime request never reaches an adapter, because the protocol refuses
+		// it for want of a capability before anything interprets it.
 		return agent.Event{}, false, nil
 	default:
 		return agent.Event{}, false, nil

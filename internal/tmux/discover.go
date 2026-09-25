@@ -13,16 +13,13 @@ import (
 )
 
 // The formats discovery reads. Every field appended to one of them is appended
-// at the end, so that adding an observation cannot move the index another field
-// is read from.
+// at the end, so adding an observation cannot move the index another field is
+// read from.
 //
 // The window format carries window_active_clients, which is how many attached
 // clients are looking at that window right now. It is the per-window answer to
-// "is the user watching this task", and session_attached is not: a user attached
-// to a project's session is looking at one of its task windows and not at the
-// others, so a session-level answer would silence every task the moment one of
-// them was being watched. Measured against tmux 3.7b, where it follows a window
-// switch immediately (ADR-035).
+// "is the user watching this task", where session_attached would silence every
+// task in a project the moment one of them was watched (ADR-035).
 const (
 	sessionFormat = "#{session_id}\t#{@feat_managed}\t#{@feat_schema}\t#{@feat_project_id}"
 	windowFormat  = "#{session_id}\t#{window_id}\t#{@feat_managed}\t#{@feat_schema}\t#{@feat_project_id}\t#{@feat_task_id}\t#{window_active_clients}"
@@ -33,23 +30,21 @@ const (
 // because on tmux 3.4 those are two facts that arrive at different moments.
 //
 // `pane_dead` there is `wp->fd == -1`, while `pane_dead_status` additionally
-// requires `PANE_STATUSREADY` — the flag tmux sets once it has reaped the child
-// and recorded its wait status. So a pane can report itself dead with no outcome
-// published yet, and a reader that took the first of those and asked for the
+// requires `PANE_STATUSREADY`, the flag tmux sets once it has reaped the child
+// and recorded its wait status. A reader that took the first and asked for the
 // second in the same breath would see a process that had failed and call it
 // stopped. tmux 3.7 closed the gap by making `pane_dead` require the same flag,
-// which is why this is invisible on a machine with a current tmux and why it
-// showed up on Linux CI first.
+// which is why this showed up on Linux CI first.
 //
-// Feat therefore derives the guarantee rather than depending on the version
-// having it: a pane is dead when tmux can say how it ended, by an exit status or
-// by a signal. Until then the pane is reported as it was — running — which is
-// exactly what tmux 3.7 says about the same moment.
+// Feat derives the guarantee rather than depending on the version having it: a
+// pane is dead when tmux can say how it ended, by an exit status or by a
+// signal. Until then the pane is reported as running, which is what tmux 3.7
+// says about the same moment.
 //
-// The field counts below are derived from the formats rather than written beside
-// them. A format that gains a field and a parser that keeps the old count is an
-// index out of range on a line every discovery reads, and both fakes in the
-// tests happened to emit the wider line — so the panic waited for real tmux.
+// The field counts below are derived from the formats rather than written
+// beside them. A format that gains a field and a parser that keeps the old
+// count is an index out of range on a line every discovery reads. Both fakes in
+// the tests happened to emit the wider line.
 var (
 	sessionFields = fieldCount(sessionFormat)
 	windowFields  = fieldCount(windowFormat)
@@ -89,11 +84,11 @@ type paneRecord struct {
 // Discover returns every completely tagged task terminal on the dedicated
 // server, together with the tagged objects it could not use.
 //
-// A missing server is the same as an empty result: the first task creation
-// starts it. A tmux command that fails is an error, because the enumeration
-// itself failed; an object the enumeration returned and this code cannot make
-// sense of is quarantined instead, so that one damaged terminal does not make
-// every healthy one unreachable (ADR-037).
+// A missing server is the same as an empty result, because the first task
+// creation starts it. A tmux command that fails is an error, because the
+// enumeration itself failed. An object the enumeration returned and this code
+// cannot make sense of is quarantined instead, so one damaged terminal does not
+// make every healthy one unreachable (ADR-037).
 func (t *Tmux) Discover(ctx context.Context) (Discovery, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -152,9 +147,9 @@ func parseSessions(output string) (map[string]sessionRecord, []Damaged) {
 		}
 		id := fields[0]
 		if fields[2] != metadataVersion {
-			// A session written by a different build of Feat. Quarantining it
-			// rather than failing is what lets an older daemon keep serving the
-			// tasks it does understand.
+			// A session written by a different build of Feat. Quarantining it rather
+			// than failing lets an older daemon keep serving the tasks it does
+			// understand.
 			damaged = append(damaged, Damaged{Kind: DamagedSession, ID: id, Reason: fmt.Sprintf(
 				"the session carries Feat metadata schema %q, and this build reads %q", fields[2], metadataVersion)})
 			continue
@@ -172,8 +167,8 @@ func parseSessions(output string) (map[string]sessionRecord, []Damaged) {
 		}
 		if previous, exists := projects[project]; exists && previous != id {
 			// Neither session can be trusted to be the project's, so both are
-			// quarantined and the project is refused a third one rather than
-			// given one. The damage is bounded to the project it belongs to.
+			// quarantined and the project is refused a third rather than given one. The
+			// damage stays bounded to that project.
 			damaged = append(damaged,
 				Damaged{Kind: DamagedSession, ID: previous, Project: project, Reason: fmt.Sprintf(
 					"sessions %s and %s both claim project %s", previous, id, project)},
@@ -221,11 +216,10 @@ func parseWindows(output string) (map[string]windowRecord, []Damaged) {
 		}
 		records[fields[0]+"\x00"+id] = windowRecord{
 			session: fields[0], id: id, project: project, task: task,
-			// A tmux without this format reports an empty field, which reads as
-			// nobody watching. Suppression then errs towards delivering a
-			// notification, which is the safer of the two mistakes: a notification
-			// the user did not need is noise, and one they never got is the
-			// failure suppression exists to prevent.
+			// A tmux without this format reports an empty field, which reads as nobody
+			// watching. Suppression then errs towards delivering a notification, which
+			// is the safer mistake: one the user did not need is noise, and one they
+			// never got is the failure suppression exists to prevent.
 			viewers: parseCount(fields[6]),
 		}
 	}
@@ -237,9 +231,9 @@ func parsePanes(output string) ([]paneRecord, []Damaged) {
 	var damaged []Damaged
 	for _, line := range outputLines(output) {
 		fields := splitFields(line, paneFields)
-		// User-created panes in a managed window inherit window options. A role
-		// is the pane-local marker that says Feat owns this pane, and a pane
-		// without one is the user's rather than damage.
+		// User-created panes in a managed window inherit window options. A role is
+		// the pane-local marker that says Feat owns this pane, so a pane without one
+		// is the user's rather than damage.
 		if fields[10] == "" {
 			continue
 		}
@@ -291,8 +285,8 @@ func parsePanes(output string) ([]paneRecord, []Damaged) {
 		if reported {
 			signal = fields[12]
 		}
-		// Dead when tmux can say how it ended, and not merely when the pane's
-		// file descriptor has gone; see the note on paneFormat.
+		// Dead when tmux can say how it ended, and not merely when the pane's file
+		// descriptor has gone; see the note on paneFormat.
 		dead := reported && (status != nil || signal != "")
 
 		records = append(records, paneRecord{
@@ -303,10 +297,9 @@ func parsePanes(output string) ([]paneRecord, []Damaged) {
 			pane: Pane{
 				ID: id, Role: fields[10], Directory: fields[5],
 				Dead: dead, ExitStatus: status, Signal: signal,
-				// The process tmux started in the pane. What the task is really
-				// using is that process and everything it started, which the
-				// resource observer walks; the pane itself is only where the walk
-				// begins.
+				// The process tmux started in the pane. What the task is really using is
+				// that process and everything it started, which the resource observer
+				// walks from here.
 				PID: parseCount(fields[11]),
 			},
 		})
@@ -327,9 +320,9 @@ func assemble(
 	panes []paneRecord,
 	damaged []Damaged,
 ) Discovery {
-	// A session or window that could not be read takes its contents with it: a
-	// pane whose window is quarantined has no window to belong to, and adopting
-	// it would mean guessing at the identity the metadata failed to establish.
+	// A session or window that could not be read takes its contents with it. A
+	// pane whose window is quarantined has no window to belong to, and adopting it
+	// would mean guessing at the identity the metadata failed to establish.
 	quarantined := make(map[string]bool, len(damaged))
 	for _, entry := range damaged {
 		if entry.ID != "" && (entry.Kind == DamagedSession || entry.Kind == DamagedWindow) {
@@ -420,9 +413,9 @@ func assemble(
 			continue
 		}
 		if terminal.Target.Pane == "" {
-			// A window whose agent pane was killed while its shell survived. It
-			// is the case ADR-030 evidence 9 is about, and the whole reason this
-			// is a quarantine rather than an error.
+			// A window whose agent pane was killed while its shell survived. It is the
+			// case ADR-030 evidence 9 is about, and the reason this is a quarantine
+			// rather than an error.
 			damage(key, terminal.Target.Window, fmt.Sprintf(
 				"window %s for task %s has no tagged agent pane", terminal.Target.Window, terminal.Task))
 			continue
@@ -467,12 +460,9 @@ func splitFields(line string, count int) []string {
 }
 
 // parseCount reads a non-negative number tmux reported, treating anything else
-// as zero.
-//
-// A format an older tmux does not know is printed back empty rather than as an
-// error, and neither a client count nor a process identifier is worth failing
-// discovery over: both are observations beside the identity, and identity is
-// what discovery exists to establish.
+// as zero. A format an older tmux does not know is printed back empty rather
+// than as an error, and neither a client count nor a process identifier is
+// worth failing discovery over, because identity is what discovery establishes.
 func parseCount(value string) int {
 	count, err := strconv.Atoi(strings.TrimSpace(value))
 	if err != nil || count < 0 {

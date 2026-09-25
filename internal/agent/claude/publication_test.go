@@ -55,11 +55,11 @@ func preparePublishing(t *testing.T, repositories ...string) (agent.LaunchSpec, 
 // TestTheAgentIsAskedForWordsAndNotForAnAction is the instruction half of
 // ADR-070.
 //
-// The agent writes the description, because it is what knows what it did. It
-// does not publish: every credentialed provider call is the host's, and the
-// words go to a person first. Both halves are in the generated instructions,
-// because an agent that believed it had opened a merge request would report
-// work it had not done.
+// The agent writes the description, because it knows what it did. It does not
+// publish: every credentialed provider call is the host's, and the words go to
+// a person first. Both halves are in the generated instructions, because an
+// agent that believed it had opened a merge request would report work it had
+// not done.
 func TestTheAgentIsAskedForWordsAndNotForAnAction(t *testing.T) {
 	_, workspace := preparePublishing(t, "api", "store")
 	body := instructions(t, workspace)
@@ -80,11 +80,10 @@ func TestTheAgentIsAskedForWordsAndNotForAnAction(t *testing.T) {
 	}
 }
 
-// TestAProjectWithNoForgeIsNeverToldAboutDrafts checks the other half.
-//
-// A project with no forge configured never sees the type. A document with
-// nowhere to go is a document nobody reads, and a helper that accepted one would
-// be inviting the agent to write it (ADR-070).
+// TestAProjectWithNoForgeIsNeverToldAboutDrafts checks the other half. A
+// project with no forge configured never sees the type, because a helper that
+// accepted one would invite the agent to write a document nobody reads
+// (ADR-070).
 func TestAProjectWithNoForgeIsNeverToldAboutDrafts(t *testing.T) {
 	_, workspace := preparePublishing(t)
 
@@ -97,8 +96,8 @@ func TestAProjectWithNoForgeIsNeverToldAboutDrafts(t *testing.T) {
 	}
 }
 
-// TestTheHelperAcceptsAPublicationDraftWhereThereIsSomewhereToPublish checks the
-// generated script's own vocabulary.
+// TestTheHelperAcceptsAPublicationDraftWhereThereIsSomewhereToPublish checks
+// the generated script's own vocabulary.
 func TestTheHelperAcceptsAPublicationDraftWhereThereIsSomewhereToPublish(t *testing.T) {
 	_, workspace := preparePublishing(t, "api")
 	helper := reportHelper(t, workspace)
@@ -115,7 +114,7 @@ func TestTheHelperAcceptsAPublicationDraftWhereThereIsSomewhereToPublish(t *test
 // TestAPublicationDraftIsParsedAndNeverSummarisedIntoTheEventLog is the parsing
 // half.
 //
-// The event carries the draft for the one screen that shows it and a summary
+// The event carries the draft for the one screen that shows it, and a summary
 // that names the repositories and nothing else. A title is agent-authored text
 // bound for somewhere durable, and the task's history is not where a user reads
 // it before approving it.
@@ -158,7 +157,8 @@ func TestAPublicationDraftIsParsedAndNeverSummarisedIntoTheEventLog(t *testing.T
 }
 
 // TestADraftThisProtocolRefusesIsTheAgentsMistake checks that a bad payload
-// comes back as a rejection, which is settled once rather than retried for ever.
+// comes back as a rejection, which is settled once rather than retried for
+// ever.
 func TestADraftThisProtocolRefusesIsTheAgentsMistake(t *testing.T) {
 	message := control.Message{
 		SchemaVersion: control.SchemaVersion,

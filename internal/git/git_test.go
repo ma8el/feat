@@ -10,10 +10,9 @@ import (
 // TestArgumentVectorsAreExact pins the commands this package sends.
 //
 // A fake runner cannot tell whether a flag exists or whether the output is the
-// shape the parser expects; the opt-in tests against real Git do that. What this
-// pins is the other half: that a command is an argument vector, that a value
-// lands in one element rather than being split, and that no read-only command
-// starts writing.
+// shape the parser expects, which is what the opt-in tests against real Git are
+// for. This pins the other half: a command is an argument vector, a value lands
+// in one element rather than being split, and no read-only command writes.
 func TestArgumentVectorsAreExact(t *testing.T) {
 	base := commit("feedface")
 
@@ -86,12 +85,10 @@ func TestArgumentVectorsAreExact(t *testing.T) {
 	}
 }
 
-// TestFetchNeverPrunesOrChangesTheCheckout is FR-GIT-001 stated as a test.
-//
-// The flags below each change something in the user's repository that Feat was
-// not asked to change: --prune deletes remote-tracking refs they may still have
-// branches on, --all and --tags update refs no base policy reads, and a pull
-// would move the branch they have checked out.
+// TestFetchNeverPrunesOrChangesTheCheckout is FR-GIT-001 stated as a test. Each
+// flag below changes something in the user's repository: --prune deletes
+// remote-tracking refs they may still have branches on, --all and --tags update
+// refs no base policy reads, and a pull would move their checked-out branch.
 func TestFetchNeverPrunesOrChangesTheCheckout(t *testing.T) {
 	fake := newFakeGit()
 	fake.add("/repo", &fakeRepository{})
@@ -135,12 +132,10 @@ func TestMissingRefIsNotFoundRatherThanFailure(t *testing.T) {
 // TestAGitCommandThatNeverRanIsNotADiagnosis checks that a machine's failure is
 // not reported as a fault in the user's checkout.
 //
-// `rev-parse --git-dir` answers one question, and it only answers it when it
-// runs. When it cannot be started — no executable, no file descriptors left, a
-// timeout — the honest report is that the question was not answered. Saying "not
-// a Git repository" sends the user to inspect a repository that is fine, and
-// that is what happened: descriptor exhaustion in the dashboard's event stream
-// surfaced as a healthy repository being declared not to be one.
+// `rev-parse --git-dir` only answers its question when it runs, so a command
+// that could not start — no executable, no file descriptors, a timeout — is
+// reported as unanswered. Descriptor exhaustion in the dashboard's event stream
+// once surfaced here as a healthy repository being declared not to be one.
 func TestAGitCommandThatNeverRanIsNotADiagnosis(t *testing.T) {
 	broken := errors.New("pipe: too many open files in system")
 
@@ -166,13 +161,10 @@ func TestAGitCommandThatNeverRanIsNotADiagnosis(t *testing.T) {
 	}
 }
 
-// TestOptionLikeArgumentsAreRejected checks that a configured name cannot become
-// a Git option.
-//
-// This package never builds a command string, so there is no shell to escape.
-// What remains is that Git reads an argument beginning with "-" as an option,
-// and `--upload-pack=...` in place of a remote name is a command of somebody
-// else's choosing running on the user's machine.
+// TestOptionLikeArgumentsAreRejected checks that a configured name cannot
+// become a Git option. This package never builds a command string, so there is
+// no shell to escape; what remains is that Git reads an argument beginning with
+// "-" as an option, and `--upload-pack=...` names a program to run.
 func TestOptionLikeArgumentsAreRejected(t *testing.T) {
 	fake := newFakeGit()
 	fake.add("/repo", &fakeRepository{})

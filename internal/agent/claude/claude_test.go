@@ -24,11 +24,9 @@ const (
 	testBrief   = "# Add a health endpoint\n\nReturn 200 from /health.\n"
 )
 
-// launch is the part of a PrepareRequest a test varies.
-//
-// It is a value rather than a list of arguments because the four are
-// independent and two of them are booleans, so a call site that swapped them
-// would compile.
+// launch is the part of a PrepareRequest a test varies. It is a value rather
+// than a list of arguments because the four are independent and two of them are
+// booleans, so a call site that swapped them would compile.
 type launch struct {
 	// outsideBoundary runs the agent somewhere other than where the project
 	// configured it.
@@ -134,10 +132,10 @@ func TestClaudeLaunchesInTheTaskDirectoryWithTheFinalBrief(t *testing.T) {
 		t.Errorf("--settings = %q, want the generated file as the agent sees it", settings)
 	}
 
-	// The brief lives outside the working directory, so without this the
-	// session's first act is to ask permission to read the document Feat wrote
-	// for it — on every task launch. A permission dialog nobody needed teaches a
-	// user to click through the ones that matter.
+	// The brief lives outside the working directory, so without this the session's
+	// first act on every launch is to ask permission to read the document Feat
+	// wrote for it. A permission dialog nobody needed teaches a user to click
+	// through the ones that matter.
 	if added := flagValue(t, spec.Arguments, "--add-dir"); added != "/feat" {
 		t.Errorf("--add-dir = %q, want the control workspace", added)
 	}
@@ -150,18 +148,17 @@ func TestClaudeLaunchesInTheTaskDirectoryWithTheFinalBrief(t *testing.T) {
 		"an ordinary launch":  spec.Arguments,
 		"a plan-first launch": planning.Arguments,
 	} {
-		// --add-dir takes a list, so a prompt directly after it is read as a
-		// second directory and the session starts with no task at all. The
-		// symptom is a session that runs perfectly and simply never does
-		// anything, which is worth a test rather than a careful reader.
+		// --add-dir takes a list, so a prompt directly after it is read as a second
+		// directory and the session starts with no task at all. The symptom is a
+		// session that runs perfectly and never does anything.
 		for i, argument := range arguments {
 			if argument == "--add-dir" && i+2 >= len(arguments) {
 				t.Errorf("%s: --add-dir is the last flag before the prompt, "+
 					"so the prompt would be read as a directory: %v", name, arguments)
 			}
 		}
-		// Narrowing the setting sources would switch off the project's
-		// checked-in configuration, which docs/06 requires to keep applying.
+		// Narrowing the setting sources would switch off the project's checked-in
+		// configuration, which docs/06 requires to keep applying.
 		for _, argument := range arguments {
 			if argument == "--setting-sources" {
 				t.Errorf("%s: the launch narrows --setting-sources; "+
@@ -174,19 +171,17 @@ func TestClaudeLaunchesInTheTaskDirectoryWithTheFinalBrief(t *testing.T) {
 // TestPlanModeTravelsWithTheInitialPromptAndNeverWithAResume is the whole of
 // the plan-first design, in the four vectors it can produce.
 //
-// Plan mode is a property of starting from the brief rather than of the task's
-// life, so the fork that already decides whether to send a prompt decides this
-// too. The case worth the test rather than a careful reader is the last one: a
-// resumed session re-entered in plan mode is indistinguishable from one that
-// resumed correctly — same terminal, same history, same everything — except
-// that the agent refuses to edit and re-plans work the user approved an hour
-// ago. ADR-037 recorded that shape for --resume itself.
+// Plan mode belongs to starting from the brief rather than to the task's life,
+// so the fork that already decides whether to send a prompt decides this too.
+// The last case is the one worth a test: a resumed session re-entered in plan
+// mode is indistinguishable from one that resumed correctly, except that the
+// agent refuses to edit and re-plans work the user approved an hour ago.
+// ADR-037 recorded that shape for --resume itself.
 func TestPlanModeTravelsWithTheInitialPromptAndNeverWithAResume(t *testing.T) {
 	const session = "01J8Z5R2M9WQ6K3T4B7C8D9E0F"
 
-	// Written out rather than derived, so that a change to any of them is a
-	// change a reviewer reads rather than one that follows from the code under
-	// test.
+	// Written out rather than derived, so a change to any of them is one a
+	// reviewer reads rather than one that follows from the code under test.
 	generated := []string{
 		"--add-dir", "/feat",
 		"--settings", "/feat/agent/settings.json",
@@ -233,8 +228,8 @@ func TestPlanModeTravelsWithTheInitialPromptAndNeverWithAResume(t *testing.T) {
 }
 
 // TestAResumeCarriesNoPermissionMode says the correctness item once more,
-// against the vector rather than against a table, so that a rewrite of the
-// table above cannot take it with it.
+// against the vector rather than against a table, so a rewrite of the table
+// above cannot take it with it.
 func TestAResumeCarriesNoPermissionMode(t *testing.T) {
 	spec, _ := prepareLaunch(t, launch{planFirst: true, resume: "01J8Z5R2M9WQ6K3T4B7C8D9E0F"})
 
@@ -252,8 +247,8 @@ func TestGeneratedFilesStayInTheHostOnlyArea(t *testing.T) {
 	_, workspace := prepared(t, false)
 
 	// Everything generated belongs under agent/. A file in outbox/ would be a
-	// message; a file in the repository would be the thing docs/06 says must
-	// never happen.
+	// message, and a file in the repository would be what docs/06 says must never
+	// happen.
 	for _, dir := range []string{workspace.OutboxDir(), workspace.InboxDir(), workspace.ReportsDir()} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -301,9 +296,9 @@ func TestGeneratedSettingsInstallTheVerifiedHooks(t *testing.T) {
 		t.Fatalf("the generated settings are not valid JSON: %v", err)
 	}
 
-	// The names are Claude's, verified against the installed version. A typo
-	// here produces a session that runs perfectly and never reports anything,
-	// which is the failure this test exists to make loud.
+	// The names are Claude's, verified against the installed version. A typo here
+	// produces a session that runs perfectly and never reports anything, which is
+	// the failure this test exists to make loud.
 	want := []string{"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "Notification", "SessionEnd"}
 	if len(document.Hooks) != len(want) {
 		t.Errorf("installed %d hook events, want %d: %v", len(document.Hooks), len(want), keys(document.Hooks))
@@ -326,15 +321,15 @@ func TestGeneratedSettingsInstallTheVerifiedHooks(t *testing.T) {
 			t.Errorf("hook %s has no timeout", event)
 		}
 		// Claude runs the command through a shell, so a path with a space in it
-		// must still be one word.
+		// still has to be one word.
 		if !strings.HasPrefix(command.Command, "'/feat/agent/hooks/") {
 			t.Errorf("hook %s command = %q, want a quoted absolute path in the agent's filesystem", event, command.Command)
 		}
 	}
 
-	// The generated settings carry hooks and nothing else. A model, a
-	// permission mode, or a tool policy here would be Feat quietly deciding how
-	// somebody else's agent behaves.
+	// The generated settings carry hooks and nothing else. A model, a permission
+	// mode, or a tool policy here would be Feat quietly deciding how somebody
+	// else's agent behaves.
 	var everything map[string]any
 	if err := json.Unmarshal(data, &everything); err != nil {
 		t.Fatalf("re-reading the generated settings: %v", err)
@@ -349,9 +344,8 @@ func TestGeneratedSettingsInstallTheVerifiedHooks(t *testing.T) {
 //
 // Claude injects a UserPromptSubmit hook's standard output into the model's
 // context, and a Stop hook exiting 2 blocks the agent. A hook that printed or
-// failed would therefore change the conversation it exists to watch, and the
-// failure would look like the model behaving strangely rather than like a bug
-// in Feat.
+// failed would change the conversation it exists to watch, and the failure
+// would look like the model behaving strangely rather than like a bug in Feat.
 func TestGeneratedHooksObserveWithoutChangingTheSession(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skipf("no POSIX shell available: %v", err)
@@ -368,9 +362,9 @@ func TestGeneratedHooksObserveWithoutChangingTheSession(t *testing.T) {
 		t.Run(script, func(t *testing.T) {
 			path := filepath.Join(workspace.AgentDir(), "hooks", script)
 
-			// The generated hook writes into the agent's view of the outbox,
-			// which is /feat here. A real launch mounts it there; this test
-			// rewrites the one path so the script can run on the host.
+			// The generated hook writes into the agent's view of the outbox, which
+			// is /feat here. A real launch mounts it there, and this test rewrites
+			// the one path so the script can run on the host.
 			source, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("reading %s: %v", script, err)
@@ -397,8 +391,8 @@ func TestGeneratedHooksObserveWithoutChangingTheSession(t *testing.T) {
 		})
 	}
 
-	// Having run every hook, the outbox holds one well-formed message per hook
-	// and no leftover staging file.
+	// Having run every hook, the outbox holds one well-formed message per hook and
+	// no leftover staging file.
 	entries, err := os.ReadDir(workspace.OutboxDir())
 	if err != nil {
 		t.Fatalf("reading the outbox: %v", err)
@@ -426,8 +420,8 @@ func TestGeneratedHooksObserveWithoutChangingTheSession(t *testing.T) {
 		t.Fatalf("the protocol accepted %d of 6 generated messages", len(pending))
 	}
 
-	// The whole point: what the hooks wrote parses back into the events the
-	// daemon acts on.
+	// The whole point. What the hooks wrote parses back into the events the daemon
+	// acts on.
 	kinds := make(map[agent.EventKind]int)
 	for _, message := range pending {
 		event, ok, err := claude.New().ParseEvent(context.Background(), message)
@@ -478,9 +472,9 @@ func TestReportHelperWritesAWellFormedMessage(t *testing.T) {
 		return command.Run()
 	}
 
-	// Unlike a hook, the helper is run deliberately by the agent, so misuse must
-	// fail loudly: the agent is the one who needs to know its review request did
-	// not land.
+	// Unlike a hook, the helper is run deliberately by the agent, so misuse fails
+	// loudly. The agent is the one who needs to know its review request did not
+	// land.
 	if err := run(t, "{}", "delete_everything"); err == nil {
 		t.Error("the helper accepted an unknown message type")
 	}
@@ -523,13 +517,13 @@ func TestReportHelperWritesAWellFormedMessage(t *testing.T) {
 	}
 }
 
-// TestAFailedGateReachesTheAgentAsAFailedCommand is FR-AGENT-006 at the provider
-// adapter: a check the gate failed comes back to the running session as a
-// non-zero exit with the reason on standard error, which is what the model reads
-// and carries on from.
+// TestAFailedGateReachesTheAgentAsAFailedCommand is FR-AGENT-006 at the
+// provider adapter. A check the gate failed comes back to the running session
+// as a non-zero exit with the reason on standard error, which is what the model
+// reads and carries on from.
 //
 // It runs the generated helper under a real shell and answers it the way the
-// daemon does, because the whole mechanism is a script waiting for a file: a
+// daemon does, because the whole mechanism is a script waiting for a file. A
 // test against the generated text would prove that Feat wrote what it meant to
 // write and nothing about whether a shell does what it says.
 func TestAFailedGateReachesTheAgentAsAFailedCommand(t *testing.T) {
@@ -558,10 +552,10 @@ func TestAFailedGateReachesTheAgentAsAFailedCommand(t *testing.T) {
 			wantText: "2 passed",
 		},
 		{
-			// A check that never ran is not handed back to the session as a
-			// failed command: the configuration that decides how the work is
-			// verified is not the agent's to change, so the loop has nowhere to
-			// take it and the user is the one who was told (ADR-055).
+			// A check that never ran is not handed back to the session as a failed
+			// command. The configuration that decides how the work is verified is
+			// not the agent's to change, so the user is the one who was told
+			// (ADR-055).
 			name:     "a check could not run",
 			status:   control.VerificationBlocked,
 			report:   "check test (api): unknown\n  pytest could not be started",
@@ -585,8 +579,8 @@ func TestAFailedGateReachesTheAgentAsAFailedCommand(t *testing.T) {
 				t.Fatalf("starting the helper: %v", err)
 			}
 
-			// The daemon's half: read the request the helper wrote, then answer
-			// it where the helper is waiting.
+			// The daemon's half: read the request the helper wrote, then answer it
+			// where the helper is waiting.
 			request := awaitRequest(t, workspace)
 			if err := workspace.WriteVerification(request, control.Verification{
 				Status: control.VerificationAccepted,
@@ -609,8 +603,8 @@ func TestAFailedGateReachesTheAgentAsAFailedCommand(t *testing.T) {
 				t.Fatalf("the helper failed after a passing gate: %v; stderr %q", err, stderr.String())
 			}
 
-			// A failure has to reach the model, and standard error is where a
-			// failed command's reason is read from.
+			// A failure has to reach the model, and standard error is where a failed
+			// command's reason is read from.
 			where := stdout.String()
 			if testCase.wantFailed {
 				where = stderr.String()
@@ -623,12 +617,9 @@ func TestAFailedGateReachesTheAgentAsAFailedCommand(t *testing.T) {
 }
 
 // TestAHelperWithNoGateDoesNotWait checks that a project configuring no checks
-// gets the ungated helper: a review request is recorded and the command
-// returns.
-//
-// The gate is the one thing in this session that can take minutes, and a session
-// that waited for a verdict nobody was going to write would hang on every review
-// request.
+// gets the ungated helper, where a review request is recorded and the command
+// returns. The gate is the one thing in this session that can take minutes, and
+// a session waiting for a verdict nobody would write hangs on every request.
 func TestAHelperWithNoGateDoesNotWait(t *testing.T) {
 	_, workspace := prepared(t, false)
 
@@ -746,8 +737,8 @@ func TestAgentReportedSummariesAreBoundedAndSingleLine(t *testing.T) {
 }
 
 func TestACheckStatusIsNeverGuessed(t *testing.T) {
-	// An agent that reports something Feat cannot record is told so, rather
-	// than having its ambiguity turned into Feat's claim.
+	// An agent that reports something Feat cannot record is told so, rather than
+	// having its ambiguity turned into Feat's claim.
 	body := `{"summary":"done","checks":[{"id":"test","status":"mostly passed"}]}`
 	message := reportMessage(t, control.TypeReviewRequested, body)
 	if _, _, err := claude.New().ParseEvent(context.Background(), message); err == nil {
@@ -763,7 +754,7 @@ func TestACheckStatusIsNeverGuessed(t *testing.T) {
 
 // TestValidateAsksOnlyAboutTheAgentExecutable is the adapter half of
 // FR-PROJ-004. Launch validation used to probe `gh` and `glab` here too, for a
-// project that declared one required in the agent's environment; publication
+// project that declared one required in the agent's environment. Publication
 // runs on the trusted host now, so the only thing that stops a launch is an
 // agent that could not start (ADR-075).
 func TestValidateAsksOnlyAboutTheAgentExecutable(t *testing.T) {
@@ -779,8 +770,8 @@ func TestValidateAsksOnlyAboutTheAgentExecutable(t *testing.T) {
 		}
 	})
 
-	// A provider CLI the project installed itself is not Feat's business, and
-	// an unauthenticated one is not a reason to refuse a task.
+	// A provider CLI the project installed itself is not Feat's business, and an
+	// unauthenticated one is not a reason to refuse a task.
 	t.Run("an unauthenticated provider CLI does not stop a launch", func(t *testing.T) {
 		runner := agenttest.New().
 			Answer(agent.Output{Stdout: "2.1.220 (Claude Code)"}, "claude", "--version").
@@ -875,11 +866,10 @@ func TestTheHostBoundaryIsStatedRatherThanImplied(t *testing.T) {
 // the generated instructions that is not about the protocol.
 //
 // A task's repositories are linked worktrees, and Git keeps one stash stack per
-// repository rather than one per worktree — so `git stash pop` in a task takes
-// whatever entry is newest, which may be another task's work or the user's, and
-// says nothing unusual while it does it. Nothing about the session's own view
-// reveals that, which is why it is stated rather than left to be discovered
-// (ADR-056).
+// repository rather than one per worktree. `git stash pop` in a task therefore
+// takes whatever entry is newest, which may be another task's work or the
+// user's, and says nothing unusual while it does it. Nothing about the
+// session's own view reveals that (ADR-056).
 func TestTheSessionIsToldItsStashIsSharedWithEveryoneElse(t *testing.T) {
 	_, workspace := prepared(t, false)
 	body := instructions(t, workspace)
@@ -895,7 +885,6 @@ func TestTheSessionIsToldItsStashIsSharedWithEveryoneElse(t *testing.T) {
 }
 
 // TestArgumentsAreSingleLine keeps the launch passable to the terminal backend.
-//
 // internal/tmux refuses an argument containing a newline, because its own
 // discovery parses tab- and newline-separated output. The protocol text is
 // therefore a generated file rather than an argument, which is also what

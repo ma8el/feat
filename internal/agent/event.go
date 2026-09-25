@@ -10,10 +10,9 @@ import (
 // EventKind is what a normalized agent event reports.
 //
 // The vocabulary separates what a provider observed from what it concluded,
-// because the two carry different weight and Feat must never derive the second
-// from the first. KindTurnEnded is an observation that a turn finished;
-// KindReviewRequested is the agent stating that its work is ready to look at.
-// There is deliberately no kind that means both.
+// because Feat must never derive the second from the first. KindTurnEnded is an
+// observation that a turn finished, and KindReviewRequested is the agent saying
+// its work is ready to look at. There is deliberately no kind that means both.
 type EventKind string
 
 // Agent event kinds.
@@ -26,10 +25,10 @@ const (
 	KindPromptSubmitted EventKind = "prompt_submitted"
 	// KindTurnEnded reports the end of a turn.
 	//
-	// It means idle after a grace period and it means nothing else. It is never
-	// completion, never review, and never a question: a provider that cannot
-	// distinguish a finished turn from a waiting one leaves Feat conservative
-	// (invariant 13, FR-AGENT-008).
+	// It means idle after a grace period and nothing else: never completion,
+	// never review, and never a question. A provider that cannot tell a finished
+	// turn from a waiting one leaves Feat conservative (invariant 13,
+	// FR-AGENT-008).
 	KindTurnEnded EventKind = "turn_ended"
 	// KindNotification reports that the provider asked for the user's
 	// attention, such as a permission prompt.
@@ -49,8 +48,8 @@ const (
 	// KindPublicationDraft is the agent's proposed merge request title and
 	// description for each repository it changed.
 	//
-	// It is an account and never an action: it asks for nothing, changes no
-	// state, and nothing in it reaches a forge until the user has read it and
+	// It is an account and never an action. It asks for nothing, changes no
+	// state, and nothing in it reaches a forge until the user has read and
 	// approved it (ADR-070).
 	KindPublicationDraft EventKind = "publication_draft"
 )
@@ -67,12 +66,10 @@ func (k EventKind) Valid() bool {
 	}
 }
 
-// Event is one normalized agent event.
-//
-// It carries state, never transcript: no prompt text, no assistant message, no
-// terminal output, and no file contents. Events reach the task's event log and
-// the daemon's event stream, and neither may carry what the agent was working
-// on (docs/06-technical-architecture.md).
+// Event is one normalized agent event. It carries state, never transcript: no
+// prompt text, no assistant message, no terminal output, and no file contents.
+// Events reach the task's event log and the daemon's event stream, and neither
+// may carry what the agent was working on (docs/06-technical-architecture.md).
 type Event struct {
 	// Kind is what happened.
 	Kind EventKind
@@ -82,37 +79,32 @@ type Event struct {
 	// that carry one.
 	ProviderSessionID string
 	// Continued reports a session-start that resumed, cleared, or compacted an
-	// existing session rather than beginning a new one. The distinction matters
-	// because only a genuine start means the agent has begun the task.
+	// existing session rather than beginning a new one. Only a genuine start means
+	// the agent has begun the task.
 	Continued bool
 	// NeedsInput reports that the provider said it is blocked on the user, as
 	// opposed to merely having finished a turn.
 	NeedsInput bool
-	// Summary is a short explanation for the task's history. It is written by
-	// Feat or taken from a field the agent authored for this purpose, and it is
-	// never a fragment of the conversation.
+	// Summary is a short explanation for the task's history. Feat writes it, or
+	// takes it from a field the agent authored for this purpose, and it is never a
+	// fragment of the conversation.
 	Summary string
-	// Checks are the agent's own account of verification it ran. They are a
-	// claim rather than a result, which domain.Check records through its
-	// reporter.
+	// Checks are the agent's own account of verification it ran. They are a claim
+	// rather than a result, which domain.Check records through its reporter.
 	Checks []domain.Check
 	// Draft is the agent's proposed merge request per repository, present only
 	// on a KindPublicationDraft event.
 	//
-	// It is the one field here that carries agent-authored prose, and it is the
-	// exception the rule above is worth restating for: it never reaches the
-	// task's event log or the daemon's event stream, which carry state rather
-	// than what the agent wrote. It reaches one place, which is the screen the
-	// user reads before approving a publication (ADR-070).
+	// It is the one field here that carries agent-authored prose. It never reaches
+	// the task's event log or the daemon's event stream, and goes only to the
+	// screen the user reads before approving a publication (ADR-070).
 	Draft *control.PublicationDraft
 }
 
 // AgentReported converts the event's checks into review checks attributed to
-// the agent.
-//
-// Attribution is the point: a provider-gated result was enforced and an
-// agent-reported one was asserted, and a dashboard that showed them alike would
-// tell the user something Feat does not know.
+// the agent. A provider-gated result was enforced and an agent-reported one was
+// asserted, and a dashboard that showed them alike would tell the user
+// something Feat does not know.
 func (e Event) AgentReported() []domain.Check {
 	if len(e.Checks) == 0 {
 		return nil

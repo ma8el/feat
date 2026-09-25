@@ -11,19 +11,16 @@ import (
 // rather than refs, so an abbreviated name is not accepted.
 var commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
-// BasePolicy decides which commit a task starts from.
-//
-// The values are the ones docs/07-configuration-model.md documents. They are
-// declared here as well as in internal/config because this package is the one
-// that acts on them, and an adapter that had to be handed a configuration type
-// would know about YAML for no reason.
+// BasePolicy decides which commit a task starts from. The values are the ones
+// docs/07-configuration-model.md documents, declared here as well as in
+// internal/config so this adapter never has to know about YAML.
 type BasePolicy string
 
 // Base policies.
 const (
-	// PolicyRemote resolves the configured remote-tracking branch, after a
-	// fetch. It is the recommended default: it starts a task from what the team
-	// has, not from what this checkout happens to have.
+	// PolicyRemote resolves the configured remote-tracking branch, after a fetch.
+	// It is the recommended default, because it starts a task from what the team
+	// has rather than from what this checkout happens to have.
 	PolicyRemote BasePolicy = "remote"
 	// PolicyLocal resolves the local default branch.
 	PolicyLocal BasePolicy = "local"
@@ -45,12 +42,12 @@ func (p BasePolicy) Valid() bool {
 
 // Base is a resolved starting point for a task repository.
 type Base struct {
-	// Ref is what the policy named, kept so that a task can explain where its
-	// base came from.
+	// Ref is what the policy named, kept so a task can explain where its base came
+	// from.
 	Ref string
-	// Commit is the full object name the ref resolved to. This is what Feat
-	// records and what every later comparison uses: a ref moves, and a task's
-	// base must not (invariant 8).
+	// Commit is the full object name the ref resolved to. Feat records this and
+	// every later comparison uses it, because a ref moves and a task's base must
+	// not (invariant 8).
 	Commit string
 }
 
@@ -70,11 +67,10 @@ type BaseRequest struct {
 
 // ResolveBase resolves a base policy to an immutable commit.
 //
-// It never fetches. Fetching is a change to the user's repository and belongs
-// to the caller that decided to make it, which also has somewhere to record that
-// it failed; resolution then reads whatever the refs say now. That separation is
-// what lets a base resolve offline from the last fetched state, with the staleness
-// reported rather than hidden.
+// It never fetches. Fetching changes the user's repository and belongs to the
+// caller that decided to make it, which also has somewhere to record a failure.
+// A base therefore resolves offline from the last fetched state, with the
+// staleness reported rather than hidden.
 func (g *Git) ResolveBase(ctx context.Context, req BaseRequest) (Base, error) {
 	if !req.Policy.Valid() {
 		return Base{}, fmt.Errorf("%q is not a base policy", string(req.Policy))
@@ -86,9 +82,9 @@ func (g *Git) ResolveBase(ctx context.Context, req BaseRequest) (Base, error) {
 	}
 
 	if req.Policy == PolicyCurrent {
-		// The current checkout's commit is the base, and HEAD is only how it is
-		// named. A detached HEAD keeps the literal name, because there is no
-		// better one to record.
+		// The current checkout's commit is the base and HEAD is only how it is
+		// named. A detached HEAD keeps the literal name, because there is no better
+		// one to record.
 		if head, attached, err := g.Head(ctx, req.Dir); err == nil && attached {
 			ref = head
 		} else if err != nil {
@@ -134,11 +130,10 @@ func (r BaseRequest) ref() (string, error) {
 	}
 }
 
-// MissingBaseError reports a base a policy could not resolve.
-//
-// It carries the policy and the ref because the remedy differs: a missing
-// remote-tracking ref usually means the remote was never fetched, and a missing
-// local branch usually means the configured default branch has another name.
+// MissingBaseError reports a base a policy could not resolve. It carries the
+// policy and the ref because the remedy differs: a missing remote-tracking ref
+// usually means the remote was never fetched, and a missing local branch
+// usually means the configured default branch has another name.
 type MissingBaseError struct {
 	// Dir is the checkout the ref was looked for in.
 	Dir string
@@ -166,5 +161,5 @@ func (e *MissingBaseError) Error() string {
 }
 
 // Unwrap makes a missing base match ErrNotFound, so a caller can ask whether a
-// base is absent without knowing which policy asked for it.
+// base is absent without knowing which policy named it.
 func (e *MissingBaseError) Unwrap() error { return ErrNotFound }

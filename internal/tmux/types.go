@@ -20,27 +20,25 @@ const (
 	roleShell       = "shell"
 )
 
-// Size is a terminal's dimensions in cells.
-//
-// The zero value means the caller has nothing to go on and tmux's own choice
-// stands, which for a window nobody is attached to is 80x24.
+// Size is a terminal's dimensions in cells. The zero value means the caller has
+// nothing to go on and tmux's own choice stands, which for a window nobody is
+// attached to is 80x24.
 type Size struct{ Width, Height int }
 
 // Known reports a size there is any point applying.
 func (s Size) Known() bool { return s.Width > 0 && s.Height > 0 }
 
-// CommandSpec is one process a tmux pane starts.
-//
-// It is already resolved for a host or devcontainer execution environment.
-// tmux preserves the terminal and does not interpret where the command runs.
+// CommandSpec is one process a tmux pane starts. It is already resolved for a
+// host or devcontainer execution environment, because tmux preserves the
+// terminal and does not interpret where the command runs.
 type CommandSpec struct {
 	Program   string
 	Arguments []string
 	Directory string
 	// Variables are environment entries the process starts with, on top of the
 	// environment the tmux server itself passes down. They are generated,
-	// non-secret values: tmux reports a pane's environment to anyone who can
-	// reach the server, and the server outlives the process.
+	// non-secret values, because tmux reports a pane's environment to anyone who
+	// can reach the server and the server outlives the process.
 	Variables map[string]string
 }
 
@@ -48,12 +46,11 @@ type CommandSpec struct {
 // interpreting its program as one of new-window's own flags, and without any of
 // its values breaking the formats discovery parses.
 //
-// The working directory is checked with the same rule as the arguments, and not
-// only for being absolute. It is the one caller-supplied value tmux reports
-// back, as #{pane_current_path} inside a tab-separated list format, so a tab in
-// a path misaligns every pane field and breaks discovery for every terminal on
-// the server — the blast radius quarantine bounds, reached before quarantine can
-// bound it (ADR-030 evidence 10, settled by ADR-037).
+// The working directory is checked by the same rule as the arguments, not only
+// for being absolute. It is the one caller-supplied value tmux reports back, as
+// #{pane_current_path} inside a tab-separated list format. A tab in a path
+// therefore misaligns every pane field and breaks discovery for every terminal
+// on the server (ADR-030 evidence 10, settled by ADR-037).
 func (s CommandSpec) Validate() error {
 	if err := safeArgument("program", s.Program, false); err != nil {
 		return err
@@ -83,11 +80,9 @@ func (s CommandSpec) Validate() error {
 	return nil
 }
 
-// Entries renders the variables as sorted KEY=VALUE arguments.
-//
-// A map's iteration order does not repeat, and these reach an argument vector,
-// so sorting makes the same specification the same command every time — which
-// is what lets a test pin one.
+// Entries renders the variables as sorted KEY=VALUE arguments. A map's
+// iteration order does not repeat and these reach an argument vector, so
+// sorting makes the same specification the same command every time.
 func (s CommandSpec) Entries() []string {
 	if len(s.Variables) == 0 {
 		return nil
@@ -108,11 +103,10 @@ func (s CommandSpec) Entries() []string {
 // Discovery is what one pass over the dedicated server found.
 //
 // It carries what could be read and what could not, rather than failing as a
-// whole when one tagged object is inconsistent. A damaged pane quarantines the
-// terminal it belongs to, because half a terminal is not one, and a damaged
-// session quarantines its windows for the same reason; everything else stays
-// usable. One task whose agent pane was killed while its shell pane survived
-// must not make every unrelated task unreachable (ADR-030 evidence 9, ADR-037).
+// whole when one tagged object is inconsistent. A damaged pane quarantines its
+// terminal and a damaged session quarantines its windows, so a task whose agent
+// pane was killed does not make every unrelated task unreachable (ADR-030
+// evidence 9, ADR-037).
 type Discovery struct {
 	// Terminals are the completely tagged, internally consistent task
 	// terminals.
@@ -180,10 +174,9 @@ type Terminal struct {
 	Target  domain.TmuxTarget
 	Agent   Pane
 	Shell   *Pane
-	// Viewers is how many attached clients are looking at this task's window
-	// right now. It is an observation of the terminal rather than a record of an
-	// attach: a user who detached, or who switched to another task's window,
-	// stops being a viewer without telling Feat anything.
+	// Viewers is how many attached clients are looking at this task's window right
+	// now. It is observed rather than recorded at attach time, because a user who
+	// detached or switched windows stops being a viewer without telling Feat.
 	Viewers int
 }
 
@@ -194,10 +187,10 @@ func (t Terminal) Watched() bool { return t.Viewers > 0 }
 // It deliberately says nothing about agent idleness or task completion.
 //
 // A pane that ended on a signal is failed rather than stopped, and it has no
-// exit status to say so with: `pane_dead_status` is the status of a process that
-// exited, and tmux publishes a killed one as `pane_dead_signal` instead. Reading
-// the absent status as a clean exit would report an agent the kernel killed —
-// the OOM killer is the ordinary way that happens — as one that finished.
+// exit status to say so with: tmux publishes a killed process as
+// `pane_dead_signal` rather than as `pane_dead_status`. Reading the absent
+// status as a clean exit would report an agent the OOM killer took as one that
+// finished.
 func (t Terminal) ProcessState() domain.ProcessState {
 	if !t.Agent.Dead {
 		return domain.ProcessRunning
@@ -218,8 +211,8 @@ type Pane struct {
 	Directory string
 	// Dead reports a pane whose process has ended and whose ending tmux can
 	// describe. A pane whose descriptor has closed and whose child has not been
-	// reaped yet is not dead here, because nothing can yet be said about how it
-	// went; see the note on paneFormat.
+	// reaped is not dead here, because nothing can be said yet about how it went;
+	// see the note on paneFormat.
 	Dead bool
 	// ExitStatus is the status of a pane process that exited, nil for one that
 	// was killed.
@@ -227,8 +220,8 @@ type Pane struct {
 	// Signal is the name of the signal that killed the pane's process, empty
 	// for one that exited on its own.
 	Signal string
-	// PID is the process tmux started in the pane, or zero when there is none.
-	// It is where a resource observer starts walking, never an identity.
+	// PID is the process tmux started in the pane, or zero when there is none. It
+	// is where a resource observer starts walking, never an identity.
 	PID int
 }
 
@@ -240,9 +233,9 @@ func safeArgument(kind, value string, allowDash bool) error {
 		return fmt.Errorf("tmux command %s must not begin with %q, but %q does", kind, "-", value)
 	}
 	for _, r := range value {
-		// The tab belongs here with the NUL and the newline: all three are
-		// separators discovery parses, and a value carrying one is a value that
-		// makes tmux's own report unreadable.
+		// The tab belongs here with the NUL and the newline. All three are separators
+		// discovery parses, and a value carrying one makes tmux's own report
+		// unreadable.
 		if r == 0 || r == '\n' || r == '\r' || r == '\t' {
 			return fmt.Errorf("tmux command %s must not contain a NUL, newline, or tab, but %q does", kind, value)
 		}

@@ -19,20 +19,18 @@ const (
 	reportHelper     = "feat-report"
 )
 
-// hookTimeout bounds one generated hook, in seconds.
-//
-// The hooks write a file and exit. A bound this short means a hook that somehow
-// blocks holds up a turn briefly rather than indefinitely, and Claude's own
-// timeout handling then reports it.
+// hookTimeout bounds one generated hook, in seconds. The hooks write a file and
+// exit, so a bound this short holds up a turn briefly rather than indefinitely
+// when one blocks, and Claude's own timeout handling then reports it.
 const hookTimeout = 10
 
 // installedHooks are the Claude hook events Feat observes.
 //
 // The set is what docs/08-v0-scope.md asks for — starting, working, idle,
 // failure, prompt submission, and notification — mapped onto the events this
-// Claude version actually exposes. Tool-level hooks are deliberately absent:
-// they fire many times a turn and tell Feat nothing about the task's state that
-// these six do not.
+// Claude version exposes. Tool-level hooks are deliberately absent, because
+// they fire many times a turn and say nothing about the task's state that these
+// six do not.
 var installedHooks = []string{
 	hookSessionStart,
 	hookUserPromptSubmit,
@@ -46,27 +44,24 @@ var installedHooks = []string{
 type generated struct {
 	// settingsPath is the generated settings file, as the agent sees it.
 	settingsPath string
-	// instructionsPath is the generated protocol document, as the agent sees
-	// it. It is a file rather than an argument for two reasons: instructions
-	// generated outside the repositories are what
-	// docs/06-technical-architecture.md asks the adapter to produce, and a
-	// multi-line argument cannot be passed through the terminal backend, whose
-	// argument rules exist to keep its own discovery parseable (ADR-030).
+	// instructionsPath is the generated protocol document, as the agent sees it.
+	// It is a file rather than an argument for two reasons: instructions generated
+	// outside the repositories are what docs/06-technical-architecture.md asks the
+	// adapter to produce, and a multi-line argument cannot pass through the
+	// terminal backend (ADR-030).
 	instructionsPath string
 	// initialPrompt is the first user message of the session.
 	initialPrompt string
 }
 
-// generate writes the settings, the hooks, and the report helper.
-//
-// Every generated file goes into the host-only area of the control workspace,
-// so nothing is written into a repository and nothing the agent writes can
-// change what the next launch installs.
+// generate writes the settings, the hooks, and the report helper. Every
+// generated file goes into the host-only area of the control workspace, so
+// nothing is written into a repository and nothing the agent writes can change
+// what the next launch installs.
 func (a Adapter) generate(req agent.PrepareRequest) (generated, error) {
-	// Paths in two vocabularies at once: the scripts are written to the host
-	// path, and every path inside them is how the agent will see it. Confusing
-	// the two would produce a session that reports into a directory nobody
-	// reads.
+	// Paths in two vocabularies at once. The scripts are written to the host path,
+	// and every path inside them is how the agent will see it, so confusing the
+	// two would produce a session that reports into a directory nobody reads.
 	seen := agentPaths{control: req.Workspace.ControlPath}
 	task := req.Task.ID.String()
 
@@ -108,11 +103,9 @@ func (a Adapter) generate(req agent.PrepareRequest) (generated, error) {
 	}, nil
 }
 
-// agentPaths renders the control workspace as the agent sees it.
-//
-// Every path is built with the slash-separated path package rather than
-// filepath, because these are the agent's paths and the agent's separator is
-// not necessarily the host's.
+// agentPaths renders the control workspace as the agent sees it. Every path is
+// built with the slash-separated path package rather than filepath, because the
+// agent's separator is not necessarily the host's.
 type agentPaths struct{ control string }
 
 func (p agentPaths) outbox() string   { return path.Join(p.control, "outbox") }
@@ -151,20 +144,19 @@ type hookCommand struct {
 // model, a permission mode, or a tool policy would be Feat quietly deciding how
 // somebody else's agent behaves.
 //
-// The rule is unchanged rather than excepted by plan mode. That mode is passed
-// as a flag on one launch, because the user pressed a key for it on the screen
-// two seconds earlier: it is a decision about one piece of work, and it leaves
-// the user's own defaultMode untouched for every task where they did not press
-// it. The command line is where a per-launch decision belongs; this file is for
-// standing ones, and Feat has none to write.
+// Plan mode is no exception to that rule. It is passed as a flag on one launch,
+// because the user pressed a key for it two seconds earlier, and it leaves the
+// user's own defaultMode untouched for every task where they did not. The
+// command line is where a per-launch decision belongs, and this file is for
+// standing ones.
 func settingsDocument(seen agentPaths) ([]byte, error) {
 	hooks := make(map[string][]settingsHook, len(installedHooks))
 	for _, event := range installedHooks {
 		hooks[event] = []settingsHook{{
 			Hooks: []hookCommand{{
 				Type: "command",
-				// Claude runs a hook command through a shell, so the path is
-				// quoted here rather than trusted to contain no space.
+				// Claude runs a hook command through a shell, so the path is quoted
+				// here rather than trusted to contain no space.
 				Command: shellQuote(seen.hook(event)),
 				Timeout: hookTimeout,
 			}},
@@ -184,10 +176,9 @@ func shellQuote(value string) string {
 }
 
 // seconds renders a wait for the generated script, which counts in whole
-// seconds because `sleep` is the only clock a POSIX shell has.
-//
-// A wait of zero would make the helper give up before it had asked, so a
-// configured period shorter than a second becomes one.
+// seconds because `sleep` is the only clock a POSIX shell has. A wait of zero
+// would make the helper give up before it had asked, so a configured period
+// shorter than a second becomes one.
 func seconds(d time.Duration) int {
 	if d <= time.Second {
 		return 1
@@ -205,9 +196,7 @@ func seconds(d time.Duration) int {
 //
 // A task launched in plan mode is asked for a plan rather than for the work.
 // The flag alone would leave the session told to begin and unable to, which
-// reads as a session fighting its own instructions; saying it here costs a
-// clause and is the only difference. Every other launch gets the sentence it
-// has always had.
+// reads as a session fighting its own instructions.
 func initialPrompt(seen agentPaths, planFirst bool) string {
 	if planFirst {
 		return "Your task brief is at " + seen.brief() +
@@ -219,10 +208,10 @@ func initialPrompt(seen agentPaths, planFirst bool) string {
 // systemPrompt is the Feat protocol, appended to Claude's own system prompt.
 //
 // It is deliberately short and almost entirely about the protocol. Nothing here
-// tells the agent how to do its work: the project's own CLAUDE.md does that, and
-// it still applies. The one exception is the stash, which is not advice about
-// the work but a fact about the environment Feat built — a task's repositories
-// are linked worktrees sharing one Git directory, and a session cannot see from
+// tells the agent how to do its work, because the project's own CLAUDE.md does
+// that and still applies. The one exception is the stash, which is a fact about
+// the environment Feat built rather than advice: a task's repositories are
+// linked worktrees sharing one Git directory, and a session cannot see from
 // inside that its stash is somebody else's too (ADR-056).
 func systemPrompt(req agent.PrepareRequest, seen agentPaths) string {
 	var b strings.Builder
@@ -248,9 +237,9 @@ func systemPrompt(req agent.PrepareRequest, seen agentPaths) string {
 	b.WriteString("so an honest \"skipped\" is more useful than an optimistic \"passed\".\n\n")
 
 	if req.Gate.Configured {
-		// The agent is told what will happen to its request, because a command
-		// that takes several minutes and then fails is a great deal easier to
-		// act on when it was expected.
+		// The agent is told what will happen to its request, because a command that
+		// takes several minutes and then fails is easier to act on when it was
+		// expected.
 		b.WriteString("When you request review, Feat runs the project's own checks itself and the helper waits for them. ")
 		if req.Gate.Describe != "" {
 			b.WriteString(req.Gate.Describe + " ")
@@ -278,9 +267,8 @@ func systemPrompt(req agent.PrepareRequest, seen agentPaths) string {
 	b.WriteString("rather than stashing onto that shared stack.\n\n")
 
 	if req.Environment.OutsideConfiguredBoundary {
-		// The agent is told, because it is true and because a session that
-		// believes it is contained may reason about risk differently from one
-		// that knows it is not.
+		// The agent is told, because a session that believes it is contained may
+		// reason about risk differently from one that knows it is not.
 		b.WriteString("This session runs directly on the user's host machine, not in the container the project configures. ")
 		b.WriteString("Treat the filesystem outside your task worktrees as the user's own.\n")
 	}
@@ -295,7 +283,7 @@ func systemPrompt(req agent.PrepareRequest, seen agentPaths) string {
 // (ADR-070). Saying so is part of the instruction, because an agent that
 // believed it had opened a merge request would report work it had not done.
 //
-// A project with no forge configured gets nothing here, for the same reason its
+// A project with no forge configured gets nothing here, for the reason its
 // helper does not accept the type: a document with nowhere to go is a document
 // nobody reads.
 func publicationPrompt(req agent.PrepareRequest, seen agentPaths) string {

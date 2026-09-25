@@ -2,15 +2,15 @@
 // tmux adapter.
 //
 // The adapter's own tests use an in-package fake to assert exact argument
-// vectors. This one exists for its callers — the daemon above all — which need
-// to arrange a server state and then observe what Feat records about it. The
-// orchestration those callers own is where a half-finished lifecycle becomes
-// recoverable or does not, so it must be testable without tmux installed.
+// vectors. This one exists for its callers, the daemon above all, which arrange
+// a server state and then observe what Feat records about it. Those callers own
+// the orchestration where a half-finished lifecycle becomes recoverable, so it
+// has to be testable without tmux installed.
 //
-// The fake plays tmux, which knows Feat's metadata only as opaque user
-// options. It therefore imports nothing from internal/tmux and renders each
-// list command by reading the format the adapter asked for, so a change to
-// those formats cannot silently misalign the fields it answers with.
+// The fake plays tmux, which knows Feat's metadata only as opaque user options.
+// It therefore imports nothing from internal/tmux and renders each list command
+// by reading the format the adapter asked for, so a change to those formats
+// cannot silently misalign the fields it answers with.
 package tmuxtest
 
 import (
@@ -33,10 +33,9 @@ const (
 	RoleShell = "shell"
 )
 
-// Terminal is one tagged task terminal to place on the fake server.
-//
-// It is the state a daemon restart would find, expressed the way a test wants
-// to say it rather than as the option-and-format soup tmux would report.
+// Terminal is one tagged task terminal to place on the fake server. It is the
+// state a daemon restart would find, expressed the way a test wants to say it
+// rather than as the options and formats tmux would report.
 type Terminal struct {
 	Project   string
 	Task      string
@@ -52,13 +51,13 @@ type Terminal struct {
 	// reports for a process it did not see exit on its own.
 	Signal string
 	// Unreaped is a pane tmux reports as dead before it has published how it
-	// ended: `pane_dead` is the closed descriptor on tmux 3.4, and the status
+	// ended. `pane_dead` is the closed descriptor on tmux 3.4, and the status
 	// arrives with the child being reaped. It is the state Linux CI caught.
 	Unreaped bool
 	Schema   string // metadata version; empty means the current one
 	// Viewers is how many attached clients are looking at this task's window,
 	// which is what tmux answers with window_active_clients. It is how a test
-	// arranges a user who is watching one task while others run unwatched.
+	// arranges a user watching one task while others run unwatched.
 	Viewers int
 	// PID is the process tmux started in the agent pane, so a test can arrange
 	// the process tree a resource observer would walk.
@@ -110,16 +109,16 @@ type Server struct {
 	nextPane    int
 
 	// size is each window's cell size, set by a resize and reported by a
-	// measurement, so that a test can check the size Feat asked for is the size
-	// it draws into.
+	// measurement, so a test can check that the size Feat asked for is the size it
+	// draws into.
 	size map[string][2]int
 	// pinned is which windows are held at a size of their own rather than at
-	// whichever client's. tmux sets it on any resize that names a size, with or
-	// without being asked, and holds the window there however large a client
-	// attaching is — which is what makes releasing it part of attaching.
+	// whichever client's. tmux sets it on any resize that names a size, asked or
+	// not, and holds the window there however large a client attaching is, which
+	// is what makes releasing it part of attaching.
 	pinned map[string]bool
 	// buffers holds what was staged for a paste, and pastes records what reached
-	// each pane, so that a test can assert on delivered input rather than on the
+	// each pane, so a test can assert on delivered input rather than on the
 	// command that delivered it.
 	buffers map[string]string
 	pastes  map[string][]string
@@ -154,12 +153,9 @@ func New(terminals ...Terminal) *Server {
 }
 
 // Watch sets how many attached clients are looking at one window, which is what
-// tmux answers with window_active_clients.
-//
-// It is how a test arranges a user who is watching one task while their other
-// tasks run unwatched, which is the distinction notification suppression turns
-// on: a session-level answer would silence every task the moment one of them was
-// being looked at.
+// tmux answers with window_active_clients. It is how a test arranges a user
+// watching one task while their other tasks run unwatched, which is the
+// distinction notification suppression turns on.
 func (s *Server) Watch(window string, viewers int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -169,11 +165,9 @@ func (s *Server) Watch(window string, viewers int) {
 }
 
 // Died ends the program of a pane that is already on the server, leaving the
-// pane where it is with the exit status tmux would report.
-//
-// It is what Feat's own remain-on-exit produces, arranged after a launch rather
-// than seeded: a task whose agent has stopped keeps its window, and the screen
-// the agent stopped on is kept with it.
+// pane where it is with the exit status tmux would report. It is what
+// remain-on-exit produces, arranged after a launch rather than seeded, so a
+// task whose agent has stopped keeps its window and the screen it stopped on.
 func (s *Server) Died(pane string, status int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -245,12 +239,9 @@ func (l Launch) Program() string {
 	return l.Command[0]
 }
 
-// Launches returns every program started in a pane, in order.
-//
-// It reads the recorded calls rather than the panes, because a test about what
-// was launched wants the arguments as they were passed: whether a launch
-// carried the right flags is a different question from what the pane is running
-// now.
+// Launches returns every program started in a pane, in order. It reads the
+// recorded calls rather than the panes, because whether a launch carried the
+// right flags is a different question from what the pane is running now.
 func (s *Server) Launches() []Launch {
 	var launches []Launch
 	for _, call := range s.Calls() {
@@ -340,7 +331,7 @@ func (s *Server) Run(_ context.Context, socket string, args ...string) (string, 
 	case "set-window-option":
 		// Unsetting window-size is how Feat releases a pinned window. tmux then
 		// resizes it when a client attaches, which this fake stands in for by
-		// forgetting the size: nothing here has a client to be sized to.
+		// forgetting the size, because nothing here has a client to be sized to.
 		if len(args) > 1 && args[1] == "-u" {
 			window := value(args, "-t")
 			delete(s.size, window)
@@ -574,8 +565,8 @@ func (s *Server) paneValues() []map[string]string {
 }
 
 // geometry places a pane in its window, tiling left to right the way a
-// horizontal split does. It is what lets a caller compose a window from its
-// panes without a real tmux to lay them out.
+// horizontal split does. It lets a caller compose a window from its panes
+// without a real tmux to lay them out.
 func (s *Server) geometry(pane *paneObject) (width, height, left, top int) {
 	size, ok := s.size[pane.window]
 	if !ok {
@@ -702,7 +693,7 @@ func (s *Server) Pastes(pane string) []string {
 	return append([]string(nil), s.pastes[pane]...)
 }
 
-// Buffers reports the tmux buffers still staged, so that a test can check a
+// Buffers reports the tmux buffers still staged, so a test can check that a
 // paste took its own buffer away with it.
 func (s *Server) Buffers() []string {
 	s.mu.Lock()
@@ -744,9 +735,9 @@ func (s *Server) Zoomed(window string) string {
 // measure answers the format display-message is given.
 //
 // The format is rendered from a map of what the target is, rather than
-// recognised one query at a time: the adapter combines and splits these queries
-// as it learns what it needs, and a fake that matches on substrings answers the
-// old shape confidently after the real one has changed. A field this does not
+// recognised one query at a time. The adapter combines and splits these queries
+// as it learns what it needs, and a fake that matched on substrings would
+// answer the old shape after the real one had changed. A field this does not
 // model is an error here rather than an empty column that fails later as a
 // parse.
 func (s *Server) measure(args []string) (string, error) {
@@ -755,7 +746,7 @@ func (s *Server) measure(args []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// display-message -p -t <target> <format>: the format is the last argument.
+	// display-message -p -t <target> <format>, so the format is the last argument.
 	return renderFormat(args[len(args)-1], values)
 }
 
@@ -813,9 +804,9 @@ func (s *Server) measurements(target string) (map[string]string, error) {
 	}, pane.options), nil
 }
 
-// sizing is the value of the window-size option, as tmux reports it: the
-// effective one, so an unpinned window answers with the server's default rather
-// than with nothing.
+// sizing is the value of the window-size option as tmux reports it, which is
+// the effective one, so an unpinned window answers with the server's default
+// rather than with nothing.
 func (s *Server) sizing(window string) string {
 	if s.pinned[window] {
 		return "manual"
@@ -824,8 +815,8 @@ func (s *Server) sizing(window string) string {
 }
 
 // paneFlags renders tmux's loop over the panes of a window, which answers a
-// question about the window and not about the target: one character per pane, in
-// pane order.
+// question about the window rather than about the target: one character per
+// pane, in pane order.
 func (s *Server) paneFlags(window string) string {
 	ids := make([]string, 0, len(s.panes))
 	for id, pane := range s.panes {
@@ -890,8 +881,8 @@ func (s *Server) sendKeys(args []string) error {
 		return fmt.Errorf("tmuxtest: no such pane %q", target)
 	}
 
-	// -l is literal text rather than key names: it is what typing sends, and a
-	// test asserting on delivered input has to be able to tell the two apart.
+	// -l is literal text rather than key names, which is what typing sends, and a
+	// test asserting on delivered input has to tell the two apart.
 	literal := false
 	for _, arg := range args {
 		if arg == "-l" {
@@ -953,9 +944,9 @@ func (s *Server) resizeWindow(args []string) error {
 		return fmt.Errorf("tmuxtest: resize height %q: %w", value(args, "-y"), err)
 	}
 	s.size[target] = [2]int{width, height}
-	// tmux pins a window it is told the size of, whether or not the option was
-	// set first. Modelled here so that a release has something to undo even for a
-	// caller that resized without asking for manual sizing.
+	// tmux pins a window it is told the size of, whether or not the option was set
+	// first. Modelled here so a release has something to undo even for a caller
+	// that resized without asking for manual sizing.
 	s.pinned[target] = true
 	return nil
 }

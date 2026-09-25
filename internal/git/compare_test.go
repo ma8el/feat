@@ -8,11 +8,8 @@ import (
 
 // TestComparisonMeasuresAgainstTheRecordedBase is FR-REV-001 at the adapter:
 // every number a review shows is measured against the commit the task started
-// from, and the command that produced it says so.
-//
-// It is checked on the argument vector as well as on the result, because a
-// comparison that happened to produce the right numbers against HEAD~1 would
-// pass an assertion about numbers alone.
+// from. It is checked on the argument vector as well as on the result, because
+// a comparison against HEAD~1 could produce the right numbers by accident.
 func TestComparisonMeasuresAgainstTheRecordedBase(t *testing.T) {
 	const worktree = "/work/task/api"
 	base := commit("beef")
@@ -70,10 +67,8 @@ func TestComparisonMeasuresAgainstTheRecordedBase(t *testing.T) {
 }
 
 // TestComparisonNeverWritesToTheRepository checks that opening review does not
-// disturb the checkout the user may be working in.
-//
-// Every command carries --no-optional-locks, which is what keeps an observation
-// from taking the index lock, and nothing here is a command that writes.
+// disturb the checkout the user may be working in. Every command carries
+// --no-optional-locks, which keeps an observation from taking the index lock.
 func TestComparisonNeverWritesToTheRepository(t *testing.T) {
 	const worktree = "/work/task/api"
 	base := commit("beef")
@@ -112,10 +107,8 @@ func TestComparisonNeverWritesToTheRepository(t *testing.T) {
 }
 
 // TestComparisonOfAWorktreeWithNoCommit checks that a task whose agent has not
-// committed still compares.
-//
-// Commits are optional in v0 (FR-GIT-007), so uncommitted work is the ordinary
-// case rather than an error, and an absent head is reported as absent.
+// committed still compares. Commits are optional in v0 (FR-GIT-007), so an
+// absent head is reported as absent rather than as an error.
 func TestComparisonOfAWorktreeWithNoCommit(t *testing.T) {
 	const worktree = "/work/task/api"
 	base := commit("beef")
