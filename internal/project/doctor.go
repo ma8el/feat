@@ -16,9 +16,8 @@ type Severity string
 const (
 	// SeverityOK reports a check that passed.
 	SeverityOK Severity = "ok"
-	// SeveritySkipped reports a check this build cannot run. It is not a pass:
-	// a diagnostic that claims a check it did not run is worse than no
-	// diagnostic at all.
+	// SeveritySkipped reports a check this build cannot run. It is not a pass, because
+	// a diagnostic must not claim a check it did not run.
 	SeveritySkipped Severity = "skipped"
 	// SeverityWarning reports something that will not stop Feat but is
 	// probably not what the user meant.
@@ -70,10 +69,10 @@ type Diagnosis struct {
 type Options struct {
 	// ConfigDir is the directory holding project configuration.
 	ConfigDir string
-	// SettingsDir is the directory holding the machine's settings file, which is
-	// the parent of ConfigDir in a real layout. It is separate rather than
-	// derived, so that a test can point the two somewhere unrelated and so that
-	// this package never reconstructs a path internal/paths owns.
+	// SettingsDir is the directory holding the machine's settings file, which is the
+	// parent of ConfigDir in a real layout. It is separate rather than derived, so a
+	// test can point the two somewhere unrelated and this package never reconstructs a
+	// path internal/paths owns.
 	SettingsDir string
 	// Resolve supplies the environment configuration is resolved against.
 	Resolve config.Options
@@ -93,10 +92,8 @@ type Options struct {
 	Registered func(id string) bool
 }
 
-// Failed reports whether any finding is an error.
-//
-// It is what decides the exit code: warnings are things to look at, and errors
-// are things that stop the project from working.
+// Failed reports whether any finding is an error. It decides the exit code: warnings
+// are things to look at, and errors are things that stop the project from working.
 func (r Report) Failed() bool {
 	for _, finding := range r.Host {
 		if finding.Severity == SeverityError {
@@ -128,12 +125,11 @@ func (r Report) Counts() map[Severity]int {
 	return counts
 }
 
-// Diagnose checks the host and every configured project.
-//
-// It never registers anything, never changes a file, and works before a daemon
-// or a registration exists, because docs/02-user-workflows.md §1 puts it before
-// both: the user writes their configuration, runs `feat doctor`, and registers
-// the project once the diagnosis is clean.
+// Diagnose checks the host and every configured project. It never registers anything,
+// never changes a file, and works before a daemon or a registration exists, because
+// docs/02-user-workflows.md §1 puts it before both: the user writes their
+// configuration, runs `feat doctor`, and registers the project once the diagnosis is
+// clean.
 func Diagnose(ctx context.Context, opts Options) (Report, error) {
 	if opts.Runner == nil {
 		opts.Runner = HostRunner{}
@@ -152,8 +148,8 @@ func Diagnose(ctx context.Context, opts Options) (Report, error) {
 	for _, id := range ids {
 		report.Projects = append(report.Projects, diagnoseProject(ctx, opts, id))
 	}
-	// The host checks come last so that they can say whether a missing tool
-	// matters, which depends on what the configured projects ask for.
+	// The host checks come last so they can say whether a missing tool matters,
+	// which depends on what the configured projects ask for.
 	report.Host = diagnoseHost(ctx, opts, report.Projects)
 	return report, nil
 }
@@ -227,10 +223,9 @@ func registrationFinding(id string, registered bool) Finding {
 	}
 }
 
-// configSummary renders a configuration error for a diagnostic.
-//
-// The annotated form is used where there is one: the location of a mistake in a
-// nested YAML document is most of the work of fixing it.
+// configSummary renders a configuration error for a diagnostic. The annotated form is
+// used where there is one, because locating a mistake in a nested YAML document is
+// most of the work of fixing it.
 func configSummary(err error) string {
 	var invalid *config.Error
 	if errors.As(err, &invalid) {

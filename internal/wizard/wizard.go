@@ -11,11 +11,10 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 )
 
-// Kind is how an answer is given, which is what an asker needs to know to ask.
-//
-// It is the whole of the presentation the flow decides. A line conversation
-// prints the options in brackets and reads a word; a dialog draws a list and
-// moves a cursor down it. Both are answering the same question.
+// Kind is how an answer is given, which is what an asker needs to know to ask. It is
+// the whole of the presentation the flow decides: a line conversation prints the
+// options in brackets and reads a word, and a dialog draws a list and moves a cursor
+// down it.
 type Kind string
 
 const (
@@ -56,16 +55,14 @@ const (
 // Sections are the sections in the order they are asked, for an asker that
 // wants to show the whole path rather than the step.
 //
-// The application comes before the agent, which is the reverse of the order
-// these were first asked in. The agent's Compose question can then offer the
-// files the application did not claim, where before it could only propose
-// nothing: which files define a container the agent works in is a question
-// about what is left over, and nothing was left over yet (ADR-100).
+// The application comes before the agent, so the agent's Compose question can offer
+// the files the application did not claim. Which files define a container the agent
+// works in is a question about what is left over (ADR-100).
 //
-// Verification is not among them. `checks:` is still configuration, still
-// validated by `feat doctor`, and still documented in the example file — it is
-// no longer a question, because a gate configured in passing is a gate that
-// fails on the machine it was configured from (ADR-078).
+// Verification is not among them. `checks:` is still configuration, still validated
+// by `feat doctor`, and still documented in the example file. It is not a question,
+// because a gate configured in passing is a gate that fails on the machine it was
+// configured from (ADR-078).
 func Sections() []Section {
 	return []Section{
 		SectionProject, SectionRepositories, SectionServices, SectionAgent, SectionTracker,
@@ -91,11 +88,9 @@ type Question struct {
 	// line and nothing else — no indent, no bullet, no styling. It is what
 	// separates a warning from the sentence saying what the field is.
 	//
-	// The mount questions are the exception, and are the only one: both carry
-	// the rule Compose merges by on every question of their group, because that
-	// field's failure is silent and the second repository is where the sentence
-	// is needed most. It is an exception on recorded grounds rather than a
-	// precedent for the next block of prose (ADR-082).
+	// The mount questions are the only exception: both carry the rule Compose merges
+	// by on every question of their group, because that field's failure is silent and
+	// the second repository is where the sentence is needed most (ADR-082).
 	Detail []string
 	// Notes are what the previous answer established: what Git said about a
 	// checkout, which services a Compose file declares, what Feat assumed. They
@@ -293,11 +288,9 @@ func (w *Wizard) Step() (Question, bool) {
 		return Question{}, false
 	}
 	question := w.question()
-	// What the last answer established, then what the question itself found: the
-	// order the two became true in. This assigned rather than appended, so a
-	// question that had something to say about its own proposals said it to
-	// nobody — the other Compose files beside a repository were derived, written
-	// into a note, and dropped here on the way out.
+	// What the last answer established, then what the question itself found, which is
+	// the order the two became true in. Assigning here rather than appending would drop
+	// whatever a question found out about its own proposals.
 	question.Notes = append(append([]string(nil), w.notes...), question.Notes...)
 	question.Candidates = candidates(question)
 	return question, true
@@ -513,10 +506,9 @@ func (w *Wizard) question() Question {
 			ID: "agent.compose", Section: SectionAgent, Kind: KindText,
 			Prompt: "Compose file",
 		}
-		// What is beside the repositories and is not already the application's,
-		// which is a list this question could not have before the application was
-		// asked about first: until then nothing was claimed, so everything was a
-		// candidate and the honest proposal was none (ADR-100).
+		// What is beside the repositories and is not already the application's. The
+		// application is asked about first, because until something is claimed
+		// everything is a candidate and the honest proposal is none (ADR-100).
 		found := w.unclaimedComposeFiles()
 		question.Candidates = found
 
@@ -581,10 +573,9 @@ func (w *Wizard) question() Question {
 		}
 		if composition := w.agentComposition(repository.HostPath); composition.ContainerPath != "" {
 			question.Proposed = composition.ContainerPath
-			// Where the proposal came from, said in the one case that used to say
-			// nothing. A transcription is safe to accept and an invention is only
-			// safe where the files mount this repository nowhere, and until this
-			// note the two arrived looking identical (ADR-082).
+			// Where the proposal came from. A transcription is safe to accept and an
+			// invention is only safe where the files mount this repository nowhere,
+			// and without this note the two look identical (ADR-082).
 			question.Notes = append(question.Notes, readFrom(w.draft.Execution.ComposeFiles))
 		} else if len(composition.Undecided) > 0 {
 			// Why the default is the default. An entry Feat left unread is not an
@@ -605,10 +596,9 @@ func (w *Wizard) question() Question {
 			}
 			return question
 		}
-		// Repeated rather than said once, which the type's own convention does not
-		// do. The warning is what makes an answer right, and the second repository
-		// is where it is needed most: under the convention that question is nothing
-		// but "Mount point for <id>" (ADR-082).
+		// Repeated rather than said once, against the type's own convention. The
+		// warning is what makes an answer right, and the second repository is where
+		// it is needed most (ADR-082).
 		question.Detail = []string{
 			"WARNING: still the devcontainer, and still an override. Where these Compose",
 			"files already mount this repository's code itself, choose the exact same",
@@ -637,12 +627,12 @@ func (w *Wizard) question() Question {
 		return Question{
 			ID: "runtime.wanted", Section: SectionServices, Kind: KindConfirm,
 			Heading: "Application services",
-			// What the agent's environment is and how it differs from this is
-			// drawn on the agent's own Compose question, which is asked after
-			// these and names the files this section claimed. Saying it here as
-			// well presumed both halves before the user had been shown either,
-			// and a project whose agent runs on this host has no second
-			// environment to be told apart from.
+			// What the agent's environment is and how it differs from this is drawn
+			// on the agent's own Compose question, which is asked after these and
+			// names the files this section claimed. Saying it here would presume
+			// both halves before the user has seen either, and a project whose
+			// agent runs on this host has no second environment to be told apart
+			// from.
 			Detail: []string{
 				"The runtime for the application under development. Feat creates one per",
 				"task, and in this version its services start only when you ask.",
@@ -687,31 +677,26 @@ func (w *Wizard) question() Question {
 				question.Proposed, others = others[0], others[1:]
 			}
 		} else {
-			// The repeat offers what is left and proposes none of it. The proposal
-			// is what an empty answer takes, and an empty answer here means "no
-			// more": they were two meanings for one key, and finishing lost — a
-			// user pressing Enter at "blank to finish [/some/path]" added the
-			// bracketed file instead, twice, and ended up with an application's
-			// files defining the container their agent runs in. Tab is where the
-			// rest of the files went, so the two no longer share a key (ADR-077).
+			// The repeat offers what is left and proposes none of it. The proposal is
+			// what an empty answer takes, and an empty answer here means "no more",
+			// so a proposal would give one key two meanings: Enter at "blank to
+			// finish [/some/path]" would add the bracketed file. Tab is where the
+			// rest of the files are, so the two do not share a key (ADR-077).
 			question.Prompt = overridePrompt(w.draft.Repositories[w.contributor].ID)
 			question.Optional = true
 		}
-		// The files that are not in the field, named in the same words wherever
-		// the loop is, because they are the same thing in both places. Saying it
-		// only once left the repeat as a prompt about finishing over an empty
-		// field, which reads as a loop with nothing left in it — and the reason
-		// this loop repeats is that Compose merges a base with the overrides
-		// beside it.
+		// The files that are not in the field, named in the same words wherever the
+		// loop is, because they are the same thing in both places. Said only once,
+		// the repeat reads as a loop with nothing left in it, and this loop repeats
+		// because Compose merges a base with the overrides beside it.
 		if len(others) > 0 {
 			note := "others found beside it: " + strings.Join(others, ", ")
 			if question.Proposed == "" {
-				// And the key that reaches them, where nothing in the field shows
-				// what it would give. ADR-077 left this clause to the asker because
-				// one of the two had no such key to name; both have one now, and a
-				// sentence each was a sentence that could drift (ADR-084). A
-				// question that proposes something has that value under the cursor
-				// already and needs no sentence about it.
+				// And the key that reaches them, where nothing in the field shows what
+				// it would give. Both askers have such a key, and one sentence here
+				// cannot drift the way one each could (ADR-077, ADR-084). A question
+				// that proposes something has that value under the cursor already
+				// and needs no sentence about it.
 				note += "; press tab to use one of them"
 			}
 			question.Notes = append(question.Notes, note)
@@ -743,18 +728,16 @@ func (w *Wizard) question() Question {
 			// all the same (ADR-065 evidence 1 and 6).
 			question.Prompt += ", or blank if they do not"
 		} else {
-			// The same finding as the agent mount's, for the same reason: this is
-			// the strongest thing the flow learns about its own proposals, and it
-			// was the one proposal that arrived without saying where it came from
-			// (ADR-082).
+			// The same finding as the agent mount's, for the same reason: this is the
+			// strongest thing the flow learns about its own proposals, and a
+			// proposal has to say where it came from (ADR-082).
 			question.Notes = append(question.Notes, readFrom(w.contribution.ComposeFiles))
 		}
 		if w.firstRuntimeMount() {
-			// The field with no safety net gets an explanation at all, which is the
-			// inversion ADR-082 corrects: the agent's path, whose failure a launch
-			// refuses, had a detail block and this one had none. It is the same
-			// warning in the same words, and it ends where the two fields differ —
-			// nothing here refuses a mismatch.
+			// The field with no safety net gets the explanation too, which is the
+			// inversion ADR-082 corrects. It is the same warning in the same words
+			// as the agent path's, and it ends where the two fields differ: nothing
+			// here refuses a mismatch.
 			question.Detail = []string{
 				"Where this repository's own services expect its source.",
 				"",
@@ -1283,18 +1266,17 @@ func (w *Wizard) nextMount() {
 // unoccupied rejects a mount point that overlaps one another repository already
 // has.
 //
-// Configuration refuses two repositories mounted inside one another: it does not
-// fail at Compose, it produces a container where one repository shadows part of
-// another, which is far harder to recognise later than a refusal now. That check
-// runs when the composed file is loaded back, which is after the last question —
-// so a conversation that met it there ended, taking every answer with it. This
-// asks the same question of the answer being given, in the words of the question
-// that can still be answered differently, and the rule itself is
-// config.PathsOverlap so that the two cannot drift apart.
+// Configuration refuses two repositories mounted inside one another, because it does
+// not fail at Compose: it produces a container where one repository shadows part of
+// another, which is far harder to recognise later than a refusal now. That check runs
+// when the composed file is loaded back, after the last question, so a conversation
+// that met it there would end taking every answer with it. This asks the same
+// question of the answer being given, through config.PathsOverlap so that the two
+// cannot drift apart.
 //
-// It became reachable when this stopped being a made-up value: two proposals of
-// "/srv/<id>" are always siblings, and a path read out of the agent's own
-// Compose files can be the parent of the next repository's default.
+// It is reachable because a path read out of the agent's own Compose files can be the
+// parent of the next repository's default, where two proposals of "/srv/<id>" are
+// always siblings.
 func (w *Wizard) unoccupied(answer string) error {
 	for i, repository := range w.draft.Repositories {
 		if i == w.mount || repository.AgentContainerPath == "" {
@@ -1336,13 +1318,11 @@ func (w *Wizard) firstRuntimeMount() bool {
 	return true
 }
 
-// readFrom names the files a proposal was read out of.
-//
-// It is the note the flow owed its strongest finding. A path Feat transcribed
-// out of the user's own Compose files and a path Feat made up are two proposals
-// a user has to treat differently — accepting the first is always right, and
-// accepting the second where the files did say something is the mismatch this
-// field fails silently on — and they arrived on identical questions (ADR-082).
+// readFrom names the files a proposal was read out of. A path Feat transcribed out of
+// the user's own Compose files and a path Feat made up are two proposals a user has
+// to treat differently: accepting the first is always right, and accepting the second
+// where the files did say something is the mismatch this field fails silently on
+// (ADR-082).
 func readFrom(files []string) string {
 	return "read from " + strings.Join(files, ", ")
 }
@@ -1527,13 +1507,12 @@ func describe(checkout Checkout) []string {
 
 // overridePrompt asks a file loop's second question and every one after it.
 //
-// Both loops asked for the next file with the same words as the first and
-// "(blank to finish)" on the end, so the repeat said what to do with it and
-// never what it was: a user who had given the one Compose file they knew about
-// had no reason to think another existed. Naming it does that in the place a
-// user reads at the moment of answering, and the noun is Compose's rather than
-// Feat's — `compose.override.yaml` is the file Compose itself picks up beside a
-// base, and overriding an earlier file is exactly what a later one does.
+// A repeat that asked for the next file in the first question's words, with "(blank
+// to finish)" on the end, would say what to do with it and never what it is: a user
+// who has given the one Compose file they knew about has no reason to think another
+// exists. The noun is Compose's rather than Feat's, because `compose.override.yaml`
+// is the file Compose itself picks up beside a base, and overriding an earlier file
+// is what a later one does.
 //
 // A repository is named where there is one, because the application's loop runs
 // once per repository and the answer belongs to whichever it is on.
@@ -1546,12 +1525,10 @@ func overridePrompt(repository string) string {
 
 // candidates are the values an asker may complete a text answer to.
 //
-// The proposal is the head of them, because it is the value an empty answer
-// takes: a list whose first entry was something else would be two answers to one
-// question, and the two askers would stop being the same conversation. The rest
-// are what the flow found beside it — the lists it derives and has until now had
-// nowhere to put, because a proposal is one value and a question has one of them
-// (ADR-077).
+// The proposal is the head of them, because it is the value an empty answer takes: a
+// list whose first entry was something else would be two answers to one question, and
+// the two askers would stop being the same conversation. The rest are the lists the
+// flow derives beside it, which one proposal has no room for (ADR-077).
 func candidates(question Question) []string {
 	if question.Kind != KindText {
 		return nil

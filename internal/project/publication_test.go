@@ -132,12 +132,9 @@ func TestAHostThatCannotPublishIsAWarning(t *testing.T) {
 	})
 }
 
-// TestBothBuiltForgesAreAskedAboutTheHost checks that the check is about the
-// forge a repository declares rather than about one of them.
-//
-// GitHub was reported as unbuildable here until its adapter landed, which is the
-// finding this replaced: what a user needs to know now is whether the machine
-// can drive gh, exactly as it needs to know about glab.
+// TestBothBuiltForgesAreAskedAboutTheHost checks that the check is about the forge a
+// repository declares rather than about one of them. What a user needs to know is
+// whether the machine can drive gh, exactly as it needs to know about glab.
 func TestBothBuiltForgesAreAskedAboutTheHost(t *testing.T) {
 	w := arrange(t)
 	forged(t, w, "api", "gitlab")
@@ -191,10 +188,9 @@ func TestOneForgeIsAskedAboutOnceHoweverManyRepositoriesDeclareIt(t *testing.T) 
 
 // TestThePrePushReportIsNamedForWhatItIsAbout pins the check name.
 //
-// It was `repositories.<id>.forge`, which is the configuration field that
-// decides whether the check runs and reads as a check on the forge declaration.
-// The forge declaration is validated when the configuration loads; this is about
-// what a push will skip.
+// `repositories.<id>.forge` is the configuration field that decides whether the check
+// runs, and it reads as a check on the forge declaration. That declaration is
+// validated when the configuration loads, while this is about what a push will skip.
 func TestThePrePushReportIsNamedForWhatItIsAbout(t *testing.T) {
 	w := arrange(t)
 	forged(t, w, "api", "gitlab")

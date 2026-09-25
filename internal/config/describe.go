@@ -9,14 +9,12 @@ import (
 // Secret handling in resolved output.
 //
 // docs/05-security-model.md draws the line at the file boundary: Feat passes
-// host-side environment files to Docker Compose by path and should avoid
-// reading their values. This package therefore holds paths and never contents,
-// which makes "secret values never appear in diagnostics" a property of the
-// data rather than a filter applied to the output. There is nothing here to
-// redact because nothing here was ever read.
+// host-side environment files to Docker Compose by path and avoids reading their
+// values. This package holds paths and never contents, so diagnostics have nothing to
+// redact.
 //
-// The marker below labels those paths in printed output, so that a reader can
-// see which files carry values Feat deliberately did not open.
+// The marker below labels those paths in printed output, so a reader can see which
+// files carry values Feat deliberately did not open.
 const secretMarker = "(contents not read)"
 
 // Section is one titled block of resolved configuration.
@@ -38,17 +36,13 @@ type Field struct {
 	Note string
 }
 
-// Describe renders the resolved configuration.
+// Describe renders the resolved configuration. It is what `feat project show` prints:
+// the values Feat will actually act on, after "~" expansion and after defaults are
+// filled, rather than the text of the file.
 //
-// It is what `feat project show` prints: the values Feat will actually act on,
-// after "~" expansion and after defaults are filled, rather than the text of
-// the file. A user checking whether their configuration says what they meant
-// needs the first, not the second.
-//
-// `feat doctor` prints none of it. That command reports its own findings and
-// the mapping from Mounts below, so a section added here reaches one command
-// and not both — which is worth knowing when the section is the only place a
-// value is shown at all.
+// `feat doctor` prints none of it. That command reports its own findings and the
+// mapping from Mounts below, so a section added here reaches one command and not
+// both.
 func (c *Config) Describe() []Section {
 	sections := []Section{c.describeProject(), c.describeRepositories(), c.describeGit(), c.describeAgent()}
 	if c.HasRuntime() {
@@ -63,12 +57,10 @@ func (c *Config) Describe() []Section {
 	return sections
 }
 
-// Mounts returns the repository-to-container path mapping.
-//
-// It is a table of its own because it is the mapping a task depends on and the
-// one a user most often needs to check: a repository at the wrong path is a
-// task that compiles nothing, or an application that serves the ordinary
-// checkout while every record Feat keeps stays correct (ADR-065 evidence 7).
+// Mounts returns the repository-to-container path mapping. It is a table of its own
+// because a repository at the wrong path is a task that compiles nothing, or an
+// application that serves the ordinary checkout while every record Feat keeps stays
+// correct (ADR-065 evidence 7).
 func (c *Config) Mounts() []Mount {
 	mounts := make([]Mount, 0, len(c.Repositories))
 	for _, id := range c.RepositoryIDs() {
@@ -135,10 +127,8 @@ func (c *Config) describeRepositories() Section {
 			Field{Name: id + ".remote", Value: repository.Remote},
 			Field{Name: id + ".default_access", Value: repository.DefaultAccess},
 		)
-		// Printed before the runtime fields below, and not among them: a
-		// repository Feat publishes need not run a service, and one whose
-		// forge went unprinted until it did would be the omission this row
-		// exists to end (ADR-071).
+		// Printed before the runtime fields, and not among them, because a
+		// repository Feat publishes need not run a service (ADR-071).
 		if repository.Forge != nil {
 			section.Fields = append(section.Fields, Field{
 				Name:  id + ".forge.kind",
@@ -149,7 +139,7 @@ func (c *Config) describeRepositories() Section {
 		if repository.Runtime == nil {
 			continue
 		}
-		// Printed whatever the execution mode. It is the mapping that decides
+		// Printed whatever the execution mode, because this mapping decides
 		// whether the user's own services run their task, and a project whose
 		// agent is host-native has services all the same (ADR-065 evidence 6).
 		section.Fields = append(section.Fields,
@@ -229,24 +219,22 @@ func (c *Config) describeRuntime() Section {
 		{Name: "start_policy", Value: runtime.StartPolicy, Note: "services start only when you ask"},
 		{Name: "project_name_template", Value: runtime.ProjectNameTemplate,
 			Note: "one Compose project per task"},
-		// Printed because it is usually a default, and a default a user cannot
-		// see is a default they cannot check (ADR-062). It is also the answer to
-		// the question an exhausted range asks.
+		// Printed because it is usually a default, and a user can only check a
+		// default they can see (ADR-062). It is also the answer to the question an
+		// exhausted range asks.
 		{Name: "port_range", Value: runtime.PortRange,
 			Note: "one host port per reachable service per task"},
 		// Printed for the same reason and one more: it decides who can reach a
 		// service published without an address of its own, and a user who has not
-		// set it should be able to read what Feat chose for them rather than
-		// assume.
+		// set it can read what Feat chose for them.
 		//
-		// Scoped to that case rather than left as a claim about the project,
-		// because it is not one. A repository's own Compose file may name an
-		// address per publication and Feat keeps it (docs/07 §
-		// runtime.bind_address), so a project configured 127.0.0.1 whose
-		// repository publishes "0.0.0.0:3000:3000" would otherwise be told here
-		// that its services are reachable from this machine alone. What each
-		// publication is actually bound on is per publication and is printed
-		// beside its address by `feat runtime status`.
+		// The note is scoped to that case rather than made a claim about the
+		// project. A repository's own Compose file may name an address per
+		// publication and Feat keeps it (docs/07 § runtime.bind_address), so a
+		// project configured 127.0.0.1 whose repository publishes
+		// "0.0.0.0:3000:3000" would otherwise be told that its services are
+		// reachable from this machine alone. `feat runtime status` prints what each
+		// publication is bound on, beside its address.
 		{Name: "bind_address", Value: runtime.BindAddress,
 			Note: "where a publication names no address: " + bindAddressNote(runtime.BindAddress)},
 		{Name: "services", Value: orNone(strings.Join(c.RuntimeServices(), ", ")),
@@ -273,18 +261,15 @@ func (c *Config) describeRuntime() Section {
 	return Section{Title: "runtime", Fields: fields}
 }
 
-// describeTracker renders where the project's tickets come from.
-//
-// It is a section of its own rather than a field of the project's, because it
-// is one: the tracker is absent for a project whose tasks are all written by
-// hand, and a section that is not there says that more plainly than a row
-// reading "(none)" (ADR-071).
+// describeTracker renders where the project's tickets come from. It is a section of
+// its own rather than a field of the project's, because the tracker is absent for a
+// project whose tasks are all written by hand, and a missing section says that more
+// plainly than a row reading "(none)" (ADR-071).
 func (c *Config) describeTracker() Section {
 	return Section{Title: "tracker", Fields: []Field{
 		{Name: "kind", Value: c.Tracker.Kind, Note: "a configured command is the only kind"},
-		// The command as it will be run. Feat passes it no filter, so what is
-		// printed here is the whole of which tickets this project sees, and a
-		// user checking that is checking this line.
+		// The command as it will be run. Feat passes it no filter, so this line is
+		// the whole of which tickets this project sees.
 		{Name: "command", Value: strings.Join(c.Tracker.Command, " "),
 			Note: "runs on this machine, in your home directory"},
 	}}
@@ -341,27 +326,22 @@ func executionNote(mode string) string {
 	case ModeHost:
 		return "no container boundary"
 	case ModeDevcontainer:
-		// The variable is named because this command cannot read it: it belongs
-		// to the daemon's environment, and `feat project show` loads
-		// configuration without asking a daemon anything. Naming what overrides
-		// the mode is the honest form of a claim about the mode.
+		// The variable is named because this command cannot read it: it belongs to
+		// the daemon's environment, and `feat project show` loads configuration
+		// without asking a daemon anything.
 		return "the agent runs in a configured Compose service, unless the daemon was started with " + EnvHostAgent
 	default:
 		return ""
 	}
 }
 
-// dockerNote says what the declared Docker capability means where the agent
-// runs.
+// dockerNote says what the declared Docker capability means where the agent runs.
 //
-// `denied` is honest in both modes and means the same thing in neither. Feat
-// mounts no socket and installs no client either way; in a container that is a
-// rule a launch then enforces against the container it is about to use, and on
-// this host the agent is a process of the user the daemon runs as, with that
-// user's socket and CLI already on its path. One gloss covering both would have
-// to be false in one of them, and it was: a host-mode project was told that no
-// Docker socket and no host Docker CLI reach its agent, four lines under
-// `execution.mode host (no container boundary)`.
+// `denied` is honest in both modes and means the same thing in neither. Feat mounts
+// no socket and installs no client either way; in a container a launch enforces that
+// against the container it is about to use, and on this host the agent is a process
+// of the user the daemon runs as, with that user's socket and CLI already on its
+// path.
 func dockerNote(mode string) string {
 	if mode == ModeDevcontainer {
 		return "Feat mounts no socket and adds no client; a launch refuses a container that has either"
@@ -369,12 +349,10 @@ func dockerNote(mode string) string {
 	return "host execution: the agent runs as the daemon's own user, with that user's Docker"
 }
 
-// bindAddressNote says who can reach this project's published services.
-//
-// It distinguishes the two answers rather than restating the value, because the
-// value is what a user cannot judge on sight: "0.0.0.0" and "127.0.0.1" look
-// alike in a printed field and differ by whether the whole network the machine
-// is on can open the service.
+// bindAddressNote says who can reach this project's published services. It
+// distinguishes the two answers rather than restating the value, because "0.0.0.0"
+// and "127.0.0.1" look alike in a printed field and differ by whether the whole
+// network the machine is on can open the service.
 func bindAddressNote(address string) string {
 	switch address {
 	case "127.0.0.1", "::1":

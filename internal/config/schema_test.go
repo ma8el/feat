@@ -28,11 +28,9 @@ const (
 	ticketSchemaFile = "../../schema/feat-tickets.schema.json"
 )
 
-// readSchema reads one published schema.
-//
-// The model it decodes into, and the walk below, are internal/schematest's: the
-// same technique holds the output documents to their own types, and the two
-// cannot share a test file because a file under internal/config may not import
+// readSchema reads one published schema. The model it decodes into, and the walk
+// below, are internal/schematest's, because the same technique holds the output
+// documents to their own types and a file under internal/config may not import
 // internal/api (ADR-094, ADR-099).
 func readSchema(t *testing.T, path string) *schematest.Schema {
 	t.Helper()

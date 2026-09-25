@@ -124,28 +124,23 @@ func (c *checker) checkRepositories(ctx context.Context) {
 
 // checkPrePush reports what a host-side publication will not run.
 //
-// Feat pushes with hooks disabled, because a task's worktrees share `.git/hooks`
-// with this checkout and the agent can write them: approving a publication must
-// not be how a user runs what the agent left there (ADR-050, ADR-070). Disabling
-// them costs nothing in a repository that has none, and it does not cost nothing
-// everywhere — a `pre-push` hook may be what scans for secrets before anything
-// leaves the machine, and Feat's publication would then be the one route out
-// that skips the check.
+// Feat pushes with hooks disabled, because a task's worktrees share `.git/hooks` with
+// this checkout and the agent can write them, so approving a publication must not be
+// how a user runs what the agent left there (ADR-050, ADR-070). A `pre-push` hook may
+// be what scans for secrets before anything leaves the machine, and Feat's
+// publication would then be the one route out that skips the check.
 //
-// It is reported here for the reason a tracker's output is validated here: what
-// Feat will not run is better learned when the user asks whether the project is
-// configured than at the moment they are approving a publication. It warns
-// rather than fails, because Feat cannot tell a load-bearing hook from a
-// personal convenience — which is what OQ-015 leaves open — and it says nothing
-// where there is no hook, because a check with nothing to report reports nothing
-// (ADR-028).
+// It is reported here because what Feat will not run is better learned when the user
+// asks whether the project is configured than at the moment they approve a
+// publication. It warns rather than fails, because Feat cannot tell a load-bearing
+// hook from a personal convenience, which is what OQ-015 leaves open, and it says
+// nothing where there is no hook (ADR-028).
 //
 // A repository with no forge is never published, so it is never asked.
 //
-// The check is named for what it is about rather than for the configuration
-// field that decides whether it runs. `repositories.<id>.forge` was the first
-// name, and it reads as a check on the forge declaration — which is validated
-// when the configuration loads, and is not this.
+// The check is named for what it is about rather than for the configuration field
+// that decides whether it runs, because `repositories.<id>.forge` reads as a check on
+// the forge declaration, which is validated when the configuration loads.
 func (c *checker) checkPrePush(ctx context.Context, id string, repository config.Repository) {
 	if repository.Forge == nil {
 		return
@@ -259,10 +254,9 @@ func (c *checker) checkWorktreeRoot() {
 
 // checkExecution checks the agent's execution environment.
 //
-// Both modes report which one they are, because every claim below this line
-// depends on it: the same capability means different things in a container and
-// on this host, and a reader with no mode line has no way to catch a claim that
-// belongs to the other one.
+// Both modes report which one they are, because every claim below this line depends
+// on it: the same capability means different things in a container and on this host,
+// and a reader with no mode line cannot catch a claim that belongs to the other one.
 func (c *checker) checkExecution(ctx context.Context) {
 	execution := c.config.Agent.Execution
 	if !execution.Devcontainer() {
@@ -291,16 +285,15 @@ func (c *checker) checkExecution(ctx context.Context) {
 // checkAgentEnvironment performs the checks FR-PROJ-004 asks for inside the
 // environment where the agent runs, or records why it could not.
 //
-// The requirement is worded around that environment for a reason: an
-// authenticated `glab` on the host says nothing about a container that has no
-// `glab` in it. A host-mode project is therefore checked on this machine, and a
-// devcontainer project is checked inside a container of its own that is already
-// running.
+// The requirement is worded around that environment because an authenticated `glab`
+// on the host says nothing about a container that has no `glab` in it. A host-mode
+// project is checked on this machine, and a devcontainer project inside a container
+// of its own that is already running.
 //
-// `feat doctor` still starts nothing (ADR-028). A project with no live task has
-// no container to look inside, and that is reported as skipped with the reason —
-// not as passing, and not as a capability that has yet to arrive: whether the
-// check can run is a fact about the machine rather than about Feat (ADR-033).
+// `feat doctor` still starts nothing (ADR-028). A project with no live task has no
+// container to look inside, which is reported as skipped with the reason rather than
+// as passing, because whether the check can run is a fact about the machine rather
+// than about Feat (ADR-033).
 func (c *checker) checkAgentEnvironment(ctx context.Context) {
 	if !c.config.Agent.Execution.Devcontainer() {
 		c.checkHostCapabilities()
@@ -315,10 +308,9 @@ func (c *checker) checkAgentEnvironment(ctx context.Context) {
 		return
 	}
 
-	// The same checks, asked of the container rather than of this machine. Only
-	// where the question is asked changes, which is the point: a diagnostic that
-	// asked a different question of a container would be a different diagnostic
-	// wearing the same name.
+	// The same checks, asked of the container rather than of this machine. Only where
+	// the question is asked changes, because a different question about a container
+	// would be a different diagnostic wearing the same name.
 	host := c.runner
 	c.runner = containerRunner{
 		host:      host,
@@ -355,11 +347,10 @@ func (c *checker) agentContainer(ctx context.Context) (string, bool) {
 
 // checkContainerUser reports the identity the agent would actually run as.
 //
-// Configuration already refuses a root user, so this is the question
-// configuration cannot answer: what the process turns out to be in the image the
-// project builds. And then the question the uid cannot answer, because an
-// identity is a fact about an instant: whether the image also hands that user a
-// way back to root (ADR-066).
+// Configuration already refuses a root user, so this asks what configuration cannot:
+// what the process turns out to be in the image the project builds, and then what the
+// uid cannot answer, which is whether the image also hands that user a way back to
+// root (ADR-066).
 func (c *checker) checkContainerUser(ctx context.Context, container string) {
 	const check = "agent.execution.user"
 	configured := c.config.Agent.Execution.User
@@ -393,17 +384,14 @@ func (c *checker) checkContainerUser(ctx context.Context, container string) {
 // containerEscalation names the first tool in the container that returns root
 // to the agent's user without a password.
 //
-// Reporting the uid alone and calling the requirement met is the shape F6-08
-// records one function down: a security property stated as verified, where the
-// claim replaces the reader's own review. The uid is true of the instant it was
-// read, and an image that installs `sudo` beside a NOPASSWD rule — which is what
-// a devcontainer template writes so a session can install a package — makes it
-// true of nothing else.
+// Reporting the uid alone and calling the requirement met is the overclaim F6-08
+// records one function down. The uid is true of the instant it was read, and an image
+// that installs `sudo` beside a NOPASSWD rule, which is what a devcontainer template
+// writes so a session can install a package, makes it true of nothing else.
 //
-// A tool that could not be asked is not reported as granting anything. What the
-// finding above says is what was established, which is the same direction the
-// launch takes and the opposite of the overclaim: Feat never reads a sudoers
-// file, so a rule narrow enough to exclude `true` is not found this way.
+// A tool that could not be asked is not reported as granting anything. Feat never
+// reads a sudoers file, so a rule narrow enough to exclude `true` is not found this
+// way.
 func (c *checker) containerEscalation(ctx context.Context, container, user string) (string, bool) {
 	for _, tool := range compose.EscalationTools {
 		vector := append([]string{"exec", "--user", user, container, tool.Name}, tool.Arguments...)
@@ -449,11 +437,10 @@ func (c *checker) checkAgentExecutable(ctx context.Context) {
 	c.ok(check, fmt.Sprintf("%s, version %s", path, version))
 }
 
-// noContainer is why the devcontainer checks did not run.
-//
-// It names the condition rather than a missing capability, because the check
-// exists and it is the state of the machine that decides whether it can run. The
-// action is what a user can actually do about it.
+// noContainer is why the devcontainer checks did not run. It names the condition
+// rather than a missing capability, because the check exists and the state of the
+// machine decides whether it can run. The action is what a user can actually do about
+// it.
 const noContainer = "launch a task for this project and run `feat doctor` again; " +
 	"a task launch checks the same things in its own container before it starts an agent"
 
@@ -580,22 +567,20 @@ func (c *checker) checkAgentMounts(ctx context.Context) {
 // checkMounts reports the bind mounts of one repository that a task's worktree
 // will not be able to satisfy.
 //
-// A task works in a worktree, and a worktree holds only what Git tracks: an
-// ignored `.env`, a `node_modules` built in place, or a file a colleague has and
-// nobody committed is not there. Feat already explains this class once the
-// container runtime has failed over it (internal/runtime/compose/explain.go),
-// and one shape of it never reaches a runtime error at all — a mount over a file
-// that is simply created empty, which is a running application misbehaving with
-// nothing anywhere naming the cause.
+// A task works in a worktree, and a worktree holds only what Git tracks: an ignored
+// `.env`, a `node_modules` built in place, or a file a colleague has and nobody
+// committed is not there. Feat explains this class once the container runtime has
+// failed over it (internal/runtime/compose/explain.go), and one shape never reaches a
+// runtime error at all: a mount over a file that is created empty, which is a running
+// application misbehaving with nothing naming the cause.
 //
 // It reports and refuses nothing, for the reason that explanation does: a file a
-// build step creates, or one that arrives with a `postCreateCommand`, is a
-// legitimate absence, and Feat cannot tell it from the one that will hurt.
+// build step creates, or one that arrives with a `postCreateCommand`, is a legitimate
+// absence, and Feat cannot tell it from the one that will hurt.
 //
-// An entry whose target lands where Feat mounts the worktree never reaches here.
-// The reader has classified it as a Target instead, checkMountTargets refuses
-// it, and the reasoning above is exactly what it does not get: one entry, one
-// finding, at the severity that entry's own failure has.
+// An entry whose target lands where Feat mounts the worktree never reaches here. The
+// reader has classified it as a Target instead and checkMountTargets refuses it, so
+// it gets one finding at the severity its own failure has.
 //
 // A repository a task mounts no worktree of is not asked at all, because every
 // word above is about a worktree (mountsNoWorktree).
@@ -645,17 +630,13 @@ func (c *checker) checkMounts(
 //     is refused there at all, in either direction — the directory case starts on
 //     both.
 //
-// So it is answered from what the daemon says it is, and it answers no wherever
-// Feat has not established one: a diagnostic with nothing to go on is not a
-// runtime that permits this. That covers a machine with no Docker and, just as
-// ordinarily, one whose Docker is installed and not running — `feat doctor` is
-// most useful on a machine that is not fully working, and a stopped daemon
-// answers no question about what a running one would do. Such a run already
-// reports the stopped daemon itself, which is the finding to act on. Answering
-// no under-claims on purpose. The finding is still reported, one severity lower,
-// and a launch that then fails is explained where it happens
-// (internal/runtime/compose/explain.go) — so a missed pre-flight costs a run,
-// while a wrong refusal would block a project that works.
+// So it is answered from what the daemon says it is, and it answers no wherever Feat
+// has not established one. That covers a machine with no Docker and one whose Docker
+// is installed and not running, which such a run already reports as the finding to
+// act on. The mount finding is still made, one severity lower, and a launch that then
+// fails is explained where it happens (internal/runtime/compose/explain.go), so a
+// missed pre-flight costs a run while a wrong refusal would block a project that
+// works.
 //
 // It is deliberately not inferred from this machine's own operating system. What
 // decides it is whether a bind crosses a virtual machine, which a Linux host
@@ -758,20 +739,15 @@ func worktreeContainerPath(repository config.Repository, containerPath string) s
 // named volume and a tmpfs all get a directory created for them and the
 // container starts, so none of them is reported.
 //
-// Whether it refuses at all is the runtime's to decide, and not every runtime
-// does: a native Linux daemon creates the file. So this refuses only where
-// RefusesFileMountPoint established that the runtime will, and warns elsewhere
-// rather than failing a project that works — which is the whole of what
-// separates the two severities here, the timing argument below being what
-// separates them from checkMounts.
+// Whether the runtime refuses at all is its own answer, and a native Linux daemon
+// creates the file. So this refuses only where RefusesFileMountPoint established that
+// the runtime will, and warns elsewhere rather than failing a project that works.
 //
-// This one refuses, where checkMounts reports. checkMounts warns because a file
-// a build step creates, or one a `postCreateCommand` writes, is a legitimate
-// absence — and that reason does not survive the crossing: no command in the
-// container runs before its mounts, so there is no build step and no
-// `postCreateCommand` that could have supplied this one. Feat explains the same
-// failure after the fact (internal/runtime/compose/explain.go); saying it before
-// a task exists is what this is for.
+// It refuses where checkMounts reports, because the reason checkMounts warns does not
+// survive the crossing: no command in the container runs before its mounts, so there
+// is no build step and no `postCreateCommand` that could have supplied this one. Feat
+// explains the same failure after the fact (internal/runtime/compose/explain.go), and
+// saying it before a task exists is what this is for.
 //
 // The question Git is asked is checkMounts's exactly, about a different path:
 // the target under the container path is the path a worktree would have to hold,
@@ -1233,16 +1209,15 @@ func (c *checker) lookUp(check, program string) {
 // checkHostDockerCapability reports what the declared Docker capability means
 // for an agent that runs on this machine.
 //
-// `denied` is what the project declared and it is not a boundary here. A
-// host-mode agent is a process of the user the daemon runs as, with that user's
-// socket and CLI already on its path, and telling that project that no Docker
-// socket and no host Docker CLI reach its agent — which is what this said, four
-// lines under `agent.execution.mode host, with no container boundary around the
-// agent` — is the overclaim CLAUDE.md's honesty rule exists for.
+// `denied` is what the project declared and it is not a boundary here. A host-mode
+// agent is a process of the user the daemon runs as, with that user's socket and CLI
+// already on its path, so telling that project that no Docker socket and no host
+// Docker CLI reach its agent would be the overclaim CLAUDE.md's honesty rule exists
+// for.
 //
-// There is nothing to probe. What the capability grants is nothing either way;
-// what differs is what host execution leaves within reach, and that is a fact
-// about the mode rather than about this machine.
+// There is nothing to probe. The capability grants nothing either way, and what
+// differs is what host execution leaves within reach, which is a fact about the mode
+// rather than about this machine.
 func (c *checker) checkHostDockerCapability() {
 	c.ok("agent.capabilities.docker", c.config.Agent.Capabilities.Docker+
 		": Feat adds no Docker socket and no Docker CLI, and host execution takes neither away — "+
@@ -1252,21 +1227,16 @@ func (c *checker) checkHostDockerCapability() {
 // checkContainerDockerCapability asks the running container whether it has a
 // client that speaks a container runtime's API.
 //
-// Here the declaration is a rule rather than a description, and this used to be
-// where `feat doctor` asserted it: it found a live container, ran three probes
-// inside it, and then reported the Docker capability as an OK finding without
-// asking that container anything. The rest of this package is careful about the
-// difference — skipAgentEnvironmentChecks exists so that an unrun check is named
-// rather than omitted — and a security property stated as verified is the one
-// place the carelessness costs something, because the claim replaces the
-// reader's own review (F6-08).
+// Here the declaration is a rule rather than a description, so the container is asked
+// rather than reported on. A security property stated as verified is the one place
+// that carelessness costs something, because the claim replaces the reader's own
+// review (F6-08).
 //
-// What is asked is the half of the boundary that is a property of the image, so
-// it is the half a diagnostic can answer before any task exists. The other half
-// — what the container mounts and what its environment sets — is checked at
-// launch against that task's own specification, which is what names the
-// forbidden sources and the read-only paths, and doctor has no task. That is
-// said rather than left out.
+// What is asked is the half of the boundary that is a property of the image, so it is
+// the half a diagnostic can answer before any task exists. The other half — what the
+// container mounts and what its environment sets — is checked at launch against that
+// task's own specification, and doctor has no task. That is said rather than left
+// out.
 func (c *checker) checkContainerDockerCapability(ctx context.Context) {
 	const check = "agent.capabilities.docker"
 	declared := c.config.Agent.Capabilities.Docker
@@ -1328,9 +1298,8 @@ func listOf(values []string, conjunction string) string {
 // authentication that user has and can call a provider's API besides, whatever
 // the level below says.
 //
-// It warns rather than fails, because host execution is a supported mode and
-// this is what it is rather than something wrong with it. Saying it out loud is
-// the point: claiming the container's property in both modes would be exactly
+// It warns rather than fails, because host execution is a supported mode rather than
+// something wrong with it. Claiming the container's property in both modes would be
 // the uniform security property ADR-066 and ADR-067 exist to refuse (ADR-070).
 //
 // Publication is unaffected either way. Feat opens merge requests from the host
@@ -1344,13 +1313,12 @@ func (c *checker) checkHostCapabilities() {
 		"run the agent in a devcontainer if a capability has to be a boundary rather than a declaration")
 }
 
-// There is no check that reports the declared capabilities as a group. There
-// used to be, and it reported `network` and `git` — two fields with one legal
-// value each that Feat never read anywhere else, so the finding restated the
-// configuration file rather than diagnosing the machine (ADR-080). Docker is
-// what is left, and it is reported where its answer depends on something a
-// diagnostic can go and ask: checkHostDockerCapability for an agent that runs
-// as the user, checkContainerDockerCapability for one that runs in a container.
+// There is no check that reports the declared capabilities as a group. `network` and
+// `git` each had one legal value that Feat never read anywhere else, so a finding
+// about them restated the configuration file rather than diagnosing the machine
+// (ADR-080). Docker is what is left, and it is reported where its answer depends on
+// something a diagnostic can go and ask: checkHostDockerCapability for an agent that
+// runs as the user, checkContainerDockerCapability for one that runs in a container.
 
 // diagnoseHost checks the tools Feat drives on this machine.
 //
@@ -1378,11 +1346,10 @@ func diagnoseHost(ctx context.Context, opts Options, projects []Diagnosis) []Fin
 
 // checkSettings reads the machine's settings and checks what they name.
 //
-// It is here rather than under each project because that is what these settings
-// are: one file for the machine, with no per-project override (ADR-079). A file
-// that cannot be read is an error and stops nothing else — the defaults apply,
-// including in a running daemon, so the rest of the diagnosis is still worth
-// having and is still about the machine Feat will actually use.
+// It is here rather than under each project because these settings are one file for
+// the machine, with no per-project override (ADR-079). A file that cannot be read is
+// an error and stops nothing else: the defaults apply, including in a running daemon,
+// so the rest of the diagnosis is still about the machine Feat will actually use.
 func (c *checker) checkSettings(opts Options) {
 	settings, err := config.LoadSettings(opts.SettingsDir, opts.Resolve)
 	if err != nil {

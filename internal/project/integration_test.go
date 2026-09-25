@@ -253,14 +253,12 @@ func TestRealComposeFileIsDiagnosed(t *testing.T) {
 // answer the question the check rests on: how a container runtime reports an
 // executable that is not there.
 //
-// The fake runner decides that for itself. Docker 29.5.2 writes
-// "executable file not found in $PATH" to *standard output* and exits 127 with
-// an empty standard error, so a diagnostic reading only standard error saw
-// "exit status 127" — no cause, matching no rule, and every absent client
-// reported as a question that could not be asked rather than as an answer. This
-// test failed before HostRunner.Run was taught to fall back to standard output,
-// and it is here so that a runtime changing its mind about which stream carries
-// the reason fails rather than quietly turning the check back into a warning.
+// The fake runner decides that for itself. Docker 29.5.2 writes "executable file not
+// found in $PATH" to standard output and exits 127 with an empty standard error, so a
+// diagnostic reading only standard error sees "exit status 127", which names no cause
+// and matches no rule. This test is here so a runtime changing its mind about which
+// stream carries the reason fails rather than quietly turning the check into a
+// warning.
 func TestRealTheDockerCapabilityIsProbedInALiveContainer(t *testing.T) {
 	requireRealTools(t)
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -272,14 +270,12 @@ func TestRealTheDockerCapabilityIsProbedInALiveContainer(t *testing.T) {
 	// nobody, because the image is a plain alpine and the check runs as the
 	// user the agent would be.
 	rewrite(t, w, "    user: developer", "    user: nobody")
-	// A project identifier no other package can produce. Containers are the one
-	// thing these tests share with every other test on the machine, and the
-	// fixture's own id is "app" — which internal/execution/compose's integration
-	// tests also use for the containers they start. `go test ./...` runs
-	// packages in parallel, so doctor would find whichever of the two Docker
-	// listed first and this test would pass or fail by timing. That is F5-01
-	// arriving in the suite rather than in the product, and the honest way to
-	// keep it out of this test is not to share the label.
+	// A project identifier no other package can produce. Containers are the one thing
+	// these tests share with every other test on the machine, and the fixture's own id
+	// is "app", which internal/execution/compose's integration tests also use for the
+	// containers they start. `go test ./...` runs packages in parallel, so doctor would
+	// find whichever of the two Docker listed first and this test would pass or fail by
+	// timing (F5-01).
 	id := renameProject(t, w)
 
 	// A container wearing Feat's ownership labels, which is how a diagnostic
@@ -338,9 +334,9 @@ func runContainer(t *testing.T, options ...string) string {
 	args = append(args, "alpine:3", "sleep", "300")
 	output, err := exec.Command("docker", args...).Output()
 	if err != nil {
-		// Docker answered the probe and then failed to start a container: the
-		// proof is gone while the machine still looks equipped, which is the
-		// case the gate used to report as "ok".
+		// Docker answered the probe and then failed to start a container: the proof
+		// is gone while the machine still looks equipped, which a gate must not
+		// report as ok.
 		integrationtest.Unavailable(t, integrationtest.Docker, "starting a container: %v", err)
 	}
 	id := strings.TrimSpace(string(output))
@@ -605,13 +601,11 @@ func writeTrackerScript(t *testing.T, prints string) string {
 // TestRealFileMountPointBehaviourIsWhatFeatExpects holds the target-side mount
 // check to what the runtime on this machine actually does.
 //
-// The check's severity rests on a measurement that is not in any documentation:
-// what a container runtime does when a mount's target is missing inside a bind
-// mount. It is not the same everywhere. Docker Desktop refuses to create a file
-// mount point and the task fails at container creation; a native Linux daemon
-// creates the file and the container starts. The first version of this test
-// asserted the refusal outright and failed on Linux, which is how that was
-// found.
+// The check's severity rests on a measurement that is not in any documentation: what
+// a container runtime does when a mount's target is missing inside a bind mount. It
+// is not the same everywhere. Docker Desktop refuses to create a file mount point and
+// the task fails at container creation, while a native Linux daemon creates the file
+// and the container starts.
 //
 // So it asserts no platform. It asks Feat what it expects of this runtime,
 // through the same predicate the check uses, and asserts the runtime agrees —

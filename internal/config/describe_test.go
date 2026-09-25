@@ -31,9 +31,9 @@ func render(sections []config.Section) string {
 // secret file contents never appear in diagnostics.
 //
 // It is checked as a property of the data rather than of a filter: this package
-// records the path of an environment file and never opens it, so there is
-// nothing to leak and nothing to redact. The unreadable file proves the second
-// half — a package that read the file would fail on it.
+// records the path of an environment file and never opens it, so there is nothing to
+// redact. The unreadable file proves it, because a package that read the file would
+// fail on it.
 func TestSecretFileContentsNeverAppearInResolvedConfiguration(t *testing.T) {
 	const secret = "ThisValueMustNeverBePrinted"
 
@@ -145,9 +145,8 @@ func TestMountOrderIsStable(t *testing.T) {
 	}
 }
 
-// TestDescribeShowsResolvedValues checks that the output is what Feat will act
-// on rather than what the file says. A default a user cannot see is a default
-// they cannot check.
+// TestDescribeShowsResolvedValues checks that the output is what Feat will act on
+// rather than what the file says, because a user can only check a default they see.
 func TestDescribeShowsResolvedValues(t *testing.T) {
 	dir := write(t, "minimal.yaml", fixture(t, "minimal.yaml"))
 	opts, home := testOptions(t, nil)
@@ -179,15 +178,13 @@ func TestDescribeShowsResolvedValues(t *testing.T) {
 	}
 }
 
-// TestTheDockerCapabilityIsGlossedForTheModeItAppliesIn is F6-06 for
-// `feat project show`.
+// TestTheDockerCapabilityIsGlossedForTheModeItAppliesIn is F6-06 for `feat project
+// show`.
 //
-// The capability value is `denied` in both modes and honest in both. What it
-// means is not the same, and one gloss covering both has to be false in one of
-// them: a host-mode project was told that no Docker socket and no host Docker
-// CLI reach its agent, four lines under `execution.mode host (no container
-// boundary)`, about a process that runs as the daemon's owner with that user's
-// socket on its path.
+// The capability value is `denied` in both modes and honest in both, and what it
+// means is not the same. A host-mode agent is a process of the daemon's owner, with
+// that user's Docker socket and CLI already on its path, so one gloss covering both
+// modes is false in that one.
 func TestTheDockerCapabilityIsGlossedForTheModeItAppliesIn(t *testing.T) {
 	opts, _ := testOptions(t, nil)
 
@@ -228,17 +225,14 @@ func TestTheDockerCapabilityIsGlossedForTheModeItAppliesIn(t *testing.T) {
 	}
 }
 
-// TestTheBindAddressIsGlossedForWhatItGovernsAndNotForEveryPublication scopes a
-// claim this command cannot make.
+// TestTheBindAddressIsGlossedForWhatItGovernsAndNotForEveryPublication scopes a claim
+// this command cannot make.
 //
-// `bind_address` is the default for a publication whose own Compose file names
-// no address, and not an address applied over one (docs/07). The note read as an
-// answer about the project's services, so a project configured 127.0.0.1 whose
-// repository publishes "0.0.0.0:3000:3000" was told its services are reachable
-// from this machine alone, over a binding every network this machine is joined
-// to can open. This command loads configuration and reads no Compose file, so it
-// cannot say what each publication is bound on — it says what this value decides
-// and stops there.
+// `bind_address` is the default for a publication whose own Compose file names no
+// address, and not an address applied over one (docs/07). A project configured
+// 127.0.0.1 whose repository publishes "0.0.0.0:3000:3000" has a binding every
+// network the machine is joined to can open. This command loads configuration and
+// reads no Compose file, so it says what this value decides and stops there.
 func TestTheBindAddressIsGlossedForWhatItGovernsAndNotForEveryPublication(t *testing.T) {
 	opts, _ := testOptions(t, nil)
 
@@ -288,14 +282,12 @@ func TestTheBindAddressIsGlossedForWhatItGovernsAndNotForEveryPublication(t *tes
 	}
 }
 
-// TestTheTrackerAndTheForgeAreDescribed covers the two sections this command
-// could not print.
+// TestTheTrackerAndTheForgeAreDescribed covers the two sections this command could
+// not print.
 //
-// Both exist, are validated, and are reported by `feat doctor`, and no value of
-// either reached `feat project show` — which is the command every file
-// `feat project init` writes names as the way to see the fields that file left
-// out. A section that command cannot print is one the documented way of
-// discovering it reports nothing about (ADR-071, ADR-072).
+// Every file `feat project init` writes names `feat project show` as the way to see
+// the fields that file left out, so a section that command cannot print is one the
+// documented way of discovering it reports nothing about (ADR-071, ADR-072).
 func TestTheTrackerAndTheForgeAreDescribed(t *testing.T) {
 	dir := write(t, "app.yaml", fixture(t, "app.yaml"))
 	opts, _ := testOptions(t, nil)
@@ -344,11 +336,9 @@ func TestTheTrackerAndTheForgeAreDescribed(t *testing.T) {
 	}
 }
 
-// TestAProjectThatDeclaresNeitherIsDescribedWithNeither is the other half.
-//
-// Both sections are optional — a project may publish nowhere and write every
-// task by hand — and an empty section suggests something is configured that is
-// not, which is the mistake a "(none)" row would make here.
+// TestAProjectThatDeclaresNeitherIsDescribedWithNeither is the other half. Both
+// sections are optional, because a project may publish nowhere and write every task
+// by hand, and an empty section suggests something is configured that is not.
 func TestAProjectThatDeclaresNeitherIsDescribedWithNeither(t *testing.T) {
 	dir := write(t, "minimal.yaml", fixture(t, "minimal.yaml"))
 	opts, _ := testOptions(t, nil)
@@ -368,11 +358,10 @@ func TestAProjectThatDeclaresNeitherIsDescribedWithNeither(t *testing.T) {
 
 // TestTheHostAgentOverrideIsNamedRatherThanGuessed is the other half of F6-06.
 //
-// FEAT_HOST_AGENT lives in the daemon's environment (ADR-032) and this command
-// loads configuration without asking a daemon anything, so the mode it prints is
-// the configured one and may not be the one in force. Naming the variable is
-// what a reader needs; reading it from this process would be a second wrong
-// claim whenever the daemon was started from another shell.
+// FEAT_HOST_AGENT lives in the daemon's environment (ADR-032) and this command loads
+// configuration without asking a daemon anything, so the mode it prints may not be
+// the one in force. Reading the variable from this process would be wrong whenever
+// the daemon was started from another shell.
 func TestTheHostAgentOverrideIsNamedRatherThanGuessed(t *testing.T) {
 	dir := write(t, "app.yaml", fixture(t, "app.yaml"))
 	opts, _ := testOptions(t, nil)

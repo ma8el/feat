@@ -12,12 +12,11 @@
 //     services resolve;
 //   - report repository and container path mappings accurately;
 //   - report each provider CLI capability as disabled, optional, or required;
-//   - discover what a directory can say about itself — the working tree it is
-//     in, its remote, its default branch, the Compose files beside it, and the
-//     services those files declare — which is what `feat project init` proposes
-//     from. Discovery answers or says nothing; it never guesses, because a
-//     guessed value written into a configuration is indistinguishable from an
-//     established one.
+//   - discover what a directory can say about itself — the working tree it is in,
+//     its remote, its default branch, the Compose files beside it, and the services
+//     those files declare — which is what `feat project init` proposes from.
+//     Discovery answers or says nothing, because a guessed value written into a
+//     configuration is indistinguishable from an established one.
 //
 // Diagnostics run without a daemon and without a registered project, because
 // docs/02-user-workflows.md §1 puts `feat doctor` before both: the user writes
@@ -27,13 +26,12 @@
 //
 // Two rules shape what a finding is allowed to say:
 //
-//   - a check this build cannot run is reported as skipped, never as passing,
-//     and the reason is named. FR-PROJ-004 asks for checks inside the agent's
-//     execution environment, which is this machine for a host-mode project and
-//     a running container of the project for a devcontainer one; `feat doctor`
-//     starts neither, so a project with no live task has nothing to look inside
-//     and is told so (ADR-033). A diagnostic that claims a check it did not run
-//     is worse than no diagnostic.
+//   - a check this build cannot run is reported as skipped, never as passing, and
+//     the reason is named. FR-PROJ-004 asks for checks inside the agent's execution
+//     environment, which is this machine for a host-mode project and a running
+//     container of the project for a devcontainer one. `feat doctor` starts
+//     neither, so a project with no live task has nothing to look inside and is
+//     told so (ADR-033).
 //   - secret file contents never reach a finding. Environment files are
 //     examined by path and metadata only, and the sole Compose command used is
 //     `config --services`, which lists service names. Plain `docker compose

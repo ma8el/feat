@@ -1,23 +1,19 @@
 // Package schematest holds a published JSON Schema against the Go types it
 // describes.
 //
-// Feat publishes hand-written schemas, so nothing makes one follow a struct on
-// its own. A field added to a type without a schema entry would work and be
-// underlined by whatever reads the schema; a field left in the schema after it
-// was removed would be the reverse. Both directions are what this checks.
+// Feat publishes hand-written schemas, so nothing makes one follow a struct on its
+// own. This checks both directions: a field the Go type has and the schema does
+// not, and a field the schema has and the Go type does not.
 //
-// It is a package rather than a helper in whichever test wrote it first because
-// there are two kinds of document now and they live on opposite sides of a
-// depguard rule: the configuration a user writes is internal/config's, and the
-// output a command prints is internal/api's, which files under internal/config
-// may not import (ADR-099). The technique is one technique, so it is in one
-// place — which is what ADR-094 asks for wherever duplication is not mandated
-// by a boundary.
+// It is a package rather than a helper in one test because there are two kinds of
+// document, on opposite sides of a depguard rule. The configuration a user writes
+// is internal/config's, and the output a command prints is internal/api's, which
+// files under internal/config may not import (ADR-099). One technique lives in one
+// place (ADR-094).
 //
-// It models enough of JSON Schema to walk a document's shape and no more, and
-// it decodes strictly: a keyword added to a published schema fails here rather
-// than being walked past. The alternative is a drift check that quietly stops
-// covering the part of the schema it does not understand.
+// It models enough of JSON Schema to walk a document's shape and no more, and it
+// decodes strictly. A keyword added to a published schema fails here rather than
+// being walked past, so the check cannot stop covering part of the schema.
 package schematest
 
 import (
@@ -52,10 +48,9 @@ type Schema struct {
 	Const                any                `json:"const"`
 }
 
-// Read decodes one published schema from the bytes of its file.
-//
-// path names the file in the failure message, so that a reader is sent to the
-// document rather than to this package.
+// Read decodes one published schema from the bytes of its file. path names the file
+// in the failure message, so a reader is sent to the document rather than to this
+// package.
 func Read(t *testing.T, path string, body []byte) *Schema {
 	t.Helper()
 
@@ -63,9 +58,9 @@ func Read(t *testing.T, path string, body []byte) *Schema {
 	decoder := json.NewDecoder(strings.NewReader(string(body)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&document); err != nil {
-		// The struct above covers the keywords this package walks. A keyword it
-		// does not know means the schema grew something this check should learn
-		// about rather than ignore.
+		// The struct above covers the keywords this package walks. An unknown keyword
+		// means the schema grew something this check should learn about rather than
+		// ignore.
 		t.Fatalf("%s uses a keyword this check does not model: %v", path, err)
 	}
 	return &document
@@ -85,21 +80,19 @@ func (s *Schema) Resolve(t *testing.T, root *Schema) *Schema {
 	return target
 }
 
-// Comparison is one schema checked against one set of Go types.
-//
-// Tag is the struct tag the field names come from: "yaml" for a configuration
-// file a user writes, "json" for a document a command prints. Fallback names
-// the schema file when the document carries no "$id" of its own.
+// Comparison is one schema checked against one set of Go types. Tag is the struct
+// tag the field names come from: "yaml" for a configuration file a user writes,
+// "json" for a document a command prints. Fallback names the schema file when the
+// document carries no "$id" of its own.
 type Comparison struct {
 	Root     *Schema
 	Tag      string
 	Fallback string
 }
 
-// CompareObject checks one struct against one schema object, in both
-// directions, and descends into every field.
-//
-// path is where the object sits in the document, and is empty at the root.
+// CompareObject checks one struct against one schema object in both directions, and
+// descends into every field. path is where the object sits in the document, and is
+// empty at the root.
 func (c Comparison) CompareObject(t *testing.T, node *Schema, structType reflect.Type, path string) {
 	t.Helper()
 
@@ -215,10 +208,9 @@ func (c Comparison) fields(structType reflect.Type) map[string]reflect.Type {
 	return fields
 }
 
-// document names the schema file a drift message should point at.
-//
-// It is taken from the schema's own "$id", so that a message names the file the
-// reader has to edit rather than whichever one a check was first written for.
+// document names the schema file a drift message should point at. It comes from the
+// schema's own "$id", so a message names the file the reader has to edit rather
+// than the one a check was first written for.
 func (c Comparison) document() string {
 	if c.Root.ID == "" {
 		return c.Fallback
@@ -226,9 +218,9 @@ func (c Comparison) document() string {
 	return "schema/" + gopath.Base(c.Root.ID)
 }
 
-// Described reports every property that carries no description, which is the
-// whole point of publishing a schema: a reader of one is asking what a field
-// means.
+// Described reports every property that carries no description. Someone reading a
+// published schema is asking what a field means, and an undescribed property tells
+// them nothing.
 func Described(t *testing.T, root *Schema) {
 	t.Helper()
 
@@ -251,9 +243,8 @@ func Described(t *testing.T, root *Schema) {
 }
 
 // isOpaque reports whether a struct marshals itself rather than by its fields.
-//
-// time.Time is the one that occurs here, and walking into it would demand that
-// a schema describe the wall clock, the monotonic reading, and the location.
+// time.Time is the one that occurs here, and walking into it would demand a schema
+// for the wall clock, the monotonic reading, and the location.
 func isOpaque(structType reflect.Type) bool {
 	return structType.PkgPath() == "time" && structType.Name() == "Time"
 }

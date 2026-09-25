@@ -9,17 +9,14 @@ import (
 
 // Draft is a project configuration before it is a file.
 //
-// It exists so that the answers to a question and the text written down are the
-// same thing twice rather than two representations that can disagree: a caller
-// collects answers into a Draft, and Config renders it, parses the rendering,
-// resolves it, and validates it. What that returns is a configuration Feat
-// itself accepts, which is the only kind worth writing to disk.
+// A caller collects answers into a Draft, and Config renders it, parses the
+// rendering, resolves it, and validates it. What that returns is a configuration Feat
+// itself accepts, so the answers and the text written down cannot disagree.
 //
 // It is deliberately smaller than Config. A generated file states what the user
-// decided and leaves every default out, because a default written down is a
-// value that stops following Feat when Feat's own changes — and
-// `feat project show` prints the resolved configuration, so a default left out
-// of the file is still a default the user can read.
+// decided and leaves every default out, because a default written down stops
+// following Feat when Feat's own changes, and `feat project show` prints the resolved
+// configuration anyway.
 type Draft struct {
 	// ID identifies the project and names its file.
 	ID string
@@ -105,11 +102,10 @@ type DraftExecution struct {
 	ClaudeConfigVolume string
 }
 
-// DraftRuntime is the application runtime of a drafted project.
-//
-// What the application is made of is on the repositories that bring it. A
-// present DraftRuntime is the project saying it has one at all, which is what
-// decides whether the section is written.
+// DraftRuntime is the application runtime of a drafted project. What the application
+// is made of is on the repositories that bring it, and a present DraftRuntime is the
+// project saying it has a runtime at all, which decides whether the section is
+// written.
 type DraftRuntime struct {
 	// EnvFiles are environment files passed to Compose by path. Feat records
 	// the paths and never reads what is in them.
@@ -128,22 +124,19 @@ type DraftCheck struct {
 	Execution string
 }
 
-// Config renders the draft and loads the rendering back, returning the
-// configuration and the text it was read from.
+// Config renders the draft and loads the rendering back, returning the configuration
+// and the text it was read from.
 //
-// The text is returned rather than left to be rendered again by the caller, so
-// that what a caller displays and writes is the exact text that was validated.
-// Rendering is deterministic, but "the same because it is the same bytes" is a
-// property worth having rather than one worth re-establishing.
+// The text is returned rather than rendered again by the caller, so what a caller
+// displays and writes is the exact bytes that were validated.
 //
-// The file path is where the configuration is meant to live: parsing compares
-// it with the project identifier, so a draft that would be written under
-// another name is refused here rather than after the file exists.
+// The file path is where the configuration is meant to live. Parsing compares it with
+// the project identifier, so a draft that would be written under another name is
+// refused here rather than after the file exists.
 //
-// A failure is a *Error, exactly as a hand-edited file's would be, and it names
-// the field: the draft and the file have the same field names, so a problem
-// found in the rendering is a problem the caller can put back to the user in
-// the terms they answered in.
+// A failure is a *Error naming the field, exactly as a hand-edited file's would be.
+// The draft and the file share field names, so the caller can put a problem back to
+// the user in the terms they answered in.
 func (d Draft) Config(file string, opts Options) (*Config, []byte, error) {
 	rendered := d.Render()
 
@@ -160,12 +153,10 @@ func (d Draft) Config(file string, opts Options) (*Config, []byte, error) {
 	return cfg, rendered, nil
 }
 
-// Render writes the draft as YAML.
-//
-// The result is commented, because the file outlives the conversation that
-// produced it: what a user does next with a generated project is edit it, and a
-// file that says what its fields mean is one they can edit without leaving the
-// editor. The comments say what the value is for, never what the user answered.
+// Render writes the draft as YAML. The result is commented, because the file outlives
+// the conversation that produced it and the next thing a user does with a generated
+// project is edit it. The comments say what a value is for, never what the user
+// answered.
 func (d Draft) Render() []byte {
 	doc := &document{}
 
@@ -306,9 +297,9 @@ func (d Draft) renderRuntime(doc *document) {
 		"The application services a task may run. They start only when you ask, and",
 		"what they are made of is on the repositories that bring them, above.")
 	doc.key(0, "runtime")
-	// The one default this file writes down. It is what makes the section exist:
-	// a key with nothing under it is YAML's null, and a project with a null
-	// runtime is a project with no runtime at all.
+	// The one default this file writes down, because it makes the section exist: a
+	// key with nothing under it is YAML's null, and a project with a null runtime is
+	// a project with no runtime at all.
 	doc.field(1, "provider", ProviderCompose)
 	if len(d.Runtime.EnvFiles) > 0 {
 		doc.comment(1,
@@ -342,13 +333,11 @@ func (d Draft) renderChecks(doc *document) {
 	}
 }
 
-// renderTracker writes where the project's tickets come from.
-//
-// The kind is not written. A configured command is the only one there is and
-// resolution fills it in, so writing it down would be the generated file
-// stating a default rather than a decision — and `command` under the key is
-// what makes the section exist, so there is no null-mapping problem to solve
-// the way the runtime's provider solves one (ADR-071).
+// renderTracker writes where the project's tickets come from. The kind is not
+// written: a configured command is the only one there is and resolution fills it in,
+// so writing it down would state a default rather than a decision. `command` under
+// the key makes the section exist, so there is no null mapping to avoid the way the
+// runtime's provider avoids one (ADR-071).
 func (d Draft) renderTracker(doc *document) {
 	if len(d.Tracker) == 0 {
 		return
@@ -367,9 +356,9 @@ func (d Draft) renderTracker(doc *document) {
 	doc.list(1, "command", d.Tracker)
 }
 
-// checkedRepositories returns the repositories that have checks, in the order
-// the checks were answered, so that the rendering groups them without
-// reordering what the user said.
+// checkedRepositories returns the repositories that have checks, in the order the
+// checks were answered, so the rendering groups them without reordering what the user
+// said.
 func (d Draft) checkedRepositories() []string {
 	var order []string
 	seen := make(map[string]bool, len(d.Checks))
@@ -383,14 +372,10 @@ func (d Draft) checkedRepositories() []string {
 	return order
 }
 
-// document builds a YAML document as text.
-//
-// The alternative is to marshal a Config, and it was not taken: a marshalled
-// struct carries every zero value the type has and no comments at all, and the
-// comments are most of what makes a generated file editable. Every scalar still
-// goes through the YAML encoder, so quoting is decided by the same library that
-// parses the result, and Draft.Config parses what this produces before anybody
-// is offered it.
+// document builds a YAML document as text. Marshalling a Config instead would carry
+// every zero value the type has and no comments at all, and the comments are most of
+// what makes a generated file editable. Every scalar still goes through the YAML
+// encoder, so the library that parses the result decides the quoting.
 type document struct {
 	b strings.Builder
 }
@@ -422,9 +407,9 @@ func (d *document) field(level int, name string, value any) {
 	d.b.WriteString(strings.Repeat(nesting, level) + name + ": " + scalar(value) + "\n")
 }
 
-// list writes a sequence field, or nothing at all when the sequence is empty:
-// an empty list in a generated file is a field the user has to work out the
-// meaning of before they can delete it.
+// list writes a sequence field, or nothing at all when the sequence is empty. An
+// empty list in a generated file is a field the user has to work out the meaning of
+// before they can delete it.
 func (d *document) list(level int, name string, values []string) {
 	if len(values) == 0 {
 		return
@@ -444,14 +429,13 @@ func (d *document) item(level int, name string, value any) {
 // bytes returns the document.
 func (d *document) bytes() []byte { return []byte(d.b.String()) }
 
-// scalar renders one value as a YAML scalar.
+// scalar renders one value as a YAML scalar. The encoder decides whether a value
+// needs quoting, so a repository directory called "no", a branch called "0755", and a
+// path with a "#" in it survive being written down.
 //
-// The encoder decides whether a value needs quoting, so a repository directory
-// called "no", a branch called "0755", and a path with a "#" in it survive
-// being written down. A value the encoder renders across several lines, or
-// cannot render at all, is written as a double-quoted Go string instead: it
-// keeps the field on one line, and it is close enough to YAML's own quoting
-// that the parse Draft.Config runs is what judges it.
+// A value the encoder renders across several lines, or cannot render at all, is
+// written as a double-quoted Go string instead. That keeps the field on one line and
+// leaves the parse Draft.Config runs to judge it.
 func scalar(value any) string {
 	encoded, err := yaml.Marshal(value)
 	if err != nil {
