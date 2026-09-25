@@ -22,56 +22,49 @@ const (
 	// knows. The daemon is local and the answer is in its memory or in a file it
 	// owns, so a request that takes longer than this is stuck rather than slow.
 	requestTimeout = 10 * time.Second
-	// runtimeTimeout bounds a manual runtime action, which is not that kind of
-	// request: the daemon is driving Docker Compose, and the first start of a
-	// task's services pulls images and runs builds.
+	// runtimeTimeout bounds a manual runtime action, where the daemon is driving
+	// Docker Compose and the first start of a task's services pulls images and runs
+	// builds.
 	//
-	// It is the daemon's own budget for the action plus a margin, so that a
-	// Compose that will not finish is reported by the daemon, which knows what it
-	// was waiting for, rather than by this client giving up on a daemon that is
-	// still working. Under the ten seconds above, a first start failed with
-	// `context deadline exceeded` and worked when the user tried it again —
-	// because by then the images were pulled and the containers existed.
+	// It is the daemon's own budget for the action plus a margin, so a Compose that
+	// will not finish is reported by the daemon, which knows what it was waiting
+	// for, rather than by this client giving up on a daemon that is still working.
+	// Under the ten seconds above, a first start failed with `context deadline
+	// exceeded` and worked on the retry, once the images were pulled.
 	runtimeTimeout = api.RuntimeTimeout + answerMargin
-	// agentTimeout bounds a request that creates or stops a task's agent
-	// environment: a launch, a resume, or a stop. Same shape as the line above
-	// and the same reason — the daemon is driving Docker Compose, and a launch
-	// whose service has to be recreated took ten seconds and one hundredth of a
-	// second on the day the project's own Compose file changed.
+	// agentTimeout bounds a launch, a resume, or a stop, each of which creates or
+	// stops a task's agent environment. The daemon is driving Docker Compose here
+	// too, and a launch whose service had to be recreated took ten seconds and one
+	// hundredth of a second on the day the project's own Compose file changed.
 	agentTimeout = api.AgentTimeout + answerMargin
-	// ticketTimeout bounds a listing of a project's tickets, which is not a
-	// request the daemon answers out of what it already knows either: it runs
-	// somebody's command against somebody's tracker. Same shape as the two above
-	// and the same reason — the daemon's own budget plus a margin, so that a
-	// tracker which will not answer is reported by the daemon rather than by
-	// this client giving up on one that is still waiting.
+	// ticketTimeout bounds a listing of a project's tickets, which runs somebody's
+	// command against somebody's tracker. It is the daemon's own budget plus a
+	// margin, so a tracker that will not answer is reported by the daemon rather
+	// than by this client giving up on one that is still waiting.
 	ticketTimeout = api.TicketTimeout + answerMargin
 	// answerMargin is how much longer than the daemon's own budget a client waits
-	// for the answer, so that the daemon's diagnosis is what ends the request.
-	// The same margin the daemon allows a completion gate over its own.
+	// for the answer, so that the daemon's diagnosis is what ends the request. It is
+	// the same margin the daemon allows a completion gate over its own.
 	answerMargin = time.Minute
 	// maxResponseBody bounds a response, so that a broken daemon cannot make a
 	// client allocate without limit.
 	maxResponseBody = 32 << 20
 )
 
-// host appears in the request URL because net/http requires one. The daemon
-// never looks at it: the socket path decides who is answering.
+// host appears in the request URL because net/http requires one. The daemon never
+// looks at it, because the socket path decides who is answering.
 const host = "feat"
 
-// Client talks to the local daemon over its Unix-domain socket.
-//
-// It is a transport and nothing else: it does not start a daemon, read
-// persistent state, or hold a domain type. Starting a daemon belongs to
-// internal/daemon, which knows how, and internal/cli, which decides when.
+// Client talks to the local daemon over its Unix-domain socket. It is a transport
+// and nothing else: it does not start a daemon, read persistent state, or hold a
+// domain type. Starting a daemon belongs to internal/daemon and internal/cli.
 type Client struct {
 	socket string
 	http   *http.Client
-	// timeout bounds an ordinary request; runtimeTimeout and agentTimeout the
-	// endpoints whose answers wait on a container tool. They are fields rather
-	// than the constants themselves so that a test can shrink them and still be
-	// testing the rule — that these endpoints get the longer budgets — rather
-	// than waiting out a budget measured in minutes.
+	// timeout bounds an ordinary request, and the others bound the endpoints whose
+	// answers wait on a container tool or a tracker. They are fields rather than the
+	// constants themselves so a test can shrink them and still check that these
+	// endpoints get the longer budgets.
 	timeout        time.Duration
 	runtimeTimeout time.Duration
 	agentTimeout   time.Duration
@@ -87,15 +80,15 @@ func New(socket string) *Client {
 		agentTimeout:   agentTimeout,
 		ticketTimeout:  ticketTimeout,
 		http: &http.Client{
-			// No client timeout: the event stream is meant to stay open, and
-			// every other call bounds itself with a context instead.
+			// No client timeout, because the event stream is meant to stay open
+			// and every other call bounds itself with a context.
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 					var dialer net.Dialer
 					return dialer.DialContext(ctx, "unix", socket)
 				},
-				// A local socket gains nothing from compression, and a TUI keeps
-				// a stream and a few requests going at once.
+				// A local socket gains nothing from compression, and a TUI keeps a
+				// stream and a few requests going at once.
 				DisableCompression: true,
 				MaxIdleConns:       4,
 				IdleConnTimeout:    90 * time.Second,
@@ -107,10 +100,9 @@ func New(socket string) *Client {
 // Socket returns the path the client talks to.
 func (c *Client) Socket() string { return c.socket }
 
-// Close releases the connections the client is keeping open.
-//
-// A daemon draining for shutdown waits on connections that are still open, so a
-// client that is finished should say so rather than leave them to time out.
+// Close releases the connections the client is keeping open. A daemon draining for
+// shutdown waits on connections that are still open, so a finished client says so
+// rather than leaving them to time out.
 func (c *Client) Close() {
 	if transport, ok := c.http.Transport.(*http.Transport); ok {
 		transport.CloseIdleConnections()
@@ -132,21 +124,17 @@ func (c *Client) Project(ctx context.Context, id string) (api.Project, error) {
 	return fetch[api.Project](ctx, c, "/projects/"+url.PathEscape(id))
 }
 
-// Tickets runs a project's configured tracker command and returns the tickets
-// it printed.
-//
-// Only the project identifier is sent. Which tickets are the user's is the
-// command's decision and Feat passes it no filter, so there is no query for a
-// client to supply (ADR-071).
+// Tickets runs a project's configured tracker command and returns the tickets it
+// printed. Only the project identifier is sent: which tickets are the user's is the
+// command's decision, and Feat passes it no filter (ADR-071).
 func (c *Client) Tickets(ctx context.Context, id string) (api.TicketList, error) {
 	return fetchWithin[api.TicketList](ctx, c, c.ticketTimeout,
 		"/projects/"+url.PathEscape(id)+"/tickets")
 }
 
-// RegisterProject records a project from its configuration file.
-//
-// Only the identifier is sent. The daemon reads the configuration from the
-// directory it resolved for itself, so a client never hands it a path.
+// RegisterProject records a project from its configuration file. Only the
+// identifier is sent, because the daemon reads the configuration from the directory
+// it resolved for itself rather than from a path a client hands it.
 func (c *Client) RegisterProject(ctx context.Context, id string) (api.Registration, error) {
 	return send[api.Registration](ctx, c, "/projects", api.RegisterProject{ProjectID: id})
 }
@@ -156,10 +144,9 @@ func (c *Client) Tasks(ctx context.Context) ([]api.Task, error) {
 	return fetch[[]api.Task](ctx, c, "/tasks")
 }
 
-// Resources returns the most recent resource sample.
-//
-// The daemon samples on its own schedule and this reads what it has, so a client
-// that asks often does not make the machine work harder.
+// Resources returns the most recent resource sample. The daemon samples on its own
+// schedule and this reads what it has, so a client that asks often does not make
+// the machine work harder.
 func (c *Client) Resources(ctx context.Context) (api.ResourceReport, error) {
 	return fetch[api.ResourceReport](ctx, c, "/resources")
 }
@@ -175,18 +162,15 @@ func (c *Client) AttachInfo(ctx context.Context, id string) (api.AttachInfo, err
 	return send[api.AttachInfo](ctx, c, "/tasks/"+url.PathEscape(id)+"/attach-info", struct{}{})
 }
 
-// Shell opens or finds the task's shell pane and returns its target.
-//
-// Only the task is named. The daemon decides which program runs and where, so
-// no client hands it something to execute.
+// Shell opens or finds the task's shell pane and returns its target. Only the task
+// is named, because the daemon decides which program runs and where rather than
+// running something a client handed it.
 func (c *Client) Shell(ctx context.Context, id string) (api.AttachInfo, error) {
 	return send[api.AttachInfo](ctx, c, "/tasks/"+url.PathEscape(id)+"/shell", struct{}{})
 }
 
-// TerminalFrame asks for one rendered view of a task's pane.
-//
-// The size is the region the caller will draw into, which the daemon sets the
-// pane to before capturing.
+// TerminalFrame asks for one rendered view of a task's pane. The size is the region
+// the caller will draw into, which the daemon sets the pane to before capturing.
 func (c *Client) TerminalFrame(ctx context.Context, id string, view api.TerminalView) (api.TerminalFrame, error) {
 	return send[api.TerminalFrame](ctx, c, "/tasks/"+url.PathEscape(id)+"/terminal", view)
 }
@@ -199,15 +183,13 @@ func (c *Client) SendTerminalInput(ctx context.Context, id string, input api.Ter
 
 // Runtime performs one manual application-runtime action.
 //
-// Only the task and the action are named. Which services a task has, which
-// Compose files define them, and what the command turns out to be are the
-// daemon's to resolve, for the reason the shell endpoint takes nothing to
-// execute.
+// Only the task and the action are named. Which services a task has, which Compose
+// files define them, and what the command turns out to be are the daemon's to
+// resolve, for the reason the shell endpoint takes nothing to execute.
 //
-// Every action waits the runtime budget rather than only the two that create
-// something. They are one endpoint with one budget on the daemon's side, and a
-// status that has to queue behind the start it is reporting on is exactly the
-// call a shorter deadline would cut off.
+// Every action waits the runtime budget, not only the two that create something.
+// The daemon serves them as one endpoint with one budget, and a status call can
+// queue behind the start it is reporting on.
 func (c *Client) Runtime(ctx context.Context, id string, action api.RuntimeAction) (api.RuntimeStatus, error) {
 	path := "/tasks/" + url.PathEscape(id) + "/runtime/" + url.PathEscape(string(action))
 	if action == api.RuntimeDestroy {
@@ -216,20 +198,18 @@ func (c *Client) Runtime(ctx context.Context, id string, action api.RuntimeActio
 	return sendWithin[api.RuntimeStatus](ctx, c, c.runtimeTimeout, path, struct{}{})
 }
 
-// Review performs one review action and returns what the task's review shows.
-//
-// Every action takes an empty body: what a user asked for is in the path, and
-// the commands the response carries are the project's own, expanded by the
-// daemon (ADR-036).
+// Review performs one review action and returns what the task's review shows. Every
+// action takes an empty body: what the user asked for is in the path, and the
+// commands the response carries are the project's own, expanded by the daemon
+// (ADR-036).
 func (c *Client) Review(ctx context.Context, id string, action api.ReviewAction) (api.ReviewStatus, error) {
 	path := "/tasks/" + url.PathEscape(id) + "/review/" + url.PathEscape(string(action))
 	return send[api.ReviewStatus](ctx, c, path, struct{}{})
 }
 
-// PlanPublication composes what publishing a task would do, recording nothing.
-//
-// It reads every one of the task's worktrees and the agent's own draft, so it
-// waits the runtime budget rather than an ordinary one, for the reason a review
+// PlanPublication composes what publishing a task would do, recording nothing. It
+// reads every one of the task's worktrees and the agent's own draft, so it waits
+// the runtime budget rather than an ordinary one, for the reason a review
 // comparison does.
 func (c *Client) PlanPublication(ctx context.Context, id string) (api.PublicationStatus, error) {
 	path := "/tasks/" + url.PathEscape(id) + "/publication/" + string(api.PublicationPlan)
@@ -238,14 +218,13 @@ func (c *Client) PlanPublication(ctx context.Context, id string) (api.Publicatio
 
 // ApplyPublication publishes the repositories the user approved.
 //
-// The body carries the words that were displayed, verbatim: what is sent is
-// what the user read, so the daemon composes each merge request from this
-// rather than from the agent's message (ADR-070).
+// The body carries the words that were displayed, verbatim, so the daemon composes
+// each merge request from this rather than from the agent's message (ADR-070).
 //
-// It waits the runtime budget because it crosses a network once per repository:
-// a push and a merge request each, one repository at a time, and a client that
-// gave up half way would leave the user reading a partial record with no
-// account of the rest.
+// It waits the runtime budget because it crosses a network once per repository, a
+// push and a merge request each, one repository at a time. A client that gave up
+// half way would leave the user reading a partial record with no account of the
+// rest.
 func (c *Client) ApplyPublication(
 	ctx context.Context, id string, request api.PublishRequest,
 ) (api.PublicationStatus, error) {
@@ -253,11 +232,9 @@ func (c *Client) ApplyPublication(
 	return sendWithin[api.PublicationStatus](ctx, c, c.runtimeTimeout, path, request)
 }
 
-// RuntimeLogs returns the command that opens the task's normal Compose logs.
-//
-// The caller runs it with its own terminal, and checks it first: the daemon is
-// the same user, and a client that ran whatever it was handed would be one
-// nobody could reason about (FR-RUN-006).
+// RuntimeLogs returns the command that opens the task's normal Compose logs. The
+// caller runs it in its own terminal and checks it first, because the daemon runs
+// as the same user (FR-RUN-006).
 func (c *Client) RuntimeLogs(ctx context.Context, id string) (api.RuntimeCommand, error) {
 	return send[api.RuntimeCommand](ctx, c, "/tasks/"+url.PathEscape(id)+"/runtime/logs-info", struct{}{})
 }
@@ -268,10 +245,9 @@ func (c *Client) Reconciliation(ctx context.Context) (api.Reconciliation, error)
 	return fetch[api.Reconciliation](ctx, c, "/reconciliation")
 }
 
-// Reconcile asks the daemon to compare persisted state with the machine again.
-//
-// It changes nothing but observations: the daemon repairs, restarts, and adopts
-// nothing, so this is safe to call from a screen a user is looking at.
+// Reconcile asks the daemon to compare persisted state with the machine again. The
+// daemon repairs, restarts, and adopts nothing, so this is safe to call from a
+// screen a user is looking at.
 func (c *Client) Reconcile(ctx context.Context) (api.Reconciliation, error) {
 	return send[api.Reconciliation](ctx, c, "/reconciliation", struct{}{})
 }
@@ -281,21 +257,19 @@ func (c *Client) CleanupPlan(ctx context.Context, id string) (api.CleanupPlan, e
 	return send[api.CleanupPlan](ctx, c, "/tasks/"+url.PathEscape(id)+"/cleanup/plan", struct{}{})
 }
 
-// Cleanup removes the classes a selection names.
-//
-// The selection carries the token of the plan that was displayed and the exact
-// warnings the user accepted, so the daemon can refuse a plan that has changed
-// and a confirmation that no longer covers what is true (FR-CLEAN-003).
+// Cleanup removes the classes a selection names. The selection carries the token of
+// the plan that was displayed and the exact warnings the user accepted, so the
+// daemon can refuse a changed plan or a confirmation that no longer covers what is
+// true (FR-CLEAN-003).
 func (c *Client) Cleanup(
 	ctx context.Context, id string, selection api.CleanupSelection,
 ) (api.CleanupStatus, error) {
 	return send[api.CleanupStatus](ctx, c, "/tasks/"+url.PathEscape(id)+"/cleanup/execute", selection)
 }
 
-// Resume continues a task's recorded agent session.
-//
-// It waits on the agent budget rather than an ordinary one, because a resume
-// brings the task's container back up before the agent can be started in it.
+// Resume continues a task's recorded agent session. It waits on the agent budget
+// rather than an ordinary one, because a resume brings the task's container back up
+// before the agent can be started in it.
 func (c *Client) Resume(ctx context.Context, id string) (api.Task, error) {
 	return sendWithin[api.Task](ctx, c, c.agentTimeout, "/tasks/"+url.PathEscape(id)+"/resume", struct{}{})
 }
@@ -305,10 +279,9 @@ func (c *Client) Stop(ctx context.Context, id string) (api.Task, error) {
 	return sendWithin[api.Task](ctx, c, c.agentTimeout, "/tasks/"+url.PathEscape(id)+"/stop", struct{}{})
 }
 
-// CreateDraft records a new task draft and creates nothing else.
-//
-// An imported Markdown brief is read by this process and sent as content: the
-// daemon never opens a file a caller named.
+// CreateDraft records a new task draft and creates nothing else. An imported
+// Markdown brief is read by this process and sent as content, because the daemon
+// never opens a file a caller named.
 func (c *Client) CreateDraft(ctx context.Context, request api.CreateDraft) (api.Task, error) {
 	return send[api.Task](ctx, c, "/task-drafts", request)
 }
@@ -324,18 +297,18 @@ func (c *Client) PlanDraft(ctx context.Context, id string) (api.DraftPlan, error
 	return send[api.DraftPlan](ctx, c, "/task-drafts/"+url.PathEscape(id)+"/plan", struct{}{})
 }
 
-// LaunchDraft confirms a draft, carrying the fingerprint of the plan that was
-// displayed so that what is created is what the user saw, together with the
-// decisions the review screen collected.
+// LaunchDraft confirms a draft. It carries the fingerprint of the plan that was
+// displayed, so what is created is what the user saw, together with the decisions
+// the review screen collected.
 //
 // It waits on the agent budget for the reason Resume does, and it is the request
-// that found the rule: a launch whose service had to be recreated because the
+// that found the rule. A launch whose service had to be recreated because the
 // project's own Compose file had changed took 10.018 seconds against a ten-second
 // ceiling, and the client cancelled a launch the daemon was still serving.
 func (c *Client) LaunchDraft(ctx context.Context, id string, confirmation api.Confirmation) (api.Task, error) {
-	// The confirmation is sent whole, for the reason the handler converts it
-	// back whole: every field of it is one of the user's answers, so a client
-	// that copied some of them across would be deciding which ones travel.
+	// The confirmation is sent whole, for the reason the handler converts it back
+	// whole. Every field of it is one of the user's answers, so a client that copied
+	// some of them across would be deciding which ones travel.
 	return sendWithin[api.Task](ctx, c, c.agentTimeout, "/task-drafts/"+url.PathEscape(id)+"/launch",
 		api.LaunchDraft(confirmation))
 }
@@ -442,10 +415,9 @@ func submit[T any](
 	if err := failed(response, path); err != nil {
 		return result, err
 	}
-	// A no-content reply has nothing to decode, and decoding it anyway reports
-	// the empty body as a broken one. That surfaced as an EOF error on every
-	// keystroke sent to a focused terminal: the input endpoint answers 204, which
-	// is a success the client was reading as a failure.
+	// A no-content reply has nothing to decode, and decoding it anyway reports the
+	// empty body as a broken one. The input endpoint answers 204, so every keystroke
+	// sent to a focused terminal failed with EOF.
 	if response.StatusCode == http.StatusNoContent {
 		return result, nil
 	}
@@ -474,14 +446,12 @@ func (c *Client) get(ctx context.Context, path string, header http.Header) (*htt
 	return response, nil
 }
 
-// impatient names the budget when this client's own deadline is what ended a
-// request.
+// impatient names the budget when this client's own deadline ended a request.
 //
 // Without it the failure reads `Post "http://feat/v1/tasks/…/runtime/start":
 // context deadline exceeded`, which names neither how long the client waited nor
-// whose deadline it was — and the answer to both is this file rather than
-// anything the user did. A caller whose own context ended is left alone: that
-// deadline is theirs, and this one never fired.
+// whose deadline it was. A caller whose own context ended is left alone, because
+// that deadline is theirs and this one never fired.
 func (c *Client) impatient(caller context.Context, within time.Duration, err error) error {
 	if !errors.Is(err, context.DeadlineExceeded) || caller.Err() != nil {
 		return err
@@ -490,11 +460,9 @@ func (c *Client) impatient(caller context.Context, within time.Duration, err err
 		"whatever it had begun was stopped part way through: %w", c.socket, within, err)
 }
 
-// describe turns a transport failure into something the user can act on.
-//
-// The common case is that no daemon is running, which is not an error the user
-// caused: a client that reports "connection refused" makes them find that out
-// for themselves.
+// describe turns a transport failure into something the user can act on. The common
+// case is that no daemon is running, which a report of "connection refused" leaves
+// the user to work out.
 func (c *Client) describe(err error) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err

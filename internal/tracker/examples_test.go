@@ -11,13 +11,10 @@ import (
 // each beside the document it printed.
 const examplesDir = "../../docs/examples/tickets"
 
-// TestTheWorkedExamplesPrintWhatFeatAccepts validates every shipped example
-// against the published shape, with the code `feat doctor` uses.
-//
-// It is the reason the examples are worth shipping at all: the file a new user
-// copies cannot drift from what Feat accepts, which is what
-// docs/examples/project.yaml gets from being checked against the configuration
-// schema (ADR-071).
+// TestTheWorkedExamplesPrintWhatFeatAccepts validates every shipped example against
+// the published shape, with the code `feat doctor` uses. The file a new user copies
+// cannot drift from what Feat accepts, which is what docs/examples/project.yaml gets
+// from being checked against the configuration schema (ADR-071).
 func TestTheWorkedExamplesPrintWhatFeatAccepts(t *testing.T) {
 	for _, example := range examples(t) {
 		t.Run(filepath.Base(example.output), func(t *testing.T) {
@@ -55,9 +52,9 @@ func TestTheWorkedExamplesPrintWhatFeatAccepts(t *testing.T) {
 	}
 }
 
-// TestEveryWorkedExampleIsValidated is what stops a new example from skipping
-// the check above: a command with nothing recorded beside it is a mapping
-// nobody has checked, and a document with no command is one nothing produced.
+// TestEveryWorkedExampleIsValidated is what stops a new example from skipping the check
+// above. A command with nothing recorded beside it is a mapping nobody has checked, and
+// a document with no command is one nothing produced.
 func TestEveryWorkedExampleIsValidated(t *testing.T) {
 	found := examples(t)
 	if len(found) == 0 {
@@ -83,9 +80,9 @@ func TestEveryWorkedExampleIsValidated(t *testing.T) {
 	}
 }
 
-// TestEveryWorkedExampleIsRunnable checks the two things about a shipped script
-// that a reader cannot check by reading it: that it can be executed at all, and
-// that it says what it needs before it needs it.
+// TestEveryWorkedExampleIsRunnable checks the two things about a shipped script that a
+// reader cannot check by reading it: that it can be executed at all, and that it says
+// what it needs before it needs it.
 func TestEveryWorkedExampleIsRunnable(t *testing.T) {
 	for _, example := range examples(t) {
 		t.Run(filepath.Base(example.command), func(t *testing.T) {
@@ -106,8 +103,8 @@ func TestEveryWorkedExampleIsRunnable(t *testing.T) {
 			if !strings.HasPrefix(script, "#!") {
 				t.Errorf("%s has no interpreter line", example.command)
 			}
-			// What a command needs is what a user finds out either by reading
-			// the top of the file or by watching `feat doctor` fail.
+			// What a command needs is what a user finds out either by reading the top
+			// of the file or by watching `feat doctor` fail.
 			if !strings.Contains(script, "Needs:") {
 				t.Errorf("%s does not say what it needs installed or authenticated", example.command)
 			}

@@ -12,8 +12,8 @@ import (
 // Kind is which of the configured external commands a request is for.
 type Kind string
 
-// The external commands FR-REV-002 and FR-REV-003 ask for. Feat renders no diff
-// of its own; it opens the tools the user already has.
+// The external commands FR-REV-002 and FR-REV-003 ask for. Feat renders no diff of its
+// own and opens the tools the user already has.
 const (
 	// KindDiff compares one repository against its recorded base commit.
 	KindDiff Kind = "diff"
@@ -36,9 +36,9 @@ func (k Kind) Valid() bool {
 // Command is one external command, expanded and checked.
 //
 // It is built by New, which is the only way to make one whose fields have been
-// examined. The daemon expands the configured template — the placeholder
-// vocabulary belongs to internal/config, which validates it (ADR-029) — and
-// hands the result here; this package decides whether the expansion may run.
+// examined. The daemon expands the configured template, because the placeholder
+// vocabulary belongs to internal/config, which validates it (ADR-029). This package
+// decides whether the expansion may run.
 type Command struct {
 	// Kind is which configured command this is.
 	Kind Kind
@@ -70,14 +70,13 @@ type Request struct {
 
 // New checks an expanded command and returns it, or says why it may not run.
 //
-// This is the escape rule in one place. The rules are
-// about what an expansion can turn into rather than about what a template looks
-// like, because a template is checked once when the configuration is loaded and
-// an expansion happens per task:
+// This is the escape rule in one place. The rules are about what an expansion can
+// turn into rather than about what a template looks like, because a template is
+// checked once when the configuration is loaded and an expansion happens per task:
 //
-//   - a placeholder Feat does not expand never reaches here, because expansion
-//     fails on one; what reaches here is a vector that may still be empty, may
-//     name no program, or may have been left holding a literal brace;
+//   - a placeholder Feat does not expand never reaches here, because expansion fails
+//     on one. What reaches here is a vector that may still be empty, may name no
+//     program, or may have been left holding a literal brace;
 //   - the working directory must be one of this task's own recorded worktrees.
 //     Not "inside the worktree root", which would let one task's command run in
 //     another task's directory, and not "any absolute path", which is not a
@@ -106,9 +105,9 @@ func New(request Request) (Command, error) {
 			request.Kind, request.RepositoryID)
 	}
 	if strings.ContainsAny(program, "{}") {
-		// The program is fixed by configuration and validation refuses a
-		// placeholder in it, so a brace here is a template Feat did not expand.
-		// Running it would run an executable whose name nobody chose.
+		// The program is fixed by configuration and validation refuses a placeholder
+		// in it, so a brace here is a template Feat did not expand. Running it would
+		// run an executable whose name nobody chose.
 		return Command{}, fmt.Errorf(
 			"the %s command of repository %s would run the program %q, which still contains a placeholder",
 			request.Kind, request.RepositoryID, program)

@@ -23,11 +23,11 @@ func (f *fakeRunner) Run(_ context.Context, command Command) ([]byte, error) {
 	return f.output, f.err
 }
 
-// TestTheCommandIsRunAsAnArgumentVectorWithNoFilter is the rule that Feat passes
-// a tracker command no filter: a filter vocabulary would have to map onto every
-// tracker's query language, so what the user's tickets are is the command's
-// decision (ADR-071). What reaches the runner is therefore exactly what the
-// project configured, each element separate.
+// TestTheCommandIsRunAsAnArgumentVectorWithNoFilter is the rule that Feat passes a
+// tracker command no filter. A filter vocabulary would have to map onto every
+// tracker's query language, so which tickets are the user's is the command's decision
+// (ADR-071). What reaches the runner is what the project configured, each element
+// separate.
 func TestTheCommandIsRunAsAnArgumentVectorWithNoFilter(t *testing.T) {
 	runner := &fakeRunner{output: []byte(`[]`)}
 	command := Command{
@@ -114,11 +114,11 @@ func TestAFailingCommandIsReportedInItsOwnWords(t *testing.T) {
 	}
 }
 
-// The host runner is exercised against a real process, because what it owns is
-// what happens to one: a pipe closed at the bound, an exit status, and a command
-// that never answers. The process is this test binary re-run as the helper
-// below, so these need no tracker, no account, and no network — which is why
-// they are ordinary tests rather than the opt-in tier.
+// The host runner is exercised against a real process, because what it owns is what
+// happens to one: a pipe closed at the bound, an exit status, and a command that never
+// answers. The process is this test binary re-run as the helper below, so these need no
+// tracker, no account, and no network, which is why they are ordinary tests rather than
+// the opt-in tier.
 
 // TestARealCommandIsReadFromStandardOutput checks that what Feat parses is
 // standard output, and that a tracker writing to standard error as well is
@@ -139,9 +139,9 @@ func TestARealCommandIsReadFromStandardOutput(t *testing.T) {
 	}
 }
 
-// TestARealCommandPastTheBoundIsRefusedBySize is the rule that a tracker's
-// output is bounded: a command that keeps printing is refused by size rather
-// than read to the end (ADR-071).
+// TestARealCommandPastTheBoundIsRefusedBySize is the rule that a tracker's output is
+// bounded. A command that keeps printing is refused by size rather than read to the
+// end (ADR-071).
 func TestARealCommandPastTheBoundIsRefusedBySize(t *testing.T) {
 	skipWithoutHelper(t)
 
@@ -158,10 +158,10 @@ func TestARealCommandPastTheBoundIsRefusedBySize(t *testing.T) {
 	}
 }
 
-// TestACommandThatNarratesIsStillRead is why standard error is truncated rather
-// than stopped at its bound: a tracker that reports its progress while working
-// is ordinary, and refusing one for saying too much would be a command that
-// works everywhere except under Feat.
+// TestACommandThatNarratesIsStillRead is why standard error is truncated rather than
+// stopped at its bound. A tracker that reports its progress while working is ordinary,
+// and refusing one for saying too much would make it a command that works everywhere
+// except under Feat.
 func TestACommandThatNarratesIsStillRead(t *testing.T) {
 	skipWithoutHelper(t)
 
@@ -195,9 +195,9 @@ func TestARealCommandThatExitsNonZeroSaysWhy(t *testing.T) {
 // TestACommandThatDoesNotAnswerIsBounded checks that the caller's bound is what
 // ends a stuck tracker, and that the report names the budget that applied.
 //
-// The bound is the caller's rather than this package's, so that one place holds
-// the number: the daemon's is half of a contract its client waits on, and `feat
-// doctor` bounds every command it runs the same way.
+// The bound is the caller's rather than this package's, so one place holds the number.
+// The daemon's is half of a contract its client waits on, and `feat doctor` bounds
+// every command it runs the same way.
 func TestACommandThatDoesNotAnswerIsBounded(t *testing.T) {
 	skipWithoutHelper(t)
 
@@ -218,9 +218,9 @@ func TestACommandThatDoesNotAnswerIsBounded(t *testing.T) {
 	}
 }
 
-// TestACancelledCommandSaysItWasCancelled separates the two ways a run can end
-// early, because they mean different things: a bound that expired is a tracker
-// that is stuck, and a cancellation is somebody having stopped waiting.
+// TestACancelledCommandSaysItWasCancelled separates the two ways a run can end early,
+// because they mean different things. A bound that expired is a tracker that is stuck,
+// and a cancellation is somebody who stopped waiting.
 func TestACancelledCommandSaysItWasCancelled(t *testing.T) {
 	skipWithoutHelper(t)
 
@@ -246,11 +246,9 @@ func skipWithoutHelper(t *testing.T) {
 	}
 }
 
-// helperCommand builds a Command that re-runs this test binary as the tracker.
-//
-// The mode is a positional argument rather than an environment variable, so
-// that the command is exactly the argument vector the runner is given and
-// nothing about the run is arranged out of band.
+// helperCommand builds a Command that re-runs this test binary as the tracker. The
+// mode is a positional argument rather than an environment variable, so the command is
+// the argument vector the runner is given and nothing is arranged out of band.
 func helperCommand(t *testing.T, mode string) Command {
 	t.Helper()
 	return Command{
@@ -276,8 +274,8 @@ func TestHelperTracker(t *testing.T) {
 		_, _ = os.Stderr.WriteString("gh: not authenticated\n")
 		os.Exit(1)
 	case "narrate":
-		// More on standard error than Feat will keep, and a valid document on
-		// standard output after it.
+		// More on standard error than Feat will keep, and a valid document on standard
+		// output after it.
 		line := strings.Repeat("working ", 512) + "\n"
 		for range 8 {
 			_, _ = os.Stderr.WriteString(line)
@@ -294,7 +292,7 @@ func TestHelperTracker(t *testing.T) {
 	case "hang":
 		time.Sleep(time.Minute)
 	}
-	// Exiting here rather than returning keeps the test framework's own report
-	// off the standard output the caller is about to parse.
+	// Exiting here rather than returning keeps the test framework's own report off the
+	// standard output the caller is about to parse.
 	os.Exit(0)
 }

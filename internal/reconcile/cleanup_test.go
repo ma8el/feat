@@ -35,10 +35,10 @@ func choose(p *Plan, classes ...Class) Selection {
 
 // TestVolumesRemainUnlessExplicitlyChosen is FR-CLEAN-004's retention rule.
 //
-// It is checked as a property of the selection rather than of an outcome,
-// because a volume that survived because a fake never removed it proves nothing.
-// What matters is that choosing every other class leaves the volume class
-// unselected, so nothing downstream is ever asked to remove one.
+// It is checked as a property of the selection rather than of an outcome, because
+// a volume that survived because a fake never removed it proves nothing. Choosing
+// every other class must leave the volume class unselected, so nothing downstream
+// is asked to remove one.
 func TestVolumesRemainUnlessExplicitlyChosen(t *testing.T) {
 	p := plan(
 		worktree("/state/feat/worktrees/example/7f3a1c2e/api"),
@@ -69,11 +69,9 @@ func TestVolumesRemainUnlessExplicitlyChosen(t *testing.T) {
 	}
 }
 
-// TestDirtyAndUnmergedResourcesRequireExplicitConfirmation is FR-CLEAN-003.
-//
-// The confirmation is the exact warning the user was shown, so a selection that
-// confirmed something else does not cover it. That is what makes the rule about
-// what a person read rather than about a flag somebody set.
+// TestDirtyAndUnmergedResourcesRequireExplicitConfirmation is FR-CLEAN-003. The
+// confirmation is the exact warning the user was shown, so a selection that
+// confirmed something else does not cover it.
 func TestDirtyAndUnmergedResourcesRequireExplicitConfirmation(t *testing.T) {
 	dirty := "the worktree has uncommitted or untracked changes"
 	unmerged := "the branch is not merged into refs/remotes/origin/main"
@@ -131,10 +129,10 @@ func TestDirtyAndUnmergedResourcesRequireExplicitConfirmation(t *testing.T) {
 // TestAWarningThatAppearedSinceThePlanIsRefused is the reason the token covers
 // identities and not observations.
 //
-// A worktree that became dirty between the screen and the key press is exactly
-// what the confirmation exists to protect, and the token deliberately does not
-// change for it — so the plan is still the same plan, and the confirmation is
-// the thing that no longer covers what is true (ADR-037).
+// A worktree that became dirty between the screen and the key press is what the
+// confirmation protects against, and the token does not change for it. The plan is
+// still the same plan, and the confirmation no longer covers what is true
+// (ADR-037).
 func TestAWarningThatAppearedSinceThePlanIsRefused(t *testing.T) {
 	clean := plan(worktree("/state/feat/worktrees/example/7f3a1c2e/api"))
 	selection := choose(clean, ClassWorktrees)
@@ -162,10 +160,9 @@ func TestAWarningThatAppearedSinceThePlanIsRefused(t *testing.T) {
 // answer where the warnings are.
 //
 // A branch becomes contained when the work it holds is merged, which can happen
-// between the plan being displayed and the cleanup being executed. That is the
-// same resource with a fresher answer, not a different one, so it must not
-// expire the token — and the confirmation the user gave against a plan that
-// warned about the branch must still be enough once it no longer does.
+// between the plan being displayed and the cleanup being executed. That is the same
+// resource with a fresher answer, so it must not expire the token. The confirmation
+// given against a plan that warned about the branch must still be enough.
 func TestContainmentIsAnObservationRatherThanPartOfThePlan(t *testing.T) {
 	unmerged := plan(Target{
 		Class: ClassBranches, Identity: "feat/7f3a1c2e", Present: true,
@@ -186,8 +183,8 @@ func TestContainmentIsAnObservationRatherThanPartOfThePlan(t *testing.T) {
 	if !merged.For(ClassBranches)[0].Contained {
 		t.Error("the containment answer did not survive into the target an adapter is given")
 	}
-	// And a contained branch is not risky, which is the whole reason the
-	// deletion flag could not be derived from the warnings (ADR-097).
+	// A contained branch is not risky, which is why the deletion flag could not be
+	// derived from the warnings (ADR-097).
 	if merged.For(ClassBranches)[0].Risky() {
 		t.Error("a contained branch was reported risky, so it would have had a warning to confirm")
 	}
@@ -215,8 +212,8 @@ func TestAPlanThatGainedOrLostAResourceIsRefused(t *testing.T) {
 		t.Errorf("error = %v, want it to say the plan is out of date", err)
 	}
 
-	// The same targets in a different order are the same plan: a token that
-	// depended on ordering would expire for no reason a user could see.
+	// The same targets in a different order are the same plan. A token that depended
+	// on ordering would expire for no reason the user could see.
 	reordered := plan(
 		worktree("/state/feat/worktrees/example/7f3a1c2e/web"),
 		worktree("/state/feat/worktrees/example/7f3a1c2e/api"),
@@ -229,15 +226,13 @@ func TestAPlanThatGainedOrLostAResourceIsRefused(t *testing.T) {
 // TestBroadPathOrNonTaskResourceDeletionIsRejected is the refusal rule for broad
 // and non-task targets.
 //
-// The table is every shape a record could take after being edited, restored
-// from a backup, or written by an older version. Each one is a directory a
-// removal would delete, and a record that decides what gets deleted has stopped
-// being a record (ADR-029).
+// The table is every shape a record could take after being edited, restored from a
+// backup, or written by an older version. Each one is a directory a removal would
+// delete, and a path read from a record must not decide that (ADR-029).
 func TestBroadPathOrNonTaskResourceDeletionIsRejected(t *testing.T) {
 	// These are the shapes that are wrong whatever a project configures. A path
-	// that merely sits outside the task's own worktree root — another task's
-	// worktree, say — is refused by internal/git, which knows the root and
-	// checks it again immediately before deleting anything.
+	// outside the task's own worktree root is refused by internal/git, which knows
+	// the root and checks it again immediately before deleting anything.
 	for _, path := range []string{
 		"/", "/home", "/Users", "/tmp", "/var", "/etc",
 		"relative/worktree", "", "   ",
@@ -291,7 +286,7 @@ func TestArchivingIsRefusedWhileTheTaskStillOwnsSomething(t *testing.T) {
 	}
 
 	// A resource that is already gone strands nothing, so it does not block an
-	// archive: the user asked for it to be absent and it is.
+	// archive.
 	absent := plan(
 		worktree("/state/feat/worktrees/example/7f3a1c2e/api"),
 		Target{Class: ClassRuntimeContainers, Identity: "example-7f3a1c2e", Present: false},
@@ -304,11 +299,8 @@ func TestArchivingIsRefusedWhileTheTaskStillOwnsSomething(t *testing.T) {
 }
 
 // TestClassesAreSeparateChoicesInRemovalOrder pins FR-CLEAN-002 and the order
-// removal depends on.
-//
-// The order is a requirement rather than a detail: what holds a file is stopped
-// before the file is removed, so a container with a worktree mounted cannot be
-// removed after the worktree it is using.
+// removal depends on. Whatever holds a file is stopped before the file is removed,
+// so a container with a worktree mounted cannot be removed after that worktree.
 func TestClassesAreSeparateChoicesInRemovalOrder(t *testing.T) {
 	want := []Class{
 		ClassTerminal,
@@ -339,8 +331,7 @@ func TestClassesAreSeparateChoicesInRemovalOrder(t *testing.T) {
 		t.Error("branches are deleted before the worktrees checked out on them")
 	}
 
-	// Selecting one class never implies another, which is the whole of
-	// "separate choices".
+	// Selecting one class never implies another.
 	p := plan(
 		worktree("/state/feat/worktrees/example/7f3a1c2e/api"),
 		volume("feat-example-7f3a1c2e_claude"),
@@ -377,13 +368,12 @@ func TestASelectionMustCarryTheTokenOfAPlan(t *testing.T) {
 	}
 }
 
-// TestTheTokenSeparatesRepositoriesWithTheSameBranchName is the gap a real
-// task's inventory showed.
+// TestTheTokenSeparatesRepositoriesWithTheSameBranchName covers a gap a real task's
+// inventory showed.
 //
-// One branch template gives every repository of a task the same branch name, so
-// a token over the name alone cannot tell a plan naming one repository's branch
-// from one naming another's — while the removal is pointed at a repository by
-// exactly that field.
+// One branch template gives every repository of a task the same branch name, so a
+// token over the name alone cannot tell one repository's branch from another's,
+// while the removal is pointed at a repository by exactly that field.
 func TestTheTokenSeparatesRepositoriesWithTheSameBranchName(t *testing.T) {
 	branch := func(repository domain.RepositoryID) Target {
 		return Target{Class: ClassBranches, Identity: "feat/7f3a1c2e-add-a-rate-limit",
@@ -424,8 +414,8 @@ func TestTheTokenSeparatesDifferentTasksAndClasses(t *testing.T) {
 		t.Error("a worktree and a branch with the same name share a token")
 	}
 
-	// Concatenation must not be ambiguous: "ab"+"c" and "a"+"bc" are different
-	// plans.
+	// Concatenation must not be ambiguous, because "ab"+"c" and "a"+"bc" are
+	// different plans.
 	five := plan(Target{Class: ClassWorktrees, Identity: "/ab"}, Target{Class: ClassWorktrees, Identity: "/c"})
 	six := plan(Target{Class: ClassWorktrees, Identity: "/a"}, Target{Class: ClassWorktrees, Identity: "/bc"})
 	if five.Token() == six.Token() {

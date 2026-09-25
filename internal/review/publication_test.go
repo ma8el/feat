@@ -41,7 +41,7 @@ func TestAnApprovedPublicationIsCheckedBeforeItIsSent(t *testing.T) {
 	if checked.Directory != publication().Directory {
 		t.Errorf("directory = %q, want the task's own worktree", checked.Directory)
 	}
-	// The title is trimmed and the description is not: leading whitespace in a
+	// The title is trimmed and the description is not, because leading whitespace in a
 	// Markdown description is the author's.
 	one := publication()
 	one.Title = "  Add a rate limit  "
@@ -58,11 +58,11 @@ func TestAnApprovedPublicationIsCheckedBeforeItIsSent(t *testing.T) {
 	}
 }
 
-// TestAPublicationCannotEscapeItsOwnTask is the rule a viewer command follows,
-// applied to something that reaches a network.
+// TestAPublicationCannotEscapeItsOwnTask is the rule a viewer command follows, applied
+// to something that reaches a network.
 //
-// Not "inside the worktree root", which would let one task publish from
-// another's directory, and not "any absolute path", which is not a rule at all.
+// Not "inside the worktree root", which would let one task publish from another's
+// directory, and not "any absolute path", which is not a rule at all.
 func TestAPublicationCannotEscapeItsOwnTask(t *testing.T) {
 	cases := map[string]struct {
 		damage   func(*review.PublicationRequest)
@@ -111,8 +111,8 @@ func TestAPublicationCannotEscapeItsOwnTask(t *testing.T) {
 // TestAPublicationRefusesWhatAMergeRequestCannotCarry checks the rest.
 //
 // Nothing here judges the words. What a description says is the agent's, and the
-// control on it is that a person read it before it was sent; these are the rules
-// about what survives an argument vector and what a forge needs (ADR-070).
+// control on it is that a person read it before it was sent. These are the rules about
+// what survives an argument vector and what a forge needs (ADR-070).
 func TestAPublicationRefusesWhatAMergeRequestCannotCarry(t *testing.T) {
 	cases := map[string]struct {
 		damage   func(*review.PublicationRequest)
@@ -178,10 +178,9 @@ func TestAPublicationRefusesWhatAMergeRequestCannotCarry(t *testing.T) {
 
 // TestASkippedRepositoryCountsAsPublished keeps the two reasons distinct.
 //
-// A repository that already has a merge request is skipped as already published
-// rather than refused as stale, and it is still a repository whose work is on
-// the forge. Reporting it as a failure would send a user looking for something
-// to fix (ADR-073).
+// A repository that already has a merge request is skipped as already published rather
+// than refused as stale, and its work is still on the forge. Reporting it as a failure
+// would send the user looking for something to fix (ADR-073).
 func TestASkippedRepositoryCountsAsPublished(t *testing.T) {
 	results := []review.Result{
 		{RepositoryID: "api", Outcome: review.PublishedOutcome},

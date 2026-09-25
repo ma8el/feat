@@ -12,10 +12,10 @@ import (
 // TestTheNotifiableStatesArePinned holds the policy to the conditions
 // docs/06-technical-architecture.md lists.
 //
-// It is a table in the shape ADR-026 used for the workflow transitions and
-// ADR-032 for agent events: what Feat will interrupt somebody for is a product
-// decision, so changing one has to mean editing the table that documents it
-// rather than a condition buried in a call site.
+// It is a table in the shape ADR-026 used for the workflow transitions and ADR-032
+// for agent events. What Feat interrupts somebody for is a product decision, so
+// changing one means editing the table that documents it rather than a condition
+// buried in a call site.
 func TestTheNotifiableStatesArePinned(t *testing.T) {
 	workflow := map[domain.WorkflowState]Condition{
 		domain.WorkflowReviewRequested:    ConditionReviewRequested,
@@ -30,10 +30,9 @@ func TestTheNotifiableStatesArePinned(t *testing.T) {
 		}
 	}
 
-	// The condition a gate produces that no workflow state does. A run that
-	// could not establish anything leaves the task in review_requested, so the
-	// table above cannot be what says it: review_requested's own condition is
-	// the one a gate about to run suppresses, and looking it up would announce a
+	// The condition a gate produces that no workflow state does. A run that could
+	// not establish anything leaves the task in review_requested, whose own
+	// condition a gate about to run suppresses, so looking it up would announce a
 	// blocked gate as a fresh review request or as nothing at all (ADR-055).
 	if condition, ok := ForWorkflow(domain.WorkflowReviewRequested); !ok || condition == ConditionVerificationBlocked {
 		t.Errorf("ForWorkflow(review_requested) = %q, %v; a blocked gate is named by the daemon that ran it",
@@ -56,10 +55,10 @@ func TestTheNotifiableStatesArePinned(t *testing.T) {
 
 // TestAnEndOfTurnIsNotNotifiable is the absence that matters most.
 //
-// Idle is not a state a task arrives in — it is a state it stays in, and how
-// long it has stayed is what decides whether it is worth interrupting somebody.
-// A process state that mapped to the idle condition would notify the moment the
-// provider's grace expired, which is what the notification policy forbids.
+// A task does not arrive in idle: it stays there, and how long it has stayed decides
+// whether it is worth interrupting somebody. A process state that mapped to the idle
+// condition would notify the moment the provider's grace expired, which the
+// notification policy forbids.
 func TestAnEndOfTurnIsNotNotifiable(t *testing.T) {
 	for _, state := range []domain.ProcessState{
 		domain.ProcessStarting, domain.ProcessRunning, domain.ProcessIdle, domain.ProcessStopped,
@@ -90,14 +89,13 @@ func TestOnlyAFailedRuntimeIsNotifiable(t *testing.T) {
 	}
 }
 
-// TestASubjectCarriesIdentificationAndNothingElse is how the fourth acceptance
-// criterion is kept rather than remembered.
+// TestASubjectCarriesIdentificationAndNothingElse keeps the fourth acceptance
+// criterion mechanical.
 //
-// A notification leaves the daemon and lands somewhere the user did not choose,
-// so the way to keep task content out of it is to have no way to put it in.
-// Compose reads a Subject and a duration, and this pins what a Subject may hold:
-// adding a field for the brief, an agent's summary, or a repository path would
-// fail here, where the reason is written down.
+// A notification leaves the daemon and lands somewhere the user did not choose, so
+// the way to keep task content out of it is to have no way to put it in. Compose
+// reads a Subject and a duration, so adding a field for the brief, an agent's
+// summary, or a repository path fails here.
 func TestASubjectCarriesIdentificationAndNothingElse(t *testing.T) {
 	want := []string{"Key", "Title", "Project"}
 
@@ -128,8 +126,8 @@ func TestEveryConditionComposesAMessage(t *testing.T) {
 		ConditionRuntimeFailed:       "services",
 	}
 
-	// A condition added later has to say something too, and a table extended by
-	// hand is a table that eventually is not.
+	// A condition added later has to say something too, which a table extended by
+	// hand would not catch.
 	for _, condition := range Conditions() {
 		if _, described := phrases[condition]; !described {
 			t.Errorf("%s composes no message in this test: every notifiable condition needs one", condition)
@@ -160,12 +158,11 @@ func TestEveryConditionComposesAMessage(t *testing.T) {
 // TestEveryNotificationIsHeadedByTheMark pins the one piece of Feat's logo a
 // desktop notification can carry.
 //
-// The image beside a macOS notification is the icon of the application that
-// posted it, and Feat posts through osascript, so it is Script Editor's
-// (ADR-035, evidence 12). The heading is the only part of the notification Feat
-// writes. One that did not carry the mark would arrive under another
-// application's name and another application's icon with nothing on it to say
-// whose it was.
+// The image beside a macOS notification is the icon of the application that posted
+// it, and Feat posts through osascript, so it is Script Editor's (ADR-035, evidence
+// 12). The heading is the only part of the notification Feat writes, so one without
+// the mark would arrive under another application's name with nothing to say whose
+// it was.
 func TestEveryNotificationIsHeadedByTheMark(t *testing.T) {
 	subject := Subject{Key: "7f3a1c2e", Title: "Add a rate limit", Project: "example"}
 
@@ -194,11 +191,9 @@ func TestEveryNotificationIsHeadedByTheMark(t *testing.T) {
 			notification.Title, mark+" feat")
 	}
 
-	// The macOS notifier refuses text it would misread, and the file that
-	// refuses it compiles on one platform. A mark that the notifier would reject
-	// must fail everywhere the suite runs and not only where it could be
-	// delivered, so the rule is checked here against the value rather than left
-	// to a build nobody runs on this machine.
+	// The macOS notifier refuses text it would misread, and the file that refuses it
+	// compiles on one platform only. A mark the notifier would reject has to fail
+	// everywhere the suite runs, so the rule is checked here against the value.
 	if strings.HasPrefix(mark, "-") || strings.ContainsAny(mark, "\x00\n\r") {
 		t.Errorf("the mark %q is text a notifier would refuse or misread as one of its own options", mark)
 	}

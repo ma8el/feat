@@ -22,9 +22,8 @@ var _ machineReader = hostMachine{}
 // read asks the host for its load, memory, and disk availability.
 //
 // Each of the three is asked for independently and each failure becomes a note,
-// because they fail for unrelated reasons: a full filesystem says nothing about
-// memory, and a user whose disk is nearly full is exactly the user who most
-// needs to be told about the other two.
+// because they fail for unrelated reasons. A full filesystem says nothing about
+// memory, and the user whose disk is nearly full most needs the other two figures.
 func (hostMachine) read(ctx context.Context, runner Runner, diskPath string) (Machine, []string) {
 	machine := Machine{Cores: runtime.NumCPU(), DiskPath: diskPath}
 	var notes []string

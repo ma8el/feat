@@ -10,25 +10,21 @@ import (
 	"unicode/utf8"
 )
 
-// MaxOutputBytes bounds what a tracker command may print.
-//
-// It is the bound a control message carries, for the reason a control message
-// carries one: a ticket becomes a task brief, and a brief is what the agent is
-// told to do (ADR-071). A document past the bound is refused by size rather
-// than by the memory it took to find that out.
+// MaxOutputBytes bounds what a tracker command may print. It is the bound a control
+// message carries, because a ticket becomes a task brief and a brief is what the agent
+// is told to do (ADR-071). A document past the bound is refused by its size rather
+// than by the memory it took to read.
 const MaxOutputBytes = 256 << 10
 
 // Ticket is one ticket, in the shape schema/feat-tickets.schema.json publishes.
 //
-// Feat's shape is the contract rather than the tracker's, because reading an
-// arbitrary shape would mean a mapping language in configuration and a mapping
-// language has no end. Whatever the tracker is, the configured command maps its
-// output onto this (ADR-071).
+// Feat's shape is the contract rather than the tracker's, because reading an arbitrary
+// shape would mean a mapping language in configuration. Whatever the tracker is, the
+// configured command maps its output onto this (ADR-071).
 //
-// It is sized by what Feat acts on rather than by what trackers offer: no story
-// points, epics, sprints, or custom fields, which Feat would carry without
-// doing anything with them. Anything richer belongs in the brief, which is
-// Markdown and holds whatever the user wants.
+// It is sized by what Feat acts on rather than by what trackers offer, so it has no
+// story points, epics, sprints, or custom fields. Anything richer belongs in the
+// brief, which is Markdown and holds whatever the user wants.
 type Ticket struct {
 	// Reference is the tracker's own identifier for the ticket, as you would
 	// type it to a person. Feat never parses one: it is matched against what
@@ -67,11 +63,10 @@ var valuedProperties = []string{"reference", "title", "url", "state"}
 
 // Parse validates a tracker command's output against the published shape.
 //
-// Nothing partial is returned. A list Feat half-read would mean a picker
-// offering some of somebody's tickets without saying which are missing, and the
-// remedy for either failure is the same: fix the command's mapping. `feat
-// doctor` runs this so that a tracker emitting the wrong shape is found when
-// the user asks whether the project is configured (ADR-071).
+// Nothing partial is returned. A list Feat half-read would offer some of somebody's
+// tickets without saying which are missing, and both failures are fixed in the
+// command's mapping. `feat doctor` runs this, so a tracker emitting the wrong shape is
+// found when the user asks whether the project is configured (ADR-071).
 func Parse(output []byte) ([]Ticket, error) {
 	if len(output) > MaxOutputBytes {
 		return nil, &RejectionError{Oversized: true, Reason: fmt.Sprintf(
@@ -86,11 +81,11 @@ func Parse(output []byte) ([]Ticket, error) {
 		}
 	}
 
-	// A JSON null decodes into a slice without complaint and would be read as a
-	// user with no tickets. It is a mapping mistake rather than an answer, and
-	// the commonest one there is: `jq` prints null when its filter was handed
-	// something it could not map, so a command whose query changed under it
-	// would otherwise report an empty backlog rather than a broken mapping.
+	// A JSON null decodes into a slice without complaint and would be read as a user
+	// with no tickets. It is a mapping mistake rather than an answer, and the
+	// commonest one there is: `jq` prints null when its filter was handed something it
+	// could not map, so a command whose query changed under it would otherwise report
+	// an empty backlog.
 	if bytes.Equal(document, nullLiteral) {
 		return nil, &RejectionError{
 			Reason: "is null, and a tracker command prints a list of tickets, " +
@@ -144,19 +139,17 @@ func decode(document []byte, into any) error {
 	return nil
 }
 
-// maxQuotedBytes bounds what a refusal repeats back.
-//
-// Every byte quoted here came from a command Feat did not write, and a refusal
-// reaches a diagnostic, a log line, and a screen. The output may be a quarter of
-// a megabyte, and none of those readers is improved by a line that long.
+// maxQuotedBytes bounds what a refusal repeats back. Every byte quoted here came from
+// a command Feat did not write, and a refusal reaches a diagnostic, a log line, and a
+// screen, none of which is improved by a quarter of a megabyte.
 const maxQuotedBytes = 96
 
 // beginning renders the start of what a command printed, for a refusal a JSON
 // parser could otherwise only describe by position.
 //
-// It is the difference between "invalid character 'e'" and seeing that the
-// command printed its own source: the character a parser gave up on says
-// nothing about what went wrong, and the line usually says all of it.
+// It is the difference between "invalid character 'e'" and seeing that the command
+// printed its own source. The character a parser gave up on says nothing about what
+// went wrong, and the line usually says all of it.
 func beginning(document []byte) string {
 	line := document
 	if end := bytes.IndexByte(line, '\n'); end >= 0 {
@@ -167,9 +160,8 @@ func beginning(document []byte) string {
 	truncated := false
 	if len(line) > maxQuotedBytes {
 		line, truncated = line[:maxQuotedBytes], true
-		// Never cut a rune in half. The quoted form would otherwise carry
-		// escaped bytes that were never in the output, which is the one thing
-		// repeating a command's own words back must not do.
+		// Never cut a rune in half. The quoted form would otherwise carry escaped
+		// bytes that were never in the output.
 		for len(line) > 0 {
 			if r, size := utf8.DecodeLastRune(line); r != utf8.RuneError || size != 1 {
 				break
@@ -190,11 +182,10 @@ func beginning(document []byte) string {
 
 // parseTicket checks one entry against the published shape.
 //
-// The properties are read as raw values first, because the two things the
-// schema says that a Go struct cannot — that a property Feat does not know is a
-// mapping mistake rather than something to keep, and that each required
-// property is present — are both about which keys are there rather than about
-// what they hold.
+// The properties are read as raw values first. The two things the schema says that a
+// Go struct cannot are both about which keys are there rather than about what they
+// hold: that a property Feat does not know is a mapping mistake, and that each required
+// property is present.
 func parseTicket(entry json.RawMessage) (Ticket, error) {
 	var properties map[string]json.RawMessage
 	if err := json.Unmarshal(entry, &properties); err != nil {
@@ -240,10 +231,9 @@ func parseTicket(entry json.RawMessage) (Ticket, error) {
 		return Ticket{}, fmt.Errorf("could not be read: %w", err)
 	}
 
-	// The published shape gives each of these a minimum length of one. A value
-	// that is only whitespace is refused with the same message: it is a length
-	// the schema allows and a value Feat cannot act on, and both are fixed by
-	// the command producing something.
+	// The published shape gives each of these a minimum length of one. A value that is
+	// only whitespace is refused with the same message, because the schema allows the
+	// length and Feat cannot act on the value.
 	for _, name := range valuedProperties {
 		if strings.TrimSpace(value(ticket, name)) == "" {
 			return Ticket{}, fmt.Errorf("has an empty %q, and Feat acts on it", name)
@@ -262,9 +252,9 @@ func known(name string) bool {
 	return false
 }
 
-// value returns one of a ticket's properties by its published name. It exists
-// so that the minimum-length rule is one loop over the schema's own list rather
-// than four copies of the same three lines.
+// value returns one of a ticket's properties by its published name. It exists so the
+// minimum-length rule is one loop over the schema's own list rather than four copies
+// of the same three lines.
 func value(ticket Ticket, name string) string {
 	switch name {
 	case "reference":
@@ -316,10 +306,10 @@ func quoted(names []string) string {
 
 // RejectionError explains why a tracker command's output was not accepted.
 //
-// It is a distinct type because output that does not conform is an answer
-// rather than a failure of Feat: `feat doctor` reports it as a finding about
-// the project's configuration, and a ticket list refuses to be shown rather
-// than showing part of one.
+// It is a distinct type because output that does not conform is an answer rather than
+// a failure of Feat. `feat doctor` reports it as a finding about the project's
+// configuration, and a ticket list refuses to be shown rather than showing part of
+// one.
 type RejectionError struct {
 	// Position is the 1-based place of the ticket the problem is in, and zero
 	// when the problem is with the document as a whole. It is a position rather
@@ -328,10 +318,9 @@ type RejectionError struct {
 	Position int
 	// Oversized reports that the command printed more than Feat will read.
 	//
-	// It is a field rather than something to read out of the message, because
-	// the two refusals are fixed differently: a mapping is corrected in the
-	// command's filter, and a command printing somebody's whole backlog is asked
-	// for less of it.
+	// It is a field rather than something to read out of the message, because the two
+	// refusals are fixed differently. A mapping is corrected in the command's filter,
+	// and a command printing somebody's whole backlog is asked for less of it.
 	Oversized bool
 	// Reason says what was wrong, phrased to follow "the tracker's output" or
 	// "ticket N of the tracker's output".

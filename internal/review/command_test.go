@@ -8,10 +8,9 @@ import (
 // TestCommandsCannotEscapeTheTaskPaths is the rule that a review command may run
 // only in its own task's recorded worktrees.
 //
-// Every case is an expansion that produced something, because a template that
-// cannot expand is refused before it reaches here: what this checks is what an
-// expansion may turn into. The one that matters most is the second-to-last —
-// another task's worktree is an absolute path, a real directory, and a perfectly
+// Every case is an expansion that produced something, because a template that cannot
+// expand is refused before it reaches here. The one that matters most is the
+// second-to-last: another task's worktree is an absolute path, a real directory, and a
 // safe place for a command to run, and it is still the wrong one.
 func TestCommandsCannotEscapeTheTaskPaths(t *testing.T) {
 	const mine = "/work/feat/0f8fad5b/api"
@@ -105,9 +104,9 @@ func TestCommandsCannotEscapeTheTaskPaths(t *testing.T) {
 // TestAnExpandedCommandKeepsItsVector checks that a command that passes is
 // carried through exactly, one element at a time.
 //
-// An argument that arrives holding spaces stays one argument: nothing here
-// re-splits a vector, which is what keeps a commit message or a path with a
-// space in it from becoming two arguments somewhere downstream.
+// An argument that arrives holding spaces stays one argument. Nothing here re-splits a
+// vector, which keeps a commit message or a path with a space in it from becoming two
+// arguments downstream.
 func TestAnExpandedCommandKeepsItsVector(t *testing.T) {
 	const worktree = "/work/feat/0f8fad5b/api"
 

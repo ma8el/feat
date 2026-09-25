@@ -1,13 +1,12 @@
 // Package review decides whether an expanded review command may run, and runs
 // a project's configured checks as a completion gate.
 //
-// It receives final values and reads neither configuration nor persistent
-// state, under the rule ADR-029 established for Git: the daemon expands the
-// templates, because the placeholder vocabulary belongs to internal/config,
-// which validates it. A `review-stays-a-policy` depguard rule makes that
-// mechanical.
+// It receives final values and reads neither configuration nor persistent state,
+// under the rule ADR-029 established for Git. The daemon expands the templates,
+// because the placeholder vocabulary belongs to internal/config, which validates it.
+// A `review-stays-a-policy` depguard rule enforces that.
 //
-// The three things it owns are the ones worth having in one place:
+// It owns three things:
 //
 //   - an expanded command may run only in one of its own task's recorded
 //     worktrees, and only when nothing in it was left unexpanded. That rule is
@@ -18,19 +17,19 @@
 //     its bound is inconclusive rather than failed. A task never reaches
 //     ready_for_review on the strength of a check nobody managed to run;
 //   - an approved publication may be sent only from one of its own task's
-//     worktrees, and only carrying words a merge request can hold. It sits
-//     beside the viewer commands because it is the same kind of decision about
-//     the same kind of value, and it differs in what happens afterwards: a
-//     viewer command is run and forgotten, and a publication has a result to
-//     record (ADR-070).
+//     worktrees, and only carrying words a merge request can hold. It sits beside
+//     the viewer commands because it is the same kind of decision about the same
+//     kind of value, and it differs only in what happens afterwards: a viewer
+//     command is run and forgotten, and a publication has a result to record
+//     (ADR-070).
 //
-// What it does not own: the change summaries, which internal/git computes
-// because they are Git's own answers about a worktree; the decision to approve,
-// which is a state change and therefore the daemon's; the running of the
-// external commands, which the client does because they take over the caller's
-// terminal; the push and the merge request, which are internal/git's and
-// internal/forge's; and the recording of what a publication produced, because
-// the daemon is the only writer of persistent state.
+// It does not own the change summaries, which internal/git computes because they are
+// Git's own answers about a worktree. It does not own the decision to approve, which
+// is a state change and therefore the daemon's, nor the running of the external
+// commands, which the client does because they take over the caller's terminal. The
+// push and the merge request belong to internal/git and internal/forge, and recording
+// what a publication produced belongs to the daemon, the only writer of persistent
+// state.
 //
 // The TUI does not render source diffs in v0.
 //

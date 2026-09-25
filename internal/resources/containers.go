@@ -11,20 +11,16 @@ import (
 // dockerProgram is the container tool. Only the host ever runs it.
 const dockerProgram = "docker"
 
-// containerFormat asks Docker for one line per container with the two labels
-// that attribute it.
-//
-// The labels are extracted individually rather than read out of Docker's
-// comma-joined Labels field, because a label a user's own Compose file sets may
-// contain a comma and would then split into values that were never there.
+// containerFormat asks Docker for one line per container with the two labels that
+// attribute it. The labels are extracted individually rather than read out of
+// Docker's comma-joined Labels field, because a label a user's own Compose file sets
+// may contain a comma and would split into values that were never there.
 const containerFormat = "{{.ID}}\t{{.Names}}\t{{.Label \"%s\"}}\t{{.Label \"%s\"}}"
 
-// containers lists the Feat-owned containers and what each is using, grouped by
-// the task that owns it.
-//
-// It returns a note rather than an error, because a machine with no container
-// runtime has no containers rather than a broken observation, and a Docker that
-// refuses must not discard the machine figures collected beside it.
+// containers lists the Feat-owned containers and what each is using, grouped by the
+// task that owns it. It returns a note rather than an error, because a machine with
+// no container runtime has no containers rather than a broken observation, and a
+// Docker that refuses must not discard the machine figures collected beside it.
 func (o *Observer) containers(ctx context.Context) (map[string][]ContainerUsage, string) {
 	if o.labels.selector == "" || o.labels.task == "" {
 		return nil, ""
@@ -32,10 +28,9 @@ func (o *Observer) containers(ctx context.Context) (map[string][]ContainerUsage,
 
 	owned, note := o.ownedContainers(ctx)
 	if note != "" || len(owned) == 0 {
-		// Nothing of Feat's is running, so `docker stats` is not asked. That call
-		// costs between one and two seconds whatever it is given, and paying it to
-		// confirm an absence would be paying it on every machine where no task has
-		// a container at all (ADR-035, evidence 1).
+		// Nothing of Feat's is running, so `docker stats` is not asked. That call costs
+		// between one and two seconds whatever it is given, and it would be paid on
+		// every machine where no task has a container at all (ADR-035, evidence 1).
 		return nil, note
 	}
 
@@ -75,9 +70,9 @@ func (o *Observer) ownedContainers(ctx context.Context) ([]ownedContainer, strin
 	})
 	switch {
 	case errors.Is(err, ErrNotInstalled):
-		// Not a failure. A machine without a container runtime runs no
-		// containers, and saying so once is more useful than reporting an error
-		// every two seconds for the life of the daemon.
+		// Not a failure. A machine without a container runtime runs no containers, and
+		// saying so once is more useful than reporting an error every two seconds for
+		// the life of the daemon.
 		return nil, ""
 	case err != nil:
 		return nil, "container usage is unavailable: " + err.Error()
@@ -128,10 +123,9 @@ type stat struct {
 
 // containerStats asks Docker what its running containers are using.
 //
-// It asks about all of them in one call rather than about each task's in turn:
-// the call costs the same either way, and one call per task per sample would
-// multiply the slowest thing this package does by the number of tasks a user is
-// running — which is exactly the number the dashboard exists to make large.
+// It asks about all of them in one call rather than about each task's in turn. The
+// call costs the same either way, and one call per task per sample would multiply the
+// slowest thing this package does by the number of tasks a user is running.
 func (o *Observer) containerStats(ctx context.Context) (map[string]measurement, string) {
 	output, err := o.runner.Run(ctx, Invocation{
 		Program:   dockerProgram,
@@ -169,9 +163,9 @@ func (o *Observer) containerStats(ctx context.Context) (map[string]measurement, 
 
 // memoryUsed takes the used half of a "540KiB / 7.653GiB" pair.
 //
-// The second half is the limit the container runtime measures against, and on
-// macOS that is the memory of its own virtual machine rather than the machine's.
-// Feat therefore never reads it: a per-task total presented as a share of host
+// The second half is the limit the container runtime measures against, and on macOS
+// that is the memory of its own virtual machine rather than the machine's. Feat
+// therefore never reads it, because a per-task total presented as a share of host
 // memory would be a claim nothing measured (ADR-035, evidence 3).
 func memoryUsed(usage string) string {
 	used, _, found := strings.Cut(usage, "/")
@@ -201,11 +195,9 @@ var byteUnits = []struct {
 	{"PB", 1e15}, {"TB", 1e12}, {"GB", 1e9}, {"MB", 1e6}, {"kB", 1e3}, {"B", 1},
 }
 
-// parseBytes reads a size the container runtime printed.
-//
-// Docker prints binary units for memory and decimal ones elsewhere, and both are
-// accepted rather than one being assumed: reading "1.5GB" as 1.5 GiB would
-// overstate a task's memory by seven percent for ever, and nothing would say so.
+// parseBytes reads a size the container runtime printed. Docker prints binary units
+// for memory and decimal ones elsewhere, so both are accepted: reading "1.5GB" as 1.5
+// GiB would overstate a task's memory by seven percent and nothing would report it.
 func parseBytes(value string) uint64 {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -225,10 +217,9 @@ func parseBytes(value string) uint64 {
 	return 0
 }
 
-// firstLine returns the first non-empty line of the first non-empty stream.
-//
-// Docker reports some failures on standard output rather than standard error,
-// which was found the hard way, so both are read (ADR-033, evidence 10).
+// firstLine returns the first non-empty line of the first non-empty stream. Docker
+// reports some failures on standard output rather than standard error, so both are
+// read (ADR-033, evidence 10).
 func firstLine(streams ...string) string {
 	for _, stream := range streams {
 		for line := range strings.SplitSeq(stream, "\n") {

@@ -32,8 +32,8 @@ func (f *fakeRunner) Run(ctx context.Context, check Check) (Output, error) {
 	return f.outputs[check.ID], nil
 }
 
-// TestAGateRunsEachCheckWhereItsConfigurationSays checks that the execution
-// field decides which environment answers, which is the whole of what it means.
+// TestAGateRunsEachCheckWhereItsConfigurationSays checks that the execution field
+// decides which environment answers.
 func TestAGateRunsEachCheckWhereItsConfigurationSays(t *testing.T) {
 	host := &fakeRunner{outputs: map[string]Output{"lint": {}}}
 	agent := &fakeRunner{outputs: map[string]Output{"test": {}}}
@@ -89,12 +89,12 @@ func TestAFailingCheckCarriesTheTailOfItsOutput(t *testing.T) {
 	}
 }
 
-// TestACheckThatDidNotFinishIsNotAFailure checks the distinction ADR-036 draws:
-// a bound that expired and a check that failed are different things, and only
-// one of them is a statement about the code.
+// TestACheckThatDidNotFinishIsNotAFailure checks the distinction ADR-036 draws. A bound
+// that expired and a check that failed are different things, and only one of them says
+// anything about the code.
 //
-// Both stop the task reaching ready_for_review, which is the other half of it: a
-// verification nobody managed to run is not a verification.
+// Both stop the task reaching ready_for_review, because a verification nobody managed
+// to run is not a verification.
 func TestACheckThatDidNotFinishIsNotAFailure(t *testing.T) {
 	agent := &fakeRunner{delay: map[string]time.Duration{"test": time.Minute}}
 
@@ -117,9 +117,9 @@ func TestACheckThatDidNotFinishIsNotAFailure(t *testing.T) {
 	}
 }
 
-// TestACheckThatCouldNotStartIsInconclusive checks that a missing program is
-// reported as itself. An absent test runner is a configuration or an image to
-// fix, and calling it a failing test would send the user to look at their code.
+// TestACheckThatCouldNotStartIsInconclusive checks that a missing program is reported
+// as itself. An absent test runner is a configuration or an image to fix, and calling
+// it a failing test would send the user to look at their code.
 func TestACheckThatCouldNotStartIsInconclusive(t *testing.T) {
 	agent := &fakeRunner{errs: map[string]error{"test": errNotInstalled{}}}
 
@@ -138,14 +138,14 @@ func TestACheckThatCouldNotStartIsInconclusive(t *testing.T) {
 	}
 }
 
-// TestAGateThatCouldNotRunIsNeitherPassedNorFailed is the distinction ADR-055
-// added, checked at the point that used to discard it.
+// TestAGateThatCouldNotRunIsNeitherPassedNorFailed is the distinction ADR-055 added,
+// checked at the point that used to discard it.
 //
-// The verdict was one boolean, and the boolean carried two meanings: a check
-// that ran and failed, and a check that never ran, were both "not passed", so
-// the daemon's single transition sent a project with a missing check command to
-// verification_failed and told a user their work had failed its checks. The
-// three outcomes are what let the two land in different places.
+// The verdict was one boolean carrying two meanings. A check that ran and failed and a
+// check that never ran were both "not passed", so the daemon's single transition sent a
+// project with a missing check command to verification_failed and told the user their
+// work had failed its checks. The three outcomes let the two land in different
+// places.
 func TestAGateVerdictSeparatesAFailureFromACheckThatNeverRan(t *testing.T) {
 	now := time.Now()
 	failed := domain.Check{
@@ -177,9 +177,9 @@ func TestAGateVerdictSeparatesAFailureFromACheckThatNeverRan(t *testing.T) {
 		}
 	}
 
-	// A failure outranks a check that never ran because it is evidence about the
-	// work and the agent can act on it — and the check that did not run is still
-	// named, because the user has to see it either way.
+	// A failure outranks a check that never ran, because it is evidence about the work
+	// and the agent can act on it. The check that did not run is still named, because
+	// the user has to see it either way.
 	if named := NotRun([]domain.Check{blocked, failed, passed}); len(named) != 1 || named[0].ID != "lint" {
 		t.Errorf("NotRun returned %+v, want only the check that never reported", named)
 	}
@@ -188,9 +188,8 @@ func TestAGateVerdictSeparatesAFailureFromACheckThatNeverRan(t *testing.T) {
 	}
 }
 
-// TestTheGateStopsAtItsOwnBound checks that a run of many slow checks is bounded
-// as a whole, and that the checks it never reached say so rather than looking
-// like results.
+// TestTheGateStopsAtItsOwnBound checks that a run of many slow checks is bounded as a
+// whole, and that the checks it never reached say so rather than looking like results.
 func TestTheGateStopsAtItsOwnBound(t *testing.T) {
 	agent := &fakeRunner{
 		outputs: map[string]Output{"first": {}},
@@ -213,8 +212,8 @@ func TestTheGateStopsAtItsOwnBound(t *testing.T) {
 	}
 }
 
-// TestASkippedCheckDoesNotBlockAPass checks that a check Feat deliberately did
-// not run — a read-only repository's — leaves the verdict to the ones that did.
+// TestASkippedCheckDoesNotBlockAPass checks that a check Feat did not run, a read-only
+// repository's, leaves the verdict to the ones that did.
 func TestASkippedCheckDoesNotBlockAPass(t *testing.T) {
 	now := time.Now()
 	results := []domain.Check{
@@ -231,8 +230,8 @@ func TestASkippedCheckDoesNotBlockAPass(t *testing.T) {
 	}
 }
 
-// TestAProjectWithNoChecksSaysSo checks that an empty gate is explained rather
-// than reported as a pass nobody measured.
+// TestAProjectWithNoChecksSaysSo checks that an empty gate is explained rather than
+// reported as a pass nobody measured.
 func TestAProjectWithNoChecksSaysSo(t *testing.T) {
 	verdict := Decide(nil)
 	if verdict.Outcome != OutcomePassed {

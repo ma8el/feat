@@ -15,13 +15,12 @@ import (
 // cleanup (FR-CLEAN-002).
 type Class string
 
-// The classes. The four docs/04-functional-specification.md names, with the
-// agent's containers and the application's kept apart because they are separate
-// concepts everywhere else in this product, plus the two a task owns that the
-// specification's list does not reach: a tmux window that would otherwise
-// outlive every task for ever, and the control workspace ADR-032 said cleanup
-// owns. FR-CLEAN-001 requires the inventory to be exact, and an inventory that
-// cannot name two of a task's resources is not (ADR-037).
+// The classes. They are the four docs/04-functional-specification.md names, with
+// the agent's containers kept apart from the application's, plus two the
+// specification's list does not reach: the tmux window that would otherwise
+// outlive the task, and the control workspace ADR-032 gave to cleanup.
+// FR-CLEAN-001 requires an exact inventory, which a list missing two of a task's
+// resources would not be (ADR-037).
 const (
 	// ClassTerminal is the task's tmux window and its panes.
 	ClassTerminal Class = "terminal"
@@ -43,14 +42,13 @@ const (
 	ClassControl Class = "control"
 )
 
-// order is the sequence a cleanup removes classes in, and the sequence a user
-// is asked about them in.
+// order is the sequence a cleanup removes classes in, and the sequence a user is
+// asked about them in.
 //
-// It is a requirement rather than a detail. What holds a file is stopped before
-// the file is removed: a container with a worktree mounted, or a tmux pane whose
-// process has the directory open, would otherwise be removed after the thing it
-// is using. Risk increases down the list, so a user answering in order answers
-// the cheap questions first.
+// Whatever holds a file is stopped before the file is removed. A container with a
+// worktree mounted, or a tmux pane whose process has the directory open, would
+// otherwise outlast what it is using. Risk increases down the list, so a user
+// answering in order answers the cheap questions first.
 var order = []Class{
 	ClassTerminal,
 	ClassAgentContainers,
@@ -102,20 +100,16 @@ func (c Class) Title() string {
 // pathClasses are the classes whose identity is a filesystem path, and which
 // therefore have to survive the broad-path rule before anything removes them.
 //
-// The rule here is coarse on purpose: this package knows nothing about a
-// project's worktree root, so it can only refuse the shapes that are wrong
-// whatever the configuration says. The precise check — that a path is inside
-// the directory Feat owns and outside every checkout — belongs to the adapter
-// that does the deleting, and internal/git applies it again immediately before
-// removing anything.
+// The rule here is coarse because this package knows nothing about a project's
+// worktree root, so it can only refuse the shapes that are wrong whatever the
+// configuration says. The precise check — that a path is inside the directory Feat
+// owns and outside every checkout — belongs to the adapter that deletes, and
+// internal/git applies it again immediately before removing anything.
 var pathClasses = map[Class]bool{ClassWorktrees: true, ClassControl: true}
 
-// WarningVolume is the standing warning of the volume class.
-//
-// It is a constant of the policy rather than a string the daemon composes,
-// because the rule below requires it: a volume is removable only when this exact
-// warning was confirmed, so "volumes are retained by default" is a property of
-// the policy rather than of the daemon having remembered to attach a warning
+// WarningVolume is the standing warning of the volume class. A volume is removable
+// only when this exact warning was confirmed, so it is a constant of the policy
+// rather than a string the daemon composes and could forget to attach
 // (FR-CLEAN-004, ADR-037).
 const WarningVolume = "removing a volume discards whatever it holds, and Feat keeps no copy"
 
@@ -140,23 +134,21 @@ type Target struct {
 	// tidied.
 	Present bool
 	// Warnings are the reasons removing this target needs explicit confirmation:
-	// uncommitted work, unpushed commits, an unmerged branch (FR-CLEAN-003).
-	// They are deliberately not part of the token.
+	// uncommitted work, unpushed commits, an unmerged branch (FR-CLEAN-003). They
+	// are not part of the token.
 	Warnings []string
-	// Contained reports that Feat established the target holds nothing the ref
-	// it was made from does not already have. Only the branch class sets it: it
-	// is whether the recorded base ref contains the branch tip.
+	// Contained reports that Feat established the target holds nothing the ref it
+	// was made from does not already have. Only the branch class sets it, from
+	// whether the recorded base ref contains the branch tip.
 	//
-	// It travels beside the warnings rather than inside the token, and for the
-	// same reason: it describes the same resource rather than a different one,
-	// so a branch that became contained between the plan being displayed and the
-	// cleanup being executed is the same target with a fresher answer, not a
-	// plan that has gone stale. Execute re-resolves the plan, so what an adapter
-	// is given is what was true at the moment of removal.
+	// It travels beside the warnings rather than inside the token, because it
+	// describes the same resource rather than a different one. A branch that became
+	// contained between display and execution is a fresher answer about one target,
+	// not a stale plan. Execute re-resolves the plan, so an adapter is given what
+	// was true at the moment of removal.
 	//
-	// It is what decides the deletion flag, which the warnings no longer do. A
-	// branch with nothing at risk has no warning to confirm, so a force derived
-	// from the warnings could never reach it — and `git branch -d` refuses it
+	// It decides the deletion flag, which the warnings no longer do. A branch with
+	// nothing at risk carries no warning to confirm, and `git branch -d` refuses it
 	// anyway, because Git asks about HEAD and Feat asked about the base ref
 	// (ADR-097).
 	Contained bool
@@ -172,19 +164,16 @@ type Plan struct {
 	Task    domain.TaskID
 	// Targets are the resources, in removal order.
 	Targets []Target
-	// Problems are recorded resources the plan refuses to name as targets. A
-	// path that is not one Feat may remove appears here rather than as a target:
-	// a record can be edited or restored from a backup, and the moment a path
-	// from one of those decides what is deleted the record has become an
-	// instruction (ADR-029).
+	// Problems are recorded resources the plan refuses to name as targets. A path
+	// Feat may not remove appears here instead, because a record can be edited or
+	// restored from a backup, and a path read from one must not decide what is
+	// deleted (ADR-029).
 	Problems []string
 }
 
-// planSchema versions what a token covers.
-//
-// A build that changes which resources a class names must invalidate the tokens
-// of the build before it, or a plan displayed by one and executed by the other
-// would remove a different set than the one the user read.
+// planSchema versions what a token covers. A build that changes which resources a
+// class names must invalidate the older build's tokens, or a plan displayed by one
+// and executed by the other would remove a different set than the user read.
 const planSchema = "1"
 
 // Sort orders the targets in removal order.
@@ -200,21 +189,19 @@ func (p *Plan) Sort() {
 
 // Token is the stable identifier of what this plan would remove.
 //
-// It covers the task and the identity of every target, and deliberately not the
-// warnings. A token over observations would change whenever the agent wrote a
-// file, so a user would be told their plan was stale when what had really
-// happened is that their worktree became dirty — and the second is the thing
-// they need to hear. Execute re-resolves the plan and compares tokens, so a plan
-// that has since gained or lost a resource is refused; the warnings are checked
-// separately, against what is true at the moment of removal (ADR-037).
+// It covers the task and the identity of every target, and not the warnings. A
+// token over observations would change whenever the agent wrote a file, and the
+// user would be told the plan was stale when the worktree had merely become dirty.
+// Execute re-resolves the plan and compares tokens, so a plan that has gained or
+// lost a resource is refused, and it checks the warnings separately against what
+// is true at the moment of removal (ADR-037).
 func (p Plan) Token() string {
 	digest := sha256.New()
 	write := func(parts ...string) {
 		for _, part := range parts {
-			// The length prefix keeps two different target lists from hashing
-			// alike because their concatenations happen to match. A hash never
-			// fails a write, which is why the error is discarded here and
-			// nowhere else.
+			// The length prefix keeps two different target lists from hashing alike
+			// because their concatenations happen to match. A hash never fails a
+			// write, so the error is discarded.
 			_, _ = digest.Write(fmt.Appendf(nil, "%d:%s\x00", len(part), part))
 		}
 	}
@@ -222,12 +209,10 @@ func (p Plan) Token() string {
 
 	identities := make([]string, 0, len(p.Targets))
 	for _, target := range p.Targets {
-		// The repository is part of what a target is, not decoration. Two
-		// repositories of one task are given the same branch name by the same
-		// template, so a token over the name alone cannot tell a plan naming
-		// api's branch from one naming store's — and the removal is pointed at a
-		// repository by this field. Found by reading a real task's inventory,
-		// where both branches printed identically.
+		// The repository is part of a target's identity. One task's repositories get
+		// the same branch name from the same template, so a token over the name alone
+		// could not tell api's branch from store's, and this field is what points the
+		// removal at a repository.
 		identities = append(identities,
 			string(target.Class)+"\x00"+target.Repository.String()+"\x00"+target.Identity)
 	}
@@ -309,9 +294,8 @@ type Choice struct {
 	// Class is the class being removed.
 	Class Class
 	// ConfirmedWarnings are the exact warnings the user was shown and accepted.
-	// Execute refuses when a warning observed at removal time is not among them,
-	// which is what makes "explicit confirmation" a statement about what the
-	// person actually read rather than about a flag somebody set.
+	// Execute refuses when a warning observed at removal time is not among them, so
+	// a confirmation names what the person read rather than setting a flag.
 	ConfirmedWarnings []string
 }
 
@@ -337,10 +321,8 @@ func (s Selection) Chose(class Class) bool {
 }
 
 // Check reports whether a selection may be executed against a freshly resolved
-// plan.
-//
-// Every rule here is one of FR-CLEAN-001 to FR-CLEAN-004's, and each is checked
-// against the plan as it is now rather than as it was displayed.
+// plan. Every rule here comes from FR-CLEAN-001 to FR-CLEAN-004, and each is
+// checked against the plan as it is now rather than as it was displayed.
 func (p Plan) Check(selection Selection) error {
 	if selection.Token == "" {
 		return fmt.Errorf("a cleanup must carry the token of the plan it was shown, and this request carries none")
@@ -420,12 +402,9 @@ func checkWarnings(choice Choice, targets []Target, task domain.TaskID) error {
 	return nil
 }
 
-// checkIdentity refuses a target Feat must not act on.
-//
-// It is the last gate before an adapter is asked to remove something, and it is
-// deliberately not the only one: internal/git checks a worktree path against the
-// task's own root again immediately before removing it. One is about consent and
-// ownership, the other about paths, and neither is a copy of the other
+// checkIdentity refuses a target Feat must not act on. It is the last gate before
+// an adapter removes something, and not the only one: internal/git checks a
+// worktree path against the task's own root again immediately before removing it
 // (docs/05-security-model.md, cleanup safety, rule 2).
 func checkIdentity(target Target) error {
 	if strings.TrimSpace(target.Identity) == "" {

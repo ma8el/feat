@@ -15,23 +15,20 @@ import (
 // maxEventBytes bounds one event frame.
 const maxEventBytes = 1 << 20
 
-// ErrStreamLost reports that the daemon ended the stream because this client
-// fell too far behind.
-//
-// It is a distinct error because the recovery is specific: the client's view of
-// state has gaps, so it has to read current state again rather than reconnect and
-// carry on (ADR-027).
+// ErrStreamLost reports that the daemon ended the stream because this client fell
+// too far behind. The client's view of state now has gaps, so it has to read
+// current state again rather than reconnect and carry on (ADR-027).
 var ErrStreamLost = errors.New("the daemon ended this event stream because it fell behind")
 
 // Events consumes the daemon's event stream, calling handle for each item in
 // order.
 //
 // It returns when the context ends, when handle returns an error, or when the
-// daemon ends the stream. A stream the daemon ended because this client fell
-// behind returns ErrStreamLost, after handle has seen the final item, so a
-// caller cannot mistake lost events for quiet ones.
+// daemon ends the stream. A stream the daemon ended because this client fell behind
+// returns ErrStreamLost, after handle has seen the final item, so a caller cannot
+// mistake lost events for quiet ones.
 func (c *Client) Events(ctx context.Context, handle func(api.Event) error) error {
-	// No request timeout: an event stream is idle most of the time, and its
+	// No request timeout, because an event stream is idle most of the time and its
 	// lifetime is the caller's context.
 	response, err := c.get(ctx, "/events", nil)
 	if err != nil {
@@ -78,8 +75,8 @@ func (c *Client) Events(ctx context.Context, handle func(api.Event) error) error
 			}
 
 		case strings.HasPrefix(line, ":"):
-			// A comment. Heartbeats arrive this way and mean the connection is
-			// alive, which is all a reader needs from them.
+			// A comment. Heartbeats arrive this way and mean only that the connection
+			// is alive.
 
 		case strings.HasPrefix(line, "data:"):
 			if data.Len() > 0 {
@@ -88,7 +85,7 @@ func (c *Client) Events(ctx context.Context, handle func(api.Event) error) error
 			data.WriteString(strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
 
 		default:
-			// id and event fields are carried inside the payload as well, so
+			// The id and event fields are carried inside the payload as well, so
 			// there is nothing to parse out of them here.
 		}
 	}

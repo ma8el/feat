@@ -8,11 +8,9 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 )
 
-// Condition is why Feat would interrupt the user.
-//
-// Each one is a change the user would want to act on. Nothing here is a
-// convenience: a notification that arrives when nothing needs the user teaches
-// them to dismiss the ones that do.
+// Condition is why Feat would interrupt the user. Each one is a change the user
+// would want to act on, because a notification that arrives when nothing needs them
+// teaches them to dismiss the ones that do.
 type Condition string
 
 // The notifiable conditions of docs/06-technical-architecture.md.
@@ -27,11 +25,10 @@ const (
 	ConditionReadyForReview Condition = "ready_for_review"
 	// ConditionVerificationFailed is a task whose checks failed.
 	ConditionVerificationFailed Condition = "verification_failed"
-	// ConditionVerificationBlocked is a task whose checks could not be run at
-	// all. It is separate from a failure because it is the user's to fix and the
-	// agent's to do nothing about: a check that never started is a statement
-	// about the project's configuration or the environment it runs in, and
-	// nothing has been established about the work (ADR-055).
+	// ConditionVerificationBlocked is a task whose checks could not be run at all.
+	// It is separate from a failure because a check that never started says
+	// something about the project's configuration or the environment it runs in,
+	// and nothing about the work (ADR-055).
 	ConditionVerificationBlocked Condition = "verification_blocked"
 	// ConditionTaskFailed is a task whose lifecycle failed.
 	ConditionTaskFailed Condition = "task_failed"
@@ -42,12 +39,9 @@ const (
 	ConditionRuntimeFailed Condition = "runtime_failed"
 )
 
-// Conditions returns every condition Feat interrupts a user for.
-//
-// It exists so that "each one has been shown to reach a real desktop" can be a
-// property of the suite rather than of the day somebody checked: a condition
-// added later has to be walked too, and a list that has to be extended by hand
-// is a list that eventually is not.
+// Conditions returns every condition Feat interrupts a user for. It exists so the
+// suite can walk all of them, including one added later, rather than rely on a list
+// somebody extends by hand.
 func Conditions() []Condition {
 	return []Condition{
 		ConditionIdle,
@@ -63,23 +57,20 @@ func Conditions() []Condition {
 
 // notifiableWorkflow maps the workflow states worth interrupting for.
 //
-// The table is the policy, in the shape ADR-026 used for the workflow
-// transitions and ADR-032 for agent events: what Feat will interrupt somebody
-// for is a product decision and should be readable as itself.
+// The table is the policy, in the shape ADR-026 used for the workflow transitions
+// and ADR-032 for agent events, because what Feat interrupts somebody for is a
+// product decision and should be readable as itself.
 //
-// Its most important property is an absence. No entry reaches this table from an
-// end of turn or from an idle process, because idle is not a state a task
-// arrives in — it is a state it stays in, and how long it has stayed is what
-// decides whether it is worth saying. That is armed by the daemon's grace timer
-// instead, which is what makes "idle notifications do not fire immediately" a
-// property of the mechanism rather than of a value somebody chose.
+// Its most important property is an absence. No entry reaches this table from an end
+// of turn or from an idle process, because a task does not arrive in idle: it stays
+// there, and how long it has stayed decides whether it is worth saying. The daemon's
+// grace timer arms that instead, so an idle notification cannot fire immediately.
 //
-// Two conditions are deliberately not here, for the same reason: neither is a
-// state a task arrives in. Idle is a duration, and a gate that could not run
-// leaves the task in review_requested — the request stands and a person decides,
-// exactly as it does for a project that configures no checks — so what has to be
-// said is about the run rather than about where the task landed. The daemon
-// names those two itself (ADR-055).
+// Two conditions are absent for that reason. Idle is a duration, and a gate that
+// could not run leaves the task in review_requested, where the request stands and a
+// person decides, as it does for a project that configures no checks. What has to be
+// said is about the run rather than about where the task landed, and the daemon names
+// both itself (ADR-055).
 var notifiableWorkflow = map[domain.WorkflowState]Condition{
 	domain.WorkflowReviewRequested:    ConditionReviewRequested,
 	domain.WorkflowReadyForReview:     ConditionReadyForReview,
@@ -89,19 +80,17 @@ var notifiableWorkflow = map[domain.WorkflowState]Condition{
 
 // notifiableProcess maps the agent process states worth interrupting for.
 //
-// Only a failure, and only when the workflow did not move: the daemon's
+// Only a failure, and only when the workflow did not move. The daemon's
 // normalization already turns a dead agent into a failed task wherever that is
-// meaningful, and two notifications for one death would be one too many. The
-// caller chooses between this table and the one above; see daemon.notifyTask.
+// meaningful, and a second notification about one death reads as noise. The caller
+// chooses between this table and the one above; see daemon.notifyTask.
 var notifiableProcess = map[domain.ProcessState]Condition{
 	domain.ProcessFailed: ConditionSessionFailed,
 }
 
-// notifiableRuntime maps the application runtime states worth interrupting for.
-//
-// A stopped runtime is deliberately absent: v0 stops services only when a user
-// asks, so a stop is something they just did rather than something they need to
-// hear about (FR-RUN-005).
+// notifiableRuntime maps the application runtime states worth interrupting for. A
+// stopped runtime is absent, because v0 stops services only when a user asks, so a
+// stop is something they just did (FR-RUN-005).
 var notifiableRuntime = map[domain.RuntimeState]Condition{
 	domain.RuntimeFailed: ConditionRuntimeFailed,
 }
@@ -133,10 +122,9 @@ type Policy struct {
 	// already looking at.
 	SuppressWhileAttached bool
 	// IdleGrace is how long a task must have been idle before it is worth
-	// mentioning. It is measured from the moment the task became idle, not from
-	// the end of the turn: the dashboard shows idle as soon as the provider's own
-	// grace has passed, and this decides when that is worth interrupting somebody
-	// for (ADR-035).
+	// mentioning. It is measured from the moment the task became idle rather than
+	// from the end of the turn, because the dashboard shows idle as soon as the
+	// provider's own grace has passed (ADR-035).
 	IdleGrace time.Duration
 }
 
@@ -158,11 +146,10 @@ func (p Policy) Grace() time.Duration {
 
 // Subject identifies the task a notification is about.
 //
-// It carries identification and nothing else. There is deliberately no field for
-// the brief, the agent's summary, a repository path, a command, or anything read
-// from configuration: a notification leaves the daemon's process and lands
-// somewhere the user did not choose, and the way to keep task content out of it
-// is to have no way to put it in (docs/05-security-model.md).
+// It carries identification and nothing else. There is no field for the brief, the
+// agent's summary, a repository path, a command, or anything read from
+// configuration, because a notification leaves the daemon's process and lands
+// somewhere the user did not choose (docs/05-security-model.md).
 type Subject struct {
 	// Key is the task's short human-facing identifier.
 	Key string
@@ -193,10 +180,9 @@ type Notifier interface {
 
 // phrases are what each condition is called, in the user's terms.
 //
-// They are fixed strings rather than anything composed from what happened,
-// because the alternative is a sentence assembled from a tool's output, and a
-// tool's output is where a path, a command, or a value from somebody's
-// environment would come from.
+// They are fixed strings rather than anything composed from what happened, because
+// a sentence assembled from a tool's output is where a path, a command, or a value
+// from somebody's environment would arrive from.
 var phrases = map[Condition]string{
 	ConditionIdle:                "the agent has been idle",
 	ConditionReviewRequested:     "the agent asked for review",
@@ -208,33 +194,27 @@ var phrases = map[Condition]string{
 	ConditionRuntimeFailed:       "its application services failed",
 }
 
-// maxTitle bounds how much of a task's title reaches a notification.
-//
-// A desktop notification is one line, and a title longer than this would push
-// the part that says what happened off the end of it.
+// maxTitle bounds how much of a task's title reaches a notification. A desktop
+// notification is one line, and a longer title would push the part that says what
+// happened off the end of it.
 const maxTitle = 60
 
-// mark heads every notification. It is Feat's logo, reduced to what this medium
-// can carry: the prompt chevron the mark opens with, and nothing else of it.
+// mark heads every notification. It is Feat's logo reduced to what this medium can
+// carry, the prompt chevron the mark opens with and nothing else of it.
 //
 // It is text because there is nowhere else to put it. The image beside a macOS
-// notification is the icon of the application that posted it, and Feat posts
-// through osascript, so that icon is Script Editor's — a name the user cannot
-// find in Notification Center and an icon that says nothing about Feat
-// (ADR-035, evidence 12). The heading is the one part of the notification Feat
-// writes, so it is where the notification is made recognisable as Feat's.
+// notification is the icon of the application that posted it, and Feat posts through
+// osascript, so that icon is Script Editor's, which the user cannot find in
+// Notification Center (ADR-035, evidence 12). The heading is the one part of the
+// notification Feat writes, so it is where a notification is made recognisable.
 //
-// One glyph rather than several. A notification heading competes with a task's
-// key and its project for a single line, and a mark that cost the project's
-// name would be a decoration that removed information.
+// It is one glyph rather than several. The heading competes with a task's key and
+// its project for a single line, and a longer mark would cost the project's name.
 const mark = "❯"
 
-// Compose renders a notification, and reports false for a condition this build
-// does not notify about.
-//
-// The idle duration is the only measurement that reaches the text, and it is
-// Feat's own: how long the task has been idle, rounded to something a person
-// would say out loud.
+// Compose renders a notification, and reports false for a condition this build does
+// not notify about. The idle duration is the only measurement that reaches the text,
+// and it is Feat's own, rounded to something a person would say out loud.
 func Compose(condition Condition, subject Subject, idle time.Duration) (Notification, bool) {
 	phrase, known := phrases[condition]
 	if !known {

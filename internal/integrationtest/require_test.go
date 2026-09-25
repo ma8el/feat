@@ -9,12 +9,9 @@ import (
 	"github.com/ma8el/feat/internal/integrationtest"
 )
 
-// recorder stands in for *testing.T so that what Unavailable does to a test can
-// be observed instead of happening.
-//
-// Real Skipf and Fatalf do not return, so the recorder keeps only the first
-// call: a caller that reached Fatalf and carried on would be reporting on code
-// that cannot run.
+// recorder stands in for *testing.T so that what Unavailable does to a test can be
+// observed instead of happening. Real Skipf and Fatalf do not return, so the
+// recorder keeps only the first call: anything after it is code that cannot run.
 type recorder struct {
 	helpers int
 	outcome string
@@ -52,9 +49,9 @@ func TestADemandedToolThatDidNotAnswerFailsTheRun(t *testing.T) {
 	if got.outcome != "fatal" {
 		t.Fatalf("a demanded tool that did not answer was a %s, want a fatal: %s", got.outcome, got.message)
 	}
-	// The failure has to say which proof went missing and which demand it
-	// broke, because the next reader of it is somebody whose gate just turned
-	// red for the first time.
+	// The failure has to say which proof went missing and which demand it broke,
+	// because its next reader is somebody whose gate has just turned red for the
+	// first time.
 	for _, want := range []string{"no Docker daemon is reachable", "docker", integrationtest.EnvRequire} {
 		if !strings.Contains(got.message, want) {
 			t.Errorf("the failure does not mention %q: %s", want, got.message)
@@ -81,8 +78,8 @@ func TestAToolThisRunDoesNotDemandStillSkips(t *testing.T) {
 	if !strings.Contains(got.message, "Docker is not installed") {
 		t.Errorf("the skip does not carry the caller's reason: %s", got.message)
 	}
-	// The skip says how to turn itself into a failure, because a reader who
-	// wanted this proof needs to know it is one variable away.
+	// The skip says how to turn itself into a failure, because a reader who wanted
+	// this proof needs to know it is one variable away.
 	if !strings.Contains(got.message, integrationtest.EnvRequire+"=docker") {
 		t.Errorf("the skip does not say how to demand the tool: %s", got.message)
 	}
@@ -103,9 +100,9 @@ func TestNoDemandAtAllStillSkips(t *testing.T) {
 	}
 }
 
-// TestAMisspeltDemandFailsRatherThanDemandingNothing closes the way this fix
-// could be undone by a typo. "FEAT_INTEGRATION_REQUIRE=dockr" that quietly
-// demanded nothing would be the original defect with a variable in front of it.
+// TestAMisspeltDemandFailsRatherThanDemandingNothing closes the way this fix could
+// be undone by a typo. A "FEAT_INTEGRATION_REQUIRE=dockr" that demanded nothing
+// would restore the original defect.
 func TestAMisspeltDemandFailsRatherThanDemandingNothing(t *testing.T) {
 	t.Setenv(integrationtest.Env, "1")
 	t.Setenv(integrationtest.EnvRequire, "git,dockr,tmux")
@@ -125,8 +122,9 @@ func TestAMisspeltDemandFailsRatherThanDemandingNothing(t *testing.T) {
 	}
 }
 
-// TestRequirementsReadsTheNamesItAccepts covers the parsing itself: spacing,
-// repetition, and an empty entry are all a person editing a Makefile line.
+// TestRequirementsReadsTheNamesItAccepts covers the parsing itself. Spacing,
+// repetition, and an empty entry are what a person editing a Makefile line
+// produces.
 func TestRequirementsReadsTheNamesItAccepts(t *testing.T) {
 	for _, testCase := range []struct {
 		value string
@@ -161,9 +159,9 @@ func TestRequirementsReadsTheNamesItAccepts(t *testing.T) {
 // TestMissingNamesEveryDemandedToolThatDidNotAnswer covers the preflight's
 // decision without needing a machine that has lost a tool.
 //
-// The preflight test itself supplies the real probe; this supplies one that
-// answers however the case needs, which is the only way the "Docker is gone"
-// arm is ever exercised on a machine that has Docker.
+// The preflight test supplies the real probe. This one supplies a probe that answers
+// however the case needs, which is the only way the "Docker is gone" arm runs on a
+// machine that has Docker.
 func TestMissingNamesEveryDemandedToolThatDidNotAnswer(t *testing.T) {
 	stopped := errors.New("no Docker daemon is reachable")
 	probe := func(tool integrationtest.Tool) error {
@@ -187,9 +185,9 @@ func TestMissingNamesEveryDemandedToolThatDidNotAnswer(t *testing.T) {
 	}
 }
 
-// TestMissingIsSilentWhenEveryDemandedToolAnswers is the ordinary case, and it
-// is here because a preflight that reported an absence on a healthy machine
-// would be reverted within a day.
+// TestMissingIsSilentWhenEveryDemandedToolAnswers is the ordinary case. A preflight
+// that reported an absence on a healthy machine would be turned off rather than
+// trusted.
 func TestMissingIsSilentWhenEveryDemandedToolAnswers(t *testing.T) {
 	probe := func(integrationtest.Tool) error { return nil }
 
