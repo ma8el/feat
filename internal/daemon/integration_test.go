@@ -15,11 +15,9 @@ import (
 )
 
 // TestBinaryLifecycle exercises `feat daemon start`, `status`, and `stop` as
-// separate operating-system processes, and is the literal form of the rule that
-// two client processes can query the daemon concurrently.
-//
-// It is opt-in because it builds the binary. Set FEAT_INTEGRATION=1 to run it;
-// CI does.
+// separate operating-system processes, which is the literal form of the rule that
+// two client processes can query the daemon concurrently. It is opt-in because it
+// builds the binary: set FEAT_INTEGRATION=1 to run it, as CI does.
 func TestBinaryLifecycle(t *testing.T) {
 	if !integrationtest.Enabled() {
 		t.Skipf("set %s=1 to run the tests that build and run the binary", integrationtest.Env)
@@ -62,9 +60,9 @@ func TestBinaryLifecycle(t *testing.T) {
 		go func() {
 			defer clients.Done()
 			out, code := run(t, "task", "list")
-			// The daemon has no tasks, so an empty list is the expected
-			// answer; what matters is that the process read from a live daemon
-			// without disturbing it.
+			// The daemon has no tasks, so an empty list is the expected answer. What
+			// matters is that the process read from a live daemon without disturbing
+			// it.
 			if code != 0 {
 				outputs <- "task list: unexpected exit\n" + out
 			}
@@ -85,11 +83,11 @@ func TestBinaryLifecycle(t *testing.T) {
 		t.Errorf("a second start did not report the running daemon:\n%s", output)
 	}
 
-	// Restarting replaces the process, which is the whole of what it promises:
-	// a restart that reported success while leaving the old daemon running is
-	// exactly the state a changed settings file would then not reach. It is
-	// asserted here rather than in internal/cli because it spawns, and a client
-	// starts the binary it was built as — which in a test process is the test.
+	// Restarting replaces the process, which is the whole of what it promises: a
+	// restart that reported success while leaving the old daemon running is the
+	// state a changed settings file would never reach. It is asserted here rather
+	// than in internal/cli because it spawns, and a client starts the binary it was
+	// built as, which in a test process is the test.
 	before, err := ReadEndpoint(layout)
 	if err != nil {
 		t.Fatalf("reading the endpoint before the restart: %v", err)
@@ -147,15 +145,13 @@ func TestBinaryLifecycle(t *testing.T) {
 	}
 }
 
-// TestBinaryStopsADaemonWhoseRecordWasRemoved is the regression for a daemon
-// that outlived its own endpoint record.
+// TestBinaryStopsADaemonWhoseRecordWasRemoved is the regression for a daemon that
+// outlived its own endpoint record.
 //
-// On macOS the per-user temporary directory is swept of files that have gone
-// three days untouched, and the endpoint record used to be written once and
-// never again — so every daemon that stayed up past its third day became one
-// that `feat daemon status` could describe and `feat daemon stop` could not
-// find, reporting instead that nothing was running. Recovery meant sending the
-// signal by hand (ADR-101).
+// macOS sweeps the per-user temporary directory of files that have gone three
+// days untouched, which left every daemon past its third day one that `feat
+// daemon status` could describe and `feat daemon stop` could not find. Recovery
+// meant sending the signal by hand (ADR-101).
 //
 // It belongs here rather than in internal/cli for the reason the restart
 // assertion above gives: stopping a daemon signals a process, and the only
@@ -292,11 +288,10 @@ func binaryHarness(t *testing.T) (paths.Layout, func(*testing.T, ...string) (str
 //
 // FEAT_DAEMON_SPAWNED is the one that matters: `feat daemon start` refuses to
 // start a daemon when it is set, and this test drives that command as a user
-// does. A suite run from a shell never sees it; a suite run as a check by a Feat
-// daemon inherits it, and the test then fails on the environment of whoever ran
-// it. The daemon no longer passes it on — see TestTheSpawnMarkerDoesNotOutliveTheSpawn
-// — and this keeps the harness independent of the daemon that happens to be
-// serving while the fix has not yet been deployed.
+// does. A suite run from a shell never sees it, and one run as a check by a Feat
+// daemon inherits it. The daemon no longer passes it on
+// (TestTheSpawnMarkerDoesNotOutliveTheSpawn), and this keeps the harness
+// independent of whichever daemon happens to be serving.
 func userEnvironment() []string {
 	environment := os.Environ()
 	clean := make([]string, 0, len(environment))

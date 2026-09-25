@@ -13,16 +13,14 @@ import (
 	"github.com/ma8el/feat/internal/notify"
 )
 
-// fakeNotifier records what would have reached the desktop.
+// fakeNotifier records what would have reached the desktop. It keeps the suite
+// from showing a real notification, and it lets a test assert the absence of one,
+// which is most of what the notification rules are about.
 //
-// It exists so that the suite never shows a real notification, and so that a
-// test can assert the absence of one — which is most of what the notification
-// rules are about.
-//
-// It can also be pointed at this platform's own notifier, which is how the
-// opt-in walk in notify_integration_test.go reaches a real desktop while these
+// It can also be pointed at this platform's own notifier, which is how the opt-in
+// walk in notify_integration_test.go reaches a real desktop while these
 // assertions still see what was handed over. A fake notifier proves the daemon
-// asked; it never proves anybody was told.
+// asked and never that anybody was told.
 type fakeNotifier struct {
 	mu        sync.Mutex
 	delivered []notify.Notification
@@ -43,8 +41,8 @@ func (f *fakeNotifier) Notify(ctx context.Context, notification notify.Notificat
 	if fail != nil {
 		return fail
 	}
-	// Handed over before it is recorded, so that what the fake reports as sent is
-	// what the platform accepted rather than what was attempted — the same order
+	// Handed over before it is recorded, so what the fake reports as sent is what
+	// the platform accepted rather than what was attempted. It is the order
 	// notifyTask records its event in.
 	if onwards != nil {
 		if err := onwards.Notify(ctx, notification); err != nil {
@@ -87,12 +85,10 @@ func (s *session) watchable() *session {
 	return s
 }
 
-// delivering points the session's notifier at this platform's own, so that a
-// notification it hands over reaches a real desktop.
-//
-// Only the opt-in walk calls it. Everything else keeps the fake, because a suite
-// that showed a notification for every task it launched would be a suite nobody
-// could run twice.
+// delivering points the session's notifier at this platform's own, so a
+// notification it hands over reaches a real desktop. Only the opt-in walk calls
+// it, because a suite that showed a notification for every task it launched would
+// be one nobody could run twice.
 func (s *session) delivering() *session {
 	s.notifier.mu.Lock()
 	defer s.notifier.mu.Unlock()
@@ -100,14 +96,11 @@ func (s *session) delivering() *session {
 	return s
 }
 
-// TestIdleNotificationsDoNotFireImmediately is the grace-period rule, in its
-// first half.
-//
-// Two grace periods pass before the user is interrupted, and they are measured
-// from different moments: the provider's own decides when an ended turn becomes
-// idle, and the notification's decides how long a task must have *been* idle
-// before it is worth saying. The test walks both, and requires that nothing was
-// delivered until the second one expired.
+// TestIdleNotificationsDoNotFireImmediately is the grace-period rule, first half.
+// Two grace periods pass before the user is interrupted, measured from different
+// moments: the provider's decides when an ended turn becomes idle, and the
+// notification's decides how long a task must have been idle before it is worth
+// saying. This walks both and requires silence until the second expires.
 func TestIdleNotificationsDoNotFireImmediately(t *testing.T) {
 	live := launch(t, hostFixture, installed(), true).watchable()
 	live.start(t)
@@ -143,11 +136,9 @@ func TestIdleNotificationsDoNotFireImmediately(t *testing.T) {
 }
 
 // TestIdleNotificationsDoNotFireWhileAttached is the second half of the same
-// criterion.
-//
-// The question is asked of tmux and per window, because a user attached to a
-// project's session is looking at one of its tasks and not at the others. The
-// fake reports a client watching this task's window, and nothing is delivered.
+// criterion. The question is asked of tmux and per window, because a user
+// attached to a project's session is looking at one of its tasks. The fake
+// reports a client watching this task's window, and nothing is delivered.
 func TestIdleNotificationsDoNotFireWhileAttached(t *testing.T) {
 	live := launch(t, hostFixture, installed(), true).watchable()
 	live.start(t)
@@ -162,7 +153,7 @@ func TestIdleNotificationsDoNotFireWhileAttached(t *testing.T) {
 	}
 
 	// The same task, no longer watched, does notify. Without this the test would
-	// pass against a build that never notifies about anything.
+	// pass against a build that never notifies at all.
 	live.watch(t, 0)
 	live.hook(t, "UserPromptSubmit", `{"session_id":"claude-session-1","prompt":"go on"}`)
 	live.hook(t, "Stop", `{"session_id":"claude-session-1","stop_hook_active":false}`)
@@ -175,12 +166,10 @@ func TestIdleNotificationsDoNotFireWhileAttached(t *testing.T) {
 	}
 }
 
-// TestAnAgentThatStartsTalkingAgainIsNotNotifiedAbout checks that the pending
-// notification is dropped by activity.
-//
-// It is the case the grace period exists for: a turn that ends and immediately
-// continues is not a session waiting for anybody, and a notification armed
-// before that happened would arrive about a state that is over.
+// TestAnAgentThatStartsTalkingAgainIsNotNotifiedAbout checks that activity drops
+// the pending notification. It is the case the grace period exists for: a turn
+// that ends and immediately continues is not a session waiting for anybody, and
+// the notification would arrive about a state that is over.
 func TestAnAgentThatStartsTalkingAgainIsNotNotifiedAbout(t *testing.T) {
 	live := launch(t, hostFixture, installed(), true).watchable()
 	live.start(t)
@@ -196,13 +185,10 @@ func TestAnAgentThatStartsTalkingAgainIsNotNotifiedAbout(t *testing.T) {
 }
 
 // TestAReviewRequestNotifiesWithoutExposingTaskContent is the rule that a
-// notification never carries task content.
-//
-// The task's brief carries a marker no notification may contain. The check is
-// worth more than it looks: the notification is composed from a Subject that has
-// no field a brief, an agent's words, a path, or a configured value could reach,
-// so this passes because there is no way to fail it rather than because a filter
-// caught something.
+// notification never carries task content. The task's brief carries a marker no
+// notification may contain. It passes because a Subject has no field a brief, an
+// agent's words, a path, or a configured value could reach, rather than because a
+// filter caught something.
 func TestAReviewRequestNotifiesWithoutExposingTaskContent(t *testing.T) {
 	live := launch(t, hostFixture, installed(), true).watchable()
 	live.start(t)
@@ -231,12 +217,9 @@ func TestAReviewRequestNotifiesWithoutExposingTaskContent(t *testing.T) {
 }
 
 // TestAFailedSessionIsNotifiedAboutOnce checks that one death produces one
-// notification.
-//
-// A session that fails moves both the process and the workflow, and each is
-// recorded as its own event. A user told twice about one failure learns to read
-// the second one as noise, so the workflow wins and the process is reported only
-// when the workflow stayed where it was.
+// notification. A session that fails moves both the process and the workflow, and
+// each is recorded as its own event, so the workflow wins and the process is
+// reported only when the workflow stayed where it was.
 func TestAFailedSessionIsNotifiedAboutOnce(t *testing.T) {
 	live := launch(t, hostFixture, installed(), true).watchable()
 	live.start(t)
@@ -253,11 +236,10 @@ func TestAFailedSessionIsNotifiedAboutOnce(t *testing.T) {
 	}
 }
 
-// TestNotificationsAreRecordedAsTaskEvents checks the durable trace.
-//
-// A desktop notification is gone the moment it is dismissed. Recording one keeps
-// the answer to "what did Feat interrupt me about", and gives the figures that
-// false idle notifications are measured from.
+// TestNotificationsAreRecordedAsTaskEvents checks the durable trace. A desktop
+// notification is gone the moment it is dismissed, so recording one keeps the
+// answer to what Feat interrupted the user about and gives the figures false idle
+// notifications are measured from.
 func TestNotificationsAreRecordedAsTaskEvents(t *testing.T) {
 	live := launch(t, hostFixture, installed(), true).watchable()
 	live.start(t)
@@ -284,15 +266,13 @@ func TestNotificationsAreRecordedAsTaskEvents(t *testing.T) {
 }
 
 // TestStartupCatchUpDoesNotNotify checks that a restart reports the present
-// rather than the past.
-//
-// The daemon applies the control messages that arrived while it was stopped
-// before it serves anything. Without this, restarting Feat in the morning would
-// announce every turn that ended overnight.
+// rather than the past. The daemon applies the control messages that arrived
+// while it was stopped before it serves anything, so without this a restart in
+// the morning would announce every turn that ended overnight.
 func TestStartupCatchUpDoesNotNotify(t *testing.T) {
 	live := launch(t, hostFixture, installed(), true)
-	// Deliberately not made notifiable: this is the state the daemon is in while
-	// it catches up, before Serve declares itself ready.
+	// Deliberately not made notifiable. It is the state the daemon is in while it
+	// catches up, before Serve declares itself ready.
 	live.start(t)
 	live.emit(t, control.TypeReviewRequested, `{"summary":"Ready for review."}`)
 
@@ -349,18 +329,14 @@ notifications:
 	}
 }
 
-// TestFailedApplicationServicesAreNotifiedAbout covers the one notifiable
-// condition that had no test reaching it.
+// TestFailedApplicationServicesAreNotifiedAbout covers a notifiable condition no
+// test reached. Walking every condition against a real desktop found six arriving
+// and this one absent, because the fixture could not express a container that
+// exited non-zero and so could not produce a failed runtime at all.
 //
-// It was found by walking every condition against a real desktop: six arrived
-// and this one did not, because the fixture could not express a
-// container that exited non-zero and so could not produce a failed runtime at
-// all. What the notification path needed was already right; what was missing was
-// any test that got there.
-//
-// A stopped runtime is deliberately not notifiable, and the second half checks
-// that: v0 stops services only when a user asks, so a stop is something they just
-// did rather than news (FR-RUN-005).
+// A stopped runtime is deliberately not notifiable, which the second half checks:
+// v0 stops services only when a user asks, so a stop is something they just did
+// rather than news (FR-RUN-005).
 func TestFailedApplicationServicesAreNotifiedAbout(t *testing.T) {
 	arranged := arrangeConfigured(t, runtimeFixture)
 	task := arranged.launched(t)
@@ -395,15 +371,12 @@ func TestFailedApplicationServicesAreNotifiedAbout(t *testing.T) {
 }
 
 // TestEveryDroppedNotificationSaysWhichPolicyDroppedIt is the rule that each
-// policy which drops a notification drops it for a reason a user would
-// recognise.
+// policy dropping a notification drops it for a reason a user would recognise.
 //
-// A notification that never arrives is invisible by construction. The state
-// change it was about is recorded correctly either way, so there is nothing to
-// inspect afterwards and no way to tell a policy Feat applied on purpose from a
-// notification the desktop swallowed — which is exactly the question the
-// maintainer was left with when a task reached ready_for_review in silence.
-// Four of these five used to be a silent return.
+// A notification that never arrives leaves nothing to inspect: the state change
+// it was about is recorded correctly either way, so without a logged reason a
+// policy Feat applied on purpose cannot be told from a notification the desktop
+// swallowed.
 func TestEveryDroppedNotificationSaysWhichPolicyDroppedIt(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -414,8 +387,8 @@ func TestEveryDroppedNotificationSaysWhichPolicyDroppedIt(t *testing.T) {
 			name:   "still catching up",
 			reason: dropCatchingUp,
 			drop: func(t *testing.T) (*session, *syncBuffer) {
-				// Deliberately not made notifiable: this is the state the daemon
-				// is in while it applies what arrived while it was stopped.
+				// Deliberately not made notifiable. It is the state the daemon is in
+				// while it applies what arrived while it was stopped.
 				live, logs := launchLogged(t, hostFixture, nil)
 				live.start(t)
 				live.emit(t, control.TypeReviewRequested, `{"summary":"ready"}`)
@@ -461,10 +434,9 @@ func TestEveryDroppedNotificationSaysWhichPolicyDroppedIt(t *testing.T) {
 			name:   "nothing to say about that condition",
 			reason: dropUncomposed,
 			drop: func(t *testing.T) (*session, *syncBuffer) {
-				// Reached directly, because every condition the tables map has
-				// text. The branch exists so that a condition added without one
-				// is dropped visibly rather than silently, which is the whole
-				// point of this test.
+				// Reached directly, because every condition the tables map has text.
+				// The branch exists so a condition added without one is dropped
+				// visibly rather than silently.
 				live, logs := launchLogged(t, hostFixture, nil)
 				live.watchable().start(t)
 				live.service.notifyTask(context.Background(), live.load(t), "a-condition-nobody-wrote", 0)
@@ -527,10 +499,10 @@ func launchLogged(t *testing.T, fixture string, adjust func(*Options)) (*session
 	return live, logs
 }
 
-// syncBuffer is a log destination safe to read while the daemon is still
-// writing. The gate, the pollers, and the idle timers all log from their own
-// goroutines, and a test that read a plain buffer would fail under -race for a
-// reason that has nothing to do with what it is checking.
+// syncBuffer is a log destination safe to read while the daemon is still writing.
+// The gate, the pollers, and the idle timers all log from their own goroutines,
+// so a test reading a plain buffer would fail under -race for a reason unrelated
+// to what it checks.
 type syncBuffer struct {
 	mu      sync.Mutex
 	written strings.Builder
@@ -570,11 +542,9 @@ func (s *session) load(t *testing.T) *domain.Task {
 	return task
 }
 
-// setBrief rewrites the launched task's brief.
-//
-// A task's brief is frozen once it leaves draft, which is the point: this writes
-// the stored document directly, so that the test can put something in it that no
-// notification may ever carry.
+// setBrief rewrites the launched task's brief. A task's brief is frozen once it
+// leaves draft, so this writes the stored document directly and the test can put
+// something in it that no notification may carry.
 func (s *session) setBrief(t *testing.T, brief string) {
 	t.Helper()
 

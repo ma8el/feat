@@ -136,9 +136,9 @@ func TestRotatingFileHoldsTheBoundAcrossManyRotations(t *testing.T) {
 	}
 }
 
-// TestRotatingFileCutsDownALogThatIsAlreadyOversized is the case the user hits
-// on the first start after this change: a log that grew without a bound must
-// shrink rather than be copied at its full size into a rotated file.
+// TestRotatingFileCutsDownALogThatIsAlreadyOversized covers a log that grew
+// before the bound existed: it must shrink rather than be copied at its full size
+// into a rotated file.
 func TestRotatingFileCutsDownALogThatIsAlreadyOversized(t *testing.T) {
 	layout := logLayout(t)
 	path := layout.LogFile()
@@ -202,10 +202,9 @@ func TestRotatingFileCutsDownALogThatIsAlreadyOversized(t *testing.T) {
 }
 
 // TestRotatingFileKeepsInheritedDescriptorsValid pins the reason rotation copies
-// and truncates rather than renaming. `feat daemon start` opens the log and
-// hands that descriptor to the spawned daemon as its standard error, so a
-// rotation that swapped the file out from under it would send a panic to a file
-// nobody would open.
+// and truncates rather than renaming. `feat daemon start` opens the log and hands
+// that descriptor to the spawned daemon as its standard error, so a rotation that
+// swapped the file out from under it would send a panic where nobody would look.
 func TestRotatingFileKeepsInheritedDescriptorsValid(t *testing.T) {
 	layout := logLayout(t)
 
@@ -247,9 +246,9 @@ func TestOpenLogBoundsWhatItWrites(t *testing.T) {
 	}
 	defer func() { _ = log.Close() }()
 
-	// Enough records to pass the real bound several times over would be slow;
-	// that rotation happens at all is what this pins, so write past a bound the
-	// writer underneath already proved it honours.
+	// Enough records to pass the real bound several times over would be slow. This
+	// pins that rotation happens at all, so it writes past a bound the writer
+	// underneath has already proved it honours.
 	for range 200 {
 		log.Logger.Info("a record", slog.String("padding", strings.Repeat("p", 200)))
 	}

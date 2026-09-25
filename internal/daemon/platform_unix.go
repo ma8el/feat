@@ -17,12 +17,10 @@ import (
 // than weakening the lock, because a lock the kernel does not release on process
 // death cannot answer whether a recorded daemon is still alive.
 
-// fileLock is an exclusive advisory lock on a file.
-//
-// The kernel releases it when the holding process dies, including on SIGKILL and
-// including a crash, which is what makes it a trustworthy answer to "is the
-// recorded daemon still running". A process identifier alone cannot answer that,
-// because identifiers are reused.
+// fileLock is an exclusive advisory lock on a file. The kernel releases it when
+// the holding process dies, including on SIGKILL, which makes it a trustworthy
+// answer to whether the recorded daemon is still running. A process identifier
+// cannot answer that, because identifiers are reused.
 type fileLock struct {
 	file *os.File
 }

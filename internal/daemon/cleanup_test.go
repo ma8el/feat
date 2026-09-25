@@ -15,8 +15,8 @@ import (
 	"github.com/ma8el/feat/internal/tmux/tmuxtest"
 )
 
-// launched arranges a confirmed task with a terminal, which is the state
-// cleanup is about.
+// launched arranges a confirmed task with a terminal, which is the state cleanup
+// is about.
 func launched(t *testing.T) (*service, *preparation, *tmuxtest.Server) {
 	t.Helper()
 
@@ -66,11 +66,9 @@ func classOf(plan api.CleanupPlan, class reconcile.Class) (api.CleanupClass, boo
 }
 
 // TestPlanningACleanupRemovesNothing is what makes the plan safe to render on a
-// screen a user is reading.
-//
-// It is checked at the adapters rather than at the outcome: that no Git command
-// removed anything and no tmux command ran at all is a stronger statement than
-// that a directory happens to still be there.
+// screen a user is reading. It is checked at the adapters rather than at the
+// outcome, because no Git command removing anything and no tmux command running
+// at all is stronger than a directory that happens to still be there.
 func TestPlanningACleanupRemovesNothing(t *testing.T) {
 	service, arranged, server := launched(t)
 
@@ -91,17 +89,15 @@ func TestPlanningACleanupRemovesNothing(t *testing.T) {
 		t.Error("planning removed a tmux object")
 	}
 
-	// And the record is untouched: a plan is a question, not a change.
+	// And the record is untouched: a plan is a question rather than a change.
 	if task := arranged.reload(t); task.Workflow == domain.WorkflowArchived {
 		t.Error("planning archived the task")
 	}
 }
 
 // TestCleanupRemovesOnlyTheClassesSelected is FR-CLEAN-002, checked on the
-// argument vectors.
-//
-// The worktree class is selected and the branch class is not, so a run that
-// removed both would be one that treated a choice as an implication.
+// argument vectors. The worktree class is selected and the branch class is not,
+// so a run that removed both would treat a choice as an implication.
 func TestCleanupRemovesOnlyTheClassesSelected(t *testing.T) {
 	service, arranged, server := launched(t)
 	arranged.fake.branches["feat/rate-limit"] = true
@@ -138,9 +134,9 @@ func TestCleanupRemovesOnlyTheClassesSelected(t *testing.T) {
 		t.Error("selecting the worktrees also removed the task's terminal")
 	}
 	// Every target the class named is accounted for, and everything reported
-	// belongs to the class that was chosen. The removals are not counted against
-	// the targets, because removing the last worktree in a directory the task was
-	// given removes that directory too, and it is reported.
+	// belongs to the class that was chosen. The removals are not counted against the
+	// targets, because removing the last worktree in a directory the task was given
+	// removes that directory too, and it is reported.
 	reported := make(map[string]bool, len(result.Removed))
 	for _, entry := range result.Removed {
 		if entry.Class != string(reconcile.ClassWorktrees) {
@@ -174,12 +170,10 @@ func TestCleanupRefusesAStalePlan(t *testing.T) {
 	}
 }
 
-// TestCleanupRefusesUnconfirmedDirtyWork is FR-CLEAN-003 at the daemon, where
-// the warning is observed rather than supplied.
-//
-// The worktree is made dirty after the plan was taken, which is the case the
-// re-resolution exists for: the plan the user was shown had no warning, and the
-// one that decides has one.
+// TestCleanupRefusesUnconfirmedDirtyWork is FR-CLEAN-003 at the daemon, where the
+// warning is observed rather than supplied. The worktree is made dirty after the
+// plan was taken, which is the case the re-resolution exists for: the plan the
+// user was shown had no warning, and the one that decides has one.
 func TestCleanupRefusesUnconfirmedDirtyWork(t *testing.T) {
 	service, arranged, _ := launched(t)
 
@@ -207,8 +201,8 @@ func TestCleanupRefusesUnconfirmedDirtyWork(t *testing.T) {
 		}
 	}
 
-	// Asking again shows the warning, and confirming it removes the worktree
-	// with --force, because Git refuses a dirty worktree without it.
+	// Asking again shows the warning, and confirming it removes the worktree with
+	// --force, because Git refuses a dirty worktree without it.
 	fresh := planFor(t, service, arranged)
 	risky, _ := classOf(fresh, reconcile.ClassWorktrees)
 	if len(risky.Warnings) == 0 {
@@ -231,13 +225,11 @@ func TestCleanupRefusesUnconfirmedDirtyWork(t *testing.T) {
 }
 
 // TestCleanupRetainsVolumesThatWereNotChosen is FR-CLEAN-004's retention rule at
-// the daemon.
-//
-// The fixture is a host-execution task with no Compose project at all, so the
-// assertion is the narrow one that can be made here: no volume command is ever
-// produced by a selection that did not name the class. The adapter-level rule —
-// that removal is by name and never through `down --volumes` — is checked in
-// internal/execution/compose and internal/runtime/compose.
+// the daemon. The fixture is a host-execution task with no Compose project, so
+// this asserts the narrow thing available here: a selection that did not name the
+// class produces no volume command. internal/execution/compose and
+// internal/runtime/compose check the adapter-level rule that removal is by name
+// and never through `down --volumes`.
 func TestCleanupRetainsVolumesThatWereNotChosen(t *testing.T) {
 	service, arranged, _ := launched(t)
 	plan := planFor(t, service, arranged)
@@ -256,17 +248,15 @@ func TestCleanupRetainsVolumesThatWereNotChosen(t *testing.T) {
 	}
 }
 
-// TestAContainedBranchCleansUpAndArchivesInOnePass is the deadlock this change
-// exists for, end to end.
+// TestAContainedBranchCleansUpAndArchivesInOnePass is the deadlock ADR-097
+// records, end to end.
 //
 // The fixture is the ordinary state of a checkout that fetches under a remote
 // base policy: the recorded base ref contains the task branch, so Feat's plan
 // reports nothing at risk, and the checkout's HEAD does not, so `git branch -d`
-// refuses. Deriving the flag from the warnings produced a branch with no warning
-// to confirm and therefore no path to `-D` — so the cleanup failed on every
-// retry, and the archive refused to leave the branch behind. Neither selection
-// the user could make was the right one, which is what made it permanent
-// (ADR-097).
+// refuses. Deriving the flag from the warnings left a branch with no warning to
+// confirm and no path to `-D`, so the cleanup failed on every retry and the
+// archive refused to leave the branch behind.
 func TestAContainedBranchCleansUpAndArchivesInOnePass(t *testing.T) {
 	service, arranged, _ := launched(t)
 	branch := arranged.reload(t).Repositories[0].Branch
@@ -280,7 +270,7 @@ func TestAContainedBranchCleansUpAndArchivesInOnePass(t *testing.T) {
 		t.Fatal("the plan named no branches")
 	}
 	// The premise: the plan says nothing is at risk, so there is nothing for the
-	// user to confirm. A fixture that warned would be testing the other case.
+	// user to confirm. A fixture that warned would test the other case.
 	if len(branches.Warnings) != 0 {
 		t.Fatalf("the contained branch carries warnings %v, so this is not the case the test is for",
 			branches.Warnings)
@@ -317,8 +307,8 @@ func TestAContainedBranchCleansUpAndArchivesInOnePass(t *testing.T) {
 		t.Error("the branch is still there")
 	}
 
-	// The force is accounted for rather than silent: it overrode Git's own
-	// refusal, so what it rested on is in the report and in the event log.
+	// The force is accounted for rather than silent. It overrode Git's own refusal,
+	// so what it rested on is in the report and in the event log.
 	var note string
 	for _, entry := range result.Removed {
 		if entry.Class == string(reconcile.ClassBranches) {
@@ -339,8 +329,8 @@ func TestAContainedBranchCleansUpAndArchivesInOnePass(t *testing.T) {
 }
 
 // TestAnUncontainedBranchIsStillOnlyDeletedOnAConfirmation is the half that must
-// not be weakened: a branch holding commits the base ref does not have warns,
-// and the confirmation is what produces the force (FR-CLEAN-003).
+// not be weakened: a branch holding commits the base ref does not have warns, and
+// the confirmation is what produces the force (FR-CLEAN-003).
 func TestAnUncontainedBranchIsStillOnlyDeletedOnAConfirmation(t *testing.T) {
 	service, arranged, _ := launched(t)
 	arranged.fake.branches[arranged.reload(t).Repositories[0].Branch] = true
@@ -367,8 +357,8 @@ func TestAnUncontainedBranchIsStillOnlyDeletedOnAConfirmation(t *testing.T) {
 		}
 	}
 
-	// Confirming it deletes it, and the account names the confirmation rather
-	// than a containment nobody established.
+	// Confirming it deletes it, and the account names the confirmation rather than
+	// a containment nobody established.
 	result, err := service.Cleanup(context.Background(), arranged.ref.Task,
 		selectAll(plan, reconcile.ClassBranches))
 	if err != nil {
@@ -402,13 +392,11 @@ func TestArchivingRefusesToStrandAResource(t *testing.T) {
 	}
 }
 
-// TestArchivingKeepsTheRecordAndTheHistory is what "archive task metadata so
-// Feat can explain what happened later" has to mean.
-//
-// Nothing is deleted from the state directory: the snapshot keeps the branch and
-// the base the task recorded, and the event log keeps what each class removed.
-// So both halves of the question — what the task was, and what became of what it
-// owned — are still answerable after the resources are gone.
+// TestArchivingKeepsTheRecordAndTheHistory is what archiving task metadata has to
+// mean. Nothing is deleted from the state directory: the snapshot keeps the
+// branch and the base the task recorded, and the event log keeps what each class
+// removed, so what the task was and what became of what it owned are both still
+// answerable after the resources are gone.
 func TestArchivingKeepsTheRecordAndTheHistory(t *testing.T) {
 	service, arranged, _ := launched(t)
 
@@ -465,9 +453,9 @@ func TestArchivingKeepsTheRecordAndTheHistory(t *testing.T) {
 	}
 }
 
-// TestAPartialCleanupIsRecoverable is the recoverability rule applied to
-// removal: a run that failed half way leaves an account of what went and a plan
-// that names what is left.
+// TestAPartialCleanupIsRecoverable is the recoverability rule applied to removal:
+// a run that failed half way leaves an account of what went and a plan that names
+// what is left.
 func TestAPartialCleanupIsRecoverable(t *testing.T) {
 	service, arranged, _ := launched(t)
 	// The second repository's worktree refuses to be removed.
@@ -505,8 +493,7 @@ func TestAPartialCleanupIsRecoverable(t *testing.T) {
 }
 
 // TestCleanupOfAlreadyAbsentResourcesSucceeds keeps a partial cleanup finishable
-// by hand: a user who removed a worktree with Git should still be able to tidy
-// the rest.
+// by hand: a user who removed a worktree with Git can still tidy the rest.
 func TestCleanupOfAlreadyAbsentResourcesSucceeds(t *testing.T) {
 	service, arranged, _ := launched(t)
 
@@ -537,11 +524,10 @@ func TestCleanupOfAlreadyAbsentResourcesSucceeds(t *testing.T) {
 	}
 }
 
-// alsoPrepared adds a second live task to the fixture project.
-//
-// It is what keeps a project's worktree root in the orphan scan: the scan lists
-// the roots live tasks name, so a directory left under one is reported to the
-// people still using the project — which is who saw this.
+// alsoPrepared adds a second live task to the fixture project. It keeps the
+// project's worktree root in the orphan scan, which lists the roots live tasks
+// name, so a directory left under one is reported to whoever is still using the
+// project.
 func alsoPrepared(t *testing.T, service *service, name string) store.TaskRef {
 	t.Helper()
 
@@ -563,17 +549,15 @@ func alsoPrepared(t *testing.T, service *service, name string) store.TaskRef {
 	return ref
 }
 
-// TestACleanupLeavesNothingUnderTheWorktreeRootToReport is the residue a real
+// TestACleanupLeavesNothingUnderTheWorktreeRootToReport is a residue a real
 // dashboard reported: cleaning up a task removed its worktrees and left the
 // directory they sat in, so the next recovery pass asked the user to look at an
-// empty `…/worktrees/{project_id}/{task_id}` — the leavings of a cleanup they had
-// just confirmed.
+// empty `…/worktrees/{project_id}/{task_id}`.
 //
-// The directory is Feat's own: preparing the task created it, so cleaning the
-// task up removes it. The two boundaries are checked with it, because a walk that
-// went further would take directories that are not this task's: the project's
-// directory stays while another task is in it, and the root every task is created
-// in is never a thing a cleanup removes.
+// The directory is Feat's own, because preparing the task created it. The two
+// boundaries are checked with it, because a walk that went further would take
+// directories that are not this task's: the project's directory stays while
+// another task is in it, and a cleanup never removes the root.
 func TestACleanupLeavesNothingUnderTheWorktreeRootToReport(t *testing.T) {
 	service, arranged, _ := launched(t)
 	live := alsoPrepared(t, service, "Add a health check")
@@ -642,19 +626,18 @@ func TestACleanupLeavesNothingUnderTheWorktreeRootToReport(t *testing.T) {
 }
 
 // TestAProjectsOwnDirectoryOutlivesItsLastTask is the second half of the same
-// report: `orphaned worktrees …/worktrees/jobharbor-dev`, about a project whose
-// tasks had all been cleaned up.
+// report: an orphaned-worktree finding about a project whose tasks had all been
+// cleaned up.
 //
 // That directory is not a leftover. Feat generates it from the worktree root,
 // creates it for the project's first task, and creates every later task inside
-// it, so a project between tasks has one exactly as a project with six does —
-// and a report that calls it an orphan is telling the user to delete a directory
+// it, so a report that calls it an orphan tells the user to delete a directory
 // Feat is going to recreate.
 //
-// So it is neither removed with the last task nor reported afterwards, and both
-// halves are checked here. The third check is what keeps the rule narrow: a
-// stale task directory inside it is still reported, which is also what proves
-// the scan looked rather than passing because it never ran.
+// It is therefore neither removed with the last task nor reported afterwards, and
+// both halves are checked here. The third check keeps the rule narrow: a stale
+// task directory inside it is still reported, which is also what proves the scan
+// looked rather than never ran.
 func TestAProjectsOwnDirectoryOutlivesItsLastTask(t *testing.T) {
 	service, arranged, _ := launched(t)
 
@@ -680,8 +663,8 @@ func TestAProjectsOwnDirectoryOutlivesItsLastTask(t *testing.T) {
 		t.Fatal("the task was not archived, so the project still has one")
 	}
 
-	// Nothing of the task is left in it, so this is the state the report was
-	// about: a project with no task, and a directory of its own.
+	// Nothing of the task is left in it, so this is the state the report was about:
+	// a project with no task, and a directory of its own.
 	if entries, err := os.ReadDir(projectDir); err != nil {
 		t.Fatalf("the project's own directory went with its last task: %v", err)
 	} else if len(entries) != 0 {
@@ -696,9 +679,9 @@ func TestAProjectsOwnDirectoryOutlivesItsLastTask(t *testing.T) {
 		t.Errorf("a project between tasks was asked about: %v", orphans)
 	}
 
-	// The rule is narrow rather than off: the residue of a cleanup by an older
-	// build sits at the same depth as the task directory that has just gone, and
-	// is still reported. It is also what proves the scan looked at all.
+	// The rule is narrow rather than off. The residue of a cleanup by an older build
+	// sits at the same depth as the task directory that has just gone and is still
+	// reported, which also proves the scan looked at all.
 	stale := filepath.Join(projectDir, "0f8fad5b-d9cb-469f-a165-70867728950e")
 	if err := os.MkdirAll(stale, 0o755); err != nil {
 		t.Fatalf("arranging the residue of an older cleanup: %v", err)
@@ -725,14 +708,11 @@ func orphanedWorktrees(t *testing.T, service *service) []string {
 	return found
 }
 
-// TestAnEmptyDirectoryLeftByAnOlderCleanupSaysItIsEmpty is what the machines
-// that already have this residue are told.
-//
-// Removing them is still the user's, as it is for everything reconciliation
-// finds (ADR-037). What changes is that a directory holding nothing is named as
-// holding nothing, with the one command that clears it — rather than being
-// described as something to look at and judge, which for an empty directory is a
-// walk to the end of a path to find out there is nothing there.
+// TestAnEmptyDirectoryLeftByAnOlderCleanupSaysItIsEmpty is what the machines that
+// already have this residue are told. Removing them is still the user's, as it is
+// for everything reconciliation finds (ADR-037). What changes is that a directory
+// holding nothing is named as holding nothing, with the one command that clears
+// it, rather than sending somebody to the end of a path to find nothing there.
 func TestAnEmptyDirectoryLeftByAnOlderCleanupSaysItIsEmpty(t *testing.T) {
 	service, arranged, _ := launched(t)
 

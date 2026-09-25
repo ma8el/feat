@@ -14,10 +14,9 @@ import (
 //
 // Polling rather than filesystem notification is ADR-032's decision: inotify
 // events do not cross a bind mount reliably on every supported platform, and a
-// watcher that worked on the host while silently never firing in a container
-// would hide the failure in the configuration that matters most. The interval
-// is short enough that a dashboard feels live and long enough that an idle
-// machine is doing nothing measurable.
+// watcher that fired on the host but never in a container would hide the failure
+// where it matters most. The value is short enough that a dashboard feels live
+// and long enough that an idle machine does nothing measurable.
 const defaultPollInterval = 250 * time.Millisecond
 
 // controlWorkspace returns the control workspace of one task.
@@ -42,13 +41,10 @@ func (s *service) controlWorkspace(task *domain.Task) (*control.Workspace, error
 
 // pollControl reads every live task's control workspace once.
 //
-// A task whose delivery fails is logged and the others are still read: one
-// task's damaged workspace must not stop every other task from reporting, which
-// is the same rule reconciliation states generally.
-// It runs four times a second, so a failure it reports on every tick is a
-// failure written to the log four times a second for as long as it lasts. Both
-// reports below are therefore made once per distinct failure rather than once
-// per tick; see repeats.
+// A task whose delivery fails is logged and the others are still read, because
+// one task's damaged workspace must not stop every other task from reporting. It
+// runs four times a second, so both reports below are made once per distinct
+// failure rather than once per tick; see repeats.
 func (s *service) pollControl(ctx context.Context) {
 	tasks, err := s.Tasks(ctx)
 	if err != nil {
@@ -109,11 +105,9 @@ func (s *service) watchControl(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// nudge asks the poller to read now rather than at the next tick.
-//
-// A launch is followed within milliseconds by a session-start event, and a user
-// watching the dashboard should see the task reach working immediately rather
-// than at whatever point in the polling interval they happened to launch.
+// nudge asks the poller to read now rather than at the next tick. A launch is
+// followed within milliseconds by a session-start event, so the dashboard shows
+// the task working then rather than at some later point in the interval.
 func (s *service) nudge() {
 	select {
 	case s.pollNow <- struct{}{}:

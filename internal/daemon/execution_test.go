@@ -48,13 +48,12 @@ const (
 // ordinaryPrivileges is what a container granted nothing beyond its mounts
 // reports about itself.
 //
-// It is neither of the two answers a fixture reaches for by reflex. An unread
-// host configuration is refused, so Known is true; and a read one whose masked
-// and read-only path lists are empty is a grant rather than an absence —
+// It is neither answer a fixture reaches for by reflex. An unread host
+// configuration is refused, so Known is true, and a read one whose masked and
+// read-only path lists are empty is a grant rather than an absence, because
 // `security_opt: systempaths=unconfined` reaches a launch as those two lists
-// being empty and as nothing else (ADR-067). The lists come from composetest so
-// that a report written here and one the fake answers with cannot describe
-// different containers.
+// being empty and as nothing else (ADR-067). The lists come from composetest, so
+// a report written here and one the fake answers with describe one container.
 func ordinaryPrivileges() execution.ObservedPrivileges {
 	return execution.ObservedPrivileges{
 		Known:         true,
@@ -74,10 +73,9 @@ func containerProbe(program string, arguments ...string) string {
 
 // workingDocker is a fake Docker whose container passes every check: a recent
 // Compose, a service that starts and stays running, a non-root agent, no Docker
-// client, the hook toolchain, writable directories, and no unexpected mounts.
-//
-// A test that wants one of those to be wrong starts here and arranges the one
-// answer it cares about, so the failure it asserts is the only difference.
+// client, the hook toolchain, writable directories, and no unexpected mounts. A
+// test that wants one of those wrong starts here and arranges the one answer it
+// cares about, so the failure it asserts is the only difference.
 func workingDocker() *composetest.Docker {
 	docker := composetest.New().
 		Answer(containerProbe("id", "-u"), "1000\n").
@@ -93,8 +91,8 @@ func workingDocker() *composetest.Docker {
 		Answer(containerProbe("/bin/bash", "-c", ":"), "")
 
 	// The two control directories the agent reports through, rather than the
-	// workspace root: the root is mounted read-only, and what a launch has to
-	// prove writable is what Feat asks to be writable.
+	// workspace root. The root is mounted read-only, and what a launch has to prove
+	// writable is what Feat asks to be writable.
 	for _, directory := range []string{
 		fixtureControl + "/outbox", fixtureControl + "/reports", fixtureWorkdir,
 	} {
@@ -103,16 +101,15 @@ func workingDocker() *composetest.Docker {
 			Answer(containerProbe("rm", "-f", directory+"/.feat-write-probe"), "")
 	}
 
-	// Absent, which is what the security model requires and what the fake must
-	// therefore say: an unarranged answer would be a failure of a different
-	// shape. Every client that speaks the Docker API, not only the one named
-	// after it.
+	// Absent, which is what the security model requires and so what the fake must
+	// say: an unarranged answer would be a failure of a different shape. Every
+	// client that speaks the Docker API, not only the one named after it.
 	for _, client := range compose.ContainerClients {
 		docker = docker.Fail(containerProbe(client, "--version"),
 			`exec: "`+client+`": executable file not found in $PATH`, 126)
 	}
-	// And nothing that hands the agent back the privilege its user does not
-	// have, which is the other thing the launch asks the container about itself.
+	// And nothing that hands the agent back the privilege its user does not have,
+	// which is the other thing the launch asks the container about itself.
 	for _, tool := range compose.EscalationTools {
 		docker = docker.Fail(containerProbe(tool.Name, tool.Arguments...),
 			`exec: "`+tool.Name+`": executable file not found in $PATH`, 126)
@@ -122,11 +119,9 @@ func workingDocker() *composetest.Docker {
 
 // TestTheGeneratedOverrideMountsWhatTheTaskOwns is acceptance criterion 1 at the
 // daemon layer: the task's worktrees appear at their configured container paths
-// with the access the task selected.
-//
-// It is checked on the specification the daemon resolved rather than on a
-// running container, because this is the layer that decides it; the real suite
-// checks the same thing against Docker.
+// with the access the task selected. It is checked on the specification the
+// daemon resolved rather than on a running container, because this is the layer
+// that decides it, and the real suite checks the same thing against Docker.
 func TestTheGeneratedOverrideMountsWhatTheTaskOwns(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)
@@ -167,13 +162,12 @@ func TestTheGeneratedOverrideMountsWhatTheTaskOwns(t *testing.T) {
 // TestOnlyTheAgentsOwnDirectoriesOfTheControlWorkspaceAreWritable is the mount
 // half of the control-workspace boundary.
 //
-// The workspace was mounted read-write in full, which handed the agent the two
-// things ADR-032 keeps out of its reach: agent/, holding the generated hooks
-// and the record of which messages have been applied, and inbox/, holding the
-// completion gate's verdicts on the agent's own review requests. An agent that
-// can write either can rewrite the hooks it runs under, forge the verdict it is
-// waiting for, or delete the record that stops a message being applied twice —
-// none of which needs a defect anywhere else to work.
+// A workspace mounted read-write in full hands the agent the two things ADR-032
+// keeps out of its reach: agent/, holding the generated hooks and the record of
+// which messages have been applied, and inbox/, holding the gate's verdicts on
+// the agent's own review requests. An agent that can write either can rewrite the
+// hooks it runs under, forge the verdict it is waiting for, or delete the record
+// that stops a message being applied twice.
 func TestOnlyTheAgentsOwnDirectoriesOfTheControlWorkspaceAreWritable(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)
@@ -210,9 +204,9 @@ func TestOnlyTheAgentsOwnDirectoriesOfTheControlWorkspaceAreWritable(t *testing.
 		}
 	}
 
-	// And the two host-only parts are reachable, read-only, through the mount
-	// of the tree they are in: a hook the agent cannot read is a session Feat
-	// never hears from.
+	// And the two host-only parts are reachable, read-only, through the mount of
+	// the tree they are in: a hook the agent cannot read is a session Feat never
+	// hears from.
 	if _, mounted := writable[fixtureControl+"/agent"]; mounted {
 		t.Error("the host-only agent directory is mounted read-write")
 	}
@@ -222,11 +216,8 @@ func TestOnlyTheAgentsOwnDirectoriesOfTheControlWorkspaceAreWritable(t *testing.
 }
 
 // TestEachTaskGetsItsOwnComposeProject is what makes acceptance criterion 6
-// possible.
-//
-// Two tasks sharing a Compose project name would be two tasks sharing one
-// container, and the second launch would silently join the first task's
-// environment.
+// possible. Two tasks sharing a Compose project name would share one container,
+// and the second launch would silently join the first task's environment.
 func TestEachTaskGetsItsOwnComposeProject(t *testing.T) {
 	arranged := arrangeDrafting(t)
 
@@ -258,15 +249,14 @@ func TestEachTaskGetsItsOwnComposeProject(t *testing.T) {
 // applied to containers.
 //
 // Cleanup and reconciliation resolve what a task owns from its record, so a
-// container that exists while nothing names it is a container nothing can find.
-// The check is made from inside the launch: at the moment Docker is asked to
-// bring a service up, a durable record must already name the Compose project.
+// container that exists while nothing names it cannot be found. The check is made
+// from inside the launch: at the moment Docker is asked to bring a service up, a
+// durable record must already name the Compose project.
 //
-// That record is the task's event log rather than its snapshot, and the
-// difference is not an implementation detail. A session is what carries the
-// environment on the snapshot, and a session needs the tmux target of a terminal
-// that runs inside the container — so the snapshot cannot name the container
-// until after it exists. The event log has no such requirement (ADR-033).
+// That record is the task's event log rather than its snapshot. A session carries
+// the environment on the snapshot and needs the tmux target of a terminal running
+// inside the container, so the snapshot cannot name the container until after it
+// exists. The event log has no such requirement (ADR-033).
 func TestTheExecutionEnvironmentIsRecordedBeforeItExists(t *testing.T) {
 	arranged := arrangeDrafting(t)
 
@@ -288,8 +278,8 @@ func TestTheExecutionEnvironmentIsRecordedBeforeItExists(t *testing.T) {
 				namedWhenStarted = append(namedWhenStarted, event.To)
 			}
 		}
-		// And the document that decides what the container mounts is on disk
-		// before the container reads it.
+		// And the document that decides what the container mounts is on disk before
+		// the container reads it.
 		if _, err := os.Stat(arranged.overridePath(t, draft.ID)); err == nil {
 			overrideExisted = true
 		}
@@ -315,12 +305,11 @@ func TestTheExecutionEnvironmentIsRecordedBeforeItExists(t *testing.T) {
 }
 
 // TestALaunchRefusedByTheContainerIsExplainable covers the failures a
-// devcontainer can produce, and what each one leaves behind.
-//
-// Every case must do three things: refuse the launch, say why in terms that name
-// the fix, and leave the task `failed` rather than in a state that claims an
-// agent is running. Nothing is undone, because a container that started may have
-// had effects that stopping it does not reverse (ADR-029, ADR-033).
+// devcontainer can produce, and what each one leaves behind. Every case must
+// refuse the launch, say why in terms that name the fix, and leave the task
+// `failed` rather than claiming an agent is running. Nothing is undone, because a
+// container that started may have had effects stopping it does not reverse
+// (ADR-029, ADR-033).
 func TestALaunchRefusedByTheContainerIsExplainable(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		arrange  func(*composetest.Docker)
@@ -391,8 +380,8 @@ func TestALaunchRefusedByTheContainerIsExplainable(t *testing.T) {
 				}
 			}
 
-			// Checked at the adapter rather than at the outcome: that no tmux
-			// command ran is a stronger statement than that no terminal exists.
+			// Checked at the adapter rather than at the outcome, because no tmux
+			// command running is a stronger statement than no terminal existing.
 			if calls := arranged.tmux.Calls(); len(calls) != 0 {
 				t.Errorf("the refused launch still ran %d tmux commands: %v", len(calls), calls)
 			}
@@ -412,11 +401,10 @@ func TestALaunchRefusedByTheContainerIsExplainable(t *testing.T) {
 // that decides what happens about it.
 //
 // The launch goes ahead, because a project may have installed `sudo` on purpose
-// and a refusal would be Feat overruling a choice that is the project's to make.
-// What it must not do is go ahead silently: the requirement "the container user
-// is non-root" is satisfied at the instant it is measured and not afterwards, so
-// the launch says which container that is true of, against the task, where the
-// person running it will find it.
+// and refusing would overrule a choice that is the project's to make. It must not
+// go ahead silently: a non-root container user is satisfied at the instant it is
+// measured and not afterwards, so the launch says which container that is true
+// of, against the task.
 func TestAContainerThatHandsTheAgentRootIsLaunchedAndSaidSo(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	arranged.docker.Answer(containerProbe("sudo", "-n", "true"), "")
@@ -449,10 +437,8 @@ func TestAContainerThatHandsTheAgentRootIsLaunchedAndSaidSo(t *testing.T) {
 }
 
 // TestAContainerThatGrantsNothingSaysNothing keeps the report above from being
-// noise on every launch.
-//
-// A warning that appears whatever the container is says nothing about any
-// container, and the fixture's image is the ordinary case.
+// noise on every launch. A warning that appears whatever the container is says
+// nothing about any container, and the fixture's image is the ordinary case.
 func TestAContainerThatGrantsNothingSaysNothing(t *testing.T) {
 	arranged := arrangeDrafting(t)
 
@@ -471,11 +457,9 @@ func TestAContainerThatGrantsNothingSaysNothing(t *testing.T) {
 }
 
 // TestAnAgentIsNeverStartedInARefusedContainer is the narrow form of the rule
-// above.
-//
-// The refusals exist to keep an agent out of a container that breaks the
-// security model, so the thing worth checking is not only that the launch failed
-// but that nothing ran the agent anyway.
+// above. The refusals exist to keep an agent out of a container that breaks the
+// security model, so what is worth checking is that nothing ran the agent rather
+// than only that the launch failed.
 func TestAnAgentIsNeverStartedInARefusedContainer(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	arranged.docker.Answer(containerProbe("id", "-u"), "0\n")
@@ -495,11 +479,9 @@ func TestAnAgentIsNeverStartedInARefusedContainer(t *testing.T) {
 }
 
 // TestTheGeneratedOverrideIsNotWhereTheAgentCanReachIt checks where the document
-// deciding the container's mounts lives.
-//
-// It is under the state directory, outside the control workspace, and outside
-// every task worktree. A file the agent could write that decided what its own
-// container mounts would undo every other mount rule.
+// deciding the container's mounts lives: under the state directory, outside the
+// control workspace, and outside every task worktree. A file the agent could
+// write that decided its own container's mounts would undo every other mount rule.
 func TestTheGeneratedOverrideIsNotWhereTheAgentCanReachIt(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)
@@ -524,13 +506,11 @@ func TestTheGeneratedOverrideIsNotWhereTheAgentCanReachIt(t *testing.T) {
 	}
 }
 
-// TestAStableRepositoryIsMountedReadOnlyFromItsCheckout is acceptance criterion
-// 2 in its general form: the stable devcontainer code is read-only.
-//
-// A stable_read_only repository is not a task repository. It has no branch and
-// no worktree, and the agent reads it from the ordinary checkout — so this is the
-// one mount whose source is a directory the user works in themselves, and the
-// only thing keeping the agent out of it is that Feat mounts it read-only.
+// TestAStableRepositoryIsMountedReadOnlyFromItsCheckout is acceptance criterion 2
+// in its general form: the stable devcontainer code is read-only. Such a
+// repository has no branch and no worktree, and the agent reads it from the
+// ordinary checkout, so this is the one mount whose source is a directory the
+// user works in and Feat mounting it read-only is what keeps the agent out.
 func TestAStableRepositoryIsMountedReadOnlyFromItsCheckout(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)
@@ -572,14 +552,11 @@ func TestAStableRepositoryIsMountedReadOnlyFromItsCheckout(t *testing.T) {
 }
 
 // TestAStableRepositoryIsNotAlsoForbidden keeps the two rules about ordinary
-// checkouts from contradicting each other.
-//
-// Mounting a checkout is normally refused, because the agent would be able to
-// edit the working copy the task exists to leave alone. A stable_read_only
-// repository the task left stable is the declared exception: the project said
-// the agent reads it from the checkout, and Feat mounts it read-only itself. If
-// it were on the never-mount list, every launch of such a project would refuse
-// its own mount.
+// checkouts from contradicting each other. Mounting a checkout is normally
+// refused, because the agent could edit the working copy the task exists to leave
+// alone. A stable_read_only repository the task left stable is the declared
+// exception, and putting it on the never-mount list would make every launch of
+// such a project refuse its own mount.
 func TestAStableRepositoryIsNotAlsoForbidden(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)
@@ -597,8 +574,8 @@ func TestAStableRepositoryIsNotAlsoForbidden(t *testing.T) {
 			t.Error("a stable read-only repository is on the forbidden list, so launching would refuse its own mount")
 		}
 	}
-	// It is not unprotected either: Feat mounts it at one target and nowhere
-	// else, which is the weaker rule the stable kind carries.
+	// It is not unprotected either. Feat mounts it at one target and nowhere else,
+	// which is the weaker rule the stable kind carries.
 	if !slices.Contains(stableCheckouts(cfg, task), stable) {
 		t.Errorf("the stable checkout %s is not protected at all: %v", stable, stableCheckouts(cfg, task))
 	}
@@ -610,14 +587,12 @@ func TestAStableRepositoryIsNotAlsoForbidden(t *testing.T) {
 	}
 }
 
-// TestAPromotedStableRepositoryIsAnOrdinaryCheckout is the half of the rule
-// above that was missing.
-//
-// default_access: stable_read_only says how a repository participates by
-// default, and DefaultAccess.Permits lets a task promote it to read-write. A
-// promoted repository has a branch, a worktree, and a mount of that worktree
-// like any other — so its ordinary checkout is the working copy the task exists
-// to leave alone, and a base file mounting it beside the worktree is the silent
+// TestAPromotedStableRepositoryIsAnOrdinaryCheckout is the half of the rule above
+// that was missing. default_access: stable_read_only says how a repository
+// participates by default, and DefaultAccess.Permits lets a task promote it to
+// read-write. A promoted repository has a branch, a worktree, and a mount of that
+// worktree like any other, so its checkout is the working copy the task exists to
+// leave alone and a base file mounting it beside the worktree is the silent
 // failure ADR-033 evidence 1 records.
 func TestAPromotedStableRepositoryIsAnOrdinaryCheckout(t *testing.T) {
 	arranged := arrangeDrafting(t)
@@ -680,14 +655,10 @@ func TestAPromotedStableRepositoryIsAnOrdinaryCheckout(t *testing.T) {
 }
 
 // TestAStableCheckoutIsRefusedAnywhereButItsOwnMount is the milder half of the
-// same defect.
-//
-// Feat mounts a stable checkout read-only at the container_path its repository
-// configures. A base file that mounts the same checkout at a different target
-// adds the user's own working copy beside it, usually writable, and Compose
-// merges by target so nothing replaces it. "Stable read-only infrastructure
-// checkout" is a category the product declares, and this is what makes it one
-// the product enforces.
+// same defect. Feat mounts a stable checkout read-only at the container_path its
+// repository configures, and a base file that mounts the same checkout at another
+// target adds the user's own working copy beside it, usually writable, which
+// Compose does not replace because it merges by target.
 func TestAStableCheckoutIsRefusedAnywhereButItsOwnMount(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)
@@ -742,14 +713,12 @@ func TestAStableCheckoutIsRefusedAnywhereButItsOwnMount(t *testing.T) {
 	}
 }
 
-// TestTheGitDirectoryIsMountedSoTheWorktreeIsARepository is acceptance
-// criterion 5's first half, and the failure it prevents is total.
-//
-// A task worktree is not a repository on its own: its .git is a file naming the
-// main checkout's Git directory by absolute host path. Without that directory
-// mounted, every Git command in the container reports "not a git repository" —
-// so the agent could not commit, diff, or read a log, while the container, the
-// mounts, and every state Feat records looked exactly right.
+// TestTheGitDirectoryIsMountedSoTheWorktreeIsARepository is acceptance criterion
+// 5's first half, and the failure it prevents is total. A task worktree is not a
+// repository on its own: its .git is a file naming the main checkout's Git
+// directory by absolute host path. Without that directory mounted, every Git
+// command in the container reports "not a git repository", so the agent cannot
+// commit, diff, or read a log while everything Feat records looks right.
 func TestTheGitDirectoryIsMountedSoTheWorktreeIsARepository(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)
@@ -777,15 +746,15 @@ func TestTheGitDirectoryIsMountedSoTheWorktreeIsARepository(t *testing.T) {
 				continue
 			}
 			mounted = true
-			// At the same path, because the link the worktree records is the
-			// host's absolute one and it has to resolve unchanged.
+			// At the same path, because the link the worktree records is the host's
+			// absolute one and has to resolve unchanged.
 			if mount.Target != metadata {
 				t.Errorf("repository %s mounts its Git directory at %s, want the host path %s: "+
 					"the worktree's recorded link would not resolve",
 					binding.RepositoryID, mount.Target, metadata)
 			}
-			// And with the worktree's own access: a task that may not write the
-			// code may not rewrite the history either.
+			// And with the worktree's own access: a task that may not write the code
+			// may not rewrite the history either.
 			wantReadOnly := binding.Access == domain.TaskAccessReadOnly
 			if mount.ReadOnly != wantReadOnly {
 				t.Errorf("repository %s mounts its Git directory read-only=%t, want %t to match its %s access",
@@ -799,12 +768,10 @@ func TestTheGitDirectoryIsMountedSoTheWorktreeIsARepository(t *testing.T) {
 	}
 }
 
-// TestTheWorkingCopyIsStillOutOfReach keeps the mount above from undoing the
-// rule it sits beside.
-//
-// The Git directory carries history, which the security model exposes by name.
-// The working copy is a different thing, and nothing may mount it — not the
-// checkout, not a directory holding it, and not a directory inside it.
+// TestTheWorkingCopyIsStillOutOfReach keeps the mount above from undoing the rule
+// it sits beside. The Git directory carries history, which the security model
+// exposes by name. The working copy is a different thing, and nothing may mount
+// it: not the checkout, not a directory holding it, and not one inside it.
 func TestTheWorkingCopyIsStillOutOfReach(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)
@@ -863,15 +830,14 @@ func TestTheWorkingCopyIsStillOutOfReach(t *testing.T) {
 	}
 }
 
-// TestFeatsOwnDirectoriesAreOutOfReachToo is the rule CLAUDE.md states by hand:
-// no daemon or runtime-control socket reaches the agent's container.
+// TestFeatsOwnDirectoriesAreOutOfReachToo covers the rule that no daemon or
+// runtime-control socket reaches the agent's container.
 //
-// The daemon is the only place that knows where those sockets are, so this is
-// the layer that has to name them. Feat mounts none of these directories, and a
-// project whose own Compose files mount one would otherwise hand the agent the
-// tmux server that runs every task's session, the API that launches and cleans
-// up every task, and the state directory holding every other task's control
-// workspace.
+// The daemon is the only place that knows where those sockets are, so this is the
+// layer that names them. Feat mounts none of these directories, and a project
+// whose own Compose files mount one would hand the agent the tmux server that
+// runs every task's session, the API that launches and cleans up every task, and
+// the state directory holding every other task's control workspace.
 func TestFeatsOwnDirectoriesAreOutOfReachToo(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)
@@ -907,7 +873,7 @@ func TestFeatsOwnDirectoriesAreOutOfReachToo(t *testing.T) {
 	}
 
 	// The adapter's half: a container that turns out to mount one is refused,
-	// whether it names the directory or a directory holding it.
+	// whether it names the directory or one holding it.
 	for name, source := range map[string]string{
 		"the runtime directory":     arranged.layout.Runtime,
 		"the daemon's socket":       arranged.layout.Socket,
@@ -930,8 +896,8 @@ func TestFeatsOwnDirectoriesAreOutOfReachToo(t *testing.T) {
 	}
 
 	// And this task's own control workspace, which lives inside the state
-	// directory, is still accepted: a rule that refused it would refuse every
-	// launch of every project.
+	// directory, is still accepted. A rule that refused it would refuse every launch
+	// of every project.
 	own := make([]execution.ObservedMount, 0, len(spec.Mounts))
 	for _, mount := range spec.Mounts {
 		own = append(own, execution.ObservedMount{

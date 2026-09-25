@@ -78,7 +78,7 @@ func recorded(history []domain.Event, kind domain.EventType) (domain.Event, bool
 	return domain.Event{}, false
 }
 
-// TestPreparingATerminalRecordsTheLiveTarget is the ordinary path: the daemon
+// TestPreparingATerminalRecordsTheLiveTarget checks the ordinary path: the daemon
 // creates the terminal, records the stable target it observed, and explains the
 // change on the event stream.
 func TestPreparingATerminalRecordsTheLiveTarget(t *testing.T) {
@@ -125,7 +125,7 @@ func TestPreparingATerminalRecordsTheLiveTarget(t *testing.T) {
 }
 
 // TestATerminalThatCannotBeCreatedFailsTheTaskExplainably covers the branch a
-// user meets first: tmux refuses, and the task has to say so rather than stay
+// user meets first: tmux refuses, and the task says so rather than staying
 // confirmed with nothing behind it.
 func TestATerminalThatCannotBeCreatedFailsTheTaskExplainably(t *testing.T) {
 	arranged := prepared(t)
@@ -198,8 +198,8 @@ func TestRestartRepairsAStaleTargetFromLiveMetadata(t *testing.T) {
 }
 
 // TestRestartMarksAMissingTerminalStoppedWithoutRestartingIt keeps recovery
-// honest: the daemon reports what it found and does not invent a process the
-// user did not ask it to start again.
+// honest: the daemon reports what it found and invents no process the user did
+// not ask it to start again.
 func TestRestartMarksAMissingTerminalStoppedWithoutRestartingIt(t *testing.T) {
 	arranged := prepared(t)
 	service, _ := withTmux(t, arranged, tmuxtest.New())
@@ -236,9 +236,9 @@ func TestRestartMarksAMissingTerminalStoppedWithoutRestartingIt(t *testing.T) {
 	}
 }
 
-// TestReconciliationReportsAConflictingProjectRatherThanGuessing covers the
-// rule that missing or conflicting metadata is reported: a window claiming the
-// task for another project must not silently rebind it.
+// TestReconciliationReportsAConflictingProjectRatherThanGuessing covers the rule
+// that missing or conflicting metadata is reported: a window claiming the task
+// for another project must not silently rebind it.
 func TestReconciliationReportsAConflictingProjectRatherThanGuessing(t *testing.T) {
 	arranged := prepared(t)
 	service, _ := withTmux(t, arranged, tmuxtest.New())
@@ -257,9 +257,9 @@ func TestReconciliationReportsAConflictingProjectRatherThanGuessing(t *testing.T
 
 	report, err := restarted.Reconcile(context.Background())
 	if err != nil {
-		// A conflict is one task's problem. It is a finding rather than an
-		// error, because failing the pass would take every healthy task's
-		// recovery with it, which is the blast radius ADR-037 bounds.
+		// A conflict is one task's problem, so it is a finding rather than an error:
+		// failing the pass would take every healthy task's recovery with it, which is
+		// the blast radius ADR-037 bounds.
 		t.Fatalf("a conflicting terminal must be reported, not fail the pass: %v", err)
 	}
 	finding, ok := found(report, reconcile.ClassTerminal, reconcile.StatusInconsistent)
@@ -285,7 +285,7 @@ func found(report api.Reconciliation, class reconcile.Class, status reconcile.St
 }
 
 // TestReconciliationReportsATaggedTerminalWithNoRecordedTask keeps an orphan
-// visible. What to do about it is the user's choice; recovery must not drop
+// visible. What to do about it is the user's choice, and recovery must not drop
 // it.
 func TestReconciliationReportsATaggedTerminalWithNoRecordedTask(t *testing.T) {
 	arranged := prepared(t)

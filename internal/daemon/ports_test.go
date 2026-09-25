@@ -39,10 +39,8 @@ func binding(fixture, address string) string {
 }
 
 // publishing writes the project's own Compose file, publishing the managed
-// service on a fixed host port.
-//
-// The fixed port is the whole problem: it is global to the machine, so the
-// second task to want it cannot start. What Feat does with it is replace it.
+// service on a fixed host port. The fixed port is the problem: it is global to
+// the machine, so the second task to want it cannot start, and Feat replaces it.
 func publishing(t *testing.T, arranged *drafting, body string) {
 	t.Helper()
 	writeCompose(t, filepath.Join(arranged.env.Home, "repos", "app", "compose.yml"), body)
@@ -80,36 +78,32 @@ func overrideOf(t *testing.T, arranged *drafting, id domain.TaskID) string {
 	return string(document)
 }
 
-// reservationPause is how long the task holding the window open waits for
-// another task's reservation to arrive in it.
+// reservationPause is how long the task holding the window open waits for another
+// task's reservation to arrive in it.
 //
 // It is only ever waited out when the allocation is correct. A task that can
 // reach the range while another task's choice is unrecorded gets there in the
-// time it takes to read a project's configuration; one that cannot is waiting
-// for the allocator, which is the property under test. Generous for that reason:
-// the cost of being too long is this one test taking two seconds longer, and the
-// cost of being too short is reporting a window shut while it is open.
+// time it takes to read a project's configuration, and one that cannot is waiting
+// for the allocator. It is generous because being too long costs two seconds and
+// being too short reports a window shut while it is open.
 const reservationPause = 2 * time.Second
 
-// TestEachTaskIsPublishedOnItsOwnHostPort is ADR-065's first rule, at the
-// daemon.
+// TestEachTaskIsPublishedOnItsOwnHostPort is ADR-065's first rule, at the daemon.
 //
-// Two tasks of one project run the same application. A host port is global to
-// the machine, so the fixed one their Compose file writes down could serve one
-// of them; each is therefore given a port of its own, and neither publishes the
-// one the project wrote.
+// Two tasks of one project run the same application. A host port is global to the
+// machine, so the fixed one their Compose file writes down could serve one of
+// them; each is given a port of its own, and neither publishes the one the
+// project wrote.
 //
 // They start concurrently, because sequentially is how this passed while the
 // invariant it names was broken (G6-04). A port is chosen by reading what every
 // other task has recorded, so two tasks can only be given the same one when the
-// second reads between the first's choice and the first's record — and two
-// starts one after the other never do.
+// second reads between the first's choice and the first's record.
 //
-// The daemon's own seam is what puts them there: `reserving` runs in that gap,
-// and the first task waits in it while the second runs its whole reservation.
-// With the allocator held across the choice and the record, the second cannot
-// reach the range at all until the first has let go, and the wait is what that
-// looks like from here.
+// The daemon's own seam puts them there: `reserving` runs in that gap, and the
+// first task waits in it while the second runs its whole reservation. With the
+// allocator held across the choice and the record, the second cannot reach the
+// range until the first has let go.
 func TestEachTaskIsPublishedOnItsOwnHostPort(t *testing.T) {
 	arranged := arrangeConfigured(t, reaching(runtimeFixture))
 	publishing(t, arranged, oneReachableService)
@@ -131,11 +125,11 @@ func TestEachTaskIsPublishedOnItsOwnHostPort(t *testing.T) {
 		}
 		select {
 		case <-chosen[second.ID]:
-			// The window is open: the second task read the range while this
-			// task's choice existed nowhere but in memory.
+			// The window is open: the second task read the range while this task's
+			// choice existed nowhere but in memory.
 		case <-time.After(reservationPause):
-			// The window is shut: the second task cannot read the range until
-			// this one has written its choice down and released the allocator.
+			// The window is shut: the second task cannot read the range until this
+			// one has written its choice down and released the allocator.
 		}
 	}
 
@@ -207,12 +201,11 @@ func TestEachTaskIsPublishedOnItsOwnHostPort(t *testing.T) {
 // TestThreeTasksStartedAtOnceEachHoldTheirOwnPorts is the acceptance criterion in
 // its own words, without a seam to arrange the moment.
 //
-// Three tasks running at once is what the criterion says and what the reference
-// project met the defect with (ADR-065), so the ordinary path is driven
-// concurrently here, with nothing holding anything open: whatever interleaving
-// the scheduler produces has to leave three tasks able to bind what they were
-// given. It is the weaker of the two — a race it does not happen to hit still
-// passes — and it is the one that needs no test hook to stay true.
+// Three tasks running at once is what the criterion says and where the defect was
+// met (ADR-065), so the ordinary path is driven concurrently with nothing holding
+// anything open: whatever interleaving the scheduler produces has to leave three
+// tasks able to bind what they were given. It is the weaker of the two, because a
+// race it does not hit still passes, and the one that needs no test hook.
 func TestThreeTasksStartedAtOnceEachHoldTheirOwnPorts(t *testing.T) {
 	arranged := arrangeConfigured(t, reaching(runtimeFixture))
 	publishing(t, arranged, oneReachableService)
@@ -258,13 +251,11 @@ func TestThreeTasksStartedAtOnceEachHoldTheirOwnPorts(t *testing.T) {
 // TestEveryManagedServiceIsToldTheHostAddressOfItsTask is the second acceptance
 // criterion at the daemon: an application finds its own task's services.
 //
-// The address differs per task, so nothing baked into an image and nothing
-// written in the project's own file can be right for more than one of them. It
-// reaches the services twice over, and both are needed: in the container's
-// environment, for a service that reads FEAT_HOST_URL_ itself, and in the
-// environment of the Compose process, for a project that maps it to its own
-// name with a "${...}" — which is the only way for a service whose framework
-// exposes variables under a prefix of its own.
+// The address differs per task, so nothing baked into an image and nothing in the
+// project's own file can be right for more than one. It reaches the services
+// twice, and both are needed: in the container's environment, for a service that
+// reads FEAT_HOST_URL_ itself, and in the Compose process's environment, for a
+// project that maps it to its own name with a "${...}".
 //
 // What a managed service does with a host address is bake it into something a
 // browser will load. It is not how it calls a sibling, and the prefix says so
@@ -305,15 +296,12 @@ func TestEveryManagedServiceIsToldTheHostAddressOfItsTask(t *testing.T) {
 }
 
 // TestNoManagedServicePublishesAPortFeatDidNotAllocate is the fifth acceptance
-// criterion.
-//
-// A service the project did not declare reachable publishes nothing, and so does
-// a service Compose started because a managed one depends on it. Both would
-// otherwise carry a fixed port to the host, which is the same one-task-per-
-// machine failure as the entry point's, arriving one service over (ADR-034
-// evidence 12).
+// criterion. A service the project did not declare reachable publishes nothing,
+// and so does one Compose started because a managed service depends on it. Both
+// would otherwise carry a fixed port to the host, which is the entry point's
+// one-task-per-machine failure arriving one service over (ADR-034 evidence 12).
 func TestNoManagedServicePublishesAPortFeatDidNotAllocate(t *testing.T) {
-	// admin is managed and not reachable; postgres is not managed at all and is
+	// admin is managed and not reachable, and postgres is not managed at all and is
 	// there because a managed service depends on it.
 	managing := strings.Replace(reaching(runtimeFixture),
 		"      services:\n        - api\n      reachable:",
@@ -354,10 +342,9 @@ func TestNoManagedServicePublishesAPortFeatDidNotAllocate(t *testing.T) {
 	}
 }
 
-// TestADestroyReleasesThePortsItHeld is the third acceptance criterion.
-//
-// A destroyed runtime holds nothing, so its ports belong to whichever task asks
-// next — and until it is destroyed they belong to it, whatever else happens.
+// TestADestroyReleasesThePortsItHeld is the third acceptance criterion. A
+// destroyed runtime holds nothing, so its ports belong to whichever task asks
+// next, and until it is destroyed they belong to it whatever else happens.
 func TestADestroyReleasesThePortsItHeld(t *testing.T) {
 	arranged := arrangeConfigured(t, reaching(runtimeFixture))
 	publishing(t, arranged, oneReachableService)
@@ -375,8 +362,8 @@ func TestADestroyReleasesThePortsItHeld(t *testing.T) {
 		t.Fatalf("the second task was given host port %d while the first task's containers hold it", taken)
 	}
 
-	// The destroy gives it back: `ps` answers with nothing, so the runtime is
-	// observed absent, which is what a released port means.
+	// The destroy gives it back. `ps` answers with nothing, so the runtime is
+	// observed absent, which is what releases a port.
 	arranged.runtimes.Answer("ps --all --format json", "")
 	arranged.act(t, first.ID, api.RuntimeDestroy)
 
@@ -395,12 +382,10 @@ func TestADestroyReleasesThePortsItHeld(t *testing.T) {
 }
 
 // TestAllocatedPortsSurviveEveryLaterAction covers the other half of the third
-// criterion: a port is not reallocated while the runtime holding it exists.
-//
-// The recorded inputs win while there are resources, for the reason every other
-// input does — a re-resolved port would move a task's address out from under the
-// containers bound to it — and here that rule is what keeps the port held
-// against every other task as well.
+// criterion: a port is not reallocated while the runtime holding it exists. The
+// recorded inputs win while there are resources, because a re-resolved port would
+// move a task's address out from under the containers bound to it, and that rule
+// also keeps the port held against every other task.
 func TestAllocatedPortsSurviveEveryLaterAction(t *testing.T) {
 	arranged := arrangeConfigured(t, reaching(runtimeFixture))
 	publishing(t, arranged, oneReachableService)
@@ -421,18 +406,17 @@ func TestAllocatedPortsSurviveEveryLaterAction(t *testing.T) {
 	}
 }
 
-// TestAStaleObservationDoesNotGiveAwayATasksPorts is the defect three tasks of
-// the reference project found.
+// TestAStaleObservationDoesNotGiveAwayATasksPorts is the defect three concurrent
+// tasks found.
 //
-// The poller lists the tasks outside any lock and asks Docker about each in
-// turn, so a create that finishes while it is asking leaves it holding an answer
-// about the world as it was before: nothing existed, therefore the runtime is
-// absent. Written down, that releases the host ports the create had just
-// allocated — while the containers created with them are bound to those ports —
-// and the next task is given them.
+// The poller lists the tasks outside any lock and asks Docker about each in turn,
+// so a create that finishes while it is asking leaves it holding an answer from
+// before: nothing existed, therefore the runtime is absent. Written down, that
+// releases the host ports the create had just allocated while its containers are
+// bound to them, and the next task is given them.
 //
 // The state alone would have survived it, because the next poll corrects the
-// state. A released port is not corrected by anything.
+// state. Nothing corrects a released port.
 func TestAStaleObservationDoesNotGiveAwayATasksPorts(t *testing.T) {
 	arranged := arrangeConfigured(t, reaching(runtimeFixture))
 	publishing(t, arranged, oneReachableService)
@@ -440,9 +424,9 @@ func TestAStaleObservationDoesNotGiveAwayATasksPorts(t *testing.T) {
 	task := arranged.launched(t)
 	arranged.answerFor(task, "running", "Up 2 seconds")
 
-	// The copy a poll would have started from: this task as it was before
-	// anything was created for it, which is what a status of a new task leaves
-	// behind and what the poller's own listing holds while Docker is answering.
+	// The copy a poll would have started from: this task as it was before anything
+	// was created for it, which is what a status of a new task leaves behind and
+	// what the poller's own listing holds while Docker is answering.
 	arranged.runtimes.Answer("ps --all --format json", "")
 	arranged.act(t, task.ID, api.RuntimeObserve)
 	stale := arranged.reload(t, task.ID)
@@ -477,16 +461,15 @@ func TestAStaleObservationDoesNotGiveAwayATasksPorts(t *testing.T) {
 //
 // A destroy and the create after it leave a record that looks exactly like the
 // one the poll started from: the same Compose project, running again, one
-// allocation — and the same port number, because the destroy releases 21000 and
-// the create takes the lowest free port, which is 21000. Every field the guard
-// used to compare therefore matched, and the answer from before the pair was
-// applied to the record after it, recording absent and releasing a port the new
-// containers are bound to (G3-05, ADR-065 evidence 16).
+// allocation, and the same port number, because the destroy releases 21000 and
+// the create takes the lowest free port, which is 21000. A guard comparing those
+// fields matched, so the answer from before the pair was applied to the record
+// after it, recording absent and releasing a port the new containers are bound to
+// (G3-05, ADR-065 evidence 16).
 //
-// The identical shape is asserted rather than assumed. It is the whole of what
-// this test is about: a guard that compared the record's contents — the ports,
-// their count, the state, the moment on a clock that has not moved — would pass
-// every one of those comparisons here.
+// The identical shape is asserted rather than assumed, because a guard that
+// compared the record's contents — the ports, their count, the state, the moment
+// on a clock that has not moved — would pass every comparison here.
 func TestAStaleObservationDoesNotSurviveADestroyAndRecreate(t *testing.T) {
 	arranged := arrangeConfigured(t, reaching(runtimeFixture))
 	publishing(t, arranged, oneReachableService)
@@ -495,13 +478,12 @@ func TestAStaleObservationDoesNotSurviveADestroyAndRecreate(t *testing.T) {
 	arranged.answerFor(task, "running", "Up 2 seconds")
 	arranged.act(t, task.ID, api.RuntimeCreate)
 
-	// What a poll holds while Docker is answering: this task, running, holding
-	// the port its containers were created with.
+	// What a poll holds while Docker is answering: this task, running, holding the
+	// port its containers were created with.
 	stale := arranged.reload(t, task.ID)
 
-	// And what the user does while it waits. The destroy is observed through a
-	// `ps` that answers nothing, which is what makes the runtime absent and its
-	// port free.
+	// And what the user does while it waits. The destroy is observed through a `ps`
+	// that answers nothing, which makes the runtime absent and its port free.
 	arranged.runtimes.Answer("ps --all --format json", "")
 	arranged.act(t, task.ID, api.RuntimeDestroy)
 	arranged.answerFor(task, "running", "Up 2 seconds")
@@ -540,12 +522,10 @@ func TestAStaleObservationDoesNotSurviveADestroyAndRecreate(t *testing.T) {
 	}
 }
 
-// TestAnExhaustedRangeNamesWhatHoldsIt is the fourth acceptance criterion.
-//
-// What a user does about an exhausted range is destroy a runtime they have
-// finished with or widen the range, so the message names the tasks holding it
-// and both of those actions. A thousand port numbers would be a fact rather than
-// a diagnosis.
+// TestAnExhaustedRangeNamesWhatHoldsIt is the fourth acceptance criterion. What a
+// user does about an exhausted range is destroy a runtime they have finished with
+// or widen the range, so the message names the tasks holding it and both of those
+// actions. A thousand port numbers would be a fact rather than a diagnosis.
 func TestAnExhaustedRangeNamesWhatHoldsIt(t *testing.T) {
 	arranged := arrangeConfigured(t, ranged(reaching(runtimeFixture), "21000-21000"))
 	publishing(t, arranged, oneReachableService)
@@ -576,18 +556,16 @@ func TestAnExhaustedRangeNamesWhatHoldsIt(t *testing.T) {
 
 // TestAnAllocatedPortIsBoundWhereTheTaskSaysItIs is G4-01, end to end.
 //
-// The defect was not that the wrong address was chosen; it was that no address
-// was written at all. Compose reads a publication with no host_ip as every
-// interface, so omitting the key published every reachable service of every
-// running task on every network the machine was joined to — and on the Docker
-// bridge, which is one task's agent able to dial another task's database — while
-// the override comment, FEAT_HOST_URL_ and the address the task reported all
-// said localhost. Nothing in the product printed 0.0.0.0, so nothing
-// contradicted it.
+// The defect was that no address was written at all rather than that a wrong one
+// was chosen. Compose reads a publication with no host_ip as every interface, so
+// omitting the key published every reachable service of every running task on
+// every network the machine had joined, including the Docker bridge, while the
+// override comment, FEAT_HOST_URL_, and the address the task reported all said
+// localhost. Nothing in the product printed 0.0.0.0.
 //
 // Each case checks the two halves against each other: the address the generated
 // document binds, and the address the record says the service is reached at. A
-// test that only read one of them is the test that was there.
+// test that read only one of them is the test that was there.
 func TestAnAllocatedPortIsBoundWhereTheTaskSaysItIs(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		configure func(string) string
@@ -596,7 +574,7 @@ func TestAnAllocatedPortIsBoundWhereTheTaskSaysItIs(t *testing.T) {
 		reached   string
 	}{
 		// The ordinary publication, and the one both in-repo fixtures and the
-		// product's own goldens contain: the project's file names no address, so
+		// product's own goldens contain. The project's file names no address, so
 		// Feat's default decides, and the default is this machine alone.
 		"a publication naming no address": {
 			configure: func(fixture string) string { return fixture },
@@ -605,8 +583,8 @@ func TestAnAllocatedPortIsBoundWhereTheTaskSaysItIs(t *testing.T) {
 			reached:   "localhost",
 		},
 		// The project said who reaches its service. Feat replaces the host port,
-		// because a fixed one is one task at a time, and leaves the address
-		// alone, because who may reach a service is not Feat's to widen.
+		// because a fixed one is one task at a time, and leaves the address alone,
+		// because who may reach a service is not Feat's to widen.
 		"a publication naming one": {
 			configure: func(fixture string) string { return fixture },
 			compose: `services:
@@ -619,7 +597,7 @@ func TestAnAllocatedPortIsBoundWhereTheTaskSaysItIs(t *testing.T) {
 			reached: "192.168.64.7",
 		},
 		// The user with a phone on the same network who wants it to reach a dev
-		// server, having said so. The binding widens; the address a user is given
+		// server, having said so. The binding widens, and the address a user is given
 		// stays the name that reaches it from here.
 		"a project that asked for every interface": {
 			configure: func(fixture string) string { return binding(fixture, "0.0.0.0") },
@@ -658,9 +636,9 @@ func TestAnAllocatedPortIsBoundWhereTheTaskSaysItIs(t *testing.T) {
 				t.Errorf("the generated override does not carry %s, so Compose binds every interface "+
 					"the machine has:\n%s", bound, document)
 			}
-			// The comment and the variable are the two places the address was
-			// claimed while nothing bound it. They have to agree with the binding
-			// above, or one of them is the sentence this test exists to remove.
+			// The comment and the variable are the two places the address was claimed
+			// while nothing bound it. They have to agree with the binding above, or
+			// one of them is the sentence this test exists to remove.
 			if comment := "reached at " + address; !strings.Contains(document, comment) {
 				t.Errorf("the generated override does not say %q beside the port it publishes:\n%s",
 					comment, document)
@@ -673,12 +651,10 @@ func TestAnAllocatedPortIsBoundWhereTheTaskSaysItIs(t *testing.T) {
 }
 
 // TestNoTaskIsPublishedOnEveryInterfaceByOmission is the same defect stated as
-// the property that failed, rather than as three arrangements.
-//
-// A publication with no host_ip is the widest binding there is, chosen by saying
-// nothing — which is how this shipped. Counting the addresses against the ports
-// fails whether the key is dropped for one service or for all of them, and it
-// fails for a service nobody wrote a case for.
+// the property that failed rather than as three arrangements. A publication with
+// no host_ip is the widest binding there is, chosen by saying nothing. Counting
+// the addresses against the ports fails whether the key is dropped for one
+// service or all of them, and for a service nobody wrote a case for.
 func TestNoTaskIsPublishedOnEveryInterfaceByOmission(t *testing.T) {
 	managing := strings.Replace(reaching(runtimeFixture),
 		"      services:\n        - api\n      reachable:\n        - api\n",
@@ -723,13 +699,12 @@ func TestNoTaskIsPublishedOnEveryInterfaceByOmission(t *testing.T) {
 }
 
 // TestAReachableServiceWithNoReadablePortSaysSo is the case where the project
-// asks for something Feat must not work out for itself.
-//
-// An interpolated publication is a value Feat may not resolve — resolving one
-// means reading the environment files the security model forbids — so the
-// service is published on nothing at all. Every way of being wrong here is
-// silent otherwise: the services start, the application serves, and the address
-// the user expected answers nothing.
+// asks for something Feat must not work out for itself. An interpolated
+// publication is a value Feat may not resolve, because resolving one means
+// reading the environment files the security model forbids, so the service is
+// published on nothing. Every way of being wrong here is otherwise silent: the
+// services start, the application serves, and the expected address answers
+// nothing.
 func TestAReachableServiceWithNoReadablePortSaysSo(t *testing.T) {
 	arranged := arrangeConfigured(t, reaching(runtimeFixture))
 	publishing(t, arranged, `services:

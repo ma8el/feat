@@ -35,18 +35,15 @@ type launchPlan struct {
 	// override changed about the project's own Compose service.
 	note string
 	// restart replaces the program in an existing pane rather than returning the
-	// terminal untouched. Only a resume sets it: repeating an ordinary launch
-	// must never restart an agent that is already working, and a resume is the
-	// one case where the caller means to replace the process because a user
-	// asked (ADR-037).
+	// terminal untouched. Only a resume sets it, because repeating an ordinary
+	// launch must never restart an agent that is already working (ADR-037).
 	restart bool
 }
 
 // planLaunch decides what a task's terminal runs and prepares whatever it needs.
-//
-// A project that configures a container gets one, unless the daemon itself was
-// started with the host-agent opt-in — the only thing that can move an agent
-// outside its configured boundary, and never a request field (ADR-032).
+// A project that configures a container gets one, unless the daemon was started
+// with the host-agent opt-in, which is the only thing that moves an agent outside
+// its configured boundary and is never a request field (ADR-032).
 func (s *service) planLaunch(ctx context.Context, cfg *config.Config, task *domain.Task) (launchPlan, error) {
 	return s.planLaunchResuming(ctx, cfg, task, "")
 }
@@ -80,14 +77,13 @@ func (s *service) planLaunchResuming(
 	}
 }
 
-// planContainerAgent starts the task's devcontainer and prepares an agent
-// launch inside it.
+// planContainerAgent starts the task's devcontainer and prepares an agent launch
+// inside it.
 //
-// The order is start, validate, prepare, and it differs from host execution on
-// purpose: every question worth asking is about the container, so the container
-// has to exist before any of them can be answered. ADR-033 records that this
-// amends ADR-032's "validation creates nothing" for this mode alone, and what it
-// creates is the environment the validation is about.
+// The order is start, validate, prepare, because every question worth asking is
+// about the container and so needs one to exist. ADR-033 records that this amends
+// ADR-032's "validation creates nothing" for this mode alone, and what it creates
+// is the environment the validation is about.
 func (s *service) planContainerAgent(
 	ctx context.Context, cfg *config.Config, task *domain.Task, resume string,
 ) (launchPlan, error) {
@@ -151,9 +147,8 @@ func (s *service) planContainerAgent(
 			api.ErrInvalid, task.ID, spec.Service, spec.Identity, err)
 	}
 	// What the container grants that no rule refuses. It is recorded against the
-	// task as well as logged, because the log belongs to whoever started the
-	// daemon and the question — did I mean to give the agent that? — belongs to
-	// whoever is running the task.
+	// task as well as logged, because the log belongs to whoever started the daemon
+	// and the question belongs to whoever is running the task.
 	for _, warning := range environment.Warnings(report) {
 		s.logger.WarnContext(ctx, "the agent's container grants more than its user",
 			slog.String("task", task.ID.String()),
@@ -226,17 +221,14 @@ func (s *service) planContainerAgent(
 	}, nil
 }
 
-// agentVariables is the environment a task's agent process runs with.
+// agentVariables is the environment a task's agent process runs with. It is what
+// the provider adapter asked for plus what every process working in a task
+// worktree needs: the worktrees are Feat's and the Git directory they share is
+// the user's, and neither fact is the adapter's to know (git.WorktreeEnvironment,
+// ADR-056).
 //
-// It is what the provider adapter asked for plus what every process working in
-// a task worktree needs, whichever provider and whichever execution mode: the
-// worktrees are Feat's, the Git directory they share is the user's, and neither
-// fact is the adapter's to know (git.WorktreeEnvironment, ADR-056).
-//
-// A name set by both is refused rather than resolved. Feat's entries are there
-// to stop a silent loss of somebody's work, so quietly letting an adapter
-// replace one — or quietly replacing the adapter's — would be this function
-// deciding which loss is acceptable.
+// A name set by both is refused rather than resolved, because Feat's entries
+// exist to stop a silent loss of somebody's work.
 func agentVariables(adapter []string) (map[string]string, error) {
 	values := variables(git.WorktreeEnvironment())
 	for name, value := range variables(adapter) {
@@ -268,15 +260,13 @@ func variables(entries []string) map[string]string {
 // recordEnvironment writes down an execution environment, before or after it
 // exists.
 //
-// The task snapshot is its natural home and is where it lives for most of a
-// task's life. It cannot be at the moment that matters most, though: a session
-// needs the tmux target of the terminal that runs inside the container, so no
-// session exists to record anything on until after the container is running.
+// The task snapshot is its natural home, but no session exists to record on until
+// the container is running: a session needs the tmux target of the terminal that
+// runs inside it.
 //
-// The event log has no such requirement, and it is append-only, durable, and
-// per task, so the identity is written there first. An interruption between the
-// two therefore still leaves a record naming what may exist, which keeps
-// ADR-029's ordering rather than abandoning it for containers (ADR-033).
+// The event log is append-only, durable, and per task, so the identity is written
+// there first. An interruption between the two still leaves a record naming what
+// may exist, which keeps ADR-029's ordering for containers (ADR-033).
 func (s *service) recordEnvironment(
 	ctx context.Context, task *domain.Task, environment *domain.ExecutionEnvironment, detail string,
 ) error {
@@ -294,11 +284,10 @@ func (s *service) recordEnvironment(
 	return nil
 }
 
-// planAgent validates the environment and prepares an agent launch.
-//
-// Validation comes first and creates nothing. A task whose agent could never
-// start should not be given a terminal, a session record, and a workflow state
-// that says an agent is running in it (acceptance criterion 6).
+// planAgent validates the environment and prepares an agent launch. Validation
+// comes first and creates nothing: a task whose agent could never start should
+// not be given a terminal, a session record, and a workflow state saying an agent
+// runs in it (acceptance criterion 6).
 func (s *service) planAgent(
 	ctx context.Context, cfg *config.Config, task *domain.Task,
 	directory string, mode domain.ExecutionMode, outsideBoundary bool, resume string,

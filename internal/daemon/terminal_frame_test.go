@@ -9,24 +9,20 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// theClientNeverArrived moves the clock past the handover grace.
-//
-// Asking for an attach target hands the window to a client, and rendering leaves
-// it alone until that client is either attached or judged not to be coming. A
-// test that wants the dashboard's own sizing back says so with this rather than
-// by having no attach in its history, because the attach is usually the thing it
-// is testing the far side of.
+// theClientNeverArrived moves the clock past the handover grace. Asking for an
+// attach target hands the window to a client, and rendering leaves it alone until
+// that client arrives or is judged not to be coming. A test that wants the
+// dashboard's own sizing back says so with this, because the attach is usually
+// the thing it is testing the far side of.
 func theClientNeverArrived(service *service) {
 	at := service.now().Add(attachGrace)
 	service.now = func() time.Time { return at }
 }
 
 // TestAFrameIsSizedBeforeItIsCaptured is the reason the daemon resizes rather
-// than the renderer coping.
-//
-// A program wraps its own output. A pane left at another size comes back wrapped
-// at a column the display does not have, and no care in the renderer would
-// straighten it.
+// than the renderer coping. A program wraps its own output, so a pane left at
+// another size comes back wrapped at a column the display does not have and no
+// renderer would straighten it.
 func TestAFrameIsSizedBeforeItIsCaptured(t *testing.T) {
 	service, arranged, server := launched(t)
 	task, err := service.Task(context.Background(), arranged.ref.Task)
@@ -61,21 +57,19 @@ func TestAFrameIsSizedBeforeItIsCaptured(t *testing.T) {
 	}
 }
 
-// TestANewTaskWindowIsCreatedAtTheSizeTheDashboardDraws is the defect a dogfood
-// screenshot showed: an agent's whole first screen — the provider's banner, its
-// "do you trust this folder" prompt, the first turn of work — wrapped at 80
-// columns inside a region more than twice that wide, and staying there, because
-// a terminal's committed lines do not reflow when it is resized afterwards.
+// TestANewTaskWindowIsCreatedAtTheSizeTheDashboardDraws covers an agent's first
+// screen — the provider's banner, its "do you trust this folder" prompt, the
+// first turn of work — wrapping at 80 columns inside a region twice that wide and
+// staying there, because a terminal's committed lines do not reflow.
 //
 // The window was made at tmux's default and sized only when the dashboard first
-// drew it, which was already too late. The frame is the one place a client's
-// dimensions reach the daemon, so it is where the next task's window learns
-// them.
+// drew it, which is too late. The frame is the one place a client's dimensions
+// reach the daemon, so it is where the next task's window learns them.
 func TestANewTaskWindowIsCreatedAtTheSizeTheDashboardDraws(t *testing.T) {
 	service, arranged, server := launched(t)
 
 	// The first task of a daemon that has drawn nothing gets tmux's own default,
-	// because there is nothing better to give it and a guess would be worse.
+	// because there is nothing better to give it.
 	first, err := service.Task(context.Background(), arranged.ref.Task)
 	if err != nil {
 		t.Fatalf("reading the first task: %v", err)
@@ -160,12 +154,10 @@ func TestAPasteIsDeliveredAsAPaste(t *testing.T) {
 }
 
 // TestTheTwoAbsencesAreToldApart is what lets a client answer each of them with
-// the key that resolves it.
-//
-// A task whose window was killed and a task that was never given a shell are
-// both absent panes with different remedies — one is resumed and one is opened —
-// and a client that received the same classification for both could only tell
-// them apart by reading the message.
+// the key that resolves it. A task whose window was killed and a task that was
+// never given a shell are both absent panes with different remedies, one resumed
+// and one opened, and one classification for both would leave a client reading
+// the message to tell them apart.
 func TestTheTwoAbsencesAreToldApart(t *testing.T) {
 	service, arranged, _ := launched(t)
 	ctx := context.Background()
@@ -199,7 +191,7 @@ func TestTheTwoAbsencesAreToldApart(t *testing.T) {
 
 // TestAnInvalidRequestIsRefusedByTheDaemonToo keeps the check on the daemon as
 // well as on the transport. The service is an interface anything in-process can
-// call, and a rule enforced only at the edge is a rule with one caller.
+// call, so a rule enforced only at the edge has one caller.
 func TestAnInvalidRequestIsRefusedByTheDaemonToo(t *testing.T) {
 	service, arranged, _ := launched(t)
 	ctx := context.Background()
@@ -214,13 +206,10 @@ func TestAnInvalidRequestIsRefusedByTheDaemonToo(t *testing.T) {
 }
 
 // TestTheRegionShowsOnePaneFillingIt is the decision that replaced drawing the
-// whole window.
-//
-// A task that has opened a shell holds two panes side by side, and a window
-// sized to the region gives the agent half of it. Both were drawn for a while,
-// and the reason that does not work is that tmux's own keys cannot move between
-// them: nothing is attached, so a prefix reaches the program in the pane rather
-// than tmux. A pane a user can see and cannot leave is worse than one pane.
+// whole window. A task that has opened a shell holds two panes side by side, and
+// a window sized to the region gives the agent half of it. Drawing both does not
+// work, because nothing is attached and a tmux prefix reaches the program in the
+// pane rather than tmux, so a user can see the second pane and cannot leave it.
 func TestTheRegionShowsOnePaneFillingIt(t *testing.T) {
 	service, arranged, server := launched(t)
 	ctx := context.Background()
@@ -232,8 +221,8 @@ func TestTheRegionShowsOnePaneFillingIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the task: %v", err)
 	}
-	// Opening a shell hands the terminal to a native client, and this is about
-	// what the dashboard draws once that client is out of the picture.
+	// Opening a shell hands the terminal to a native client, and this is about what
+	// the dashboard draws once that client is out of the picture.
 	theClientNeverArrived(service)
 
 	frame, err := service.TerminalFrame(ctx, arranged.ref.Task,
@@ -255,7 +244,7 @@ func TestTheRegionShowsOnePaneFillingIt(t *testing.T) {
 }
 
 // TestAttachingShowsEveryPaneAgain is the other half of that decision. The shell
-// is still there for a user who wants it; it is the dashboard that shows one.
+// is still there for a user who wants it, and the dashboard is what shows one.
 func TestAttachingShowsEveryPaneAgain(t *testing.T) {
 	service, arranged, server := launched(t)
 	ctx := context.Background()
@@ -296,12 +285,10 @@ func TestATaskWithNoTerminalIsNotDrawn(t *testing.T) {
 }
 
 // TestAttachingReleasesTheSizeRenderingPinned is the regression at the level a
-// user met it.
-//
-// Drawing a pane in the dashboard sizes its window to the main region. A native
-// attach then inherits that size and leaves the rest of the terminal blank,
-// because tmux keeps a sized window at its size however large the client is. The
-// size has to be released as the client takes over.
+// user met it. Drawing a pane in the dashboard sizes its window to the main
+// region, and a native attach inherits that size and leaves the rest of the
+// terminal blank, because tmux keeps a sized window at its size however large the
+// client is.
 func TestAttachingReleasesTheSizeRenderingPinned(t *testing.T) {
 	service, arranged, server := launched(t)
 	ctx := context.Background()
@@ -329,18 +316,16 @@ func TestAttachingReleasesTheSizeRenderingPinned(t *testing.T) {
 }
 
 // TestPollingASettledPaneLeavesTmuxAlone is the flicker, at the level a user met
-// it.
-//
-// The terminal tab polls, four times a second and sixteen while it has the
-// keyboard. Each poll used to size the window and each size disturbed a zoomed
-// pane's pty, so a full-screen agent repainted at half the region's width and
-// repainted back. Once nothing needs changing, a poll must change nothing.
+// it. The terminal tab polls four times a second, and sixteen while it has the
+// keyboard. A poll that sized the window disturbed a zoomed pane's pty, so a
+// full-screen agent repainted at half the region's width and back. Once nothing
+// needs changing, a poll must change nothing.
 func TestPollingASettledPaneLeavesTmuxAlone(t *testing.T) {
 	service, arranged, server := launched(t)
 	ctx := context.Background()
 
 	// A shell beside the agent, so the window has two panes and the zoom this is
-	// about is doing something.
+	// about does something.
 	if _, err := service.OpenShell(ctx, arranged.ref.Task); err != nil {
 		t.Fatalf("OpenShell: %v", err)
 	}
@@ -365,7 +350,7 @@ func TestPollingASettledPaneLeavesTmuxAlone(t *testing.T) {
 }
 
 // TestAResizedRegionStillReachesTheWindow keeps the rule above from becoming
-// "never resize": a user who resized their terminal must see the pane follow.
+// never resize: a user who resized their terminal must see the pane follow.
 func TestAResizedRegionStillReachesTheWindow(t *testing.T) {
 	service, arranged, server := launched(t)
 	ctx := context.Background()
@@ -393,14 +378,14 @@ func TestAResizedRegionStillReachesTheWindow(t *testing.T) {
 	}
 }
 
-// TestAStoppedAgentKeepsTheScreenItStoppedOn is the reported glitch at the level
-// a user met it: for some tasks the agent's prompt was drawn over two rows in
-// the terminal tab, and stayed there.
+// TestAStoppedAgentKeepsTheScreenItStoppedOn is a reported glitch: for some tasks
+// the agent's prompt was drawn over two rows in the terminal tab and stayed
+// there.
 //
-// Those were the tasks whose agent had stopped. Feat keeps their pane on purpose
-// — it is the account of what the session did — and a kept pane has nobody left
-// to repaint it, so sizing its window to the region made tmux reflow the screen
-// it stopped on and nothing ever put it back.
+// Those were the tasks whose agent had stopped. Feat keeps their pane as the
+// account of what the session did, and a kept pane has nobody left to repaint it,
+// so sizing its window to the region made tmux reflow the screen it stopped on
+// and nothing put it back.
 func TestAStoppedAgentKeepsTheScreenItStoppedOn(t *testing.T) {
 	service, arranged, server := launched(t)
 	ctx := context.Background()
@@ -428,21 +413,18 @@ func TestAStoppedAgentKeepsTheScreenItStoppedOn(t *testing.T) {
 	if size, _ := server.PaneSize(window); size != [2]int{100, 30} {
 		t.Errorf("the window of a stopped agent was resized to %v, want the 100x30 its screen was painted at", size)
 	}
-	// The frame says how big it really is, so that the renderer clips it rather
-	// than drawing it as though it fitted.
+	// The frame says how big it really is, so the renderer clips it rather than
+	// drawing it as though it fitted.
 	if frame.Width != 100 || frame.Height != 30 {
 		t.Errorf("the frame reports %dx%d, want the size the pane kept", frame.Width, frame.Height)
 	}
 }
 
-// TestAWatchedWindowIsNotResizedByTheDashboard closes the other route to the
-// same defect.
-//
-// Releasing the size on attach fixes a user who attaches and comes back. It does
-// nothing for a dashboard left open on the terminal tab while the user attaches
-// from another window: the poll would re-pin the window to the main region four
-// times a second, shrinking the terminal they are sitting in. A window with a
-// viewer keeps the size its viewer gives it.
+// TestAWatchedWindowIsNotResizedByTheDashboard closes the other route to the same
+// defect. Releasing the size on attach fixes a user who attaches and comes back,
+// and does nothing for a dashboard left open on the terminal tab while the user
+// attaches from another window: the poll would re-pin the window four times a
+// second, shrinking the terminal they are sitting in.
 func TestAWatchedWindowIsNotResizedByTheDashboard(t *testing.T) {
 	service, arranged, server := launched(t)
 	ctx := context.Background()
@@ -466,13 +448,13 @@ func TestAWatchedWindowIsNotResizedByTheDashboard(t *testing.T) {
 // TestAFrameDuringAnAttachLeavesTheWindowToTheClient is the defect that survived
 // the first fix, at the level a user met it.
 //
-// Asking for an attach target releases the size rendering pinned. The client
-// then takes tens of milliseconds to start, and the dashboard polls up to
-// sixteen times a second, so a frame lands in the gap: tmux is asked who is
-// attached, says nobody, and the window is pinned again before the client ever
-// arrives. The user attaches into the dashboard's main region with tmux's fill
-// characters over the rest of their terminal — and stays there, because a
-// dashboard that has handed its terminal away is not polling to notice.
+// Asking for an attach target releases the size rendering pinned. The client then
+// takes tens of milliseconds to start and the dashboard polls up to sixteen times
+// a second, so a frame lands in the gap: tmux says nobody is attached, and the
+// window is pinned again before the client arrives. The user attaches into the
+// dashboard's main region with tmux's fill characters over the rest of their
+// terminal, and stays there, because a dashboard that has handed its terminal
+// away is not polling to notice.
 func TestAFrameDuringAnAttachLeavesTheWindowToTheClient(t *testing.T) {
 	service, arranged, server := launched(t)
 	ctx := context.Background()
@@ -491,7 +473,7 @@ func TestAFrameDuringAnAttachLeavesTheWindowToTheClient(t *testing.T) {
 		t.Fatal("rendering did not pin the window, so this proves nothing")
 	}
 
-	// The user presses a. The client is on its way and has not arrived: nothing
+	// The user presses a. The client is on its way and has not arrived, so nothing
 	// is attached to this window yet.
 	if _, err := service.AttachInfo(ctx, arranged.ref.Task); err != nil {
 		t.Fatalf("AttachInfo: %v", err)
@@ -509,12 +491,10 @@ func TestAFrameDuringAnAttachLeavesTheWindowToTheClient(t *testing.T) {
 }
 
 // TestTheDashboardTakesTheWindowBackWhenNoClientCame keeps the handover a pause
-// rather than a surrender.
-//
-// An attach can fail, or a user can change their mind before tmux starts. The
-// window is nobody's then, and the dashboard has to be able to draw it properly
-// again — otherwise one attach that never happened would leave the pane wrapping
-// at a width the region does not have for as long as the daemon ran.
+// rather than a surrender. An attach can fail, or a user can change their mind
+// before tmux starts, and the dashboard has to draw the window properly again, or
+// one attach that never happened would leave the pane wrapping at the wrong width
+// for as long as the daemon ran.
 func TestTheDashboardTakesTheWindowBackWhenNoClientCame(t *testing.T) {
 	service, arranged, server := launched(t)
 	ctx := context.Background()
@@ -540,12 +520,10 @@ func TestTheDashboardTakesTheWindowBackWhenNoClientCame(t *testing.T) {
 }
 
 // TestAWatchedWindowIsReleasedByTheDashboard is the repair for a client that
-// arrived by a route the daemon never saw.
-//
-// A user can attach with tmux itself, or from a second terminal while this
-// dashboard polls, and a window Feat pinned before any of that would hold them
-// at the main region's size indefinitely. Whichever way a client got there, the
-// first frame that sees one hands the size back.
+// arrived by a route the daemon never saw. A user can attach with tmux itself, or
+// from a second terminal while this dashboard polls, and a window Feat pinned
+// would hold them at the main region's size indefinitely. The first frame that
+// sees a client hands the size back.
 func TestAWatchedWindowIsReleasedByTheDashboard(t *testing.T) {
 	service, arranged, server := launched(t)
 	ctx := context.Background()

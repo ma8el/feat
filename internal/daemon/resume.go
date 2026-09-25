@@ -10,27 +10,22 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 )
 
-// Resume continues a task's recorded agent session in a fresh terminal.
-//
-// ADR-032 deferred this to whatever owns recovery, and the reason it gave is the
-// reason it is here rather than in the agent adapter: a dead agent pane
-// is the same recovery question as a missing tmux window, a removed worktree,
-// and a stopped Compose project, and answering it inside one adapter would set a
-// policy for all of them.
+// Resume continues a task's recorded agent session in a fresh terminal. It lives
+// here rather than in the agent adapter, because a dead agent pane is the same
+// recovery question as a missing tmux window, a removed worktree, or a stopped
+// Compose project (ADR-032).
 //
 // Three properties make it a recovery rather than a restart:
 //
 //   - nothing reaches it on its own. Reconciliation reports that a session can
-//     be resumed and never resumes one, no workflow transition arrives here, and
-//     no agent message does;
+//     be resumed and never resumes one, and no workflow transition or agent
+//     message arrives here;
 //   - it continues the provider session the task recorded, captured from the
-//     session-start event before the process could fail. A new
-//     session would have lost the task's history, and would look identical from
-//     the outside;
-//   - a provider that cannot find the recorded session fails visibly. Measured
-//     against Claude Code 2.1.220 in a real terminal: an unknown session
-//     identifier exits 1 with a message rather than opening the interactive
-//     picker (ADR-037 evidence 6).
+//     session-start event before the process could fail. A new session would
+//     have lost the task's history and looked identical from the outside;
+//   - a provider that cannot find the recorded session fails visibly. Claude
+//     Code 2.1.220 exits 1 with a message on an unknown session identifier
+//     rather than opening the interactive picker (ADR-037 evidence 6).
 //
 // It does bring a devcontainer up, which is not FR-STATE-004's forbidden
 // automatic restart: that rule is about recovery starting things by itself, and
@@ -49,16 +44,11 @@ func (s *service) Resume(ctx context.Context, id domain.TaskID) (*domain.Task, e
 		return nil, err
 	}
 
-	// A record claiming a live process is the one case where the machine has to
-	// be asked, and it is asked rather than believed. Nothing watches tmux
-	// continuously, so that record only becomes stopped when a reconciliation
-	// pass runs or the provider's own end-of-session hook lands: a window killed
-	// from tmux leaves it saying idle while there is nothing there, and refusing
-	// on it answered "attach to it instead" for a terminal there was nothing to
-	// attach to. That left the one task most in need of recovery unable to have
-	// it. A tmux server that is not running discovers as empty rather than
-	// failing, so a machine that rebooted arrives here with live false and
-	// resumes (ADR-037).
+	// A record claiming a live process is asked about rather than believed.
+	// Nothing watches tmux continuously, so a window killed from tmux leaves the
+	// record saying idle, and refusing on it would send the user to attach to a
+	// terminal that is not there. A tmux server that is not running discovers as
+	// empty rather than failing, so a machine that rebooted resumes (ADR-037).
 	live, reason, err := s.attachable(ctx, task)
 	if err != nil {
 		return nil, err
@@ -66,11 +56,10 @@ func (s *service) Resume(ctx context.Context, id domain.TaskID) (*domain.Task, e
 	if err := resumable(task, live); err != nil {
 		return nil, err
 	}
-	// Passing with a record that still claims a live process means the machine
-	// answered that there is nothing there. It is corrected before anything acts
-	// on it: the container comes up and the agent starts over the seconds that
-	// follow, and a dashboard claiming idle throughout would be describing the
-	// session this call is replacing.
+	// The machine answered that nothing is there, so the record is corrected
+	// before anything acts on it. The container and the agent take seconds to come
+	// up, and a dashboard claiming idle meanwhile would describe the session this
+	// call is replacing.
 	if task.Session.Process.Alive() {
 		if err := s.markSessionEnded(ctx, task, reason); err != nil {
 			return nil, err
@@ -83,16 +72,13 @@ func (s *service) Resume(ctx context.Context, id domain.TaskID) (*domain.Task, e
 	}
 
 	// A failed task goes back to preparing, so it stops claiming a failure while
-	// the container comes up and the agent starts; the launch that follows
-	// leaves it failed again if it cannot finish, which is where it already was.
+	// the container comes up; the launch that follows leaves it failed again if it
+	// cannot finish.
 	//
-	// A task whose workflow is still working is left alone. That is not an odd
-	// case: a process that dies while no daemon is watching leaves the workflow
-	// where it was, and reconciliation reports the dead process rather than
-	// moving it — reporting instead of repairing is the whole rule. Transitioning
-	// unconditionally refused those tasks outright, because working has no edge
-	// to preparing and should not gain one. Found by resuming a real task whose
-	// container had been killed a day earlier (ADR-037).
+	// A task still recorded as working is left alone. A process that dies while no
+	// daemon is watching leaves the workflow where it was, and reconciliation
+	// reports the dead process rather than moving it. Working has no edge to
+	// preparing, so transitioning unconditionally refused those tasks (ADR-037).
 	restored := task.Workflow
 	if task.Workflow == domain.WorkflowFailed {
 		if err := s.transition(ctx, task, domain.WorkflowPreparing,
@@ -125,20 +111,16 @@ func (s *service) Resume(ctx context.Context, id domain.TaskID) (*domain.Task, e
 // attachable reports whether a recorded session is something a user could attach
 // to instead of resuming, and why it is not when it is not.
 //
-// Three things have to hold and the record on its own establishes none of them.
-// The window has to be there, because one killed from tmux leaves the record
-// saying idle. Its agent pane has to be alive, because Feat sets remain-on-exit
-// on every pane it creates, so that a program which exits leaves its output and
-// its status behind (ADR-030) — and a pane held open that way is still a pane
-// tmux reports, with nothing running in it. And the environment the agent runs
-// in has to be running, because the pane's own process is on the host side of a
-// container and outlives it, which is how a devcontainer that exited 137 left a
-// task with a finding telling the user to resume and a resume telling them to
-// attach instead (ADR-057).
+// Three things have to hold and the record establishes none of them. The window
+// has to be there, because one killed from tmux leaves the record saying idle.
+// The agent pane has to be alive, because Feat sets remain-on-exit on every pane
+// it creates, so tmux still reports a pane whose program has exited (ADR-030).
+// The environment has to be running, because the pane's process is on the host
+// side of the container and outlives it (ADR-057).
 //
-// A record that does not claim a live process is not asked about at all. There
-// is nothing to contradict, and a resume of a task already known to be stopped
-// should not spend a container command establishing it twice.
+// A record that does not claim a live process is not asked about at all: there is
+// nothing to contradict, and a task already known to be stopped should not spend
+// a container command establishing it twice.
 func (s *service) attachable(ctx context.Context, task *domain.Task) (bool, string, error) {
 	if task.Session == nil || !task.Session.Process.Alive() {
 		return false, "", nil
@@ -170,8 +152,8 @@ func (s *service) attachable(ctx context.Context, task *domain.Task) (bool, stri
 	}
 	state, err := environment.Observe(ctx)
 	if err != nil {
-		// The rule tmux gets above: not being able to look is not evidence of
-		// what is there.
+		// The rule tmux gets above: not being able to look says nothing about what
+		// is there.
 		return false, "", fmt.Errorf("the agent environment of task %s could not be observed: %w", task.ID, err)
 	}
 	if state.Running {
@@ -182,11 +164,9 @@ func (s *service) attachable(ctx context.Context, task *domain.Task) (bool, stri
 }
 
 // resumable reports why a task cannot be resumed, in terms that name the remedy.
-//
-// The first two refusals are facts about the record and are decided from it
-// alone. The third is a fact about the machine, so it takes the caller's
-// observation of tmux: a record claiming a live process is refused only when
-// there is a terminal to attach to instead.
+// The first two refusals are decided from the record alone. The third takes the
+// caller's observation of the machine: a record claiming a live process is
+// refused only when there is a terminal to attach to instead.
 func resumable(task *domain.Task, live bool) error {
 	if task.Session == nil {
 		return fmt.Errorf("%w: task %s has no agent session to resume. "+
@@ -207,12 +187,10 @@ func resumable(task *domain.Task, live bool) error {
 	return nil
 }
 
-// planResume builds the launch that continues the recorded session.
-//
-// It is the ordinary launch path with one value added, so that everything a
-// launch validates is validated again: the container is brought up and probed,
-// the provider CLI is checked, and the generated files are rewritten. A resume
-// that skipped those would be the one launch in Feat nobody checked.
+// planResume builds the launch that continues the recorded session. It is the
+// ordinary launch path with one value added, so everything a launch validates is
+// validated again: the container comes up and is probed, the provider CLI is
+// checked, and the generated files are rewritten.
 func (s *service) planResume(ctx context.Context, cfg *config.Config, task *domain.Task) (launchPlan, error) {
 	plan, err := s.planLaunchResuming(ctx, cfg, task, task.Session.ProviderSessionID)
 	if err != nil {

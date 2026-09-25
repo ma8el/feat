@@ -52,10 +52,9 @@ agent:
     idle_grace_period: 5s
 `
 
-// testTimer is a Timer whose scheduled work runs when a test says so.
-//
-// The idle grace period is an acceptance criterion, and a test that proved it by
-// sleeping would prove only that the machine was slow enough.
+// testTimer is a Timer whose scheduled work runs when a test says so. The idle
+// grace period is an acceptance criterion, and a test that proved it by sleeping
+// would prove only that the machine was slow enough.
 type testTimer struct {
 	mu      sync.Mutex
 	pending map[int]*scheduled
@@ -121,9 +120,9 @@ func (t *testTimer) fire() {
 func selectDraftRepositories(t *testing.T, service *service, arranged *preparation) error {
 	t.Helper()
 
-	// Every repository the project configures, at the access it declares, which
-	// is what the preparation screen proposes. Naming two of them here would
-	// mean a fixture with more could never be launched.
+	// Every repository the project configures, at the access it declares, which is
+	// what the preparation screen proposes. Naming two of them here would leave a
+	// fixture with more unlaunchable.
 	project, err := service.Project(context.Background(), arranged.ref.Project)
 	if err != nil {
 		return err
@@ -177,10 +176,8 @@ func launch(t *testing.T, fixture string, runner *agenttest.Runner, hostAgent bo
 }
 
 // launchWith is launch for a test that needs to change the daemon's options.
-//
-// Every launch installs a fake notifier, whatever else it changes. A test must
-// never reach the real desktop: a suite that showed a notification for every
-// task it launched would be a suite nobody could run twice.
+// Every launch installs a fake notifier, because a suite that showed a
+// notification for every task it launched would be one nobody could run twice.
 func launchWith(
 	t *testing.T, fixture string, runner *agenttest.Runner, hostAgent bool, adjust func(*Options),
 ) *session {
@@ -225,10 +222,8 @@ func launchWith(
 	// What Serve does on the way out, for a test that never called it. A review
 	// request starts a gate in the background, and a goroutine still writing a
 	// task's control workspace while the testing package removes its temporary
-	// directory fails the test that started it — which is how this was found, on
-	// Linux, in three tests that were only ever about notifications and
-	// resources. Registered after the temporary directory exists, so cleanup
-	// order runs this first.
+	// directory fails the test that started it. It is registered after the temporary
+	// directory exists, so cleanup order runs this first.
 	t.Cleanup(service.gate.stopAll)
 
 	if err := selectDraftRepositories(t, service, arranged); err != nil {
@@ -318,9 +313,8 @@ func (s *session) deliver(t *testing.T) {
 	}
 }
 
-// deliverFailing is deliver for a test about a poll that cannot finish its
-// work, which is the case the caller is asserting about rather than a reason to
-// fail the test.
+// deliverFailing is deliver for a test about a poll that cannot finish its work,
+// which is what the caller is asserting about rather than a reason to fail.
 func (s *session) deliverFailing(t *testing.T) error {
 	t.Helper()
 
@@ -344,15 +338,15 @@ func (s *session) start(t *testing.T) {
 }
 
 // TestEveryAgentLaunchTurnsOffAutostash covers both execution modes, because a
-// guard that holds in one of them is a guard the user cannot rely on.
+// guard that holds in one of them is one the user cannot rely on.
 //
 // A task's worktrees share one Git directory with the user's checkout and with
 // every other task, and the stash is one stack across all of them. An agent can
-// be told not to stash; `rebase.autoStash` and `merge.autoStash` are read from
-// the shared configuration, which is the user's, so a session obeying the
-// instruction perfectly would still stash onto that stack from a rebase. The
-// settings travel as environment rather than as a configuration write, so
-// nothing outside the session's own processes changes (ADR-056).
+// be told not to stash, and `rebase.autoStash` and `merge.autoStash` are read
+// from the user's shared configuration, so a session obeying the instruction
+// perfectly would still stash from a rebase. The settings travel as environment
+// rather than as a configuration write, so nothing outside the session's own
+// processes changes (ADR-056).
 func TestEveryAgentLaunchTurnsOffAutostash(t *testing.T) {
 	t.Run("host", func(t *testing.T) {
 		live := launch(t, hostFixture, installed(), false)
@@ -369,8 +363,8 @@ func TestEveryAgentLaunchTurnsOffAutostash(t *testing.T) {
 		arranged := arrangeDrafting(t)
 		arranged.launched(t)
 
-		// The agent runs through `docker compose exec`, which takes each entry
-		// as the value of its own --env flag.
+		// The agent runs through `docker compose exec`, which takes each entry as
+		// the value of its own --env flag.
 		command := agentCommand(t, arranged.tmux.Calls(), claude.Executable)
 		for _, entry := range git.WorktreeEnvironment() {
 			if !slices.Contains(command, entry) {
@@ -380,12 +374,11 @@ func TestEveryAgentLaunchTurnsOffAutostash(t *testing.T) {
 	})
 }
 
-// TestAnAdapterCannotQuietlyReplaceFeatsGitSettings pins the conflict rule.
-//
-// A provider adapter is free to ask for its own environment, and nothing stops
-// a future one asking for a Git setting. If it named one of Feat's, taking
-// either value silently would decide, on nobody's behalf, whose work may be
-// lost — so the launch stops and says which name is in dispute.
+// TestAnAdapterCannotQuietlyReplaceFeatsGitSettings pins the conflict rule. A
+// provider adapter is free to ask for its own environment, and nothing stops a
+// future one asking for a Git setting. Taking either value silently would decide
+// on nobody's behalf whose work may be lost, so the launch stops and says which
+// name is in dispute.
 func TestAnAdapterCannotQuietlyReplaceFeatsGitSettings(t *testing.T) {
 	values, err := agentVariables([]string{"CLAUDE_CODE_EXAMPLE=1"})
 	if err != nil {
@@ -410,12 +403,10 @@ func TestAnAdapterCannotQuietlyReplaceFeatsGitSettings(t *testing.T) {
 	}
 }
 
-// agentCommand returns the tmux call that started the agent, whole.
-//
-// Launches() reports the program and its arguments, which is what most tests
-// want and is exactly what this one cannot use: the environment reaches the
-// pane as flags before the program, so the assertion has to see the call as it
-// was sent.
+// agentCommand returns the tmux call that started the agent, whole. Launches()
+// reports the program and its arguments, which is what most tests want and what
+// this one cannot use: the environment reaches the pane as flags before the
+// program, so the assertion has to see the call as it was sent.
 func agentCommand(t *testing.T, calls [][]string, program string) []string {
 	t.Helper()
 	for _, call := range calls {
@@ -432,7 +423,7 @@ func agentCommand(t *testing.T, calls [][]string, program string) []string {
 func TestClaudeLaunchesInTheTaskWorkingDirectoryWithTheFinalBrief(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 
-	// The pane runs Claude, in the task's own primary worktree, and not the
+	// The pane runs Claude in the task's own primary worktree rather than the
 	// user's ordinary checkout.
 	launched, ok := live.tmux.Launched()
 	if !ok {
@@ -456,8 +447,8 @@ func TestClaudeLaunchesInTheTaskWorkingDirectoryWithTheFinalBrief(t *testing.T) 
 		t.Errorf("brief = %q, want the confirmed brief", brief)
 	}
 
-	// Launching does not claim a running agent. The task reaches working only
-	// when the session says it started, which is the edge ADR-031 reserved.
+	// Launching does not claim a running agent. The task reaches working only when
+	// the session says it started, which is the edge ADR-031 reserved.
 	task := live.task(t)
 	if task.Workflow != domain.WorkflowPreparing {
 		t.Errorf("workflow after launch = %q, want preparing until the agent reports it started", task.Workflow)
@@ -484,9 +475,8 @@ func TestANormalEndOfTurnBecomesIdleOnlyAfterTheGracePeriod(t *testing.T) {
 
 	live.hook(t, "Stop", `{"session_id":"claude-session-1","stop_hook_active":false}`)
 
-	// Nothing has happened yet. An end of turn arms the grace period and
-	// changes nothing else: not the process state, not attention, and above all
-	// not the workflow.
+	// Nothing has happened yet. An end of turn arms the grace period and changes
+	// nothing else: not the process state, not attention, and not the workflow.
 	task := live.task(t)
 	if task.Session.Process != domain.ProcessRunning {
 		t.Errorf("process immediately after a turn ended = %q, want running until the grace period passes",
@@ -528,7 +518,7 @@ func TestActivityWithinTheGracePeriodCancelsIdle(t *testing.T) {
 	}
 
 	// A turn that ends and immediately continues is not a session waiting for
-	// anybody, which is the whole reason FR-AGENT-007 asks for a delay.
+	// anybody, which is why FR-AGENT-007 asks for a delay.
 	live.hook(t, "UserPromptSubmit", `{"session_id":"claude-session-1"}`)
 	if _, armed := live.timer.armed(); armed {
 		t.Error("a prompt during the grace period left the idle transition pending")
@@ -567,9 +557,9 @@ func TestASubmittedRevisionPromptChangesReviewStateConservatively(t *testing.T) 
 	}
 }
 
-// TestDuplicateMalformedAndOutOfTaskMessagesDoNotTransition is the daemon half
-// of the control-workspace validation rule. The protocol half, which proves each
-// is refused, lives in internal/control.
+// TestDuplicateMalformedAndOutOfTaskMessagesDoNotTransition is the daemon half of
+// the control-workspace validation rule. The protocol half, which proves each is
+// refused, lives in internal/control.
 func TestDuplicateMalformedAndOutOfTaskMessagesDoNotTransition(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
@@ -578,7 +568,7 @@ func TestDuplicateMalformedAndOutOfTaskMessagesDoNotTransition(t *testing.T) {
 	workspace := live.workspace(t)
 	outbox := workspace.OutboxDir()
 
-	// One well-formed review request, delivered twice under two names: the
+	// One well-formed review request, delivered twice under two names, of which the
 	// second must change nothing.
 	id := "feat-duplicate"
 	body := `{"schema_version":1,"id":"` + id + `","task_id":"` + live.ref.Task.String() +
@@ -593,8 +583,8 @@ func TestDuplicateMalformedAndOutOfTaskMessagesDoNotTransition(t *testing.T) {
 		t.Fatalf("workflow = %q, want review_requested", requested.Workflow)
 	}
 
-	// A second copy of the same event, and a pile of documents that are wrong in
-	// every way the protocol names.
+	// A second copy of the same event, and documents that are wrong in every way
+	// the protocol names.
 	for name, document := range map[string]string{
 		"duplicate.json": body,
 		"foreign.json": `{"schema_version":1,"id":"other-task","task_id":"` + domain.NewTaskID().String() +
@@ -637,14 +627,13 @@ func TestDuplicateMalformedAndOutOfTaskMessagesDoNotTransition(t *testing.T) {
 }
 
 // TestARefusedMessageIsSettledAndToldToTheUser covers what happens to a message
-// the protocol refuses, which until now was nothing.
+// the protocol refuses.
 //
-// Two things were wrong with that. The file stayed in the outbox and was
-// re-read, re-refused, and re-logged on every poll — a quarter of a million log
-// lines a day for one bad document — and the refusal reached nobody: Feat
-// declining a capability the agent asked for was announced only to the log of a
-// background process. A refusal is now recorded on the task, once, and never
-// judged again.
+// An unsettled refusal leaves the file in the outbox to be re-read, re-refused,
+// and re-logged on every poll, which is a quarter of a million log lines a day
+// for one bad document, and it reaches nobody, because Feat declining a
+// capability the agent asked for was announced only to a background process's
+// log. A refusal is recorded on the task once and never judged again.
 func TestARefusedMessageIsSettledAndToldToTheUser(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
@@ -675,9 +664,9 @@ func TestARefusedMessageIsSettledAndToldToTheUser(t *testing.T) {
 		t.Errorf("refusals = %v, want one naming the capability Feat declined and why", refusals)
 	}
 
-	// Every further poll of the same outbox says nothing, because both entries
-	// are settled — and they are still there, which is what makes the outbox the
-	// account of what the agent sent.
+	// Every further poll of the same outbox says nothing, because both entries are
+	// settled. They are still there, which is what makes the outbox the account of
+	// what the agent sent.
 	for range 3 {
 		live.deliver(t)
 	}
@@ -695,17 +684,16 @@ func TestARefusedMessageIsSettledAndToldToTheUser(t *testing.T) {
 	}
 }
 
-// TestAnEntryRefusedByItsListingIsToldToTheUserOnce is the same rule as the
-// test above for the refusals that never open a file.
+// TestAnEntryRefusedByItsListingIsToldToTheUserOnce is the rule above for the
+// refusals that never open a file.
 //
 // A refusal reaches the user by an append to the task's event log and a publish
-// to everything attached to it, so "told once" is a count rather than a
-// property of the first poll. These five conditions are decided from the
-// directory listing — a directory named like a message, a link, a name too
-// long, a name that is not a plain one, a document over the limit — and none of
-// them changes by being looked at again. Told on every poll, one `mkdir
-// outbox/x.json` is about 345,000 task events a day, published to every open
-// dashboard, for as long as the task exists.
+// to everything attached to it, so told once is a count rather than a property of
+// the first poll. These five conditions are decided from the directory listing —
+// a directory named like a message, a link, a name too long, a name that is not a
+// plain one, a document over the limit — and none changes by being looked at
+// again. Told on every poll, one `mkdir outbox/x.json` is about 345,000 task
+// events a day for as long as the task exists.
 func TestAnEntryRefusedByItsListingIsToldToTheUserOnce(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
@@ -774,24 +762,22 @@ func TestAnEntryRefusedByItsListingIsToldToTheUserOnce(t *testing.T) {
 	}
 }
 
-// TestARefusalThatCouldNotBeSettledIsNotToldToTheUser covers the order of the
-// two halves of announcing a refusal.
+// TestARefusalThatCouldNotBeSettledIsNotToldToTheUser covers the order of the two
+// halves of announcing a refusal.
 //
-// Settling is a file append and can fail. Announced first and settled never,
-// the refusal has been published as though it were dealt with, and the next
-// poll reaches the same conclusion and publishes it again — which is the very
-// loop settling exists to close. So the settle happens first, and the user
-// hears about the refusal only once there is a record saying it will not be
-// reached again.
+// Settling is a file append and can fail. A refusal announced first and never
+// settled has been published as though it were dealt with, and the next poll
+// reaches the same conclusion and publishes it again, which is the loop settling
+// closes. The settle happens first, so the user hears about a refusal only once
+// there is a record saying it will not be reached again.
 func TestARefusalThatCouldNotBeSettledIsNotToldToTheUser(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
 	workspace := live.workspace(t)
 
-	// A directory where the record of settled entries belongs: an append to it
-	// fails for whoever runs it, root included. The workspace has already read
-	// the record, so a poll still gets as far as producing the refusal — which
-	// is the situation this is about.
+	// A directory where the record of settled entries belongs, so an append to it
+	// fails for whoever runs it, root included. The workspace has already read the
+	// record, so a poll still gets as far as producing the refusal.
 	record := filepath.Join(workspace.AgentDir(), "processed.jsonl")
 	if err := os.Remove(record); err != nil {
 		t.Fatalf("removing the record of settled entries: %v", err)
@@ -817,8 +803,8 @@ func TestARefusalThatCouldNotBeSettledIsNotToldToTheUser(t *testing.T) {
 		}
 	}
 
-	// Nothing was recorded, so nothing was decided: once the record can be
-	// written again the refusal is settled and told, once.
+	// Nothing was recorded, so nothing was decided. Once the record can be written
+	// again the refusal is settled and told, once.
 	if err := os.Remove(record); err != nil {
 		t.Fatalf("restoring the record of settled entries: %v", err)
 	}
@@ -853,14 +839,14 @@ func (s *session) refusals(t *testing.T) []string {
 }
 
 // TestReviewRequestIsExplicitAndDistinguishableFromIdle is the rule that only an
-// explicit request reaches review, and it is the shape a "Stop means complete"
-// defect would take.
+// explicit request reaches review, and the shape a "Stop means complete" defect
+// would take.
 func TestReviewRequestIsExplicitAndDistinguishableFromIdle(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
 
-	// Every end-of-turn signal Claude can produce, several times over, followed
-	// by the grace period expiring. None of it may reach a review state.
+	// Every end-of-turn signal Claude can produce, several times over, followed by
+	// the grace period expiring. None of it may reach a review state.
 	for range 3 {
 		live.hook(t, "Stop", `{"session_id":"claude-session-1","stop_hook_active":false}`)
 		live.timer.fire()
@@ -874,8 +860,8 @@ func TestReviewRequestIsExplicitAndDistinguishableFromIdle(t *testing.T) {
 		t.Errorf("process = %q, want idle", task.Session.Process)
 	}
 
-	// Idle and review-requested are separately observable, which is what
-	// "distinguishable" means: a client can tell the two apart without guessing.
+	// Idle and review-requested are separately observable, so a client tells the
+	// two apart without guessing.
 	live.emit(t, control.TypeReviewRequested,
 		`{"summary":"Rate limiting added.","checks":[{"id":"test","status":"passed","detail":"84 passed"}]}`)
 
@@ -905,10 +891,9 @@ func TestReviewRequestIsExplicitAndDistinguishableFromIdle(t *testing.T) {
 }
 
 // TestNoEndOfTurnPathReachesAReviewState pins the normalization table the way
-// internal/domain pins the workflow transition table.
-//
-// The defect it is aimed at is not a wrong line of code but a wrong table entry,
-// so the test reads the table rather than driving the daemon.
+// internal/domain pins the workflow transition table. The defect it is aimed at
+// is a wrong table entry rather than a wrong line of code, so it reads the table
+// rather than driving the daemon.
 func TestNoEndOfTurnPathReachesAReviewState(t *testing.T) {
 	semantic := map[domain.WorkflowState]bool{
 		domain.WorkflowReviewRequested: true,
@@ -951,12 +936,9 @@ func TestNoEndOfTurnPathReachesAReviewState(t *testing.T) {
 }
 
 // TestAnAgentThatCouldNotStartPreventsLaunch is FR-PROJ-004's rule that a task
-// whose agent could never start is refused before anything is created.
-//
-// The trigger used to be a required provider CLI that was not authenticated.
-// That declaration is gone (ADR-075), and the property it was proving is not:
-// what matters is that a refused launch leaves no terminal and no session
-// behind, so the test keeps the assertions and changes what does the refusing.
+// whose agent could never start is refused before anything is created. ADR-075
+// removed the provider-CLI declaration that used to trigger it, and the property
+// stands: a refused launch leaves no terminal and no session behind.
 func TestAnAgentThatCouldNotStartPreventsLaunch(t *testing.T) {
 	runner := agenttest.New().Absent("claude", "--version")
 
@@ -997,8 +979,8 @@ func TestAnAgentThatCouldNotStartPreventsLaunch(t *testing.T) {
 		}
 	}
 
-	// Checked at the adapter rather than at the outcome: that no tmux command
-	// ran is a stronger statement than that no terminal exists.
+	// Checked at the adapter rather than at the outcome, because no tmux command
+	// running is a stronger statement than no terminal existing.
 	if calls := server.Calls(); len(calls) != 0 {
 		t.Errorf("the refused launch still issued %d tmux commands: %v", len(calls), calls)
 	}
@@ -1011,12 +993,10 @@ func TestAnAgentThatCouldNotStartPreventsLaunch(t *testing.T) {
 	}
 }
 
-// TestADevcontainerProjectRunsItsAgentInTheContainer is the boundary the
-// security model exists to describe: the agent runs where the project put it.
-//
-// Claude is started, but never on this host. The command the terminal runs
-// enters the task's own Compose project, and the session records that it is a
-// devcontainer session rather than a host one.
+// TestADevcontainerProjectRunsItsAgentInTheContainer is the boundary the security
+// model describes: the agent runs where the project put it. Claude is started and
+// never on this host, the command the terminal runs enters the task's own Compose
+// project, and the session records a devcontainer session rather than a host one.
 func TestADevcontainerProjectRunsItsAgentInTheContainer(t *testing.T) {
 	live := launch(t, prepareFixture, installed(), false)
 
@@ -1042,8 +1022,8 @@ func TestADevcontainerProjectRunsItsAgentInTheContainer(t *testing.T) {
 		t.Error("the recorded agent user is root")
 	}
 
-	// The control workspace exists now, because there is an agent to report
-	// through it.
+	// The control workspace exists now, because there is an agent to report through
+	// it.
 	workspace, err := control.Open(live.service.layout.ControlRoot(), "app", live.ref.Task, control.Options{})
 	if err != nil {
 		t.Fatalf("opening the control workspace: %v", err)
@@ -1112,26 +1092,24 @@ func TestAFailedSessionLeavesAnExplainableTask(t *testing.T) {
 	}
 	_ = event
 
-	// The provider session identifier survives the failure, so a resume can
-	// continue this session rather than open an empty one.
+	// The provider session identifier survives the failure, so a resume continues
+	// this session rather than opening an empty one.
 	if task.Session.ProviderSessionID != "claude-session-1" {
 		t.Errorf("provider session id = %q, want it retained through the failure", task.Session.ProviderSessionID)
 	}
 }
 
-// TestAnAgentThatNeverReportsStartingIsNotShownAsWorking comes from a real
-// launch rather than from reasoning about one.
-//
-// Claude asks for workspace trust on a directory it has not seen before, and
-// every task worktree is such a directory, so the first thing a launched session
-// does is wait for a person. No hook fires while it waits, because hooks belong
-// to a session that has begun. Feat showed the task as a running process with
-// no attention, which is a task that looks like it is getting on with its work.
+// TestAnAgentThatNeverReportsStartingIsNotShownAsWorking comes from a real launch
+// rather than from reasoning about one. Claude asks for workspace trust on a
+// directory it has not seen before, and every task worktree is one, so the first
+// thing a launched session does is wait for a person. No hook fires while it
+// waits, and Feat showed the task as a running process with no attention, which
+// looks like a task getting on with its work.
 func TestAnAgentThatNeverReportsStartingIsNotShownAsWorking(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 
 	// Nothing has been heard from the agent. Its process is alive, because the
-	// terminal is real, and that is precisely the misleading part.
+	// terminal is real, which is the misleading part.
 	task := live.task(t)
 	if task.Workflow != domain.WorkflowPreparing || task.Attention != domain.AttentionNone {
 		t.Fatalf("workflow = %q and attention = %q immediately after launch, want preparing and none",
@@ -1148,8 +1126,8 @@ func TestAnAgentThatNeverReportsStartingIsNotShownAsWorking(t *testing.T) {
 	live.timer.fire()
 
 	task = live.task(t)
-	// Possibly waiting rather than needs input: Feat has heard nothing, which is
-	// not the same as the provider reporting that it is blocked.
+	// Possibly waiting rather than needs input. Feat has heard nothing, which is
+	// not the provider reporting that the agent is blocked.
 	if task.Attention != domain.AttentionPossiblyWaiting {
 		t.Errorf("attention = %q, want possibly_waiting", task.Attention)
 	}
@@ -1172,7 +1150,7 @@ func TestAnAgentThatReportsStartingCancelsTheSilenceNotice(t *testing.T) {
 	live.start(t)
 
 	// The session spoke, so the notice no longer applies. Firing every pending
-	// timer must not now claim that a working task is waiting for anybody.
+	// timer must not claim that a working task is waiting for anybody.
 	live.timer.fire()
 
 	task := live.task(t)
@@ -1192,8 +1170,8 @@ func TestNotificationMeansTheUserIsNeededRatherThanThatTheTurnEnded(t *testing.T
 		`"message":"Claude needs your permission to use Bash"}`)
 
 	task := live.task(t)
-	// This is the one signal that tells a session waiting on a person from one
-	// that merely finished speaking.
+	// This is the one signal that tells a session waiting on a person from one that
+	// merely finished speaking.
 	if task.Attention != domain.AttentionNeedsInput {
 		t.Errorf("attention = %q, want needs_input", task.Attention)
 	}
@@ -1203,11 +1181,9 @@ func TestNotificationMeansTheUserIsNeededRatherThanThatTheTurnEnded(t *testing.T
 }
 
 // TestAttentionClearsWhenTheAgentGetsThroughItsTurn comes from a real launch.
-//
-// Claude asked for permission mid-turn, which set needs-input correctly. Nothing
-// cleared it afterwards, so a task that had once asked a question reported
-// needing the user for the rest of its life. An attention state that never
-// clears is one nobody reads.
+// Claude asked for permission mid-turn, which set needs-input correctly, and
+// nothing cleared it afterwards, so a task that had once asked a question
+// reported needing the user for the rest of its life.
 func TestAttentionClearsWhenTheAgentGetsThroughItsTurn(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
@@ -1231,14 +1207,12 @@ func TestAttentionClearsWhenTheAgentGetsThroughItsTurn(t *testing.T) {
 	}
 }
 
-// TestAReviewRequestDoesNotClaimTheSessionIsWaiting comes from the dogfood runs
-// ADR-058 records.
-//
-// The agent writes its review request in the middle of a turn it then carries
-// on with: through the completion gate, and back into its own loop when the gate
-// fails. Attention said possibly-waiting for all of it — seven minutes of active
-// work on two real tasks — and cleared at the end of the turn, which is the one
-// moment it was true. The dashboard counted a working agent into "may need you".
+// TestAReviewRequestDoesNotClaimTheSessionIsWaiting comes from the runs ADR-058
+// records. The agent writes its review request in the middle of a turn it then
+// carries on with, through the completion gate and back into its own loop when
+// the gate fails. Attention said possibly-waiting for all of it, seven minutes of
+// active work on two real tasks, and cleared at the end of the turn, which is the
+// one moment it was true.
 func TestAReviewRequestDoesNotClaimTheSessionIsWaiting(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
@@ -1257,8 +1231,8 @@ func TestAReviewRequestDoesNotClaimTheSessionIsWaiting(t *testing.T) {
 		t.Errorf("process after a review request = %q, want running", task.Session.Process)
 	}
 
-	// The end of the turn and the idle grace after it are what decide the
-	// attention, here as everywhere else.
+	// The end of the turn and the idle grace after it decide the attention, here as
+	// everywhere else.
 	live.hook(t, "Stop", `{"session_id":"claude-session-1"}`)
 	live.timer.fire()
 	if task := live.task(t); task.Attention != domain.AttentionPossiblyWaiting {
@@ -1266,10 +1240,10 @@ func TestAReviewRequestDoesNotClaimTheSessionIsWaiting(t *testing.T) {
 	}
 }
 
-// TestAnIdleSessionExplainsTheAttentionItSets covers the other half of ADR-058:
-// the state used to be written to the task and left out of its history, so the
-// one place a user could ask why a task was counted as needing them said only
-// that the process had gone idle.
+// TestAnIdleSessionExplainsTheAttentionItSets covers the other half of ADR-058. A
+// state written to the task and left out of its history leaves the one place a
+// user can ask why a task was counted as needing them saying only that the
+// process had gone idle.
 func TestAnIdleSessionExplainsTheAttentionItSets(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
@@ -1306,8 +1280,8 @@ func TestAnIdleSessionExplainsTheAttentionItSets(t *testing.T) {
 func TestSilenceDoesNotRecordATransitionThatDidNotHappen(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 
-	// Something already says this task needs a person. Nothing has been heard
-	// from the agent either, which is the case the startup grace is about.
+	// Something already says this task needs a person, and nothing has been heard
+	// from the agent, which is the case the startup grace is about.
 	task := live.task(t)
 	if err := task.SetAttention(domain.AttentionNeedsInput, reconcileTime); err != nil {
 		t.Fatalf("recording what the task already needs: %v", err)
@@ -1354,8 +1328,8 @@ func TestPendingMessagesSurviveARestartAndApplyExactlyOnce(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
 
-	// A turn that ended while the daemon was down: the file is there, and
-	// nothing has read it.
+	// A turn that ended while the daemon was down: the file is there and nothing
+	// has read it.
 	live.write(t, control.TypeReviewRequested, `{"summary":"Finished while you were away."}`)
 
 	// A second daemon over the same state, which is what a restart is.
@@ -1373,12 +1347,11 @@ func TestPendingMessagesSurviveARestartAndApplyExactlyOnce(t *testing.T) {
 		t.Fatalf("restarting the daemon: %v", err)
 	}
 	// The second daemon's gates need stopping as much as the first one's, and
-	// launchWith registers that only for the daemon it builds. This test's whole
-	// subject is a pending review request, and applying one starts a gate: the
-	// goroutine goes on writing the task's control workspace after the test body
-	// has returned, which fails the run either in TempDir's cleanup or, worse, in
-	// the second-poll assertion below — a moved UpdatedAt reads there as the
-	// message having been applied twice.
+	// launchWith registers that only for the daemon it builds. This test's subject
+	// is a pending review request, and applying one starts a gate whose goroutine
+	// goes on writing the task's control workspace after the test body returns. That
+	// fails the run in TempDir's cleanup, or in the second-poll assertion below,
+	// where a moved UpdatedAt reads as the message having been applied twice.
 	t.Cleanup(restarted.service.gate.stopAll)
 	restarted.service.pollControl(context.Background())
 
@@ -1407,9 +1380,8 @@ func TestAnEndedTurnFromBeforeARestartGoesIdleAtOnce(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
 
-	// The turn ended an hour ago; the daemon is only now reading it. Measuring
-	// the grace period from now would restart a clock that has long since run
-	// out.
+	// The turn ended an hour ago and the daemon is only now reading it. Measuring
+	// the grace period from now would restart a clock that has long since run out.
 	live.write(t, control.TypeProviderEvent, `{"hook":"Stop","event":{"session_id":"claude-session-1"}}`)
 
 	timer := newTestTimer()
@@ -1475,8 +1447,8 @@ func TestControlWorkspaceIsOutsideTheSnapshotDirectory(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	workspace := live.workspace(t)
 
-	// The tree that is mounted into a container must not contain the task's own
-	// snapshot, event log, or stored brief (ADR-032).
+	// The tree mounted into a container must not contain the task's own snapshot,
+	// event log, or stored brief (ADR-032).
 	snapshots := filepath.Join(live.state, "projects", "app", "tasks", live.ref.Task.String())
 	if strings.HasPrefix(workspace.Root(), snapshots) {
 		t.Fatalf("the control workspace %s is inside the snapshot directory %s", workspace.Root(), snapshots)
@@ -1504,20 +1476,17 @@ func TestControlWorkspaceIsOutsideTheSnapshotDirectory(t *testing.T) {
 
 var _ = store.Ref
 
-// TestAResumedSessionThatReportsNothingIsMarkedWaiting is the half of the
-// startup grace that a resume fell through.
-//
-// An agent can be blocked before it emits anything at all — Claude asks for
-// workspace trust on a directory it has not seen before, and a resumed session
-// is started in a fresh process like any other. The guard asked for a task in
-// `preparing`, and a resume leaves the workflow where it was, so the two
-// longest-stuck tasks in the record ADR-096 was measured from were resumes that
-// reported nothing and said `working` for the rest of their lives.
+// TestAResumedSessionThatReportsNothingIsMarkedWaiting is the half of the startup
+// grace that a resume fell through. An agent can be blocked before it emits
+// anything: Claude asks for workspace trust on a directory it has not seen
+// before, and a resumed session starts in a fresh process like any other. A guard
+// asking for a task in `preparing` missed them, because a resume leaves the
+// workflow where it was (ADR-096).
 func TestAResumedSessionThatReportsNothingIsMarkedWaiting(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
 
-	// The agent died while nothing was watching, so only the process moved: the
+	// The agent died while nothing was watching, so only the process moved. The
 	// task is still working, which is where a resume finds it.
 	task := live.task(t)
 	task.Session.ProviderSessionID = "e3f1a0c2-0000-4000-8000-1234567890ab"
@@ -1545,8 +1514,7 @@ func TestAResumedSessionThatReportsNothingIsMarkedWaiting(t *testing.T) {
 			task.Attention)
 	}
 	// Possibly waiting rather than needs-input, because the provider reported
-	// nothing: Feat knows it has not heard, and does not know the agent is
-	// blocked.
+	// nothing. Feat knows it has not heard, and not that the agent is blocked.
 	said := false
 	for _, event := range history(t, live) {
 		if event.Type == domain.EventAttentionChanged && event.To == string(domain.AttentionPossiblyWaiting) &&
@@ -1560,8 +1528,8 @@ func TestAResumedSessionThatReportsNothingIsMarkedWaiting(t *testing.T) {
 }
 
 // TestASilentStartIsNotReportedForAnArchivedTask keeps the widened guard honest:
-// a task that was cleaned up while its agent was starting has nobody an
-// attention state could reach.
+// a task cleaned up while its agent was starting has nobody an attention state
+// could reach.
 func TestASilentStartIsNotReportedForAnArchivedTask(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 
@@ -1580,15 +1548,12 @@ func TestASilentStartIsNotReportedForAnArchivedTask(t *testing.T) {
 	}
 }
 
-// TestAnEndedTurnSurvivesADaemonThatStopsInsideTheGracePeriod is the third
-// defect ADR-096 records.
-//
-// The end-of-turn message is settled in the outbox as soon as it is applied, and
-// the timer that would act on it is in memory, so a daemon stopping inside the
-// grace period — five seconds by default — used to lose the transition for good:
-// the message is never read again, and nothing else arms one. The turn end is
-// therefore recorded on the session before it is applied, and re-armed from that
-// record when the daemon starts.
+// TestAnEndedTurnSurvivesADaemonThatStopsInsideTheGracePeriod is the third defect
+// ADR-096 records. The end-of-turn message is settled in the outbox as soon as it
+// is applied and the timer that would act on it is in memory, so a daemon
+// stopping inside the grace period, five seconds by default, lost the transition
+// for good. The turn end is recorded on the session before it is applied, and
+// re-armed from that record when the daemon starts.
 func TestAnEndedTurnSurvivesADaemonThatStopsInsideTheGracePeriod(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
@@ -1628,8 +1593,8 @@ func TestAnEndedTurnSurvivesADaemonThatStopsInsideTheGracePeriod(t *testing.T) {
 	}
 }
 
-// TestATurnThatContinuedIsNotReArmedAfterARestart is what stops the record
-// above from becoming a transition nobody is owed.
+// TestATurnThatContinuedIsNotReArmedAfterARestart is what stops the record above
+// from becoming a transition nobody is owed.
 func TestATurnThatContinuedIsNotReArmedAfterARestart(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)

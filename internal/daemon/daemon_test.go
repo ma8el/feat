@@ -26,10 +26,9 @@ type running struct {
 	served   chan error
 }
 
-// serve starts a daemon and waits until it is listening.
-//
-// The daemon is stopped and its result checked when the test ends, so a test
-// cannot pass while leaving a daemon behind or hiding a shutdown failure.
+// serve starts a daemon and waits until it is listening. The daemon is stopped
+// and its result checked when the test ends, so a test cannot pass while leaving
+// a daemon behind or hiding a shutdown failure.
 func serve(t *testing.T, opts Options) *running {
 	t.Helper()
 
@@ -44,16 +43,16 @@ func serve(t *testing.T, opts Options) *running {
 	if opts.Heartbeat == 0 {
 		opts.Heartbeat = -1
 	}
-	// Nor is an hourly rewrite of the endpoint record, for the same reason: a
-	// test that reads the record should see what startup published. The test
-	// that means to exercise republishing asks for it.
+	// Nor is an hourly rewrite of the endpoint record, for the same reason: a test
+	// that reads the record should see what startup published, and the test that
+	// exercises republishing asks for it.
 	if opts.RecordInterval == 0 {
 		opts.RecordInterval = -1
 	}
-	// No test drives the real Docker. A test that means to exercise a
-	// devcontainer arranges its own fake; one that does not gets a fake that
-	// refuses, so a launch reaching Docker by accident fails loudly here rather
-	// than creating a container on the machine running the suite.
+	// No test drives the real Docker. A test that exercises a devcontainer arranges
+	// its own fake, and one that does not gets a fake that refuses, so a launch
+	// reaching Docker by accident fails here rather than creating a container on
+	// the machine running the suite.
 	if opts.Docker == nil {
 		opts.Docker = composetest.New().Missing(compose.Executable)
 	}
@@ -100,10 +99,9 @@ func serve(t *testing.T, opts Options) *running {
 	return live
 }
 
-// client returns a client for the running daemon.
-//
-// It is closed when the test ends: a client that keeps a connection open makes
-// the daemon's shutdown wait for it, which turns every test into a slow one.
+// client returns a client for the running daemon. It is closed when the test
+// ends, because a client that keeps a connection open makes the daemon's shutdown
+// wait for it.
 func (r *running) client(t *testing.T) *client.Client {
 	t.Helper()
 
@@ -113,9 +111,9 @@ func (r *running) client(t *testing.T) *client.Client {
 }
 
 // TestTwoClientsQueryConcurrently covers the rule that two clients can query the
-// daemon at the same time. Two operating-system processes
-// doing it are covered by the opt-in test in integration_test.go; this checks the
-// daemon under concurrent load, which is the part that can break silently.
+// daemon at the same time. The opt-in test in integration_test.go covers two
+// operating-system processes doing it; this checks the daemon under concurrent
+// load, which is the part that can break silently.
 func TestTwoClientsQueryConcurrently(t *testing.T) {
 	live := serve(t, Options{})
 	seed(t, live, storetest.Project(), storetest.Task())
@@ -188,11 +186,9 @@ func TestHealthReportsTheRunningDaemon(t *testing.T) {
 }
 
 // TestServeStreamsEventsInOrder covers the rule that state events arrive through
-// SSE in order, checked over a real socket with two connected clients.
-//
-// The events are published directly rather than through a write; the bus, the
-// SSE encoding, the socket, and the client parser in the path are the real ones
-// (ADR-027).
+// SSE in order, checked over a real socket with two connected clients. The events
+// are published directly rather than through a write, and the bus, the SSE
+// encoding, the socket, and the client parser are the real ones (ADR-027).
 func TestServeStreamsEventsInOrder(t *testing.T) {
 	live := serve(t, Options{})
 
@@ -279,9 +275,8 @@ func TestServeStreamsEventsInOrder(t *testing.T) {
 // errStopReading ends a test's event loop without failing it.
 var errStopReading = errors.New("test has seen enough events")
 
-// TestTheSpawnMarkerDoesNotOutliveTheSpawn checks that what a task's own
-// commands inherit from the daemon does not include the daemon's private
-// bookkeeping.
+// TestTheSpawnMarkerDoesNotOutliveTheSpawn checks that what a task's own commands
+// inherit from the daemon excludes the daemon's private bookkeeping.
 //
 // FEAT_DAEMON_SPAWNED exists to stop one thing: a binary spawned with arguments
 // it does not understand re-running the client path and spawning again. Every
@@ -289,9 +284,6 @@ var errStopReading = errors.New("test has seen enough events")
 // are children — a configured check, a tmux pane, the agent's session — so a
 // marker that survived would make a `feat` invocation inside a task refuse to
 // start a daemon, having been told it was one.
-//
-// Found by running Feat's own integration check through Feat's completion gate:
-// `feat daemon start` failed on a variable no test had set.
 func TestTheSpawnMarkerDoesNotOutliveTheSpawn(t *testing.T) {
 	t.Setenv(envSpawned, "1")
 
@@ -323,9 +315,9 @@ func TestServeRefusesASecondDaemonOnTheSameSocket(t *testing.T) {
 	}
 }
 
-// TestShutdownReleasesOwnership checks that a daemon which is asked to stop
-// leaves the runtime directory claimable, including while a client is streaming
-// events: an event stream must not hold shutdown open.
+// TestShutdownReleasesOwnership checks that a daemon asked to stop leaves the
+// runtime directory claimable, including while a client is streaming events,
+// because an event stream must not hold shutdown open.
 func TestShutdownReleasesOwnership(t *testing.T) {
 	layout := testLayout(t)
 

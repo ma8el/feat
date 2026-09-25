@@ -7,11 +7,9 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 )
 
-// Timer schedules work for later.
-//
-// It is an interface for the same reason the daemon takes its clock as a
-// function: a grace period is an acceptance criterion, and a test that proved
-// it by sleeping would prove only that the machine was slow enough.
+// Timer schedules work for later. It is an interface for the same reason the
+// daemon takes its clock as a function: a grace period is an acceptance
+// criterion, and a test that slept would prove only that the machine was slow.
 type Timer interface {
 	// After runs the function once, after the duration has passed, and returns
 	// a stop function. Stopping after the function has run does nothing.
@@ -27,10 +25,9 @@ func (wallTimer) After(d time.Duration, run func()) func() {
 	return func() { timer.Stop() }
 }
 
-// idleTimers hold at most one pending idle transition per task.
-//
-// One per task rather than one overall, because two tasks end their turns
-// independently and the second must not cancel the first.
+// idleTimers hold at most one pending idle transition per task. One per task
+// rather than one overall, because two tasks end their turns independently and
+// the second must not cancel the first.
 type idleTimers struct {
 	timer Timer
 

@@ -14,8 +14,8 @@ import (
 )
 
 // registrationFixture is a complete configuration, written to the daemon's own
-// configuration directory. The repository names are generic on purpose: nothing
-// about the reference project may reach the binary (CLAUDE.md scope rule 3).
+// configuration directory. The repository names are generic, because nothing
+// about the reference project may reach the binary.
 const registrationFixture = `version: 1
 
 project:
@@ -69,12 +69,11 @@ func configured(t *testing.T, layout paths.Layout, id, body string) paths.Enviro
 }
 
 // TestDaemonIsTheOnlyWriterOfProjectState is the behavioural form of the rule
-// that the daemon is the sole state writer.
-//
-// Before anything wrote persistent state the rule could only be checked
-// structurally, as ADR-027 recorded in advance. Registering a project is the
-// first write, and it goes through the socket: the client sends an identifier, and the
-// snapshot appears in the daemon's state directory.
+// that the daemon is the sole state writer. Before anything wrote persistent
+// state the rule could only be checked structurally, as ADR-027 recorded in
+// advance. Registering a project is the first write and it goes through the
+// socket: the client sends an identifier, and the snapshot appears in the
+// daemon's state directory.
 func TestDaemonIsTheOnlyWriterOfProjectState(t *testing.T) {
 	layout := testLayout(t)
 	env := configured(t, layout, "app", registrationFixture)
@@ -120,11 +119,9 @@ func TestDaemonIsTheOnlyWriterOfProjectState(t *testing.T) {
 }
 
 // TestRegistrationResolvesPathsAgainstTheDaemonsEnvironment checks whose home
-// directory a "~" in project configuration means.
-//
-// It is the daemon's, not the caller's. The daemon owns the state it writes, and
-// a client that could change what "~" resolves to would decide where another
-// user's repositories were looked for.
+// directory a "~" in project configuration means. It is the daemon's, because a
+// client that could change what "~" resolves to would decide where another user's
+// repositories were looked for.
 func TestRegistrationResolvesPathsAgainstTheDaemonsEnvironment(t *testing.T) {
 	layout := testLayout(t)
 	env := configured(t, layout, "app", registrationFixture)

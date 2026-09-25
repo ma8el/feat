@@ -19,14 +19,13 @@ import (
 const probeTimeout = 250 * time.Millisecond
 
 // defaultRecordInterval is how often a daemon publishes its endpoint record
-// again.
+// again. The record is written once at startup, and macOS reaps files older than
+// three days under the per-user temporary directory, which is where the runtime
+// directory lives (ADR-027).
 //
-// The record is written once at startup and would otherwise never be touched
-// again, and macOS reaps files under the per-user temporary directory that are
-// more than three days old — which is where the runtime directory lives, for the
-// reason ADR-027 gives and this decision keeps. An hour is two orders of
-// magnitude inside that threshold, and the write is a 230-byte atomic
-// replacement, so the margin costs nothing worth measuring (ADR-101).
+// An hour is two orders of magnitude inside that threshold, and the write is a
+// 230-byte atomic replacement, so the margin costs nothing worth measuring
+// (ADR-101).
 const defaultRecordInterval = time.Hour
 
 // Ownership is one daemon's exclusive claim on the runtime directory: the
@@ -65,11 +64,9 @@ func Acquire(layout paths.Layout, build Build, now time.Time, logger *slog.Logge
 	lock, err := acquireLock(layout.LockFile(), runtimeFilePerm)
 	if err != nil {
 		if errors.Is(err, errLockHeld) {
-			// The lock is the authority on liveness; the record only explains
-			// who holds it, and a daemon that is still starting has not written
-			// one yet. Whether it is answering separates that daemon from one
-			// whose record was removed while it ran, which is the case the
-			// message would otherwise misdiagnose (ADR-101).
+			// The lock is the authority on liveness and the record only explains who
+			// holds it. Whether the daemon answers separates one that is still
+			// starting from one whose record was removed while it ran (ADR-101).
 			endpoint, readErr := ReadEndpoint(layout)
 			return nil, &AlreadyRunningError{
 				Endpoint:    endpoint,
@@ -93,8 +90,8 @@ func Acquire(layout paths.Layout, build Build, now time.Time, logger *slog.Logge
 
 	// net.Listen creates the socket with the process umask applied, which on a
 	// normal desktop leaves it group- and world-readable. The API is a control
-	// surface for one user (docs/05-security-model.md), so the mode is set
-	// explicitly rather than inherited.
+	// surface for one user, so the mode is set explicitly rather than inherited
+	// (docs/05-security-model.md).
 	if err := os.Chmod(layout.Socket, runtimeFilePerm); err != nil {
 		return nil, errors.Join(
 			fmt.Errorf("restricting %s to the current user: %w", layout.Socket, err),
@@ -126,13 +123,10 @@ func (o *Ownership) Endpoint() Endpoint { return o.endpoint }
 // is held. A negative interval turns it off, which only a test wants, and zero
 // uses the default.
 //
-// It belongs to ownership rather than to the serving loop because Release must
+// It belongs to ownership rather than to the serving loop, because Release must
 // stop it before removing the record. A keeper that outlived Release would write
-// the record back after the daemon had given up the directory, leaving a file
-// that names a process which is no longer running and whose identifier the
-// system is free to reuse — the one outcome worse than the record going missing,
-// because a record that cannot go stale cannot be recognised as stale (ADR-027,
-// evidence 1).
+// the record back after the daemon gave up the directory, naming a process that
+// is not running and whose identifier the system may reuse (ADR-027, evidence 1).
 func (o *Ownership) keepRecord(interval time.Duration) {
 	if interval < 0 {
 		return
@@ -144,12 +138,9 @@ func (o *Ownership) keepRecord(interval time.Duration) {
 	o.keeper.start(o, interval)
 }
 
-// republish writes the record again.
-//
-// Its contents do not change after Acquire, so this is idempotent. It is a
-// rewrite rather than a touch on purpose: a record that has already been
-// collected comes back, where setting timestamps on a path that no longer exists
-// would fail and keep failing.
+// republish writes the record again. Its contents do not change after Acquire, so
+// this is idempotent. It rewrites rather than touches, so a record that has
+// already been collected comes back instead of failing on a path that is gone.
 func (o *Ownership) republish() error {
 	return writeEndpoint(o.layout.EndpointFile(), o.endpoint)
 }
@@ -179,10 +170,9 @@ func (k *recordKeeper) start(o *Ownership, interval time.Duration) {
 				return
 			case <-ticker.C:
 				if err := o.republish(); err != nil {
-					// A daemon that is serving must not stop because a
-					// 230-byte write failed. The next tick tries again, and
-					// the failure is the same one each time, so it is reported
-					// once rather than every hour.
+					// A daemon that is serving must not stop because a 230-byte
+					// write failed. The next tick tries again, and the same
+					// failure is reported once rather than every hour.
 					if o.repeats.changed("endpoint record", err.Error()) {
 						o.logger.Warn("republishing the endpoint record",
 							slog.String("record", o.layout.EndpointFile()),
@@ -246,11 +236,9 @@ func (o *Ownership) Release() error {
 	return errors.Join(failures...)
 }
 
-// reclaimSocket removes a socket left behind by a daemon that is gone.
-//
-// It runs with the ownership lock held, so nothing else is starting at the same
-// time, and a socket that still answers therefore belongs to a process that
-// never took the lock.
+// reclaimSocket removes a socket left behind by a daemon that is gone. It runs
+// with the ownership lock held, so nothing else is starting, and a socket that
+// still answers belongs to a process that never took the lock.
 func (o *Ownership) reclaimSocket() error {
 	socket := o.layout.Socket
 
@@ -283,11 +271,9 @@ func (o *Ownership) reclaimSocket() error {
 	return nil
 }
 
-// Answering reports whether something accepts connections on a socket path.
-//
-// It is the only reliable way to tell a stale socket file from a live one, and
-// it is deliberately a connect and an immediate close: the daemon answers before
-// any request is written, so nothing has to be sent to find out.
+// Answering reports whether something accepts connections on a socket path. It is
+// the only reliable way to tell a stale socket file from a live one. It connects
+// and closes at once, because the daemon accepts before any request is written.
 func Answering(socket string) bool {
 	connection, err := net.DialTimeout("unix", socket, probeTimeout)
 	if err != nil {
@@ -297,14 +283,13 @@ func Answering(socket string) bool {
 	return true
 }
 
-// ensureRuntimeDir creates the runtime directory and refuses one that cannot
-// hold an ownership claim.
+// ensureRuntimeDir creates the runtime directory and refuses one that cannot hold
+// an ownership claim. The fallback location is shared with other users
+// (docs/06-technical-architecture.md), so another user could place a socket or a
+// lock in a directory they own or anybody can write to.
 //
-// The fallback location is shared with other users (docs/06-technical-architecture.md),
-// so a directory somebody else owns, or that anybody else can write to, is a
-// directory where another user could place a socket or a lock. A too-permissive
-// directory that Feat does own is repaired rather than rejected, because that is
-// a mode this program can fix without guessing.
+// A too-permissive directory that Feat does own is repaired rather than rejected,
+// because that is a mode this program can fix without guessing.
 func ensureRuntimeDir(dir string, logger *slog.Logger) error {
 	if err := os.MkdirAll(dir, runtimeDirPerm); err != nil {
 		return fmt.Errorf("creating the runtime directory %s: %w", dir, err)

@@ -20,18 +20,16 @@ import (
 // PublicationPlan composes what publishing this task would do.
 //
 // It records nothing. What it returns is the document the user reads and edits:
-// the agent's words for each repository, together with what Feat already knows —
-// the forge, the remote, the base branch, and the commit that would be pushed
-// (ADR-070).
+// the agent's words for each repository, together with the forge, the remote, the
+// base branch, and the commit that would be pushed (ADR-070).
 //
-// A repository that cannot be published becomes a note rather than a failure,
-// for the reason a review command that will not expand does: the others are
-// still publishable, and a user is better served by being told which one is not
-// and why.
+// A repository that cannot be published becomes a note rather than a failure, for
+// the reason a review command that will not expand does: the others are still
+// publishable, and the user is told which one is not and why.
 func (s *service) PlanPublication(ctx context.Context, id domain.TaskID) (api.PublicationResult, error) {
-	// Held for the whole action, as a review action is: it reads the task, the
-	// project's configuration, and every worktree, and it must not compose a
-	// document from a task another request is halfway through changing.
+	// Held for the whole action, as a review action is. It reads the task, the
+	// project's configuration, and every worktree, so it must not compose a document
+	// from a task another request is halfway through changing.
 	defer s.locks.lock(id)()
 
 	task, cfg, err := s.reviewTask(ctx, id)
@@ -51,16 +49,16 @@ func (s *service) PlanPublication(ctx context.Context, id domain.TaskID) (api.Pu
 
 // Publish opens one merge request per approved repository.
 //
-// The order is ADR-073's, and it is the order task preparation already uses for
-// the same hazard in a weaker form: plan every repository, record the plan, then
-// apply one at a time, recording each result before the next begins. A worktree
-// Feat forgot is on the user's disk; a merge request Feat forgot is on somebody
-// else's server.
+// The order is ADR-073's, and task preparation already uses it for the same
+// hazard in a weaker form: plan every repository, record the plan, then apply one
+// at a time, recording each result before the next begins. A worktree Feat forgot
+// is on the user's disk; a merge request Feat forgot is on somebody else's
+// server.
 //
-// Nothing is rolled back. A failure on one repository does not stop the others,
-// because the failures that are common to all of them produce the same error
-// however many are attempted, and the ones that are local to a repository leave
-// the user with one thing to fix rather than an unknown number still unattempted.
+// Nothing is rolled back, and a failure on one repository does not stop the
+// others. A failure common to all of them produces the same error however many
+// are attempted, and one local to a repository leaves the user with a single
+// thing to fix.
 func (s *service) ApplyPublication(
 	ctx context.Context, id domain.TaskID, request api.PublishRequest,
 ) (api.PublicationResult, error) {
@@ -80,10 +78,10 @@ func (s *service) ApplyPublication(
 		return api.PublicationResult{}, err
 	}
 
-	// The plan, recorded before anything is attempted. Every repository that
-	// could exist on a forge afterwards is written down first, so an
-	// interruption at any point names what it had not yet attempted rather than
-	// leaving it to be discovered (ADR-073, ADR-029).
+	// The plan, recorded before anything is attempted. Every repository that could
+	// exist on a forge afterwards is written down first, so an interruption names
+	// what it had not yet attempted rather than leaving it to be discovered
+	// (ADR-073, ADR-029).
 	entries := make([]domain.RepositoryPublication, 0, len(approved))
 	for _, one := range approved {
 		entries = append(entries, domain.RepositoryPublication{
@@ -117,21 +115,17 @@ type approvedPublication struct {
 	adapter forge.Adapter
 }
 
-// applyPublication publishes one repository at a time.
-//
-// Each result is recorded before the next repository begins, which is what makes
-// an interrupted publication recoverable: the record says what exists and what
-// was never attempted, and re-publishing skips the ones that already have a
-// merge request — as already published, never as stale (ADR-073).
+// applyPublication publishes one repository at a time. Each result is recorded
+// before the next repository begins, so an interrupted publication has a record
+// of what exists and what was never attempted. Re-publishing skips a repository
+// that already has a merge request as published, never as stale (ADR-073).
 func (s *service) applyPublication(
 	ctx context.Context, task *domain.Task, approved []approvedPublication,
 ) []string {
-	// Detached from the request that started it, and bounded by the adapters'
-	// own timeouts rather than by a caller. A merge request that was opened and
-	// not written down is the one failure this ordering cannot make safe, and a
-	// client that hung up between the forge answering and the record being saved
-	// would produce exactly that. What a caller giving up costs is the response,
-	// which is a screen; what it must not cost is the record.
+	// Detached from the request that started it, and bounded by the adapters' own
+	// timeouts rather than by a caller. A merge request opened and not written down
+	// is the one failure this ordering cannot make safe, and a client that hung up
+	// between the forge answering and the record being saved would produce it.
 	ctx = context.WithoutCancel(ctx)
 
 	byRepository := make(map[domain.RepositoryID]approvedPublication, len(approved))
@@ -163,9 +157,9 @@ func (s *service) applyPublication(
 
 		one, requested := byRepository[planned.RepositoryID]
 		if !requested {
-			// Recorded by an earlier plan and not named by this one. It is left
-			// exactly as it is rather than attempted or removed: a record that
-			// can forget what it planned is the hazard this ordering removes.
+			// Recorded by an earlier plan and not named by this one. It is left as it
+			// is rather than attempted or removed, because a record that can forget
+			// what it planned is the hazard this ordering removes.
 			continue
 		}
 
@@ -174,11 +168,10 @@ func (s *service) applyPublication(
 		notes = append(notes, result.Skipped...)
 
 		if err := s.recordPublication(ctx, task, result); err != nil {
-			// The repository was attempted and what came of it could not be
-			// written down, which is the one failure this ordering cannot make
-			// safe. It is reported rather than swallowed, and the repositories
-			// after it still run: stopping would add a second unattempted set to
-			// a record that is already behind the world.
+			// The repository was attempted and what came of it could not be written
+			// down, which is the one failure this ordering cannot make safe. The
+			// repositories after it still run, because stopping would add a second
+			// unattempted set to a record already behind the world.
 			s.logger.ErrorContext(ctx, "recording what a repository's publication produced",
 				slog.String("task", task.ID.String()),
 				slog.String("repository", result.RepositoryID.String()),
@@ -212,9 +205,9 @@ func (s *service) publishRepository(ctx context.Context, one approvedPublication
 		Branch:   one.checked.Branch,
 		Commit:   one.checked.Commit,
 	})
-	// The report is kept whether the push worked or not: what it names was
-	// decided before the push ran, and a user who depends on a pre-push hook
-	// needs to know it was skipped either way (ADR-070).
+	// The report is kept whether the push worked or not. What it names was decided
+	// before the push ran, and a user who depends on a pre-push hook needs to know
+	// it was skipped either way (ADR-070).
 	for _, skipped := range report.Skipped {
 		result.Skipped = append(result.Skipped,
 			one.checked.RepositoryID.String()+": "+skipped)
@@ -279,12 +272,10 @@ func (s *service) recordPublication(ctx context.Context, task *domain.Task, resu
 // checkApproved turns what the user approved into publications that may run.
 //
 // Every refusal here happens before the plan is recorded and before anything is
-// pushed, so a request this rejects leaves nothing behind. That is deliberate:
-// every refusal it makes is about the request rather than about a forge — a
-// repository that cannot be published, a repository this publication does not
-// offer, words a merge request cannot carry, a draft describing a commit that is
-// no longer current — and a partial state is only ever the price of reaching
-// somebody else's server.
+// pushed, so a request this rejects leaves nothing behind. Each is about the
+// request rather than about a forge: a repository that cannot be published, one
+// this publication does not offer, words a merge request cannot carry, or a draft
+// describing a commit that is no longer current.
 func (s *service) checkApproved(
 	ctx context.Context, cfg *config.Config, task *domain.Task, request api.PublishRequest,
 ) ([]approvedPublication, error) {
@@ -309,13 +300,10 @@ func (s *service) checkApproved(
 			return nil, err
 		}
 
-		// A repository that already published is not examined at all. It is not
-		// asked whether its words are current, because re-publishing skips it as
-		// already published and a staleness question would turn that skip into a
-		// refusal — the confusion ADR-073 keeps the two reasons apart to avoid.
-		// It is not asked for a title either: the words that were sent are on
-		// the forge, and the plan below keeps the entry exactly as it was
-		// recorded.
+		// A repository that already published is not examined at all. Asking whether
+		// its words are current would turn a skip into a refusal, which is the
+		// confusion ADR-073 keeps the two reasons apart to avoid. It is not asked
+		// for a title either, because the words that were sent are on the forge.
 		if task.Publication != nil {
 			if recorded, found := task.Publication.Repository(id); found &&
 				recorded.State == domain.PublicationPublished {
@@ -334,14 +322,12 @@ func (s *service) checkApproved(
 			}
 		}
 
-		// What the plan offered, asked again rather than trusted. A repository
-		// the plan left out was never displayed and so was never approved, and
-		// an approval naming it anyway would push a branch and ask for a merge
-		// request with nothing in it. The answer comes from the function the
-		// plan composes with, so the two cannot drift into disagreeing about
-		// what may be published (ADR-070). Only the refusal is read here: what
-		// an offer has to say about a repository it offers anyway is a note
-		// under the plan, where the user is reading.
+		// What the plan offered, asked again rather than trusted. A repository the
+		// plan left out was never displayed and so was never approved, and an
+		// approval naming it anyway would push a branch and ask for a merge request
+		// with nothing in it. The answer comes from the function the plan composes
+		// with, so the two cannot disagree about what may be published (ADR-070).
+		// Only the refusal is read here; a note belongs under the plan.
 		offer := s.offerPublication(ctx, publishable.binding)
 		if offer.refusal != "" {
 			return nil, fmt.Errorf("%w: the publication was not attempted, because %s. "+
@@ -373,9 +359,9 @@ func (s *service) checkApproved(
 	}
 
 	if len(stale) > 0 {
-		// Reported and never resolved, which is the rule a confirmation
-		// fingerprint follows: Feat does not silently re-compose a draft,
-		// because the user would be publishing words they never read (ADR-031).
+		// Reported and never resolved, which is the rule a confirmation fingerprint
+		// follows. Feat does not silently re-compose a draft, because the user would
+		// be publishing words they never read (ADR-031).
 		return nil, fmt.Errorf("%w: the publication was not attempted, because %s. "+
 			"Nothing was pushed and nothing was opened. Ask the agent for a fresh draft, "+
 			"then publish again", api.ErrInvalid, strings.Join(stale, "; and "))
@@ -391,13 +377,13 @@ func (s *service) checkApproved(
 //
 // Two commits are compared against the repository's current head: the one the
 // approval was composed against, and the one the agent's draft describes. They
-// are usually the same value and they answer different questions — the first is
-// whether what was displayed is still what would be sent, and the second is
-// whether the agent wrote its description before it finished working.
+// are usually the same value and answer different questions — whether what was
+// displayed is still what would be sent, and whether the agent wrote its
+// description before it finished working.
 //
-// The head is the one the offer just read, rather than one read again here: a
-// publication that asked twice could refuse a repository as stale against a
-// commit its own offer never saw.
+// The head is the one the offer just read rather than one read again here,
+// because a publication that asked twice could refuse a repository as stale
+// against a commit its own offer never saw.
 func stalePublication(
 	id domain.RepositoryID, head string, drafted control.PublicationDraft,
 	approved api.ApprovedPublication,
@@ -466,18 +452,16 @@ func (s *service) publishable(
 	}, nil
 }
 
-// publicationOffer is what one repository would contribute to a publication.
-//
-// It is the answer to a question both halves of publishing ask: the plan, to
-// decide what the user is shown, and the approval, to decide what it may send.
-// One function answers it so that a repository the plan left out cannot be
-// published by naming it anyway.
+// publicationOffer is what one repository would contribute to a publication. Both
+// halves of publishing ask it: the plan, to decide what the user is shown, and
+// the approval, to decide what it may send. One function answers, so a repository
+// the plan left out cannot be published by naming it anyway.
 type publicationOffer struct {
 	// head is the commit a merge request would be opened from.
 	head string
-	// refusal is why there is nothing to publish, and is empty when there is.
-	// It is a whole sentence, because it is read as a note under a plan and as
-	// a refusal of an approval.
+	// refusal is why there is nothing to publish, and is empty when there is. It is
+	// a whole sentence, because it is read as a note under a plan and as a refusal
+	// of an approval.
 	refusal string
 	// notes are what a person should know about a repository that is offered
 	// anyway.
@@ -580,11 +564,10 @@ func (s *service) composePublication(
 
 // withTicket adds the ticket a task came from to a draft's description.
 //
-// It is the one thing Feat adds to the agent's prose, and it is added to the
-// draft rather than to the request: the user reads it, can delete it, and what
-// is sent is what they read (ADR-070). The agent is not asked for it, because it
-// is not something the agent knows — the brief it was given is the composed
-// brief, not the ticket it came from.
+// It is the one thing Feat adds to the agent's prose, and it goes into the draft
+// rather than the request: the user reads it, can delete it, and what is sent is
+// what they read (ADR-070). The agent is not asked for it, because the brief it
+// was given is the composed brief rather than the ticket.
 //
 // A task from a prompt or a Markdown file has no ticket, and nothing is added.
 func withTicket(body string, task *domain.Task) string {
@@ -614,11 +597,10 @@ func withTicket(body string, task *domain.Task) string {
 // publicationDraft reads the draft the agent wrote for this task.
 //
 // It is read back from the control workspace rather than held in the task's
-// record, because that is where the agent wrote it and where it stays: the
-// outbox is the account of what the agent sent, and the draft is the one
-// message a publication has to read again long after it was applied. The
+// record, because the outbox is the account of what the agent sent and the draft
+// is the one message a publication reads again long after it was applied. The
 // provider adapter parses it, as it parses every agent-authored message, so a
-// second provider reaches the same code rather than a copy of it.
+// second provider reaches the same code.
 //
 // A task with no draft is not an error. A user can publish work the agent never
 // described, and what they get is a document with the words left to them.
@@ -650,14 +632,14 @@ func (s *service) publicationDraft(ctx context.Context, task *domain.Task) (cont
 	return *event.Draft, nil
 }
 
-// publicationEditor is how the client opens the draft.
+// publicationEditor is how the client opens the draft. It is the machine's
+// configured editor with the repository argument left off, which `feat settings
+// edit` needs of the same command, so the rule lives on the section rather than
+// here.
 //
-// It is the machine's configured editor with the argument that would have named
-// a repository left off, which is the same thing `feat settings edit` needs of
-// the same command — so the rule lives on the section rather than here. An
-// unconfigured editor leaves the program empty, and the client falls back to
-// what its own environment names, which is the daemon's whole reason for not
-// resolving it here (FR-REV-003).
+// An unconfigured editor leaves the program empty and the client falls back to
+// what its own environment names, which is why the daemon does not resolve it
+// (FR-REV-003).
 func publicationEditor(review config.ReviewSection) api.EditorCommand {
 	vector := review.DocumentEditor()
 	if len(vector) == 0 {
@@ -708,13 +690,10 @@ func short(commit string) string {
 	return commit[:12]
 }
 
-// publicationFor describes what publishing this task would cover, so that the
-// provider adapter asks the agent for a draft only where there is somewhere to
-// publish.
-//
-// It names the repositories this task holds read-write whose configuration
-// declares a forge. A task with none gets an empty value, and the agent is never
-// told to write a document Feat has nowhere to send (ADR-070).
+// publicationFor describes what publishing this task would cover, so the provider
+// adapter asks the agent for a draft only where there is somewhere to publish. It
+// names the repositories this task holds read-write whose configuration declares
+// a forge, and a task with none gets an empty value (ADR-070).
 func publicationFor(cfg *config.Config, task *domain.Task) agent.Publication {
 	var repositories []string
 	for _, binding := range task.Repositories {

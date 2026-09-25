@@ -19,9 +19,8 @@ var (
 )
 
 // AlreadyRunningError reports that a daemon already owns the runtime directory.
-//
-// Starting a second daemon is not a failure the user needs to fix, so the
-// message names the process that is already there instead of only refusing.
+// Starting a second daemon is not a failure the user needs to fix, so the message
+// names the process that is already there instead of only refusing.
 type AlreadyRunningError struct {
 	// Endpoint is the record the running daemon wrote, if it could be read.
 	Endpoint Endpoint
@@ -51,11 +50,8 @@ func (e *AlreadyRunningError) Error() string {
 }
 
 // ForeignSocketError reports a socket that answers requests while the ownership
-// lock is free.
-//
-// Feat refuses to start rather than unlink the path. Removing a socket that
-// something is serving would disconnect its clients, and the one thing worse
-// than not starting is silently taking a running daemon's place.
+// lock is free. Feat refuses to start rather than unlink the path, because
+// removing a socket something is serving would disconnect its clients.
 type ForeignSocketError struct {
 	// Socket is the path that answered.
 	Socket string
@@ -70,11 +66,9 @@ func (e *ForeignSocketError) Error() string {
 		e.Socket, e.Lock)
 }
 
-// UnsafeDirectoryError reports a runtime directory Feat will not use.
-//
-// The fallback location can be shared with other users, so a directory that
-// somebody else owns, or that anybody else can write to, is a directory in which
-// ownership cannot be established.
+// UnsafeDirectoryError reports a runtime directory Feat will not use. The
+// fallback location can be shared with other users, so ownership cannot be
+// established in a directory somebody else owns or anybody else can write to.
 type UnsafeDirectoryError struct {
 	// Dir is the directory.
 	Dir string

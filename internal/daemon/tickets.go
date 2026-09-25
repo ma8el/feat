@@ -16,15 +16,15 @@ import (
 // Tickets runs a project's configured tracker command and returns what it
 // printed.
 //
-// The command runs on the trusted host, using the authentication the user
-// already has there: the agent environment receives no provider token and no
-// tracker access, and a ticket the agent fetched would never pass the
-// confirmation step that makes a brief something the user read (ADR-070).
+// The command runs on the trusted host with the authentication the user already
+// has. The agent environment receives no provider token and no tracker access,
+// and a ticket the agent fetched would never pass the confirmation that makes a
+// brief something the user read (ADR-070).
 //
-// It runs the command every time it is asked, because that is the only way to
-// learn what the user's tickets are now. Feat passes no filter, so there is
-// nothing for a cached list to be re-filtered against, and a ticket that changed
-// is found by running the command again and comparing (ADR-071).
+// It runs every time it is asked, because that is the only way to learn what the
+// user's tickets are now. Feat passes no filter, so nothing would re-filter a
+// cached list, and a changed ticket is found by comparing a second reading
+// (ADR-071).
 func (s *service) Tickets(ctx context.Context, id domain.ProjectID) (api.TicketList, error) {
 	if err := id.Validate(); err != nil {
 		return api.TicketList{}, fmt.Errorf("%w: %w", api.ErrInvalid, err)
@@ -42,10 +42,9 @@ func (s *service) Tickets(ctx context.Context, id domain.ProjectID) (api.TicketL
 		return api.TicketList{}, err
 	}
 
-	// The daemon holds the bound, because it is half of a contract: the client
-	// waits for this plus a margin, so that a tracker which will not answer is
-	// reported by the process that knows what it was waiting for
-	// (api.TicketTimeout).
+	// The daemon holds the bound and the client waits for it plus a margin, so a
+	// tracker that will not answer is reported by the process that knows what it
+	// was waiting for (api.TicketTimeout).
 	bounded, cancel := context.WithTimeout(ctx, s.ticketTimeout())
 	defer cancel()
 
@@ -59,10 +58,9 @@ func (s *service) Tickets(ctx context.Context, id domain.ProjectID) (api.TicketL
 
 		var rejected *tracker.RejectionError
 		if errors.As(err, &rejected) {
-			// The request was well formed and the project's own command was
-			// not. Saying so as an invalid request is the closest the transport
-			// has, and the message names what was wrong so that the answer is
-			// actionable wherever it is read.
+			// The request was well formed and the project's own command was not. An
+			// invalid request is the closest the transport has, and the message names
+			// what was wrong, so the answer is actionable wherever it is read.
 			return api.TicketList{}, fmt.Errorf("%w: %w", api.ErrInvalid, err)
 		}
 		return api.TicketList{}, err
@@ -92,10 +90,9 @@ func (s *service) ticketTimeout() time.Duration {
 
 // trackerCommand resolves a project's tracker section into a command to run.
 //
-// The directory is the user's home rather than a repository or whatever
-// directory the daemon was started in: there is no task yet, so there is no
-// worktree, and a project whose tickets are filed somewhere no repository
-// knows about is the ordinary case (ADR-071). `feat doctor` resolves the same
+// The directory is the user's home rather than a repository: there is no task
+// yet, so there is no worktree, and tickets filed where no repository knows about
+// them are the ordinary case (ADR-071). `feat doctor` resolves the same
 // directory, so a command that answers one answers the other.
 func (s *service) trackerCommand(cfg *config.Config) (tracker.Command, error) {
 	if cfg.Tracker == nil || len(cfg.Tracker.Command) == 0 {

@@ -63,11 +63,10 @@ func NewBus(capacity int) *Bus {
 	return &Bus{capacity: capacity, subscribers: make(map[uint64]*subscriber)}
 }
 
-// Publish assigns the next stream sequence and delivers the event to every
-// subscriber. It returns the assigned sequence.
-//
-// It never blocks: a subscriber that cannot accept the event is dropped, and its
-// stream ends with a report rather than a gap.
+// Publish assigns the next stream sequence, delivers the event to every
+// subscriber, and returns the sequence. It never blocks: a subscriber that cannot
+// accept the event is dropped, and its stream ends with a report rather than a
+// gap.
 func (b *Bus) Publish(event api.Event) uint64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -88,11 +87,9 @@ func (b *Bus) Publish(event api.Event) uint64 {
 	return b.sequence
 }
 
-// Subscribe registers a client and returns its event channel.
-//
-// The channel is closed when the context ends or when the subscriber is dropped.
-// The caller distinguishes the two by looking at its context, and reports a drop
-// as a lost stream.
+// Subscribe registers a client and returns its event channel. The channel is
+// closed when the context ends or when the subscriber is dropped; the caller
+// tells the two apart by its context and reports a drop as a lost stream.
 func (b *Bus) Subscribe(ctx context.Context) <-chan api.Event {
 	sub := &subscriber{events: make(chan api.Event, b.capacity)}
 

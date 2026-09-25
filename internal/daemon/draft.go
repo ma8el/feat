@@ -19,21 +19,17 @@ import (
 	"github.com/ma8el/feat/internal/tmux"
 )
 
-// maxBriefBytes bounds a task brief.
-//
-// The brief is a document the user wrote, imported or typed, and it is stored,
-// mounted, and handed to an agent. A bound well below the API's own body limit
-// means an over-large brief is refused with an explanation rather than as a
-// truncated request.
+// maxBriefBytes bounds a task brief. The brief is a document the user wrote and
+// Feat stores, mounts, and hands to an agent. The bound sits well below the API's
+// own body limit, so an over-large brief is refused with an explanation rather
+// than arriving truncated.
 const maxBriefBytes = 256 << 10
 
-// keyAttempts is how many task identifiers are generated before Feat gives up
-// on finding one whose short key is free within the project.
-//
-// The key is the first eight hex characters of a UUID, so a collision needs
-// roughly a hundred thousand tasks in one project to become likely. Retrying is
-// how ADR-026 resolves one; a bound stops an impossible situation from becoming
-// an endless loop.
+// keyAttempts is how many task identifiers are generated before Feat gives up on
+// finding one whose short key is free within the project. ADR-026 resolves a
+// collision by retrying, and the key is the first eight hex characters of a UUID,
+// so a collision needs roughly a hundred thousand tasks in one project to become
+// likely. The bound stops an impossible situation from becoming an endless loop.
 const keyAttempts = 8
 
 // CreateDraft records a new task draft.
@@ -153,11 +149,8 @@ func selected(repositories []api.DraftSelection) []Selection {
 }
 
 // draftRef resolves a task identifier to the reference storage addresses a task
-// by.
-//
-// The local API addresses a task by task alone and the daemon resolves the
-// owning project, which is ADR-027's rule and the reason it is done here rather
-// than in storage.
+// by. The local API addresses a task by task alone and the daemon resolves the
+// owning project, which is why this is here rather than in storage (ADR-027).
 func (s *service) draftRef(ctx context.Context, id domain.TaskID) (store.TaskRef, error) {
 	task, err := s.Task(ctx, id)
 	if err != nil {
@@ -243,10 +236,8 @@ func (s *service) planDraft(ctx context.Context, ref store.TaskRef) (api.Resolve
 func (s *service) LaunchDraft(
 	ctx context.Context, id domain.TaskID, confirmation api.Confirmation,
 ) (*domain.Task, error) {
-	// A launch that has to create a container is not a request that answers in
-	// an ordinary request's budget, and the day it does not is the day the
-	// project's own Compose file changed and the service has to be recreated.
-	// One number bounds it at both ends (api.AgentTimeout).
+	// A launch that has to create a container does not answer inside an ordinary
+	// request's budget, so one number bounds it at both ends (api.AgentTimeout).
 	ctx, cancel := context.WithTimeout(ctx, s.agentBudget())
 	defer cancel()
 
@@ -262,10 +253,9 @@ func (s *service) LaunchDraft(
 
 	plan, err := s.planLaunch(ctx, cfg, task)
 	if err != nil {
-		// Nothing has been started. The worktrees exist, because they were
-		// created before this point and ADR-029 does not undo a partial launch,
-		// but no terminal and no session were created for an agent that could
-		// not run.
+		// Nothing has been started. The worktrees exist, because ADR-029 does not
+		// undo a partial launch, but no terminal and no session were created for an
+		// agent that could not run.
 		if transitionErr := s.transition(ctx, task, domain.WorkflowFailed, err.Error()); transitionErr != nil {
 			return nil, errors.Join(err, transitionErr)
 		}
@@ -311,12 +301,10 @@ func (s *service) confirmDraft(
 		return nil, nil, fmt.Errorf("%w: %w", api.ErrInvalid, err)
 	}
 
-	// Written down before the task leaves draft, and therefore before anything
-	// is created. The mode is consumed later, when the session is built, and a
-	// launch that fails between the two leaves a failed task the workflow
-	// resumes from — so the retry reads a record rather than a request that is
-	// long gone (CLAUDE.md: plan, record, then apply). The transition below is
-	// what persists it, in the same write that leaves draft.
+	// Written down before the task leaves draft, and so before anything is created.
+	// The mode is consumed later, when the session is built, and a launch that fails
+	// between the two is retried from this record rather than from a request that is
+	// long gone. The transition below persists it, in the write that leaves draft.
 	if err := task.SetPlanFirst(confirmation.PlanFirst, s.now()); err != nil {
 		return nil, nil, err
 	}
@@ -365,26 +353,20 @@ func (s *service) CancelDraft(ctx context.Context, id domain.TaskID) (*domain.Ta
 // It covers everything confirmation freezes that could have drifted underneath
 // the screen: the brief the agent will receive, and every repository's access,
 // base, branch, and path. It is computed from the recorded task rather than
-// stored beside it, because two records of one fact can disagree — the reason
-// ADR-026 derives the task key from the task identifier rather than storing
-// both.
+// stored beside it, because two records of one fact can disagree (ADR-026).
 //
 // A decision the confirmation itself carries is deliberately absent. The digest
 // exists because a fetch between a displayed plan and a pressed key can move a
-// ref; a value that arrives in the same request that confirms cannot move, so
-// covering it would defend against nothing and would refuse a plan resolved
-// before the user made up their mind.
+// ref, and a value arriving in the request that confirms cannot move.
 //
-// Fields are written with their lengths, so that no two different drafts can
-// produce the same input by moving a separator from one field into another.
+// Fields are written with their lengths, so no two different drafts can produce
+// the same input by moving a separator from one field into another.
 func Fingerprint(task *domain.Task) string {
 	digest := sha256.New()
 	write := func(values ...string) {
 		for _, value := range values {
-			// A hash writer never fails, and the digest below is only as good
-			// as every field having reached it, so a lost write would be worth
-			// panicking over rather than ignoring. sha256 documents that it
-			// cannot happen.
+			// The digest is only as good as every field having reached it, and
+			// sha256 documents that its writer cannot fail.
 			_, _ = fmt.Fprintf(digest, "%d:%s", len(value), value)
 		}
 	}
@@ -436,17 +418,15 @@ func (s *service) loadDraft(ctx context.Context, ref store.TaskRef) (*domain.Tas
 // selectRepositories replaces a draft's repository selection.
 //
 // A repository whose selection is unchanged keeps what was resolved for it, and
-// one that was added, dropped, or given different access does not. The
-// distinction matters because resolving fetches: making a user re-resolve every
-// repository because they fixed a typo in the title would put a network call
-// behind an edit that changed nothing about where the task starts.
+// one that was added, dropped, or given different access does not. Resolving
+// fetches, so re-resolving every repository after a typo in the title would put a
+// network call behind an edit that changed nothing.
 //
-// What must not survive is a resolution that no longer describes the selection.
-// A base, branch, and path belong to one repository at one access, and carrying
-// them past a change to either would show the user a plan for a task they are
-// no longer preparing. Editing the brief or the title does not invalidate a
-// plan, and it does change the fingerprint, so a confirmation is still refused
-// unless the review screen was read again (ADR-031).
+// A base, branch, and path belong to one repository at one access, so carrying
+// them past a change to either would show a plan for a task nobody is preparing.
+// Editing the brief or the title leaves a plan valid and still changes the
+// fingerprint, so a confirmation is refused unless the review screen was read
+// again (ADR-031).
 func (s *service) selectRepositories(
 	task *domain.Task, cfg *config.Config, selection []Selection, now time.Time,
 ) error {
@@ -501,11 +481,9 @@ func (s *service) selectRepositories(
 }
 
 // unchanged reports whether a repository's selection is the same one a previous
-// resolution was made for.
-//
-// The recorded base ref is what the user supplied before resolution and what
-// Feat resolved after it, so an empty request ref means "whatever this already
-// resolved to" rather than a change to it.
+// resolution was made for. The recorded base ref is what the user supplied before
+// resolution and what Feat resolved after it, so an empty request ref means
+// whatever this already resolved to rather than a change to it.
 func unchanged(resolved domain.TaskRepository, selected Selection) bool {
 	if resolved.Access != selected.Access {
 		return false
@@ -514,12 +492,9 @@ func unchanged(resolved domain.TaskRepository, selected Selection) bool {
 }
 
 // freeTaskID returns a task identifier whose short key no task of the project
-// already uses.
-//
-// The key appears in branch names, worktree paths, and the dashboard, so two
-// tasks sharing one would make a user's own shorthand ambiguous. ADR-026 resolves
-// a collision by generating another identifier rather than by storing a key
-// beside it.
+// already uses. The key appears in branch names, worktree paths, and the
+// dashboard, so two tasks sharing one would make a user's own shorthand
+// ambiguous. ADR-026 resolves a collision by generating another identifier.
 func (s *service) freeTaskID(ctx context.Context, project domain.ProjectID) (domain.TaskID, error) {
 	existing, err := s.store.Tasks().List(ctx, project)
 	if err != nil {
@@ -551,16 +526,14 @@ func checkBrief(brief string) error {
 
 // checkTicket bounds and sanity-checks the ticket a brief was composed from.
 //
-// The ticket is a record Feat keeps for the life of the task — it is what lets a
-// merge request name what it closes, and what a ticket observed again later is
-// compared against — so it is validated rather than believed. Whether the
-// values make a consistent reference is the domain's to say; what is checked
-// here is what the domain cannot know: how large it is, and that it was not
-// read in the future.
+// Feat keeps the ticket for the life of the task: it names what a merge request
+// closes, and a later reading is compared against it. Whether the values make a
+// consistent reference is the domain's to say; this checks what the domain cannot
+// know, which is how large it is and that it was not read in the future.
 //
-// A whole snapshot is bounded at what a brief is bounded at, because a snapshot
-// is text of the same kind from the same place, and the tracker's whole output
-// was already bounded when Feat read it (ADR-071).
+// A whole snapshot is bounded at what a brief is bounded at, because it is text
+// of the same kind from the same place and the tracker's whole output was already
+// bounded when Feat read it (ADR-071).
 func (s *service) checkTicket(ticket *domain.ExternalTaskReference) error {
 	if ticket == nil {
 		return nil
@@ -635,13 +608,11 @@ func recordedPlan(cfg *config.Config, task *domain.Task) (*git.Plan, error) {
 	return plan, nil
 }
 
-// shellCommand is a plain terminal in the task's own worktree.
-//
-// It is what a task gets when no agent is started: a project that configures a
-// container, on a daemon that was not opted in to host execution, waits for its
-// container rather than being given an agent somewhere it did not ask for. The
-// pane is real, so attach and shell work, and the task stays preparing because
-// nothing is running that could be called an agent session (ADR-031, ADR-032).
+// shellCommand is a plain terminal in the task's own worktree. It is what a task
+// gets when no agent is started, so a project that configures a container waits
+// for one rather than being given an agent somewhere it did not ask for. The pane
+// is real, so attach and shell work, and the task stays preparing because nothing
+// in it is an agent session (ADR-031, ADR-032).
 func (s *service) shellCommand(cfg *config.Config, task *domain.Task) (tmux.CommandSpec, error) {
 	directory, err := primaryWorktree(cfg, task)
 	if err != nil {
@@ -650,12 +621,10 @@ func (s *service) shellCommand(cfg *config.Config, task *domain.Task) (tmux.Comm
 	return tmux.CommandSpec{Program: s.shell(), Directory: directory}, nil
 }
 
-// shell returns the program a task terminal runs.
-//
-// It is the daemon owner's own shell, because the terminal is theirs to work in.
-// A shell that is not an absolute path is not used: tmux would resolve it
-// against a PATH the daemon inherited, and a task terminal should not depend on
-// that.
+// shell returns the program a task terminal runs. It is the daemon owner's own
+// shell, because the terminal is theirs to work in. One that is not an absolute
+// path is not used, because tmux would resolve it against a PATH the daemon
+// inherited.
 func (s *service) shell() string {
 	if s.env.Getenv != nil {
 		if shell := s.env.Getenv("SHELL"); filepath.IsAbs(shell) {
@@ -665,12 +634,9 @@ func (s *service) shell() string {
 	return "/bin/sh"
 }
 
-// primaryWorktree is where a task's terminals open.
-//
-// It is the task worktree of the project's primary repository (FR-PROJ-003).
-// A task that left the primary repository out gets its first selected
-// repository instead, which is the honest answer rather than a directory the
-// task has nothing to do with.
+// primaryWorktree is where a task's terminals open. It is the task worktree of
+// the project's primary repository (FR-PROJ-003), or the first selected
+// repository for a task that left the primary one out.
 func primaryWorktree(cfg *config.Config, task *domain.Task) (string, error) {
 	if binding, ok := task.Repository(domain.RepositoryID(cfg.Project.PrimaryRepository)); ok &&
 		binding.WorktreePath != "" {

@@ -15,11 +15,11 @@ import (
 // TestRealKilledWindowIsReportedAndRebuilt is the recovery a user reaches for
 // after killing a task's window from inside tmux.
 //
-// It exercises the mechanics against the real tool rather than the resume that
-// sits on top of them: what a resume adds is a Claude command line, which the
-// unit tests assert on and which this machine may not have. What it needs from
-// tmux is that a killed window is reported as missing rather than as some other
-// absence, and that asking for the terminal again builds a new tagged one.
+// It exercises the mechanics against the real tool rather than the resume on top
+// of them, because what a resume adds is a Claude command line the unit tests
+// assert on and this machine may not have. What it needs from tmux is that a
+// killed window is reported as missing rather than as some other absence, and
+// that asking for the terminal again builds a new tagged one.
 func TestRealKilledWindowIsReportedAndRebuilt(t *testing.T) {
 	if !integrationtest.Enabled() {
 		t.Skipf("set %s=1 to run tests against real tmux", integrationtest.Env)
@@ -65,9 +65,9 @@ func TestRealKilledWindowIsReportedAndRebuilt(t *testing.T) {
 	}
 
 	// The record names the terminal that exists rather than the one that was
-	// killed. It is checked this way rather than by comparing identifiers with
-	// the dead window: killing a session's last window ends the session, and the
-	// server that exits with it reissues the same identifiers to the next one.
+	// killed. Identifiers are not compared with the dead window, because killing a
+	// session's last window ends the session and the server reissues the same
+	// identifiers to the next one.
 	info, err := arranged.service.AttachInfo(ctx, arranged.ref.Task)
 	if err != nil {
 		t.Fatalf("AttachInfo after rebuilding: %v", err)
@@ -79,9 +79,8 @@ func TestRealKilledWindowIsReportedAndRebuilt(t *testing.T) {
 }
 
 // TestRealDaemonRestartRediscoversTaggedTerminal is the restart rule at the
-// daemon boundary. A new daemon instance ignores a
-// deliberately stale stored target and recovers the live IDs from tmux
-// metadata.
+// daemon boundary: a new daemon instance ignores a deliberately stale stored
+// target and recovers the live identifiers from tmux metadata.
 func TestRealDaemonRestartRediscoversTaggedTerminal(t *testing.T) {
 	if !integrationtest.Enabled() {
 		t.Skipf("set %s=1 to run tests against real tmux", integrationtest.Env)
@@ -169,12 +168,12 @@ func TestRealDaemonRestartRediscoversTaggedTerminal(t *testing.T) {
 
 // TestRealReconcilingALiveTerminalRecordsOnlyWhatItCanSee is ADR-096's rule
 // against the real tool, because the rule is about what tmux can establish and a
-// fake is a statement of what somebody believed it establishes.
+// fake states what somebody believed it establishes.
 //
 // A pane running a program and a pane whose program has exited are the two
 // answers a terminal has, and the test produces both: the first must leave a
 // session the provider reported idle exactly as it was, and the second must be
-// recorded, because no provider event may ever arrive to report it.
+// recorded, because no provider event may arrive to report it.
 func TestRealReconcilingALiveTerminalRecordsOnlyWhatItCanSee(t *testing.T) {
 	if !integrationtest.Enabled() {
 		t.Skipf("set %s=1 to run tests against real tmux", integrationtest.Env)

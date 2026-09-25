@@ -59,12 +59,10 @@ func findings(report api.Reconciliation, class reconcile.Class) []api.Reconcilia
 }
 
 // TestDaemonRestartLosesNoTaskIdentity is the rule that a restart loses no task
-// identity.
-//
-// Identity is the task's own record and the metadata on the live tmux objects,
-// neither of which the daemon holds in memory. So the check is that a second
-// daemon over the same state directory and the same terminal server recovers the
-// same identifiers, having been given a record whose stored copy was wrong.
+// identity. Identity is the task's own record and the metadata on the live tmux
+// objects, neither of which the daemon holds in memory, so a second daemon over
+// the same state directory and terminal server has to recover the same
+// identifiers from a record whose stored copy was wrong.
 func TestDaemonRestartLosesNoTaskIdentity(t *testing.T) {
 	arranged := prepared(t)
 	server := tmuxtest.New()
@@ -110,18 +108,17 @@ func TestDaemonRestartLosesNoTaskIdentity(t *testing.T) {
 
 // TestAnActionNamesSomethingAUserCanDo is the rule a finding lives or dies by.
 //
-// A task with no recorded provider session cannot be resumed, and the report
-// used to send those users to "start the task again from the dashboard" — a
-// command Feat has never had: `feat task` offers attach, cleanup, list, and
-// review, and nothing launches a task that is past draft. An action naming
-// nothing is worse than no action, because it is read as a way out.
+// A task with no recorded provider session cannot be resumed, and "start the task
+// again from the dashboard" names a command Feat has never had: `feat task`
+// offers attach, cleanup, list, and review, and nothing launches a task past
+// draft. An action naming nothing is read as a way out.
 //
 // What is true is that a task with no recorded session has never held an agent
 // conversation, so cleaning it up and preparing another loses only the brief.
 func TestAnActionNamesSomethingAUserCanDo(t *testing.T) {
-	// Both ways a task arrives with nothing to continue. A session whose agent
-	// never reported starting, and a task confirmed by a launch that failed
-	// before it had a terminal at all.
+	// Both ways a task arrives with nothing to continue: a session whose agent
+	// never reported starting, and a task confirmed by a launch that failed before
+	// it had a terminal.
 	for name, arrange := range map[string]func(*testing.T) *preparation{
 		"a session with no provider identifier": func(t *testing.T) *preparation {
 			t.Helper()
@@ -159,19 +156,15 @@ func TestAnActionNamesSomethingAUserCanDo(t *testing.T) {
 }
 
 // TestOneDamagedTerminalLeavesTheHealthyOnesUsable is the quarantine rule, and
-// the deferral ADR-030 recorded.
-//
-// Before quarantine, one inconsistent tagged object failed discovery for the
-// whole server: every unrelated task became unreachable and startup
-// reconciliation stopped before it reached any of them. This fails against that
-// behaviour.
+// the deferral ADR-030 recorded. Without it one inconsistent tagged object fails
+// discovery for the whole server, so every unrelated task becomes unreachable and
+// startup reconciliation stops before it reaches any of them.
 func TestOneDamagedTerminalLeavesTheHealthyOnesUsable(t *testing.T) {
 	arranged := prepared(t)
 
-	// One window tagged with a metadata schema this build does not read, beside
-	// the healthy terminal the arranged task is about to get. A future Feat
-	// writing a newer schema is exactly how this arises in the field, and before
-	// quarantine it failed discovery for the whole server.
+	// One window tagged with a metadata schema this build does not read, beside the
+	// healthy terminal the arranged task is about to get. A future Feat writing a
+	// newer schema is how this arises in the field.
 	server := tmuxtest.New(tmuxtest.Terminal{
 		Project: "app", Task: domain.NewTaskID().String(), Schema: "99",
 		Session: "$7", Window: "@7", Pane: "%7", Directory: arranged.home,
@@ -218,10 +211,8 @@ func TestOneDamagedTerminalLeavesTheHealthyOnesUsable(t *testing.T) {
 }
 
 // TestStoppedContainersAreNotRestarted is FR-STATE-004, checked by counting the
-// commands a pass produces.
-//
-// That no container command ran at all is a stronger statement than that a
-// container happens to still be stopped.
+// commands a pass produces. No container command running at all is a stronger
+// statement than a container that happens to still be stopped.
 func TestStoppedContainersAreNotRestarted(t *testing.T) {
 	arranged := prepared(t)
 	server := tmuxtest.New()
@@ -231,8 +222,8 @@ func TestStoppedContainersAreNotRestarted(t *testing.T) {
 	}
 
 	// A recorded runtime whose services are not running. The fixture project
-	// configures none, so the record is written directly: what is under test is
-	// what reconciliation does with one, not how it got there.
+	// configures none, so the record is written directly: what is under test is what
+	// reconciliation does with one rather than how it got there.
 	task := arranged.reload(t)
 	task.Runtime = &domain.RuntimeEnvironment{
 		Provider: runtimeProvider,
@@ -297,15 +288,12 @@ func TestOrphanResourcesAreReportedBeforeAdoptionOrRemoval(t *testing.T) {
 	}
 }
 
-// TestALiveTasksOwnDirectoryIsNotAnOrphan is the defect a real task's report
-// produced.
-//
-// A configured worktree root of `…/work/{task_id}` puts each task's worktrees
-// one level below the fixed prefix the orphan scan lists, so what the scan sees
-// are task directories rather than worktrees. Comparing only for equality
-// reported every live task's own directory as a directory "no task records", and
-// told the user to delete it if it looked stale — which is the one
-// recommendation a recovery report must never make wrongly.
+// TestALiveTasksOwnDirectoryIsNotAnOrphan is a defect a real task's report
+// produced. A configured worktree root of `…/work/{task_id}` puts each task's
+// worktrees one level below the prefix the orphan scan lists, so the scan sees
+// task directories rather than worktrees. Comparing only for equality reported
+// every live task's own directory as one no task records, and told the user to
+// delete it if it looked stale.
 func TestALiveTasksOwnDirectoryIsNotAnOrphan(t *testing.T) {
 	arranged := prepared(t)
 	server := tmuxtest.New()
@@ -331,9 +319,9 @@ func TestALiveTasksOwnDirectoryIsNotAnOrphan(t *testing.T) {
 		}
 	}
 
-	// A directory that really is nobody's is still reported, so the rule
-	// narrows the scan rather than switching it off. It sits beside the task's
-	// own directory, which is where an abandoned task's would be.
+	// A directory that really is nobody's is still reported, so the rule narrows
+	// the scan rather than switching it off. It sits beside the task's own
+	// directory, which is where an abandoned task's would be.
 	stale := filepath.Join(filepath.Dir(owned), "left-behind")
 	if err := os.MkdirAll(stale, 0o755); err != nil {
 		t.Fatalf("creating a stale directory: %v", err)
@@ -350,11 +338,10 @@ func TestALiveTasksOwnDirectoryIsNotAnOrphan(t *testing.T) {
 	}
 }
 
-// TestReconciliationReportsWhatItCouldNotCheck keeps a pass honest.
-//
-// An enumeration that failed is a problem rather than an answer of "nothing":
-// reporting an unreadable tmux server as an empty one would tell a user their
-// terminals are gone.
+// TestReconciliationReportsWhatItCouldNotCheck keeps a pass honest. An enumeration
+// that failed is a problem rather than an answer of nothing, because reporting an
+// unreadable tmux server as an empty one would tell a user their terminals are
+// gone.
 func TestReconciliationReportsWhatItCouldNotCheck(t *testing.T) {
 	arranged := prepared(t)
 	server := tmuxtest.New()
@@ -374,11 +361,10 @@ func TestReconciliationReportsWhatItCouldNotCheck(t *testing.T) {
 	}
 }
 
-// TestACrashIsVisibleToTheNextRun is what the durable daemon record is for.
-//
-// The clean-shutdown flag is written by the run that ends rather than by the one
-// that starts, so a daemon that was killed leaves the record saying its run
-// never ended. Nothing else in Feat can distinguish the two.
+// TestACrashIsVisibleToTheNextRun is what the durable daemon record is for. The
+// clean-shutdown flag is written by the run that ends rather than the one that
+// starts, so a daemon that was killed leaves the record saying its run never
+// ended. Nothing else in Feat distinguishes the two.
 func TestACrashIsVisibleToTheNextRun(t *testing.T) {
 	arranged := prepared(t)
 	server := tmuxtest.New()
@@ -407,18 +393,15 @@ func TestACrashIsVisibleToTheNextRun(t *testing.T) {
 	}
 }
 
-// TestADaemonCanStartAgainAfterACleanShutdown is the defect a real stop and
-// start produced, stated exactly.
+// TestADaemonCanStartAgainAfterACleanShutdown is the defect a real stop and start
+// produced. A claim that carried the previous run's stop time into the new run's
+// record makes one whose stop precedes its own start, which the domain refuses,
+// so only a daemon that had crashed could start again.
 //
-// The first version of the claim carried the previous run's stop time into the
-// new run's record. A record describes one run, and the domain refuses one whose
-// stop precedes its own start — so a daemon that shut down cleanly could never
-// start again, and only a daemon that had crashed could.
-//
-// The clock is what matters here, and it is why the suite missed this: every
-// other fixture in this file freezes time, so a carried-forward stop and a fresh
-// start were the same instant and the invariant held. A daemon that is stopped
-// and started has a clock that moved, so this test moves one.
+// The clock is what matters. Every other fixture in this file freezes time, so a
+// carried-forward stop and a fresh start are the same instant and the invariant
+// holds. A daemon that is stopped and started has a clock that moved, so this
+// test moves one.
 func TestADaemonCanStartAgainAfterACleanShutdown(t *testing.T) {
 	arranged := prepared(t)
 	server := tmuxtest.New()
@@ -430,7 +413,7 @@ func TestADaemonCanStartAgainAfterACleanShutdown(t *testing.T) {
 	}
 
 	// Three runs, each ending properly. The third is the one the defect made
-	// impossible; the second is what made the third's record wrong.
+	// impossible, and the second is what made the third's record wrong.
 	for run := 1; run <= 3; run++ {
 		service := withClock(t, arranged, server, advance)
 		if err := service.claimStateDirectory(context.Background()); err != nil {
@@ -458,11 +441,9 @@ func TestADaemonCanStartAgainAfterACleanShutdown(t *testing.T) {
 }
 
 // TestAStateDirectoryFromANewerBuildIsRefused is the record's other reader, and
-// the one that has to exist before it is needed.
-//
-// An older daemon that wrote over a newer state directory would discard whatever
-// the newer schema added, and unlike every other recovery failure that loss is
-// silent.
+// the one that has to exist before it is needed. An older daemon writing over a
+// newer state directory would discard whatever the newer schema added, and unlike
+// every other recovery failure that loss is silent.
 func TestAStateDirectoryFromANewerBuildIsRefused(t *testing.T) {
 	arranged := prepared(t)
 	server := tmuxtest.New()
@@ -499,12 +480,11 @@ func TestAStateDirectoryFromANewerBuildIsRefused(t *testing.T) {
 	}
 }
 
-// TestReconciliationSerialisesItsWritesWithEveryOtherWriter is ADR-036's
-// evidence 9 applied to the pass that runs beside every request.
-//
-// The startup pass runs before anything is served, but the on-demand one does
-// not, and a load-change-save cycle that started from a copy taken outside the
-// lock overwrites whatever a request wrote in between.
+// TestReconciliationSerialisesItsWritesWithEveryOtherWriter is ADR-036's evidence
+// 9 applied to the pass that runs beside every request. The startup pass runs
+// before anything is served and the on-demand one does not, and a
+// load-change-save cycle that started from a copy taken outside the lock
+// overwrites whatever a request wrote in between.
 func TestReconciliationSerialisesItsWritesWithEveryOtherWriter(t *testing.T) {
 	arranged := prepared(t)
 	server := tmuxtest.New()
@@ -513,11 +493,10 @@ func TestReconciliationSerialisesItsWritesWithEveryOtherWriter(t *testing.T) {
 		t.Fatalf("PrepareTerminal: %v", err)
 	}
 
-	// Hold the task's lock, change the record underneath, and let the pass run.
-	// It must read what was just written rather than the copy it listed with.
-	// The change is the one control delivery makes: an agent message advances
-	// the last processed event sequence. Reconciliation writes the same record,
-	// so a pass that saved a copy loaded before this would silently replay the
+	// Hold the task's lock, change the record underneath, and let the pass run. It
+	// must read what was just written rather than the copy it listed with. The
+	// change is the one control delivery makes: an agent message advances the last
+	// processed event sequence, and a pass that saved an older copy would replay a
 	// message the daemon had already applied.
 	release := service.locks.lock(arranged.ref.Task)
 	task, err := service.store.Tasks().Load(context.Background(), arranged.ref)
@@ -546,15 +525,12 @@ func TestReconciliationSerialisesItsWritesWithEveryOtherWriter(t *testing.T) {
 }
 
 // TestAReconcilePassLeavesAnIdleSessionIdle is the rule ADR-096 records, in the
-// place the defect was measured.
-//
-// Reconcile is an API request rather than a startup step: the dashboard makes it
-// on the `r` key, on a resume, on a stop, and after every cleanup action. A pass
-// that wrote what tmux can see straight onto the session promoted a task that
-// had correctly gone idle back to running — 53 times in the record of 80 tasks
-// this was measured from, the most frequent event of its kind — and it stayed
-// there, because the only path into idle is a new end-of-turn event arming a
-// fresh grace period and a quiet session sends no more.
+// place the defect was measured. Reconcile is an API request rather than a
+// startup step: the dashboard makes it on the `r` key, on a resume, on a stop,
+// and after every cleanup action. A pass that wrote what tmux can see straight
+// onto the session promoted a task that had correctly gone idle back to running,
+// and it stayed there, because the only path into idle is a fresh end-of-turn
+// event and a quiet session sends no more.
 func TestAReconcilePassLeavesAnIdleSessionIdle(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
@@ -586,18 +562,16 @@ func TestAReconcilePassLeavesAnIdleSessionIdle(t *testing.T) {
 }
 
 // TestAReconcilePassStillRecordsWhatATerminalCanSee is the other half of that
-// rule: saying less must not mean saying nothing.
-//
-// A live pane under a session recorded as over is a session that has been
-// started in it again, which is what a resume is, and a pane that has ended is
-// something no provider event may ever arrive to report.
+// rule: saying less must not mean saying nothing. A live pane under a session
+// recorded as over is a session started in it again, which is what a resume is,
+// and a pane that has ended is something no provider event may arrive to report.
 func TestAReconcilePassStillRecordsWhatATerminalCanSee(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
 
-	// The record a resume leaves behind just before the agent is started again:
-	// the machine was asked, answered that nothing was there, and the session was
-	// marked over.
+	// The record a resume leaves just before the agent is started again: the
+	// machine was asked, answered that nothing was there, and the session was marked
+	// over.
 	task := live.task(t)
 	if err := task.Session.Observe(domain.ProcessStopped, reconcileTime); err != nil {
 		t.Fatalf("recording the ended session: %v", err)

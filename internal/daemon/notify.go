@@ -11,11 +11,9 @@ import (
 
 // Why a notification was not delivered.
 //
-// Each is a policy Feat applies on purpose, and each is phrased as the user's own
-// setting or situation rather than as an internal state, because these are what
-// somebody reads when they were not told about something they expected to hear
-// about. Four of the five used to be a silent return, which made "why did I not
-// get a notification" a question the daemon's own log could not answer.
+// Each is a policy Feat applies on purpose, phrased as the user's own setting or
+// situation rather than as an internal state, because somebody reads these when
+// they were not told about something they expected to hear about.
 const (
 	dropCatchingUp = "the daemon was still catching up on what happened while it was stopped"
 	dropDisabled   = "your settings set notifications.desktop to false"
@@ -26,27 +24,22 @@ const (
 
 // notifyTask interrupts the user about one task, once, and records that it did.
 //
-// Everything about this is conservative. It is called from the few places a
-// change worth interrupting somebody for is recorded, never from the event
-// recorder itself: a task whose agent dies produces both a process change and a
-// workflow change, and a user who was told twice about one death would learn to
-// read the second one as noise.
+// It is called from the few places a change worth interrupting somebody for is
+// recorded, never from the event recorder: a task whose agent dies produces both
+// a process change and a workflow change, and a second notification about one
+// death would be read as noise.
 //
-// A delivery that fails is logged and nothing more. A notification is the least
-// important thing Feat does with a task, and a desktop that cannot show one must
-// never cost the state change it was announcing.
+// A delivery that fails is logged and nothing more, because a desktop that cannot
+// show a notification must never cost the state change it was announcing.
 //
 // Every path that does not deliver says which policy stopped it. A notification
-// that never arrives is invisible by construction — there is nothing to inspect
-// afterwards, and the state change it was about is correct either way — so the
-// log is the only place the difference between "Feat decided not to" and "the
-// desktop swallowed it" can be established.
+// that never arrives leaves nothing to inspect, so the log is the only place
+// "Feat decided not to" can be told from "the desktop swallowed it".
 func (s *service) notifyTask(ctx context.Context, task *domain.Task, condition notify.Condition, idle time.Duration) {
 	if !s.notifiable.Load() {
-		// Startup catch-up. The daemon is applying control messages that arrived
-		// while it was stopped, and a restart that fired a notification for every
-		// turn that ended overnight would be interrupting the user about the past
-		// (ADR-035).
+		// The daemon is applying control messages that arrived while it was stopped,
+		// and a restart that fired one notification per turn that ended overnight
+		// would be interrupting the user about the past (ADR-035).
 		s.dropped(ctx, task, condition, dropCatchingUp)
 		return
 	}
@@ -81,9 +74,8 @@ func (s *service) notifyTask(ctx context.Context, task *domain.Task, condition n
 		return
 	}
 	// Recorded after delivery, so the log says what was handed over rather than
-	// what was attempted. What the user then saw is between them and their
-	// desktop: macOS drops an unauthorised notification without saying so, and
-	// Feat never claims more than that it delivered one.
+	// what was attempted. macOS drops an unauthorised notification without saying
+	// so, and Feat never claims more than that it delivered one.
 	s.record(ctx, task, domain.Event{
 		Type:   domain.EventNotificationSent,
 		To:     string(condition),
@@ -91,13 +83,12 @@ func (s *service) notifyTask(ctx context.Context, task *domain.Task, condition n
 	})
 }
 
-// dropped records that Feat decided not to interrupt the user, and why.
+// dropped records that Feat decided not to interrupt the user, and why. It logs
+// at info, because the reader is a user working out why they were not told
+// something rather than somebody debugging Feat.
 //
-// At info rather than debug, because the reader is a user working out why they
-// were not told something rather than somebody debugging Feat. It is a log line
-// rather than a task event: a suppressed notification is not something that
-// happened to the task, and an event would publish, which is a step towards a
-// notification about not having sent a notification.
+// It is a log line rather than a task event: a suppressed notification is not
+// something that happened to the task, and an event would publish.
 func (s *service) dropped(
 	ctx context.Context, task *domain.Task, condition notify.Condition, reason string,
 ) {
@@ -109,18 +100,15 @@ func (s *service) dropped(
 		slog.String("reason", reason))
 }
 
-// notifyPolicy is what the user decided about being interrupted.
-//
-// It is one answer for the machine rather than one per project, because being
-// interrupted is about the person at the keyboard and the desktop they are
-// using: whether a notification may be shown at all is macOS's question here,
-// and whether you are already looking at the task is tmux's. Neither varies by
-// which repository the work is in (ADR-079).
+// notifyPolicy is what the user decided about being interrupted. It is one answer
+// for the machine rather than one per project, because whether a notification may
+// be shown is macOS's question and whether the user is already looking at the
+// task is tmux's, and neither varies by repository (ADR-079).
 //
 // It reads nothing. The settings were resolved when the daemon started, and a
-// file that could not be read left the defaults in place — so a user whose YAML
-// has a typo in it still hears that their agent is waiting for them, and
-// `feat doctor` is where the typo is diagnosed.
+// file that could not be read left the defaults in place, so a user whose YAML
+// has a typo still hears that their agent is waiting; `feat doctor` diagnoses the
+// typo.
 func (s *service) notifyPolicy() notify.Policy {
 	return notify.Policy{
 		Desktop:               s.settings.Notifications.DesktopEnabled(),
@@ -131,15 +119,14 @@ func (s *service) notifyPolicy() notify.Policy {
 
 // watching reports whether somebody is looking at this task's terminal.
 //
-// It asks tmux rather than remembering that somebody once ran `feat attach`: a
-// user who detached, or who switched to another task's window in the same
-// session, stops watching without telling Feat anything. The question is asked
-// per window for the same reason — a user attached to a project's session is
-// looking at one of its tasks, not at all of them.
+// It asks tmux rather than remembering that somebody ran `feat attach`, because a
+// user who detached or switched windows stops watching without telling Feat. The
+// question is per window: a user attached to a project's session is looking at
+// one of its tasks, not at all of them.
 //
-// A tmux that cannot answer is treated as nobody watching, so the notification
-// is delivered. Of the two mistakes, an unnecessary notification is noise and a
-// missing one is the failure notifications exist to prevent.
+// A tmux that cannot answer is treated as nobody watching, so the notification is
+// delivered. An unnecessary notification is noise, and a missing one is the
+// failure notifications exist to prevent.
 func (s *service) watching(ctx context.Context, task *domain.Task) bool {
 	if task.Session == nil {
 		return false
@@ -153,13 +140,9 @@ func (s *service) watching(ctx context.Context, task *domain.Task) bool {
 	return found && terminal.Watched()
 }
 
-// notifyIdle interrupts the user about a task that has stayed idle.
-//
-// It runs when the notification grace period expires, and it re-reads the task
-// first. Everything it checks can have changed in the meantime: the agent may
-// have started talking again, the user may have attached, or the task may have
-// been archived. Deciding at arming time and delivering blindly would notify
-// about a state that is over.
+// notifyIdle interrupts the user about a task that has stayed idle. It re-reads
+// the task when the grace period expires, because the agent may have started
+// talking again, the user may have attached, or the task may have been archived.
 func (s *service) notifyIdle(ctx context.Context, id domain.TaskID, since time.Time) {
 	task, err := s.Task(ctx, id)
 	if err != nil {
@@ -180,21 +163,16 @@ func (s *service) notifyIdle(ctx context.Context, id domain.TaskID, since time.T
 // armIdleNotice starts the period after which a task that stayed idle is worth
 // interrupting the user about.
 //
-// The two grace periods are measured from different moments on purpose, and they
-// now live in different files, which is the clearest statement of the difference
-// there has been. The provider's own grace, agent.claude.idle_grace_period,
-// decides when an ended turn becomes idle, because a turn that ends and
-// immediately continues is not a session waiting for anybody — that is a fact
-// about how the agent is driven, so it stays in the project's own configuration.
-// This one, notifications.idle_grace_period, decides how long a task must have
-// *been* idle before Feat interrupts somebody about it, which is a fact about the
-// somebody, so it is the machine's (ADR-079). It is measured from the idle
-// transition.
+// The two grace periods are measured from different moments. The provider's,
+// agent.claude.idle_grace_period, decides when an ended turn becomes idle, which
+// is a fact about how the agent is driven and so lives in the project's
+// configuration. This one, notifications.idle_grace_period, is measured from the
+// idle transition and is a fact about the person, so it is the machine's
+// (ADR-079).
 //
-// Measuring both from the end of the turn was the other candidate and was
-// rejected: a notification grace shorter than the provider's would then expire
-// before the task was idle and no notification would ever be delivered, which is
-// a configuration that silently turns off the thing it configures (ADR-035).
+// Measuring both from the end of the turn was rejected: a notification grace
+// shorter than the provider's would expire before the task was idle, so no
+// notification would ever be delivered (ADR-035).
 func (s *service) armIdleNotice(ctx context.Context, task *domain.Task, idleSince time.Time) {
 	grace := s.notifyPolicy().Grace()
 

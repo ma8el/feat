@@ -24,12 +24,10 @@ const (
 
 // The daemon log's size bound.
 //
-// The daemon appends for as long as it runs, so without a bound the only thing
-// deciding how large the log gets is how long the machine has been up. These
-// values are fixed rather than configured: there is no daemon-level
-// configuration file in v0, and inventing one to hold a single number would be
-// deciding a permanent shape for the sake of a default nobody has yet needed to
-// change.
+// The daemon appends for as long as it runs, so without a bound the machine's
+// uptime decides how large the log gets. The values are fixed rather than
+// configured, because v0 has no daemon-level configuration file and inventing one
+// for a single number would settle a permanent shape early.
 const (
 	// maxLogSize is how large the log may grow before it is rotated, and the
 	// most that is carried over from a log that is already larger.
@@ -62,14 +60,12 @@ func (l *Log) Close() error {
 // OpenLog opens the daemon log for appending.
 //
 // The daemon runs in the background, so its log is the only account of what it
-// did. Structured JSON is the format because these records are read by a person
+// did. The format is structured JSON, because a person reads these records
 // looking for one task's history among several concurrent ones.
 //
-// The log is bounded: it is rotated once it reaches maxLogSize, and a log that
-// is already past the bound when it is opened is cut down to its most recent
-// records by the first write. Nothing else prunes it, so this is what keeps a
-// daemon that has been running for weeks from turning its own account into a
-// disk problem.
+// The log is rotated once it reaches maxLogSize, and a log already past the bound
+// when it is opened is cut down to its most recent records by the first write.
+// Nothing else prunes it.
 func OpenLog(layout paths.Layout, level slog.Level, alsoStderr bool) (*Log, error) {
 	file, err := openLogFile(layout)
 	if err != nil {
@@ -115,14 +111,14 @@ func openLogFile(layout paths.Layout) (*os.File, error) {
 // rotatingFile is an append-only file that is kept under a size bound.
 //
 // It rotates by copying and truncating rather than by renaming, because this
-// process does not hold the only descriptor for the file. `feat daemon start`
-// opens the log itself and hands it to the process it spawns as standard output
-// and standard error (see Spawn), and that descriptor refers to the inode, not
-// to the name. Renaming would leave the spawned daemon's own output going to the
-// rotated file while its logger wrote to a new one, so a panic after the first
-// rotation would land in a file nobody would think to open. Truncating in place
-// keeps every descriptor pointing at the same inode, and an O_APPEND write after
-// a truncation resumes from the beginning of it.
+// process does not hold the only descriptor: `feat daemon start` opens the log
+// and hands it to the process it spawns as standard output and standard error
+// (see Spawn), and that descriptor refers to the inode.
+//
+// Renaming would send the spawned daemon's own output to the rotated file while
+// its logger wrote to a new one, so a panic after the first rotation would land
+// where nobody would look. Truncating in place keeps every descriptor on one
+// inode, and an O_APPEND write resumes from the beginning of it.
 type rotatingFile struct {
 	// mu serialises writing and rotation: a slog handler may be called from any
 	// goroutine, and a rotation must not run in the middle of a record.
@@ -131,12 +127,10 @@ type rotatingFile struct {
 	file *os.File
 	// path is the log's own path. Rotated generations are numbered beside it.
 	path string
-	// size is what this writer believes the file holds. It is seeded from the
-	// file on disk and then counted, rather than asking the filesystem on every
-	// record. A daemon's own standard error goes to the same inode without
-	// passing through here, so this can undercount; the effect is that rotation
-	// happens slightly late, which a bound meant to prevent unbounded growth can
-	// afford.
+	// size is what this writer believes the file holds, seeded from disk and then
+	// counted rather than asked of the filesystem per record. A daemon's own
+	// standard error reaches the same inode without passing through here, so this
+	// can undercount and rotate slightly late.
 	size int64
 	// limit is the size at which the file is rotated, and the most that is kept
 	// from a file that is already larger.
@@ -170,12 +164,11 @@ func (r *rotatingFile) Write(p []byte) (int, error) {
 	// file may exceed the bound by less than one record, never more.
 	if r.size > 0 && r.size+int64(len(p)) > r.limit {
 		if err := r.rotate(); err != nil {
-			// The log is the only account of what the daemon did, so a failed
-			// rotation must not also cost the record that triggered it. Say so
-			// in the log itself and carry on appending. Treating the file as
-			// empty is the backoff: the next attempt comes after another max
-			// bytes rather than on the very next record, which on a full disk
-			// would be its own kind of runaway.
+			// A failed rotation must not also cost the record that triggered it, so
+			// it is reported here and appending continues. Treating the file as empty
+			// is the backoff: the next attempt comes after another maxLogSize bytes
+			// rather than on the next record, which on a full disk would be its own
+			// runaway.
 			r.reportRotationFailure(err)
 			r.size = 0
 		}
@@ -188,11 +181,9 @@ func (r *rotatingFile) Write(p []byte) (int, error) {
 
 // rotate moves the current log into the first generation and empties it.
 //
-// At most max bytes are carried over, taken from the end of the file. In normal
-// operation the file is already within the bound and that is all of it. The case
-// where it is not is a log written before this bound existed — which is exactly
-// the file a user notices — and keeping its tail reclaims the disk at once while
-// preserving the records most likely to explain what the daemon is doing now.
+// At most maxLogSize bytes are carried over, taken from the end of the file. A
+// file larger than that was written before the bound existed, and keeping its
+// tail reclaims the disk at once while preserving the most recent records.
 func (r *rotatingFile) rotate() error {
 	// Drop the oldest generation and shift the rest along. Renaming these is
 	// safe in the way renaming the live log is not: no descriptor is open on
@@ -222,12 +213,9 @@ func (r *rotatingFile) rotate() error {
 }
 
 // reportRotationFailure records a rotation that did not happen, in the log whose
-// growth it was meant to bound.
-//
-// It is written directly rather than through the logger, because the logger's
-// writer is this one and re-entering it would deadlock on the held lock. The
-// shape matches what the JSON handler produces, so the file stays one record per
-// line.
+// growth it was meant to bound. It writes directly rather than through the
+// logger, whose writer is this one and would deadlock on the held lock. The shape
+// matches the JSON handler's, so the file stays one record per line.
 func (r *rotatingFile) reportRotationFailure(cause error) {
 	_, _ = fmt.Fprintf(r.file,
 		"{\"time\":%q,\"level\":\"ERROR\",\"msg\":\"rotating the daemon log\",\"path\":%q,\"error\":%q}\n",
@@ -239,11 +227,9 @@ func generationPath(path string, generation int) string {
 	return path + "." + strconv.Itoa(generation)
 }
 
-// copyTail writes the last limit bytes of src to dst.
-//
-// The copy starts at a record boundary, so that every line of the result parses:
-// an offset counted backwards from the end of the file almost certainly lands
-// inside a record, and half a JSON object is worse than one fewer of them.
+// copyTail writes the last limit bytes of src to dst. The copy starts at a record
+// boundary, because an offset counted back from the end of the file almost
+// certainly lands inside a record and half a JSON object parses as nothing.
 func copyTail(src, dst string, limit int64) error {
 	source, err := os.Open(src)
 	if err != nil {

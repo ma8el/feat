@@ -21,12 +21,10 @@ import (
 	"github.com/ma8el/feat/internal/store"
 )
 
-// Review performs one review action for a task.
-//
-// Every action is a user's explicit request, as every runtime action is. Nothing
-// here starts, stops, or removes anything: approving a task is a statement about
-// the work, and the environment the user was testing it in is theirs to keep or
-// to end (FR-REV-004, docs/02-user-workflows.md §7).
+// Review performs one review action for a task. Every action is a user's explicit
+// request, as every runtime action is, and nothing here starts, stops, or removes
+// anything: approving a task is a statement about the work, and the environment
+// it was tested in is the user's to keep (FR-REV-004, docs/02-user-workflows.md §7).
 func (s *service) Review(
 	ctx context.Context, id domain.TaskID, action api.ReviewAction,
 ) (api.ReviewResult, error) {
@@ -34,10 +32,9 @@ func (s *service) Review(
 		return api.ReviewResult{}, fmt.Errorf("%w: %q is not a review action", api.ErrInvalid, action)
 	}
 
-	// Held for the whole action, because every one of them reads the task and
-	// its review, changes part of them, and saves: a gate finishing in the
-	// middle of that would have its results overwritten by the copy this
-	// request loaded first (ADR-036).
+	// Held for the whole action, because every one of them reads the task and its
+	// review, changes part of them, and saves. A gate finishing in the middle would
+	// have its results overwritten by the copy this request loaded first (ADR-036).
 	defer s.locks.lock(id)()
 
 	task, cfg, err := s.reviewTask(ctx, id)
@@ -45,9 +42,9 @@ func (s *service) Review(
 		return api.ReviewResult{}, err
 	}
 
-	// Observing is the only action that asks Git anything, and it is what
-	// opening review does. Verifying is the other, and there is no third:
-	// recording a decision left with the states it recorded (ADR-086).
+	// Observing is the only action that asks Git anything, and it is what opening
+	// review does. Verifying is the other, and there is no third: recording a
+	// decision left with the states it recorded (ADR-086).
 	if action == api.ReviewVerify {
 		if err := s.verifyNow(ctx, cfg, task); err != nil {
 			return api.ReviewResult{}, err
@@ -75,12 +72,11 @@ func (s *service) reviewTask(ctx context.Context, id domain.TaskID) (*domain.Tas
 	return task, cfg, nil
 }
 
-// reviewResult observes every repository and returns what review shows.
-//
-// The comparison is taken now rather than read from the record, because a review
-// screen that showed what Feat saw an hour ago would be describing a worktree the
-// agent has been writing to since. What is recorded is what was just observed, so
-// the summary survives a restart and the dashboard's file counts follow it.
+// reviewResult observes every repository and returns what review shows. The
+// comparison is taken now rather than read from the record, because a screen
+// showing what Feat saw an hour ago would describe a worktree the agent has been
+// writing to since. What was just observed is then recorded, so the summary
+// survives a restart.
 func (s *service) reviewResult(ctx context.Context, task *domain.Task) (api.ReviewResult, error) {
 	record, err := s.loadReview(ctx, task)
 	if err != nil {
@@ -97,9 +93,9 @@ func (s *service) reviewResult(ctx context.Context, task *domain.Task) (api.Revi
 			Now:          s.now(),
 		})
 		if err != nil {
-			// One repository nobody can read must not take the review of the
-			// others with it: a worktree that has been removed by hand is
-			// exactly what a user opens review to find out about.
+			// One repository nobody can read must not take the review of the others
+			// with it: a worktree removed by hand is exactly what a user opens
+			// review to find out about.
 			notes = append(notes, fmt.Sprintf("repository %s could not be compared against its base: %v",
 				binding.RepositoryID, err))
 			continue
@@ -145,10 +141,8 @@ func (s *service) reviewResult(ctx context.Context, task *domain.Task) (api.Revi
 }
 
 // loadReview returns a task's review, creating a pending one for a task that has
-// never had one.
-//
-// A task nobody has reviewed and a task somebody left pending are the same
-// state, and the aggregate is where the per-repository summaries go whether or
+// never had one. A task nobody has reviewed and a task somebody left pending are
+// the same state, and the aggregate holds the per-repository summaries whether or
 // not the agent has asked for anything.
 func (s *service) loadReview(ctx context.Context, task *domain.Task) (*domain.Review, error) {
 	record, err := s.store.Reviews().Load(ctx, store.Ref(task))
@@ -164,16 +158,15 @@ func (s *service) loadReview(ctx context.Context, task *domain.Task) (*domain.Re
 // reviewCommands expands the configured diff, editor, and status commands for
 // every repository the task holds.
 //
-// The commands are the machine's rather than the project's: they are the user's
-// own tools, and one person opens a diff the same way whichever project it
-// belongs to (ADR-079). What is still per task is everything they are expanded
-// against — the worktree, the base commit, the branch.
+// The commands are the machine's rather than the project's, because they are the
+// user's own tools and one person opens a diff the same way whichever project it
+// belongs to (ADR-079). What is per task is what they expand against: the
+// worktree, the base commit, the branch.
 //
 // Expansion happens here because the placeholder vocabulary belongs to
 // internal/config, which validates it (ADR-029); whether the result may run is
-// internal/review's, which is where the escape rule is checked. A command that is refused becomes a note rather than a failure: the
-// other repositories' commands are still usable, and a user who cannot open a
-// diff is better served by being told why than by an empty screen.
+// internal/review's. A refused command becomes a note rather than a failure, so
+// the other repositories' commands stay usable.
 func (s *service) reviewCommands(task *domain.Task) ([]api.ReviewCommand, []string) {
 	worktrees := make([]string, 0, len(task.Repositories))
 	for _, binding := range task.Repositories {
@@ -196,8 +189,8 @@ func (s *service) reviewCommands(task *domain.Task) ([]api.ReviewCommand, []stri
 		} {
 			if configured.value.Empty() {
 				// An unconfigured editor is the documented case: it defaults to
-				// $EDITOR, which the client resolves because the daemon's
-				// environment is not the user's terminal's (FR-REV-003).
+				// $EDITOR, which the client resolves because the daemon's environment
+				// is not the user's terminal's (FR-REV-003).
 				continue
 			}
 
@@ -231,10 +224,8 @@ func (s *service) reviewCommands(task *domain.Task) ([]api.ReviewCommand, []stri
 }
 
 // expandCommand fills one configured command's placeholders for one repository.
-//
 // The program is never expanded, which configuration validation already refuses
-// to allow: an expanded value deciding which executable runs is the one thing a
-// template must not be able to do.
+// to allow: a template must not decide which executable runs.
 func expandCommand(template []string, task *domain.Task, binding domain.TaskRepository) ([]string, error) {
 	values := config.Values{
 		ProjectID:      task.ProjectID.String(),
@@ -266,44 +257,38 @@ func expandCommand(template []string, task *domain.Task, binding domain.TaskRepo
 //
 // It is the recovery path as much as a convenience: a gate interrupted by a
 // daemon restart leaves a task back in review_requested with an event saying so,
-// and this is how it is run again. Recovery is offered and never automatic,
-// which is the rule every other lifecycle in Feat follows.
+// and this is how it is run again. Recovery is offered and never automatic.
 //
-// It runs from either outcome of a gate, not only from the failing one. A user
-// reading work that passed and changing something themselves has the same
-// question as one reading work that failed, and until ADR-087 the answer was
-// that checks can only run for a task whose agent has asked for review — which
-// this task's agent had (ADR-087).
+// It runs from either outcome of a gate rather than only from the failing one,
+// because a user reading work that passed and changing something has the same
+// question as one reading work that failed (ADR-087).
 func (s *service) verifyNow(ctx context.Context, cfg *config.Config, task *domain.Task) error {
 	switch task.Workflow {
 	case domain.WorkflowReviewRequested, domain.WorkflowReadyForReview, domain.WorkflowVerificationFailed:
 	case domain.WorkflowVerifying:
 		return fmt.Errorf("%w: task %s is already verifying", api.ErrInvalid, task.ID)
 	default:
-		// The rule first and this task's state second, because the rule is the
-		// part the reader does not already have. Said the other way round it read
-		// as two facts joined by "and" — the task is working, and checks run for a
-		// reviewed task — with nothing saying the first was why the second
-		// refused. The dashboard has the workflow on the panel above this line and
-		// `feat review` has it in the row above; neither has the rule anywhere.
+		// The rule first and this task's state second, because the rule is the part
+		// the reader does not already have. The dashboard shows the workflow on the
+		// panel above this line and `feat review` in the row above; neither shows
+		// the rule anywhere.
 		return fmt.Errorf("%w: checks can only run for a task whose agent has asked for review, and task %s is %s",
 			api.ErrInvalid, task.ID, task.Workflow)
 	}
 
 	// Asked before anything moves, because the answer decides whether moving is
-	// safe. A project that configures no checks for this task's repositories
-	// reaches ready_for_review without a gate, and a run started from there
-	// would put the task back in review_requested and find nothing to run — with
-	// no gate left to bring it out again. Plan, record, then apply.
+	// safe. A project that configures no checks for this task's repositories reaches
+	// ready_for_review without a gate, and a run started from there would put the
+	// task back in review_requested with nothing to run and no gate to bring it out.
 	if run, skipped := s.taskChecks(cfg, task); len(run) == 0 && len(skipped) == 0 {
 		return fmt.Errorf("%w: this project configures no checks for the repositories task %s holds, "+
 			"so there is nothing to run. Nothing was changed", api.ErrInvalid, task.ID)
 	}
 
 	if task.Workflow != domain.WorkflowReviewRequested {
-		// Back to where the request was, so that the gate starts from the state
-		// it always starts from. The edge exists for exactly this and for the
-		// agent that fixed what the gate caught (ADR-036, ADR-087).
+		// Back to where the request was, so the gate starts from the state it always
+		// starts from. The edge exists for this and for the agent that fixed what
+		// the gate caught (ADR-036, ADR-087).
 		if err := s.transition(ctx, task, domain.WorkflowReviewRequested,
 			"the user asked for the configured checks to run again"); err != nil {
 			return fmt.Errorf("%w: %w", api.ErrInvalid, err)
@@ -315,15 +300,13 @@ func (s *service) verifyNow(ctx context.Context, cfg *config.Config, task *domai
 	return nil
 }
 
-// gates records which tasks have a gate running, so that two review requests in
-// quick succession do not run a project's test suite twice at once.
+// gates records which tasks have a gate running, so two review requests in quick
+// succession do not run a project's test suite twice at once.
 //
 // It also owns their lifetime. A gate is the only work in the daemon that
-// outlives the request that started it and writes a task's records afterwards,
-// so it is the only work that can still be writing when everything else has
-// stopped — which is the rule Serve already applies to a pending idle
-// transition: nothing may fire into a daemon that can no longer write what it
-// decided.
+// outlives the request that started it and writes a task's records afterwards, so
+// it is the only work that can still be writing when everything else has stopped.
+// Serve applies the same rule to a pending idle transition.
 type gates struct {
 	mu      sync.Mutex
 	running map[domain.TaskID]context.CancelFunc
@@ -356,13 +339,10 @@ func (g *gates) claim(id domain.TaskID, cancel context.CancelFunc) bool {
 	return true
 }
 
-// isRunning reports whether this daemon is running the task's gate.
-//
-// It is what tells an interrupted gate from a live one. A gate does not outlive
-// the process that started it, which is true of the process and false of the
-// call: Reconcile is an API request the dashboard makes on a key press, on a
-// resume, on a stop, and after every cleanup action, and a task whose checks
-// this daemon is running at that moment is not recovering from anything
+// isRunning reports whether this daemon is running the task's gate. It is what
+// tells an interrupted gate from a live one: Reconcile is an API request the
+// dashboard makes on a key press, on a resume, on a stop, and after every cleanup
+// action, and a task whose checks are running then is recovering from nothing
 // (ADR-096).
 func (g *gates) isRunning(id domain.TaskID) bool {
 	g.mu.Lock()
@@ -387,15 +367,14 @@ func (g *gates) release(id domain.TaskID) {
 
 // stopAll ends every running gate and waits for what they were doing.
 //
-// Cancelling is what kills the check itself: a configured check is somebody's
-// test suite, and a daemon that exited while leaving one running would leave a
-// process nobody started behind it. What is waited for afterwards is the
-// bookkeeping, which is local file writes rather than the suite, so this returns
-// in milliseconds rather than in however long a check takes.
+// Cancelling is what kills the check itself, because a configured check is
+// somebody's test suite and a daemon that exited would leave the process behind.
+// What is waited for afterwards is the bookkeeping, which is local file writes, so
+// this returns in milliseconds.
 //
-// A gate stopped this way is an interrupted gate, which is a case the product
-// already has: the task is left in verifying, and the next startup puts it back
-// where the review request was with an event saying why (ADR-036).
+// A gate stopped this way is an interrupted gate: the task is left in verifying,
+// and the next startup puts it back where the review request was with an event
+// saying why (ADR-036).
 func (g *gates) stopAll() {
 	g.mu.Lock()
 	for _, cancel := range g.running {
@@ -406,17 +385,14 @@ func (g *gates) stopAll() {
 	g.finished.Wait()
 }
 
-// startGate runs a task's configured checks in the background.
-//
-// It is background work because a check is a test suite: running it inside the
-// control poller would stop every other task's messages being read for as long
-// as it took. The run therefore outlives the request that started it, which is
-// what makes verifying a state a user can see rather than a pause.
+// startGate runs a task's configured checks in the background. A check is a test
+// suite, so running it inside the control poller would stop every other task's
+// messages being read for as long as it took. The run outlives the request that
+// started it, which is what makes verifying a state a user can see.
 func (s *service) startGate(ctx context.Context, task *domain.Task, request string) bool {
-	// A fresh context: the one that delivered the review request is finished
-	// long before a test suite is. It is cancellable all the same, because the
-	// run belongs to the daemon's lifetime even though it has outlived one
-	// request — see gates.stopAll.
+	// A fresh context: the one that delivered the review request is finished long
+	// before a test suite is. It is cancellable all the same, because the run
+	// belongs to the daemon's lifetime (gates.stopAll).
 	bounded, cancel := context.WithTimeout(
 		context.WithoutCancel(ctx), review.GateTimeout+time.Minute)
 
@@ -439,12 +415,10 @@ func (s *service) startGate(ctx context.Context, task *domain.Task, request stri
 }
 
 // runGate moves a task through verifying and records what the checks reported.
-//
-// The lock is taken twice rather than held throughout: what it protects is a
-// load-change-save cycle, and the checks between the two cycles are a test suite
-// that runs for minutes. Everything the second half acts on is therefore read
-// again, because a task can move while its checks run — a user can approve it,
-// and the agent can carry on working.
+// The lock is taken twice rather than held throughout, because it protects a
+// load-change-save cycle and the checks between the two cycles run for minutes.
+// The second half reads everything again, because a task can move while its
+// checks run.
 func (s *service) runGate(ctx context.Context, id domain.TaskID, request string) error {
 	checks, skipped, ok, err := s.beginGate(ctx, id, request)
 	if err != nil || !ok {
@@ -459,23 +433,20 @@ func (s *service) runGate(ctx context.Context, id domain.TaskID, request string)
 	results = append(results, skipped...)
 
 	if ctx.Err() != nil {
-		// The daemon is stopping, so these results are what a cancelled run
-		// produced rather than what the checks reported: inconclusive, which
-		// Decide reads as not passing. Recording them would fail a task because
-		// Feat was restarted, and answer the waiting agent with a verdict its
-		// checks never produced. Left verifying instead, which is the state
-		// recoverGates already knows how to explain (ADR-036).
+		// The daemon is stopping, so these results are what a cancelled run produced
+		// rather than what the checks reported, and Decide reads them as not
+		// passing. Recording them would fail a task because Feat was restarted. It
+		// is left verifying, which recoverGates knows how to explain (ADR-036).
 		return ctx.Err()
 	}
 	return s.finishGate(ctx, id, request, results)
 }
 
-// beginGate records that the checks are running and returns what to run.
-//
-// It reports false when there is nothing to do: a task that moved between the
+// beginGate records that the checks are running and returns what to run. It
+// reports false when there is nothing to do: a task that moved between the
 // request and this run, or a project with no checks for the repositories this
-// task holds — which is what docs/02-user-workflows.md §6 describes as a project
-// with no completion gate, where the review request stands and a person decides.
+// task holds, which docs/02-user-workflows.md §6 describes as a project with no
+// completion gate.
 func (s *service) beginGate(
 	ctx context.Context, id domain.TaskID, request string,
 ) (run []review.Check, skipped []domain.Check, ok bool, err error) {
@@ -494,11 +465,10 @@ func (s *service) beginGate(
 	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
 	if err != nil {
 		// The gate cannot start, which is not the same as there being nothing to
-		// run. Recorded against the task rather than only in the daemon's log:
-		// twice on 2026-09-01 a project file that was mid-edit left a task in
-		// review_requested with no verdict and an agent waiting out its
-		// acknowledge timeout, and the only account of it was a log line nobody
-		// was reading (ADR-096).
+		// run. It is recorded against the task rather than only in the daemon's
+		// log, because a project file mid-edit leaves a task in review_requested
+		// with no verdict and an agent waiting out its acknowledge timeout
+		// (ADR-096).
 		return nil, nil, false, s.blockGate(ctx, task, request, translateConfig(err))
 	}
 
@@ -523,14 +493,13 @@ func (s *service) beginGate(
 // blockGate records that a task's checks could not be started at all.
 //
 // It is the landing ADR-055 defined for a run that established nothing, reached
-// one step earlier: nothing was run, so nothing is claimed about the work, the
-// review request stands where it already is, and the user is the one told —
-// because this is the project's configuration or the environment the checks run
-// in, which is theirs to fix and not the agent's.
+// one step earlier. Nothing was run, so nothing is claimed about the work and the
+// review request stands. The user is told rather than the agent, because the
+// project's configuration or the checks' environment is theirs to fix.
 //
 // The waiting agent is answered too. A review request made through the generated
-// helper is a command the session is blocked on, and a gate that fails silently
-// leaves it there until the acknowledge timeout expires.
+// helper is a command the session is blocked on, and a gate that failed silently
+// would leave it there until the acknowledge timeout expires.
 func (s *service) blockGate(ctx context.Context, task *domain.Task, request string, cause error) error {
 	detail := "Feat could not run the project's configured checks: " + cause.Error() +
 		". The review request stands, and nothing was established about the work"
@@ -552,16 +521,13 @@ func (s *service) finishGate(
 	verdict := review.Decide(results)
 	landing := gateLanding(results, verdict)
 
-	// A task the user cleaned up and archived while its checks ran. Nothing here
-	// applies to it: the worktree the checks ran in has been removed, the session
-	// that would read the verdict has been removed with it, and the account of
-	// the task is closed. Writing anyway is what left a control workspace behind
-	// on the dogfood machine — `answer` recreates the tree to write the verdict
-	// into, 115ms after cleanup had removed it (ADR-036 evidence 12).
+	// A task the user cleaned up and archived while its checks ran. The worktree
+	// the checks ran in is gone, the session that would read the verdict is gone
+	// with it, and `answer` recreates the tree it writes into, which left a control
+	// workspace behind 115ms after cleanup removed it (ADR-036 evidence 12).
 	//
-	// It is recorded rather than dropped in silence, because a user who watched
-	// a gate start and then archived the task is owed the reason no verdict ever
-	// appeared.
+	// It is recorded rather than dropped in silence, because a user who watched a
+	// gate start and then archived the task is owed the reason no verdict appeared.
 	if task.Workflow == domain.WorkflowArchived {
 		s.record(ctx, task, domain.Event{
 			Type: domain.EventReviewChanged,
@@ -586,17 +552,16 @@ func (s *service) finishGate(
 		Detail: landing.detail,
 	})
 
-	// The results are recorded whatever the task did meanwhile; the transition
-	// is only for a task that is still where the gate left it. A user who
-	// approved while the suite ran has decided, and a gate must not undo that.
+	// The results are recorded whatever the task did meanwhile, and the transition
+	// is only for a task still where the gate left it. A user who approved while the
+	// suite ran has decided, and a gate must not undo that.
 	if task.Workflow == domain.WorkflowVerifying {
 		if err := s.transition(ctx, task, landing.workflow, landing.detail); err != nil {
 			return err
 		}
 		// The condition is named here rather than looked up from the task's new
 		// state, because a blocked gate leaves it in review_requested and that
-		// state's own condition is the one a gate about to run suppresses. What
-		// has to be said is about the run.
+		// state's own condition is the one a gate about to run suppresses.
 		s.notifyTask(ctx, task, landing.condition, 0)
 	}
 
@@ -611,21 +576,20 @@ type landing struct {
 	condition notify.Condition
 	// status is what the waiting agent's helper reads.
 	status string
-	// detail is the one line the task's history carries. It names the checks
-	// that did not run, and never what a check printed: a check's output is
-	// bounded into the review record and deliberately kept out of the event
-	// stream (ADR-036 evidence 6).
+	// detail is the one line the task's history carries. It names the checks that
+	// did not run and never what a check printed, because a check's output is
+	// bounded into the review record and kept out of the event stream (ADR-036
+	// evidence 6).
 	detail string
 }
 
 // gateLanding decides all four together, because they are one decision.
 //
-// They were three expressions of one boolean until ADR-055, and the boolean had
-// two meanings: a check that failed and a check that never ran both produced
-// verification_failed, so a project whose check command was missing was told its
-// work had failed its checks and the agent was handed a configuration it could
-// not fix. A run that established nothing about the code now says so, and lands
-// where a review request with no verdict always lands.
+// A check that failed and a check that never ran both produced
+// verification_failed until ADR-055, so a project whose check command was missing
+// was told its work had failed and the agent was handed a configuration it could
+// not fix. A run that established nothing now says so, and lands where a review
+// request with no verdict always lands.
 func gateLanding(results []domain.Check, verdict review.Verdict) landing {
 	switch verdict.Outcome {
 	case review.OutcomePassed:
@@ -637,10 +601,9 @@ func gateLanding(results []domain.Check, verdict review.Verdict) landing {
 		}
 	case review.OutcomeBlocked:
 		return landing{
-			// Back where the review request was. Nothing verified the work, so
-			// this is the state docs/02-user-workflows.md §6 already describes
-			// for a project with no completion gate: the request stands, and a
-			// person decides.
+			// Back where the review request was. Nothing verified the work, so this is
+			// the state docs/02-user-workflows.md §6 describes for a project with no
+			// completion gate: the request stands, and a person decides.
 			workflow:  domain.WorkflowReviewRequested,
 			condition: notify.ConditionVerificationBlocked,
 			status:    control.VerificationBlocked,
@@ -663,8 +626,7 @@ func gateLanding(results []domain.Check, verdict review.Verdict) landing {
 //
 // It is bounded, because an event is one line a user reads in a history and a
 // project may configure a great many checks. The count is kept rather than
-// dropped: "and 9 more" is a number to act on, and a list that stops without
-// saying so is a list somebody trusts.
+// dropped, because a list that stops without saying so reads as complete.
 func checkNames(results []domain.Check) string {
 	const most = 5
 
@@ -682,13 +644,11 @@ func checkNames(results []domain.Check) string {
 	return strings.Join(names, ", ")
 }
 
-// gateRunner builds the gate for one task.
-//
-// The host runner is this package's only choice; the agent's is whatever the
-// task's own execution environment turns out to be, which is a container for a
-// devcontainer task and this host for a host-native one. A task whose
-// environment cannot be rebuilt gets a gate with no agent runner, and its agent
-// checks are recorded as not having run rather than as having passed.
+// gateRunner builds the gate for one task. The host runner is this package's only
+// choice; the agent's is the task's own execution environment, which is a
+// container for a devcontainer task and this host for a host-native one. A task
+// whose environment cannot be rebuilt gets a gate with no agent runner, and its
+// agent checks are recorded as not having run rather than as having passed.
 func (s *service) gateRunner(ctx context.Context, task *domain.Task) review.Gate {
 	host := s.checks
 	if host == nil {
@@ -713,19 +673,17 @@ func (s *service) gateRunner(ctx context.Context, task *domain.Task) review.Gate
 	return gate
 }
 
-// gateFor describes the completion gate to the provider adapter.
-//
-// The adapter needs to know two things: whether a review request will be
-// answered at all, and how long the agent should wait for the answer. Both are
-// facts about this task rather than about Claude, which is why they are in the
-// neutral request rather than in the adapter (ADR-036).
+// gateFor describes the completion gate to the provider adapter. It needs two
+// things: whether a review request will be answered at all, and how long the
+// agent should wait. Both are facts about this task rather than about Claude, so
+// they travel in the neutral request rather than in the adapter (ADR-036).
 func (s *service) gateFor(cfg *config.Config, task *domain.Task) agent.Gate {
 	checks, skipped := s.taskChecks(cfg, task)
 	if len(checks) == 0 {
 		// A project whose only checks belong to repositories this task holds
-		// read-only has nothing to run, so the agent must not wait for a
-		// verdict: the request is recorded and a person decides from here. The
-		// skipped results are still recorded when review is opened.
+		// read-only has nothing to run, so the agent must not wait for a verdict:
+		// the request is recorded and a person decides. The skipped results are
+		// still recorded when review is opened.
 		_ = skipped
 		return agent.Gate{}
 	}
@@ -747,17 +705,15 @@ func (s *service) gateFor(cfg *config.Config, task *domain.Task) agent.Gate {
 // gateWillRun reports whether a completion gate will answer this task's review
 // request, and whether Feat can tell at all.
 //
-// It is asked by the notification policy, which is the one place that has to
-// know before the gate has started: a task whose checks are about to run has not
+// The notification policy asks it, because it is the one place that has to know
+// before the gate has started: a task whose checks are about to run has not
 // arrived with the user yet.
 //
-// The second result is the distinction this used to collapse. A project that
-// configures no checks for the repositories this task holds is the honest case
-// for announcing the request now, because there is no later moment. A
-// configuration Feat cannot read is not that case: the gate reaches the same
-// file a moment later, fails on it, and says so itself (blockGate) — so a
-// notification here would be the first of two about one arrival, and the wrong
-// one of the two (ADR-096).
+// The second result separates two cases. A project that configures no checks for
+// the repositories this task holds is the honest case for announcing the request
+// now, because there is no later moment. A configuration Feat cannot read is not:
+// the gate reaches the same file a moment later and says so itself (blockGate),
+// so a notification here would be the first and wrong one of two (ADR-096).
 func (s *service) gateWillRun(task *domain.Task) (will, known bool) {
 	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
 	if err != nil {
@@ -768,19 +724,16 @@ func (s *service) gateWillRun(task *domain.Task) (will, known bool) {
 }
 
 // gateAcknowledge is how long the agent waits to hear that Feat has its request
-// at all.
-//
-// It bounds the case where nothing is listening — a daemon that was stopped
-// between the launch and the request — so that a session waits for a minute
-// rather than for the gate's whole bound before carrying on.
+// at all. It bounds the case where nothing is listening, such as a daemon stopped
+// between the launch and the request, so a session waits a minute rather than the
+// gate's whole bound before carrying on.
 const gateAcknowledge = time.Minute
 
-// taskChecks resolves the project's configured checks for one task.
-//
-// Only repositories the task holds read-write are checked. A read-only binding
-// holds code this task cannot have changed, so running its suite would spend
-// minutes to learn nothing — and the check is recorded as skipped naming that
-// reason, because a check that did not run is never simply absent (ADR-036).
+// taskChecks resolves the project's configured checks for one task. Only
+// repositories the task holds read-write are checked, because a read-only binding
+// holds code this task cannot have changed. The check is recorded as skipped
+// naming that reason, because a check that did not run is never simply absent
+// (ADR-036).
 func (s *service) taskChecks(cfg *config.Config, task *domain.Task) (run []review.Check, skipped []domain.Check) {
 	for _, binding := range task.Repositories {
 		configured := cfg.Checks[binding.RepositoryID.String()]
@@ -818,11 +771,10 @@ func (s *service) taskChecks(cfg *config.Config, task *domain.Task) (run []revie
 	return run, skipped
 }
 
-// checkDirectory is where one check runs, in the terms of whoever runs it.
-//
-// A host check runs in the task worktree; an agent check runs at the container
-// path the project mounts that worktree at, when the agent is in a container,
-// and in the worktree when it is not.
+// checkDirectory is where one check runs, in the terms of whoever runs it. A host
+// check runs in the task worktree; an agent check runs at the container path the
+// project mounts that worktree at, or in the worktree when the agent is not in a
+// container.
 func (s *service) checkDirectory(binding domain.TaskRepository, onHost bool) string {
 	if onHost || binding.ContainerPath == "" {
 		return binding.WorktreePath
@@ -833,16 +785,14 @@ func (s *service) checkDirectory(binding domain.TaskRepository, onHost bool) str
 // answer writes the gate's verdict where a waiting agent will find it.
 //
 // A review request the agent made through the generated helper is a command the
-// agent is still waiting on, and this is what ends that wait. A run the user
-// asked for has nobody waiting, and writing a verdict named after a request that
-// does not exist would leave a file nothing reads.
+// agent is still waiting on, and this ends that wait. A run the user asked for
+// has nobody waiting, and a verdict named after a request that does not exist
+// would be a file nothing reads.
 //
-// A workspace that is no longer there is the same case reached the other way. A
-// cleanup that removed the control workspace removed the record the wait was
-// happening in, and every write in this package creates the directory it writes
-// into — so answering would not reach a waiting session, it would rebuild a tree
-// the user had just confirmed the removal of, holding one file nothing will ever
-// open (ADR-036 evidence 12).
+// A workspace that is gone is the same case reached the other way. Every write in
+// this package creates the directory it writes into, so answering a cleaned-up
+// task would rebuild a tree the user had just confirmed the removal of (ADR-036
+// evidence 12).
 func (s *service) answer(task *domain.Task, request, status, report string) error {
 	if request == "" {
 		return nil
@@ -859,16 +809,14 @@ func (s *service) answer(task *domain.Task, request, status, report string) erro
 
 // gateReport renders what to tell the agent.
 //
-// It names every check that did not pass and carries what it printed, because
-// the agent is about to act on it: a report that said "2 failed" and nothing
-// else would send the session back to run the suite again to find out what.
+// It names every check that did not pass and carries what it printed, because the
+// agent is about to act on it: a report saying "2 failed" would send the session
+// back to run the suite again to find out what.
 //
-// A blocked run is the one case where what the agent is told is that there is
-// nothing for it to do. The helper exits zero on it, so the session is not sent
-// back into its loop over a check that never ran, and the report says why rather
-// than leaving the model to work out that the failure was not its own — the run
-// that produced ADR-055 ended with the agent correctly declining to edit the
-// configuration governing its own gate, and then having nowhere to go.
+// A blocked run is the one case where the agent is told there is nothing for it
+// to do. The helper exits zero on it, so the session is not sent back into its
+// loop over a check that never ran, and the report says why rather than leaving
+// the model to work out that the failure was not its own (ADR-055).
 func gateReport(results []domain.Check, verdict review.Verdict) string {
 	var b strings.Builder
 	switch verdict.Outcome {
@@ -895,13 +843,10 @@ func gateReport(results []domain.Check, verdict review.Verdict) string {
 	return b.String()
 }
 
-// blockedReport is what the agent is told when nothing was established.
-//
-// It is shared by the run that established nothing and the run that could not
-// start, because the agent's position is identical in both: there is no verdict,
-// the reason is not its own, and the thing to do about it is nothing. The helper
-// exits zero on it, so the session is not sent back into its loop over a check
-// that never ran.
+// blockedReport is what the agent is told when nothing was established. The run
+// that established nothing and the run that could not start share it, because the
+// agent's position is identical in both: there is no verdict, the reason is not
+// its own, and there is nothing to do about it.
 func blockedReport(reason string) string {
 	return fmt.Sprintf("Feat could not run the project's configured checks: %s.\n"+
 		"Nothing has been established about your work, in either direction. This is the "+
@@ -910,13 +855,11 @@ func blockedReport(reason string) string {
 		"work is verified. Feat has told them, and your review request stands.\n", reason)
 }
 
-// containerChecks runs a check inside a task's execution environment.
-//
-// It is the seam ADR-032 left, filled for probes by the execution adapter and
-// used here for something that takes minutes rather than milliseconds: the check runs where
-// the agent runs, as the agent's own user, which is what "verified in the
-// environment the work was done in" means. Neither adapter learns about the
-// other — this shim is the daemon's, as containerRunner is.
+// containerChecks runs a check inside a task's execution environment. It is the
+// seam ADR-032 left, filled for probes by the execution adapter and used here for
+// something that takes minutes: the check runs where the agent runs, as the
+// agent's own user. Neither adapter learns about the other, because the shim is
+// the daemon's, as containerRunner is.
 type containerChecks struct{ environment execution.Environment }
 
 var _ review.Runner = containerChecks{}

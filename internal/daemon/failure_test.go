@@ -9,13 +9,9 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 )
 
-// TestAFailedLaunchRecordsWhyOnTheTask is the dogfood finding about the state a
-// refused launch leaves.
-//
-// The reason was returned to whoever launched, written to the event log, and
-// held nowhere a user could look afterwards. It is on the task now, and it is
-// the same sentence the caller was given: two accounts of one event would be one
-// too many.
+// TestAFailedLaunchRecordsWhyOnTheTask checks that a refused launch leaves its
+// reason on the task. It is the same sentence the caller was given, because two
+// accounts of one event would be one too many.
 func TestAFailedLaunchRecordsWhyOnTheTask(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	arranged.docker.Answer("inspect --type container --format {{json .Mounts}} c0ffee",
@@ -30,9 +26,8 @@ func TestAFailedLaunchRecordsWhyOnTheTask(t *testing.T) {
 		t.Fatal("the launch succeeded")
 	}
 
-	// Reloaded rather than read from the returned task: what a user sees minutes
-	// later is what storage kept, and a reason held only in memory answers the
-	// question exactly when nobody is asking it.
+	// Reloaded rather than read from the returned task. What a user sees minutes
+	// later is what storage kept, and a reason held only in memory is gone by then.
 	task := arranged.reload(t, draft.ID)
 	if task.Workflow != domain.WorkflowFailed {
 		t.Fatalf("workflow = %q, want failed", task.Workflow)

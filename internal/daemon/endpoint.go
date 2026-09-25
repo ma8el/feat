@@ -27,12 +27,10 @@ const (
 	runtimeFilePerm os.FileMode = 0o600
 )
 
-// Endpoint is the record a running daemon publishes about itself.
-//
-// It lives in the runtime directory rather than the state directory, because it
-// must not survive a restart of the machine: a process identifier that outlives
-// the uptime of the system can be reused by an unrelated process, and a record
-// that cannot go stale cannot be recognised as stale (ADR-027).
+// Endpoint is the record a running daemon publishes about itself. It lives in
+// the runtime directory rather than the state directory, because a process
+// identifier that outlives the system's uptime can be reused by an unrelated
+// process (ADR-027).
 type Endpoint struct {
 	// SchemaVersion is the version of this record.
 	SchemaVersion int `json:"schema_version"`
@@ -49,10 +47,9 @@ type Endpoint struct {
 	StartedAt time.Time `json:"started_at"`
 }
 
-// ReadEndpoint returns the record the running daemon published.
-//
-// A missing record produces ErrNotRunning: from a caller's point of view there
-// is nothing to talk to, and that is the actionable fact.
+// ReadEndpoint returns the record the running daemon published. A missing record
+// produces ErrNotRunning, because from a caller's point of view there is nothing
+// to talk to.
 func ReadEndpoint(layout paths.Layout) (Endpoint, error) {
 	path := layout.EndpointFile()
 
@@ -76,17 +73,12 @@ func ReadEndpoint(layout paths.Layout) (Endpoint, error) {
 	return endpoint, nil
 }
 
-// askEndpoint asks a running daemon to describe itself.
+// askEndpoint asks a running daemon to describe itself. It is the better of the
+// two ways to learn what ReadEndpoint reads: macOS's temporary-directory cleaner
+// collects the record out from under a daemon that has been up for three days,
+// and a daemon cannot go missing while it is answering (ADR-101).
 //
-// It is the second way to learn what ReadEndpoint reads, and the better
-// authority of the two: the record is a file that something else can remove, and
-// on macOS something does — the temporary-directory cleaner collects it out from
-// under a daemon that has been up for three days (ADR-101). The daemon itself
-// cannot go missing while it is answering.
-//
-// api.Daemon already carries every field the record holds. Its doc comment
-// describes PID as "the process identifier, which is also what stops it", which
-// is this call anticipated.
+// api.Daemon already carries every field the record holds.
 func askEndpoint(ctx context.Context, layout paths.Layout) (Endpoint, error) {
 	if !Answering(layout.Socket) {
 		return Endpoint{}, ErrNotRunning
@@ -127,11 +119,9 @@ func writeEndpoint(path string, endpoint Endpoint) error {
 }
 
 // replaceFile writes data to a temporary file in the same directory and renames
-// it over the target.
-//
-// The daemon's own state store has a more careful version of this, including
-// directory syncs, because a lost snapshot loses a user's work. This record is
-// rebuilt on every start, so it needs the atomic rename and nothing more.
+// it over the target. The state store has a more careful version, with directory
+// syncs, because a lost snapshot loses a user's work; this record is rebuilt on
+// every start, so the atomic rename is enough.
 func replaceFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 
