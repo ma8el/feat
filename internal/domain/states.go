@@ -43,11 +43,13 @@ const (
 // the task waiting on a gate that has nothing to run
 // (docs/02-user-workflows.md §6).
 //
-// The remaining edges are recorded elsewhere. The gate and its interrupted-run
-// return are in ADR-036, the re-run of checks on work that passed in ADR-087,
-// and the removal of approved and changes_requested in ADR-086. Revision
-// returns a task to working (FR-AGENT-009), and failed returns to preparing or
-// working so a broken lifecycle can be resumed rather than recreated.
+// The remaining edges are recorded elsewhere. Draft reaches preparing through
+// the confirmation step in FR-TASK-003. The gate and its interrupted-run return
+// are in ADR-036, the re-run of checks on work that passed in ADR-087, and the
+// removal of approved and changes_requested in ADR-086, which rewrote
+// FR-REV-004. Revision returns a task to working (FR-AGENT-009), and failed
+// returns to preparing or working so a broken lifecycle can be resumed rather
+// than recreated.
 //
 // Archived is reachable from every other state and has no outgoing edge,
 // because cleanup archives task metadata whenever the user asks for it

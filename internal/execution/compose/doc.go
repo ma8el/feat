@@ -1,23 +1,25 @@
-// Package compose runs the coding agent inside a configured Compose service as
-// a non-root user.
+// Package compose runs the coding agent in a project's Compose service.
 //
-// The adapter starts the configured dev service, mounts task worktrees at the
-// project-defined container paths, mounts the task control workspace, and
-// executes the agent as the configured user.
+// The adapter starts the configured dev service, mounts the task's worktrees at
+// the project-defined container paths, mounts the control workspace, and runs
+// the agent as the configured user (ADR-033). Every Docker command is an
+// argument vector run on the trusted host.
 //
-// Security rules this package must enforce (docs/05-security-model.md):
+// Rules this package must enforce (docs/05-security-model.md):
 //
-//   - never mount or expose a Docker socket to the agent container, and never
-//     provide a host Docker CLI;
-//   - never add the daemon or runtime-control socket to the agent container;
-//   - never copy secret values into generated Compose overrides;
-//   - honour read-only mounts for read-only repository selections;
-//   - verify the agent process is non-root when policy requires it.
+//   - no Docker socket and no host Docker CLI reach the agent container;
+//   - neither the daemon socket nor the runtime-control socket reaches it;
+//   - the generated override carries no secret value;
+//   - a repository the task selected read-only is mounted read-only;
+//   - the agent runs as a non-root user.
 //
-// Full Git access and configured gh/glab access are separate capabilities and
-// are permitted; they must never be conflated with Docker access.
+// The last two are checked against the running container rather than against
+// what the project declared. Inspect asks the container who it runs as, what it
+// has mounted, and what it was granted beyond that. The launch probe asks
+// whether the image carries a client that speaks a container runtime's API,
+// which is the capability agent.capabilities.docker denies (ADR-080).
 //
-// Compose is invoked as an argument vector on the trusted host. A normal
-// devcontainer is not claimed to resist deliberate kernel or container-runtime
-// exploitation.
+// A devcontainer separates the agent from the host's files and processes. It is
+// not a boundary against a deliberate kernel or container-runtime exploit, and
+// no message here may suggest that it is.
 package compose
