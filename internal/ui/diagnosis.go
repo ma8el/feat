@@ -9,12 +9,11 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// diagnosisModel is one `feat doctor` run, read on a screen.
-//
-// It holds a report and a cursor over it and nothing else: the checks run in
-// the backend, where the host commands are built, and what arrives here is
-// data (ADR-064). The same body is drawn inside the project wizard, which is
-// why the rendering is on this type rather than on the screen that opens it.
+// diagnosisModel is one `feat doctor` run, read on a screen. It holds a report
+// and a cursor over it and nothing else: the checks run in the backend, where
+// the host commands are built (ADR-064). The rendering is on this type rather
+// than on the screen that opens it, because the project wizard draws the same
+// body.
 type diagnosisModel struct {
 	// project is what was checked, empty for every configured project.
 	project string
@@ -48,13 +47,10 @@ func diagnose(backend Backend, project string) tea.Cmd {
 	}
 }
 
-// apply records what a pass found, and opens it where the user has to look.
-//
-// A report is mostly passes — sixteen of them on an ordinary project — and the
-// pane it is drawn in holds a handful of lines. Opening at the top means opening
-// on the checks that are fine, with the one that is not below the fold; opening
-// at the first thing that needs attention puts it on the screen, and the count
-// of what is above says the rest is still there.
+// apply records what a pass found, and opens it where the user has to look. A
+// report is mostly passes — sixteen on an ordinary project — and the pane holds
+// a handful of lines, so opening at the top puts the one failing check below
+// the fold. The count of what is above says the rest is still there.
 func (d diagnosisModel) apply(message diagnosedMsg) diagnosisModel {
 	d.running, d.ran = false, true
 	d.project, d.err = message.project, message.err
@@ -72,29 +68,23 @@ func (d diagnosisModel) start(project string) diagnosisModel {
 }
 
 // scrollBy moves the report under the window, without moving past either end.
+// The end is the last window rather than the last line: dialogBox sets no
+// height and is as tall as what it is given, so clamping to the line leaves the
+// final line alone in a box collapsed around it. The height is the caller's
+// because it is the renderer's, and the two have to agree how much of the
+// report is on screen.
 //
-// The end is the last window rather than the last line. Clamping to the line
-// left the report's final line alone in a box that had collapsed around it,
-// because dialogBox sets no height and is as tall as what it is given — so the
-// last thing a reader did before leaving was watch the box shrink to nothing.
-// The height is the caller's because it is the renderer's: the two have to agree
-// about how much of the report is on the screen, and only one of them can
-// decide.
-//
-// It is publication's form rather than clampScroll's. Those look like the same
-// arithmetic and are not — clampScroll clamps to total-(height-1), one line
-// short, so its last window carries a line over. That belongs to the task panel
-// and to cleanup's inventory, neither of which has the collapse this is about.
+// It is publication's form rather than clampScroll's, which clamps to
+// total-(height-1) so its last window carries a line over. That belongs to the
+// task panel and to cleanup's inventory, neither of which has this collapse.
 func (d diagnosisModel) scrollBy(delta, height int) diagnosisModel {
 	d.scroll = min(max(0, d.scroll+delta), max(0, len(d.lines())-max(1, height)))
 	return d
 }
 
-// lines renders the whole report, one line at a time, so that scrolling and
-// drawing agree about what a line is.
-//
-// A report is built rather than printed because the screen scrolls it: the
-// terminal renderer can write straight to a stream and this cannot.
+// lines renders the whole report, one line at a time, so scrolling and drawing
+// agree about what a line is. A report is built rather than printed because the
+// screen scrolls it, where the terminal renderer writes straight to a stream.
 func (d diagnosisModel) lines() []string {
 	lines, _ := d.render()
 	return lines
@@ -159,18 +149,15 @@ func (d diagnosisModel) render() ([]string, int) {
 // known here rather than discovered.
 const markerWidth = 7
 
-// severityMarker renders a severity as a fixed-width label.
+// severityMarker renders a severity as a fixed-width label. The label is a word
+// and the colour only draws it, so a terminal without colour loses nothing
+// (FR-UI-002).
 //
-// The label is a word, and the colour is what the word is drawn in rather than
-// what carries the meaning: a terminal without colour loses nothing, which is
-// the rule the rail's attention marks follow (FR-UI-002).
-//
-// There is no colour for a check that passed, because the palette has none and
-// adding one is a change to the palette rather than to this screen (ADR-053).
-// The four readings the palette does have are enough: a pass is quiet, a
-// skipped check is plain text because it is not a pass and has to be noticed, a
-// warning is the attention colour, and an error is the only thing here a user
-// must act on.
+// A check that passed has no colour, because the palette has none and adding
+// one changes the palette rather than this screen (ADR-053). The four readings
+// it does have are enough: a pass is quiet, a skipped check is plain text
+// because it is not a pass, a warning is the attention colour, and an error is
+// what must be acted on.
 func severityMarker(severity string) string {
 	switch severity {
 	case api.SeverityError:
@@ -189,8 +176,8 @@ func severityMarker(severity string) string {
 func (d diagnosisModel) summary() string {
 	counts := d.report.Counts()
 	// Both forms are written out rather than derived, because the plural is not
-	// always the singular with an "s" on the end: it is "checks passed", and a
-	// summary that says "2 check passeds" is a summary nobody trusts the rest of.
+	// the singular with an "s" on the end: it is "checks passed", not "check
+	// passeds".
 	order := []struct {
 		severity string
 		one      string
@@ -244,11 +231,11 @@ func (d diagnosisModel) body(width, height int) string {
 	block := documentWidth(lines, max(1, width))
 
 	// Both marker rows are drawn whether or not there is a marker for them, blank
-	// where there is none, so that the report occupies the same number of lines at
-	// every offset. diagnosisTailHeight reserves a constant two for them, and a
-	// note that appeared and disappeared made the box shorter by up to two lines
-	// as the reader moved through it (see publicationWindow, where the same
-	// reservation is also a correctness property).
+	// where there is none, so the report occupies the same number of lines at
+	// every offset. diagnosisTailHeight reserves two for them, and a note that
+	// appeared and disappeared shortened the box as the reader moved through it
+	// (see publicationWindow, where the same reservation is a correctness
+	// property).
 	above := ""
 	if first > 0 {
 		above = mutedStyle.Render("… " + count(first, "line", "lines") + " above")
@@ -300,33 +287,26 @@ func (d diagnosisModel) title() string {
 }
 
 // diagnosisTailHeight is what this screen draws around the scrolling report:
-// the two notes saying how much of it is above and below the window, the blank
-// and the counts, the sentence a skipped check earns, the line saying where the
-// checks ran, and the blank and the hints. Eight lines, and it used to say eight
-// and reserve seven — which fitted only because the report never drew both notes
-// at the top of a document, where this screen opens. Now that both rows are
-// drawn at every offset so the box holds still, the reservation has to be what
-// it always claimed.
+// the two notes saying how much is above and below the window, the blank and
+// the counts, the sentence a skipped check earns, the line saying where the
+// checks ran, and the blank and the hints. Both notes are drawn at every offset
+// so the box holds still, which is why the reservation is eight lines and not
+// seven.
 //
-// The dialog's own cost is dialogVerticalChrome, which the box names so that the
+// The dialog's own cost is dialogVerticalChrome, which the box names so the
 // arithmetic is not written twice. The dialog clamps from the bottom, so an
-// overrun costs the user the counts and the key that runs the checks again —
-// which is the one action this screen offers. TestTheDiagnosisFitsItsDialog is
-// what keeps this honest.
+// overrun costs the counts and the key that runs the checks again, which is the
+// one action this screen offers (TestTheDiagnosisFitsItsDialog).
 const (
 	diagnosisTailHeight = 8
 	diagnosisChrome     = dialogVerticalChrome + diagnosisTailHeight
 )
 
-// diagnosisSize is the space the report is drawn in.
-//
-// It is resolved here rather than at each caller for the reason publication's
-// is: the report scrolls, so the key handler and the renderer have to agree
-// about how much of it is on the screen, and only one of the two can decide.
-// They did not — the keys paged by the whole dialog's height while the window
-// was that height less the seven lines drawn under it — and the end of the
-// scroll is now measured from this, so a stale idea of the height cannot leave
-// the box collapsed around one line.
+// diagnosisSize is the space the report is drawn in. It is resolved here rather
+// than at each caller for the reason publication's is: the report scrolls, so
+// the key handler and the renderer have to agree how much of it is on screen.
+// Paging by the whole dialog's height while the window is that height less its
+// tail leaves the box collapsed around one line.
 func (m Model) diagnosisSize() (width, height int) {
 	if m.narrow() {
 		width, height = m.frameSize()

@@ -10,12 +10,10 @@ import (
 	"github.com/ma8el/feat/internal/ui/ask"
 )
 
-// absent is what a field Feat cannot fill yet renders as.
-//
-// It is never a zero, a blank, or a plausible-looking value. A dashboard that
-// prints "0 files changed" where it has not looked is making a claim, which is
-// the rule ADR-028 established for `feat doctor` and ADR-031 carried into the
-// task list: a value that was never measured is never displayed as one.
+// absent is what a field Feat cannot fill yet renders as. It is never a zero, a
+// blank, or a plausible-looking value: a dashboard that prints "0 files
+// changed" where it has not looked is making a claim (ADR-028, carried into the
+// task list by ADR-031).
 const absent = "—"
 
 var (
@@ -23,8 +21,7 @@ var (
 
 	// The four the question widget draws with are defined beside it, in
 	// internal/ui/ask, and read back here for the rest of the dashboard. Two
-	// callers of one widget, each free to style it, is the drift that seam
-	// exists to make impossible (ADR-084).
+	// callers each free to style one widget would drift apart (ADR-084).
 	mutedStyle = ask.MutedStyle
 
 	selectedStyle = ask.SelectedStyle
@@ -35,21 +32,17 @@ var (
 
 	failureStyle = lipgloss.NewStyle().Bold(true).Foreground(colourFailure)
 
-	// focusedEntryStyle marks the task whose terminal is taking the keyboard.
-	// A background rather than a colour, because it has to be legible at a
-	// glance next to four other entries and it is answering "where are my
-	// keystrokes going".
+	// focusedEntryStyle marks the task whose terminal is taking the keyboard. It
+	// is a background rather than a colour, because it has to be legible at a
+	// glance beside four other entries.
 	focusedEntryStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(colourOnAccent).
 				Background(colourAccent)
 
-	// activeTabStyle is the tab the main region is drawing.
-	//
-	// It carries the accent as a background for the same reason the focused entry
-	// does: the tab bar is the header of the region beside the rail, and a header
-	// whose selected item differs only in shade is one a user has to compare
-	// rather than see.
+	// activeTabStyle is the tab the main region is drawing. It carries the accent
+	// as a background for the reason the focused entry does: a header whose
+	// selected item differs only in shade has to be compared rather than seen.
 	activeTabStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(colourOnAccent).
@@ -60,11 +53,11 @@ var (
 	// padding so that moving between tabs does not move the bar.
 	tabStyle = lipgloss.NewStyle().Foreground(colourMuted).Padding(0, 1)
 
-	// barStyle is the used part of a resource bar and the number on it. The
-	// attention colour, because a bar is a measure rather than a summons and what
-	// tells the two apart is the shape: a badge is a glyph beside a task and this
-	// is a block that fills a column. Bold is left to the attention styles, so
-	// that a bar never shouts and an overloaded machine's number still can.
+	// barStyle is the used part of a resource bar and the number on it. It takes
+	// the attention colour, and shape is what separates a measure from a summons:
+	// a badge is a glyph beside a task and this is a block filling a column. Bold
+	// is left to the attention styles, so an overloaded machine's number can
+	// still stand out.
 	barStyle = lipgloss.NewStyle().Foreground(colourAttention)
 
 	fieldStyle = lipgloss.NewStyle().Foreground(colourMuted).Width(fieldWidth)
@@ -82,7 +75,6 @@ type column struct {
 }
 
 // renderTable lays out rows under headings, padding each cell to its column.
-//
 // Cells are padded by display width rather than by byte count, so a title
 // holding a wide character does not push the columns after it out of line.
 func renderTable(columns []column, rows [][]string) string {
@@ -120,15 +112,11 @@ func pad(cell string, width int) string {
 	return cell
 }
 
-// centreLine indents a line to the middle of a width.
-//
-// It measures what the terminal will draw rather than counting bytes, as pad
-// does and for the same reason: the lines this is given carry styling, and one
-// of them carries the indicator's own glyph.
-//
-// A line that does not fit is returned where it is. The caller cuts it to the
-// region afterwards, and an indent added to something already too wide would
-// only move the cut further into the sentence.
+// centreLine indents a line to the middle of a width. It measures what the
+// terminal will draw rather than counting bytes, because the lines it is given
+// carry styling. A line that does not fit is returned where it is: the caller
+// cuts it to the region, and an indent would move that cut further into the
+// sentence.
 func centreLine(line string, width int) string {
 	indent := (width - ansi.StringWidth(line)) / 2
 	if indent <= 0 {
@@ -140,21 +128,17 @@ func centreLine(line string, width int) string {
 // tabStop is where a terminal puts a tab: the next multiple of eight.
 const tabStop = 8
 
-// plainText is text Feat did not write, made into something Feat can measure.
+// plainText is text Feat did not write, made into something Feat can measure. A
+// tab measures zero cells and the terminal draws it as a jump to the next
+// multiple of eight, so a captured `go test` line measured forty-eight cells
+// and was drawn as sixty-two, across the border and into the region beside it.
+// A carriage return is worse, because it puts what follows back at the
+// terminal's left edge.
 //
-// The dashboard is drawn by cell arithmetic — wrapped to the region, cut to it,
-// padded out to the border — and every one of those measurements asks how wide a
-// string is. A tab answers zero and the terminal draws it as a jump to the next
-// multiple of eight, so a captured `go test` line measured forty-eight cells and
-// was drawn as sixty-two: across the border, through the region beside it, and
-// down the rest of the frame. A carriage return is worse, because it puts what
-// follows back at the terminal's left edge over whatever is already there.
-//
-// So the tabs are expanded here, where the column they land in is still known,
-// and the rest of the C0 controls are dropped: they move the cursor, and nothing
-// that moves the cursor may reach a screen laid out by counting cells. Escape
-// sequences pass through untouched — the styling is Feat's own, and a rendered
-// pane is not drawn through here at all.
+// The tabs are expanded here, where the column they land in is still known, and
+// the rest of the C0 controls are dropped: nothing that moves the cursor may
+// reach a screen laid out by counting cells. Escape sequences pass through
+// untouched, because the styling is Feat's own.
 func plainText(s string) string {
 	if !strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 && r != '\n' || r == 0x7f }) {
 		return s
@@ -184,21 +168,18 @@ func plainText(s string) string {
 	return strings.Join(lines, "\n")
 }
 
-// plainLine is plainText for a value drawn on one line.
-//
-// A line break in a task's title is the same defect as a tab in a check's
-// output — the rail counts the lines it draws — and a title is a user's sentence
-// about their own work, which may have come from anywhere.
+// plainLine is plainText for a value drawn on one line. The rail counts the
+// lines it draws, so a line break in a task's title — a user's own sentence,
+// which may have come from anywhere — is the same defect as a tab in a check's
+// output.
 func plainLine(s string) string {
 	return strings.ReplaceAll(plainText(s), "\n", " ")
 }
 
-// truncate shortens a cell that does not fit, marking that it was shortened.
-//
-// It cuts by cell rather than by rune, through the same escape-aware primitive
-// the overlay and the cards use. A styled cell — a tab drawn on a background, a
-// line of a rendered pane — cut by rune loses half an escape sequence, and what
-// the terminal does with the remaining half is set a colour and keep it.
+// truncate shortens a cell that does not fit, marking that it was shortened. It
+// cuts by cell rather than by rune, through the escape-aware primitive the
+// overlay and the cards use: a styled cell cut by rune loses half an escape
+// sequence, and the terminal keeps the colour the remaining half set.
 func truncate(cell string, width int) string {
 	if width <= 0 || ansi.StringWidth(cell) <= width {
 		return cell
@@ -216,44 +197,25 @@ func keyHint(key, action string) string { return ask.KeyHint(key, action) }
 // keyHints joins footer hints.
 func keyHints(hints ...string) string { return ask.KeyHints(hints...) }
 
-// readHint is the keys that move a document under its window.
-//
-// One wording, because five overlays offer the same four keys and every one of
-// them named two: the arrows and the page keys were on the screen and the
-// letters were not. j and k work in all of them — the key handlers answer "up",
-// "k" and "down", "j" together — and a user who has learned the dashboard's own
-// j and k had nothing here telling them the same keys carry over. A key that
-// works and is not offered is as good as one that does not exist.
-//
-// The letters lead, as they do in the dashboard's key map, where the same pair
-// is written `j k h l  ↓↑←→`.
+// readHint is the keys that move a document under its window. One wording,
+// because five overlays answer the same four keys and each named only the
+// arrows and the page keys. The letters lead, as they do in the dashboard's key
+// map, where the same pair is written `j k h l  ↓↑←→`.
 func readHint() string { return keyHint("j k ↑↓ pgup/pgdn", "read") }
 
 // daemonNote renders what came back from a request the way the screen it lands
-// on should read it.
+// on should read it. A refusal is not a failure: "Checks can only run for a
+// task whose agent has asked for review" says what can be done from here, so it
+// is drawn as the amber note both screens use for something that needs the
+// user. A genuine failure keeps the failure colour.
 //
-// A refusal is not a failure, and the two screens that draw one were drawing it
-// as a red line beginning `invalid request:` and carrying thirty-six characters
-// of task identifier — which is a log entry, and a screen that prints one is
-// asking the user to translate it. "Checks can only run for a task whose agent
-// has asked for review" is a statement about what can be done from here; the
-// answer is to do something else, not to report a fault.
+// The wire prefix goes, because it classifies the response for a caller rather
+// than telling a person anything, and the task's identifier is shortened to the
+// key the header above already names it by. The identifier is replaced by value
+// rather than by pattern, so nothing that merely looks like one is rewritten.
 //
-// So a refusal is drawn the way both of these screens already draw a note, which
-// is the amber label they use for something that needs the user and is not a
-// verdict against the work. A genuine failure keeps the failure colour, because
-// then something did break.
-//
-// Two things go from the text. The wire prefix classifies the response for a
-// caller rather than telling a person anything, and it is the first thing on the
-// line. The task's identifier is shortened to the key the header above already
-// names it by: it is the longest thing on the line and the least worth reading,
-// and it is replaced by value rather than by pattern, so nothing that merely
-// looks like an identifier is rewritten.
-//
-// It returns one unwrapped note. Both tabs that draw one are re-flowed to their
-// region as a whole before they are drawn, and a note folded here as well would
-// break where this measured it and again where the tab does.
+// It returns one unwrapped note. Both tabs that draw one re-flow their region
+// as a whole, and a note folded here as well would break twice.
 func daemonNote(err error, task api.Task) string {
 	message := daemonMessage(err, task)
 	if !api.IsInvalid(err) {
@@ -263,18 +225,16 @@ func daemonNote(err error, task api.Task) string {
 }
 
 // daemonMessage is what the daemon said with what it said for a caller taken
-// off, for a screen that has already decided how to draw it.
-//
-// The two shortenings are daemonNote's, and they are separated from it because
-// not every screen wants its colouring. A cleanup that stopped partway through a
-// removal is a failure whatever the wire classified it as — the daemon wraps it
-// as a refusal so that its message survives the response at all — and the dialog
-// that reports it draws it as one.
+// off, for a screen that has already decided how to draw it. It is separate
+// from daemonNote because not every screen wants that colouring: a cleanup that
+// stopped partway through a removal is a failure whatever the wire classified
+// it as, and the daemon wraps it as a refusal only so its message survives the
+// response.
 //
 // A caller with no task to name asks for the prefix alone. The identifier is
-// replaced for a screen whose messages are about the task; on one whose messages
-// are about the task's resources it is part of a worktree path, and replacing it
-// by value would rewrite that path into one that is not on disk.
+// replaced for a screen whose messages are about the task; where they are about
+// the task's resources it is part of a worktree path, and replacing it would
+// name a path that is not on disk.
 func daemonMessage(err error, task api.Task) string {
 	message := err.Error()
 	if task.ID != "" && task.Key != "" {
@@ -283,14 +243,11 @@ func daemonMessage(err error, task api.Task) string {
 	return strings.TrimPrefix(message, api.ErrInvalid.Error()+": ")
 }
 
-// wrapNote folds a note to the region it is drawn in, where the caller knows the
-// width.
-//
-// Its callers are the cleanup dialog's. It draws into a box of its own width
-// rather than through a body that is re-flowed as a whole, so a sentence longer
-// than the box is cut at its edge with an ellipsis — and what that costs is the
-// end of the sentence, which on the message that sends a user to their
-// configuration is the path.
+// wrapNote folds a note to the region it is drawn in, where the caller knows
+// the width. Its callers are the cleanup dialog's, which draws into a box of
+// its own width rather than through a body re-flowed as a whole, so a long
+// sentence would otherwise be cut at the box's edge — and the end of it is the
+// path.
 func wrapNote(message string, width int) string {
 	if width <= 0 {
 		return message

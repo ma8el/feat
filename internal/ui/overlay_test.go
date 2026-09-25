@@ -62,9 +62,8 @@ func TestOverlayDrawsBelowTheLastLine(t *testing.T) {
 // rest of it as text.
 func TestOverlayDoesNotSplitAnEscapeSequence(t *testing.T) {
 	// Written as escape sequences rather than rendered through lipgloss, which
-	// drops colour when nothing is attached to a terminal — so a styled
-	// background is exactly what a test would otherwise never see, and this is
-	// the case the cell-wise cut exists for.
+	// drops colour when nothing is attached to a terminal. A styled background is
+	// what a test would otherwise never see.
 	background := "\x1b[31maaaaaaaaaaaaaaaaaaaa\x1b[m"
 
 	composite := overlayOn(background, "XXXX", 8, 0)

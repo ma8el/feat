@@ -38,10 +38,9 @@ func answerWizard(t *testing.T, model Model, text string) Model {
 }
 
 // pressKey applies one non-rune key and follows the commands it produces.
-//
-// The chain matters here: answering the last question composes the
-// configuration, which is a second command behind the first, and a helper that
-// ran only one would leave the screen a step behind what the user would see.
+// Answering the last question composes the configuration, which is a second
+// command behind the first, so a helper that ran only one would leave the
+// screen a step behind the user.
 func pressKey(t *testing.T, model Model, key tea.KeyMsg) Model {
 	t.Helper()
 
@@ -70,11 +69,9 @@ func enter(t *testing.T, model Model, times int) Model {
 }
 
 // rejoined is a rendered block with its line breaks taken out, for asserting on
-// something the dialog wrapped rather than on where it wrapped it.
-//
-// A wrapped path is still the whole path — it is folded rather than cut, so
-// every character is on the screen — and where the fold lands depends on the
-// machine the test is running on, because a temporary directory's path does.
+// something the dialog wrapped rather than on where it wrapped it. A wrapped
+// path is still the whole path, folded rather than cut, and where the fold
+// lands depends on the machine, because a temporary directory's path does.
 func rejoined(block string) string {
 	return strings.ReplaceAll(ansi.Strip(block), "\n", "")
 }
@@ -95,14 +92,11 @@ func reachQuestion(t *testing.T, model Model, id string) Model {
 }
 
 // TestTheQuestionsProseIsFoldedIntoTheDialog is Root C at the screen it was
-// reported on.
-//
-// `Detail` is authored in the flow as the lines it would be printed as — four
-// literal lines of about seventy-two cells for this question — so it wrapped at
-// seventy-two whatever box it was drawn in, and a `Notes` entry, which is one
-// long string, was cut with an ellipsis instead. The widget had a field width
-// and no block width, and the caller that has one had no way to hand it over
-// (ADR-088).
+// reported on. `Detail` is authored in the flow as the lines it would be
+// printed as — four literal lines of about seventy-two cells here — so it
+// wrapped at seventy-two whatever box it was drawn in, while a `Notes` entry,
+// one long string, was cut with an ellipsis. The widget had a field width and
+// no block width (ADR-088).
 func TestTheQuestionsProseIsFoldedIntoTheDialog(t *testing.T) {
 	// Wide enough that the fold has somewhere to go: at the terminal the defect
 	// was reported on, seventy-two cells is most of the box already.
@@ -151,13 +145,11 @@ func TestTheQuestionsProseIsFoldedIntoTheDialog(t *testing.T) {
 	}
 }
 
-// TestEveryWizardStepCanNameItsKeys keeps wizardSmallest honest.
-//
-// The wizard is drawn in half the terminal where every other overlay has three
-// quarters, and half of an ordinary terminal is narrower than the keys the review
-// step offers. A hint that is cut is a key nobody can press, so the narrower
-// measure has a floor — and a floor written down is a floor that drifts the day
-// a hint gains a word, which is what this reads back.
+// TestEveryWizardStepCanNameItsKeys keeps wizardSmallest honest. The wizard is
+// drawn in half the terminal where every other overlay has three quarters, and
+// half of an ordinary terminal is narrower than the keys the review step
+// offers. A hint that is cut is a key nobody can press, and a floor written
+// down drifts the day a hint gains a word.
 func TestEveryWizardStepCanNameItsKeys(t *testing.T) {
 	model := atReview(t, 120)
 
@@ -237,11 +229,9 @@ func TestTheWizardAsksTheFlowsQuestions(t *testing.T) {
 }
 
 // TestTypingReplacesTheProposal is the rule the whole conversation rests on,
-// checked at the screen that nearly broke it.
-//
-// The proposal was the field's contents to begin with, so typing appended to it
-// and a project proposed as "repo" became "repoapp". It is a placeholder now,
-// which is what it is at a shell: Enter takes it, and typing replaces it.
+// checked at the screen that nearly broke it. A proposal held as the field's
+// contents means typing appends to it, so a project proposed as "repo" became
+// "repoapp". It is a placeholder: Enter takes it, and typing replaces it.
 func TestTypingReplacesTheProposal(t *testing.T) {
 	model := answerWizard(t, wizardScreen(t, newFakeBackend()), "app")
 
@@ -256,11 +246,9 @@ func TestTypingReplacesTheProposal(t *testing.T) {
 }
 
 // TestTabPutsTheProposalWhereItCanBeEdited is the affordance the placeholder
-// never had (ADR-077).
-//
-// A proposal is a value Enter takes whole. What a user wants half the time is
-// that value with a few characters changed — a path, mostly — and until Tab put
-// it in the field, changing it meant reading it off the screen and typing all of
+// never had (ADR-077). A proposal is a value Enter takes whole, and what a user
+// wants half the time is that value with a few characters changed — a path,
+// mostly — which without Tab means reading it off the screen and typing all of
 // it back in.
 func TestTabPutsTheProposalWhereItCanBeEdited(t *testing.T) {
 	model := wizardScreen(t, newFakeBackend())
@@ -285,11 +273,10 @@ func TestTabPutsTheProposalWhereItCanBeEdited(t *testing.T) {
 	}
 }
 
-// TestTabStepsThroughEveryCandidate is what the completion is for beyond the one
-// proposal: the flow derives lists, and a question has one proposal.
-//
-// The repository here has a base Compose file and an override beside it. The
-// first is proposed and the second was, until now, a path to be retyped.
+// TestTabStepsThroughEveryCandidate is what the completion is for beyond the
+// one proposal: the flow derives lists, and a question has one proposal. The
+// repository here has a base Compose file and an override beside it, the first
+// proposed and the second otherwise a path to be retyped.
 func TestTabStepsThroughEveryCandidate(t *testing.T) {
 	// Seven answers reach the application section; it proposes "no", so its
 	// cursor is moved before it is answered.
@@ -371,13 +358,10 @@ func TestTabStepsThroughEveryCandidate(t *testing.T) {
 }
 
 // TestTypingAlongACompletionDoesNotResizeTheDialog is the cost of drawing a
-// completion, paid where it showed.
-//
-// The widget pads its line out from the typed value alone and writes the
-// completion after the padding, and this dialog is as wide as its widest line —
-// so the box jumped to its full allowance on the first character of a path and
-// crept back a cell per keystroke afterwards, while typing something no
-// candidate matches left it perfectly still.
+// completion, paid where it showed. The widget pads its line out from the typed
+// value alone and writes the completion after the padding, and this dialog is
+// as wide as its widest line, so the box jumped to its full allowance on the
+// first character of a path and crept back a cell per keystroke afterwards.
 func TestTypingAlongACompletionDoesNotResizeTheDialog(t *testing.T) {
 	// Wide enough that the box is not clamped: a box already at its allowance
 	// cannot move, and the test would pass having proved nothing.
@@ -431,8 +415,8 @@ func TestARefusedAnswerIsShownWhereItWasTyped(t *testing.T) {
 	}
 }
 
-// TestSteppingBackReachesTheAnswerBefore is the whole reason the dialog is worth
-// having over a conversation that cannot be scrolled back.
+// TestSteppingBackReachesTheAnswerBefore is the whole reason the dialog is
+// worth having over a conversation that cannot be scrolled back.
 func TestSteppingBackReachesTheAnswerBefore(t *testing.T) {
 	model := enter(t, wizardScreen(t, newFakeBackend()), 2)
 	if got := question(t, model); got != "repository.path" {
@@ -456,11 +440,9 @@ func TestSteppingBackReachesTheAnswerBefore(t *testing.T) {
 // wizardQuestions is how many questions the smallest project answers: an
 // identifier, a name, a checkout, its identifier, its access, its forge, no
 // second repository, no application services, an execution mode, and no tracker
-// command.
-//
-// It is named rather than written into each caller because two of them are new
-// and the number moved once already. A test that answers one too few stops
-// somewhere reportable, which is what atReview checks.
+// command. It is named rather than written into each caller because the number
+// has moved, and a test that answers one too few stops somewhere reportable,
+// which is what atReview checks.
 const wizardQuestions = 10
 
 // atReview opens the wizard, answers every question, and stops at the file.
@@ -475,20 +457,17 @@ func atReview(t *testing.T, width int) Model {
 }
 
 // roomFor is a terminal wide enough that a wizard of this width is not clamped.
-//
-// wizardLimits allows half the terminal, so this dialog is drawn at its own size
-// only where half the screen is at least that. The width is
-// derived rather than written down because what the review holds is a path, and
-// how long a path is depends on the machine the test is running on — which is how
-// this test first failed on somebody else's.
+// wizardLimits allows half the terminal, so this dialog is drawn at its own
+// size only where half the screen is at least that. The width is derived rather
+// than written down, because what the review holds is a path and how long a
+// path is depends on the machine the test is running on.
 func roomFor(cells int) int { return cells*2 + 8 }
 
-// TestTheWizardIsSizedToItsContent keeps the dialog off the width of the screen.
-//
-// dialogBox shrinks to the widest line it is handed, and lipgloss pads every
-// wrapped line out to the width it wrapped to — so from the review step onwards
-// the wizard reported itself as exactly as wide as it was allowed, and took
-// three quarters of the terminal to show a file whose lines are half that.
+// TestTheWizardIsSizedToItsContent keeps the dialog off the width of the
+// screen. dialogBox shrinks to the widest line it is handed, and lipgloss pads
+// every wrapped line out to the width it wrapped to, so from the review step
+// onwards the wizard reported itself as exactly as wide as it was allowed and
+// took three quarters of the terminal to show a file whose lines are half that.
 //
 // It is not capped at a measure, because this dialog is a form and a file: what
 // decides its width is what is on it, and a longer path or a wider question is
@@ -521,12 +500,10 @@ func TestTheWizardIsSizedToItsContent(t *testing.T) {
 }
 
 // TestScrollingTheFileDoesNotResizeTheDialog is the cost of the fix above, paid
-// where it would otherwise show.
-//
-// Once the box follows its widest line, the widest line must not be whichever
-// part of the file happens to be on screen — a dialog that grew and shrank as the
-// user scrolled through a configuration would be worse than one that was always
-// too wide.
+// where it would otherwise show. Once the box follows its widest line, that
+// line must not be whichever part of the file happens to be on screen: a dialog
+// growing and shrinking as the user scrolls would be worse than one that was
+// always too wide.
 func TestScrollingTheFileDoesNotResizeTheDialog(t *testing.T) {
 	model := atReview(t, 400)
 
@@ -549,8 +526,9 @@ func TestScrollingTheFileDoesNotResizeTheDialog(t *testing.T) {
 	}
 }
 
-// TestNothingIsWrittenBeforeTheFileIsConfirmed is FR-PROJ-005 at the screen that
-// implements it: the whole file is displayed, and writing it is a separate act.
+// TestNothingIsWrittenBeforeTheFileIsConfirmed is FR-PROJ-005 at the screen
+// that implements it: the whole file is displayed, and writing it is a separate
+// act.
 func TestNothingIsWrittenBeforeTheFileIsConfirmed(t *testing.T) {
 	backend := newFakeBackend()
 	model := enter(t, wizardScreen(t, backend), wizardQuestions)
@@ -606,11 +584,10 @@ func TestNothingIsWrittenBeforeTheFileIsConfirmed(t *testing.T) {
 }
 
 // TestTheWrittenProjectIsCheckedAgainstTheMachine is the answer to what the
-// questions could not ask (ADR-064).
-//
-// The checks run once the file exists, because that is what they are about, and
-// they run rather than being offered: the user is waiting either way, and
-// nothing they find changes anything on the machine.
+// questions could not ask (ADR-064). The checks run once the file exists,
+// because that is what they are about, and they run rather than being offered:
+// the user is waiting either way, and nothing they find changes anything on the
+// machine.
 func TestTheWrittenProjectIsCheckedAgainstTheMachine(t *testing.T) {
 	backend := newFakeBackend()
 	backend.diagnosis = api.Diagnosis{
@@ -680,8 +657,8 @@ func TestRegisteringIsOfferedAndAnswered(t *testing.T) {
 	}
 	// The path is asserted with the line breaks taken out, because the wizard's
 	// box is half the terminal and a temporary directory's path is longer than
-	// that: it is wrapped rather than cut, which is what wizardModel.wrap is for —
-	// a path that is cut is a path nobody can check.
+	// that: it is wrapped rather than cut, which is what wizardModel.wrap is for
+	// — a path that is cut is a path nobody can check.
 	view := content(model)
 	if !strings.Contains(rejoined(view), filepath.Join("config", "repo.yaml")) {
 		t.Errorf("the last screen does not say what was written:\n%s", view)

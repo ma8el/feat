@@ -38,11 +38,9 @@ func publishable(t *testing.T, backend *fakeBackend) Model {
 	return press(t, model, "P")
 }
 
-// document is the whole draft, window or no window.
-//
-// A test about what the screen says is not a test about how many lines of it
-// fit at once: what is on the screen is what TestThePublicationScreenIsDrawn
-// and the reading gate are about, and this is for the rest.
+// document is the whole draft, window or no window. A test about what the
+// screen says is not a test about how many lines of it fit at once, which is
+// what TestThePublicationScreenIsDrawn and the reading gate are about.
 func document(m Model) string {
 	width, _ := m.publicationRegion()
 	lines, _ := m.publicationLines(width)
@@ -50,8 +48,7 @@ func document(m Model) string {
 }
 
 // TestOpeningPublicationSendsNothing is why it is safe to reach with one key.
-//
-// What publishing would do is a question. Only what the user approves is ever
+// What publishing would do is a question: only what the user approves is ever
 // acted on, and approving is two key presses further on.
 func TestOpeningPublicationSendsNothing(t *testing.T) {
 	backend := newFakeBackend()
@@ -73,12 +70,10 @@ func TestOpeningPublicationSendsNothing(t *testing.T) {
 
 // TestThePublicationScreenIsDrawnWhereItIsOpened is the defect this screen
 // shipped with: it was drawn in the narrow fallback and nowhere else.
-//
-// dialogView answered every other overlay and not this one, so on a terminal of
-// an ordinary size P changed the screen, asked the daemon for a plan, and drew
-// the dashboard it was already drawing — with a footer offering "esc close" over
-// a dialog that was never there. What the user could see of the publication was
-// the daemon's socket path (ADR-076).
+// dialogView answered every other overlay and not this one, so on an ordinary
+// terminal P changed the screen, asked the daemon for a plan, and drew the
+// dashboard it was already drawing, with a footer offering "esc close" over a
+// dialog that was never there (ADR-076).
 func TestThePublicationScreenIsDrawnWhereItIsOpened(t *testing.T) {
 	backend := newFakeBackend()
 
@@ -111,12 +106,10 @@ func TestThePublicationScreenIsDrawnWhereItIsOpened(t *testing.T) {
 }
 
 // TestNothingIsSentBeforeTheWordsHaveBeenRead is the control ADR-070 rests on.
-//
-// The agent's words can carry anything it read, and a person reading them before
-// they are sent is the only control there is. A draft longer than the window has
-// not been read while its end is below the fold, and the screen refuses to
-// publish it — reading is scrolling to the end of it, not pressing a key that
-// says one did.
+// The agent's words can carry anything it read, and a person reading them
+// before they are sent is the only control there is. A draft whose end is below
+// the fold has not been read, so reading is scrolling to the end rather than
+// pressing a key that says one did.
 func TestNothingIsSentBeforeTheWordsHaveBeenRead(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
@@ -155,10 +148,9 @@ func TestNothingIsSentBeforeTheWordsHaveBeenRead(t *testing.T) {
 }
 
 // TestADraftThatFitsHasBeenReadWhereItIsDrawn is the other half of the gate.
-//
-// The words are on the screen in full, so they have been read, and publishing
-// them takes no trip through an editor: what is displayed is what is sent, and
-// this is where it was displayed (ADR-076). The editor is for rewriting them.
+// The words are on the screen in full, so publishing them takes no trip through
+// an editor: what is displayed is what is sent, and this is where it was
+// displayed (ADR-076).
 func TestADraftThatFitsHasBeenReadWhereItIsDrawn(t *testing.T) {
 	backend := newFakeBackend()
 	model := press(t, publishable(t, backend), "down")
@@ -194,11 +186,9 @@ func TestADraftThatFitsHasBeenReadWhereItIsDrawn(t *testing.T) {
 }
 
 // TestAnUntitledRepositoryIsRefusedByName keeps a publication from being
-// quietly narrower than the screen it was approved from.
-//
-// A merge request needs a title and the agent wrote none, so this one cannot be
-// opened. Publishing the rest and saying nothing would leave the user believing
-// they had published every repository they just read.
+// quietly narrower than the screen it was approved from. A merge request needs
+// a title and the agent wrote none, and publishing the rest silently would
+// leave the user believing they had published every repository they just read.
 func TestAnUntitledRepositoryIsRefusedByName(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
@@ -249,11 +239,10 @@ func TestWhatIsSentIsWhatCameBackFromTheEditor(t *testing.T) {
 }
 
 // TestARepositoryRemovedInTheEditorIsSaidToBeGone is what an edit that deletes
-// a section leaves on the screen.
-//
-// The plan still names the repository, and the words that would have been sent
-// for it are not being sent. A screen that went on drawing the agent's draft
-// there would be showing something that is not going to happen.
+// a section leaves on the screen. The plan still names the repository and the
+// words that would have been sent for it are not being sent, so a screen that
+// went on drawing the agent's draft there would show something that is not
+// going to happen.
 func TestARepositoryRemovedInTheEditorIsSaidToBeGone(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
@@ -295,12 +284,10 @@ func TestAnythingButYesLeavesThePublicationUnsent(t *testing.T) {
 }
 
 // TestAStaleDraftIsRefusedOnTheScreenToo keeps the two clients answering alike.
-//
-// The document does not offer a stale repository, so what this arranges is a
-// document that disagrees with the plan it was written from: the words arrive
-// approved anyway. They are refused here rather than sent for the daemon to
-// refuse, so the answer to the last question is not spent on something that
-// cannot happen.
+// The document does not offer a stale repository, so this arranges a document
+// that disagrees with the plan it was written from. The words are refused here
+// rather than sent for the daemon to refuse, so the last question is not spent
+// on the impossible.
 func TestAStaleDraftIsRefusedOnTheScreenToo(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
@@ -323,13 +310,11 @@ func TestAStaleDraftIsRefusedOnTheScreenToo(t *testing.T) {
 }
 
 // TestOneStaleDraftLeavesTheOtherRepositoriesPublishable is what a stale draft
-// costs and what it does not.
-//
-// It is one repository's problem: the agent described a commit that is no longer
-// current there, and no edit resolves it. Refusing the whole publication for it
-// would leave a user waiting on a fresh draft for a repository they were not
-// publishing — and the daemon, which asks only about the repositories in the
-// request, would have taken the others.
+// costs and what it does not. It is one repository's problem: the agent
+// described a commit that is no longer current there, and no edit resolves it.
+// Refusing the whole publication would leave a user waiting on a fresh draft
+// for a repository they were not publishing, and the daemon asks only about the
+// repositories in the request.
 func TestOneStaleDraftLeavesTheOtherRepositoriesPublishable(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
@@ -364,11 +349,9 @@ func TestOneStaleDraftLeavesTheOtherRepositoriesPublishable(t *testing.T) {
 	}
 }
 
-// TestAScreenWithNothingLeftToPublishOffersNoEditor is the empty case.
-//
-// Every repository has published or has a stale draft, so there is no document
-// to open. A key that opens an editor on nothing is a key that appears to do
-// something, and the screen says why instead.
+// TestAScreenWithNothingLeftToPublishOffersNoEditor is the empty case. Every
+// repository has published or has a stale draft, so there is no document to
+// open, and an editor opening on nothing is a key that appears to do something.
 func TestAScreenWithNothingLeftToPublishOffersNoEditor(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
@@ -391,10 +374,9 @@ func TestAScreenWithNothingLeftToPublishOffersNoEditor(t *testing.T) {
 }
 
 // TestTheRecordIsShownIncludingWhatWasNotAttempted is how a user meets a
-// partial publication.
-//
-// Nothing is rolled back, so the record is the state of the world: what is on
-// the forges, what failed, and what this publication never got to.
+// partial publication. Nothing is rolled back, so the record is the state of
+// the world: what is on the forges, what failed, and what this publication
+// never got to.
 func TestTheRecordIsShownIncludingWhatWasNotAttempted(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
@@ -416,12 +398,9 @@ func TestTheRecordIsShownIncludingWhatWasNotAttempted(t *testing.T) {
 }
 
 // TestTheRecordIsNotSomethingToScrollPastToPublish keeps the reading gate about
-// the words.
-//
-// What has to be read is what would be sent. Feat's own account of what this
-// task already published is under it, and a user who has read the draft is not
-// made to scroll through a list of merge requests that already exist before the
-// screen will send the ones that do not.
+// the words. What has to be read is what would be sent, and Feat's own account
+// of what this task already published is under it: a user who has read the
+// draft is not made to scroll past merge requests that already exist.
 func TestTheRecordIsNotSomethingToScrollPastToPublish(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
@@ -442,13 +421,10 @@ func TestTheRecordIsNotSomethingToScrollPastToPublish(t *testing.T) {
 }
 
 // TestLookingAgainAfterAPublicationShowsTheNewPlan is how a partial publication
-// is finished.
-//
-// Nothing is rolled back, so what a failure leaves is a record and repositories
-// that are still unpublished. Looking again composes a fresh plan that skips
-// what already published (ADR-073), and the screen has to show it: a finished
-// view that keeps drawing over a new plan makes the key that asked for it look
-// like it did nothing.
+// is finished. What a failure leaves is a record and repositories that are
+// still unpublished, and looking again composes a fresh plan that skips what
+// already published (ADR-073). A finished view that kept drawing over the new
+// plan would make the key that asked for it look like it did nothing.
 func TestLookingAgainAfterAPublicationShowsTheNewPlan(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
@@ -501,11 +477,9 @@ func TestLookingAgainAfterAPublicationShowsTheNewPlan(t *testing.T) {
 }
 
 // TestAPublicationInFlightSwallowsTheKeyboard keeps one key press from becoming
-// two publications.
-//
-// It is pushing branches and opening merge requests one repository at a time,
-// and a second press must not start it again: what it creates is on somebody
-// else's server and is not undone.
+// two publications. It is pushing branches and opening merge requests one
+// repository at a time, and what it creates is on somebody else's server and is
+// not undone.
 func TestAPublicationInFlightSwallowsTheKeyboard(t *testing.T) {
 	backend := newFakeBackend()
 	model := publishable(t, backend)
@@ -572,11 +546,9 @@ func TestEscapeLeavesThePublicationScreen(t *testing.T) {
 }
 
 // editDraft presses the key that opens the draft in an editor and then delivers
-// what it came back with.
-//
-// The editor itself is Bubble Tea's to run: a screen hands it the terminal and
-// is told afterwards. What this exercises is both halves of that — the request
-// for the document, and the words it returned.
+// what it came back with. The editor itself is Bubble Tea's to run, so this
+// exercises both halves: the request for the document, and the words it
+// returned.
 func editDraft(t *testing.T, model Model, backend *fakeBackend) Model {
 	t.Helper()
 

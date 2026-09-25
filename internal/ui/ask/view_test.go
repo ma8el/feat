@@ -37,12 +37,10 @@ func contextLines(t *testing.T, model Model) []string {
 	return strings.Split(ansi.Strip(model.Context()), "\n")
 }
 
-// TestTheContextFoldsIntoTheWidthItIsGiven is the reported defect.
-//
-// A note about which services are built from a repository ran to a hundred and
-// sixty cells, was cut with an ellipsis at the point where it listed them, and —
-// because a dialog reads a truncated line as exactly as wide as it is allowed —
-// took the box's full allowance to show a sentence it had already cut short.
+// TestTheContextFoldsIntoTheWidthItIsGiven is the reported defect. A note about
+// which services are built from a repository ran to a hundred and sixty cells
+// and was cut where it listed them, and a dialog reads a truncated line as
+// exactly as wide as it is allowed, so the box took its full allowance.
 func TestTheContextFoldsIntoTheWidthItIsGiven(t *testing.T) {
 	const width = 86
 
@@ -56,8 +54,8 @@ func TestTheContextFoldsIntoTheWidthItIsGiven(t *testing.T) {
 		}
 	}
 
-	// The whole note, list and all. It is the end of it that was cut, and the end
-	// of it is what the note exists to say.
+	// The whole note, list and all: the end of it was cut, and the end is what
+	// the note exists to say.
 	context := strings.Join(lines, " ")
 	if !strings.Contains(context, "built again: web, worker") {
 		t.Errorf("the note is cut before what it is about:\n%s", model.Context())
@@ -68,11 +66,8 @@ func TestTheContextFoldsIntoTheWidthItIsGiven(t *testing.T) {
 }
 
 // TestAFoldedNoteHangsUnderItself checks the shape of a note that takes more
-// than one line.
-//
-// A second line starting in the bullet's column reads as a second note, and
-// these are the lines carrying what Feat found out about the answer before this
-// one — so the wrong count of them is the wrong count of findings.
+// than one line. A second line starting in the bullet's column reads as a
+// second note, so the wrong count of lines is the wrong count of findings.
 func TestAFoldedNoteHangsUnderItself(t *testing.T) {
 	model := opened(t, servicesQuestion())
 	model.SetContextWidth(60)
@@ -102,11 +97,9 @@ func TestAFoldedNoteHangsUnderItself(t *testing.T) {
 
 // TestTheDetailIsReflowedRatherThanRedrawnAsWritten is the other half of the
 // symptom: a paragraph wrapped at about seventy-two cells inside a box three
-// quarters of a wide terminal.
-//
-// The flow authors Detail as the lines it would be printed as, which is what the
-// asker with no width to fold to needs. Rejoining a paragraph and folding it
-// again makes those breaks the default rather than the limit.
+// quarters of a wide terminal. The flow authors Detail as the lines it would be
+// printed as, so rejoining a paragraph and folding it again makes those breaks
+// the default rather than the limit.
 func TestTheDetailIsReflowedRatherThanRedrawnAsWritten(t *testing.T) {
 	question := servicesQuestion()
 	widest := 0
@@ -136,14 +129,11 @@ func TestTheDetailIsReflowedRatherThanRedrawnAsWritten(t *testing.T) {
 	}
 }
 
-// TestTheContextWithoutAWidthDrawsWhatTheFlowWrote is the terminal asker's half,
-// and it is what makes this change cost `feat project init` nothing.
-//
-// That asker never calls Context — it prints the same fields itself, so that
-// they stay in the scrollback after the widget has exited (ADR-084) — and the
-// default here is what any caller that has not been told a width gets: the
-// flow's own lines, unfolded, which is what the transcript's rule is measured
-// against.
+// TestTheContextWithoutAWidthDrawsWhatTheFlowWrote is the terminal asker's
+// half. That asker never calls Context: it prints the same fields itself, so
+// they stay in the scrollback after the widget has exited (ADR-084). A caller
+// that was not told a width gets the flow's own lines, unfolded, which is what
+// the transcript's rule is measured against.
 func TestTheContextWithoutAWidthDrawsWhatTheFlowWrote(t *testing.T) {
 	question := servicesQuestion()
 	model := opened(t, question)

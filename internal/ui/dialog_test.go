@@ -11,13 +11,11 @@ import (
 	"github.com/ma8el/feat/internal/wizard"
 )
 
-// widestLine is a document's widest line and where in it that line is.
-//
-// Both halves are used. The width is what the block has to measure at every
-// offset, and it is asserted against rather than a constant so that a test does
-// not encode a fixture's dimensions. The position is what makes the test mean
-// anything: a widest line that is on the screen from the start proves nothing
-// about scrolling.
+// widestLine is a document's widest line and where in it that line is. The
+// width is what the block has to measure at every offset, asserted against
+// rather than a constant so a test does not encode a fixture's dimensions. The
+// position is what makes the test mean anything: a widest line on screen from
+// the start proves nothing about scrolling.
 func widestLine(lines []string) (width, at int) {
 	for i, line := range lines {
 		if measured := ansi.StringWidth(line); measured > width {
@@ -27,18 +25,16 @@ func widestLine(lines []string) (width, at int) {
 	return width, at
 }
 
-// scrollingKeepsItsWidth is the shape of the four tests below.
-//
-// dialogBox shrinks the box to the widest line of what it is handed, and a body
-// that scrolls hands it a window rather than a document — so the widest
-// *visible* line decided the width, and scrolling changed which lines those
-// were. The document is rendered at two offsets, one showing its widest line and
-// one not, and the block has to measure the same both times.
+// scrollingKeepsItsWidth is the shape of the four tests below. dialogBox
+// shrinks the box to the widest line of what it is handed, and a body that
+// scrolls hands it a window, so the widest visible line decides the width and
+// scrolling changes which lines those are. The document is rendered at two
+// offsets, one showing its widest line and one not, and the block has to
+// measure the same both times.
 //
 // It is checked against the document's own widest line rather than against the
-// two offsets agreeing, because two offsets agreeing is also what a body that
-// pads everything to the full region would do, and that is the other defect
-// (see wizardModel.wrap).
+// two offsets agreeing, because a body that padded everything to the full
+// region would also agree, and that is the other defect (see wizardModel.wrap).
 func scrollingKeepsItsWidth(t *testing.T, name string, widest int, top, bottom string) {
 	t.Helper()
 
@@ -55,13 +51,11 @@ func scrollingKeepsItsWidth(t *testing.T, name string, widest int, top, bottom s
 	}
 }
 
-// TestThePublicationDraftKeepsItsWidthWhileItIsRead is the reported defect.
-//
-// Reading a publication draft, a long line further down the document widened the
-// box the moment it came into view. The rule is reviewView's, which has had it
-// since it was written: every line is drawn in the width of the document's
-// widest, and the measure is the whole document rather than the window, because
-// the window is what changes.
+// TestThePublicationDraftKeepsItsWidthWhileItIsRead is the reported defect:
+// reading a publication draft, a long line further down the document widened
+// the box the moment it came into view. The rule is reviewView's — every line
+// is drawn in the width of the document's widest, and the measure is the
+// document rather than the window.
 func TestThePublicationDraftKeepsItsWidthWhileItIsRead(t *testing.T) {
 	backend := newFakeBackend()
 	model := sized(publishable(t, backend), 120, 32)
@@ -171,11 +165,9 @@ func TestTheCleanupInventoryKeepsItsWidthWhileItIsRead(t *testing.T) {
 	scrollingKeepsItsWidth(t, "inventory", widest, top, bottom)
 }
 
-// TestTheWizardReviewKeepsItsWidthWhileItIsRead guards the lift.
-//
-// The wizard is where this rule was written and the one body that already had
-// it. Moving the measurement into dialog.go so three other bodies could share it
-// must not cost the body it came from.
+// TestTheWizardReviewKeepsItsWidthWhileItIsRead guards the lift. The wizard is
+// where this rule was written, and moving the measurement into dialog.go so
+// three other bodies could share it must not cost the body it came from.
 func TestTheWizardReviewKeepsItsWidthWhileItIsRead(t *testing.T) {
 	// longConfiguration's widest line is its last: short entries, and one long
 	// path at the foot, which is what a repository list looks like.
@@ -196,9 +188,8 @@ func TestTheWizardReviewKeepsItsWidthWhileItIsRead(t *testing.T) {
 
 // keepsItsHeight renders a body at the top, the middle, and the end of its
 // scroll, and requires it to occupy the same number of lines at all three.
-//
-// dialogBox sets Width and never Height, so a box is as tall as the lines it is
-// given and anything that varies that count moves the border under the reader.
+// dialogBox sets Width and never Height, so anything that varies the line count
+// moves the border under the reader.
 func keepsItsHeight(t *testing.T, name string, end int, render func(offset int) string) {
 	t.Helper()
 
@@ -217,11 +208,10 @@ func keepsItsHeight(t *testing.T, name string, end int, render func(offset int) 
 }
 
 // TestThePublicationDraftKeepsItsHeightWhileItIsRead is the second half of the
-// box moving under the reader: it changed height as well as width.
-//
-// The markers appeared and disappeared — "… N lines above" only when scrolled
-// and "… N more lines" only when there was more — so the box wobbled by up to
-// two lines and lost one exactly as the reader reached the end.
+// box moving under the reader: it changed height as well as width. Markers that
+// appear and disappear — "… N lines above" only when scrolled, "… N more lines"
+// only when there is more — wobble the box by up to two lines and lose one at
+// the end.
 func TestThePublicationDraftKeepsItsHeightWhileItIsRead(t *testing.T) {
 	backend := newFakeBackend()
 	model := sized(publishable(t, backend), 120, 32)
@@ -236,14 +226,12 @@ func TestThePublicationDraftKeepsItsHeightWhileItIsRead(t *testing.T) {
 	})
 }
 
-// TestThePublicationWindowDisplaysTheSameCountAtEveryOffset is the ADR-076 gate,
-// and it is why the obvious fix above was the wrong one.
-//
-// Subtracting only the markers actually drawn would have held the box still and
-// changed how much of the draft the gate believes was read: the gate is "these
-// lines were displayed", and a note that quietly took one of their rows would
-// make it "these lines were displayed, less one". The reservation is constant
-// and the drawing now matches it at every offset.
+// TestThePublicationWindowDisplaysTheSameCountAtEveryOffset is the ADR-076
+// gate, and why the obvious fix above is the wrong one. Subtracting only the
+// markers actually drawn holds the box still and changes how much of the draft
+// the gate believes was read: the gate is "these lines were displayed", and a
+// note taking one of their rows makes it "these lines were displayed, less
+// one".
 func TestThePublicationWindowDisplaysTheSameCountAtEveryOffset(t *testing.T) {
 	backend := newFakeBackend()
 	model := sized(publishable(t, backend), 120, 32)
@@ -291,10 +279,9 @@ func TestTheWizardReviewKeepsItsHeightWhileItIsRead(t *testing.T) {
 	})
 }
 
-// TestTheDiagnosisReportStopsAtAFullWindow is the other half of Root B.
-//
-// The scroll clamped to the last line rather than the last window, so the end of
-// it was one line of the report in a box that had collapsed around it.
+// TestTheDiagnosisReportStopsAtAFullWindow is the other half of Root B. A
+// scroll clamped to the last line rather than the last window leaves one line
+// of the report in a box that has collapsed around it.
 func TestTheDiagnosisReportStopsAtAFullWindow(t *testing.T) {
 	backend := newFakeBackend()
 	backend.diagnosis = longDiagnosis()
@@ -396,12 +383,10 @@ func reviewingWizard(t *testing.T, text string) Model {
 }
 
 // requireScrollable checks that a document is one this measurement can say
-// anything about, and returns its widest line.
-//
-// Two ways it could not be. A widest line inside the first window is on the
-// screen from the start, so no offset ever removes it; and a widest line past
-// the region is clamped to the region at every offset, so the block is the same
-// width whether or not anything measured the document.
+// anything about, and returns its widest line. A widest line inside the first
+// window is on screen from the start, so no offset removes it; a widest line
+// past the region is clamped at every offset, so the block is the same width
+// either way.
 func requireScrollable(t *testing.T, lines []string, width, height int) int {
 	t.Helper()
 

@@ -10,21 +10,15 @@ import (
 )
 
 // claimedCaveat explains what the verification column means when the agent is
-// the only reporter.
-//
-// Feat runs the checks a project configures when the agent asks for review, and
-// marks those results as its own. A project that configures none leaves the
-// agent's claim as the whole of what is known, and the column says so rather
-// than reading like a verdict Feat reached (ADR-032, corrected by ADR-033;
-// FR-UI-002, FR-UI-003).
+// the only reporter. Feat runs the checks a project configures when the agent
+// asks for review; a project that configures none leaves the agent's claim as
+// the whole of what is known, and the column says so rather than reading like a
+// verdict Feat reached (ADR-032, corrected by ADR-033; FR-UI-002, FR-UI-003).
 const claimedCaveat = "Feat verifies the checks a project configures"
 
-// Attention badges.
-//
-// The badge is what makes attention readable across a screen of tasks: a user
-// scanning the dashboard is looking for the one task that stopped, and a column
-// of words all beginning with the same letters is not something an eye finds
-// (FR-UI-004).
+// Attention badges. A user scanning the dashboard is looking for the one task
+// that stopped, and a column of words all beginning with the same letters is
+// not something an eye finds (FR-UI-004).
 const (
 	// badgeNeedsInput marks a task the provider reported as blocked on the user.
 	badgeNeedsInput = "●"
@@ -33,11 +27,9 @@ const (
 	badgeMaybe = "◐"
 )
 
-// attentionSummary says how many tasks are waiting for the user.
-//
-// It is the badge for the whole screen. A user who has just come back to a
-// terminal wants to know whether anything needs them before they read anything
-// else, and counting rows is what this exists to save them.
+// attentionSummary says how many tasks are waiting for the user. It is the
+// badge for the whole screen, so a user coming back to a terminal does not have
+// to count rows to find out whether anything needs them.
 func attentionSummary(tasks []api.Task) string {
 	waiting := 0
 	for _, task := range tasks {
@@ -86,10 +78,8 @@ func verificationDetail(task api.Task) string {
 	return detail
 }
 
-// agentState is the observed process state of the task's session.
-//
-// A task with no session has nothing to report, which is not the same as a
-// stopped one: nothing has been started.
+// agentState is the observed process state of the task's session. A task with
+// no session reports nothing, which is not the same as a stopped one.
 func agentState(task api.Task) string {
 	if task.Session == nil {
 		return absent
@@ -97,10 +87,9 @@ func agentState(task api.Task) string {
 	return task.Session.Process
 }
 
-// changedFiles totals what Feat last observed across the task's repositories.
-//
-// A task none of whose repositories has been observed reports nothing rather
-// than zero: those are different answers, and only one of them was measured.
+// changedFiles totals what Feat last observed across the task's repositories. A
+// task with no observed repository reports nothing rather than zero, because
+// only one of those answers was measured.
 func changedFiles(task api.Task) string {
 	total, observed := 0, false
 	for _, binding := range task.Repositories {
@@ -145,10 +134,8 @@ func isDraft(task api.Task) bool { return task.Workflow == "draft" }
 // is.
 func isArchived(task api.Task) bool { return task.Workflow == "archived" }
 
-// activeTasks are the tasks the dashboard lists.
-//
-// Archived tasks are left out: they are the record of work that is over, and
-// showing every cancelled draft forever would bury the tasks a user is actually
+// activeTasks are the tasks the dashboard lists. Archived tasks are left out,
+// because every cancelled draft shown forever would bury the tasks a user is
 // running. The count is still reported, so nothing disappears silently.
 func activeTasks(tasks []api.Task) (active []api.Task, archived int) {
 	for _, task := range tasks {

@@ -12,46 +12,35 @@ import (
 	"github.com/ma8el/feat/internal/client"
 )
 
-// startDaemonKey offers to start a daemon when none is answering.
-//
-// It is a shifted letter because the plain one opens the selected task's shell,
-// and because this is not an action on a task: it is the dashboard repairing its
-// own connection to the thing that answers every other key.
+// startDaemonKey offers to start a daemon when none is answering. It is a
+// shifted letter because the plain one opens the selected task's shell, and
+// because this is the dashboard repairing its own connection rather than acting
+// on a task.
 const startDaemonKey = "S"
 
-// What the dialog's prose is folded into.
-//
-// The widest is a measure rather than an allowance: three quarters of a
-// hundred-and-sixty-cell terminal is a hundred and twenty, and a sentence set
-// across a hundred and twenty cells is one the eye loses its place returning to
-// the start of. The narrowest is where folding stops helping — below it a
-// sentence is one word per line, which is worse than a line that overruns.
+// What the dialog's prose is folded into. The widest is a measure rather than
+// an allowance, because the eye loses its place returning to the start of a
+// line a hundred and twenty cells long. Below the narrowest, folding gives one
+// word per line, which is worse than a line that overruns.
 const (
 	daemonBodyNarrowest = 24
 	daemonBodyWidest    = 60
 )
 
 // daemonGone reports whether a failure means nothing is listening on the
-// daemon's socket.
-//
-// It is the one transport failure the dashboard can do something about, which is
-// why internal/client separates it from every other one. Everything else — a
-// refused request, a daemon that answered with an error — is shown and not acted
-// on.
+// daemon's socket. It is the one transport failure the dashboard can do
+// something about, which is why internal/client separates it; everything else
+// is shown and not acted on.
 func daemonGone(err error) bool { return errors.Is(err, client.ErrDaemonNotRunning) }
 
-// noDaemonError is what the footer shows while no daemon is answering.
-//
-// It names the key rather than the command, because the user is inside a
-// full-screen dashboard: `feat daemon start` is advice they would have to quit to
-// take, and quitting is the thing this whole path exists to avoid. The command is
-// still what `feat daemon status` says, where there is a shell to type it in.
+// noDaemonError is what the footer shows while no daemon is answering. It names
+// the key rather than the command, because `feat daemon start` is advice a user
+// inside a full-screen dashboard would have to quit to take.
 //
 // The key comes before the socket because the footer is one line and cuts what
-// does not fit. A runtime directory under $TMPDIR is ninety characters on this
-// machine, which put the whole of "press S to start one" past the ellipsis: the
-// half a user can act on was the half being dropped. The socket is named in the
-// dialog, in full and wrapped, and by `feat daemon status`.
+// does not fit: a runtime directory under $TMPDIR runs to ninety characters,
+// which put the whole of "press S to start one" past the ellipsis. The socket
+// is named in full in the dialog and by `feat daemon status`.
 type noDaemonError struct {
 	// Socket is where a daemon would be listening.
 	Socket string
@@ -68,11 +57,9 @@ func (e *noDaemonError) Error() string {
 // daemonStartedMsg reports what came of an attempt to start a daemon.
 type daemonStartedMsg struct{ err error }
 
-// startDaemon asks the adapter to start a daemon and wait until it answers.
-//
-// The dashboard does not start it itself: internal/ui may not import
-// internal/daemon, and spawning a process is what an adapter does (ADR-031). What
-// happens here is a question and an answer, like every other backend call.
+// startDaemon asks the adapter to start a daemon and wait until it answers. The
+// dashboard does not start it itself: internal/ui may not import
+// internal/daemon, and spawning a process is an adapter's work (ADR-031).
 func (m Model) startDaemon() tea.Cmd {
 	backend := m.backend
 	return func() tea.Msg {
@@ -81,19 +68,15 @@ func (m Model) startDaemon() tea.Cmd {
 }
 
 // noteDaemonGone records that nothing is answering, and asks once whether to
-// start a daemon.
+// start a daemon. Once, because the read that discovers this runs every two
+// seconds and a dialog reopening on each of them could not be dismissed. After
+// a no the footer carries the key, and the question is put again only once a
+// daemon has answered since.
 //
-// Once, not on every refresh. The read that discovers this runs every two
-// seconds, and a dialog that reopened on each of them would be one the user
-// cannot dismiss. After a no, the footer carries the key instead, and the
-// question is put again only when a daemon has answered since — which is what
-// makes the next outage a new one rather than the same one still being refused.
-//
-// It never takes the keyboard from an overlay that is already open. A user
-// halfway through a task brief or a cleanup confirmation is answering a question
-// of their own, and closing this one would return them to the tab underneath
-// rather than to what they were doing. The error is set either way, so the next
-// refresh after they close it asks.
+// It never takes the keyboard from an overlay that is already open: closing
+// that one would return the user to the tab underneath rather than to what they
+// were doing. The error is set either way, so the next refresh after they close
+// it asks.
 func (m Model) noteDaemonGone() (tea.Model, tea.Cmd) {
 	m.daemonGone = true
 	m.err = &noDaemonError{Socket: m.daemon.Socket}
@@ -101,12 +84,10 @@ func (m Model) noteDaemonGone() (tea.Model, tea.Cmd) {
 	if m.daemonAsked || !m.screen.mainRegion() {
 		return m, nil
 	}
-	// A question that was waiting for a yes is dropped, because nothing could
-	// carry it out: a stop and a cancel are both requests to a daemon that is not
-	// there. Leaving one pending would leave its yes pending too — the dialog
-	// takes the keyboard, so the key that clears a confirmation never arrives —
-	// and the first `y` after this dialog closed would stop an agent the user
-	// had stopped asking about several minutes earlier.
+	// A question waiting for a yes is dropped, because a stop and a cancel are
+	// both requests to a daemon that is not there. The dialog takes the keyboard,
+	// so the key that clears a confirmation never arrives, and the first `y`
+	// after it closed would stop an agent the user asked about minutes earlier.
 	m.stopping, m.cancelling = "", ""
 
 	m.daemonAsked = true
@@ -115,11 +96,10 @@ func (m Model) noteDaemonGone() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// noteDaemonAnswered records a read that succeeded.
-//
-// It clears the memory of the last outage as well as the state of it, so that a
-// daemon going away again asks rather than assuming the user's earlier no still
-// stands. They answered about a daemon that has since come back.
+// noteDaemonAnswered records a read that succeeded. It clears the memory of the
+// last outage as well as its state, so a daemon going away again asks rather
+// than holding the user to a no they gave about a daemon that has since come
+// back.
 func (m *Model) noteDaemonAnswered() {
 	m.daemonGone, m.daemonAsked, m.daemonErr = false, false, nil
 }
@@ -144,12 +124,9 @@ func (m Model) applyDaemonStart(message daemonStartedMsg) (tea.Model, tea.Cmd) {
 	commands := []tea.Cmd{m.load(), m.loadResources(), m.loadReconciliation()}
 	if m.streamEnded {
 		// A new channel, because connect closes the one it was given on its way
-		// out and a closed channel delivers nothing.
-		//
-		// Reopening the stream here is not the automatic reconnection ADR-027
-		// declined. That one had to decide how often to retry; this follows a key
-		// the user pressed, happens once, and reopens the subscription the daemon
-		// that just started has no record of.
+		// out and a closed channel delivers nothing. This is not the automatic
+		// reconnection ADR-027 declined: it follows a key the user pressed and
+		// happens once, so nothing here decides how often to retry.
 		m.streamEnded = false
 		m.events = make(chan api.Event, eventBuffer)
 		commands = append(commands, m.connect(), m.awaitEvent())
@@ -157,12 +134,9 @@ func (m Model) applyDaemonStart(message daemonStartedMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(commands...)
 }
 
-// daemonKey answers the keys of the daemon dialog.
-//
-// It answers only its own. The dialog is a question that has to be answered
-// before the dashboard behind it means anything — every key on it reaches a
-// daemon that is not there — so the frame's movement keys are not passed
-// through, which is the rule ADR-041 gives for an overlay.
+// daemonKey answers the keys of the daemon dialog, and only its own. Every key
+// on the dashboard behind it reaches a daemon that is not there, so the frame's
+// movement keys are not passed through (ADR-041).
 func (m Model) daemonKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.daemonStarting {
 		// Nothing but quitting, while a start is in flight. A second yes would
@@ -189,16 +163,13 @@ func (m Model) daemonKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// offerDaemonStart is what the S key does.
-//
-// It reopens the question after a no, which is the whole reason the key exists:
-// the dashboard asks once, and this is how a user who declined changes their
-// mind without quitting.
+// offerDaemonStart is what the S key does. It reopens the question after a no,
+// which is the reason the key exists: the dashboard asks once, and this is how
+// a user who declined changes their mind without quitting.
 func (m Model) offerDaemonStart() (tea.Model, tea.Cmd) {
 	if !m.daemonGone {
-		// Said rather than done. Starting a second daemon is refused by the
-		// daemon itself, and a key that appeared to do nothing would be worse
-		// than one that says why.
+		// Said rather than done: the daemon itself refuses a second one, and a key
+		// that appeared to do nothing would say less than one that explains.
 		m.status = "a daemon is answering; there is nothing to start"
 		return m, nil
 	}
@@ -208,11 +179,9 @@ func (m Model) offerDaemonStart() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// daemonTitle is the dialog's heading.
-//
-// It is a warning where the other dialogs are labels, because it is the only one
-// that opens because something is wrong rather than because the user asked for
-// it.
+// daemonTitle is the dialog's heading. It is a warning where the other dialogs
+// are labels, because it is the only one that opens because something is wrong
+// rather than because the user asked.
 const daemonTitle = "Warning: No running daemon"
 
 // daemonHints are the keys of the dialog.
@@ -227,17 +196,13 @@ func (m Model) daemonHints() string {
 }
 
 // foldProse wraps prose to a readable measure and takes back the padding
-// lipgloss adds.
+// lipgloss adds. It is named for prose because a project in the rail folds
+// away, and `fold` in a footer hint means that.
 //
-// Named for prose because this package already folds something else: a project
-// in the rail folds away, and `fold` in a footer hint means that.
-//
-// Two things at once, and the second is the one that is easy to miss. dialogBox
-// shrinks its box to the widest line it is handed — but lipgloss pads every line
-// out to the width it wrapped to, so a body that kept that padding reported
-// itself as exactly as wide as it was allowed. The box then took three quarters
-// of the terminal to hold two sentences, and the shrink that was written to
-// prevent that could never fire.
+// dialogBox shrinks its box to the widest line it is handed, and lipgloss pads
+// every line out to the width it wrapped to, so a body that kept that padding
+// reported itself as exactly as wide as it was allowed and the shrink could
+// never fire.
 func foldProse(text string, width int) string {
 	measure := min(max(daemonBodyNarrowest, width), daemonBodyWidest)
 	wrapped := lipgloss.NewStyle().Width(measure).Render(text)
@@ -249,11 +214,9 @@ func foldProse(text string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// daemonBody is what the dialog says.
-//
-// The prose is folded here rather than left to the box, which composites by cell
-// and truncates: a sentence that has to be read in full is the one thing on this
-// screen that must not end in an ellipsis.
+// daemonBody is what the dialog says. The prose is folded here rather than left
+// to the box, which composites by cell and truncates, and these sentences have
+// to be read in full.
 func (m Model) daemonBody(width int) string {
 	fold := func(text string) string { return foldProse(text, width) }
 
@@ -285,11 +248,9 @@ func (m Model) daemonBody(width int) string {
 	return out.String()
 }
 
-// daemonSituation is the first line of the dialog.
-//
-// It carries the socket, which is the one thing the title cannot: the title says
-// what is wrong and this says where. It does not repeat "no feat daemon", which
-// the title has just said directly above it.
+// daemonSituation is the first line of the dialog. It carries the socket, which
+// the title cannot, and does not repeat "no feat daemon" from the line above
+// it.
 func (m Model) daemonSituation() string {
 	if m.daemon.Socket == "" {
 		return "No daemon is listening."

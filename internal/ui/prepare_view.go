@@ -8,12 +8,10 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// View renders task preparation.
-//
-// The indicator is passed in rather than kept here, because there is one of them
-// for the whole dashboard and it is animated by the dashboard (see activity).
-// What this screen owns is what it is waiting for and what it calls that; the
-// frame in front of it belongs to the model that ticks.
+// View renders task preparation. The indicator is passed in rather than kept
+// here, because there is one for the whole dashboard and the dashboard animates
+// it (see activity). This screen owns what it is waiting for and what it calls
+// that.
 func (p prepareModel) View(indicator activity) string {
 	var out strings.Builder
 	out.WriteString(headingStyle.Render("prepare a task") + mutedStyle.Render("  "+p.trail()) + "\n\n")
@@ -39,10 +37,10 @@ func (p prepareModel) View(indicator activity) string {
 	if p.err != nil {
 		out.WriteString("\n" + failureStyle.Render(p.err.Error()) + "\n")
 	} else if p.busy && p.status != "" {
-		// Marked while it is waiting, and it is only drawn while it is waiting.
-		// Resolving a draft reaches every repository in the project and confirming
-		// one creates the worktrees, the branches, and the terminal; both take long
-		// enough that a line which never moved was read as a screen that had stopped.
+		// Marked while it is waiting, and drawn only then. Resolving a draft
+		// reaches every repository in the project and confirming one creates the
+		// worktrees, the branches, and the terminal, and a line that never moved
+		// read as a screen that had stopped.
 		out.WriteString("\n" + mutedStyle.Render(indicator.mark(p.status)) + "\n")
 	} else {
 		out.WriteString("\n")
@@ -52,11 +50,9 @@ func (p prepareModel) View(indicator activity) string {
 	return out.String()
 }
 
-// trailStep is the step of the trail a screen belongs to.
-//
-// The ticket list and the file screen are each one answer to the source question
-// being worked out rather than a stage of their own, and each returns to that
-// step, so that is where the trail says the user is.
+// trailStep is the step of the trail a screen belongs to. The ticket list and
+// the file screen are each one answer to the source question being worked out
+// rather than a stage of their own, and each returns to that step.
 func trailStep(current step) step {
 	if current == stepTickets || current == stepImport {
 		return stepSource
@@ -95,12 +91,10 @@ func (p prepareModel) projectView() string {
 	return out.String()
 }
 
-// sourceView asks where the brief comes from.
-//
-// The answers are drawn as a list with a cursor, like every other closed
-// question Feat asks, and each says what choosing it does rather than only what
-// it is called: the two that leave this screen run somebody's tracker or read a
-// file, and a user is entitled to know that before pressing Enter.
+// sourceView asks where the brief comes from. The answers are drawn as a list
+// with a cursor, like every other closed question Feat asks, and each says what
+// choosing it does: the two that leave this screen run somebody's tracker or
+// read a file.
 func (p prepareModel) sourceView() string {
 	var out strings.Builder
 	out.WriteString(mutedStyle.Render("where does this task's brief come from?") + "\n\n")
@@ -116,12 +110,9 @@ func (p prepareModel) sourceView() string {
 	return out.String()
 }
 
-// importView is the file whose text becomes the brief.
-//
-// It says that the file is read here, because that is the part a user cannot see
-// and the part that makes the rest of preparation apply to it: what is imported
-// is text in the same editable field, confirmed like any other brief (ADR-028,
-// ADR-070).
+// importView is the file whose text becomes the brief. It says the file is read
+// here, because what is imported lands as text in the same editable field and
+// is confirmed like any other brief (ADR-028, ADR-070).
 func (p prepareModel) importView() string {
 	var out strings.Builder
 	out.WriteString(mutedStyle.Render("which file holds the brief?") + "\n\n")
@@ -137,14 +128,11 @@ func (p prepareModel) importView() string {
 	return out.String()
 }
 
-// pathField draws the field in the width it was given.
-//
-// The widget pads its line out to that width from the typed value alone and then
-// writes the completion after the padding, so a suggestion makes the line as wide
-// as the field plus the whole of what it is suggesting — which on this screen is
-// an absolute path, and would wrap. One more cell than the width, because the
-// cursor sits after the value; the wizard's field is drawn the same way and for
-// the same reason.
+// pathField draws the field in the width it was given. The widget pads its line
+// out to that width from the typed value alone and then writes the completion
+// after the padding, so a suggested absolute path would make the line wrap. The
+// cut is one cell past the width, because the cursor sits after the value, as
+// in the wizard's field.
 func (p prepareModel) pathField() string {
 	if p.path.Width <= 0 {
 		return p.path.View()
@@ -174,12 +162,10 @@ func (p prepareModel) briefView() string {
 	return out.String()
 }
 
-// ticketView is the project's tickets offered as a selection.
-//
-// It shows what the tracker printed and nothing Feat inferred: the state is the
-// tracker's own word, and the reference is the tracker's own identifier
-// (ADR-071). Selecting one composes a brief from it, which is the document the
-// user then reads, edits, and confirms.
+// ticketView is the project's tickets offered as a selection. It shows what the
+// tracker printed and nothing Feat inferred: the state and the reference are
+// the tracker's own words (ADR-071). Selecting one composes a brief the user
+// then reads, edits, and confirms.
 func (p prepareModel) ticketView() string {
 	var out strings.Builder
 	out.WriteString(mutedStyle.Render("which ticket is this task for?") + "\n\n")
@@ -251,11 +237,10 @@ func accessLabel(access string) string {
 	}
 }
 
-// reviewView is the last screen before anything is created.
-//
-// It shows what the confirmation will produce: the resolved immutable bases,
-// the branches and paths, and the profiles the task will run under. FR-TASK-003
-// requires every one of them to be visible before, not after.
+// reviewView is the last screen before anything is created. It shows what the
+// confirmation will produce: the resolved immutable bases, the branches and
+// paths, and the profiles the task will run under, all of which FR-TASK-003
+// requires to be visible beforehand.
 func (p prepareModel) reviewView() string {
 	if p.plan == nil {
 		return mutedStyle.Render("nothing has been resolved yet")
@@ -308,11 +293,10 @@ func (p prepareModel) reviewView() string {
 	return out.String()
 }
 
-// agentProfile describes what the task's terminal will run.
-//
-// It says where the agent will run before anything is created, because that is
-// the difference the security model is about and the user is the one confirming
-// it (ADR-031, ADR-033).
+// agentProfile describes what the task's terminal will run. It says where the
+// agent will run before anything is created, because that is the difference the
+// security model is about and the user is the one confirming it (ADR-031,
+// ADR-033).
 func agentProfile(task api.Task) string {
 	devcontainer := false
 	for _, binding := range task.Repositories {
@@ -331,12 +315,9 @@ func agentProfile(task api.Task) string {
 }
 
 // startProfile describes how the session begins, and names the key that changes
-// it.
-//
-// Both states are spelled out rather than one of them being an unlabelled
-// default, because this line is a promise about what the agent will do to the
-// user's repositories in the next few seconds. A user who reads "straight into
-// the work" and meant to plan can see that they did not press the key.
+// it. Both states are spelled out rather than one being an unlabelled default,
+// because this line promises what the agent will do to the user's repositories
+// in the next few seconds.
 func startProfile(planFirst bool) string {
 	note := mutedStyle.Render("(p — " + startAction(planFirst) + ")")
 	if planFirst {
@@ -357,10 +338,9 @@ func startAction(planFirst bool) string {
 
 func (p prepareModel) hints() string {
 	// While a request is in flight only the cancel is answered — see key — so it
-	// is the only one offered. A key map naming four keys that do nothing is one
-	// a user has to try to disbelieve, which is exactly what they do when a screen
-	// has been still for three seconds; the cleanup screen's key map holds to the
-	// same rule while its own removal runs.
+	// is the only one offered. Naming four keys that do nothing invites a user to
+	// try them, which is what they do when a screen has been still for three
+	// seconds.
 	if p.busy {
 		return keyHints(keyHint("ctrl+c", "cancel"))
 	}

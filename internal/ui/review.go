@@ -10,12 +10,11 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// reviewModel is the state of the review screen.
-//
-// It holds what the last action returned rather than deriving it from the task
-// list, because the per-repository comparison, the check results, and the
-// expanded commands are what that action saw. The cursor is a repository, since
-// every command on this screen is about one.
+// reviewModel is the state of the review screen. It holds what the last action
+// returned rather than deriving it from the task list, because the
+// per-repository comparison, the check results, and the expanded commands are
+// what that action saw. The cursor is a repository, since every command on this
+// screen is about one.
 type reviewModel struct {
 	// task is the task under review.
 	task string
@@ -24,38 +23,30 @@ type reviewModel struct {
 	loaded bool
 	// cursor is the selected repository.
 	cursor int
-	// scroll is the first line of the panel the region shows.
-	//
-	// The panel is what detail and review became, and it is taller than either
-	// was: a task with two repositories, a check that failed, and a brief does
-	// not fit a region at any terminal size worth supporting. Clipping it
-	// silently would hide the brief, which FR-UI-003 requires.
+	// scroll is the first line of the panel the region shows. A task with two
+	// repositories, a check that failed, and a brief does not fit a region at any
+	// terminal size worth supporting, and clipping it silently would hide the
+	// brief FR-UI-003 requires.
 	scroll int
 	// pending is the action in flight, so the screen says what it is waiting for.
 	pending api.ReviewAction
-	// observing reports that a comparison is in flight, whoever asked for it.
-	//
-	// It is separate from pending, which is every other action, because the two
-	// can be outstanding at once: a gate landing while the user waits for a check
-	// run is exactly that. What divides them is the action rather than who asked,
-	// which is the division applyReview clears by — the panel's opening read is
-	// nobody's key press and `r` is one, and both are comparisons.
+	// observing reports that a comparison is in flight, whoever asked for it. It
+	// is separate from pending, which is every other action, because the two can
+	// be outstanding at once: a gate landing while the user waits for a check run
+	// is exactly that. The division is by action rather than by who asked, which
+	// is how applyReview clears it.
 	//
 	// It is what the loading indicator is drawn for: a comparison walks every one
-	// of the task's worktrees and takes seconds, and until this the line saying so
-	// was as still as the one preparation used to draw.
+	// of the task's worktrees and takes seconds.
 	observing bool
 	// err is a failed action, shown rather than thrown.
 	err error
 }
 
-// reviewMsg carries the result of one review action.
-//
-// task is what the request named, which is what the response is matched
-// against. A comparison walks every one of a task's worktrees and can take
-// seconds, so one issued before the user moved on arrives after: without this
-// the panel drew one task's agent report, check results and expanded diff and
-// editor commands under another task's name, and `d` and `e` opened the wrong
+// reviewMsg carries the result of one review action. task is what the request
+// named, which is what the response is matched against: a comparison walks
+// every one of a task's worktrees and takes seconds, so one issued before the
+// user moved on arrives after, and without the match `d` and `e` open the wrong
 // worktree.
 //
 // It is what the request named rather than what the daemon resolved it to,
@@ -68,13 +59,11 @@ type reviewMsg struct {
 	err    error
 }
 
-// openTask shows the task panel for the task an action applies to.
-//
-// A draft opens it too, and gets the half of the panel it has. Review used to
-// refuse one outright, which was right about a draft having nothing to compare
-// and wrong about there being nothing to show: a draft has a brief, a project,
-// and the repositories it will bind, and refusing left the tab where it was
-// under the name of a task the user had moved away from.
+// openTask shows the task panel for the task an action applies to. A draft
+// opens it too and gets the half of the panel it has: it has nothing to
+// compare, but it has a brief, a project, and the repositories it will bind,
+// and refusing would leave the tab under the name of a task the user had moved
+// away from.
 func (m Model) openTask() (tea.Model, tea.Cmd) {
 	task, ok := m.subject()
 	if !ok {
@@ -106,13 +95,10 @@ func (m Model) reviewAction(action api.ReviewAction) tea.Cmd {
 	}
 }
 
-// taskPanelKey routes a key press on the task panel.
-//
-// The plain arrows move the repository under the cursor, because every external
-// command on this panel is about one repository. Scrolling the panel itself is
-// on the page keys, which nothing else uses: a panel that took the arrows for
-// scrolling would leave the diff and editor commands with no way to say which
-// repository they meant.
+// taskPanelKey routes a key press on the task panel. The plain arrows move the
+// repository under the cursor, because every external command here is about one
+// repository. Scrolling is on the page keys: arrows spent on it would leave the
+// diff and editor commands with no way to say which repository they meant.
 func (m Model) taskPanelKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "ctrl+c", "q":
@@ -150,39 +136,34 @@ func (m Model) taskPanelKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.startReview(api.ReviewVerify)
 
 	case "P":
-		// Publication, which is the other half of the end of a task and is its
-		// own screen: it is a sequence — read the draft, edit it, approve it —
-		// and what it does reaches somebody else's server. Opening it composes
-		// what publishing would do and sends nothing (ADR-070, ADR-073).
+		// Publication has a screen of its own, because it is a sequence — read the
+		// draft, edit it, approve it — and what it does reaches somebody else's
+		// server. Opening it composes what publishing would do and sends nothing
+		// (ADR-070, ADR-073).
 		return m.openPublication()
 
 	case "a":
 		return m.attach()
 
 	case "s":
-		// The shell, as everywhere else. The status command used to be here and
-		// is not reachable from the panel any more (ADR-045): it printed a line
-		// or two and exited, which the altscreen swallowed before anyone could
-		// read it, and the panel already carries what it would have said.
+		// The shell, as everywhere else. The status command is not reachable from
+		// the panel (ADR-045): it printed a line or two and exited, which the
+		// altscreen swallowed, and the panel already carries what it would say.
 		return m.shell()
 
 	case "r":
 		return m.startReview(api.ReviewObserve)
 	}
-	// Everything the panel does not claim is the dashboard's. `?` and `!` open
-	// their overlays from here, `n` prepares a task, `z` resumes one — none of
-	// which this panel has any reason to refuse, and all of which it used to
-	// swallow by returning here.
+	// Everything the panel does not claim is the dashboard's: `?` and `!` open
+	// their overlays from here, `n` prepares a task, and `z` resumes one.
 	return m.dashboardKey(key)
 }
 
-// startReview records what the screen is waiting for and asks for it.
-//
-// Which marker records the wait is the same split applyReview clears by, and it
-// is on the action rather than on who asked for it. Recording `r`'s comparison
-// as pending left the panel waiting for a response that had already arrived and
-// been drawn: applyReview cleared observing for it, which was not the marker
-// that had been set, so the indicator ran until the panel was closed.
+// startReview records what the screen is waiting for and asks for it. Which
+// marker records the wait is the split applyReview clears by, and it is on the
+// action rather than on who asked: recording `r`'s comparison as pending leaves
+// the indicator running until the panel is closed, because applyReview clears
+// observing for it.
 func (m Model) startReview(action api.ReviewAction) (tea.Model, tea.Cmd) {
 	if action == api.ReviewObserve {
 		m.review.observing = true
@@ -194,11 +175,10 @@ func (m Model) startReview(action api.ReviewAction) (tea.Model, tea.Cmd) {
 	return m, m.reviewAction(action)
 }
 
-// runReviewCommand yields this terminal to one of the project's own tools.
-//
-// Feat renders no diff of its own (ADR-006): it opens what the user configured,
-// in the worktree of the repository under the cursor, and takes the terminal
-// back when they leave it.
+// runReviewCommand yields this terminal to one of the project's own tools. Feat
+// renders no diff of its own (ADR-006): it opens what the user configured, in
+// the worktree of the repository under the cursor, and takes the terminal back
+// after.
 func (m Model) runReviewCommand(kind string) (tea.Model, tea.Cmd) {
 	repository, ok := m.reviewRepository()
 	if !ok {
@@ -252,23 +232,17 @@ func findCommand(commands []api.ReviewCommand, kind, repository string) (api.Rev
 	return api.ReviewCommand{}, false
 }
 
-// reviewOutdatedBy reports whether an event means this panel is drawing a review
-// that has moved on.
-//
-// Every event is answered by re-reading the task list, and that is not the whole
-// answer while this panel is open: the list carries the workflow and the check
-// counts, and the check results come from an observation, which is made when the
-// panel opens and when a key asks for one. A completion gate is background work
-// that finishes minutes after the key that started it (daemon startGate), so
-// without this the panel that asked for the run is the one that never sees it —
-// it goes on showing the previous run's failures under a workflow that has moved
-// past them.
+// reviewOutdatedBy reports whether an event means this panel is drawing a
+// review that has moved on. Re-reading the task list is not the whole answer:
+// the check results come from an observation, made when the panel opens and
+// when a key asks for one. A completion gate finishes minutes after the key
+// that started it (daemon startGate), so without this the panel that asked for
+// the run never sees it.
 //
 // It is deliberately narrow. An observation walks every repository with Git,
-// seconds on a task holding three of them, and an agent's hooks produce events
-// several times a turn. Only a change to what this panel draws, about the task
-// it is drawing, earns one. Observing records nothing itself, so there is no
-// event for this to answer with a second observation.
+// and an agent's hooks produce events several times a turn, so only a change to
+// what this panel draws about the task it is drawing earns one. Observing
+// records nothing itself, so no event leads to a second observation.
 func (m Model) reviewOutdatedBy(event api.Event) bool {
 	if m.screen != screenTask || m.review.task == "" || m.review.observing {
 		return false
@@ -288,12 +262,10 @@ func (m Model) reviewOutdatedBy(event api.Event) bool {
 	}
 }
 
-// applyReview records what an action reported.
-//
-// A response for a task the panel is no longer about is dropped rather than
-// drawn, as applyFrame drops a frame whose pane belongs to another task. Nothing
-// is cleared for it either: the pending marker belongs to whatever this panel is
-// waiting for now.
+// applyReview records what an action reported. A response for a task the panel
+// is no longer about is dropped rather than drawn, as applyFrame drops a frame
+// whose pane belongs to another task. Nothing is cleared for it either: the
+// pending marker belongs to whatever this panel is waiting for now.
 func (m Model) applyReview(message reviewMsg) (tea.Model, tea.Cmd) {
 	if message.task != m.review.task {
 		return m, nil
@@ -318,11 +290,10 @@ func (m Model) applyReview(message reviewMsg) (tea.Model, tea.Cmd) {
 	m.review.loaded = true
 	// The response names the task the daemon resolved the request to, which is
 	// how the short key `feat review <task>` accepts becomes the identifier the
-	// rest of the dashboard matches against. Without it the panel drew "this task
-	// is no longer listed" — nothing in m.tasks equals an eight-character key —
-	// while `A`, `C` and `V` went on working, because they act on the review's own
-	// task: the one screen saying the task did not exist was the screen from
-	// which approving it succeeded.
+	// rest of the dashboard matches against. Without it the panel draws "this
+	// task is no longer listed", because nothing in m.tasks equals an
+	// eight-character key, while `A`, `C` and `V` go on working against the
+	// review's own task.
 	if id := message.status.Task.ID; id != "" && id != m.review.task {
 		if m.selected == m.review.task {
 			m.selected = id
@@ -340,11 +311,10 @@ func (m Model) applyReview(message reviewMsg) (tea.Model, tea.Cmd) {
 	return m, m.load()
 }
 
-// reviewChangeSummary renders what one repository holds against its base.
-//
-// The line counts cover tracked changes only, which the note beside the table
-// says: an untracked file is counted as changed and its lines are not, because
-// counting them would mean writing to the index (ADR-036).
+// reviewChangeSummary renders what one repository holds against its base. The
+// line counts cover tracked changes only: an untracked file is counted as
+// changed and its lines are not, because counting them would mean writing to
+// the index (ADR-036).
 func reviewChangeSummary(row api.ReviewRepository) string {
 	if row.SummarizedAt == nil {
 		return mutedStyle.Render("not compared")
@@ -362,20 +332,16 @@ func reviewChangeSummary(row api.ReviewRepository) string {
 	return summary
 }
 
-// reviewExits names what a task in a review state can do next.
-//
-// It replaces the decision field, which offered two keys nobody pressed: approve
-// was used once in fifty-one tasks and requesting changes never, while the two
-// transitions carrying the real loop — back to working by attaching and typing,
-// and out through cleanup — had no key on this panel at all (ADR-086). So the
-// line says what the exits are rather than recording a decision that travelled
-// nowhere.
+// reviewExits names what a task in a review state can do next. It replaces the
+// decision field, whose two keys went unpressed — approve once in fifty-one
+// tasks and requesting changes never — while the transitions carrying the real
+// loop, back to working by attaching and out through cleanup, had no key here
+// (ADR-086).
 //
 // A task whose agent has not asked for review has no exits to name and gets no
 // line, which is the panel's rule throughout: a check with nothing to report
-// reports nothing. Nor does a task whose checks are running: the old decision
-// field named no key in that state either, because what happens next is the
-// gate's rather than the user's.
+// reports nothing. Nor does a task whose checks are running, because what
+// happens next is the gate's rather than the user's.
 func reviewExits(task api.Task) string {
 	switch task.Workflow {
 	case "review_requested", "ready_for_review", "verification_failed":
@@ -385,12 +351,10 @@ func reviewExits(task api.Task) string {
 	}
 }
 
-// reviewChecksSummary says what the checks amount to and who ran them.
-//
-// The distinction is the point of the line. A gated result was enforced by Feat
-// running the command itself; an agent-reported one is a claim, and a screen
-// that showed them alike would tell the user something Feat does not know
-// (FR-AGENT-006).
+// reviewChecksSummary says what the checks amount to and who ran them. A gated
+// result was enforced by Feat running the command itself; an agent-reported one
+// is a claim, and showing them alike would tell the user something Feat does
+// not know (FR-AGENT-006).
 func reviewChecksSummary(review api.Review) string {
 	if len(review.Checks) == 0 {
 		return absent + "  " + mutedStyle.Render("(no checks have reported)")
@@ -428,12 +392,10 @@ func reviewChecksSummary(review api.Review) string {
 	return summary + "  " + mutedStyle.Render("(reported by the agent, not verified)")
 }
 
-// reviewChecks renders one line per check result.
-//
-// A check that never reported is named as that rather than as "unknown", in the
-// same words the summary line above it uses. The screen is where a user sent
-// here by a blocked gate reads which check it was and why it did not run, so the
-// two lines have to be about the same thing (ADR-051).
+// reviewChecks renders one line per check result. A check that never reported
+// is named as that rather than as "unknown", in the words the summary line
+// above it uses: this is where a user sent by a blocked gate reads which check
+// it was and why it did not run (ADR-051).
 func reviewChecks(checks []api.ReviewCheck) string {
 	var out strings.Builder
 	for _, check := range checks {
@@ -465,24 +427,22 @@ func reviewChecks(checks []api.ReviewCheck) string {
 	return out.String()
 }
 
-// checkDetail is what one check's line has under it, or nothing.
+// checkDetail is what one check's line has under it, or nothing. A check Feat
+// ran and that passed says nothing more: its detail is the whole output of the
+// user's own build command, forty lines of `ok  <package>  (cached)` under a
+// line that has already said "passed". The excerpt is still stored, because
+// ADR-036 records it, and hiding it here is a rule about this panel rather than
+// about the record.
 //
-// A check Feat ran and that passed says nothing more. Its detail is the whole
-// output of the user's own build command, which on this project is forty lines
-// of `ok  <package>  (cached)` and a `go build` invocation, printed under a line
-// that has already said "passed" — a screen a user scrolls past rather than
-// reads. It is still stored: the excerpt is what ADR-036 records, and hiding it
-// here is a rule about this panel rather than about the record.
-//
-// Every other detail earns its room. A failure's output is why it failed, which
-// is the whole reason the excerpt is kept at all. A skip carries the reason it
-// was skipped, and a check that did not report carries Feat's own account of
-// what happened to it — a bound that elapsed, a runner this build does not have
-// — and those are the only place the difference between "did not run" and "ran
-// and found nothing" is written down (ADR-028).
+// Every other detail earns its room. A failure's output is why it failed, a
+// skip carries the reason it was skipped, and a check that did not report
+// carries Feat's own account — a bound that elapsed, a runner this build does
+// not have — which is the only place the difference between "did not run" and
+// "ran and found nothing" is written down (ADR-028).
 //
 // The agent's own details are short by construction: a sentence it wrote about
-// its work, not a command's output, and the panel keeps them whatever the status.
+// its work rather than a command's output, so the panel keeps them whatever the
+// status.
 func checkDetail(check api.ReviewCheck) string {
 	if check.Status == "passed" && check.Reporter == "provider" {
 		return ""

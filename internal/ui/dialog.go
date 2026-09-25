@@ -8,12 +8,10 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// What a dialog spends on itself.
-//
-// They are named because a body that sizes its own content has to subtract them
-// before it counts lines: the cleanup inventory scrolls, and something that
-// scrolls has to know what it does not fit in. Arithmetic written twice is
-// arithmetic that drifts, so the box and its callers read it from here.
+// What a dialog spends on itself. They are named because a body that sizes its
+// own content has to subtract them before it counts lines: the cleanup
+// inventory scrolls, and the box and its callers read the arithmetic from one
+// place.
 const (
 	// dialogChrome is the horizontal cost: a border and a gutter on each side.
 	dialogChrome = 4
@@ -28,15 +26,11 @@ const (
 	dialogSmallest = 24
 )
 
-// dialogBox draws a titled border around an overlay's content.
-//
-// The border is what separates the dialog from the dashboard behind it. Without
-// one the two readings run together, which is the cost an overlay pays for
-// keeping the background visible and the reason a modal screen did not need one.
-//
-// The box shrinks to what it holds, up to the limit its caller allows. A dialog
-// sized to the terminal rather than to its content covers the task list with
-// blank cells, which is the thing an overlay was chosen to avoid.
+// dialogBox draws a titled border around an overlay's content. The border is
+// what separates the dialog from the dashboard behind it, which is the cost an
+// overlay pays for keeping the background visible. The box shrinks to what it
+// holds, up to the limit its caller allows, because a dialog sized to the
+// terminal covers the task list with blank cells.
 func dialogBox(title, body string, limit, tallest int) string {
 	if limit < dialogSmallest {
 		limit = dialogSmallest
@@ -69,22 +63,13 @@ func blockWidth(block string) int {
 }
 
 // documentWidth is the width a scrolling body draws its lines in: the widest
-// line of the whole document, up to what the dialog allows.
+// line of the whole document, up to what the dialog allows. dialogBox shrinks
+// the box to the widest line it is handed, and a body that scrolls hands it a
+// window, so the box would grow and shrink under somebody reading it.
 //
-// It exists because dialogBox shrinks the box to the widest line of what it is
-// handed, and a body that scrolls hands it a window rather than a document. The
-// widest *visible* line then decides the width, and scrolling changes which
-// lines those are — so the box grows and shrinks under somebody trying to read
-// it. The measure is the whole document rather than the window, because the
-// window is what changes.
-//
-// Padding every drawn line to this is the other half, and both halves are
-// needed: measuring without padding leaves the window as wide as its own widest
-// line, which is the thing that varies.
-//
-// It is here rather than beside any one body for the reason the chrome constants
-// are: four bodies scroll, and arithmetic written four times is arithmetic that
-// drifts.
+// Padding every drawn line to this is the other half: measuring without padding
+// leaves the window as wide as its own widest line, which is what varies. It
+// lives here rather than beside any one body, because four bodies scroll.
 func documentWidth(lines []string, limit int) int {
 	widest := 0
 	for _, line := range lines {
@@ -96,10 +81,8 @@ func documentWidth(lines []string, limit int) int {
 }
 
 // clampHeight drops the lines of a block that do not fit, saying that it did.
-//
-// The note it leaves is truncated to the box's width, because a note that
-// wrapped would take a second line and put back one of the lines it was
-// reporting as missing.
+// The note it leaves is truncated to the box's width, because a wrapped note
+// would take a second line and put back one of the lines it reports as missing.
 func clampHeight(block string, height, width int) string {
 	if height < 3 {
 		height = 3
@@ -113,20 +96,17 @@ func clampHeight(block string, height, width int) string {
 	return strings.Join(append(kept, mutedStyle.Render(truncate(note, width))), "\n")
 }
 
-// dialogStyle is the box an overlay is drawn in.
-//
-// Its border is the accent rather than the cards' quiet rule, and that is the
-// one place the two differ: an overlay always has the keyboard, and the frame
-// already says so about a region by taking the same colour (ADR-051).
+// dialogStyle is the box an overlay is drawn in. Its border is the accent
+// rather than the cards' quiet rule, because an overlay always has the keyboard
+// and the frame says that about a region in the same colour (ADR-051).
 var dialogStyle = lipgloss.NewStyle().
 	Border(lipgloss.RoundedBorder()).
 	BorderForeground(colourAccent).
 	Padding(0, 1)
 
-// clampBlock truncates every line of a block to a width.
-//
-// A dialog is composited over the dashboard by cell, so a line wider than the
-// box would be drawn across the task list rather than wrapped inside the border.
+// clampBlock truncates every line of a block to a width. A dialog is composited
+// over the dashboard by cell, so a line wider than the box would be drawn
+// across the task list rather than wrapped inside the border.
 func clampBlock(block string, width int) string {
 	lines := strings.Split(block, "\n")
 	for i, line := range lines {
@@ -135,48 +115,36 @@ func clampBlock(block string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// keyColumn is the width of the key column of the map, in cells.
-//
-// It holds the widest binding spelled out — `tab / shift+tab`, fifteen cells —
-// and one more for the gutter, because a key that is truncated to an ellipsis is
-// a key nobody can press and one that touches its own description is one nobody
-// can read.
+// keyColumn is the width of the key column of the map, in cells. It holds the
+// widest binding spelled out — `tab / shift+tab`, fifteen cells — and one more
+// for the gutter: a truncated key cannot be pressed, and one touching its own
+// description cannot be read.
 const keyColumn = 16
 
 // keyDescription is what a description may measure for two columns to fit the
-// dialog beside the rail, in cells.
-//
-// It is short, and it is why every line of the map below reads as a label rather
-// than a sentence. Two columns inside three quarters of a hundred-and-twenty-cell
-// terminal is what there is to spend, and the alternative — a wider dialog — is
-// one that covers the task keys the overlay was chosen to leave visible.
+// dialog beside the rail, in cells. It is short, which is why every line of the
+// map reads as a label rather than a sentence: a wider dialog would cover the
+// task keys the overlay was chosen to leave visible.
 const keyDescription = 23
 
 // keyGap separates the two columns of the key map.
 const keyGap = 4
 
-// keyMap renders every key the dashboard has, which is what the footer stopped
-// trying to list.
+// keyMap renders every key the dashboard has, which is more than a footer can
+// list. The footer carries what is reachable from where the user is, and this
+// is where the rest lives.
 //
-// The footer used to carry twelve hints at once, which is a list nobody reads
-// and the first thing to be truncated on a narrow terminal. It now carries what
-// is reachable from where the user is, and this is where the rest lives.
+// It is laid out in two columns wherever they fit, because in one column it
+// does not: seven sections render as forty-five lines — thirty-nine of keys and
+// headings, and the blank line between each pair — against the twenty-seven the
+// dialog has on a normal terminal, and what overflows is cut from the bottom
+// where the sections a reader has not memorised are. The split and the fit are
+// both decided on that rendered height, separators included.
 //
-// It is laid out in two columns wherever they fit, because in one column it does
-// not: seven sections of keys render as forty-five lines — thirty-nine of keys
-// and headings, and the blank line between each pair of sections — against the
-// twenty-seven the dialog has on a normal terminal. What overflowed was cut from
-// the bottom, which is where the sections a reader has not memorised are.
-//
-// Forty-five is the number that matters, and it is the only one measured: the
-// split and the fit are both decided on the rendered height. Counting keys and
-// headings without the separators between them is what put the split a section
-// early, which is why nothing counts them now.
-//
-// A description longer than keyDescription is what breaks this, and it breaks it
-// silently: the two columns stop fitting the width, the map falls back to the one
-// column that does not fit the height, and the last section is eaten. That is
-// checked rather than trusted (TestTheKeyMapStaysInsideItsColumns).
+// A description longer than keyDescription breaks this silently: the two
+// columns stop fitting the width, the map falls back to the one column that
+// does not fit the height, and the last section is eaten
+// (TestTheKeyMapStaysInsideItsColumns).
 func keyMap(width int) string {
 	sections := []struct {
 		heading string
@@ -184,13 +152,11 @@ func keyMap(width int) string {
 	}{
 		// Everything that moves, in one section: the frame's shifted keys, the
 		// letters that go straight to a view, and the plain keys that move inside
-		// whichever one is open (ADR-046). It is first because it is the section a
-		// reader needs once rather than repeatedly, and because it is the one the
-		// narrow fallback protects — there the map is a single column and is cut
-		// from the bottom.
+		// whichever one is open (ADR-046). It is first because the narrow fallback
+		// draws one column and cuts from the bottom.
 		//
-		// The sections after it are the tab bar's own order, so that the list a
-		// user reads is arranged the way the screen they are reading it over is.
+		// The sections after it are the tab bar's own order, so the list is
+		// arranged the way the screen it is read over is.
 		{"moving", [][2]string{
 			{"J / K / L / H", "next/prev task, view"},
 			{"shift+↓ ↑ → ←", "the same, in arrows"},
@@ -257,19 +223,15 @@ func keyMap(width int) string {
 	return strings.Join(blocks, "\n\n")
 }
 
-// twoColumnKeys lays the sections out side by side, and reports whether they fit.
+// twoColumnKeys lays the sections out side by side, and reports whether they
+// fit. The split is by rendered height rather than by count, so the two columns
+// end at about the same line however the sections are sized. A width that
+// cannot hold both is not squeezed: the caller stacks them instead.
 //
-// The split is by rendered height rather than by count, so that the two columns
-// end at about the same line however the sections are sized. A width that cannot
-// hold both is not squeezed: the caller stacks them instead, which is what the
-// narrow fallback gets.
-//
-// Both sides of that comparison are rendered heights, blank separators included,
-// and they used not to be. The walk counted rendered lines and stopped at half
-// the count of keys and headings — a smaller number, because it left the blank
-// line between each pair of sections out — so it stopped a section early and the
-// right column carried the difference. Seven sections rendered as forty-five
-// lines and were split twenty and twenty-four.
+// Both sides of that comparison are rendered heights, blank separators
+// included. Comparing a rendered height against a count of keys and headings
+// leaves the separators out, which stops the walk a section early and gives the
+// right column the difference.
 func twoColumnKeys(blocks []string, width int) (string, bool) {
 	if len(blocks) < 2 {
 		return "", false

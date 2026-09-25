@@ -67,12 +67,11 @@ func reviewScreen(t *testing.T, backend *fakeBackend) Model {
 	return press(t, model, "T")
 }
 
-// TestTheTaskPanelGroupsChangesByRepository is FR-REV-001 on the panel.
-//
-// Every repository is there with its own recorded base, and the base is shown
-// rather than implied: a review of a long-running task is only meaningful
-// against the commit it started from, and a user who cannot see which commit
-// that was has to take Feat's word for it.
+// TestTheTaskPanelGroupsChangesByRepository is FR-REV-001 on the panel. Every
+// repository is there with its own recorded base, and the base is shown rather
+// than implied: a review of a long-running task is only meaningful against the
+// commit it started from, and a user who cannot see which has to take Feat's
+// word for it.
 func TestTheTaskPanelGroupsChangesByRepository(t *testing.T) {
 	model := reviewScreen(t, newFakeBackend())
 	view := model.taskPanel()
@@ -94,12 +93,10 @@ func TestTheTaskPanelGroupsChangesByRepository(t *testing.T) {
 	}
 }
 
-// TestTheTaskPanelTellsAClaimFromAnEnforcedResult is FR-AGENT-006 where the user
-// reads it.
-//
-// A result Feat ran and a result the agent asserted are both shown, and they do
-// not read alike. Showing them alike would tell the user something Feat does not
-// know (FR-AGENT-006).
+// TestTheTaskPanelTellsAClaimFromAnEnforcedResult is FR-AGENT-006 where the
+// user reads it. A result Feat ran and a result the agent asserted are both
+// shown and they do not read alike, because showing them alike would tell the
+// user something Feat does not know.
 func TestTheTaskPanelTellsAClaimFromAnEnforcedResult(t *testing.T) {
 	model := reviewScreen(t, newFakeBackend())
 	view := model.taskPanel()
@@ -150,11 +147,9 @@ func TestReviewCommandsRunInTheSelectedRepository(t *testing.T) {
 }
 
 // TestAnUnconfiguredEditorFallsBackToTheEnvironment is FR-REV-003's default.
-//
 // The daemon returns no editor command when the project configures none,
-// because $EDITOR belongs to the terminal the user is sitting at rather than to
-// the daemon's environment. The screen therefore asks the client for one, on the
-// selected repository's worktree.
+// because $EDITOR belongs to the terminal the user is sitting at, so the screen
+// asks the client for one on the selected repository's worktree.
 func TestAnUnconfiguredEditorFallsBackToTheEnvironment(t *testing.T) {
 	backend := newFakeBackend()
 	model := reviewScreen(t, backend)
@@ -170,11 +165,9 @@ func TestAnUnconfiguredEditorFallsBackToTheEnvironment(t *testing.T) {
 }
 
 // TestReviewActionsReachTheDaemonAndNothingElse is the fourth acceptance
-// criterion at the screen.
-//
-// Running the checks asks the daemon and does nothing else: no runtime action is
-// issued, which is checked by counting what the backend was asked for rather
-// than by looking at what a container is doing.
+// criterion at the screen. Running the checks asks the daemon and does nothing
+// else: no runtime action is issued, counted at the backend rather than at a
+// container.
 func TestReviewActionsReachTheDaemonAndNothingElse(t *testing.T) {
 	backend := newFakeBackend()
 	model := reviewScreen(t, backend)
@@ -195,14 +188,11 @@ func TestReviewActionsReachTheDaemonAndNothingElse(t *testing.T) {
 	}
 }
 
-// TestThePanelOffersNoDecisionInAnyWorkflowState is what ADR-086 removed, pinned
-// so that it does not come back by habit.
-//
-// Approve was pressed once in fifty-one tasks and request-changes never, nothing
-// read the state either produced, and requesting changes recorded a label and
-// then told the user to attach and do the real thing. The keys are gone from the
-// panel in every state a task can be in, and pressing them asks the daemon for
-// nothing.
+// TestThePanelOffersNoDecisionInAnyWorkflowState is what ADR-086 removed,
+// pinned so it does not come back by habit. Approve was pressed once in
+// fifty-one tasks and request-changes never, nothing read the state either
+// produced, and requesting changes recorded a label and then told the user to
+// attach and do the real thing.
 func TestThePanelOffersNoDecisionInAnyWorkflowState(t *testing.T) {
 	for _, workflow := range []string{
 		"draft", "preparing", "working", "review_requested", "verifying",
@@ -242,12 +232,10 @@ func TestThePanelOffersNoDecisionInAnyWorkflowState(t *testing.T) {
 }
 
 // TestTheWorkflowLineNamesTheExitsThatExist is what the decision field became.
-//
 // The two transitions that carry the real loop are the ones nobody pressed a
 // decision key for: sending work back is the user attaching and typing, and
-// finishing is publishing and then cleaning up. So the line under the workflow
-// names those, in the states where they are what happens next, and says nothing
-// in the states where they are not (ADR-086).
+// finishing is publishing and then cleaning up. The line names those where they
+// are what happens next (ADR-086).
 func TestTheWorkflowLineNamesTheExitsThatExist(t *testing.T) {
 	const exits = "P to publish · a to attach and revise"
 
@@ -317,12 +305,10 @@ func TestOpeningReviewObservesRatherThanDecides(t *testing.T) {
 
 // TestATaskReadyForReviewKeepsItsRunningServices is FR-RUN-005's rule that Feat
 // never stops a task's services on its own, exercised on the panel a user reads
-// when the work is ready.
-//
-// It used to be an offer in words — "press t to stop them" — shown after
-// approving, which went with the approval (ADR-086). What it was protecting is
-// this: reading the panel issues no runtime action, and the services are still
-// running afterwards (docs/02-user-workflows.md §7).
+// when the work is ready. The offer in words — "press t to stop them" — went
+// with the approval that followed it (ADR-086); what it protected is this, that
+// reading the panel issues no runtime action and the services are still running
+// afterwards (docs/02-user-workflows.md §7).
 func TestATaskReadyForReviewKeepsItsRunningServices(t *testing.T) {
 	backend := newFakeBackend()
 	status := reviewed()
@@ -351,13 +337,11 @@ func taskEvent(id, kind string) api.Event {
 }
 
 // TestAGateLandingRefreshesTheChecksOnTheOpenPanel is the defect found in use.
-//
-// A gate is background work: `V` records that the checks are running and returns,
-// and the results land minutes later. The dashboard answered every event by
-// re-reading the task list, which carries the workflow and the check counts but
-// not the results — so the panel that asked for the run went on showing the
-// previous run's failures under a workflow that had moved past them, until the
-// user left the tab and came back.
+// A gate is background work: `V` records that the checks are running and
+// returns, and the results land minutes later. Re-reading the task list carries
+// the workflow and the check counts but not the results, so the panel that
+// asked for the run went on showing the previous run's failures until the user
+// left the tab and came back.
 func TestAGateLandingRefreshesTheChecksOnTheOpenPanel(t *testing.T) {
 	backend := newFakeBackend()
 	failed := reviewed()
@@ -395,11 +379,10 @@ func TestAGateLandingRefreshesTheChecksOnTheOpenPanel(t *testing.T) {
 }
 
 // TestOnlyAChangeToThisPanelsReviewCostsAnObservation keeps the refresh narrow.
-//
 // An observation walks every repository with Git, which is seconds on a task
 // holding three of them, and an agent's hooks produce events several times a
-// turn. Answering all of them would put a Git walk behind every keystroke the
-// agent makes.
+// turn, so answering all of them would put a Git walk behind every keystroke
+// the agent makes.
 func TestOnlyAChangeToThisPanelsReviewCostsAnObservation(t *testing.T) {
 	for what, arrange := range map[string]struct {
 		event   api.Event
@@ -457,11 +440,10 @@ func TestOnlyAChangeToThisPanelsReviewCostsAnObservation(t *testing.T) {
 }
 
 // TestChecksThatAreRunningAreNotReportedAsResults is the other half of the same
-// defect, in the window before anything has landed.
-//
-// A gate records nothing until it finishes, so what is stored while it runs is
-// the run before it. Reporting that as this task's checks tells a user who has
-// just pressed V that the run they started has already failed.
+// defect, in the window before anything has landed. A gate records nothing
+// until it finishes, so what is stored while it runs is the run before it, and
+// reporting that tells a user who has just pressed V that the run they started
+// has already failed.
 func TestChecksThatAreRunningAreNotReportedAsResults(t *testing.T) {
 	backend := newFakeBackend()
 	running := reviewed()
@@ -488,11 +470,9 @@ func TestChecksThatAreRunningAreNotReportedAsResults(t *testing.T) {
 }
 
 // TestAnObservationLandingDoesNotEndAWaitForACheckRun keeps the indicator
-// honest now that two requests can be outstanding at once.
-//
-// A gate landing while the user waits for one is exactly that: the event fires an
-// observation, and the response to it must not stop the indicator the check run
-// is still holding up.
+// honest where two requests can be outstanding at once. A gate landing while
+// the user waits for one fires an observation, and the response to it must not
+// stop the indicator the check run is still holding up.
 func TestAnObservationLandingDoesNotEndAWaitForACheckRun(t *testing.T) {
 	backend := newFakeBackend()
 	model := reviewScreen(t, backend)
@@ -516,12 +496,11 @@ func TestAnObservationLandingDoesNotEndAWaitForACheckRun(t *testing.T) {
 	}
 }
 
-// TestAPassingCheckFeatRanShowsNoOutput is the noise found in use.
-//
-// The excerpt exists so that a user can see why a check failed. On a check that
-// passed it is the whole of a build command's stdout — forty lines of `ok
-// <package> (cached)` under a line that has already said "passed" — and it
-// pushed everything worth reading off the screen.
+// TestAPassingCheckFeatRanShowsNoOutput is the noise found in use. The excerpt
+// exists so a user can see why a check failed; on a check that passed it is the
+// whole of a build command's stdout — forty lines of `ok <package> (cached)`
+// under a line that has already said "passed" — and it pushed everything worth
+// reading off the screen.
 func TestAPassingCheckFeatRanShowsNoOutput(t *testing.T) {
 	for what, test := range map[string]struct {
 		check api.ReviewCheck

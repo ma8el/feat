@@ -47,12 +47,11 @@ func withResources(model Model, report api.ResourceReport, err error) Model {
 	return updated.(Model)
 }
 
-// TestTheDashboardShowsWholeMachineResources is FR-UI-005's first half.
-//
-// The block answers one question — is there room to start another task — and
-// answers it as a share of each of the three things that would stop the next one
-// starting. A load of 3.6 on ten cores, twelve of sixteen GiB of memory in use,
-// and 600 of 1000 GB of disk.
+// TestTheDashboardShowsWholeMachineResources is FR-UI-005's first half. The
+// block answers whether there is room to start another task, as a share of each
+// of the three things that would stop the next one starting: a load of 3.6 on
+// ten cores, twelve of sixteen GiB of memory in use, and 600 of 1000 GB of
+// disk.
 func TestTheDashboardShowsWholeMachineResources(t *testing.T) {
 	model := withResources(dashboard(newFakeBackend(), liveTask()), sampled(), nil)
 
@@ -64,11 +63,10 @@ func TestTheDashboardShowsWholeMachineResources(t *testing.T) {
 	}
 }
 
-// TestAMachineLineIsABarAndItsPercentage is the shape of a resource line.
-//
-// The bar is the share in use and the number after it says the same thing
-// exactly, which is why it is in the label's grey rather than the bar's colour:
-// one measurement, read as a shape and confirmed as a figure.
+// TestAMachineLineIsABarAndItsPercentage is the shape of a resource line. The
+// bar is the share in use and the number after it says the same thing, which is
+// why it is in the label's grey rather than the bar's colour: one measurement,
+// read as a shape and confirmed as a figure.
 func TestAMachineLineIsABarAndItsPercentage(t *testing.T) {
 	model := withResources(dashboard(newFakeBackend(), liveTask()), sampled(), nil)
 
@@ -87,10 +85,9 @@ func TestAMachineLineIsABarAndItsPercentage(t *testing.T) {
 	}
 }
 
-// TestAMachineLineFillsTheRailExactly keeps the three bars comparable.
-//
-// They are read against each other, so they start and end in the same column;
-// a line wider than the rail would also be cut by the region that draws it.
+// TestAMachineLineFillsTheRailExactly keeps the three bars comparable. They are
+// read against each other, so they start and end in the same column, and a line
+// wider than the rail would be cut by the region that draws it.
 func TestAMachineLineFillsTheRailExactly(t *testing.T) {
 	report := sampled()
 	report.Machine.Load = &api.LoadAverage{One: 128.5}
@@ -104,12 +101,9 @@ func TestAMachineLineFillsTheRailExactly(t *testing.T) {
 }
 
 // TestABarIsNeverEmptyOrFullByRounding is the honesty rule applied to a shape
-// and to the number on it.
-//
-// Rounding two percent down to an empty bar and to "0%" would say the machine is
-// idle, and rounding ninety-nine up to a full bar and "100%" would say there is
-// no room left. Neither is what the sample found, and the bar is what gets read
-// first.
+// and to the number on it. Rounding two percent down to an empty bar and "0%"
+// would say the machine is idle, and ninety-nine up to "100%" would say there
+// is no room left. Neither is what the sample found, and the bar is read first.
 func TestABarIsNeverEmptyOrFullByRounding(t *testing.T) {
 	for _, want := range []struct {
 		share float64
@@ -127,11 +121,9 @@ func TestABarIsNeverEmptyOrFullByRounding(t *testing.T) {
 }
 
 // TestAnUnmeasuredCapacityDrawsNoBar is the same rule where there is nothing to
-// draw from.
-//
-// A bar at zero is the most readable false claim this screen could make: it says
-// the disk is empty. A figure nothing measured is shown as absent (FR-UI-005),
-// and so is the shape of it.
+// draw from. A bar at zero is the most readable false claim this screen could
+// make: it says the disk is empty. A figure nothing measured is shown as absent
+// (FR-UI-005), and so is the shape of it.
 func TestAnUnmeasuredCapacityDrawsNoBar(t *testing.T) {
 	report := api.ResourceReport{
 		Machine: api.MachineResources{Cores: 10, Load: &api.LoadAverage{One: 3.6}},
@@ -154,12 +146,10 @@ func TestAnUnmeasuredCapacityDrawsNoBar(t *testing.T) {
 }
 
 // TestProcessorDemandOverTheCoreCountIsMarked keeps the one judgement the block
-// makes, and the cue that this is demand rather than occupancy.
-//
-// The share is the run-queue average against the core count, so it can pass a
-// hundred percent, which nothing that was truly a utilisation percentage could.
-// The bar stops at full and the number keeps going, and Feat refuses nothing
-// over it.
+// makes, and the cue that this is demand rather than occupancy. The share is
+// the run-queue average against the core count, so it can pass a hundred
+// percent: the bar stops at full, the number keeps going, and Feat refuses
+// nothing over it.
 func TestProcessorDemandOverTheCoreCountIsMarked(t *testing.T) {
 	report := sampled()
 	report.Machine.Load = &api.LoadAverage{One: 24.5}
@@ -173,11 +163,10 @@ func TestProcessorDemandOverTheCoreCountIsMarked(t *testing.T) {
 	}
 }
 
-// TestTheTaskPanelShowsItsOwnTotals is FR-UI-005's second half.
-//
-// It reads the panel rather than a list row: the wide table that carried a
-// resource column per task was the overview page, and the rail that replaced it
-// carries what answers which task to go to next.
+// TestTheTaskPanelShowsItsOwnTotals is FR-UI-005's second half. It reads the
+// panel rather than a list row: the rail carries what answers which task to go
+// to next, and a resource column per task belonged to the wide table it
+// replaced.
 func TestTheTaskPanelShowsItsOwnTotals(t *testing.T) {
 	model := withResources(dashboard(newFakeBackend(), liveTask()), sampled(), nil)
 	model.selected = liveTask().ID
@@ -190,14 +179,12 @@ func TestTheTaskPanelShowsItsOwnTotals(t *testing.T) {
 	}
 }
 
-// TestTheTaskPanelSaysWhichFigureIsWhich takes the rail's vocabulary without its
-// bars (ADR-086).
-//
-// "2% 448 MiB" left the reader to infer each meaning from its unit, which is the
-// machine block's defect before ADR-044 one level down. No bar goes with the
-// words: the rail's bars are shares of this host and these figures are not, and
-// one drawn against the host's total would invite the comparison ADR-035
-// refuses.
+// TestTheTaskPanelSaysWhichFigureIsWhich takes the rail's vocabulary without
+// its bars (ADR-086). "2% 448 MiB" leaves the reader to infer each meaning from
+// its unit, which is the machine block's defect before ADR-044 one level down.
+// No bar goes with the words: the rail's bars are shares of this host and these
+// figures are not, and one against the host's total would invite the comparison
+// ADR-035 refuses.
 func TestTheTaskPanelSaysWhichFigureIsWhich(t *testing.T) {
 	model := withResources(dashboard(newFakeBackend(), liveTask()), sampled(), nil)
 	model.selected = liveTask().ID
@@ -225,10 +212,8 @@ func TestTheTaskPanelSaysWhichFigureIsWhich(t *testing.T) {
 }
 
 // TestAFigureNothingMeasuredIsShownAbsentBesideOneThatWas keeps FR-UI-005's
-// honesty rule inside a labelled line.
-//
-// The two figures come from different collectors, and one of them failing is not
-// the other one being zero.
+// honesty rule inside a labelled line. The two figures come from different
+// collectors, and one failing is not the other being zero.
 func TestAFigureNothingMeasuredIsShownAbsentBesideOneThatWas(t *testing.T) {
 	report := sampled()
 	report.Tasks[0].MemoryBytes = nil
@@ -247,10 +232,8 @@ func TestAFigureNothingMeasuredIsShownAbsentBesideOneThatWas(t *testing.T) {
 }
 
 // TestAnUnmeasuredTaskShowsNothingRatherThanZero is the honesty rule at the
-// dashboard.
-//
-// A draft owns no container and no process, so nothing was measured for it. A
-// row saying "0% 0 B" would be a claim, which is what ADR-028 and ADR-031
+// dashboard. A draft owns no container and no process, so nothing was measured
+// for it, and a row saying "0% 0 B" would be a claim ADR-028 and ADR-031
 // forbid.
 func TestAnUnmeasuredTaskShowsNothingRatherThanZero(t *testing.T) {
 	model := withResources(dashboard(newFakeBackend(), pendingDraft()), sampled(), nil)
@@ -265,11 +248,8 @@ func TestAnUnmeasuredTaskShowsNothingRatherThanZero(t *testing.T) {
 }
 
 // TestAFailedResourceReadDoesNotHideTheTasks is the second acceptance criterion
-// at the dashboard.
-//
-// Metrics are observational. A dashboard that refused to draw because it could
-// not measure memory would be the opposite of what they are for, and the tasks
-// are what the user opened it to see.
+// at the dashboard. Metrics are observational, and the tasks are what the user
+// opened the dashboard to see.
 func TestAFailedResourceReadDoesNotHideTheTasks(t *testing.T) {
 	model := withResources(dashboard(newFakeBackend(), liveTask()), api.ResourceReport{},
 		errors.New("the daemon could not be reached for resources"))
@@ -284,12 +264,9 @@ func TestAFailedResourceReadDoesNotHideTheTasks(t *testing.T) {
 }
 
 // TestTheSampleNotesReachTheLayoutFooter keeps FR-UI-005's honesty where the
-// dashboard is actually used.
-//
-// The notes explaining an absent figure used to be on the machine card, which
-// lived on the overview page, which the three-region layout never drew. They
-// belong beside the figures they explain: an absent figure with no reason next to
-// it is the same silence the rule is against.
+// dashboard is used. The notes belong beside the figures they explain, because
+// an absent figure with no reason next to it is the silence the rule is
+// against.
 func TestTheSampleNotesReachTheLayoutFooter(t *testing.T) {
 	report := api.ResourceReport{
 		Machine: api.MachineResources{Cores: 10},
@@ -322,11 +299,10 @@ func TestASampleThatIsMissingFiguresSaysSo(t *testing.T) {
 	}
 }
 
-// TestAttentionBadgesMarkTheTasksThatMayNeedTheUser is FR-UI-004's TUI half.
-//
-// The badge is what makes attention readable across a screen of tasks: a user
-// scanning the dashboard is looking for the one task that stopped, and a column
-// of words all beginning with the same letters is not something an eye finds.
+// TestAttentionBadgesMarkTheTasksThatMayNeedTheUser is FR-UI-004's TUI half. A
+// user scanning the dashboard is looking for the one task that stopped, and a
+// column of words all beginning with the same letters is not something an eye
+// finds.
 func TestAttentionBadgesMarkTheTasksThatMayNeedTheUser(t *testing.T) {
 	waiting := liveTask()
 	waiting.Attention = "needs_input"

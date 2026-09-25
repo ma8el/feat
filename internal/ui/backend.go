@@ -9,26 +9,19 @@ import (
 	"github.com/ma8el/feat/internal/wizard"
 )
 
-// Backend is everything the dashboard needs from the daemon.
-//
-// It is an interface declared here rather than a client passed in, for two
-// reasons. The models can then be driven by a fake, so a screen's behaviour is
-// testable without a socket, a daemon, or tmux. And the three things the TUI has
-// to launch — native tmux attach, a task shell, and the user's editor — arrive
-// as tea.ExecCommand values built elsewhere, so this package never names an
-// os/exec type and the rule that keeps process execution in adapters stays
-// mechanical (ADR-031).
+// Backend is everything the dashboard needs from the daemon. It is an interface
+// declared here so the models can be driven by a fake, without a socket, a
+// daemon, or tmux. The three things the TUI launches — a native tmux attach, a
+// task shell, and the user's editor — arrive as tea.ExecCommand values built
+// elsewhere, so this package never names an os/exec type (ADR-031).
 type Backend interface {
 	// Projects returns every registered project.
 	Projects(ctx context.Context) ([]api.Project, error)
 	// Tasks returns every task of every project, drafts included.
 	Tasks(ctx context.Context) ([]api.Task, error)
-	// Tickets runs a project's configured tracker command and returns the
-	// tickets it printed.
-	//
-	// It is asked for on a key rather than when a screen opens: the command
-	// reaches somebody's tracker, and a network call should follow a key the
-	// user pressed (ADR-031, ADR-071).
+	// Tickets runs a project's configured tracker command and returns the tickets
+	// it printed. It is asked for on a key rather than when a screen opens,
+	// because the command reaches somebody's tracker (ADR-031, ADR-071).
 	Tickets(ctx context.Context, project string) (api.TicketList, error)
 	// Events delivers daemon state changes until the context ends. Handle
 	// returning an error ends the subscription.
@@ -37,15 +30,13 @@ type Backend interface {
 	// separately from tasks because it is an observation nobody stores, with its
 	// own time and its own failure mode (FR-UI-005).
 	Resources(ctx context.Context) (api.ResourceReport, error)
-	// StartDaemon starts a daemon and waits until it answers, so that a dashboard
+	// StartDaemon starts a daemon and waits until it answers, so a dashboard
 	// whose daemon stopped can be repaired without being quit. It is the one
 	// thing here that is not a request over the socket, and it is asked for
-	// rather than done because starting a process belongs to an adapter
-	// (ADR-031): internal/ui does not import internal/daemon.
-	//
-	// Nothing calls it on its own. Opening the dashboard starts a daemon
-	// (ADR-008) and this is the same act offered again, after a user has been
-	// asked and has said yes.
+	// rather than done because internal/ui does not import internal/daemon
+	// (ADR-031). Nothing calls it on its own: opening the dashboard starts a
+	// daemon (ADR-008), and this is the same act offered again after the user has
+	// said yes.
 	StartDaemon(ctx context.Context) error
 
 	// CreateDraft records a new task draft and creates nothing else.
@@ -77,11 +68,9 @@ type Backend interface {
 	// ApplyPublication opens one merge request per approved repository, carrying
 	// the words the user read.
 	ApplyPublication(ctx context.Context, id string, request api.PublishRequest) (api.PublicationStatus, error)
-	// EditPublication writes the draft of a plan to a file of its own and
-	// returns it on its way to the user's editor.
-	//
-	// The document is written here rather than in the dashboard for the reason
-	// every terminal-yielding command is built here: the process belongs to an
+	// EditPublication writes the draft of a plan to a file of its own and returns
+	// it on its way to the user's editor. The document is written here for the
+	// reason every terminal-yielding command is: the process belongs to an
 	// adapter, and so does the file it opens (ADR-031).
 	EditPublication(plan api.PublicationStatus) (PublicationEditor, error)
 	// CleanupPlan resolves what a task owns and removes nothing, which is what
@@ -158,12 +147,9 @@ type Daemon struct {
 }
 
 // PublicationEditor is one publication draft on its way through the user's
-// editor and back.
-//
-// It is an interface rather than a path because the dashboard reaches no
-// filesystem of its own: what it does is run the command, read what came back,
-// and let go. What the user had open is what is sent, which is the whole reason
-// the draft goes through an editor at all (ADR-070).
+// editor and back. It is an interface rather than a path because the dashboard
+// reaches no filesystem of its own. What the user had open is what is sent,
+// which is why the draft goes through an editor at all (ADR-070).
 type PublicationEditor interface {
 	// Command opens the draft. It takes over this terminal until the editor
 	// exits.

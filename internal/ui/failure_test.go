@@ -23,13 +23,10 @@ func failedTask() api.Task {
 	return task
 }
 
-// TestAFailedTaskSaysWhyOnItsPanel is the dogfood finding.
-//
-// The panel said `workflow failed` and stopped. The reason was recorded — it is
-// the detail of the workflow transition — and it was reachable from nowhere: the
-// event log is a file on disk, and the error banner the launch produced had
-// already gone by the time anybody looked. A state a user cannot act on is one
-// that only describes itself.
+// TestAFailedTaskSaysWhyOnItsPanel is the dogfood finding. The panel said
+// `workflow failed` and stopped, while the reason — the detail of the workflow
+// transition — was reachable from nowhere: the event log is a file on disk, and
+// the launch's error banner had gone by the time anybody looked.
 func TestAFailedTaskSaysWhyOnItsPanel(t *testing.T) {
 	task := failedTask()
 	model := dashboard(newFakeBackend(), task)
@@ -52,12 +49,9 @@ func TestAFailedTaskSaysWhyOnItsPanel(t *testing.T) {
 }
 
 // TestTheReasonIsNotCutShort keeps the end of the sentence, which is the half
-// that identifies what to change.
-//
-// A reason names a service, a mount, or a path, and every one of them is at the
-// end: truncating to the panel's width would leave "the container mounts the
-// home dir…" — a message that reads like an explanation and is not one. The
-// panel wraps instead, and the wrap is what the region renders.
+// that identifies what to change. A reason names a service, a mount, or a path,
+// and every one of them is at the end, so truncating to the panel's width would
+// leave "the container mounts the home dir…". The panel wraps instead.
 func TestTheReasonIsNotCutShort(t *testing.T) {
 	task := failedTask()
 	model := dashboard(newFakeBackend(), task)

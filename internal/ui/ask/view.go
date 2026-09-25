@@ -11,16 +11,11 @@ import (
 
 // Context draws what the question is asked in light of: which part of the file
 // this is, what the user needs before deciding, and what the last answer
-// established.
-//
-// It is drawn apart from the question because one of the two askers says it in
-// its own shape. `feat project init` announces a section with a heading and a
-// blank line and prints the notes above the widget, where they stay in the
-// scrollback after the widget has exited; the dialog has no scrollback and
-// draws the whole question at once (ADR-084).
-//
-// Everything here is folded into the width the caller gave, and a caller that
-// gave none gets the flow's own lines. See SetContextWidth for what that fixes.
+// established. It is separate from the question because `feat project init`
+// prints these above the widget, where they stay in the scrollback after it has
+// exited, and the dialog has no scrollback (ADR-084). Everything is folded into
+// the width the caller gave, and a caller that gave none gets the flow's own
+// lines (see SetContextWidth).
 func (m Model) Context() string {
 	var out strings.Builder
 	if m.question.Heading != "" {
@@ -34,8 +29,7 @@ func (m Model) Context() string {
 			out.WriteString("\n")
 		}
 		if m.context < 1 {
-			// No width to fold to, so the flow's breaks are the breaks. This is
-			// what the asker with no width would get, and it is what the flow
+			// No width to fold to, so the flow's own breaks are the breaks it
 			// authored the lines for.
 			for _, line := range paragraph {
 				out.WriteString(MutedStyle.Render(line) + "\n")
@@ -49,12 +43,9 @@ func (m Model) Context() string {
 	}
 
 	// What the last answer established, in the colour of something Feat found
-	// rather than something the user typed.
-	//
-	// The bullet is the width of its own indent, so a note that folds hangs under
-	// its first line rather than under the mark: a second line starting in the
-	// bullet's column reads as a second note, and these are the lines that carry
-	// what Feat found out about the answer before this one.
+	// rather than something the user typed. The bullet is the width of its own
+	// indent, so a folded note hangs under its first line: a second line starting
+	// in the bullet's column would read as a second note.
 	for _, note := range m.question.Notes {
 		out.WriteString(AttentionStyle.Render("· ") +
 			indentAfterFirst(styled(MutedStyle, note, m.context-noteMarker), noteMarker) + "\n")
@@ -68,13 +59,11 @@ func (m Model) Context() string {
 // noteMarker is the width of the bullet a note is written after.
 const noteMarker = 2
 
-// styled folds text into a width and colours each of its lines.
-//
-// Each line rather than the block. A style applied to several lines at once pads
-// them all out to the widest, and a padded line reports itself as exactly as
-// wide as the fold — so the box would shrink to the width it was allowed rather
-// than to the width it needs, which is the measurement this fold was written to
-// give back. It is the same reason Wrap takes lipgloss's own padding off again.
+// styled folds text into a width and colours each of its lines, rather than the
+// block. A style applied to several lines at once pads them all out to the
+// widest, and a padded line reports itself as exactly as wide as the fold, so
+// the box would shrink to the width it was allowed rather than the width it
+// needs. Wrap takes lipgloss's own padding off again for the same reason.
 func styled(style lipgloss.Style, text string, width int) string {
 	lines := strings.Split(Wrap(text, width), "\n")
 	for i, line := range lines {
@@ -88,13 +77,11 @@ func styled(style lipgloss.Style, text string, width int) string {
 }
 
 // paragraphs are a question's detail, grouped as the flow's blank lines group
-// it.
-//
-// The flow authors `Detail` as the lines it would be printed as, which is what
-// `feat project init` prints and what the rule over a section is measured
-// against (internal/cli's ruleWidth). Grouping rather than joining is what lets
-// both readings out of one place: a caller with a width joins a group and folds
-// it again, and a caller without one draws the lines it was given.
+// it. The flow authors `Detail` as the lines it would be printed as, which is
+// what the rule over a section is measured against (internal/cli's ruleWidth).
+// Grouping rather than joining serves both readings: a caller with a width
+// joins a group and folds it again, and a caller without one draws what it was
+// given.
 func (m Model) paragraphs() [][]string {
 	var out [][]string
 	var current []string
@@ -141,20 +128,17 @@ func (m Model) View() string {
 	return out.String() + m.optionsView()
 }
 
-// Hints are the keys that answer this question, for a footer.
-//
-// back says whether the caller has a question to go back to. The dashboard
-// always has — stepping back out of the first one closes the dialog — and the
-// conversation has one at every question but the first, and none at all at the
-// offers it asks after the file is written.
+// Hints are the keys that answer this question, for a footer. back says whether
+// the caller has a question to go back to: the dashboard always has, because
+// stepping back out of the first one closes the dialog, and the conversation
+// has none at the first question or at the offers it asks after the file is
+// written.
 func (m Model) Hints(back bool) string {
 	hints := []string{KeyHint("enter", "continue")}
 	if m.question.Kind == wizard.KindText {
 		if len(m.question.Candidates) > 0 {
-			// Said only where there is something to complete, because a key that
-			// does nothing on most questions is worse than one nobody was told
-			// about: the hint is how a user learns that this question has more
-			// than the one value in it.
+			// Said only where there is something to complete: the hint is how a
+			// user learns that this question holds more than one value.
 			hints = append(hints, KeyHint("tab", "complete"))
 		}
 	} else {
@@ -166,20 +150,16 @@ func (m Model) Hints(back bool) string {
 	return KeyHints(append(hints, KeyHint("ctrl+c", "cancel"))...)
 }
 
-// field is the answer being typed, drawn in the width the field was given.
+// field is the answer being typed, drawn in the width the field was given. The
+// widget pads its line out to that width from the typed value alone and then
+// writes the completion after the padding, so a suggestion made the line as
+// wide as the field plus the whole of what it was suggesting, and the dialog
+// sizes itself to its widest line.
 //
-// The widget pads its line out to that width from the typed value alone and
-// then writes the completion after the padding, so a suggestion made the line as
-// wide as the field plus the whole of what it was suggesting. The dialog sizes
-// itself to its widest line: the box jumped to its full allowance on the first
-// character of a path and crept back a cell per keystroke afterwards, while
-// typing something no candidate matches left it perfectly still.
-//
-// One more cell than the field's width, because the cursor sits after the value
-// and that is what the widget draws in every other state too — so the line is
-// the same width whether it holds a placeholder, a value, or a value with a
-// completion behind it. The completion is shown as far as there is room for it,
-// which is all the field ever promised for a value that is too long as well.
+// The cut is one cell past the field's width, because the cursor sits after the
+// value and the widget draws it in every other state too, so the line is the
+// same width whether it holds a placeholder, a value, or a completion. The
+// completion is shown as far as there is room for it.
 func (m Model) field() string {
 	if m.input.Width <= 0 {
 		return m.input.View()
@@ -187,12 +167,9 @@ func (m Model) field() string {
 	return ansi.Truncate(m.input.View(), m.input.Width+1, "")
 }
 
-// below is what has to be said about a field that looks emptier than it is.
-//
-// What used to be here as well was the sentence naming the key that fills it.
-// That sentence is the flow's now: it was drawn here because the flow was not
-// allowed to name a key the command line had not got, and the command line has
-// one (ADR-084).
+// below is what has to be said about a field that looks emptier than it is. The
+// sentence naming the key that fills it is the flow's, because the command line
+// now has that key too (ADR-084).
 func (m Model) below() []string {
 	if m.question.Optional {
 		return []string{"an empty answer is an answer here"}

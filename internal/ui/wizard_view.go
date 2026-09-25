@@ -30,10 +30,9 @@ func (w wizardModel) View() string {
 	out.WriteString("\n")
 	switch {
 	case w.err != nil && w.step != wizardDone:
-		// Wrapped rather than cut. It is the one string on this screen Feat did
-		// not write, it is the reason an answer was refused, and the dialog
-		// composites by cell — so a long one would otherwise end in an ellipsis
-		// exactly where the reason is.
+		// Wrapped rather than cut. It is the one string on this screen Feat did not
+		// write and it is the reason an answer was refused, so a cut would end in
+		// an ellipsis exactly where the reason is.
 		out.WriteString("\n" + w.wrap(failureStyle.Render(w.err.Error())) + "\n")
 	case w.busy && w.status != "":
 		out.WriteString("\n" + mutedStyle.Render(w.status) + "\n")
@@ -45,11 +44,10 @@ func (w wizardModel) View() string {
 	return out.String()
 }
 
-// trail shows which part of the configuration is being answered.
-//
-// The sections are fixed and the questions inside one are not, so this is what
-// can be said about progress honestly: a user answering a second repository is
-// still in the same part of the file (ADR-063).
+// trail shows which part of the configuration is being answered. The sections
+// are fixed and the questions inside one are not, so this is what can be said
+// about progress honestly: a second repository is still the same part of the
+// file (ADR-063).
 func (w wizardModel) trail() string {
 	if w.step != wizardAsking || !w.asked {
 		// The dialog's own heading already names this screen, and the steps that
@@ -77,11 +75,9 @@ func (w wizardModel) questionView() string {
 	return w.input.Context() + w.input.View()
 }
 
-// reviewView draws the composed configuration, which is what is being confirmed.
-//
-// It is the whole file and it is already validated: what the user is looking at
-// is a configuration Feat accepts, and confirming writes exactly these bytes
-// (ADR-062).
+// reviewView draws the composed configuration, which is what is being
+// confirmed. It is the whole file and already validated, and confirming writes
+// exactly these bytes (ADR-062).
 func (w wizardModel) reviewView() string {
 	var out strings.Builder
 	out.WriteString(w.wrap(fieldStyle.Render("file")+w.review.Path) + "\n\n")
@@ -168,16 +164,14 @@ func (w wizardModel) doneView() string {
 	return out.String()
 }
 
-// wrap folds a line that has to be read in full into the dialog's width.
+// wrap folds a line that has to be read in full into the dialog's width. A path
+// and the reason an answer was refused are the two things on this screen a user
+// acts on, and the box composites by cell, so without this a path is cut where
+// nobody can check it.
 //
-// A path and the reason an answer was refused are the two things on this screen
-// that a user acts on, and the box composites by cell: without this they end in
-// an ellipsis, and a path that is cut is a path nobody can check.
-//
-// The fold itself is the widget's, read back as the styles are (ADR-084). It
-// used to be written here, and the question's own prose — which the widget draws
-// and this cannot reach inside — went unwrapped for exactly as long: one screen
-// with a wrapper on the sentences around a question and none on the question's.
+// The fold itself is the widget's, read back as the styles are (ADR-084). A
+// fold written here cannot reach the question's own prose, which the widget
+// draws.
 func (w wizardModel) wrap(text string) string { return ask.Wrap(text, w.wrapWidth()) }
 
 // wrapWidth is what this dialog folds prose into, and what it tells the widget

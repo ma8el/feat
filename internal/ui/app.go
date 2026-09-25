@@ -15,19 +15,15 @@ import (
 )
 
 // refreshInterval is how often the dashboard re-reads state without being
-// prompted.
-//
-// State changes arrive as events, so this is a backstop rather than the
-// mechanism: it keeps elapsed times moving and recovers a client whose stream
-// ended, which v0.1 answers by re-reading current state rather than by resuming
-// (ADR-027).
+// prompted. State changes arrive as events, so this is a backstop: it keeps
+// elapsed times moving and recovers a client whose stream ended, which v0.1
+// answers by re-reading current state rather than by resuming (ADR-027).
 const refreshInterval = 2 * time.Second
 
-// eventBuffer is how many stream items may be queued for the dashboard.
-//
-// The dashboard re-reads state on every item rather than applying it, so a
-// queue that overflows costs nothing: the read that follows a dropped item sees
-// the state that item described.
+// eventBuffer is how many stream items may be queued for the dashboard. The
+// dashboard re-reads state on every item rather than applying it, so a queue
+// that overflows costs nothing: the read after a dropped item sees the state it
+// described.
 const eventBuffer = 64
 
 // Options configure the dashboard.
@@ -69,10 +65,9 @@ type screen int
 
 const (
 	screenTerminal screen = iota
-	// screenTask is one task read and acted on: what it is, what it has
-	// changed, and what to decide about that. Detail and review were separate
-	// screens until ADR-042, and shared their subject, their header, their
-	// workflow, and their repository list.
+	// screenTask is one task read and acted on: what it is, what it has changed,
+	// and what to decide about that. ADR-042 made it one screen, because detail
+	// and review shared their subject, header, workflow, and repository list.
 	screenTask
 	// screenBrief is the document a task was launched from, read on a tab of its
 	// own. It has no daemon call behind it: the brief travels on the task, and
@@ -86,11 +81,10 @@ const (
 	screenRuntime
 	screenCleanup
 	// screenPublication is a task's work on its way to a forge: what publishing
-	// would do, the draft read and edited, and what came of sending it.
-	//
-	// It is an overlay rather than a tab for the reason cleanup is: it is a
-	// sequence that is answered before work continues, and what it does reaches
-	// somebody else's server and is not undone (ADR-073).
+	// would do, the draft read and edited, and what came of sending it. It is an
+	// overlay rather than a tab for the reason cleanup is: it is a sequence
+	// answered before work continues, and what it does reaches somebody else's
+	// server and is not undone (ADR-073).
 	screenPublication
 	// screenDiagnosis is what `feat doctor` found, read on the dashboard. It is
 	// an overlay because it is about a project rather than the selected task, and
@@ -102,19 +96,16 @@ const (
 	// finding is three lines — what, where, and what to do — which is more than a
 	// footer holds and more than a rail is wide enough for.
 	screenRecovery
-	// screenDaemon is the offer to start a daemon when none is answering.
-	//
-	// It is an overlay for the reason preparation is: it is answered before work
-	// continues. Nothing else on the dashboard works while it is open — every key
-	// reaches the daemon — and the tasks the user was watching stay behind it,
-	// which is the last state anything knew about them.
+	// screenDaemon is the offer to start a daemon when none is answering. It is
+	// an overlay for the reason preparation is: it is answered before work
+	// continues. Every key reaches the daemon, so nothing else works while it is
+	// open, and the tasks behind it are the last state anything knew about them.
 	screenDaemon
 )
 
-// mainRegion reports whether this screen is a view of the selected task that the
-// main region draws, rather than an overlay over the whole dashboard.
-//
-// The division is ADR-041's: a tab is a view you leave and come back to, and an
+// mainRegion reports whether this screen is a view of the selected task that
+// the main region draws, rather than an overlay over the whole dashboard. The
+// division is ADR-041's: a tab is a view you leave and come back to, and an
 // overlay is something that is not about the selected task, or that must be
 // answered before work continues.
 func (s screen) mainRegion() bool {
@@ -160,10 +151,9 @@ func screenFor(active tab) screen {
 }
 
 // home is what closing a view returns to: the agent's terminal, which is what
-// the main region is for.
-//
-// The narrow fallback draws the task list for it instead, because below the
-// layout's minimum there is no rail and that is the only way to choose a task.
+// the main region is for. The narrow fallback draws the task list for it
+// instead, because below the layout's minimum there is no rail and nothing else
+// chooses a task.
 func (m Model) home() screen { return screenTerminal }
 
 // Model is the dashboard.
@@ -178,32 +168,24 @@ type Model struct {
 	screen screen
 	tab    tab
 	tasks  []api.Task
-	// selected is the task the rail's cursor is on and the task panel shows,
-	// held by identifier rather than by row.
-	//
-	// It used to be both at once — a cursor index into tasks, and this — and the
-	// two disagreed the moment the list changed under them. tasks is re-sorted
-	// newest-first on every read, so a task appearing moved every index after it
-	// while the index itself stayed where it was: the rail drew its marker on one
-	// task and the main region drew another, and every destructive key followed
-	// the marker. The dashboard's own launch path was enough to do it. Naming the
-	// task is what makes a refresh unable to re-point the selection, which is the
-	// one thing FR-UI-001 requires the list to be right about.
+	// selected is the task the rail's cursor is on and the task panel shows, held
+	// by identifier rather than by row. tasks is re-sorted newest-first on every
+	// read, so a row disagrees with the selection the moment a task appears: the
+	// rail draws its marker on one task, the main region draws another, and every
+	// destructive key follows the marker. Naming the task is what makes a refresh
+	// unable to re-point the selection, which FR-UI-001 requires the list to be
+	// right about.
 	//
 	// It may name a task the list does not hold: one a cleanup archived, or the
 	// reference `feat review <task>` opened on before the first response resolved
-	// it to an identifier. That is a state the dashboard reports rather than one
-	// it repairs by selecting a different task.
+	// it to an identifier. That is a state the dashboard reports rather than
+	// repairs.
 	selected string
 	archived int
 	// folded is the projects whose tasks the rail is not listing, by project
-	// identifier.
-	//
-	// It is replaced rather than written to when it changes. The model is a
-	// value, copied on every message, and a map shared between the copies would
-	// make folding a project reach backwards into every model already returned —
-	// which is the sort of thing that is invisible until a test presses a key on a
-	// model it meant to keep.
+	// identifier. It is replaced rather than written to: the model is a value,
+	// copied on every message, and a map shared between the copies would make
+	// folding a project reach backwards into every model already returned.
 	folded map[string]bool
 
 	// resources is the daemon's most recent sample, and resourceErr is why there
@@ -270,12 +252,10 @@ type Model struct {
 	// read repeatedly, because receiving an event must cost a channel read
 	// rather than a connection: see connect below.
 	events chan api.Event
-	// streamCtx bounds the subscription and stopStream ends it.
-	//
-	// A context on a model is not the shape Bubble Tea prefers, but the stream
-	// outlives every individual command and something has to be able to end it.
-	// The alternative — a background context — is a subscription the daemon
-	// keeps serving after the dashboard is gone.
+	// streamCtx bounds the subscription and stopStream ends it. A context on a
+	// model is not the shape Bubble Tea prefers, but the stream outlives every
+	// individual command, and a background context leaves the daemon serving a
+	// subscription after the dashboard is gone.
 	streamCtx  context.Context
 	stopStream context.CancelFunc
 
@@ -285,13 +265,12 @@ type Model struct {
 	err    error
 	status string
 
-	// stopping is the task a stop is waiting for a yes about, by identifier.
-	//
-	// Only a task whose agent is mid-turn asks. Stopping one interrupts what it
-	// was doing, and a key is easier to hit by accident than a typed command —
-	// while a task that is idle or already stopped has nothing to interrupt, and
-	// a question with an obvious answer teaches people to answer without reading
-	// (the rule ADR-037 applies to cleanup's warnings).
+	// stopping is the task a stop is waiting for a yes about, by identifier. Only
+	// a task whose agent is mid-turn asks: stopping one interrupts what it was
+	// doing, and a key is easier to hit by accident than a typed command. A task
+	// that is idle or already stopped has nothing to interrupt, and a question
+	// with an obvious answer teaches people to answer without reading it (the
+	// rule ADR-037 applies to cleanup's warnings).
 	stopping string
 
 	// daemonGone reports that the last read failed because nothing is listening
@@ -313,19 +292,16 @@ type Model struct {
 	// leave a subscriber on both sides of a socket nobody reads.
 	streamEnded bool
 
-	// cancelling is the draft a cancel is waiting for a yes about, by
-	// identifier.
-	//
+	// cancelling is the draft a cancel is waiting for a yes about, by identifier.
 	// It asks always, where stopping asks only when there is something to
-	// interrupt, because there is no state a draft can be in that makes losing it
-	// harmless: a brief is text somebody wrote, it is the only copy, and nothing
-	// puts it back. The question is what the rest of G2-04 was about — a refresh
-	// arriving between the decision and the key press moved the selection, and `x`
-	// then destroyed a draft that was never chosen without anything on screen
-	// naming what was about to go.
+	// interrupt, because no state a draft can be in makes losing it harmless: a
+	// brief is text somebody wrote, and Feat holds the only copy. A refresh
+	// between the decision and the key press moves the selection, so `x`
+	// destroyed a draft that was never chosen, with nothing on screen naming what
+	// was about to go (G2-04).
 	//
-	// The identifier is held rather than re-read on the yes, for the same reason.
-	// The answer applies to the task the question named.
+	// The identifier is held rather than re-read on the yes, for the same reason:
+	// the answer applies to the task the question named.
 	cancelling string
 
 	width, height int
@@ -369,16 +345,14 @@ func New(opts Options) Model {
 		model.screen = screenPrepare
 	}
 	if opts.Review != "" {
-		// `feat review <task>` opens straight onto the task it names. The
-		// comparison itself is asked for once the model starts, so that opening
-		// the screen and reading a worktree stay separate steps.
+		// `feat review <task>` opens straight onto the task it names, and the
+		// comparison is asked for once the model starts, so opening the screen and
+		// reading a worktree stay separate steps.
 		//
 		// What is held here is what the user typed, which may be a task's
 		// eight-character short key or any prefix of its identifier: the daemon
-		// resolves those and the dashboard does not, so that there is one
-		// resolver rather than a second one here that could disagree with it.
-		// applyReview adopts the identifier the first response carries, and until
-		// it arrives the panel is a reference waiting to become a task.
+		// resolves those and the dashboard does not, so there is one resolver.
+		// applyReview adopts the identifier the first response carries.
 		model.screen = screenTask
 		model.selected = opts.Review
 		model.review = reviewModel{task: opts.Review, observing: true}
@@ -386,10 +360,8 @@ func New(opts Options) Model {
 	return model
 }
 
-// Run opens the dashboard.
-//
-// The dashboard's lifetime is deliberately its own rather than the process-wide
-// interrupt context's; see dashboardContext.
+// Run opens the dashboard. Its lifetime is deliberately its own rather than the
+// process-wide interrupt context's; see dashboardContext.
 func Run(ctx context.Context, opts Options) error {
 	opts.Context = dashboardContext(ctx)
 	model := New(opts)
@@ -407,21 +379,17 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
-// dashboardContext detaches the dashboard from the process-wide interrupt.
+// dashboardContext detaches the dashboard from the process-wide interrupt. The
+// dashboard hands its terminal to other programs — the agent's tmux client, the
+// project's diff tool, `docker compose logs --follow` — and an interrupt
+// belongs to whichever holds it. The terminal driver delivers Ctrl-C to every
+// process in the foreground group, so with the interrupt context wired in,
+// leaving the logs quit Feat and there was no other way out of them.
 //
-// The dashboard hands its terminal to other programs — the agent's tmux client,
-// the project's diff tool, `docker compose logs --follow` — and while one of them
-// holds it, an interrupt belongs to that program. Ctrl-C is how a user leaves the
-// logs, and the terminal driver delivers it to every process in the foreground
-// group, the dashboard included: with the interrupt context wired into the
-// program, leaving the logs quit Feat, and there was no other way out of them.
-//
-// Bubble Tea already knows the difference. It ignores signals while the terminal
-// is released to another program and quits on them while it owns the terminal,
-// which is the whole of the policy this needs — so what is dropped here is the
-// second signal handler that did not know when the dashboard was not in charge
-// (ADR-049). The stream this context bounds ends with Run either way, because
-// Run stops it on the way out.
+// Bubble Tea already knows the difference: it ignores signals while the
+// terminal is released to another program and quits on them while it owns the
+// terminal, which is the whole policy this needs (ADR-049). The stream this
+// context bounds ends with Run either way, because Run stops it on the way out.
 func dashboardContext(ctx context.Context) context.Context {
 	return context.WithoutCancel(ctx)
 }
@@ -452,12 +420,10 @@ type (
 	execMsg struct{ err error }
 )
 
-// Init starts the first read, the event subscription, and the periodic
-// refresh.
-//
-// Preparation is started only when it is the screen the user asked for. Its
+// Init starts the first read, the event subscription, and the periodic refresh.
+// Preparation is started only when it is the screen the user asked for: its
 // first act is to read the project list, and a message no screen is waiting for
-// would be dropped by the router below.
+// is dropped.
 func (m Model) Init() tea.Cmd {
 	commands := []tea.Cmd{m.load(), m.loadResources(), m.loadReconciliation(), m.connect(), m.awaitEvent(), tick()}
 	if m.screen == screenPrepare {
@@ -477,12 +443,10 @@ func (m Model) load() tea.Cmd {
 	}
 }
 
-// loadResources reads the daemon's most recent resource sample.
-//
-// It follows the periodic refresh rather than the event stream, because a sample
-// is not a state change: the daemon does not publish one, deliberately, since a
-// figure that moves every two seconds would make every dashboard re-read every
-// two seconds through the stream as well (ADR-035).
+// loadResources reads the daemon's most recent resource sample. It follows the
+// periodic refresh rather than the event stream, because a sample is not a
+// state change: a figure that moves every two seconds would make every
+// dashboard re-read through the stream as well (ADR-035).
 func (m Model) loadResources() tea.Cmd {
 	return func() tea.Msg {
 		report, err := m.backend.Resources(context.Background())
@@ -490,12 +454,11 @@ func (m Model) loadResources() tea.Cmd {
 	}
 }
 
-// loadReconciliation reads the daemon's most recent recovery pass.
-//
-// It reads rather than runs one: a pass observes every task's tmux window,
-// worktrees, and containers, and a dashboard that triggered that on a timer
-// would ask Docker about every task several times a minute. The daemon runs its
-// pass at startup, and re-running it is a key the user presses.
+// loadReconciliation reads the daemon's most recent recovery pass. It reads
+// rather than runs one: a pass observes every task's tmux window, worktrees,
+// and containers, so a timer would ask Docker about every task several times a
+// minute. The daemon runs its pass at startup, and re-running it is a key the
+// user presses.
 func (m Model) loadReconciliation() tea.Cmd {
 	return func() tea.Msg {
 		report, err := m.backend.Reconciliation(context.Background())
@@ -504,13 +467,10 @@ func (m Model) loadReconciliation() tea.Cmd {
 }
 
 // reconcile asks the daemon to look again, rather than re-reading what it last
-// found.
-//
-// The recovery band describes a moment, and everything it names can be acted on
-// from this dashboard — so a band that could never be refreshed would go on
-// reporting resources the user had already dealt with. Reading is what the
-// periodic refresh does; this follows a key press or an action that changed
-// something.
+// found. Everything the recovery band names can be acted on from this
+// dashboard, so a band that could never be refreshed would go on reporting
+// resources the user had dealt with. Reading is the periodic refresh's job;
+// this follows a key press or an action.
 func (m Model) reconcile() tea.Cmd {
 	return func() tea.Msg {
 		report, err := m.backend.Reconcile(context.Background())
@@ -518,32 +478,27 @@ func (m Model) reconcile() tea.Cmd {
 	}
 }
 
-// reconciliationMsg carries the daemon's recovery report.
-//
-// A failure carries no error into the model: the report is a band above the task
-// list, and a dashboard that showed an error because it could not read one would
-// be hiding the tasks behind the thing that explains them.
+// reconciliationMsg carries the daemon's recovery report. A failure carries no
+// error into the model: the report is a band above the task list, and a
+// dashboard that showed an error because it could not read one would hide the
+// tasks behind the thing that explains them.
 type reconciliationMsg struct {
 	report api.Reconciliation
 	err    error
 }
 
-// connect follows the daemon's event stream for the life of the dashboard.
+// connect follows the daemon's event stream for the life of the dashboard. Each
+// event becomes a message that makes the dashboard re-read state rather than
+// apply the change itself: the stream reports what changed and the snapshot is
+// what it changed to, and deriving one from the other would give the dashboard
+// a second, divergent copy of the daemon's state.
 //
-// Each event becomes a message that makes the dashboard re-read state rather
-// than apply the change itself. The stream reports what changed, and the
-// snapshot is what it changed to; deriving one from the other would give the
-// dashboard a second, divergent copy of the daemon's state.
-//
-// Exactly one stream is opened, and it is held open. Receiving an event costs a
-// channel read rather than a connection, which is not an optimisation: the
-// daemon opens every stream with a hello item so that a client learns the stream
-// is live before anything happens (ADR-027, docs/06-technical-architecture.md).
-// A dashboard that opened a stream per event would therefore be driven by its
-// own reconnections — each hello would produce the event that opened the next
-// connection — and would leak a connection, a goroutine, and a subscriber on
-// both sides of the socket every time round. That is not a slow leak: it runs at
-// the speed of the socket.
+// Exactly one stream is opened and it is held open, which is not an
+// optimisation. The daemon opens every stream with a hello item so a client
+// learns the stream is live before anything happens (ADR-027,
+// docs/06-technical-architecture.md), so a dashboard that opened a stream per
+// event would be driven by its own reconnections and would leak a connection, a
+// goroutine, and a subscriber on each round, at the speed of the socket.
 func (m Model) connect() tea.Cmd {
 	backend, events, ctx := m.backend, m.events, m.streamCtx
 	return func() tea.Msg {
@@ -567,10 +522,9 @@ func (m Model) connect() tea.Cmd {
 	}
 }
 
-// awaitEvent waits for the next item the open stream delivered.
-//
-// It is re-issued for each item, and it opens nothing: the connection it reads
-// from was made once, by connect.
+// awaitEvent waits for the next item the open stream delivered. It is re-issued
+// for each item and opens nothing: the connection it reads from was made once,
+// by connect.
 func (m Model) awaitEvent() tea.Cmd {
 	events := m.events
 	return func() tea.Msg {
@@ -589,12 +543,10 @@ func tick() tea.Cmd {
 }
 
 // Update applies one message and leaves the loading indicator in step with it.
-//
-// Every message goes through the same two steps: the screens apply it, and then
-// the indicator is set to whatever they are now waiting for. Doing it here is
-// what makes it impossible to start a spinner and forget to stop it — the
-// screens set the flags they already had, and none of them knows there is a
-// spinner at all.
+// Every message goes through the same two steps: the screens apply it, then the
+// indicator is set to whatever they are now waiting for. Doing it here makes it
+// impossible to start a spinner and forget to stop it, and no screen knows
+// there is one.
 func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	updated, cmd := m.apply(message)
 	model, ok := updated.(Model)
@@ -618,18 +570,14 @@ func (m Model) animate(cmd tea.Cmd) (tea.Model, tea.Cmd) {
 }
 
 // waiting reports whether the screen with the keyboard is waiting for a request
-// it has told the user about.
-//
-// It asks the open screen rather than every screen, because the indicator is
-// drawn on the screen that is waiting and nowhere else: a dialog closed over a
-// request still in flight has nothing left to draw a spinner in, and the answer
-// it is waiting for lands in the footer.
+// it has told the user about. It asks the open screen rather than every screen,
+// because a dialog closed over a request still in flight has nothing left to
+// draw a spinner in and the answer lands in the footer.
 //
 // The terminal's case widens what this answers. Every other wait here is a
-// request the dashboard has outstanding with the daemon; that one is a wait on
-// an event from the agent, which nothing on this side asked for and which the
-// daemon will report when it arrives. It is the same fact for the reader — Feat
-// is waiting, and this is what for — and the indicator says exactly that much.
+// request the dashboard has outstanding with the daemon; that one waits on an
+// event from the agent, which nothing on this side asked for. For the reader it
+// is the same fact: Feat is waiting, and this is what for.
 func (m Model) waiting() bool {
 	switch m.screen {
 	case screenPrepare:
@@ -716,8 +664,7 @@ func (m Model) apply(message tea.Msg) (tea.Model, tea.Cmd) {
 		// dashboard correct when it ends. It is deliberately not reopened here:
 		// v0.1 answers a lost stream by re-reading current state rather than by
 		// resuming (ADR-027), and a dashboard that reconnected on its own would
-		// have to decide how often — which is exactly the decision that was
-		// missing when it reconnected on every event.
+		// have to decide how often.
 		//
 		// Recording that it ended is what lets a daemon the user restarts get a
 		// subscription again, once, on the way back.
@@ -845,32 +792,26 @@ func (m Model) apply(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // frameKey answers the keys that belong to the layout rather than to whichever
-// tab has the keyboard: moving between tabs, and moving between tasks.
+// tab has the keyboard: moving between tabs, and moving between tasks. It
+// reports whether it handled the key, so a tab still sees everything else.
 //
-// It reports whether it handled the key, so that a tab still sees everything
-// else.
+// The division is the shift key: shifted keys move the frame — which task,
+// which view — and plain keys move within whatever the main region is drawing.
+// Plain arrows doing both means the same key moves the rail on one tab and a
+// repository on the next, which a user cannot tell without pressing it
+// (ADR-046).
 //
-// The division is one rule, and the rule is the shift key: shifted keys move the
-// frame — which task, which view — and plain keys move within whatever the main
-// region is drawing. Before ADR-046 the plain arrows did both, depending on which
-// tab was open: they moved the rail on the terminal tab and a repository on the
-// task panel, so the same key meant two things and a user could not tell which
-// without pressing it.
+// Each direction has three spellings. Uppercase letters are the primary
+// binding, because a terminal has no modifier bit for a shifted letter and
+// delivers shift+j as J. The shifted arrows are the same movement for a user
+// who does not think in hjkl, and they are the one spelling a terminal can fail
+// to deliver: a modified arrow needs an escape sequence of its own, and not
+// every terminal emits one.
 //
-// Each direction has three spellings. Uppercase letters are the primary binding —
-// a terminal has no modifier bit for a shifted letter, so shift+j is delivered as
-// J, and that is what a Vim-shaped binding actually is. The shifted arrows are the
-// same movement for a user who does not think in hjkl, and they are the one
-// spelling a terminal can fail to deliver: a modified arrow needs an escape
-// sequence of its own, and not every terminal emits one.
-//
-// The control pair is neither of those and is not a fallback either, which is what
-// it was documented as. A terminal that eats shifted arrows still delivers `J`, so
-// the letters already cover that case and the map says so. It is here for the
-// readline reflex, where ctrl+n and ctrl+p are next and previous line — an
-// affordance for a habit rather than a route anybody needs taught, which is why it
-// was taken off the key map and written down here instead. It costs nothing: it
-// shares an arm with the spelling that is documented, so the two cannot diverge.
+// The control pair is not a fallback — a terminal that eats shifted arrows
+// still delivers `J`. It is here for the readline reflex, where ctrl+n and
+// ctrl+p are next and previous line, which is why it is not on the key map. It
+// shares an arm with the documented spelling, so the two cannot diverge.
 func (m Model) frameKey(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch key.String() {
 	case "L", "shift+right", "tab":
@@ -890,25 +831,19 @@ func (m Model) frameKey(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		return updated, cmd, true
 
 	// The same movement named rather than stepped: one shifted letter per view,
-	// so that reaching one is not counting how far it is from here. They are the
-	// frame's keys for the reason L and H are — a view must not be able to swallow
-	// the key that leaves it — and they are excluded while a dialog is open by the
-	// same rule, because moving the frame under an unanswered question would change
-	// what the answer applies to.
+	// so reaching one is not counting how far it is from here. They are the
+	// frame's keys for the reason L and H are — a view must not swallow the key
+	// that leaves it — and a dialog excludes them, because moving the frame under
+	// an unanswered question would change what the answer applies to.
 	//
-	// Two views had a key and two did not, and the two that had one had it from
-	// here rather than from the frame — so they were answered after a view, and
-	// worked only because no view claimed them. `R` opened the runtime, `v` and
-	// `enter` both opened the task panel, and the brief and the terminal could only
-	// be cycled to. `enter` and `v` are gone: `enter` means "confirm" in every
-	// dialog the dashboard has, and the frame was the one place it did not.
+	// `enter` is not among them: it means "confirm" in every dialog the dashboard
+	// has, and the frame was the one place it did not.
 	//
 	// `A` is the agent's terminal and is deliberately the shifted form of `a`,
 	// which attaches to it: the pair is the view of the pane and the keyboard
-	// handed to it. It is the one pair here where shift changes what happens
+	// handed to it, and it is the one pair here where shift changes what happens
 	// rather than where it happens. The terminal is not `H`, which would spell
-	// home: `H` is half of the pair that steps between views, and that is worth
-	// more than the mnemonic.
+	// home, because `H` is half of the pair that steps between views.
 	case "A":
 		updated, cmd := m.selectTab(tabTerminal)
 		return updated, cmd, true
@@ -929,10 +864,9 @@ func (m Model) frameKey(key tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 }
 
 // selectTask moves the rail's cursor and brings the open tab with it.
-//
 // Re-opening the tab for the new task is the point: a review or a runtime view
-// holds what it was told about one task, and leaving it behind after the
-// selection moved would show one task's services under another task's name.
+// holds what it was told about one task, and leaving it behind would show one
+// task's services under another task's name.
 func (m Model) selectTask(delta int) (tea.Model, tea.Cmd) {
 	next, ok := m.nextStop(delta)
 	if !ok {
@@ -944,17 +878,14 @@ func (m Model) selectTask(delta int) (tea.Model, tea.Cmd) {
 	return m.selectTab(m.activeTab())
 }
 
-// nextStop is the task delta steps away in the rail, wrapping at both ends.
-//
-// It resolves the selection to a row and returns a task rather than the row,
-// because the row is only true of the list this key press landed on: the next
-// refresh may put the same task somewhere else.
+// nextStop is the task delta steps away in the rail, wrapping at both ends. It
+// returns a task rather than the row, because the row is only true of the list
+// this key press landed on and the next refresh may move the same task.
 //
 // A folded project is one stop rather than a run of hidden tasks: the fold is
-// the thing the cursor moves to, because the fold is what space opens. Folded
-// projects used to be stepped over entirely, which made folding a one-way door —
-// nothing could put the cursor back on a folded project, so nothing could open
-// one again (ADR-052).
+// what the cursor moves to, because the fold is what space opens. Stepping over
+// folded projects makes folding a one-way door, with nothing able to put the
+// cursor back on one (ADR-052).
 func (m Model) nextStop(delta int) (api.Task, bool) {
 	if len(m.tasks) == 0 || delta == 0 {
 		return api.Task{}, false
@@ -982,13 +913,11 @@ func (m Model) nextStop(delta int) (api.Task, bool) {
 	return m.tasks[next], true
 }
 
-// railStops is the cursor positions the rail offers, in the order it draws them,
-// and where in that sequence each task index sits.
-//
-// Every task of an open project is its own stop. A folded project contributes
-// one, which is the task the cursor is already on when the fold holds it: moving
-// onto a fold and back off it must not quietly re-select a different task inside
-// it, and the fold's header names the one it is holding.
+// railStops is the cursor positions the rail offers, in the order it draws
+// them, and where in that sequence each task index sits. Every task of an open
+// project is its own stop; a folded project contributes one, which is the task
+// the cursor is already on when the fold holds it, so moving onto a fold and
+// off it re-selects nothing.
 func (m Model) railStops() ([]int, map[int]int) {
 	stops := make([]int, 0, len(m.tasks))
 	at := make(map[int]int, len(m.tasks))
@@ -1013,12 +942,10 @@ func (m Model) railStops() ([]int, map[int]int) {
 	return stops, at
 }
 
-// foldProject folds or unfolds the project of the task under the cursor.
-//
-// The cursor stays where it is, so space is the same control in both directions:
-// what folded a project opens it again, on the project it was pressed on. The
-// task it holds goes on being the selected one and the folded header names it,
-// which is what makes the fold something a user can move back to (ADR-052).
+// foldProject folds or unfolds the project of the task under the cursor. The
+// cursor stays where it is, so space is the same control in both directions.
+// The task it holds goes on being the selected one and the folded header names
+// it, which is what makes the fold something a user can move back to (ADR-052).
 func (m Model) foldProject() (tea.Model, tea.Cmd) {
 	task, ok := m.subject()
 	if !ok {
@@ -1050,11 +977,10 @@ func nextTab(active tab, delta int) tab {
 	return tabs[((at+delta)%len(tabs)+len(tabs))%len(tabs)]
 }
 
-// selectTab moves the main region to a tab and asks for whatever it shows.
-//
-// The task panel and runtime go through the same entry points their keys use,
-// because a tab that read state a different way from the key beside it would be
-// a second implementation of the same screen.
+// selectTab moves the main region to a tab and asks for whatever it shows. The
+// task panel and runtime go through the same entry points their keys use,
+// because a tab that read state a different way would be a second
+// implementation of one screen.
 func (m Model) selectTab(active tab) (tea.Model, tea.Cmd) {
 	switch active {
 	case tabTask:
@@ -1134,13 +1060,11 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// The frame's own keys are answered before the tab's, because a tab's key
 	// handler returns for everything it does not recognise and would otherwise
-	// swallow them. That is what stopped `tab` at the review tab: review and
-	// runtime never passed it on, so the cycle ended wherever a screen with its
-	// own keyboard began.
+	// swallow them: that is what stops `tab` at a screen with its own keyboard.
 	//
-	// They are not answered while a dialog is open. An overlay is something that
-	// must be answered before work continues, and moving the tab or the task
-	// underneath it would change what the answer applies to.
+	// They are not answered while a dialog is open. An overlay must be answered
+	// before work continues, and moving the tab or the task underneath it would
+	// change what the answer applies to.
 	if m.screen != screenCleanup && m.screen != screenPublication {
 		if updated, cmd, handled := m.frameKey(key); handled {
 			return updated, cmd
@@ -1165,12 +1089,10 @@ func (m Model) key(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.dashboardKey(key)
 }
 
-// quit leaves the dashboard.
-//
-// The daemon serves a subscription until its client goes away, so the dashboard
-// says so on the way out rather than leaving one to be collected when the
-// process happens to exit. Every screen that offers `q` goes through here, so
-// that there is one way out rather than one per overlay.
+// quit leaves the dashboard. The daemon serves a subscription until its client
+// goes away, so the dashboard says so on the way out rather than leaving one to
+// be collected when the process exits. Every screen that offers `q` goes
+// through here.
 func (m Model) quit() (tea.Model, tea.Cmd) {
 	m.quitting = true
 	m.stopStream()
@@ -1178,20 +1100,16 @@ func (m Model) quit() (tea.Model, tea.Cmd) {
 }
 
 // dashboardKey answers the keys that belong to the dashboard rather than to one
-// of its views: opening an overlay, acting on the selected task, quitting.
+// of its views: opening an overlay, acting on the selected task, quitting. A
+// view with its own keyboard falls through to this for every key it does not
+// claim, which is what makes `?` work from the task panel and runtime.
 //
-// A view with its own keyboard falls through to this for every key it does not
-// claim, which is what makes `?` work from the task panel and runtime. They used
-// to return for anything they did not recognise, so the keys below were reachable
-// only from the terminal tab — while the footer on those views went on offering
-// `? keys`, because the frame's hints are drawn there whatever has the keyboard.
-//
-// Falling through rather than being answered first is deliberate, and it is the
-// opposite of what frameKey does. Movement must beat a view, because a view that
-// swallowed it would trap the user in itself. An action must not: `r` refreshes
-// the comparison on the task panel and the runtime's state on runtime, and `C`
-// sends work back there while it cleans a task up here. A view that claims a key
-// keeps it, and everything else lands on the dashboard's own meaning.
+// Falling through rather than being answered first is the opposite of what
+// frameKey does. Movement must beat a view, because a view that swallowed it
+// would trap the user in itself; an action must not, because `r` refreshes the
+// comparison on the task panel and the runtime's state on runtime. A view that
+// claims a key keeps it, and everything else lands on the dashboard's own
+// meaning.
 func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// A pending confirmation takes the keyboard, as it does on the runtime
 	// screen: while Feat is asking whether to interrupt a working agent, no
@@ -1229,15 +1147,11 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.offerDaemonStart()
 
 	// esc is not navigation. It closes an overlay, and every overlay answers it
-	// before a key reaches here; on a tab it means nothing at all.
-	//
-	// The tabs used to close on it — the panel and the brief onto the terminal,
-	// runtime onto the panel — which read as a back button that had lost the
-	// brief: the tab bar is a cycle of four in a fixed order, and esc walked a
-	// different, shorter one backwards through it. Two ways to move between the
-	// same four views, disagreeing about what is next to what, is one more than
-	// the frame's keys need (ADR-046). It is answered here rather than left to
-	// fall off the end of the switch so that what it does is written down.
+	// before a key reaches here; on a tab it means nothing at all. A tab that
+	// closed on it would be a second way to move between the same four views,
+	// disagreeing with the tab bar's own order about what is next to what
+	// (ADR-046). It is answered here rather than left to fall off the end of the
+	// switch so that what it does is written down.
 	case "esc":
 		return m, nil
 
@@ -1273,17 +1187,13 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// The plain keys move within the main region, and on the terminal tab there
 	// is nothing to move through: an unfocused pane has no cursor of its own, and
 	// a focused one takes every key before this. So they do nothing here, and the
-	// rail is on J and K, as it is from every other view.
+	// rail is on J and K as it is from every other view.
 	//
-	// The narrow fallback is the exception that proves the rule rather than one
-	// against it. Below the layout's minimum there is no rail: the task list is
-	// what the single column draws, so it is the main region, and moving within it
-	// is exactly what these keys mean everywhere else.
-	//
-	// The terminal screen is what draws that list, so it is the only one this
-	// applies to. Runtime reaches here by falling through, and a narrow terminal
-	// showing runtime is showing runtime rather than the list — moving the
-	// selection there would move something the user cannot see.
+	// The narrow fallback is not an exception. Below the layout's minimum there
+	// is no rail, so the task list is what the single column draws and moving
+	// within it is what these keys mean everywhere else. The terminal screen is
+	// what draws that list; runtime reaches here by falling through, and a narrow
+	// terminal showing runtime would be moving a selection the user cannot see.
 	case "up", "k":
 		if m.narrow() && m.screen == screenTerminal {
 			return m.selectTask(-1)
@@ -1343,13 +1253,11 @@ func (m Model) dashboardKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// openDiagnosis checks the selected task's project against this machine.
-//
-// The subject is the project rather than the task, because that is what a
-// configuration is about: a check that a Compose service exists or that the
-// agent is installed is true of every task in the project or of none of them.
-// With no task selected there is nothing to name, so every configured project
-// is checked, which is what `feat doctor` does.
+// openDiagnosis checks the selected task's project against this machine. The
+// subject is the project rather than the task, because a check that a Compose
+// service exists or that the agent is installed is true of every task in the
+// project or of none. With no task selected, every configured project is
+// checked, as `feat doctor` does.
 func (m Model) openDiagnosis() (tea.Model, tea.Cmd) {
 	project := ""
 	if task, ok := m.subject(); ok {
@@ -1401,11 +1309,10 @@ func (m Model) diagnosisKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// configureProject opens the project wizard.
-//
-// The questions are `feat project init`'s own, in internal/wizard, and this
-// screen is a second asker rather than a second wizard: what it adds is a
-// cursor, a step back out of an answer, and the dashboard behind it (ADR-063).
+// configureProject opens the project wizard. The questions are `feat project
+// init`'s own, in internal/wizard, and this screen is a second asker rather
+// than a second wizard: what it adds is a cursor, a step back out of an answer,
+// and the dashboard behind it (ADR-063).
 func (m Model) configureProject() (tea.Model, tea.Cmd) {
 	m.rememberTab()
 	m.screen = screenWizard
@@ -1414,11 +1321,9 @@ func (m Model) configureProject() (tea.Model, tea.Cmd) {
 	return m, m.wizard.Init()
 }
 
-// finishWizard closes the wizard and looks again.
-//
-// A project may have been written and registered while it was open, and the
-// rail is grouped by project: reading state again is how the dashboard finds
-// out, as it is after every other screen that changes something.
+// finishWizard closes the wizard and looks again. A project may have been
+// written and registered while it was open and the rail is grouped by project,
+// so reading state again is how the dashboard finds out.
 func (m Model) finishWizard() (tea.Model, tea.Cmd) {
 	m.screen = screenFor(m.tab)
 	m.wizard = wizardModel{}
@@ -1469,11 +1374,10 @@ func (m Model) shell() (tea.Model, tea.Cmd) {
 	}
 }
 
-// resume continues a task's recorded agent session.
-//
-// It is a key the user presses, and nothing else reaches it. Reconciliation
-// reports that a session can be resumed and never resumes one, which is what
-// keeps recovery an offer rather than a restart (FR-STATE-004, ADR-037).
+// resume continues a task's recorded agent session. It is a key the user
+// presses and nothing else reaches it: reconciliation reports that a session
+// can be resumed and never resumes one, which keeps recovery an offer rather
+// than a restart (FR-STATE-004, ADR-037).
 func (m Model) resume() (tea.Model, tea.Cmd) {
 	task, ok := m.subject()
 	if !ok {
@@ -1498,12 +1402,10 @@ func (m Model) resume() (tea.Model, tea.Cmd) {
 	}, m.reconcile())
 }
 
-// stop puts the selected task's agent to sleep.
-//
-// It asks first only when there is something to interrupt. An agent that is
-// running is mid-turn, and stopping it ends that turn wherever it had got to;
-// one that is idle, stopped, or failed is not doing anything a user would want
-// to be warned about losing.
+// stop puts the selected task's agent to sleep. It asks first only when there
+// is something to interrupt: an agent that is running is mid-turn and stopping
+// it ends that turn wherever it had got to, while an idle, stopped, or failed
+// one is not doing anything a user would want warning about.
 func (m Model) stop() (tea.Model, tea.Cmd) {
 	task, ok := m.subject()
 	if !ok {
@@ -1542,19 +1444,15 @@ func (m Model) stopAgent(id string) (tea.Model, tea.Cmd) {
 	}, m.reconcile())
 }
 
-// cancel asks whether to abandon a draft.
-//
-// Only a draft can be cancelled here. Removing the resources of a launched task
-// is cleanup, which resolves exact targets and asks for confirmation per
-// resource class.
+// cancel asks whether to abandon a draft. Only a draft can be cancelled here:
+// removing the resources of a launched task is cleanup, which resolves exact
+// targets and confirms per resource class.
 //
 // It asks rather than doing it, which is the half of G2-04 the selection fix
-// did not cover. Holding the selection by identifier stopped `x` acting on a
-// task the rail was not marking; it did not put anything on the screen naming
-// what the key is about to destroy. A draft is a brief somebody typed, Feat
-// holds the only copy, and cleanup — the neighbouring key, on the same row of
-// the same footer — confirms per resource class for things that can be
-// recreated from a repository.
+// did not cover. Holding the selection by identifier stops `x` acting on a task
+// the rail is not marking; it names nothing the key is about to destroy. A
+// draft is a brief somebody typed and Feat holds the only copy, while cleanup
+// confirms per class for things a repository can recreate.
 func (m Model) cancel() (tea.Model, tea.Cmd) {
 	task, ok := m.subject()
 	if !ok {
@@ -1587,11 +1485,9 @@ func (m Model) cancelDraft(id string) (tea.Model, tea.Cmd) {
 }
 
 // taskKey is the short key a message names a task by, or the identifier when
-// the task has left the list.
-//
-// A confirmation can outlive its subject: the refresh that arrives between the
-// question and the answer is the thing this whole area is about, and a sentence
-// with an empty name in it would be worse than a long one.
+// the task has left the list. A confirmation can outlive its subject — the
+// refresh between the question and the answer is what this area is about — and
+// a sentence with an empty name in it would be worse than a long one.
 func (m Model) taskKey(id string) string {
 	if task, ok := m.task(id); ok {
 		return task.Key
@@ -1599,25 +1495,18 @@ func (m Model) taskKey(id string) string {
 	return id
 }
 
-// finishPreparation returns to the dashboard once preparation ends.
+// finishPreparation returns to the dashboard once preparation ends. The
+// launched task becomes the selection, and because the selection names a task
+// the rail's marker follows it: a marker held as a row lands on whatever the
+// newest-first list moved into that position.
 //
-// The launched task becomes the selection, and because the selection names a
-// task the rail's marker follows it. It did not: the selection was an identifier
-// and the marker was a row, so the refresh that listed the new task first — the
-// list is newest-first — moved the marker onto whatever had been first before,
-// and the footer said "launched task X" over a rail pointing somewhere else.
-//
-// Where it closes onto is the tab it opened over, which is what an overlay does
-// and what every other one here already did: preparation remembered the tab on
-// the way in and then went home anyway, so cancelling it from the task panel or
-// the brief moved the user to the terminal — a view they had not asked for, in
-// answer to a key that had just undone the only thing they had. Preparation the
-// dashboard opens on, for `feat implement`, was never over a tab and has nothing
-// to remember; the terminal is the zero value, which is where it closed before.
+// It closes onto the tab it opened over, which is what an overlay does. Closing
+// onto the terminal instead moves a user who cancelled from the task panel or
+// the brief to a view they had not asked for. Preparation the dashboard opens
+// on, for `feat implement`, was never over a tab and has nothing to remember.
 //
 // A launch is the exception, and it is a result rather than a movement: the
-// terminal is the pane of the task that was created, which is what the user
-// asked for and is not the tab they left.
+// terminal is the pane of the task that was created.
 //
 // Both go through selectTab rather than by assigning the screen, because a
 // launch moves the selection: the panel and runtime hold one task's answer and
@@ -1641,12 +1530,8 @@ func (m Model) finishPreparation(message preparedMsg) (tea.Model, tea.Cmd) {
 }
 
 // subject is the task an action applies to: the selected one, which is what the
-// rail's marker is on and what the main region is drawing.
-//
-// It used to be two answers to one question — the task the panel was opened on
-// while the panel had the keyboard, and the task under the cursor otherwise —
-// and they were held in two fields that a refresh could move independently.
-// There is one selection now, so there is one answer, whatever has the keyboard.
+// rail's marker is on and what the main region is drawing. There is one
+// selection, so there is one answer, whatever has the keyboard.
 func (m Model) subject() (api.Task, bool) { return m.task(m.selected) }
 
 // task finds a task by identifier.
@@ -1666,11 +1551,9 @@ func findTask(tasks []api.Task, id string) (api.Task, bool) {
 }
 
 // selectedIndex is where the selected task sits in the list this refresh
-// delivered, or -1 when the list does not hold it.
-//
-// A row is derived here and nowhere else. It is true of one list, and the list
-// is replaced whenever the daemon says anything, so the only safe place to hold
-// one is inside the operation that uses it.
+// delivered, or -1 when the list does not hold it. A row is derived here and
+// nowhere else: it is true of one list, and the list is replaced whenever the
+// daemon says anything.
 func (m Model) selectedIndex() int {
 	for i, task := range m.tasks {
 		if task.ID == m.selected {
@@ -1680,25 +1563,21 @@ func (m Model) selectedIndex() int {
 	return -1
 }
 
-// anchorSelection keeps the selection naming a task rather than a position.
+// anchorSelection keeps the selection naming a task rather than a position. A
+// refresh may do exactly two things to it. A dashboard that has never had a
+// task list selects the first one, because a rail with no marker is not a
+// dashboard anybody can start from. And a selection whose task has left the
+// list — archived by a cleanup here, or cancelled from another terminal — is
+// reported in the words of the task that went.
 //
-// A refresh may do exactly two things to it. A dashboard that has never had a
-// task list selects the first one, because a rail with no marker and a main
-// region with nothing in it is not a dashboard anybody can start from. And a
-// selection whose task has left the list — archived by a cleanup here or
-// cancelled from another terminal — is reported, in the words of the task that
-// went rather than the identifier, because the user is looking at a rail that no
-// longer has a marker on it.
+// It never moves the selection to a different task. Clamping an index against a
+// list re-sorted newest-first re-points the selection at whichever task now
+// occupies the row, while the user's next key press — `x`, `t`, `C`, or a
+// keystroke into a focused pane — is already on its way to it.
 //
-// It never moves the selection to a different task. That is what this replaced:
-// clamping an index against a list re-sorted newest-first silently re-pointed
-// the selection at whichever task now occupied the row, while the user's next
-// key press — `x`, `t`, `C`, or a keystroke into a focused pane — was already on
-// its way to it.
-//
-// previous is the list this refresh replaced, so that a task that was never in
-// it is not reported as having gone away: the reference `feat review <task>`
-// opens on is not a listed task until the first response resolves it.
+// previous is the list this refresh replaced, so a task that was never in it is
+// not reported as having gone away: the reference `feat review <task>` opens on
+// is not a listed task until the first response resolves it.
 func (m *Model) anchorSelection(previous []api.Task) {
 	if _, listed := m.task(m.selected); listed {
 		return
@@ -1727,12 +1606,10 @@ func sortTasks(tasks []api.Task) []api.Task {
 	return ordered
 }
 
-// View renders the dashboard: three regions, with a dialog over them when one is
-// open (ADR-041).
-//
-// A terminal too small for the three regions gets the single stacked column the
-// dashboard drew before, because a rail and a main region inside eighty columns
-// leave neither enough to be read.
+// View renders the dashboard: three regions, with a dialog over them when one
+// is open (ADR-041). A terminal too small for the three regions gets a single
+// stacked column, because a rail and a main region inside eighty columns leave
+// neither enough to read.
 func (m Model) View() string {
 	if m.quitting {
 		return ""
@@ -1786,27 +1663,22 @@ func (m Model) stackedView() string {
 	}
 }
 
-// dialogLimits are the widest and tallest a dialog may be drawn.
-//
-// A dialog takes most of the terminal but never all of it. What is left is the
-// task list and the resources behind it, which is the reason ADR-041 chose an
-// overlay over a screen that replaces them. It never reaches the footer, which
-// is the part of the frame that holds still.
+// dialogLimits are the widest and tallest a dialog may be drawn. A dialog takes
+// most of the terminal but never all of it: what is left is the task list and
+// the resources ADR-041 chose an overlay to keep. It never reaches the footer,
+// which is the part of the frame that holds still.
 func (m Model) dialogLimits() (widest, tallest int) {
 	width, height := m.frameSize()
 	return width * 3 / 4, height - footerHeight
 }
 
-// wizardLimits are the widest and tallest `configure a project` is drawn.
-//
-// Half the terminal, where every other overlay has three quarters, and it is the
-// one overlay whose content is prose the user reads rather than the paths,
-// identifiers, and lists the others hold. Width is legibility for those and a
-// cost for this one: ADR-088 gave the question widget the box to fold its
-// paragraphs into, which fixed a note that was being cut short, and what it
-// inherited was the box's own measure — a paragraph set to a hundred and sixteen
-// cells on a wide terminal, which is past where a line stops being read and
-// starts being scanned back to.
+// wizardLimits are the widest and tallest `configure a project` is drawn. Half
+// the terminal, where every other overlay has three quarters, because it is the
+// one overlay whose content is prose rather than the paths, identifiers, and
+// lists the others hold. ADR-088 gave the question widget the box to fold its
+// paragraphs into, and the box's own measure is a paragraph set to a hundred
+// and sixteen cells on a wide terminal, which is past where a line stops being
+// read and starts being scanned back to.
 //
 // The tallest is unchanged. A dialog never reaches the footer, and how long a
 // line is says nothing about how many of them there is room for.
@@ -1819,14 +1691,11 @@ func (m Model) wizardLimits() (widest, tallest int) {
 }
 
 // wizardSmallest is the narrowest `configure a project` is drawn, whatever half
-// the terminal comes to.
-//
-// The review step names the most keys of any step — write it, the four that read
-// the file, step back, and cancel — and they come to sixty-five cells, with the
-// box spending four more on its border and gutters. A hint that is cut is a key
-// nobody can press, which is what the key map already says about its own column,
-// so this is a floor and not something the narrower measure may squeeze.
-// TestEveryWizardStepCanNameItsKeys is what keeps the number honest.
+// the terminal comes to. The review step names the most keys of any step —
+// write it, the four that read the file, step back, and cancel — and they come
+// to sixty-five cells, with the box spending four more on its border and
+// gutters. A hint that is cut is a key nobody can press, so this is a floor the
+// narrower measure may not squeeze (TestEveryWizardStepCanNameItsKeys).
 //
 // It binds below about a hundred and forty columns and does nothing above it.
 const wizardSmallest = 65 + dialogChrome
@@ -1881,12 +1750,10 @@ func (m Model) dialogView() string {
 }
 
 // preparationSize is the space task preparation is drawn in: the inside of the
-// dialog where the frame is drawn, and the whole terminal where it is not.
-//
-// It is the dialog's rather than the terminal's because the fields size
-// themselves to what they are told: a text area given the terminal's width and
-// drawn in three quarters of it is one whose every line ends in an ellipsis, and
-// the ellipsis is on the line the user is typing.
+// dialog where the frame is drawn, and the whole terminal where it is not. It
+// is the dialog's because the fields size themselves to what they are told, and
+// a text area given the terminal's width in three quarters of it ends every
+// line in an ellipsis.
 func (m Model) preparationSize() (width, height int) {
 	if m.narrow() {
 		return m.frameSize()
@@ -1897,13 +1764,11 @@ func (m Model) preparationSize() (width, height int) {
 	return widest - cardChrome, tallest - cardVerticalChrome
 }
 
-// wizardSize is the space `configure a project` is drawn in.
-//
-// It is preparationSize's shape over the wizard's own allowance, and it is a
-// second function rather than a parameter because the two overlays no longer
-// share a width. The wizard's field and the prose around it size themselves to
-// what they are told, so this is what they are told — and it is told to the
-// widget as well, which folds a question's paragraphs into it (ADR-088).
+// wizardSize is the space `configure a project` is drawn in. It is
+// preparationSize's shape over the wizard's own allowance, and a second
+// function rather than a parameter because the two overlays no longer share a
+// width. The field, the prose around it, and the widget that folds a question's
+// paragraphs are all told this (ADR-088).
 func (m Model) wizardSize() (width, height int) {
 	if m.narrow() {
 		return m.frameSize()
@@ -1913,10 +1778,9 @@ func (m Model) wizardSize() (width, height int) {
 	return widest - cardChrome, tallest - cardVerticalChrome
 }
 
-// activeTab is what the main region draws.
-//
-// With an overlay open the screen is not a tab, and the main region keeps
-// showing whatever the user was reading before they opened it.
+// activeTab is what the main region draws. With an overlay open the screen is
+// not a tab, and the main region keeps showing whatever the user was reading
+// before they opened it.
 func (m Model) activeTab() tab {
 	if active, ok := m.screen.tab(); ok {
 		return active
@@ -1945,8 +1809,8 @@ func (m Model) footer(hints string) string {
 	// Both are cut to the frame and flattened to one line. The footer is a fixed
 	// number of rows that the regions above it are sized against, and an error is
 	// the one string here Feat did not write: a wrapped one carries the output it
-	// wrapped, line breaks and all, and would push the frame apart from the bottom
-	// (ADR-054).
+	// wrapped, line breaks and all, and would push the frame apart from the
+	// bottom (ADR-054).
 	switch {
 	case m.err != nil:
 		out.WriteString("\n" + failureStyle.Render(truncate(plainLine(m.err.Error()), width)) + "\n")

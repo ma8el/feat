@@ -3,24 +3,22 @@ package ui
 import "strings"
 
 // The three-region layout needs room for a rail and a main region that are both
-// worth reading. Below either measure the dashboard draws the single column it
-// drew before, because a rail and a main region inside eighty columns starve
-// each other and a stacked screen at least fits (ADR-041).
+// worth reading. Below either measure the dashboard draws a single column,
+// because a rail and a main region inside eighty columns starve each other and
+// a stacked screen at least fits (ADR-041).
 const (
 	minimumWidth  = 96
 	minimumHeight = 18
 )
 
-// footerHeight is how many lines the footer occupies: the rule that separates it
-// from the regions above, a status line, the worktree and resource line, and the
-// key hints.
+// footerHeight is how many lines the footer occupies: the rule that separates
+// it from the regions above, a status line, the worktree and resource line, and
+// the key hints.
 const footerHeight = 4
 
-// regionGap is the blank column between the two cards.
-//
-// One cell rather than none, because two boxes sharing an edge read as one box
-// with a line down it — which is what the layout had before the cards, and what
-// a user reads as one region rather than two (ADR-051).
+// regionGap is the blank column between the two cards. One cell rather than
+// none, because two boxes sharing an edge read as one box with a line down it
+// (ADR-051).
 const regionGap = 1
 
 // tab is which view of the selected task the main region shows.
@@ -31,27 +29,21 @@ const (
 	// dashboard's own views tell a user about a task, and this one shows them
 	// the task (ADR-042).
 	tabTerminal tab = iota
-	// tabTask is what detail and review became. They were conceptually
-	// different and shared most of their content, and neither filled the region
-	// on its own (ADR-042, evidence 1).
+	// tabTask holds what detail and review both showed: they shared most of their
+	// content and neither filled the region on its own (ADR-042, evidence 1).
 	tabTask
-	// tabBrief is the document the task was launched from.
-	//
-	// It is unbounded, and it was what made the panel beside it scroll: a task's
-	// fields are a screen and a brief is however long somebody wrote. Read
-	// heavily before launch and rarely during, so on a tab of its own the panel
-	// stops scrolling in the common case and a field is where it was last time
-	// (ADR-086, ADR-041 evidence 4).
+	// tabBrief is the document the task was launched from. It is unbounded — a
+	// task's fields are a screen and a brief is however long somebody wrote — and
+	// on a tab of its own the panel beside it stops scrolling, so a field is
+	// where it was last time (ADR-086, ADR-041 evidence 4).
 	tabBrief
 	tabRuntime
 )
 
 // tabs is the order the tab bar draws them in and the order the tab key cycles.
-//
-// Every tab is about the selected task. The overview was the one that was not —
-// a wide cross-task table ADR-041 kept provisionally — and use decided against
-// it: the rail answers which task to go to next, and the panel answers
-// everything the table's remaining columns did, for the task you went to.
+// Every tab is about the selected task. The wide cross-task table ADR-041 kept
+// provisionally is not here: the rail answers which task to go to next, and the
+// panel answers what the table's remaining columns did.
 var tabs = []tab{tabTerminal, tabTask, tabBrief, tabRuntime}
 
 func (t tab) title() string {
@@ -67,11 +59,10 @@ func (t tab) title() string {
 	}
 }
 
-// narrow reports whether this terminal is too small for the three regions.
-//
-// A zero size is not narrow: it is a terminal that has not reported yet, and
-// falling back before the first tea.WindowSizeMsg would make the layout depend
-// on which message arrived first.
+// narrow reports whether this terminal is too small for the three regions. A
+// zero size is not narrow but a terminal that has not reported yet, and falling
+// back before the first tea.WindowSizeMsg would make the layout depend on
+// message order.
 func (m Model) narrow() bool {
 	if m.width == 0 || m.height == 0 {
 		return false
@@ -79,13 +70,10 @@ func (m Model) narrow() bool {
 	return m.width < minimumWidth || m.height < minimumHeight
 }
 
-// frame composes the rail, the main region, and the footer.
-//
-// The three keep their positions whatever is happening, which is the point of
-// the layout: the row a user's eye learned does not move on the day
-// reconciliation finds something (ADR-041). Each of the two regions is a card —
-// a rounded box with its own header and a rule under it — and the footer is
-// ruled off from both (ADR-051).
+// frame composes the rail, the main region, and the footer. The three keep
+// their positions whatever is happening, so the row a user's eye learned does
+// not move on the day reconciliation finds something (ADR-041). Each region is
+// a card, and the footer is ruled off from both (ADR-051).
 func (m Model) frame() string {
 	width, _ := m.frameSize()
 
@@ -131,13 +119,9 @@ func (m Model) bodyHeight() int {
 }
 
 // mainRegionSize is the space the main region's content has, which is what a
-// pane must be sized to before it is captured.
-//
-// It subtracts what the frame spends around it: the rail, the gap, and both
-// cards' borders and gutters horizontally; the footer, the card's own rules, and
-// the tab bar with the rule under it vertically. A caller asking tmux for a
-// frame needs this exact number, because the pane wraps its own output at
-// whatever width it is told.
+// pane must be sized to before it is captured. A caller asking tmux for a frame
+// needs this exact number, because the pane wraps its own output at whatever
+// width it is told.
 func (m Model) mainRegionSize() (width, height int) {
 	frameWidth, _ := m.frameSize()
 
@@ -166,18 +150,15 @@ func (m Model) mainBody(width, height int) string {
 	}
 }
 
-// mainHeader is the card header of the main region: the tabs, and what task they
-// are all views of.
+// mainHeader is the card header of the main region: the tabs, and what task
+// they are all views of.
 func (m Model) mainHeader(width int) string {
 	return cardHeader(m.tabBar(width), m.headerSubject(width), width)
 }
 
-// headerSubject names the task every tab is about.
-//
-// The rail says which task is selected by moving a marker, which answers the
-// question while the eye is in the rail. The main region is where the eye
-// actually is, and a view of one task among several that does not say which one
-// is a view a user has to look away from to trust.
+// headerSubject names the task every tab is about. The rail answers that with a
+// marker, which works while the eye is in the rail; the main region is where
+// the eye is, and a view of one task among several has to say which one.
 func (m Model) headerSubject(width int) string {
 	task, ok := m.subject()
 	if !ok {
@@ -192,11 +173,10 @@ func (m Model) headerSubject(width int) string {
 	return mutedStyle.Render(truncate(subject, width/2))
 }
 
-// tabBar renders the tabs, marking the one with the main region.
-//
-// The active tab carries the accent as a background rather than as a colour. The
-// bar is the main region's header, and a header whose selected item differs from
-// the others only in shade is one a user compares rather than sees (ADR-051).
+// tabBar renders the tabs, marking the one with the main region. The active tab
+// carries the accent as a background rather than a colour, because a header
+// whose selected item differs only in shade has to be compared rather than seen
+// (ADR-051).
 func (m Model) tabBar(width int) string {
 	rendered := make([]string, 0, len(tabs))
 	for _, candidate := range tabs {
@@ -210,12 +190,10 @@ func (m Model) tabBar(width int) string {
 }
 
 // frameFooter renders the status line, the selected task's worktree beside any
-// note about the machine sample, and the keys for what has the keyboard.
-//
-// The worktree path is here because it is the value a user would otherwise look
-// up and paste. The machine's figures were here too until they moved to the foot
-// of the rail, where a bar can show a proportion; what is left is the sentence
-// that says why one of those figures is absent, which needs the width.
+// note about the machine sample, and the keys for what has the keyboard. The
+// worktree path is here because it is the value a user would otherwise look up
+// and paste. The machine's figures are at the foot of the rail, where a bar can
+// show a proportion; the sentence saying why one is absent needs this width.
 func (m Model) frameFooter(width int) string {
 	var out strings.Builder
 
@@ -234,10 +212,9 @@ func (m Model) frameFooter(width int) string {
 	case m.stopping != "":
 		out.WriteString(truncate(attentionStyle.Render(
 			"Stop the agent of this task? It is working, and stopping it ends the turn.  y to confirm"), width))
-	// Named, unlike the one above it, because the task this is about may not be
-	// the one the rail marks by the time it is answered — a refresh between the
-	// key press and the answer is exactly the event G2-04 was about — and because
-	// what it destroys is the only copy of something somebody wrote.
+	// Named, unlike the one above it, because a refresh between the key press and
+	// the answer can move the rail's marker (G2-04), and because what this
+	// destroys is the only copy of something somebody wrote.
 	case m.cancelling != "":
 		out.WriteString(truncate(attentionStyle.Render(
 			"Cancel draft "+m.taskKey(m.cancelling)+"? Its brief is not kept anywhere else.  y to confirm"), width))
@@ -261,10 +238,9 @@ func (m Model) frameFooter(width int) string {
 	return out.String()
 }
 
-// hints are the keys for whatever has the keyboard.
-//
-// The footer shows what is reachable from here rather than every key the
-// dashboard has, which is what the key overlay on "?" is for.
+// hints are the keys for whatever has the keyboard. The footer shows what is
+// reachable from here rather than every key the dashboard has, which is what
+// the overlay on "?" is for.
 func (m Model) hints() string {
 	// The daemon dialog is a question, so the footer carries the answers rather
 	// than the key that would dismiss it.
@@ -276,9 +252,8 @@ func (m Model) hints() string {
 	}
 	// A screen that has shut its keyboard while it waits for a request it cannot
 	// take back names the one key it still answers, rather than the "esc close"
-	// that is true of every other moment in the same dialog. Both of these are
-	// waits of several seconds with an indicator running in them, which is
-	// precisely when somebody reads a footer looking for a way out.
+	// true of every other moment in the same dialog. These are waits of several
+	// seconds, which is when somebody reads a footer looking for a way out.
 	switch {
 	case m.screen == screenPrepare && m.prepare.busy:
 		return keyHints(keyHint("ctrl+c", "cancel"))
@@ -306,9 +281,9 @@ func (m Model) hints() string {
 			keyHint("i", "type here"),
 			keyHint("w", "agent/shell"),
 			keyHint("a", "attach"),
-			// The pair, on the view that draws the pane they move. A resume
-			// named without its inverse is how somebody learns that the only way
-			// to stop a task's agent is to clean the task up.
+			// The pair, on the view that draws the pane they move. A resume named
+			// without its inverse teaches that the only way to stop a task's agent
+			// is to clean the task up.
 			keyHint("z", "resume"),
 			keyHint("t", "stop"),
 		)
@@ -328,20 +303,15 @@ func (m Model) hints() string {
 }
 
 // railHints are the keys that reach the rail and the tab bar from a view with
-// its own keyboard.
+// its own keyboard. They lead every view's hints, because a view's own keys are
+// on the view and the frame's are not. The shifted arrows and the control pair
+// do the same thing and are not named here: the footer is one line, and the
+// full list is on `?`.
 //
-// They lead every view's hints, because they are the ones with no other route to
-// discovery: a view's own keys are on the view, and the frame's are not. The
-// shifted arrows and the control pair do the same thing and are not named here —
-// the footer is one line and truncates, and the full list is on `?`.
-//
-// Folding is named only where there is more than one project to fold, which is
-// where the control is worth anything: on a single-project rail the fold is
-// still there and the marker on the header still says so, and the footer's cells
-// are better spent on the keys of whatever view is open. It is named for what the
-// key would do where the cursor is, because space is one control in two
-// directions and the marker beside the cursor is the only other thing that says
-// which one is coming.
+// Folding is named only where there is more than one project to fold. It is
+// named for what the key would do where the cursor is, because space is one
+// control in two directions and the marker beside the cursor is the only other
+// sign of which.
 func (m Model) railHints() string {
 	hints := []string{keyHint("J K", "task"), keyHint("H L", "view")}
 	if len(groupByProject(m.tasks)) > 1 {

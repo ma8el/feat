@@ -18,14 +18,12 @@ func refusedTask() api.Task {
 	return task
 }
 
-// TestARefusalReadsAsANoteRatherThanAnErrorLog is what the two screens that draw
-// one were doing wrong.
-//
-// Pressing V on a task whose agent has not asked for review, and opening the
-// runtime of a project that configures none, are both answered by the daemon
-// refusing. Neither is a fault, and both were drawn as a red line beginning
-// "invalid request:" and carrying the full task identifier — which is a log
-// entry rather than something to read.
+// TestARefusalReadsAsANoteRatherThanAnErrorLog is what the two screens that
+// draw one were doing wrong. Pressing V on a task whose agent has not asked for
+// review, and opening the runtime of a project that configures none, are both
+// answered by the daemon refusing. Neither is a fault, and a red line beginning
+// "invalid request:" carrying the full task identifier is a log entry rather
+// than something to read.
 func TestARefusalReadsAsANoteRatherThanAnErrorLog(t *testing.T) {
 	task := refusedTask()
 	refused := fmt.Errorf("%w: checks can only run for a task whose agent has asked for review, and task %s is %s",
@@ -43,19 +41,19 @@ func TestARefusalReadsAsANoteRatherThanAnErrorLog(t *testing.T) {
 	if !strings.Contains(plain, task.Key) {
 		t.Errorf("the note does not say which task it is about: %q", plain)
 	}
-	// Labelled as a note, which is how both screens already draw something that
-	// needs the user and is not a verdict against the work. The colour is not
-	// asserted: lipgloss renders without one where there is no terminal, so every
-	// style compares equal here and a test that checked would pass either way.
-	// The label is the part that survives into a plain-text terminal anyway, which
-	// is the same reason the panel names a draft rather than only colouring it.
+	// Labelled as a note, which is how both screens draw something that needs the
+	// user and is not a verdict against the work. The colour is not asserted:
+	// lipgloss renders without one where there is no terminal, so every style
+	// compares equal here. The label is what survives into a plain-text terminal
+	// anyway, which is why the panel names a draft rather than only colouring it.
 	if !strings.HasPrefix(plain, "note ") {
 		t.Errorf("a refusal is not drawn as a note: %q", plain)
 	}
 }
 
-// TestAFailureIsStillDrawnAsOne keeps the distinction the note is for. Something
-// that broke is not something the user chose to do from the wrong place.
+// TestAFailureIsStillDrawnAsOne keeps the distinction the note is for.
+// Something that broke is not something the user chose to do from the wrong
+// place.
 func TestAFailureIsStillDrawnAsOne(t *testing.T) {
 	task := refusedTask()
 	broken := errors.New("the daemon could not complete the request")
@@ -69,12 +67,10 @@ func TestAFailureIsStillDrawnAsOne(t *testing.T) {
 	}
 }
 
-// TestTheRuntimeRefusalKeepsThePathItSendsTheUserTo is the half that was cut off.
-//
-// The runtime body was the one tab that was not re-flowed before it was drawn,
-// so a sentence longer than the region was truncated at the edge with an
-// ellipsis — and this sentence ends in the configuration file to add a runtime
-// section to, which is the only part of it that says what to do.
+// TestTheRuntimeRefusalKeepsThePathItSendsTheUserTo is the half that was cut
+// off. A sentence longer than the region is truncated at the edge unless the
+// body is re-flowed first, and this one ends in the configuration file to add a
+// runtime section to, which is the only part of it that says what to do.
 func TestTheRuntimeRefusalKeepsThePathItSendsTheUserTo(t *testing.T) {
 	task := refusedTask()
 	path := "/srv/config/feat/projects/example.yaml"

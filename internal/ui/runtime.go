@@ -11,11 +11,10 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// runtimeModel is the state of the runtime screen.
-//
-// It holds what the last action observed rather than deriving it from the task
-// list, because the services, the notes, and the retained volumes are what that
-// action saw and the task snapshot carries only the summary.
+// runtimeModel is the state of the runtime screen. It holds what the last
+// action observed rather than deriving it from the task list, because the
+// services, the notes, and the retained volumes are what that action saw and
+// the task snapshot carries only the summary.
 type runtimeModel struct {
 	// task is the task whose services the screen manages.
 	task string
@@ -24,36 +23,29 @@ type runtimeModel struct {
 	loaded bool
 	// pending is the action in flight, so the screen says what it is waiting for.
 	pending api.RuntimeAction
-	// observing reports that the read the screen opened with is in flight.
-	//
-	// It is separate from pending, which is the action a key press asked for and
-	// which the keys below are gated on: an opening read recorded there would
-	// refuse the first `u` a user pressed on a screen they had only just opened,
-	// for a request nobody made. What it is for is the loading indicator, because
-	// walking a project's Compose state is seconds spent under a line that used
-	// to be perfectly still.
+	// observing reports that the read the screen opened with is in flight. It is
+	// separate from pending, which the keys below are gated on: an opening read
+	// recorded there would refuse the first `u` a user pressed, for a request
+	// nobody made. What it is for is the loading indicator, because walking a
+	// project's Compose state takes seconds.
 	observing bool
 	// confirming reports that destroy is waiting for a yes.
 	confirming bool
-	// scroll is how far down the tab the reader is.
-	//
-	// Its own, as the brief's and the task panel's are: a project with a service
-	// per repository, its ports and its retained volumes outgrows the region, and
-	// an offset shared with another tab would move every time that one was read.
+	// scroll is how far down the tab the reader is. Its own, as the brief's and
+	// the task panel's are: a project with a service per repository, its ports,
+	// and its retained volumes outgrows the region, and a shared offset would
+	// move whenever another tab was read.
 	scroll int
 	// err is a failed action, shown rather than thrown: a dashboard that exited
 	// because Docker refused would take the view of every other task with it.
 	err error
 }
 
-// runtimeMsg carries the result of one runtime action.
-//
-// task is the task the request was made about. A response says nothing about
-// which task it is for on its own, and an observe walks a project's Compose
-// state, so one issued before the user moved on can arrive after: without this
-// the screen drew one task's service table, allocated ports and retained volume
-// names under another task's heading, which is the case ADR-041 wrote the
-// re-open-on-selection rule for.
+// runtimeMsg carries the result of one runtime action. task is the task the
+// request was made about: a response says nothing about which task it is for,
+// and an observe walks a project's Compose state, so one issued before the user
+// moved on can arrive after and draw one task's ports under another task's
+// heading (ADR-041).
 type runtimeMsg struct {
 	task   string
 	action api.RuntimeAction
@@ -61,12 +53,9 @@ type runtimeMsg struct {
 	err    error
 }
 
-// openRuntime shows the runtime screen for the task an action applies to.
-//
-// A draft opens it and is told there is nothing there yet, rather than being
-// refused. A tab that declines to open is a tab the cycle cannot pass, and a
-// user whose only task is a draft could otherwise reach neither the tab after it
-// nor the one before.
+// openRuntime shows the runtime screen for the task an action applies to. A
+// draft opens it and is told there is nothing there yet, because a tab that
+// declines to open is one the cycle cannot pass.
 func (m Model) openRuntime() (tea.Model, tea.Cmd) {
 	task, ok := m.subject()
 	if !ok {
@@ -81,7 +70,8 @@ func (m Model) openRuntime() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// Opening the screen asks what is running. Nothing is started, and nothing
-	// would be: v0 starts application services only when a user asks (FR-RUN-005).
+	// would be: v0 starts application services only when a user asks
+	// (FR-RUN-005).
 	m.runtime.observing = true
 	return m, m.runtimeAction(api.RuntimeObserve)
 }
@@ -139,11 +129,9 @@ func (m Model) runtimeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "o":
-		// Opening the logs was on l until ADR-046 reserved h, j, k, and l for
-		// moving within the main region. Runtime has nothing to move through yet,
-		// so the key was free in practice and reserved in principle — and a rule
-		// with one exception is the thing this dashboard's keys were being fixed
-		// for.
+		// ADR-046 reserves h, j, k, and l for moving within the main region, so the
+		// logs are on o even though runtime has nothing to move through yet. A rule
+		// with one exception is what the dashboard's keys were being fixed for.
 		return m.runtimeLogs()
 
 	case "pgup":
@@ -155,18 +143,15 @@ func (m Model) runtimeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// Everything this view does not claim is the dashboard's, including `a` and
-	// `s` — which the task panel implements itself and this one had no answer for
-	// at all, so attaching to the agent from the runtime view did nothing.
+	// `s`, which the task panel implements itself and this one has no answer for.
 	return m.dashboardKey(key)
 }
 
-// startRuntime records what the screen is waiting for and asks for it.
-//
-// One at a time. A first start pulls images and runs builds, so the wait is
-// minutes rather than the moment it is for a task whose services have been up
-// before (ADR-034 evidence 14), and every key press during it would be another
-// request queueing behind the same task's lock in the daemon — a user who
-// pressed `u` twice would be starting the services and then starting them again.
+// startRuntime records what the screen is waiting for and asks for it. One at a
+// time: a first start pulls images and runs builds, so the wait is minutes
+// rather than the moment it is afterwards (ADR-034 evidence 14), and a second
+// key press would queue another request behind the same task's lock in the
+// daemon.
 func (m Model) startRuntime(action api.RuntimeAction) (tea.Model, tea.Cmd) {
 	if m.runtime.pending != "" {
 		return m.busyRuntime()
@@ -196,13 +181,11 @@ func (m Model) runtimeLogs() (tea.Model, tea.Cmd) {
 	}
 }
 
-// applyRuntime records what an action reported.
-//
-// A response for a task the screen is no longer about is dropped rather than
-// drawn, as applyFrame drops a frame whose pane belongs to another task. Nothing
-// is cleared for it either: the pending marker belongs to whatever this screen
-// is waiting for now, and clearing it for a response the screen has moved past
-// would report an action that has not finished as finished.
+// applyRuntime records what an action reported. A response for a task the
+// screen is no longer about is dropped rather than drawn, as applyFrame drops a
+// frame whose pane belongs to another task. Nothing is cleared for it either:
+// clearing the pending marker would report an action that has not finished as
+// finished.
 func (m Model) applyRuntime(message runtimeMsg) (tea.Model, tea.Cmd) {
 	if message.task != m.runtime.task {
 		return m, nil
@@ -238,20 +221,18 @@ func (m Model) runtimeView() string {
 }
 
 // runtimeBody renders the runtime tab into a region, scrolled to where the user
-// is and without a footer: in the three-region layout the frame owns the footer,
-// so a tab that drew its own would put a second one in the middle of the screen.
+// is and without a footer: in the three-region layout the frame owns the
+// footer, so a tab that drew its own would put a second one in the middle of
+// the screen.
 func (m Model) runtimeBody(width, height int) string {
 	return scrollWindow(m.wrappedRuntime(width), m.runtime.scroll, width, height)
 }
 
 // wrappedRuntime is the runtime tab re-flowed to the width it will be drawn at.
-//
-// This was the one tab that was not, and the cards cut what overruns them: the
-// sentence saying nothing has been created yet, the one saying what a dependency
-// is, and every note and error the daemon returned all ended in an ellipsis at
-// the region's edge, which is where the half of a sentence that says what to do
-// about it lives. Wrapping before the split is also what keeps the scroll
-// honest: the lines counted are the lines drawn.
+// The cards cut what overruns them, and the sentences here — what a dependency
+// is, every note and error the daemon returned — carry their remedy in the half
+// that would be cut. Wrapping before the split also keeps the scroll honest:
+// the lines counted are the lines drawn.
 func (m Model) wrappedRuntime(width int) string {
 	panel := plainText(m.runtimePanel(width))
 	if width <= 0 {
@@ -261,22 +242,19 @@ func (m Model) wrappedRuntime(width int) string {
 }
 
 // runtimeScroll is where the page keys leave the tab, bounded by its length.
-//
-// The bound is applied here rather than while rendering, for the reason the
-// brief's and the panel's are: rendering cannot write back, so without it
-// holding pgdn past the end would build up an offset that took as many presses
-// to undo.
+// The bound is applied here rather than while rendering, because rendering
+// cannot write back and holding pgdn past the end would build an offset that
+// took as many presses to undo.
 func (m Model) runtimeScroll(delta int) int {
 	width, height := m.mainRegionSize()
 	total := len(strings.Split(m.wrappedRuntime(width), "\n"))
 	return clampScroll(m.runtime.scroll+delta, total, height)
 }
 
-// runtimePanel renders what this task's application runtime is and what it owns.
-//
-// The width is the region's, and is spent on the service table rather than on
-// the prose: the wrap above folds a sentence and leaves it readable, and folds a
-// table row into a shape with no columns in it at all.
+// runtimePanel renders what this task's application runtime is and what it
+// owns. The width is the region's and is spent on the service table rather than
+// on the prose, because the wrap above leaves a folded sentence readable and a
+// folded table row with no columns in it.
 func (m Model) runtimePanel(width int) string {
 	task, ok := m.task(m.selected)
 	if !ok {
@@ -341,11 +319,9 @@ func runtimeHints() string {
 	)
 }
 
-// The service table's columns.
-//
-// Every one but the status has a measure of its own: a service name, a Compose
-// state, a health verdict, and the one word this table uses to say where a
-// service came from.
+// The service table's columns. Every one but the status has a measure of its
+// own: a service name, a Compose state, a health verdict, and the one word this
+// table uses to say where a service came from.
 const (
 	runtimeServiceColumn = 16
 	runtimeStateColumn   = 10
@@ -360,14 +336,11 @@ const (
 )
 
 // runtimeStatusWidth is how many cells the status column may spend in a region
-// of this width, or none at all when the table does not fit without it.
-//
-// The status is Compose's own sentence about a container and the only column
-// here without a measure of its own, so it is the one that gives up cells as the
-// region narrows: the columns beside it are read down rather than across, and a
-// row folded by the wrap is a row with no columns in it. Below a dozen cells it
-// has nothing left to say — the state and the health beside it are the same fact
-// in Feat's own words — so it is dropped rather than shown as an ellipsis.
+// of this width, or none at all when the table does not fit without it. The
+// status is Compose's own sentence about a container and the only column
+// without a measure of its own, so it gives up cells as the region narrows.
+// Below a dozen cells it is dropped rather than shown as an ellipsis, because
+// the state and the health beside it are the same fact in Feat's own words.
 func runtimeStatusWidth(width int, dependencies bool) int {
 	if width <= 0 {
 		return runtimeStatusColumn
@@ -444,26 +417,23 @@ func (m Model) runtimeSummary(task api.Task, width int) string {
 		}
 	}
 
-	// The allocated addresses rather than the observed publications: they are
-	// the same ports once the services are up, and they exist before anything
-	// is started, which is when a user most wants to know where this task's
-	// application will be.
+	// The allocated addresses rather than the observed publications: they are the
+	// same ports once the services are up, and they exist before anything is
+	// started, which is when a user most wants to know where to look.
 	if len(runtime.Allocations) > 0 {
 		out.WriteString("\n" + headingStyle.Render("ports") +
 			mutedStyle.Render("  allocated for this task") + "\n")
 		for _, allocation := range runtime.Allocations {
-			// The address and the binding are two answers, because they are two
-			// questions: the first is where to dial from this machine, which for a
-			// binding on every interface is still localhost, and the second is what
-			// the port is open to, which localhost says nothing about.
+			// The address and the binding are two answers: where to dial from this
+			// machine, which for a binding on every interface is still localhost,
+			// and what the port is open to, which localhost says nothing about.
 			out.WriteString("  " + allocation.Service + "  " +
 				strconv.Itoa(allocation.ContainerPort) + " → " + allocation.Address +
 				mutedStyle.Render("  bound on "+allocation.Binding()) + "\n")
 		}
 		if runtime.BoundEverywhere() {
-			// One sentence, folded by the wrap. It was written as three hand-cut
-			// lines while this tab was drawn without one, which put the breaks in
-			// the same cells in every terminal and left them ragged in most.
+			// One sentence, folded by the wrap. Hand-cut lines put the breaks in
+			// the same cells in every terminal and read as ragged in most.
 			out.WriteString(mutedStyle.Render(
 				"a port bound on every address answers on every network this machine is "+
 					"joined to, and on the bridge every container is on. runtime.bind_address "+
@@ -471,8 +441,8 @@ func (m Model) runtimeSummary(task api.Task, width int) string {
 		}
 	}
 	if len(runtime.Volumes) > 0 {
-		// Named because destroy retains every one of them: a resource nobody can
-		// see is a resource nobody will remove (FR-CLEAN-004).
+		// Named because destroy retains every one of them, and a volume nobody can
+		// see is one nobody will remove (FR-CLEAN-004).
 		out.WriteString("\n" + headingStyle.Render("volumes") +
 			mutedStyle.Render("  retained by every destroy") + "\n")
 		for _, volume := range runtime.Volumes {

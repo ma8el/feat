@@ -7,34 +7,23 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// Reconciliation findings used to be one band on the overview page, which the
-// three-region layout never drew: the band was reachable only in the narrow
-// fallback, so the pass that exists to make a half-created task recoverable was
-// invisible to anyone using the dashboard normally. Nothing else shows them —
-// `feat daemon status` does not print findings and doctor's are a different
-// kind — so removing that page had to relocate them rather than drop them.
-//
-// They live in two places, and neither is the footer. A finding names the task
-// that owns it, and most do, so it belongs on that task's panel: beside the
-// workflow it contradicts, and next to the keys that act on it. Everything the
-// pass found is also in one overlay, because a finding is three lines — what,
-// where, and what to do — and a machine with several has more than a line of
-// footer can hold without becoming a list nobody reads.
-//
-// What the rail carries is the count and the key. That is the same job the
-// attention summary above it does: say that something needs a person, and let
-// them decide when to look.
+// Reconciliation findings live in two places, and neither is the footer.
+// Nothing else shows them — `feat daemon status` does not print findings and
+// doctor's are a different kind — so the dashboard is where a half-created task
+// becomes recoverable. A finding that names a task belongs on that task's
+// panel, beside the workflow it contradicts. Everything the pass found is also
+// in one overlay, because a finding is three lines — what, where, and what to
+// do — and a machine with several has more than a line of footer can hold. The
+// rail carries the count and the key, which is the job the attention summary
+// above it does.
 //
 // Nothing here is an action Feat took. Each entry is a resource and what a user
 // can do about it, which is the whole of what reconciliation offers
 // (FR-STATE-003, FR-STATE-004).
 
-// badgeWarning marks the recovery count in the rail.
-//
-// A triangle rather than the warning sign, whose width a terminal may double
-// depending on how it resolves the emoji presentation. The rail is a fixed
-// thirty-two cells and a glyph that is sometimes two of them moves everything
-// beside it.
+// badgeWarning marks the recovery count in the rail. It is a triangle rather
+// than the warning sign, whose width a terminal may double depending on how it
+// resolves the emoji presentation; the rail is a fixed thirty-two cells.
 const badgeWarning = "▲"
 
 // recoveryFindings is what the last pass found about one task.
@@ -55,11 +44,9 @@ func (m Model) recoveryFindings(task api.Task) []api.ReconciliationFinding {
 	return found
 }
 
-// recoveryCount is how many things the last pass wants a person to look at.
-//
-// A pass in which everything matched its record counts nothing, because that is
-// not news — and a marker that was always there would be one nobody reads on the
-// day it matters.
+// recoveryCount is how many things the last pass wants a person to look at. A
+// pass in which everything matched its record counts nothing, because a marker
+// that is always there is one nobody reads on the day it matters.
 func (m Model) recoveryCount() int {
 	if !m.reconciliation.Ran || !m.reconciliation.NeedsAttention {
 		return 0
@@ -92,11 +79,9 @@ func (m Model) recoveryRailNote() string {
 		mutedStyle.Render("  ! to see")
 }
 
-// recoveryBlock renders a task's findings for the top of its panel.
-//
-// It is at the top because it is the most urgent thing about the task: a
-// workflow of working and a worktree that is not on disk contradict each other,
-// and the fields below would otherwise be read as though they agreed.
+// recoveryBlock renders a task's findings for the top of its panel. It is at
+// the top because a workflow of working and a worktree that is not on disk
+// contradict each other, and the fields below would read as though they agreed.
 func (m Model) recoveryBlock(findings []api.ReconciliationFinding) string {
 	if len(findings) == 0 {
 		return ""
@@ -112,11 +97,9 @@ func (m Model) recoveryBlock(findings []api.ReconciliationFinding) string {
 }
 
 // recoveryList is the overlay: everything the last pass wants looked at.
-//
-// Task-scoped findings appear here as well as on their own panels. That is not a
-// duplicate so much as the other question: a panel answers what is wrong with
-// this task, and this answers what is wrong at all, which is what a user asks
-// after a machine has been asleep or a daemon has been restarted.
+// Task-scoped findings appear here as well as on their own panels, because a
+// panel answers what is wrong with this task and this answers what is wrong at
+// all — the question after a machine has been asleep or a daemon restarted.
 func (m Model) recoveryList() string {
 	if m.recoveryCount() == 0 {
 		if m.reconciling {
@@ -143,8 +126,7 @@ func (m Model) recoveryList() string {
 		out.WriteString("\n" + recoveryEntry(finding, true))
 	}
 	// A pass that could not ask a question says so rather than reporting the
-	// answer as "nothing", which is the distinction these carry and the reason
-	// they are not findings.
+	// answer as "nothing", which is why these are not findings.
 	for _, problem := range m.reconciliation.Problems {
 		head := "  unchecked"
 		if problem.Class != "" {
@@ -175,11 +157,9 @@ func recoveryEntry(finding api.ReconciliationFinding, named bool) string {
 	return out.String()
 }
 
-// checkedAt says when the pass ran and how to run another.
-//
-// Without the time this reads as current however old it is, and every pass is
-// old: the daemon runs one at startup and nothing repeats it on a timer, so a
-// user who has just resumed a task is looking at what was true before they did.
+// checkedAt says when the pass ran and how to run another. The daemon runs one
+// at startup and nothing repeats it on a timer, so without the time a finding
+// reads as current however old it is.
 func (m Model) checkedAt() string { return mutedStyle.Render("  " + m.checkedText()) }
 
 // checkedText is the same without the spacing a heading needs beside it.

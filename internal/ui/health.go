@@ -11,27 +11,22 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Health is the static information rendered by the health screen.
-//
-// It is a plain struct so that the UI does not depend on the version, config,
-// or daemon packages.
+// Health is the static information rendered by the health screen. It is a plain
+// struct so the UI does not depend on the version, config, or daemon packages.
 type Health struct {
 	Version   string
 	Commit    string
 	GoVersion string
 	Platform  string
-	// Daemon is a one-line description of the local daemon's state, already
-	// rendered by the caller: the UI is a client and does not reach the daemon
-	// itself.
+	// Daemon is a one-line description of the local daemon's state, rendered by
+	// the caller: the UI is a client and does not reach the daemon itself.
 	Daemon string
 	// Socket is where the daemon listens, or is expected to.
 	Socket string
 }
 
-// RunHealth renders the health screen.
-//
-// When interactive is false the summary is written to out as plain text, so
-// that `feat` remains usable in a pipe or in CI where no terminal is attached.
+// RunHealth renders the health screen. When interactive is false the summary is
+// written to out as plain text, so `feat` stays usable in a pipe or in CI.
 func RunHealth(ctx context.Context, h Health, out io.Writer, interactive bool) error {
 	if !interactive {
 		_, err := fmt.Fprintln(out, renderHealth(h, false))
@@ -72,8 +67,8 @@ func (m healthModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m healthModel) View() string { return renderHealth(m.health, true) }
 
-// The health screen's own layout. Its colours are the dashboard's, so that the
-// two screens of the same program do not look like two programs.
+// The health screen's own layout. Its colours are the dashboard's, so both
+// screens of one program look alike.
 var (
 	labelStyle = lipgloss.NewStyle().Foreground(colourMuted).Width(10)
 
