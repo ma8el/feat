@@ -70,14 +70,12 @@ type Options struct {
 	// environment. A nil value probes this host.
 	Agent agent.Runner
 	// Forges open merge requests. A nil map uses the adapters this build has,
-	// driving the real forge CLIs on this host; a test supplies its own, because
-	// whether a publication records what it opened should not depend on the
-	// tester having an authenticated account on somebody's GitLab.
+	// driving the real forge CLIs on this host; a test supplies its own, so a
+	// recorded publication does not depend on an authenticated forge account.
 	Forges map[domain.ForgeKind]forge.Adapter
-	// Checks runs the configured checks a completion gate executes on the
-	// trusted host. A nil value runs them as processes here; a test supplies its
-	// own, because whether a gate reports what it ran should not depend on which
-	// tools the tester happens to have installed.
+	// Checks runs the configured checks a completion gate executes on the trusted
+	// host. A nil value runs them as processes here; a test supplies its own, so
+	// what a gate reports does not depend on which tools the tester has installed.
 	Checks review.Runner
 	// Tracker runs a project's configured ticket command on the trusted host. A
 	// nil value runs it here; a test supplies its own, because which tickets are
@@ -88,11 +86,10 @@ type Options struct {
 	// own so that a container that refuses to start, or turns out to run as
 	// root, can be arranged without a machine in that state.
 	Docker compose.Runner
-	// RuntimeDocker runs the container commands of a task's application
-	// services. It is separate from Docker because the agent's environment and
-	// the application under development are separate concepts (ADR-034), and
-	// because a test may want an application that fails to start beside an agent
-	// container that is perfectly healthy. A nil value drives the real Docker CLI.
+	// RuntimeDocker runs the container commands of a task's application services.
+	// It is separate from Docker because the agent's environment and the
+	// application under development are separate concepts (ADR-034), so a test can
+	// fail one while the other stays healthy. A nil value drives the real Docker CLI.
 	RuntimeDocker runtime.Runner
 	// RuntimeInterval is how often application services are observed. Zero uses
 	// the default; a negative value disables observation, which only a test that
@@ -212,13 +209,12 @@ func New(opts Options) (*Daemon, error) {
 		notifier = notify.Host()
 	}
 	// A build that cannot deliver says so once, at startup, rather than failing
-	// every time it is asked. The dashboard's attention badges are unaffected:
-	// they are rendered from task state and need no notifier at all.
+	// every time it is asked. The dashboard's attention badges are unaffected,
+	// because they are rendered from task state and need no notifier.
 	//
-	// The reason is kept rather than only logged, because "asked once at startup"
-	// was not what the code did: every notifiable change still reached a notifier
-	// that refused it, and the refusal was logged as a delivery failure rather
-	// than as this. Kept here it becomes the reason notifyTask drops one.
+	// The reason is kept rather than only logged, so notifyTask can drop a
+	// notification naming it instead of handing one to a notifier that refuses it
+	// and logging a delivery failure.
 	deliverable, undeliverable := notifier.Available()
 	if !deliverable {
 		logger.Info("desktop notifications are not available", slog.String("reason", undeliverable))
@@ -272,23 +268,18 @@ func New(opts Options) (*Daemon, error) {
 // startupSettings resolves the machine's settings, once, for the whole of this
 // daemon's life.
 //
-// Read once rather than per use, which is the opposite of how project
-// configuration is read, and the difference is what the two are about. A project
-// file describes work in progress and is edited while Feat is running; these are
-// the machine's own dispositions — how often it is sampled, whether it may
-// interrupt you, which editor is yours — and they change about as often as the
-// machine does. Reading them per use meant the sampler parsing a file every two
-// seconds to be told the same number, which is the shape of problem that put
-// this section in the wrong file to begin with (ADR-079).
+// A project file describes work in progress and is edited while Feat runs, so it
+// is read per use. These are the machine's own dispositions — how often it is
+// sampled, whether it may interrupt you, which editor is yours — and they change
+// about as often as the machine does (ADR-079).
 //
-// The cost is that changing one takes a daemon restart. It is stated where
-// somebody meets it — `feat settings show` says so — rather than left to be
-// discovered by editing a value and watching nothing happen.
+// The cost is that changing one takes a daemon restart, which `feat settings
+// show` states rather than leaving somebody to edit a value and watch nothing
+// happen.
 //
 // A file that cannot be read costs the defaults rather than the daemon: an
-// optional file with a typo in it must not stop a control plane from starting,
-// and `feat settings show` is where the typo is diagnosed. It is logged at
-// startup, beside the other thing this daemon asks once and remembers.
+// optional file with a typo must not stop a control plane from starting, and
+// `feat settings show` is where the typo is diagnosed.
 func startupSettings(layout paths.Layout, env paths.Environment, logger *slog.Logger) (*config.Settings, error) {
 	options := config.Options{Env: env, StateDir: layout.State}
 
@@ -305,11 +296,9 @@ func startupSettings(layout paths.Layout, env paths.Environment, logger *slog.Lo
 	return config.DefaultSettings(options)
 }
 
-// truthy reads an opt-in environment variable.
-//
-// Only an explicit affirmative counts. A variable someone exported empty, or
-// set to "0" while turning the option off, must not move an agent outside the
-// boundary its project configured.
+// truthy reads an opt-in environment variable. Only an explicit affirmative
+// counts, because a variable exported empty, or set to "0" to turn the option
+// off, must not move an agent outside the boundary its project configured.
 func truthy(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "1", "true", "yes", "on":
@@ -320,10 +309,8 @@ func truthy(value string) bool {
 }
 
 // Publish records a state change on the event stream and returns its stream
-// sequence.
-//
-// The writer publishes after it has persisted, so a client that reacts to an
-// event finds the state the event describes.
+// sequence. The writer publishes after it has persisted, so a client that reacts
+// to an event finds the state the event describes.
 func (d *Daemon) Publish(event domain.Event) uint64 { return d.service.Publish(event) }
 
 // Store returns the persistent state. It is the daemon's own store, and the
@@ -346,16 +333,11 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 		err = errors.Join(err, ownership.Release())
 	}()
 
-	// The spawn marker has done its job and stops here. It bounds one thing —
-	// a binary spawned with arguments it does not understand re-running the
-	// client path and spawning again — and a process holding runtime ownership
-	// is past that: it is serving. What it must not do is travel any further,
-	// because every child this daemon starts inherits its environment, and a
-	// task's own commands are children: a configured check, a tmux pane, and the
-	// agent's session would each carry a marker saying they were started as a
-	// daemon, so a `feat` invocation inside a task would refuse to start one.
-	// Found by running Feat's own integration check through its gate, where
-	// `feat daemon start` was refused by a variable no test had set.
+	// The spawn marker has done its job: a process holding runtime ownership is
+	// serving. It must travel no further, because every child this daemon starts
+	// inherits its environment — a configured check, a tmux pane, the agent's
+	// session — and a `feat` invocation inside a task would then refuse to start a
+	// daemon of its own.
 	if err := os.Unsetenv(envSpawned); err != nil {
 		d.logger.Warn("clearing the daemon spawn marker", slog.Any("error", err))
 	}
@@ -365,37 +347,33 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 	// concurrent write.
 	d.service.endpoint = ownership.Endpoint()
 
-	// The record on disk is the same fact, and it is the copy something else can
-	// remove: macOS collects files under the runtime directory that have gone
-	// three days untouched, and a daemon that stays up longer than that used to
-	// lose the only thing `feat daemon stop` could read. Publishing it again on
-	// a schedule keeps it from being classified as abandoned, and restores it if
-	// it was. Ownership stops this before it removes the record (ADR-101).
+	// The record on disk is the copy something else can remove: macOS collects
+	// files under the runtime directory that have gone three days untouched, which
+	// leaves a longer-lived daemon without the one thing `feat daemon stop` reads.
+	// Publishing it again on a schedule keeps it from being classified as
+	// abandoned, and restores it if it was. Ownership stops this first (ADR-101).
 	ownership.keepRecord(d.opts.RecordInterval)
 
 	// The state directory is checked before anything writes to it. A directory
-	// written by a newer Feat is refused rather than overwritten, because that
-	// is the one recovery failure a user would never see: every other one
-	// reports itself, and silently losing what a newer schema added does not
+	// written by a newer Feat is refused rather than overwritten, because losing
+	// what a newer schema added is the one failure here that reports nothing
 	// (ADR-037).
 	if err := d.service.claimStateDirectory(ctx); err != nil {
 		return err
 	}
 
-	// Everything a task owns outlives the daemon: tmux terminals, worktrees,
-	// both kinds of Compose project, the control workspace, and a review that
-	// was in progress. Reconcile after taking runtime ownership, so the
-	// dedicated socket's parent is known safe, and before clients can read
-	// state. A failed pass must not make the recovery interface unavailable: it
-	// is logged, and the daemon still serves the last recorded state.
+	// Everything a task owns outlives the daemon: tmux terminals, worktrees, both
+	// kinds of Compose project, the control workspace, and a review in progress.
+	// Reconcile after taking runtime ownership, so the dedicated socket's parent is
+	// known safe, and before clients can read state. A failed pass is logged, and
+	// the daemon still serves the last recorded state.
 	d.service.startupReconcile(ctx)
 
-	// Control messages also outlive the daemon: an agent that ended a turn
-	// while Feat was stopped wrote a file, and that file is still there. Reading
-	// them before serving means a client's first request sees the state those
-	// messages describe rather than the state from before the restart. The idle
-	// grace period is measured from when the turn ended, so a turn that ended
-	// long ago becomes idle at once rather than restarting the clock.
+	// Control messages also outlive the daemon: an agent that ended a turn while
+	// Feat was stopped wrote a file that is still there. Reading them before
+	// serving means a client's first request sees the state they describe. The idle
+	// grace is measured from when the turn ended, so a turn that ended long ago
+	// becomes idle at once rather than restarting the clock.
 	d.service.pollControl(ctx)
 
 	// And a turn that ended shortly before the daemon stopped left a record with
@@ -413,10 +391,9 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 	poller := &controlPoller{}
 	poller.start(ctx, d.service, d.opts.PollInterval)
 
-	// Application services are observed on their own, much slower schedule. It
-	// starts here rather than in the control poller because the two answer
-	// different questions and a task with no runtime costs nothing at all: a
-	// negative interval turns it off entirely, which only a test wants.
+	// Application services are observed on their own, much slower schedule,
+	// because they answer a different question from the control poller. A negative
+	// interval turns it off entirely, which only a test wants.
 	var runtimes *runtimePoller
 	if d.opts.RuntimeInterval >= 0 {
 		runtimes = &runtimePoller{}
@@ -446,9 +423,8 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 		d.service.idle.cancelAll()
 		d.service.idleNotice.cancelAll()
 		d.service.startup.cancelAll()
-		// A completion gate is the same rule for work rather than for a timer,
-		// and it is the only work here that outlives the request that started
-		// it: stopping ends the check itself, so no test suite is left running
+		// A completion gate is the only work here that outlives the request that
+		// started it. Stopping ends the check, so no test suite is left running
 		// behind the daemon, and waiting means nothing is still writing a task's
 		// records once Serve has returned (ADR-036).
 		d.service.gate.stopAll()
@@ -514,11 +490,9 @@ func (d *Daemon) Serve(ctx context.Context) (err error) {
 
 	shutdownErr := server.Shutdown(drain)
 	if errors.Is(shutdownErr, context.DeadlineExceeded) {
-		// In-flight requests had their chance. What is left is a connection that
-		// never sent a request, or a client that stopped reading its response,
-		// and neither is worth keeping a daemon alive for: net/http leaves an
-		// unused connection alone for several seconds, which would otherwise
-		// make every shutdown wait for it.
+		// What is left is a connection that never sent a request, or a client that
+		// stopped reading its response. net/http leaves an unused connection alone
+		// for several seconds, which would make every shutdown wait for it.
 		d.logger.Warn("closing connections that did not finish draining",
 			slog.Duration("grace", shutdownTimeout))
 		shutdownErr = server.Close()
@@ -542,15 +516,14 @@ func Run(ctx context.Context, opts Options) error {
 	return instance.Serve(ctx)
 }
 
-// forges are the forge adapters a daemon publishes through.
+// forges are the forge adapters a daemon publishes through. Both of the
+// roadmap's Phase 3 forges are here: GitLab is what the reference project's
+// application repositories use, and GitHub is the primary public integration and
+// the forge Feat's own repository is on.
 //
-// Both the roadmap's Phase 3 forges are here, in the order it adds them: GitLab
-// is what the reference project's application repositories use, and GitHub is
-// the primary public integration and the one Feat's own repository is on. A
-// repository configured for a forge with no adapter is refused by name when it
-// is published rather than at startup, so a project with one such repository
-// still works for all the others — and `feat doctor` says so before a task
-// reaches that point (ADR-074).
+// A repository configured for a forge with no adapter is refused by name when it
+// publishes rather than at startup, so a project's other repositories still work
+// and `feat doctor` says so before a task reaches that point (ADR-074).
 func forges(opts Options) map[domain.ForgeKind]forge.Adapter {
 	if opts.Forges != nil {
 		return opts.Forges

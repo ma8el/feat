@@ -14,34 +14,29 @@ import (
 	"github.com/ma8el/feat/internal/store"
 )
 
-// deliveredHint is what to run when one of these did not appear.
-//
-// macOS decides per application whether a notification is shown, drops an
-// unauthorised one without saying so, and exits 0 either way, so Feat can report
-// that it handed one over and never that one was seen. This log is the only place
-// the difference is written down.
+// deliveredHint is what to run when one of these did not appear. macOS decides
+// per application whether a notification is shown, drops an unauthorised one
+// without saying so, and exits 0 either way, so Feat can report that it handed
+// one over and never that one was seen.
 const deliveredHint = "Compare these against the desktop. For any that did not appear:\n" +
 	"  log show --last 5m --predicate 'process == \"usernoted\"' --style compact | grep ScriptEditor2\n" +
 	"\"Presenting … as banner\" means macOS showed it and the question is where you were\n" +
 	"looking; no line at all means it never arrived. A notification Feat dropped on\n" +
 	"purpose says so in the daemon's log as \"not interrupting the user about a task\"."
 
-// TestRealNotificationReachesTheDesktop covers the rule that every notifiable
-// condition has been shown to reach a real desktop once, from the state change
-// that produces it.
+// TestRealNotificationReachesTheDesktop checks that every notifiable condition
+// reaches a real desktop once, from the state change that produces it.
 //
-// It exists because notifications were added with unit tests over a fake
-// notifier, and a fake notifier proves the daemon asked rather than that
-// anybody was told. The defect that prompted it was a task passing its
-// completion gate, reaching ready_for_review, and the user never hearing: the
-// state, the event, and the review record were all correct, so what was missing
-// was the interruption.
+// A fake notifier proves the daemon asked rather than that anybody was told. The
+// defect that prompted this was a task passing its completion gate, reaching
+// ready_for_review, and the user never hearing: the state, the event, and the
+// review record were all correct, and the interruption was what was missing.
 //
 // Each subtest drives the real state change through the real service — a hook, a
 // control message, a gate over the project's own checks, a runtime observation —
-// with this platform's own notifier installed. What it asserts is that Feat
-// handed one over and recorded that it had. Whether it was then shown is between
-// the user and their desktop, which is what deliveredHint is for.
+// with this platform's own notifier installed. It asserts that Feat handed one
+// over and recorded that it had; whether it was shown is what deliveredHint is
+// for.
 //
 // Run it with -count=1. It exists for a side effect outside the process, and a
 // cached result replays --- PASS without producing one, which looks exactly like
@@ -84,9 +79,9 @@ func TestRealNotificationReachesTheDesktop(t *testing.T) {
 			},
 		},
 		{
-			// The reported defect. A gate runs the project's configured checks,
-			// they pass, and the task arrives with the user — which is the
-			// interruption ADR-036 suppressed the earlier one in favour of.
+			// The reported defect. A gate runs the project's configured checks, they
+			// pass, and the task arrives with the user, which is the interruption
+			// ADR-036 suppressed the earlier one in favour of.
 			condition: notify.ConditionReadyForReview,
 			deliver: func(t *testing.T) (*service, store.TaskRef) {
 				live := launchForReview(t, nil)
@@ -111,11 +106,9 @@ func TestRealNotificationReachesTheDesktop(t *testing.T) {
 			},
 		},
 		{
-			// A check that never ran. It is the user's to fix and nobody else's,
-			// which is the whole reason it is a condition of its own: the agent
-			// cannot edit the configuration governing its own gate, so a
-			// notification is the only thing that reaches somebody who can
-			// (ADR-055).
+			// A check that never ran, which is a condition of its own because the
+			// agent cannot edit the configuration governing its own gate and a
+			// notification is the only thing that reaches somebody who can (ADR-055).
 			condition: notify.ConditionVerificationBlocked,
 			deliver: func(t *testing.T) (*service, store.TaskRef) {
 				live := launchForReview(t, nil)
@@ -139,10 +132,10 @@ func TestRealNotificationReachesTheDesktop(t *testing.T) {
 			},
 		},
 		{
-			// The same death after the task had already asked for review: the
-			// workflow stays where it was, so this is the case nothing else
-			// reports. The review request is deliberately delivered before the
-			// daemon is notifiable, so that only the session failure is news.
+			// The same death after the task had already asked for review. The
+			// workflow stays where it was, so nothing else reports it. The review
+			// request is delivered before the daemon is notifiable, so only the
+			// session failure is news.
 			condition: notify.ConditionSessionFailed,
 			deliver: func(t *testing.T) (*service, store.TaskRef) {
 				live := launch(t, hostFixture, installed(), true).delivering()
@@ -164,9 +157,9 @@ func TestRealNotificationReachesTheDesktop(t *testing.T) {
 				arranged.answerFor(task, "running", "Up 2 seconds")
 				arranged.act(t, task.ID, api.RuntimeStart)
 
-				// Set here rather than through Options, because this harness
-				// builds its daemon before a test can reach it. The notifier it
-				// was given is already this platform's own.
+				// Set here rather than through Options, because this harness builds
+				// its daemon before a test can reach it. The notifier it was given is
+				// already this platform's own.
 				notifier := newFakeNotifier()
 				notifier.deliver = notify.Host()
 				arranged.service.notifier = notifier
@@ -207,12 +200,9 @@ func TestRealNotificationReachesTheDesktop(t *testing.T) {
 }
 
 // deliveredNotification reports what the task's own event log says Feat
-// interrupted the user about.
-//
-// The event log rather than the notifier, because it is what the daemon writes
-// after the platform accepted delivery: asserting on it checks the whole path
-// from the state change to the hand-over, rather than that a test double was
-// called.
+// interrupted the user about. The event log rather than the notifier, because the
+// daemon writes it after the platform accepted delivery, so asserting on it
+// checks the whole path from the state change to the hand-over.
 func deliveredNotification(
 	t *testing.T, service *service, ref store.TaskRef, condition notify.Condition,
 ) (string, bool) {

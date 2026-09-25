@@ -12,23 +12,19 @@ import (
 
 // Stop puts a task's agent to sleep and leaves everything else where it is.
 //
-// It is the inverse of Resume and the pair is the whole lifecycle a user drives:
-// an agent environment comes into being with a launch, comes back with a resume,
-// sleeps with this, and is removed by cleanup. There is deliberately no verb that
-// starts one, because a container with no session behind it is the resource class
-// Feat is least able to account for — every route to a running environment goes
-// through the session that owns it (ADR-057).
+// It is the inverse of Resume: an agent environment comes into being with a
+// launch, comes back with a resume, sleeps with this, and is removed by cleanup.
+// No verb starts one on its own, because every route to a running environment
+// goes through the session that owns it (ADR-057).
 //
-// What it keeps is everything a resume needs and everything the work lives in:
-// the worktrees, the branches, the control workspace, the volumes, and the tmux
-// window, whose pane holds the output of the session that ran and is often the
-// only account of what it did (ADR-030). Stopping is not a small cleanup, and
-// nothing here asks for confirmation because nothing here is hard to undo.
+// It keeps the worktrees, the branches, the control workspace, the volumes, and
+// the tmux window, whose pane holds the output of the session that ran and is
+// often the only account of what it did (ADR-030). Nothing here asks for
+// confirmation, because nothing here is hard to undo.
 //
 // It does not touch the task's application services. A feature environment is a
 // co-equal thing a task owns, with verbs of its own under `feat runtime`, and a
-// user who stops an agent to free the machine overnight may well want the
-// application they were testing to stay up.
+// user who stops an agent overnight may still want the application up.
 func (s *service) Stop(ctx context.Context, id domain.TaskID) (*domain.Task, error) {
 	// One budget for the whole action, so that the ceiling is a single number
 	// both ends of the request know: the client waits for it, and this stops
@@ -66,13 +62,10 @@ func (s *service) Stop(ctx context.Context, id domain.TaskID) (*domain.Task, err
 	return task, s.recordStopped(ctx, task, state)
 }
 
-// recordStopped writes down what a stop left behind.
-//
-// The process state is written by the act that intended it, which is what lets
-// every later observation stay a pure observation: reconciliation treats an
-// alive process against a container that is not running as a death nobody asked
-// for, and this is how the one somebody did ask for is told apart from it
-// without a desired-state field for anybody to disagree with (ADR-057).
+// recordStopped writes down what a stop left behind. The act that intended the
+// process state writes it, so reconciliation can treat an alive process against a
+// stopped container as a death nobody asked for, and no desired-state field is
+// left for anybody to disagree with (ADR-057).
 func (s *service) recordStopped(ctx context.Context, task *domain.Task, state executionState) error {
 	now := s.now()
 	from := task.Session.Process
@@ -81,10 +74,9 @@ func (s *service) recordStopped(ctx context.Context, task *domain.Task, state ex
 		return err
 	}
 
-	// A task with no agent cannot be waiting for its user. Leaving the
-	// attention state where it was would keep a stopped task in the band of
-	// things asking to be looked at, which is how an attention state stops
-	// meaning anything.
+	// A task with no agent cannot be waiting for its user, and leaving the
+	// attention state alone would keep a stopped task among the things asking to be
+	// looked at.
 	attention := task.Attention
 	if attention != domain.AttentionNone {
 		if err := task.SetAttention(domain.AttentionNone, now); err != nil {
@@ -117,13 +109,12 @@ func (s *service) recordStopped(ctx context.Context, task *domain.Task, state ex
 }
 
 // stoppable reports why a task's agent cannot be stopped, in terms that name the
-// remedy.
+// remedy. Every refusal is decided from the record alone.
 //
-// Every refusal is a fact about the record and is decided from it alone. There is
-// no refusal for a task whose containers are already stopped: `docker compose
-// stop` on a stopped project succeeds, and a user asking for a state the machine
-// is already in should be told they have it rather than that they were wrong to
-// ask (FR-CLEAN-001's rule for a resource that is already gone).
+// A task whose containers are already stopped is not refused: `docker compose
+// stop` on a stopped project succeeds, and a user who asks for the state the
+// machine is already in is told they have it (FR-CLEAN-001's rule for a resource
+// that is already gone).
 func stoppable(task *domain.Task) error {
 	if task.Session == nil {
 		return fmt.Errorf("%w: task %s has no agent session to stop. "+

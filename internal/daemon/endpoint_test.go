@@ -11,11 +11,10 @@ import (
 	"github.com/ma8el/feat/internal/paths"
 )
 
-// TestAskEndpointDescribesADaemonWhoseRecordIsGone covers the second oracle.
-//
-// The record is a file the system can remove — macOS does, on the fourth day of
-// a daemon's uptime — and a daemon that is answering can still say everything
-// the record said (ADR-101).
+// TestAskEndpointDescribesADaemonWhoseRecordIsGone covers the second oracle. The
+// record is a file the system can remove, as macOS does on the fourth day of a
+// daemon's uptime, and a daemon that is answering can still say everything the
+// record said (ADR-101).
 func TestAskEndpointDescribesADaemonWhoseRecordIsGone(t *testing.T) {
 	live := serve(t, Options{})
 
@@ -61,12 +60,10 @@ func TestAskEndpointReportsNotRunningWhenNothingAnswers(t *testing.T) {
 }
 
 // TestStopReportsTheRecordsOwnFailureWhenNothingAnswers covers what the fallback
-// must not do to the errors that were already correct.
-//
-// A record that cannot be read and a socket that does not answer is still a
-// question about ownership, and `feat daemon restart` declines to spawn a second
-// daemon over it (internal/cli/daemon.go). That depends on the failure the caller
-// sees being the record's own, not the socket's.
+// must not do to the errors that were already correct. An unreadable record and a
+// silent socket is still a question about ownership, and `feat daemon restart`
+// declines to spawn a second daemon over it (internal/cli/daemon.go) only while
+// the caller sees the record's own failure.
 func TestStopReportsTheRecordsOwnFailureWhenNothingAnswers(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -108,13 +105,10 @@ func TestStopReportsTheRecordsOwnFailureWhenNothingAnswers(t *testing.T) {
 	}
 }
 
-// TestTheEndpointRecordComesBackAfterItIsRemoved is the regression for the
-// record rotting out from under a running daemon.
-//
-// macOS reaps files under the runtime directory that have gone three days
-// untouched, and the record was written once and never again. This asserts the
-// mechanism in terms a test can observe in milliseconds rather than days: the
-// record returns on its own (ADR-101).
+// TestTheEndpointRecordComesBackAfterItIsRemoved is the regression for the record
+// rotting out from under a running daemon. macOS reaps files under the runtime
+// directory that have gone three days untouched, so this asserts the mechanism in
+// terms a test observes in milliseconds: the record returns on its own (ADR-101).
 func TestTheEndpointRecordComesBackAfterItIsRemoved(t *testing.T) {
 	layout := testLayout(t)
 	started := time.Date(2026, time.September, 14, 12, 0, 0, 0, time.UTC)
@@ -136,9 +130,9 @@ func TestTheEndpointRecordComesBackAfterItIsRemoved(t *testing.T) {
 		t.Fatalf("the endpoint record did not come back: %v", err)
 	}
 
-	// What comes back is the record, not an approximation of it: a daemon that
-	// republished a different identifier would be worse than one that published
-	// none.
+	// What comes back is the record rather than an approximation of it. A daemon
+	// that republished a different identifier would be worse than one that
+	// published none.
 	want := ownership.Endpoint()
 	if published.PID != want.PID || published.Socket != want.Socket ||
 		published.Version != want.Version || published.Commit != want.Commit ||
@@ -148,13 +142,10 @@ func TestTheEndpointRecordComesBackAfterItIsRemoved(t *testing.T) {
 	}
 }
 
-// TestReleaseStopsTheKeeperBeforeRemovingTheRecord covers the ordering that
-// makes the keeper safe.
-//
-// A record written back after ownership was given up would name a process that
-// is no longer running, on a system free to reuse its identifier — which is the
-// failure ADR-027's evidence 1 exists to prevent, and a worse one than the record
-// going missing.
+// TestReleaseStopsTheKeeperBeforeRemovingTheRecord covers the ordering that makes
+// the keeper safe. A record written back after ownership was given up would name
+// a process that is no longer running, on a system free to reuse its identifier
+// (ADR-027 evidence 1).
 func TestReleaseStopsTheKeeperBeforeRemovingTheRecord(t *testing.T) {
 	layout := testLayout(t)
 
@@ -165,7 +156,7 @@ func TestReleaseStopsTheKeeperBeforeRemovingTheRecord(t *testing.T) {
 	ownership.keepRecord(time.Millisecond)
 
 	// The keeper is running and writing before the release, so this is a release
-	// that has to interrupt one rather than one that never started.
+	// that interrupts one rather than one that never started.
 	if _, err := awaitRecord(t, layout); err != nil {
 		t.Fatalf("the record was not being kept: %v", err)
 	}

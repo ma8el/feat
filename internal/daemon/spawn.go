@@ -10,13 +10,10 @@ import (
 	"github.com/ma8el/feat/internal/paths"
 )
 
-// envSpawned marks a process that was started as a daemon by Spawn.
-//
-// A daemon never starts a daemon: it is already the thing a client was asking
-// for. Refusing that at the boundary bounds the damage when a binary is spawned
-// with arguments it does not understand and re-runs the client path instead of
-// serving — which, unguarded, is a process that spawns a process that spawns a
-// process.
+// envSpawned marks a process that was started as a daemon by Spawn. A daemon
+// never starts a daemon, and refusing at the boundary bounds a binary spawned
+// with arguments it does not understand: unguarded, it re-runs the client path
+// and spawns another of itself.
 const envSpawned = "FEAT_DAEMON_SPAWNED"
 
 // Waiting for a spawned daemon.
@@ -44,9 +41,8 @@ type SpawnOptions struct {
 	// belongs to internal/cli, not here.
 	Args []string
 	// Env is the child's environment. A nil value passes the current one, which
-	// matters: the environment carries the overrides that decided this layout,
-	// and a daemon resolving different paths than its client would be a daemon
-	// nobody can reach.
+	// carries the overrides that decided this layout: a daemon resolving different
+	// paths from its client is a daemon nobody can reach.
 	Env []string
 	// Timeout bounds waiting for the daemon to answer. Zero uses the default.
 	Timeout time.Duration
@@ -155,18 +151,14 @@ func WaitUntilReady(ctx context.Context, layout paths.Layout, timeout time.Durat
 	}
 }
 
-// Stop asks a running daemon to shut down and waits for it to stop answering.
+// Stop asks a running daemon to shut down and waits for it to stop answering. It
+// returns the record of the daemon it stopped, so a caller can name the process.
 //
-// It returns the record of the daemon it stopped, so a caller can report which
-// process it was.
-//
-// The record is where the process identifier comes from, and the socket is where
-// it comes from when the record cannot supply one. A daemon that is answering is
-// a daemon that can be stopped, and for three days of uptime on macOS the record
-// is the only part of that pair the system takes away (ADR-101). The fallback
-// covers any unusable record rather than only a missing one, because a record
-// that is corrupt or of a schema this build does not understand leaves the same
-// predicament: a live daemon nobody can stop.
+// The process identifier comes from the record, and from the socket when the
+// record cannot supply one: macOS takes the record away after three days of
+// uptime while the daemon keeps answering (ADR-101). The fallback covers any
+// unusable record, because a corrupt one or one of an unknown schema leaves the
+// same live daemon nobody can stop.
 func Stop(ctx context.Context, layout paths.Layout, timeout time.Duration) (Endpoint, error) {
 	if timeout <= 0 {
 		timeout = defaultStopTimeout
@@ -176,10 +168,9 @@ func Stop(ctx context.Context, layout paths.Layout, timeout time.Duration) (Endp
 	if err != nil {
 		served, askErr := askEndpoint(ctx, layout)
 		if askErr != nil {
-			// Nothing answered either, so the record's own failure is the
-			// actionable one. Reporting why the socket did not answer instead
-			// would describe the second thing that was tried rather than the
-			// state the caller is in.
+			// Nothing answered either, so the record's own failure is the actionable
+			// one. Reporting why the socket did not answer would describe the second
+			// thing tried rather than the state the caller is in.
 			return Endpoint{}, err
 		}
 		endpoint = served

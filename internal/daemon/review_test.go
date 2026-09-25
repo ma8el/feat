@@ -18,11 +18,9 @@ import (
 	"github.com/ma8el/feat/internal/runtime/compose/runtimetest"
 )
 
-// reviewFixture is a host-mode project with two checks.
-//
-// The two repositories carry different bases, which is what makes "each
-// repository against its own recorded base" a claim a test can distinguish from
-// "every repository against one of them".
+// reviewFixture is a host-mode project with two checks. The two repositories
+// carry different bases, which lets a test tell each repository against its own
+// recorded base apart from every repository against one of them.
 const reviewFixture = `version: 1
 
 project:
@@ -96,8 +94,8 @@ checks:
       execution: host
 `
 
-// reviewRuntimeFixture is the same project with application services, so that
-// "approval stops nothing" is a claim about a runtime that is actually running.
+// reviewRuntimeFixture is the same project with application services, so a claim
+// that review stops nothing is about a runtime that is actually running.
 var reviewRuntimeFixture = contributing(reviewFixture) + `
 runtime:
   provider: compose
@@ -216,12 +214,10 @@ func (s *reviewSession) awaitGate(t *testing.T) {
 	}
 }
 
-// TestEachRepositoryUsesItsOwnRecordedBaseCommit is FR-REV-001.
-//
-// It is checked on the expanded commands as well as on the summaries, because a
-// review that produced the right numbers while offering a diff against the wrong
-// commit would pass an assertion about numbers alone — and the diff is what the
-// user actually reads.
+// TestEachRepositoryUsesItsOwnRecordedBaseCommit is FR-REV-001. It is checked on
+// the expanded commands as well as on the summaries, because a review that
+// produced the right numbers while offering a diff against the wrong commit would
+// pass an assertion about numbers alone, and the diff is what the user reads.
 func TestEachRepositoryUsesItsOwnRecordedBaseCommit(t *testing.T) {
 	live := launchForReview(t, nil)
 
@@ -259,12 +255,9 @@ func TestEachRepositoryUsesItsOwnRecordedBaseCommit(t *testing.T) {
 }
 
 // TestTheEditorOpensInTheSelectedTaskRepository is the second acceptance
-// criterion.
-//
-// FR-REV-003 words it around the editor because that is the reference project's
-// case, and what it is really about is that a command opens the repository the
-// user selected: the working directory is that repository's own task worktree,
-// and never the ordinary checkout the task exists to leave alone.
+// criterion. FR-REV-003 words it around the editor, and what it is about is that
+// a command opens the repository the user selected: the working directory is that
+// repository's own task worktree, never the ordinary checkout.
 func TestTheEditorOpensInTheSelectedTaskRepository(t *testing.T) {
 	live := launchForReview(t, nil)
 	result := live.review(t, api.ReviewObserve)
@@ -299,20 +292,16 @@ func TestTheEditorOpensInTheSelectedTaskRepository(t *testing.T) {
 }
 
 // TestCommandsCannotEscapeConfiguredTaskPaths is the third acceptance criterion
-// at the daemon.
-//
-// internal/review decides what an expansion may turn into; what is checked here
-// is that the daemon hands it one task's own worktrees and reports a refusal
-// rather than running the command anyway. The refusal is a note, because the
-// other repositories' commands are still usable and a user who cannot open one
-// is better served by being told why than by an empty screen.
+// at the daemon. internal/review decides what an expansion may turn into, and
+// this checks that the daemon hands it one task's own worktrees and reports a
+// refusal rather than running the command anyway. The refusal is a note, because
+// the other repositories' commands are still usable.
 func TestCommandsCannotEscapeConfiguredTaskPaths(t *testing.T) {
 	live := launchForReview(t, nil)
 
-	// A recorded worktree path that has been edited into something Feat would
-	// never have created. It is the shape ADR-029 refused for cleanup: the
-	// moment a path from a record decides what runs, the record has stopped
-	// being a record.
+	// A recorded worktree path edited into something Feat would never have created.
+	// It is the shape ADR-029 refused for cleanup: a path from a record that decides
+	// what runs has stopped being a record.
 	task := live.task(t)
 	task.Repositories[0].WorktreePath = "/etc"
 	if err := live.service.store.Tasks().Save(context.Background(), task); err != nil {
@@ -331,22 +320,20 @@ func TestCommandsCannotEscapeConfiguredTaskPaths(t *testing.T) {
 	}
 }
 
-// TestReviewDoesNotStopOrDestroyRuntime is the fourth acceptance criterion.
-//
-// It is checked by counting the commands review produces rather than by
-// asserting that a recorded state did not change: that no container command ran
-// at all is a stronger statement than that a container happens to still be there
-// (FR-REV-004, docs/02-user-workflows.md §7). It used to be phrased about
-// approving, which is the decision ADR-086 removed; what it is really about is
-// that reaching the end of the review path leaves the user's services alone.
+// TestReviewDoesNotStopOrDestroyRuntime is the fourth acceptance criterion. It
+// counts the commands review produces rather than asserting that a recorded state
+// did not change, because no container command running at all is stronger than a
+// container that happens to still be there (FR-REV-004,
+// docs/02-user-workflows.md §7). What it is about is that reaching the end of the
+// review path leaves the user's services alone (ADR-086).
 func TestReviewDoesNotStopOrDestroyRuntime(t *testing.T) {
 	docker := runtimetest.New()
 	checks := newFakeChecks()
 	live := launchWith(t, reviewRuntimeFixture, installed(), false, func(options *Options) {
 		options.Checks = checks
 		options.RuntimeDocker = docker
-		// The observation poller would run commands of its own, and what this
-		// test counts is the commands approving produced.
+		// The observation poller would run commands of its own, and this test counts
+		// the commands review produced.
 		options.RuntimeInterval = -1
 	})
 	live.start(t)
@@ -358,8 +345,7 @@ func TestReviewDoesNotStopOrDestroyRuntime(t *testing.T) {
 		Answer("network ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}", "").
 		Answer("volume ls --filter label=com.docker.compose.project="+identity+" --format {{.Name}}", "")
 
-	// Services the user started, and which are still running when the work is
-	// ready to be read.
+	// Services the user started, still running when the work is ready to be read.
 	if _, err := live.service.Runtime(context.Background(), live.ref.Task, api.RuntimeStart); err != nil {
 		t.Fatalf("starting the application services: %v", err)
 	}
@@ -381,12 +367,10 @@ func TestReviewDoesNotStopOrDestroyRuntime(t *testing.T) {
 }
 
 // TestReviewStateSurvivesARestart checks that review state is preserved across a
-// restart.
-//
-// What this really checks is that it goes to disk rather than into the running
-// process: a daemon restarted after a gate finished must not present the task as
-// though the checks were still to run. The state is the workflow and is read
-// from the task, which is the only place it is recorded (ADR-047); the review
+// restart, which means that it goes to disk rather than into the running process:
+// a daemon restarted after a gate finished must not present the task as though
+// the checks were still to run. The state is the workflow and is read from the
+// task, which is the only place it is recorded (ADR-047), and the review
 // aggregate beside it keeps what the checks found.
 func TestReviewStateSurvivesARestart(t *testing.T) {
 	live := launchForReview(t, nil)
@@ -411,24 +395,21 @@ func TestReviewStateSurvivesARestart(t *testing.T) {
 	}
 }
 
-// TestAReviewedTaskNeverReadsAsUndecided is the defect ADR-047 removed, kept as
-// a test because it is the one that could come back, and extended to the
-// decisions ADR-086 removed with it.
+// TestAReviewedTaskNeverReadsAsUndecided is the defect ADR-047 removed, extended
+// to the decisions ADR-086 removed with it.
 //
-// A review used to carry its own copy of the decision, and leaving one pending
-// moved that copy without moving the task's workflow: the panel then read
-// "workflow approved" above "decision pending", and there was no way out,
-// because approved had no outgoing transition. There is no decision at all now —
-// approve was pressed once in fifty-one tasks and request-changes never — so
-// what a client may ask of a review is to observe it and to verify it, and
-// anything else is refused rather than half-obeyed.
+// A review that carried its own copy of the decision moved that copy without
+// moving the task's workflow, so the panel read "workflow approved" above
+// "decision pending" with no way out, because approved had no outgoing
+// transition. There is no decision at all now, so a client may observe a review
+// and verify it, and anything else is refused rather than half-obeyed.
 func TestAReviewedTaskNeverReadsAsUndecided(t *testing.T) {
 	live := launchForReview(t, nil)
 	live.emit(t, control.TypeReviewRequested, `{"summary":"ready"}`)
 	live.awaitGate(t)
 
-	// Opening review again is what the dashboard does on every visit, and it
-	// writes the review record back.
+	// Opening review again is what the dashboard does on every visit, and it writes
+	// the review record back.
 	result := live.review(t, api.ReviewObserve)
 	if result.Task.Workflow != domain.WorkflowReadyForReview {
 		t.Errorf("workflow after re-observing a reviewed task = %q, want ready_for_review", result.Task.Workflow)
@@ -448,13 +429,11 @@ func TestAReviewedTaskNeverReadsAsUndecided(t *testing.T) {
 	}
 }
 
-// TestAFailedCheckReturnsTheTaskToTheAgentLoop is the fifth acceptance
-// criterion.
-//
-// Three things are checked together because they are one property: the task
-// never reaches ready_for_review, the failure is written where the waiting agent
-// reads it, and the agent's own claim about the same check is still there and
-// still marked as a claim.
+// TestAFailedCheckReturnsTheTaskToTheAgentLoop is the fifth acceptance criterion.
+// Three things are checked together because they are one property: the task never
+// reaches ready_for_review, the failure is written where the waiting agent reads
+// it, and the agent's own claim about the same check is still there and still
+// marked as a claim.
 func TestAFailedCheckReturnsTheTaskToTheAgentLoop(t *testing.T) {
 	live := launchForReview(t, nil)
 	live.checks.outputs["unit"] = review.Output{Stdout: "2 failed, 82 passed", ExitCode: 1}
@@ -504,16 +483,15 @@ func TestAFailedCheckReturnsTheTaskToTheAgentLoop(t *testing.T) {
 	}
 }
 
-// TestACheckThatCouldNotRunGoesToTheUserRatherThanTheAgent is the defect
-// ADR-055 removed, found on the reference project's first real feature run.
+// TestACheckThatCouldNotRunGoesToTheUserRatherThanTheAgent is the defect ADR-055
+// removed, found on a first real feature run.
 //
 // A check was configured as a bare program the agent's environment did not have.
-// The gate recorded it as not having reported, which is right, and then the
-// verdict collapsed that into "did not pass": the task landed in
-// verification_failed, which says the work failed its checks, and the failure
-// went back into the agent's loop. The agent diagnosed it, named the
-// configuration file, and declined to edit the configuration governing its own
-// gate — which is the correct refusal — and there was nowhere for it to go.
+// The gate recorded it as not having reported, and the verdict collapsed that
+// into not passing: the task landed in verification_failed, which says the work
+// failed its checks, and the failure went back into the agent's loop. The agent
+// diagnosed it, named the configuration file, correctly declined to edit the
+// configuration governing its own gate, and had nowhere to go.
 //
 // Everything asserted here is one property: the run established nothing, so
 // nothing claims it did, and the person who can fix it is the one who is told.
@@ -524,8 +502,8 @@ func TestACheckThatCouldNotRunGoesToTheUserRatherThanTheAgent(t *testing.T) {
 
 	request := live.requestReview(t, `{"summary":"ready"}`)
 
-	// Not a failure of the work, and not a pass either. The review request
-	// stands, which is where a request Feat has no verdict for always rests.
+	// Not a failure of the work, and not a pass either. The review request stands,
+	// which is where a request Feat has no verdict for rests.
 	if got := live.task(t).Workflow; got != domain.WorkflowReviewRequested {
 		t.Fatalf("workflow = %q, want review_requested: nothing verified this task's work", got)
 	}
@@ -541,9 +519,9 @@ func TestACheckThatCouldNotRunGoesToTheUserRatherThanTheAgent(t *testing.T) {
 		}
 	}
 
-	// The user is interrupted about the run rather than about the state it
-	// landed in, and the task's own history names the check and its repository
-	// so that the notification has somewhere to lead.
+	// The user is interrupted about the run rather than about the state it landed
+	// in, and the task's own history names the check and its repository, so the
+	// notification has somewhere to lead.
 	delivered := live.notifier.sent()
 	if len(delivered) != 1 {
 		t.Fatalf("a gate that could not run produced %d notifications, want one: %+v", len(delivered), delivered)
@@ -606,10 +584,9 @@ func TestARunThatCouldNotVerifyCanBeVerifiedAgain(t *testing.T) {
 }
 
 // TestAFailingCheckOutranksOneThatCouldNotRun checks the precedence ADR-055 set.
-//
-// A check that ran and failed is evidence about the work and the agent can act
-// on it, so a run holding both is a failed one — with the check that never ran
-// still named, because the user has to see it either way.
+// A check that ran and failed is evidence about the work and the agent can act on
+// it, so a run holding both is a failed one, with the check that never ran still
+// named, because the user has to see it either way.
 func TestAFailingCheckOutranksOneThatCouldNotRun(t *testing.T) {
 	checks := newFakeChecks()
 	live := launchWith(t, twoCheckFixture, installed(), false, func(options *Options) {
@@ -700,9 +677,9 @@ func TestAGateRunsEachCheckWhereItsConfigurationSays(t *testing.T) {
 }
 
 // TestAnInterruptedGateDoesNotClaimToBeRunning checks the recovery ADR-036
-// requires: a gate does not outlive the process that started it, so a task
-// recorded as verifying after a restart is a task claiming that checks are
-// running when nothing is.
+// requires. A gate does not outlive the process that started it, so a task
+// recorded as verifying after a restart claims that checks are running when
+// nothing is.
 func TestAnInterruptedGateDoesNotClaimToBeRunning(t *testing.T) {
 	live := launchForReview(t, nil)
 	live.checks.released = make(chan struct{})
@@ -741,24 +718,23 @@ func TestAnInterruptedGateDoesNotClaimToBeRunning(t *testing.T) {
 }
 
 // TestAStoppingDaemonEndsItsGates checks the other half of that recovery: the
-// daemon has to actually stop the gate, and has to wait for it.
+// daemon has to stop the gate and wait for it.
 //
 // A gate is the only work in the daemon that outlives the request that started
 // it, so it is the only work that can still be writing a task's records after
-// everything else has finished. Left alone it also leaves the check itself
-// running — somebody's test suite, with no daemon to report to. Found on Linux,
-// where three tests that emit a review request failed in cleanup because the
-// goroutine was still writing the control workspace the testing package was
-// removing.
+// everything else has finished, and left alone it leaves somebody's test suite
+// running with no daemon to report to. On Linux, three tests that emit a review
+// request failed in cleanup because the goroutine was still writing the control
+// workspace the testing package was removing.
 //
-// The other property here is what a stopped gate must not record. A cancelled
-// run produces inconclusive results, and inconclusive does not pass, so
-// recording them would fail a task because Feat was restarted and answer the
-// waiting agent with a verdict its checks never produced.
+// The other property is what a stopped gate must not record. A cancelled run
+// produces inconclusive results, which do not pass, so recording them would fail
+// a task because Feat was restarted and answer the waiting agent with a verdict
+// its checks never produced.
 func TestAStoppingDaemonEndsItsGates(t *testing.T) {
 	live := launchForReview(t, nil)
 	live.checks.released = make(chan struct{})
-	// Deliberately never closed: this is a check that has not finished when the
+	// Deliberately never closed. It is a check that has not finished when the
 	// daemon stops, which is the only case with anything to prove.
 
 	live.emit(t, control.TypeReviewRequested, `{"summary":"ready"}`)
@@ -810,14 +786,12 @@ func TestVerifyingAgainIsAUserAction(t *testing.T) {
 	}
 }
 
-// TestWorkThatPassedItsChecksCanBeCheckedAgain is ADR-087.
-//
-// A user reading work that passed and changing something themselves has the same
-// question as one reading work that failed, and the answer used to be that
-// checks can only run for a task whose agent has asked for review — which this
-// task's agent had. The run goes back through the request it came from, so the gate
-// decides where it lands as it did the first time, and a run that now fails
-// lands somewhere that says so.
+// TestWorkThatPassedItsChecksCanBeCheckedAgain is ADR-087. A user reading work
+// that passed and changing something has the same question as one reading work
+// that failed, and the answer used to be that checks can only run for a task
+// whose agent has asked for review, which this task's agent had. The run goes
+// back through the request it came from, so the gate decides where it lands as it
+// did the first time.
 func TestWorkThatPassedItsChecksCanBeCheckedAgain(t *testing.T) {
 	live := launchForReview(t, nil)
 	live.checks.outputs["unit"] = review.Output{Stdout: "84 passed"}
@@ -852,13 +826,12 @@ func TestWorkThatPassedItsChecksCanBeCheckedAgain(t *testing.T) {
 
 // TestARunWithNothingToRunChangesNothing is the trap the new edge opened.
 //
-// A run is refused before anything moves rather than after. The gate's own
-// background half bails when there is nothing to run, and it bails after the
-// task has been put back in review_requested — so a run started with no checks
-// configured would leave the task there with no gate left to bring it out, and
-// only the agent asking again or the user attaching as a way back. Reachable
-// when a project's checks were removed since the gate ran, which is the case a
-// user has just been editing configuration for.
+// A run is refused before anything moves rather than after. The gate's background
+// half bails when there is nothing to run, and it bails after the task has been
+// put back in review_requested, so a run started with no checks configured would
+// leave the task there with no gate to bring it out and only the agent asking
+// again or the user attaching as a way back. It is reachable when a project's
+// checks were removed since the gate ran.
 func TestARunWithNothingToRunChangesNothing(t *testing.T) {
 	live := launchForReview(t, nil)
 	live.checks.outputs["unit"] = review.Output{Stdout: "84 passed"}
@@ -933,13 +906,11 @@ func TestAProjectWithNoChecksLeavesTheRequestWithTheUser(t *testing.T) {
 	}
 }
 
-// TestAGatedTaskIsAnnouncedOnceItHasBeenChecked checks that a user is
-// interrupted when the task reaches them rather than when the agent asks.
-//
-// A gate takes as long as the project's suite does, and a task whose checks are
-// running has not arrived with the user yet. Telling them twice for one arrival
-// is how a notification becomes something people learn to dismiss (ADR-035's
-// rule, applied to the verifying state).
+// TestAGatedTaskIsAnnouncedOnceItHasBeenChecked checks that a user is interrupted
+// when the task reaches them rather than when the agent asks. A gate takes as
+// long as the project's suite does, and a task whose checks are running has not
+// arrived yet, so telling the user twice for one arrival is how a notification
+// becomes something people dismiss (ADR-035, applied to the verifying state).
 func TestAGatedTaskIsAnnouncedOnceItHasBeenChecked(t *testing.T) {
 	live := launchForReview(t, nil)
 	live.watchable()
@@ -957,9 +928,9 @@ func TestAGatedTaskIsAnnouncedOnceItHasBeenChecked(t *testing.T) {
 	}
 }
 
-// TestAnUngatedReviewRequestIsAnnouncedWhenItArrives checks the other half:
-// where no gate will run, the request itself is what reaches the user, because
-// nothing else is going to.
+// TestAnUngatedReviewRequestIsAnnouncedWhenItArrives checks the other half: where
+// no gate will run, the request itself reaches the user, because nothing else is
+// going to.
 func TestAnUngatedReviewRequestIsAnnouncedWhenItArrives(t *testing.T) {
 	live := launchWith(t, hostFixture, installed(), false, nil)
 	live.start(t)
@@ -1006,8 +977,8 @@ func restart(t *testing.T, live *session) *service {
 }
 
 // restartWith is restart for a test that needs to change the second daemon's
-// options — a scheduler it can fire, most often, because what a restart has to
-// pick up is usually something that was waiting on a timer.
+// options, usually a scheduler it can fire, because what a restart has to pick up
+// is usually something that was waiting on a timer.
 func restartWith(t *testing.T, live *session, adjust func(*Options)) *service {
 	t.Helper()
 
@@ -1104,15 +1075,15 @@ func firstLine(document string) string {
 	return document
 }
 
-// TestAFinishingGateDoesNotLoseItsResultsToAConcurrentRead is the regression
-// test for the defect an end-to-end review run found.
+// TestAFinishingGateDoesNotLoseItsResultsToAConcurrentRead is the regression test
+// for the defect an end-to-end review run found.
 //
-// The daemon is the only process that writes state and every write is atomic,
-// and neither of those makes a load-change-save cycle safe against another one.
-// A gate finishing while the review request that started it was still comparing
-// repositories left a task recorded as ready_for_review whose review held no
-// checks at all: the state said the checks had passed, and the record of what
-// passed had been overwritten by a copy loaded a moment earlier.
+// The daemon is the only process that writes state and every write is atomic, and
+// neither makes a load-change-save cycle safe against another. A gate finishing
+// while the review request that started it was still comparing repositories left
+// a task recorded as ready_for_review whose review held no checks: the state said
+// the checks had passed, and the record of what passed had been overwritten by a
+// copy loaded a moment earlier.
 //
 // The interleaving is forced rather than raced: the comparison is held open
 // inside Git, the gate is released while it is held, and only then does the
@@ -1147,8 +1118,8 @@ func TestAFinishingGateDoesNotLoseItsResultsToAConcurrentRead(t *testing.T) {
 	}()
 	<-held
 
-	// The checks finish while the comparison is still open, and only then does
-	// the comparison save what it read.
+	// The checks finish while the comparison is still open, and only then does the
+	// comparison save what it read.
 	close(live.checks.released)
 	time.Sleep(50 * time.Millisecond)
 	close(release)
@@ -1186,15 +1157,14 @@ func selectEverything(plan api.CleanupPlan) api.CleanupSelection {
 
 // TestAGateThatFinishesAfterAnArchiveWritesNothing is ADR-036 evidence 12.
 //
-// A gate outlives the request that started it, and cleanup is a thing a user
-// does while watching one run. On the dogfood machine the checks landed 115ms
-// after the cleanup had removed the control workspace, and `answer` recreated
-// the tree to write the verdict into — leaving `control/<project>/<task>/inbox/`
-// holding one file, on a task that had been archived, which is what the
-// maintainer found and reasonably read as a cleanup that had skipped something.
+// A gate outlives the request that started it, and cleanup is something a user
+// does while watching one run. The checks landed 115ms after a cleanup had
+// removed the control workspace, and `answer` recreated the tree to write the
+// verdict into, leaving `control/<project>/<task>/inbox/` holding one file on an
+// archived task, which reads as a cleanup that skipped something.
 //
 // finishGate already guarded the transition against a task that had moved, and
-// the guard was written for a task moving forward through review. An archived
+// that guard was written for a task moving forward through review. An archived
 // task is the other way it moves, and nothing here applies to it: the worktree
 // the checks ran in is gone and so is the session that would read the verdict.
 func TestAGateThatFinishesAfterAnArchiveWritesNothing(t *testing.T) {
@@ -1233,8 +1203,8 @@ func TestAGateThatFinishesAfterAnArchiveWritesNothing(t *testing.T) {
 		t.Errorf("workflow = %q, want the archived state the user asked for", task.Workflow)
 	}
 
-	// And the user is told why no verdict ever appeared. A gate they watched
-	// start has to account for itself even when its results are discarded.
+	// And the user is told why no verdict appeared. A gate they watched start has
+	// to account for itself even when its results are discarded.
 	explained := false
 	for _, event := range history(t, live.session) {
 		if event.Type == domain.EventReviewChanged && strings.Contains(event.Detail, "archived") {
@@ -1247,13 +1217,11 @@ func TestAGateThatFinishesAfterAnArchiveWritesNothing(t *testing.T) {
 }
 
 // TestAGateDoesNotRebuildAControlWorkspaceThatWasRemoved is the same rule reached
-// without an archive.
-//
-// The classes of a cleanup are independent choices, so removing the control
-// workspace alone is something a user can ask for. Every write in internal/control
-// creates the directory it writes into, so answering a request whose workspace
-// has gone does not reach a waiting session — it rebuilds the tree the user
-// confirmed the removal of, holding one file nothing will ever open.
+// without an archive. The classes of a cleanup are independent choices, so
+// removing the control workspace alone is something a user can ask for. Every
+// write in internal/control creates the directory it writes into, so answering a
+// request whose workspace has gone rebuilds the tree the user confirmed the
+// removal of rather than reaching a waiting session.
 func TestAGateDoesNotRebuildAControlWorkspaceThatWasRemoved(t *testing.T) {
 	live := launchForReview(t, nil)
 
@@ -1275,17 +1243,17 @@ func TestAGateDoesNotRebuildAControlWorkspaceThatWasRemoved(t *testing.T) {
 	}
 }
 
-// TestAReconcilePassDuringALiveGateLeavesItRunning is the second half of
-// ADR-096, in the place it was measured.
+// TestAReconcilePassDuringALiveGateLeavesItRunning is the second half of ADR-096,
+// in the place it was measured.
 //
 // A gate does not outlive the process that started it, which is true of the
 // process and false of the call: Reconcile is an API request the dashboard makes
 // on a key press, on a resume, on a stop, and after every cleanup action. A pass
 // that read every task in `verifying` as an interrupted gate moved one back to
 // `review_requested` five seconds after its own gate started, recording a daemon
-// restart there had not been; the checks then passed into a task that was no
+// restart there had not been. The checks then passed into a task that was no
 // longer verifying, so finishGate recorded the results and skipped both the
-// transition and the notification. The checks passed and nobody was told.
+// transition and the notification, and nobody was told.
 func TestAReconcilePassDuringALiveGateLeavesItRunning(t *testing.T) {
 	live := launchForReview(t, nil)
 	live.watchable()
@@ -1295,8 +1263,8 @@ func TestAReconcilePassDuringALiveGateLeavesItRunning(t *testing.T) {
 	live.deliver(t)
 	waitFor(t, func() bool { return live.task(t).Workflow == domain.WorkflowVerifying })
 
-	// The user presses `r` while the suite runs, which is what the dashboard
-	// does after a cleanup action too.
+	// The user presses `r` while the suite runs, which is what the dashboard does
+	// after a cleanup action too.
 	reconciled(t, live.service)
 
 	if got := live.task(t).Workflow; got != domain.WorkflowVerifying {
@@ -1331,21 +1299,19 @@ func TestAReconcilePassDuringALiveGateLeavesItRunning(t *testing.T) {
 
 // TestAGateThatCannotStartReachesTheUser is the same mistake one step earlier.
 //
-// gateWillRun answered false for a configuration it could not read, so the
-// review request was announced at once as though no gate were configured, and
-// beginGate then failed on the same file with the failure reaching only the
-// daemon's log: the task sat in review_requested with no verdict and the agent's
-// helper waited out its acknowledge timeout. Recorded twice on 2026-09-01, while
-// the project file was mid-edit. A run that establishes nothing already has a
-// landing — verification_blocked (ADR-055) — and a gate that cannot start lands
+// gateWillRun answered false for a configuration it could not read, so the review
+// request was announced at once as though no gate were configured. beginGate then
+// failed on the same file with the failure reaching only the daemon's log, and
+// the task sat in review_requested with no verdict while the agent's helper
+// waited out its acknowledge timeout. A run that establishes nothing already
+// lands in verification_blocked (ADR-055), and a gate that cannot start lands
 // there too.
 func TestAGateThatCannotStartReachesTheUser(t *testing.T) {
 	live := launchForReview(t, nil)
 	live.watchable()
 
-	// The project file, mid-edit. Everything Feat needs to run the checks is in
-	// it, so this is the difference between "no checks are configured" and "Feat
-	// cannot tell".
+	// The project file, mid-edit. Everything Feat needs to run the checks is in it,
+	// so this separates no checks being configured from Feat not being able to tell.
 	broken := filepath.Join(live.service.layout.ProjectConfigDir(), "app.yaml")
 	if err := os.WriteFile(broken, []byte("version: 1\nproject:\n  id: app\n  name: [unclosed\n"), 0o600); err != nil {
 		t.Fatalf("breaking the project configuration: %v", err)
@@ -1372,8 +1338,8 @@ func TestAGateThatCannotStartReachesTheUser(t *testing.T) {
 		t.Error("the task's history says nothing about the gate that could not start")
 	}
 
-	// And the agent stops waiting, with a report that says the failure is not
-	// its own to fix.
+	// And the agent stops waiting, with a report that says the failure is not its
+	// own to fix.
 	verdict := readVerdict(t, live.session, request)
 	if !strings.Contains(verdict, control.VerificationBlocked) {
 		t.Errorf("the waiting agent was answered %q", firstLine(verdict))

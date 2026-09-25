@@ -20,9 +20,9 @@ import (
 	"github.com/ma8el/feat/internal/store"
 )
 
-// prepareFixture is a two-repository project: one the agent may write to, one
-// the user chooses per task. The names are generic, because nothing about any
-// real project may reach the binary (CLAUDE.md scope rule 3).
+// prepareFixture is a two-repository project: one the agent may write to, one the
+// user chooses per task. The names are generic, because nothing about any real
+// project may reach the binary.
 const prepareFixture = `version: 1
 
 project:
@@ -60,11 +60,10 @@ agent:
 // planned is the commit the fake resolves every remote-tracking base to.
 const planned = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
 
-// fakeGit answers the Git commands the preparer sends.
-//
-// It is deliberately simpler than the fake in internal/git: what is under test
-// here is the order in which the daemon records and creates, not Git's own
-// behaviour, which the opt-in tests in internal/git check against Git itself.
+// fakeGit answers the Git commands the preparer sends. It is deliberately simpler
+// than the fake in internal/git, because what is under test here is the order in
+// which the daemon records and creates rather than Git's own behaviour, which the
+// opt-in tests in internal/git check against Git itself.
 type fakeGit struct {
 	mu sync.Mutex
 	// calls records every argument vector, in order.
@@ -103,11 +102,10 @@ type fakeGit struct {
 	// contained makes the recorded base ref contain every branch, which is what
 	// `merge-base --is-ancestor` answers and what Feat's plan asks.
 	contained bool
-	// headBehind makes `git branch -d` refuse, the way it does in a checkout
-	// whose HEAD is behind the ref a task branched from. It is a separate
-	// setting from contained because the two questions are separate, and the
-	// pair of them is the state ADR-097 is about: Feat says contained, Git says
-	// not fully merged, and both are right.
+	// headBehind makes `git branch -d` refuse, as it does in a checkout whose HEAD
+	// is behind the ref a task branched from. It is separate from contained because
+	// the two questions are, and the pair is the state ADR-097 is about: Feat says
+	// contained, Git says not fully merged, and both are right.
 	headBehind bool
 	// failRemove makes removing a worktree fail once its path ends in this
 	// repository identifier.
@@ -182,9 +180,9 @@ func (f *fakeGit) RunWith(_ context.Context, dir string, env []string, args ...s
 	f.environments = append(f.environments, append([]string(nil), env...))
 	f.mu.Unlock()
 
-	// A real command cannot run in a directory that is not there, and neither
-	// can this one: a checkout that has been moved away must fail the same way
-	// here as it would on the machine.
+	// A real command cannot run in a directory that is not there, and neither can
+	// this one: a checkout that has been moved away must fail the same way here as
+	// it would on the machine.
 	if _, err := os.Stat(dir); err != nil {
 		return "", fmt.Errorf("chdir %s: no such file or directory", dir)
 	}
@@ -198,9 +196,9 @@ func (f *fakeGit) RunWith(_ context.Context, dir string, env []string, args ...s
 		return ".git", nil
 
 	case args[0] == "rev-parse" && args[1] == "--git-path":
-		// Where a push looks for the hooks it is not going to run. The directory
-		// does not exist in a fake, which answers the ordinary case: a
-		// repository with no pre-push hook.
+		// Where a push looks for the hooks it is not going to run. The directory does
+		// not exist in a fake, which answers the ordinary case of a repository with no
+		// pre-push hook.
 		return filepath.Join(dir, ".git", "hooks"), nil
 
 	case args[0] == "config":
@@ -227,9 +225,9 @@ func (f *fakeGit) RunWith(_ context.Context, dir string, env []string, args ...s
 		return "", nil
 
 	case args[0] == "rev-parse" && strings.HasPrefix(args[len(args)-1], "HEAD"):
-		// What a task worktree has checked out. A fake with none answers the
-		// way a worktree with no commit does, which is the ordinary case while
-		// an agent is working: committing is optional (FR-GIT-007).
+		// What a task worktree has checked out. A fake with none answers the way a
+		// worktree with no commit does, which is the ordinary case while an agent is
+		// working, because committing is optional (FR-GIT-007).
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		if f.head == "" {
@@ -238,13 +236,13 @@ func (f *fakeGit) RunWith(_ context.Context, dir string, env []string, args ...s
 		return f.head, nil
 
 	case args[0] == "rev-parse":
-		// Remote-tracking bases resolve; nothing else does, so a task branch
-		// never collides and a base policy that is not remote is visibly
-		// unresolvable — except for a branch the fake has been told exists,
-		// which is how a cleanup finds something to delete.
-		// The peel suffix is stripped the way the package's own resolution
-		// strips it, so a branch a test says exists is found under the name it
-		// gave rather than under the name plus `^{commit}`.
+		// Remote-tracking bases resolve and nothing else does, so a task branch never
+		// collides and a base policy that is not remote is visibly unresolvable. The
+		// exception is a branch the fake has been told exists, which is how a cleanup
+		// finds something to delete.
+		//
+		// The peel suffix is stripped the way the package's own resolution strips it,
+		// so a branch a test says exists is found under the name it gave.
 		ref := strings.TrimSuffix(args[len(args)-1], "^{commit}")
 		if strings.HasPrefix(ref, "refs/remotes/") {
 			f.mu.Lock()
@@ -305,9 +303,9 @@ func (f *fakeGit) RunWith(_ context.Context, dir string, env []string, args ...s
 				Stderr: "error: branch '" + name + "' not found",
 			}
 		}
-		// Git's own refusal, in Git's own words. A fake that deleted whatever it
-		// was handed would let a caller that chose `-d` pass here and fail on a
-		// real checkout.
+		// Git's own refusal, in Git's own words. A fake that deleted whatever it was
+		// handed would let a caller that chose `-d` pass here and fail on a real
+		// checkout.
 		if f.headBehind && !slices.Contains(args, "-D") {
 			return "", &git.ExitError{
 				Args: args, Dir: dir, Code: 1,
@@ -407,12 +405,11 @@ func arrangeTaskWith(t *testing.T, fake *fakeGit, body string) *preparation {
 	layout := testLayout(t)
 	env := configured(t, layout, "app", body)
 
-	// The checkouts the configuration names have to exist, because the fake
-	// answers for the directories it is asked about rather than for any
-	// directory.
+	// The checkouts the configuration names have to exist, because the fake answers
+	// for the directories it is asked about rather than for any directory.
 	for _, name := range fixtureRepositories(t, body) {
-		// With a .git directory, because a task worktree is only a repository
-		// while the main checkout's Git directory is reachable — which is what a
+		// With a .git directory, because a task worktree is a repository only while
+		// the main checkout's Git directory is reachable, which is what a
 		// containerised task has to mount (ADR-033).
 		if err := os.MkdirAll(filepath.Join(env.Home, "repos", "app", name, ".git"), 0o755); err != nil {
 			t.Fatalf("creating the checkout %s: %v", name, err)
@@ -460,18 +457,17 @@ func arrangeTaskWith(t *testing.T, fake *fakeGit, body string) *preparation {
 
 // fixtureRepositories reads the repository identifiers out of a fixture.
 //
-// It is read from the document rather than passed in, so that a fixture with
-// three repositories cannot be arranged with the checkouts of a fixture with
-// two — which is a failure that surfaces as Git refusing a directory rather
-// than as a test saying what is wrong.
+// It is read from the document rather than passed in, so a fixture with three
+// repositories cannot be arranged with the checkouts of a fixture with two, which
+// surfaces as Git refusing a directory rather than as a test saying what is wrong.
 //
-// The document is read by the package that reads it in production rather than
-// scanned for indented lines. A fixture that quotes an identifier, indents by
-// four spaces, or puts a comment between two entries is the same configuration
-// to Feat, and a helper that answered one of those with the wrong names would
-// arrange the wrong checkouts and leave Git to be blamed for it. The file name
-// is empty because there is none: the only rule it decides is that a document's
-// project identifier matches what it is stored as, and this is not stored.
+// The package that reads the document in production reads it here too, rather
+// than scanning for indented lines. A fixture that quotes an identifier, indents
+// by four spaces, or puts a comment between two entries is the same configuration
+// to Feat, and a helper answering one of those with the wrong names would arrange
+// the wrong checkouts. The file name is empty because there is none: the only
+// rule it decides is that a document's project identifier matches what it is
+// stored as, and this is not stored.
 func fixtureRepositories(t *testing.T, body string) []string {
 	t.Helper()
 
@@ -483,13 +479,10 @@ func fixtureRepositories(t *testing.T, body string) []string {
 }
 
 // TestAReformattedFixtureArrangesTheSameCheckouts is why the fixture is parsed
-// rather than scanned.
-//
-// Four-space indentation, a quoted identifier, and a comment between two entries
-// are the same configuration to Feat. A reader that answered any of them with
-// the wrong names would arrange checkouts for repositories the fixture does not
-// have, and the test that then failed would be a Git error about a directory
-// rather than anything about the fixture.
+// rather than scanned. Four-space indentation, a quoted identifier, and a comment
+// between two entries are the same configuration to Feat, and a reader that
+// answered any of them with the wrong names would arrange checkouts for
+// repositories the fixture does not have.
 func TestAReformattedFixtureArrangesTheSameCheckouts(t *testing.T) {
 	reformatted := `version: 1
 
@@ -536,12 +529,10 @@ func selection() []Selection {
 }
 
 // TestPreparationRecordsEveryResourceBeforeCreatingIt is the ordering
-// recoverability rests on.
-//
-// The record is written first and the worktrees are created afterwards, so that
-// no worktree can exist that the record does not name. The assertion is made
-// from inside the creation itself: when Git is asked to make a worktree, the
-// snapshot on disk must already know about it.
+// recoverability rests on. The record is written first and the worktrees are
+// created afterwards, so no worktree can exist that the record does not name. The
+// assertion is made from inside the creation: when Git is asked to make a
+// worktree, the snapshot on disk must already know about it.
 func TestPreparationRecordsEveryResourceBeforeCreatingIt(t *testing.T) {
 	fake := newFakeGit()
 	arranged := arrangeTask(t, fake)
@@ -604,8 +595,8 @@ func TestPreparationMapsEachRepositoryToItsOwnResources(t *testing.T) {
 			BaseCommit:   planned,
 			Branch:       "feat/" + key + "-add-a-rate-limit",
 			WorktreePath: filepath.Join(root, "api"),
-			// docs/07-configuration-model.md: the mount point comes from the
-			// repository's configured container path.
+			// The mount point comes from the repository's configured container path
+			// (docs/07-configuration-model.md).
 			ContainerPath: "/srv/api",
 		},
 		{
@@ -631,8 +622,8 @@ func TestPreparationMapsEachRepositoryToItsOwnResources(t *testing.T) {
 		}
 	}
 
-	// Each worktree was created from its own checkout, so one repository's tree
-	// can never be checked out of another's.
+	// Each worktree was created from its own checkout, so one repository's tree can
+	// never be checked out of another's.
 	for repository, dir := range map[string]string{
 		"api":   filepath.Join(arranged.home, "repos", "app", "api"),
 		"store": filepath.Join(arranged.home, "repos", "app", "store"),
@@ -644,13 +635,11 @@ func TestPreparationMapsEachRepositoryToItsOwnResources(t *testing.T) {
 	}
 }
 
-// TestAWorktreeRootThatNamesTheRepositoryIsUsedAsWritten checks the other
-// reading of git.worktree_root.
-//
-// The root names the directory holding a task's worktrees. A template that
-// already names the repository expands to one directory per repository; one
-// that does not gets the repository appended. Both readings have to produce one
-// worktree per repository, or the second checkout lands on top of the first.
+// TestAWorktreeRootThatNamesTheRepositoryIsUsedAsWritten checks the other reading
+// of git.worktree_root. A template that already names the repository expands to
+// one directory per repository, and one that does not gets the repository
+// appended. Both readings have to produce one worktree per repository, or the
+// second checkout lands on top of the first.
 func TestAWorktreeRootThatNamesTheRepositoryIsUsedAsWritten(t *testing.T) {
 	fake := newFakeGit()
 	arranged := arrangeTaskWith(t, fake, strings.Replace(prepareFixture,
@@ -694,9 +683,9 @@ func TestPreparationFailureLeavesARecoverableRecord(t *testing.T) {
 		t.Errorf("the task is %s, want failed so that it can be resumed", recorded.Workflow)
 	}
 
-	// Both repositories are named, including the one that was never created:
-	// the record is what a later reconciliation looks for, and a resource it
-	// does not name is a resource nobody can find.
+	// Both repositories are named, including the one that was never created. The
+	// record is what a later reconciliation looks for, and a resource it does not
+	// name is one nobody can find.
 	if len(recorded.Repositories) != 2 {
 		t.Fatalf("the record binds %d repositories, want both", len(recorded.Repositories))
 	}
@@ -707,8 +696,8 @@ func TestPreparationFailureLeavesARecoverableRecord(t *testing.T) {
 		}
 	}
 
-	// The observation is what says a worktree exists, and only the repository
-	// that was created has one.
+	// The observation is what says a worktree exists, and only the repository that
+	// was created has one.
 	api, _ := recorded.Repository("api")
 	store, _ := recorded.Repository("store")
 	if api.Observation == nil {
@@ -741,9 +730,9 @@ func TestPreparationFailureLeavesARecoverableRecord(t *testing.T) {
 	}
 }
 
-// TestATaskWithNoBriefIsRefusedBeforeAnyRepositoryIsTouched checks that the
-// cheap refusal happens before the visible one: a task that cannot launch
-// should not cause a fetch on the user's repositories first.
+// TestATaskWithNoBriefIsRefusedBeforeAnyRepositoryIsTouched checks that the cheap
+// refusal happens before the visible one: a task that cannot launch should not
+// cause a fetch on the user's repositories first.
 func TestATaskWithNoBriefIsRefusedBeforeAnyRepositoryIsTouched(t *testing.T) {
 	fake := newFakeGit()
 	arranged := arrangeTask(t, fake)
@@ -813,8 +802,8 @@ func TestAReadOnlyRepositoryCannotBePromoted(t *testing.T) {
 }
 
 // TestAPlanThatCannotBeAppliedLeavesTheTaskADraft checks FR-TASK-003 from the
-// other side: a task whose repositories could not be resolved has created
-// nothing and is still editable.
+// other side: a task whose repositories could not be resolved has created nothing
+// and is still editable.
 func TestAPlanThatCannotBeAppliedLeavesTheTaskADraft(t *testing.T) {
 	fake := newFakeGit()
 	arranged := arrangeTask(t, fake)
@@ -835,9 +824,8 @@ func TestAPlanThatCannotBeAppliedLeavesTheTaskADraft(t *testing.T) {
 		t.Errorf("the task is %s, want a draft the user can still change", recorded.Workflow)
 	}
 	// The selection survives, because it is the user's own answer to which
-	// repositories the task is about and they should not have to give it again.
-	// What must not survive is a resolved plan: no base commit, no branch, and
-	// no worktree path, because none of them was resolved.
+	// repositories the task is about. What must not survive is a resolved plan: no
+	// base commit, no branch, and no worktree path, because none was resolved.
 	if len(recorded.Repositories) != len(selection()) {
 		t.Errorf("the draft records %d repositories, want the %d the user selected",
 			len(recorded.Repositories), len(selection()))

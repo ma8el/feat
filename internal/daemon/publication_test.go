@@ -18,12 +18,12 @@ import (
 // publishFixture is a five-repository project whose repositories all publish to
 // the same forge.
 //
-// Five, because ADR-073's question is what happens when the third of five fails:
-// with two there is no "the rest still land", and with three there is no
-// repository after the failure and before the end.
+// Five, because ADR-073's question is what happens when the third of five fails.
+// Two leaves nothing to still land, and three leaves no repository after the
+// failure and before the end.
 //
-// The names sort into the order the task binds them, so that "the third" is the
-// third both in the fixture and in the record.
+// The names sort into the order the task binds them, so the third is the third
+// both in the fixture and in the record.
 const publishFixture = `version: 1
 
 project:
@@ -85,11 +85,10 @@ const head = "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c"
 // binds them.
 var publicationRepositories = []string{"alpha", "bravo", "charlie", "delta", "echo"}
 
-// fakeForge is a forge that records what it was asked to open.
-//
-// It stands where glab would, so that the sequencing above it can be checked
-// without an account on somebody's GitLab — and so that a refusal from one
-// repository can be arranged, which is the case the whole ordering exists for.
+// fakeForge is a forge that records what it was asked to open. It stands where
+// glab would, so the sequencing above it is checked without an account on
+// somebody's GitLab, and so one repository's refusal can be arranged, which is
+// the case the whole ordering exists for.
 type fakeForge struct {
 	mu sync.Mutex
 	// opened records every request, in the order they were made.
@@ -239,13 +238,11 @@ func states(task *domain.Task) map[string]domain.PublicationState {
 }
 
 // TestAPublicationRecordsItsWholePlanBeforeItAttemptsAnything is ADR-073's
-// ordering, and it is the reason an interruption is recoverable.
-//
-// The record is written first and the repositories are applied afterwards, so
-// that no merge request can exist that the record cannot name. The assertion is
-// made from inside the first request: when the forge is asked to open one, the
-// record on disk must already name every repository this publication will
-// attempt.
+// ordering, and the reason an interruption is recoverable. The record is written
+// first and the repositories are applied afterwards, so no merge request can
+// exist that the record cannot name. The assertion is made from inside the first
+// request: when the forge is asked to open one, the record on disk must already
+// name every repository this publication will attempt.
 func TestAPublicationRecordsItsWholePlanBeforeItAttemptsAnything(t *testing.T) {
 	live := launchPublishing(t)
 	live.draft(t, head, publicationRepositories...)
@@ -281,12 +278,9 @@ func TestAPublicationRecordsItsWholePlanBeforeItAttemptsAnything(t *testing.T) {
 }
 
 // TestAFailureAtTheThirdOfFiveLeavesTheOthersPublished is ADR-073's central
-// promise.
-//
-// A failure on one repository does not abort the others. Where the cause is
-// common the user reads it several times, which costs nothing; where it is local
-// to one repository the rest land and the user has one thing to fix rather than
-// an unknown number still unattempted. Nothing is rolled back: the two that
+// promise. A failure on one repository does not abort the others: a common cause
+// is read several times at no cost, and a local one leaves the rest landed and
+// the user with a single thing to fix. Nothing is rolled back, so the two that
 // published stay published.
 func TestAFailureAtTheThirdOfFiveLeavesTheOthersPublished(t *testing.T) {
 	live := launchPublishing(t)
@@ -316,32 +310,30 @@ func TestAFailureAtTheThirdOfFiveLeavesTheOthersPublished(t *testing.T) {
 		t.Errorf("a failed repository records a merge request: %+v", entry.Request)
 	}
 
-	// The two after it were still attempted, which is the whole point: stopping
-	// early would turn one round trip into as many as there are repositories.
+	// The two after it were still attempted. Stopping early would turn one round
+	// trip into as many as there are repositories.
 	if got := live.forge.requests(); len(got) != 5 {
 		t.Errorf("the forge was asked %v, want every repository attempted", got)
 	}
-	// And the push happened for every one of them, including the one whose
-	// merge request was refused: the branch is on the remote and the request is
-	// not, which is a state the failure names.
+	// And the push happened for every one of them, including the one whose merge
+	// request was refused: the branch is on the remote and the request is not,
+	// which is a state the failure names.
 	if got := len(live.fake.pushes()); got != 5 {
 		t.Errorf("%d branches were pushed, want 5", got)
 	}
 }
 
 // TestAnInterruptedPublicationIsRecoverableFromItsRecord is what the plan is
-// recorded first for.
-//
-// The publication stops after two repositories, the way a daemon that was killed
-// would. What is left is not deduced from the forges: the record names the three
-// it had not attempted, a restarted daemon reads the same record off disk, and
-// publishing again finishes exactly those.
+// recorded first for. The publication stops after two repositories, as a killed
+// daemon would. What is left is not deduced from the forges: the record names the
+// three it had not attempted, a restarted daemon reads the same record off disk,
+// and publishing again finishes exactly those.
 func TestAnInterruptedPublicationIsRecoverableFromItsRecord(t *testing.T) {
 	live := launchPublishing(t)
 	live.draft(t, head, publicationRepositories...)
 
-	// Interrupted: the third repository's request never answers, and the
-	// process ends. What survives is what was written down.
+	// Interrupted: the third repository's request never answers and the process
+	// ends, so what survives is what was written down.
 	interrupted := errors.New("the daemon stopped")
 	live.forge.refuse["charlie"] = interrupted
 	live.forge.onOpen = func(repository string) {
@@ -387,8 +379,8 @@ func TestAnInterruptedPublicationIsRecoverableFromItsRecord(t *testing.T) {
 		t.Errorf("%d repositories are recorded as published, want the two that finished", got)
 	}
 
-	// Publishing again finishes what was left. The two that published are kept
-	// and skipped; nothing opens a second merge request for them.
+	// Publishing again finishes what was left. The two that published are kept and
+	// skipped, and nothing opens a second merge request for them.
 	before := len(live.forge.requests())
 	plan, err := restarted.PlanPublication(context.Background(), live.ref.Task)
 	if err != nil {
@@ -416,12 +408,10 @@ func TestAnInterruptedPublicationIsRecoverableFromItsRecord(t *testing.T) {
 }
 
 // TestRepublishingSkipsWhatAlreadyPublishedAndNeverCallsItStale keeps ADR-073's
-// two reasons apart.
-//
-// A refusal says the agent's draft describes a commit that is no longer current.
-// It must never say merely that this ran before, because a user who reads
-// "stale" goes looking for work that moved, and a repository that already
-// published has nothing wrong with it at all.
+// two reasons apart. A refusal says the agent's draft describes a commit that is
+// no longer current, and never merely that this ran before: a user who reads
+// stale goes looking for work that moved, and a repository that already published
+// has nothing wrong with it.
 func TestRepublishingSkipsWhatAlreadyPublishedAndNeverCallsItStale(t *testing.T) {
 	live := launchPublishing(t)
 	live.draft(t, head, publicationRepositories...)
@@ -429,9 +419,9 @@ func TestRepublishingSkipsWhatAlreadyPublishedAndNeverCallsItStale(t *testing.T)
 
 	before := len(live.forge.requests())
 
-	// The branch has moved on since, which would make a fresh publication of
-	// these repositories stale. It does not make an already published one stale:
-	// it is not attempted at all.
+	// The branch has moved on since, which would make a fresh publication of these
+	// repositories stale. It does not make an already published one stale, because
+	// that one is not attempted at all.
 	live.fake.head = "0011223344556677889900112233445566778899"
 
 	result, err := live.service.ApplyPublication(context.Background(), live.ref.Task,
@@ -463,12 +453,10 @@ func TestRepublishingSkipsWhatAlreadyPublishedAndNeverCallsItStale(t *testing.T)
 }
 
 // TestADraftDescribingAnotherCommitIsRefusedBeforeAnythingIsSent is ADR-070's
-// staleness refusal.
-//
-// The draft is the agent's account of what it did, and an account written before
-// the work finished describes something else. It is reported and never resolved,
-// for the reason a confirmation fingerprint is: re-composing it silently would
-// publish words nobody read.
+// staleness refusal. The draft is the agent's account of what it did, and an
+// account written before the work finished describes something else. It is
+// reported and never resolved, for the reason a confirmation fingerprint is:
+// re-composing it silently would publish words nobody read.
 func TestADraftDescribingAnotherCommitIsRefusedBeforeAnythingIsSent(t *testing.T) {
 	live := launchPublishing(t)
 	// The draft describes the commit that was current when the agent wrote it.
@@ -501,11 +489,9 @@ func TestADraftDescribingAnotherCommitIsRefusedBeforeAnythingIsSent(t *testing.T
 	}
 }
 
-// TestThePlanShowsAStaleDraftBeforeTheUserApproves is the other half.
-//
-// A refusal at the moment of approval is right and late. The plan is what the
-// user reads, so it names the repository, the commit the draft describes, and
-// the commit the branch is at.
+// TestThePlanShowsAStaleDraftBeforeTheUserApproves is the other half. A refusal
+// at the moment of approval is right and late, so the plan the user reads names
+// the repository, the commit the draft describes, and the commit the branch is at.
 func TestThePlanShowsAStaleDraftBeforeTheUserApproves(t *testing.T) {
 	live := launchPublishing(t)
 	live.draft(t, "1111111111111111111111111111111111111111", "alpha")
@@ -539,12 +525,11 @@ func TestThePlanShowsAStaleDraftBeforeTheUserApproves(t *testing.T) {
 	}
 }
 
-// TestWhatIsSentIsWhatTheUserApproved is the control ADR-070 rests on.
-//
-// The agent's words go through a person before they reach a forge. What the
-// daemon composes the request from is the approved text, not the agent's message
-// — otherwise reading one document and sending another would make the approval a
-// formality.
+// TestWhatIsSentIsWhatTheUserApproved is the control ADR-070 rests on. The
+// agent's words go through a person before they reach a forge, and the daemon
+// composes the request from the approved text rather than from the agent's
+// message, because reading one document and sending another would make the
+// approval a formality.
 func TestWhatIsSentIsWhatTheUserApproved(t *testing.T) {
 	live := launchPublishing(t)
 	live.draft(t, head, "alpha")
@@ -578,13 +563,11 @@ func TestWhatIsSentIsWhatTheUserApproved(t *testing.T) {
 	}
 }
 
-// TestTheAgentsDraftIsReadBackFromItsOwnMessage checks where the words come
-// from.
-//
-// The draft is written by the agent when it requests review and read again when
-// the user asks to publish, which may be after a restart. It lives in the
-// control workspace, which is the account of what the agent sent, so the
-// read-back is a question about that account rather than a copy Feat kept.
+// TestTheAgentsDraftIsReadBackFromItsOwnMessage checks where the words come from.
+// The agent writes the draft when it requests review, and it is read again when
+// the user asks to publish, possibly after a restart. It lives in the control
+// workspace, which is the account of what the agent sent, so the read-back asks
+// that account rather than a copy Feat kept.
 func TestTheAgentsDraftIsReadBackFromItsOwnMessage(t *testing.T) {
 	live := launchPublishing(t)
 	live.draft(t, head, "alpha", "bravo")
@@ -606,7 +589,7 @@ func TestTheAgentsDraftIsReadBackFromItsOwnMessage(t *testing.T) {
 		t.Errorf("the draft for bravo reads %q", titles["bravo"])
 	}
 	// A repository the agent never drafted still appears, with the words left to
-	// the user: publishing work the agent did not describe is allowed.
+	// the user, because publishing work the agent did not describe is allowed.
 	if _, found := titles["charlie"]; !found {
 		t.Error("a repository the agent wrote no draft for is missing from the plan")
 	}
@@ -618,11 +601,10 @@ func TestTheAgentsDraftIsReadBackFromItsOwnMessage(t *testing.T) {
 	}
 }
 
-// TestAPublicationDraftChangesNoState checks that a draft is an account.
-//
-// It asks for nothing, so it moves no workflow state, sets no attention, and
-// reaches no forge. What it does is appear in the task's history, and the
-// history carries the repositories rather than the prose.
+// TestAPublicationDraftChangesNoState checks that a draft is an account. It asks
+// for nothing, so it moves no workflow state, sets no attention, and reaches no
+// forge. It appears in the task's history, which carries the repositories rather
+// than the prose.
 func TestAPublicationDraftChangesNoState(t *testing.T) {
 	live := launchPublishing(t)
 	before := live.task(t)
@@ -726,11 +708,9 @@ func TestARepositoryWithNoForgeIsANoteRatherThanAFailure(t *testing.T) {
 }
 
 // TestTheEditorKeepsItsFlagsAndIsGivenTheDraft checks what the client is handed.
-//
-// The configured editor command names an editor and the thing it opens. For a
-// publication the thing it opens is the draft, so the flags are kept and the
-// argument that named a repository is not: `nvim --clean` has to stay
-// `nvim --clean`, or the editor behaves differently from everywhere else.
+// The configured editor command names an editor and the thing it opens, which for
+// a publication is the draft, so the flags are kept and the argument that named a
+// repository is not: `nvim --clean` has to stay `nvim --clean`.
 func TestTheEditorKeepsItsFlagsAndIsGivenTheDraft(t *testing.T) {
 	live := launchPublishing(t)
 
@@ -786,12 +766,10 @@ func TestARepositoryNamedTwiceIsRefused(t *testing.T) {
 }
 
 // TestTheDraftNamesTheTicketTheTaskCameFrom is the one thing Feat adds to the
-// agent's prose.
-//
-// It is added to the draft rather than to the request, so the user reads it and
-// can delete it: what is sent is what was displayed. The agent is not asked for
-// it, because the brief it was given is the composed brief rather than the
-// ticket it came from (ADR-070).
+// agent's prose. It goes into the draft rather than the request, so the user
+// reads it and can delete it and what is sent is what was displayed. The agent is
+// not asked for it, because the brief it was given is the composed brief rather
+// than the ticket (ADR-070).
 func TestTheDraftNamesTheTicketTheTaskCameFrom(t *testing.T) {
 	live := launchPublishing(t)
 	live.draft(t, head, "alpha")
@@ -855,11 +833,10 @@ func TestATaskWithNoTicketGetsNoTicketLine(t *testing.T) {
 }
 
 // TestRepublishingWithNoWordsForWhatAlreadyPublishedIsFine keeps a client from
-// having to invent a title for something that is already on the forge.
-//
-// The words that were sent are on the forge, and the record keeps the entry as
-// it was recorded. A repository that already published is not asked for a title,
-// not asked whether its words are current, and not attempted.
+// having to invent a title for something already on the forge. The words that
+// were sent are there, and the record keeps the entry as it was recorded, so a
+// repository that already published is not asked for a title, not asked whether
+// its words are current, and not attempted.
 func TestRepublishingWithNoWordsForWhatAlreadyPublishedIsFine(t *testing.T) {
 	live := launchPublishing(t)
 	live.draft(t, head, "alpha")
@@ -896,9 +873,9 @@ func TestRepublishingWithNoWordsForWhatAlreadyPublishedIsFine(t *testing.T) {
 // A repository with no commit beyond the base it started from is left out of the
 // plan and explained in a note, so it was never displayed and never approved.
 // Publishing it anyway would push a task branch to somebody's remote and ask for
-// a merge request with nothing in it, which is exactly the state ADR-073's
-// ordering exists to keep out of the record. What the plan offers and what an
-// approval may name is one decision, asked twice.
+// a merge request with nothing in it, which is the state ADR-073's ordering keeps
+// out of the record. What the plan offers and what an approval may name is one
+// decision, asked twice.
 func TestARepositoryThePlanDoesNotOfferIsRefusedRatherThanPushed(t *testing.T) {
 	fake := newFakeGit()
 	fake.head = head
@@ -953,13 +930,11 @@ func TestARepositoryThePlanDoesNotOfferIsRefusedRatherThanPushed(t *testing.T) {
 }
 
 // TestTheForgesThisBuildPublishesToAreTheOnesItDeclares holds the registry and
-// the declaration together.
-//
-// `feat doctor` reads forge.Built to tell a user that a configured forge is one
-// this build has no adapter for, and the daemon publishes through the registry
-// it composes here. Two lists of one fact can disagree, and the way they would
-// disagree is the worst one available: doctor reporting a project as publishable
-// that a publication then refuses, or the reverse (ADR-074).
+// the declaration together. `feat doctor` reads forge.Built to tell a user that a
+// configured forge has no adapter in this build, and the daemon publishes through
+// the registry it composes here. Two lists of one fact can disagree, and doctor
+// would then report a project as publishable that a publication refuses, or the
+// reverse (ADR-074).
 func TestTheForgesThisBuildPublishesToAreTheOnesItDeclares(t *testing.T) {
 	registry := forges(Options{})
 
@@ -980,12 +955,10 @@ func TestTheForgesThisBuildPublishesToAreTheOnesItDeclares(t *testing.T) {
 }
 
 // TestAForgeThisBuildHasNoAdapterForIsRefusedByName is the other half of
-// forge.Built, checked where it is reachable.
-//
-// A forge kind can be configurable before its adapter exists, which is the state
-// GitHub was in until its adapter landed. A publication refuses it by name and
-// says what this build does publish to, rather than attempting it — and nothing
-// is pushed and no plan is recorded, because the refusal happens first.
+// forge.Built, checked where it is reachable. A forge kind can be configurable
+// before its adapter exists, which is where GitHub was until its adapter landed.
+// A publication refuses it by name and says what this build does publish to, and
+// nothing is pushed and no plan is recorded, because the refusal comes first.
 func TestAForgeThisBuildHasNoAdapterForIsRefusedByName(t *testing.T) {
 	fake := newFakeGit()
 	fake.head = head
@@ -994,8 +967,8 @@ func TestAForgeThisBuildHasNoAdapterForIsRefusedByName(t *testing.T) {
 
 	live := launchWith(t, publishFixture, installed(), false, func(options *Options) {
 		options.Git = fake
-		// A build whose only adapter is for a forge this project does not use.
-		// The fixture's repositories all declare GitLab.
+		// A build whose only adapter is for a forge this project does not use: the
+		// fixture's repositories all declare GitLab.
 		options.Forges = map[domain.ForgeKind]forge.Adapter{domain.ForgeGitHub: forges}
 	})
 	live.fake = fake

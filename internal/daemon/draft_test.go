@@ -28,24 +28,22 @@ type drafting struct {
 	git     *fakeGit
 	tmux    *tmuxtest.Server
 	docker  *composetest.Docker
-	// runtimes is the fake Docker of the application runtime, which is a
-	// different adapter from the one above and is deliberately a different fake:
-	// a test can arrange an application that will not start beside an agent
-	// container that is perfectly healthy (ADR-034).
+	// runtimes is the fake Docker of the application runtime, which is a different
+	// adapter from the one above and deliberately a different fake, so a test can
+	// arrange an application that will not start beside a healthy agent container
+	// (ADR-034).
 	runtimes *runtimetest.Docker
 	// notifier stands between this harness and the user's own desktop. Every
-	// arrangement installs one, whatever else it changes, for the reason
-	// launchWith does: a suite that showed a notification for every task it
-	// launched would be a suite nobody could run twice.
+	// arrangement installs one, for the reason launchWith does: a suite that showed
+	// a notification per launched task would be one nobody could run twice.
 	notifier *fakeNotifier
 	layout   paths.Layout
 	env      paths.Environment
 	now      time.Time
 }
 
-// launched creates a draft, resolves it, and launches it, returning the task.
-//
-// The fixture project runs its agent in a container, so this drives the whole
+// launched creates a draft, resolves it, and launches it, returning the task. The
+// fixture project runs its agent in a container, so this drives the whole
 // devcontainer launch against the fake Docker: the specification, the generated
 // override, the start, the probes, and the agent command.
 func (d *drafting) launched(t *testing.T, title ...string) *domain.Task {
@@ -94,8 +92,8 @@ func arrangeConfigured(t *testing.T, fixture string) *drafting {
 	layout := testLayout(t)
 	env := configured(t, layout, "app", fixture)
 	for _, name := range []string{"api", "store"} {
-		// With a .git directory, because a task worktree is only a repository
-		// while the main checkout's Git directory is reachable — which is what a
+		// With a .git directory, because a task worktree is a repository only while
+		// the main checkout's Git directory is reachable, which is what a
 		// containerised task has to mount (ADR-033).
 		if err := os.MkdirAll(filepath.Join(env.Home, "repos", "app", name, ".git"), 0o755); err != nil {
 			t.Fatalf("creating the checkout %s: %v", name, err)
@@ -119,18 +117,17 @@ func arrangeConfigured(t *testing.T, fixture string) *drafting {
 		Build:       testBuild,
 		Git:         fake,
 		Tmux:        server,
-		// A host-native launch probes this runner rather than the machine the
-		// tests run on. The devcontainer fixture probes inside its container and
-		// never reaches it, but a fixture that switches execution to host would
-		// otherwise ask whether the developer's own laptop has Claude installed,
-		// and answer differently on a machine that does not.
+		// A host-native launch probes this runner rather than the machine the tests
+		// run on. The devcontainer fixture probes inside its container and never
+		// reaches it, but a fixture that switches execution to host would otherwise
+		// ask whether the developer's own laptop has Claude installed.
 		Agent: installed(),
 		// Indirect, so a test can replace the fake after the daemon exists and
 		// still have the launch use it.
 		Docker:        dockerFunc(func() *composetest.Docker { return arranged.docker }),
 		RuntimeDocker: runtimeDockerFunc(func() *runtimetest.Docker { return arranged.runtimes }),
-		// Off. Every runtime test drives the actions itself, and a background
-		// poll would make what a test observes depend on when it looked.
+		// Off. Every runtime test drives the actions itself, and a background poll
+		// would make what a test observes depend on when it looked.
 		RuntimeInterval: -1,
 		Notifier:        arranged.notifier,
 		Logger:          slog.New(slog.DiscardHandler),
@@ -208,12 +205,9 @@ func (d *drafting) worktreeRoot() string {
 }
 
 // TestCancellingADraftCreatesNothing covers the rule that cancelling a draft
-// creates no worktrees, tmux windows, or containers.
-//
-// It is checked at the adapters rather than at the outcome: a Git command that
-// creates a worktree and a tmux command that creates a window are the only ways
-// either can appear, so a test that no such command ran is stronger than a test
-// that no directory exists.
+// creates no worktrees, tmux windows, or containers. It is checked at the
+// adapters rather than at the outcome, because those commands are the only ways
+// either can appear and no command running is stronger than no directory existing.
 func TestCancellingADraftCreatesNothing(t *testing.T) {
 	arranged := arrangeDrafting(t)
 
@@ -246,8 +240,8 @@ func TestCancellingADraftCreatesNothing(t *testing.T) {
 		t.Errorf("the worktree root holds %d entries after a cancelled draft", len(entries))
 	}
 
-	// The record survives as an explanation of what the user started and
-	// decided against, and the task list no longer offers it.
+	// The record survives as an explanation of what the user started and decided
+	// against, and the task list no longer offers it.
 	stored := arranged.reload(t, draft.ID)
 	if stored.Workflow != domain.WorkflowArchived {
 		t.Errorf("stored workflow = %q, want archived", stored.Workflow)
@@ -255,12 +249,10 @@ func TestCancellingADraftCreatesNothing(t *testing.T) {
 }
 
 // TestConfirmingLaunchesTheDisplayedSnapshot is ADR-031's rule that confirming
-// launches the previously displayed snapshot.
-//
-// The world moves between the plan and the confirmation: the fake resolves a
-// different commit the second time it is asked, which is what a fetch that
-// picked up new commits would do. The task must still start from the commit the
-// user read.
+// launches the previously displayed snapshot. The world moves between the plan
+// and the confirmation: the fake resolves a different commit the second time it
+// is asked, as a fetch that picked up new commits would, and the task must still
+// start from the commit the user read.
 func TestConfirmingLaunchesTheDisplayedSnapshot(t *testing.T) {
 	arranged := arrangeDrafting(t)
 
@@ -276,7 +268,7 @@ func TestConfirmingLaunchesTheDisplayedSnapshot(t *testing.T) {
 		t.Fatalf("the plan resolved %d repositories, want 2", len(shown))
 	}
 
-	// The remote moves on. Anything that resolved a base again from here would
+	// The remote moves on, so anything that resolved a base again from here would
 	// produce a different commit.
 	const moved = "aaaabbbbccccddddeeeeffff00001111aaaabbbb"
 	arranged.git.resolveTo(moved)
@@ -293,7 +285,7 @@ func TestConfirmingLaunchesTheDisplayedSnapshot(t *testing.T) {
 		}
 	}
 
-	// And the worktrees were created at the commits that were displayed, not at
+	// And the worktrees were created at the commits that were displayed rather than
 	// the ones a fresh resolution would have found.
 	for _, vector := range arranged.git.vectors() {
 		if strings.HasPrefix(vector, "worktree add") && strings.Contains(vector, moved) {
@@ -312,11 +304,9 @@ func TestConfirmingLaunchesTheDisplayedSnapshot(t *testing.T) {
 }
 
 // TestADraftThatChangedAfterTheDisplayedPlanIsRefused is the other half of the
-// same criterion.
-//
-// A user who edits a draft after resolving it has a screen that no longer
-// describes what would be created. Feat refuses rather than re-resolving,
-// because a plan the user never saw is not one they confirmed.
+// same criterion. A user who edits a draft after resolving it has a screen that
+// no longer describes what would be created, and Feat refuses rather than
+// re-resolving, because a plan the user never saw is not one they confirmed.
 //
 // The edited field is the brief, which is the case the fingerprint exists for:
 // the brief is what the agent receives, the repositories still resolve to the
@@ -339,8 +329,8 @@ func TestADraftThatChangedAfterTheDisplayedPlanIsRefused(t *testing.T) {
 		t.Fatalf("UpdateDraft: %v", err)
 	}
 
-	// The plan itself survives an edit that did not change the selection, so
-	// the user is not sent back to the network for a change to prose.
+	// The plan itself survives an edit that did not change the selection, so the
+	// user is not sent back to the network for a change to prose.
 	edited := arranged.reload(t, draft.ID)
 	for _, binding := range edited.Repositories {
 		if binding.BaseCommit == "" {
@@ -374,14 +364,12 @@ func TestADraftThatChangedAfterTheDisplayedPlanIsRefused(t *testing.T) {
 	}
 }
 
-// TestTheConfirmationRecordsThePlanFirstMode checks that the decision the
-// review screen collected survives the launch that consumes it.
-//
-// It is written down rather than passed straight through because it is applied
-// after the task has left draft: confirmation creates the worktrees, the session
-// is built afterwards, and a failure between the two leaves a failed task the
-// workflow resumes from. A retry reads this record, not the request that started
-// the first attempt (plan, record, then apply).
+// TestTheConfirmationRecordsThePlanFirstMode checks that the decision the review
+// screen collected survives the launch that consumes it. It is written down
+// rather than passed straight through, because it is applied after the task has
+// left draft: confirmation creates the worktrees, the session is built
+// afterwards, and a retry between the two reads this record rather than the
+// request that started the first attempt.
 func TestTheConfirmationRecordsThePlanFirstMode(t *testing.T) {
 	arranged := arrangeDrafting(t)
 
@@ -431,13 +419,11 @@ func TestALaunchThatAsksForNoPlanRecordsNothing(t *testing.T) {
 }
 
 // TestThePlanFirstModeIsNotInTheFingerprint is the reason the mode travels with
-// the confirmation rather than with the draft.
-//
-// The fingerprint defends against values that can drift underneath the screen —
-// a fetch between the plan a user reads and the key they press moves a
+// the confirmation rather than with the draft. The fingerprint defends against
+// values that can drift underneath the screen, such as a fetch moving a
 // remote-tracking ref (ADR-031). A decision carried in the request that confirms
-// cannot drift, and covering it would refuse a plan that was resolved before the
-// user made their mind up.
+// cannot drift, and covering it would refuse a plan resolved before the user made
+// their mind up.
 func TestThePlanFirstModeIsNotInTheFingerprint(t *testing.T) {
 	arranged := arrangeDrafting(t)
 
@@ -463,8 +449,7 @@ func TestThePlanFirstModeIsNotInTheFingerprint(t *testing.T) {
 }
 
 // TestChangingTheSelectionDiscardsWhatWasResolvedForIt is the complement: a
-// resolution belongs to one repository at one access, and must not outlive
-// either.
+// resolution belongs to one repository at one access and must not outlive either.
 func TestChangingTheSelectionDiscardsWhatWasResolvedForIt(t *testing.T) {
 	arranged := arrangeDrafting(t)
 
@@ -473,7 +458,7 @@ func TestChangingTheSelectionDiscardsWhatWasResolvedForIt(t *testing.T) {
 	arranged.resolve(t, draft.ID)
 
 	// The read-only repository is taken out and a promotion of nothing is
-	// attempted: what remains must be the writable repository alone.
+	// attempted, so what remains must be the writable repository alone.
 	if _, err := arranged.service.UpdateDraft(context.Background(), draft.ID, api.DraftUpdate{
 		Title:        "Add a rate limit",
 		Brief:        "Add a rate limit to the public API.",
@@ -497,12 +482,10 @@ func TestChangingTheSelectionDiscardsWhatWasResolvedForIt(t *testing.T) {
 }
 
 // TestSeveralDraftsAndLiveTasksCoexist covers the rule that several task drafts
-// and live tasks can coexist.
-//
-// Three drafts and two launched tasks are held at once, and each keeps its own
-// identity: its own branch, its own worktrees, and its own terminal. The v0.1
-// goal is three independent tasks running concurrently, so the interesting
-// failure is one task's resources being recorded against another.
+// and live tasks can coexist. Three drafts and two launched tasks are held at
+// once, each with its own branch, worktrees, and terminal. The v0.1 goal is three
+// independent tasks running concurrently, so the interesting failure is one
+// task's resources being recorded against another.
 func TestSeveralDraftsAndLiveTasksCoexist(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	ctx := context.Background()
@@ -551,8 +534,8 @@ func TestSeveralDraftsAndLiveTasksCoexist(t *testing.T) {
 		}
 	}
 
-	// Nothing is shared. Two tasks sharing a branch, a worktree, or a terminal
-	// is the defect this criterion exists to catch.
+	// Nothing is shared. Two tasks sharing a branch, a worktree, or a terminal is
+	// the defect this criterion exists to catch.
 	branches := map[string]domain.TaskID{}
 	worktrees := map[string]domain.TaskID{}
 	panes := map[string]domain.TaskID{}
@@ -594,11 +577,9 @@ func TestSeveralDraftsAndLiveTasksCoexist(t *testing.T) {
 }
 
 // TestADraftTakesNoMoreAccessThanTheProjectAllows checks that the preparation
-// step cannot promote a repository the project configured read-only.
-//
-// The Git adapter refuses this too, but a draft that recorded the promotion and
-// failed only at launch would have shown the user a selection Feat was never
-// going to honour.
+// step cannot promote a repository the project configured read-only. The Git
+// adapter refuses this too, and a draft that recorded the promotion and failed
+// only at launch would have shown a selection Feat was never going to honour.
 func TestADraftTakesNoMoreAccessThanTheProjectAllows(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	draft := arranged.draft(t, "Add a rate limit")
@@ -626,11 +607,9 @@ func TestADraftTakesNoMoreAccessThanTheProjectAllows(t *testing.T) {
 }
 
 // TestAnUnresolvedDraftCannotBeLaunched checks that confirmation requires
-// something to confirm.
-//
-// A draft nobody resolved has no base commits and no paths, so launching one
-// would have to resolve them — which is exactly the re-planning that would
-// break the displayed-snapshot criterion.
+// something to confirm. A draft nobody resolved has no base commits and no paths,
+// so launching one would have to resolve them, which is the re-planning that
+// breaks the displayed-snapshot criterion.
 func TestAnUnresolvedDraftCannotBeLaunched(t *testing.T) {
 	arranged := arrangeDrafting(t)
 
@@ -662,8 +641,8 @@ func TestADraftIsRecordedBeforeItIsResolved(t *testing.T) {
 		t.Errorf("recording a draft ran tmux: %v", calls)
 	}
 
-	// The default selection is the project's, so the user starts from what
-	// their configuration says rather than from an empty list.
+	// The default selection is the project's, so the user starts from what their
+	// configuration says rather than from an empty list.
 	stored := arranged.reload(t, draft.ID)
 	if len(stored.Repositories) != 2 {
 		t.Fatalf("the draft selects %d repositories, want the project's 2 defaults", len(stored.Repositories))
@@ -694,10 +673,9 @@ func TestAnOversizedBriefIsRefused(t *testing.T) {
 	}
 }
 
-// TestEveryTaskKeyInAProjectIsDistinct checks ADR-026's collision rule.
-//
-// The key appears in branch names, worktree paths, and the dashboard, so two
-// tasks sharing one would make the user's own shorthand ambiguous.
+// TestEveryTaskKeyInAProjectIsDistinct checks ADR-026's collision rule. The key
+// appears in branch names, worktree paths, and the dashboard, so two tasks
+// sharing one would make the user's own shorthand ambiguous.
 func TestEveryTaskKeyInAProjectIsDistinct(t *testing.T) {
 	arranged := arrangeDrafting(t)
 
@@ -716,10 +694,10 @@ func TestEveryTaskKeyInAProjectIsDistinct(t *testing.T) {
 // profile as the agent.
 //
 // For this project that profile is a container, so the primary workspace is the
-// container path the primary repository is mounted at, and the pane enters the
+// container path the primary repository is mounted at and the pane enters the
 // task's own Compose project to get there. A shell on the host would open in a
-// directory with the same files and a different everything else — no toolchain,
-// no dependencies, and the user's own credentials.
+// directory with the same files, no toolchain, no dependencies, and the user's
+// own credentials.
 func TestTheTaskShellOpensInThePrimaryWorkspace(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)
@@ -734,7 +712,7 @@ func TestTheTaskShellOpensInThePrimaryWorkspace(t *testing.T) {
 	}
 
 	// The pane is created empty and its command replaces the holder shell
-	// afterwards (ADR-030), so what the shell runs is the second respawn.
+	// afterwards (ADR-030), so the shell runs on the second respawn.
 	var shell string
 	for _, call := range arranged.tmux.Calls() {
 		joined := strings.Join(call, " ")

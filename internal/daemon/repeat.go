@@ -3,19 +3,13 @@ package daemon
 import "sync"
 
 // repeats suppresses a log line that a polling loop would otherwise write on
-// every tick.
-//
-// The control poller runs four times a second, and the runtime and resource
-// pollers every few seconds. What they report when something is wrong is almost
-// never momentary — a task whose control workspace has gone, a container runtime
-// that is not running — so the same line is true again at the next tick, and the
-// loop writes it for as long as the daemon runs. That is how a log reaches a
-// size a user notices: not by saying many things, but by saying one thing
-// several times a second.
+// every tick. The control poller runs four times a second and the other pollers
+// every few seconds, and what they report when something is wrong is almost
+// never momentary, so the same line is true again at the next tick.
 //
 // Reporting a failure when it appears, and again when it changes, keeps the
-// account complete while making its size a function of how many distinct things
-// went wrong rather than of how long the daemon has been running.
+// account complete while making the log's size a function of how many distinct
+// things went wrong rather than of how long the daemon has been running.
 type repeats struct {
 	mu sync.Mutex
 	// last is the message most recently reported for each subject. A subject is
@@ -42,9 +36,8 @@ func (r *repeats) changed(subject, message string) bool {
 	return true
 }
 
-// clear forgets a subject, so that its next failure is reported even when it is
-// the one reported before. Callers clear on success, which is what makes a
-// recurrence news rather than a repeat.
+// clear forgets a subject, so its next failure is reported even when it repeats
+// the one before. Callers clear on success.
 func (r *repeats) clear(subject string) {
 	if r == nil {
 		return

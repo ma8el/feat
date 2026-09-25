@@ -27,8 +27,8 @@ func TestBusAssignsSequencesFromOne(t *testing.T) {
 }
 
 // TestBusDeliversEveryEventInOrder is the delivery half of the rule that state
-// events arrive in order. The transport half is
-// covered over a real socket in TestServeStreamsEventsInOrder.
+// events arrive in order. TestServeStreamsEventsInOrder covers the transport half
+// over a real socket.
 func TestBusDeliversEveryEventInOrder(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -61,10 +61,9 @@ func TestBusDeliversEveryEventInOrder(t *testing.T) {
 	}
 }
 
-// TestBusEndsAStreamThatFallsBehind pins the choice in ADR-027: a subscriber
-// that cannot keep up is dropped, and its channel closes, so the stream can
-// report the loss. Silently skipping events would make the stream a claim about
-// state rather than a record of it.
+// TestBusEndsAStreamThatFallsBehind pins the choice in ADR-027: a subscriber that
+// cannot keep up is dropped and its channel closes, so the stream reports the
+// loss rather than silently skipping events.
 func TestBusEndsAStreamThatFallsBehind(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

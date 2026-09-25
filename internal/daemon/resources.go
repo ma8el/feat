@@ -13,28 +13,23 @@ import (
 )
 
 // defaultResourceInterval is how often the machine and the tasks are sampled
-// when the settings cannot be read.
+// when the settings cannot be read. Loading fills the same value in for a machine
+// that has written no settings, so only an unreadable file reaches this.
 //
 // It matches the documented default of resources.sample_interval and the
-// dashboard's own refresh, so a screen that re-reads every two seconds is
-// reading a figure that is at most one sample old. Loading fills that default in
-// for a machine that has written no settings, so this value is reached only when
-// the file itself is unreadable.
+// dashboard's own refresh, so a screen that re-reads every two seconds sees a
+// figure at most one sample old.
 const defaultResourceInterval = 2 * time.Second
 
-// minimumResourceInterval bounds how eager a project may ask Feat to be.
-//
-// Asking the container runtime what its containers are using takes between one
-// and two seconds however it is asked, measured rather than assumed, so an
-// interval below this would mean a sampler that is always sampling (ADR-035).
+// minimumResourceInterval bounds how eager a project may ask Feat to be. Asking
+// the container runtime what its containers are using takes between one and two
+// seconds however it is asked, measured rather than assumed, so a shorter
+// interval would mean a sampler that is always sampling (ADR-035).
 const minimumResourceInterval = time.Second
 
-// Resources returns the most recent sample.
-//
-// It never fails. A daemon that has not sampled yet says so, and a sample that
-// could only be taken in part carries its notes: the acceptance criterion is
-// that collection failure degrades gracefully, and a request that returned an
-// error would be a dashboard that showed nothing rather than what it has.
+// Resources returns the most recent sample. It never fails: a daemon that has not
+// sampled yet says so, a sample taken only in part carries its notes, and an
+// error would leave the dashboard showing nothing rather than what it has.
 func (s *service) Resources(_ context.Context) (api.ResourceReport, error) {
 	s.sampleMu.Lock()
 	sample, sampled := s.sample, s.sampled
@@ -110,13 +105,11 @@ func resourceReport(sample resources.Sample) api.ResourceReport {
 	return report
 }
 
-// sampleResources takes one sample and keeps it.
-//
-// Nothing is persisted. Derived resource samples are not part of the stored
-// state (docs/06-technical-architecture.md), and nothing is published either: a
-// figure that changes every two seconds would make every dashboard re-read every
-// two seconds through the event stream as well as through its own refresh, which
-// is a loop the dashboard has paid for once.
+// sampleResources takes one sample and keeps it. Nothing is persisted, because
+// derived resource samples are not part of the stored state
+// (docs/06-technical-architecture.md), and nothing is published: a figure that
+// changes every two seconds would drive the event stream as well as the
+// dashboard's own refresh.
 func (s *service) sampleResources(ctx context.Context) {
 	targets, err := s.resourceTargets(ctx)
 	if err != nil {
@@ -140,13 +133,12 @@ func (s *service) sampleResources(ctx context.Context) {
 // each owns.
 //
 // The processes come from tmux, because a task's host-side work is whatever its
-// panes started. The containers do not: they are found by Feat's own ownership
-// labels, so a task's application services are attributed without the daemon
-// having to remember which containers Compose created for it.
+// panes started. The containers come from Feat's own ownership labels, so a
+// task's application services are attributed without the daemon remembering
+// which containers Compose created for it.
 //
 // A tmux that cannot be read costs the process half of the sample and not the
-// container half, which is why the error is returned rather than thrown: a
-// sample of what could be seen is worth more than none.
+// container half, so the error is returned alongside what was found.
 func (s *service) resourceTargets(ctx context.Context) ([]resources.Target, error) {
 	tasks, err := s.Tasks(ctx)
 	if err != nil {
@@ -170,9 +162,8 @@ func (s *service) resourceTargets(ctx context.Context) ([]resources.Target, erro
 	panes := make(map[domain.TaskID][]int, len(live))
 	found, discoverErr := s.terminals.Discover(ctx)
 	// A quarantined terminal contributes no processes and costs the healthy ones
-	// nothing: measuring what can be measured is the same rule everywhere else
-	// in this pass, where a machine whose load cannot be read still reports its
-	// memory.
+	// nothing, the same rule as a machine whose load cannot be read still reporting
+	// its memory.
 	for _, terminal := range found.Terminals {
 		pids := make([]int, 0, 2)
 		if terminal.Agent.PID > 0 {
@@ -191,21 +182,14 @@ func (s *service) resourceTargets(ctx context.Context) ([]resources.Target, erro
 	return targets, discoverErr
 }
 
-// resourceInterval is how long to wait before the next sample.
-//
-// It is the interval the machine's settings ask for, floored so that a container
-// runtime which takes longer to answer than the interval cannot make samples
-// pile up behind each other.
+// resourceInterval is how long to wait before the next sample. It is the interval
+// the machine's settings ask for, floored so a container runtime that takes
+// longer to answer than the interval cannot make samples pile up behind each
+// other.
 //
 // It reads nothing. The settings were resolved when the daemon started, so this
-// is one number already in memory. It used to be per-project configuration for a
-// machine-wide measurement, which meant listing every registered project and
-// parsing each one's YAML on every tick — six files every two seconds to decide
-// one figure — and then reconciling the answers with a rule, the most eager
-// project wins, that existed only because the setting was in the wrong file. The
-// comment here said as much: an oddity of the configuration model rather than a
-// design. Moving the section removed the loop, the rule, and the disk traffic
-// together (ADR-079).
+// is one number already in memory rather than every registered project's YAML
+// re-parsed on every tick (ADR-079).
 func (s *service) resourceInterval(took time.Duration) time.Duration {
 	var interval, floor time.Duration
 	if s.resourceOverride > 0 {
@@ -217,10 +201,9 @@ func (s *service) resourceInterval(took time.Duration) time.Duration {
 		interval, floor = s.settings.Resources.Sample(), minimumResourceInterval
 	}
 	if interval <= 0 {
-		// Loading fills the documented default in, so this is reached only by a
-		// service assembled without settings, which no path here does. It is a
-		// floor against a zero rather than a policy: a zero interval is a sampler
-		// that never stops sampling.
+		// Loading fills the documented default in, so only a service assembled
+		// without settings reaches this. It is a floor against a zero rather than a
+		// policy: a zero interval is a sampler that never stops sampling.
 		interval = defaultResourceInterval
 	}
 
@@ -283,12 +266,10 @@ func (s *service) watchResources(ctx context.Context) {
 	}
 }
 
-// resourceObserver builds the observer for this daemon.
-//
-// The label names come from the two Compose adapters, because they are what each
-// writes onto the resources it creates. The observer itself is given them as
-// strings: it treats an agent's container and an application's alike, which is
-// what keeps it from having to know that they are different things (ADR-035).
+// resourceObserver builds the observer for this daemon. The label names come from
+// the two Compose adapters that write them onto what they create, and the
+// observer takes them as strings, so it treats an agent's container and an
+// application's alike (ADR-035).
 func resourceObserver(opts Options) *resources.Observer {
 	return resources.New(resources.Options{
 		Runner:         opts.Resources,

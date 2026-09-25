@@ -32,10 +32,9 @@ const observePS = "ps --all --format json " + fixtureService
 const sessionFailed = "the agent session failed"
 
 // recordProviderSession writes the identifier an agent reports at session start.
-//
 // The fake provider never sends one, and without it a resume is refused a step
-// earlier on a different rule — which would make every test below pass for a
-// reason that has nothing to do with what it is checking.
+// earlier on a different rule, which would pass every test below for the wrong
+// reason.
 func (d *drafting) recordProviderSession(t *testing.T, task *domain.Task) {
 	t.Helper()
 
@@ -46,15 +45,15 @@ func (d *drafting) recordProviderSession(t *testing.T, task *domain.Task) {
 	}
 }
 
-// TestADeadContainerEndsTheSessionItWasRunning is the invariant that ties a
-// session to the environment it runs in: an agent process cannot be alive while
-// its container is not running.
+// TestADeadContainerEndsTheSessionItWasRunning is the invariant tying a session
+// to the environment it runs in: an agent process cannot be alive while its
+// container is not running.
 //
-// It is checked here rather than only through resume because it is the record
-// that was wrong. Reconciliation wrote what it saw onto the execution record and
-// left the session's process state alone, and a tmux window outlives the
-// container it ran a command in — so nothing in a pass that had just seen a dead
-// container corrected the claim that an agent was running in it (ADR-057).
+// It is checked here rather than only through resume, because the record was what
+// went wrong. Reconciliation wrote what it saw onto the execution record and left
+// the session's process state alone, and a tmux window outlives the container it
+// ran a command in, so nothing corrected the claim that an agent was running in a
+// dead container (ADR-057).
 func TestADeadContainerEndsTheSessionItWasRunning(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	arranged.service.notifiable.Store(true)
@@ -76,9 +75,9 @@ func TestADeadContainerEndsTheSessionItWasRunning(t *testing.T) {
 		t.Error("the execution record still claims a running container")
 	}
 
-	// And the user is told. A session that died while nobody was attached is
-	// exactly what this condition exists for, and the dogfood report that found
-	// this was somebody discovering it by hand hours later.
+	// And the user is told. A session that died while nobody was attached is what
+	// this condition exists for, and the report that found it was somebody
+	// discovering the death by hand hours later.
 	var told bool
 	for _, sent := range arranged.notifier.sent() {
 		if strings.Contains(sent.Body, sessionFailed) && strings.Contains(sent.Title, task.Key().String()) {
@@ -91,15 +90,13 @@ func TestADeadContainerEndsTheSessionItWasRunning(t *testing.T) {
 	}
 }
 
-// TestATaskWhoseContainerDiedCanBeResumed is the dead end this work closes, end
-// to end: what reconciliation reports about a task and what resume will accept
-// have to agree.
+// TestATaskWhoseContainerDiedCanBeResumed checks end to end that what
+// reconciliation reports about a task and what resume will accept agree.
 //
-// Found by the maintainer while dogfooding: a jobharbor-dev task's devcontainer
-// exited 137, the pass said "resume the task to start it again", and the resume
-// answered "it is running in a terminal that is still there. Attach to it
-// instead". The only way out was killing the task's tmux window by hand on
-// Feat's own socket.
+// A task's devcontainer exited 137, the pass said "resume the task to start it
+// again", and the resume answered "it is running in a terminal that is still
+// there. Attach to it instead". The only way out was killing the task's tmux
+// window by hand on Feat's own socket.
 func TestATaskWhoseContainerDiedCanBeResumed(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)
@@ -133,12 +130,10 @@ func TestATaskWhoseContainerDiedCanBeResumed(t *testing.T) {
 	}
 }
 
-// TestResumingIsRefusedWhileTheContainerIsRunning keeps the protection the
-// change above had to move without removing.
-//
-// A resume that ran beside a live agent would be two agents in one worktree, so
-// widening what counts as "there is nothing to attach to" must not widen it to a
-// session that is genuinely working.
+// TestResumingIsRefusedWhileTheContainerIsRunning keeps the protection the test
+// above works around. A resume beside a live agent would be two agents in one
+// worktree, so widening what counts as nothing to attach to must not widen it to
+// a session that is genuinely working.
 func TestResumingIsRefusedWhileTheContainerIsRunning(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)
@@ -153,10 +148,9 @@ func TestResumingIsRefusedWhileTheContainerIsRunning(t *testing.T) {
 	}
 }
 
-// TestStoppingKeepsEverythingTheTaskOwns is the stop half of the lifecycle.
-//
-// What it asserts is mostly absence: a stop is not a small cleanup, and the
-// resources a resume needs — and the work itself — have to survive it.
+// TestStoppingKeepsEverythingTheTaskOwns is the stop half of the lifecycle. What
+// it asserts is mostly absence: the resources a resume needs, and the work
+// itself, have to survive a stop.
 func TestStoppingKeepsEverythingTheTaskOwns(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)
@@ -220,11 +214,9 @@ func TestStoppingKeepsEverythingTheTaskOwns(t *testing.T) {
 	}
 }
 
-// TestStoppingIsRefusedForAHostNativeAgent names what Feat does not own.
-//
-// The agent of a host-native task is a process in a pane rather than a
-// container, and a verb that silently did nothing would be worse than one that
-// says so.
+// TestStoppingIsRefusedForAHostNativeAgent names what Feat does not own. The
+// agent of a host-native task is a process in a pane rather than a container, and
+// a verb that silently did nothing would be worse than one that says so.
 func TestStoppingIsRefusedForAHostNativeAgent(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 
@@ -268,10 +260,9 @@ func TestStoppingAnAlreadyStoppedAgentSucceeds(t *testing.T) {
 	}
 }
 
-// TestAStoppedAgentIsBroughtBackByAResume is the pair, round trip.
-//
-// It is the whole user-facing lifecycle in one test: an agent environment sleeps
-// on a stop and comes back on a resume, and there is no third verb in between.
+// TestAStoppedAgentIsBroughtBackByAResume is the pair, round trip: an agent
+// environment sleeps on a stop and comes back on a resume, with no third verb in
+// between.
 func TestAStoppedAgentIsBroughtBackByAResume(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	task := arranged.launched(t)

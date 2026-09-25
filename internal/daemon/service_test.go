@@ -44,12 +44,9 @@ func TestTaskIsAddressableByTaskIDAlone(t *testing.T) {
 }
 
 // TestATaskIsAddressableByTheKeyEveryListPrints is ADR-038, driven through the
-// socket.
-//
-// The daemon reads every project to answer it, because a key is unique within a
-// project rather than globally (ADR-026) and the question is asked of the
-// machine. Registering a second project is therefore the arrangement, not an
-// edge case.
+// socket. The daemon reads every project to answer it, because a key is unique
+// within a project rather than globally (ADR-026), so a second registered project
+// is the arrangement rather than an edge case.
 func TestATaskIsAddressableByTheKeyEveryListPrints(t *testing.T) {
 	live := serve(t, Options{})
 	seed(t, live, storetest.Project(), storetest.Task())
@@ -85,11 +82,10 @@ func TestATaskIsAddressableByTheKeyEveryListPrints(t *testing.T) {
 }
 
 // TestAnAmbiguousKeyIsReportedRatherThanResolved checks what happens when two
-// projects hold tasks whose keys share a prefix.
-//
-// Reporting it is the same rule ADR-029 applied to a colliding branch name: a
-// user acting on a task Feat picked would be acting on something they did not
-// choose, and `feat task cleanup` is one of the commands that takes a task.
+// projects hold tasks whose keys share a prefix. Reporting it is the rule ADR-029
+// applied to a colliding branch name: a user acting on a task Feat picked would
+// be acting on something they did not choose, and `feat task cleanup` takes a
+// task.
 func TestAnAmbiguousKeyIsReportedRatherThanResolved(t *testing.T) {
 	live := serve(t, Options{})
 	seed(t, live, storetest.Project(), storetest.Task())
@@ -110,12 +106,9 @@ func TestAnAmbiguousKeyIsReportedRatherThanResolved(t *testing.T) {
 	}
 }
 
-// TestARefusedTaskReferenceSaysWhereToFindOne checks the half of this defect that
-// is not about resolution at all.
-//
-// The old rejection explained the format of an identifier to somebody who had no
-// way of seeing one, which is the part that made the addressing gap unescapable
-// rather than merely inconvenient.
+// TestARefusedTaskReferenceSaysWhereToFindOne checks the half of the addressing
+// gap that is not about resolution: a rejection that explains an identifier's
+// format to somebody who cannot see one leaves them with nowhere to go.
 func TestARefusedTaskReferenceSaysWhereToFindOne(t *testing.T) {
 	live := serve(t, Options{})
 	seed(t, live, storetest.Project(), storetest.Task())
@@ -239,9 +232,9 @@ func TestUnknownProjectIsNotFound(t *testing.T) {
 }
 
 // TestHealthDegradesWhenStateCannotBeRead pins the choice that health answers
-// even when part of the state is unreadable. A client asking whether the daemon
-// is alive learns more from "running, but the state directory cannot be listed"
-// than from a failed request.
+// even when part of the state is unreadable, because a client asking whether the
+// daemon is alive learns more from "running, but the state directory cannot be
+// listed" than from a failed request.
 func TestHealthDegradesWhenStateCannotBeRead(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root ignores directory permissions, so there is nothing to make unreadable")

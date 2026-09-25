@@ -13,11 +13,9 @@ import (
 )
 
 // dead arranges a launched host-execution task whose agent recorded a provider
-// session and then died, which is the state a resume is offered for.
-//
-// It is a real launch rather than a hand-written record, because what a resume
-// has to produce is a second launch: a fixture that skipped the first would not
-// exercise the path that differs.
+// session and then died, which is the state a resume is offered for. It is a real
+// launch rather than a hand-written record, because a resume has to produce a
+// second launch and a fixture that skipped the first would not exercise it.
 func dead(t *testing.T, sessionID string) *session {
 	t.Helper()
 
@@ -45,17 +43,15 @@ func dead(t *testing.T, sessionID string) *session {
 }
 
 // TestAFailedSessionIsResumedOnlyByExplicitUserAction is the rule that recovery
-// is never automatic, first half.
-//
-// It is checked by counting the commands every automatic path produces: that
-// reconciliation ran no tmux command at all is a stronger statement than that a
-// task happens to still be failed.
+// is never automatic, first half. It counts the commands every automatic path
+// produces, because reconciliation running no tmux command at all is a stronger
+// statement than a task that happens to still be failed.
 func TestAFailedSessionIsResumedOnlyByExplicitUserAction(t *testing.T) {
 	live := dead(t, "e3f1a0c2-0000-4000-8000-1234567890ab")
 
-	// The computer restarted: the terminal is gone with the tmux server, and
-	// the recorded session is all that is left. This is the case a user actually
-	// meets, and the one where a recovery pass could most easily overreach.
+	// The computer restarted: the terminal is gone with the tmux server, and the
+	// recorded session is all that is left. It is the case a user meets, and the one
+	// where a recovery pass could most easily overreach.
 	empty := tmuxtest.New()
 	restarted, _ := withTmux(t, live.preparation, empty)
 	report := reconciled(t, restarted)
@@ -88,13 +84,11 @@ func TestAFailedSessionIsResumedOnlyByExplicitUserAction(t *testing.T) {
 	}
 }
 
-// TestResumingContinuesTheRecordedProviderSession is the criterion's second
-// half: a resume that opened a new session would have lost the task's history
-// and would look identical from the outside.
-//
-// It is checked on the argument vector the terminal was given, because that is
-// where the difference is: a new session and a continued one differ by two
-// elements of a command line and by nothing else Feat can observe.
+// TestResumingContinuesTheRecordedProviderSession is the criterion's second half:
+// a resume that opened a new session would have lost the task's history and would
+// look identical from the outside. It asserts on the argument vector the terminal
+// was given, because a new session and a continued one differ by two elements of
+// a command line and by nothing else Feat can observe.
 func TestResumingContinuesTheRecordedProviderSession(t *testing.T) {
 	const sessionID = "e3f1a0c2-0000-4000-8000-1234567890ab"
 	live := dead(t, sessionID)
@@ -111,8 +105,8 @@ func TestResumingContinuesTheRecordedProviderSession(t *testing.T) {
 	if !strings.Contains(arguments, "--resume "+sessionID) {
 		t.Errorf("the resumed launch is %q, want it to continue session %s", arguments, sessionID)
 	}
-	// A resumed session already holds the conversation, so it is given no
-	// prompt. One invented here would be Feat putting words in the user's mouth.
+	// A resumed session already holds the conversation, so it is given no prompt.
+	// One invented here would be Feat putting words in the user's mouth.
 	if strings.Contains(arguments, "Read the task brief") {
 		t.Errorf("the resumed launch carries an initial prompt: %q", arguments)
 	}
@@ -135,13 +129,10 @@ func TestResumingContinuesTheRecordedProviderSession(t *testing.T) {
 }
 
 // TestAContinuedSessionStartCompletesAResume is the narrowing ADR-037 makes to
-// ADR-032's suppression.
-//
-// A session start that resumed is the same session carrying on, so it must not
-// move a task that is already working — otherwise /clear would. It must move a
-// task in preparing, because that task has just been resumed and is waiting for
-// exactly this event. The wider rule left a resumed task in preparing with a
-// running agent, looking broken.
+// ADR-032's suppression. A session start that resumed is the same session
+// carrying on, so it must not move a task that is already working, or /clear
+// would. It must move a task in preparing, which has just been resumed and is
+// waiting for exactly this event.
 func TestAContinuedSessionStartCompletesAResume(t *testing.T) {
 	live := dead(t, "e3f1a0c2-0000-4000-8000-1234567890ab")
 	service := live.service
@@ -174,15 +165,12 @@ func TestAContinuedSessionStartCompletesAResume(t *testing.T) {
 	}
 }
 
-// TestResumingATaskWhoseWorkflowNeverMoved is the defect a real task produced.
-//
-// A process that dies while no daemon is watching leaves the workflow where it
-// was: reconciliation reports the dead process and does not move it, because
-// reporting instead of repairing is the whole rule. So the ordinary state of a
-// task whose container was killed overnight is `working` with a failed process —
-// and the first version of the resume transitioned unconditionally to
-// `preparing`, which `working` has no edge to. The one task that most needed
-// recovery was the one that could not have it.
+// TestResumingATaskWhoseWorkflowNeverMoved is the defect a real task produced. A
+// process that dies while no daemon is watching leaves the workflow where it was,
+// because reconciliation reports the dead process rather than moving it. The
+// ordinary state of a task whose container was killed overnight is `working` with
+// a failed process, and a resume that transitioned unconditionally to `preparing`
+// refused it, because `working` has no edge to preparing.
 func TestResumingATaskWhoseWorkflowNeverMoved(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
@@ -217,11 +205,10 @@ func TestResumingATaskWhoseWorkflowNeverMoved(t *testing.T) {
 	}
 }
 
-// TestResumingIsRefusedWithoutARecordedSession keeps the offer honest.
-//
-// A task whose agent never reported starting has no provider session to
-// continue, and resuming it would open an empty session that looked like the old
-// one — the failure shape ADR-032's evidence 4 describes.
+// TestResumingIsRefusedWithoutARecordedSession keeps the offer honest. A task
+// whose agent never reported starting has no provider session to continue, and
+// resuming it would open an empty session that looked like the old one (ADR-032
+// evidence 4).
 func TestResumingIsRefusedWithoutARecordedSession(t *testing.T) {
 	live := dead(t, "")
 
@@ -240,15 +227,11 @@ func TestResumingIsRefusedWithoutARecordedSession(t *testing.T) {
 	}
 }
 
-// TestResumingATerminalKilledFromTmux is the state a user produces with one
-// tmux command, and the one the refusal used to be wrong about.
-//
-// Nothing watches tmux continuously, so a window killed from inside it leaves
-// the recorded process saying running until a reconciliation pass or the
-// provider's own end-of-session hook says otherwise. Deciding from that record
-// answered "attach to it instead" for a terminal there was nothing to attach
-// to, and the task with the most need of recovery was the one that could not
-// have it. Reported by the maintainer after :kill-window on a live task.
+// TestResumingATerminalKilledFromTmux is the state a user produces with one tmux
+// command. Nothing watches tmux continuously, so a window killed from inside it
+// leaves the recorded process saying running until a reconciliation pass or the
+// provider's end-of-session hook says otherwise. Deciding from that record
+// answered "attach to it instead" for a terminal that was not there.
 func TestResumingATerminalKilledFromTmux(t *testing.T) {
 	live := launch(t, hostFixture, installed(), false)
 	live.start(t)
@@ -282,9 +265,8 @@ func TestResumingATerminalKilledFromTmux(t *testing.T) {
 		t.Errorf("the rebuilt terminal runs %q, want it to continue the recorded session", arguments)
 	}
 
-	// And the record that disagreed with the machine was corrected on the way,
-	// so the history says why a resume was needed rather than only that one
-	// happened.
+	// And the record that disagreed with the machine was corrected on the way, so
+	// the history says why a resume was needed rather than only that one happened.
 	var corrected bool
 	for _, event := range events(t, live.service, live.preparation) {
 		if event.Type == domain.EventReconciled && strings.Contains(event.Detail, "was not found") {
@@ -319,11 +301,10 @@ func TestResumingIsRefusedWhileTheSessionIsAlive(t *testing.T) {
 	}
 }
 
-// TestAResumeIdentifierIsCheckedBeforeItReachesTheCLI is the rule that a value
-// an agent could have authored is not passed through unexamined.
-//
-// The provider session identifier comes from a control message, and control
-// messages are validated before anything acts on them (docs/05-security-model.md).
+// TestAResumeIdentifierIsCheckedBeforeItReachesTheCLI is the rule that a value an
+// agent could have authored is not passed through unexamined. The provider
+// session identifier comes from a control message, and control messages are
+// validated before anything acts on them (docs/05-security-model.md).
 func TestAResumeIdentifierIsCheckedBeforeItReachesTheCLI(t *testing.T) {
 	adapter := claude.New()
 	workspace, err := control.Open(t.TempDir(), "app", domain.NewTaskID(), control.Options{})

@@ -6,21 +6,15 @@ import (
 	"github.com/ma8el/feat/internal/tmux"
 )
 
-// viewport is the size a client last asked for a terminal at.
+// viewport is the size a client last asked for a terminal at. It lets a task's
+// window be created at the size it will be drawn into rather than at tmux's
+// 80x24, which an agent's first output would otherwise be wrapped at for good
+// (tmux.sizeBeforeStart).
 //
-// It exists so that a task's window can be created at the size it will be drawn
-// into rather than at tmux's 80x24, which is what an agent's first output would
-// otherwise be wrapped at for good (tmux.sizeBeforeStart). The daemon has no
-// other way to know: a launch says which task to start, not how large the
-// screen watching it is, and the only place a client's dimensions reach the
-// daemon at all is the frame it asks for.
-//
-// So this is a memory of the last one rather than a fact about the next. It is
-// deliberately not persisted and deliberately not per client: the size is a
-// hint, the render path corrects it on the first frame whatever it was, and a
-// value read from a previous run of the daemon would be a guess about a
-// terminal that has since been closed. A daemon that has drawn nothing yet has
-// nothing to offer and says so, which leaves creation exactly as it was.
+// The daemon learns the size from the frames clients ask for, because a launch
+// says which task to start and not how large the screen is. It is not persisted
+// and not per client: the render path corrects the size on the first frame, and
+// a daemon that has drawn nothing offers nothing.
 type viewport struct {
 	mu   sync.Mutex
 	last tmux.Size

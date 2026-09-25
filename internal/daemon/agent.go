@@ -17,13 +17,11 @@ import (
 
 // effect is what one normalized agent event does to a task.
 //
-// The table below is the whole mapping from what a provider reported to what
-// Feat records, and it is written as data so that it can be read and pinned
-// rather than inferred from control flow. The rule that matters most is visible
-// as an absence: no row sets a workflow state from KindTurnEnded. That is the
-// shape a "Stop means complete" defect would take, and it would have to be
-// introduced by editing the table that documents it (invariant 13,
-// FR-AGENT-008).
+// The table below is the whole mapping from what a provider reported to what Feat
+// records, written as data so it can be read and pinned rather than inferred from
+// control flow. The rule that matters most is an absence: no row sets a workflow
+// state from KindTurnEnded, which is the shape a "Stop means complete" defect
+// would take (invariant 13, FR-AGENT-008).
 type effect struct {
 	// process is the process state to record, or empty to leave it alone.
 	process domain.ProcessState
@@ -71,16 +69,14 @@ var effects = map[agent.EventKind]effect{
 		},
 	},
 
-	// The end of a turn. It arms the grace period and touches neither the
-	// workflow nor the process state: what it means is decided when the grace
-	// period expires, and even then it means only idle.
+	// The end of a turn. It arms the grace period and touches neither the workflow
+	// nor the process state: what it means is decided when the grace period expires,
+	// and even then it means only idle.
 	//
-	// It does clear attention, because a turn cannot end while the agent is
-	// blocked on a permission dialog: reaching the end of a turn is evidence
-	// that whatever it was waiting for has been answered. Without this a task
-	// that once asked for permission would report needing the user for the rest
-	// of its life, and an attention state that never clears is one nobody reads.
-	// The idle grace that follows then sets the conservative possibly-waiting.
+	// It does clear attention, because a turn cannot end while the agent is blocked
+	// on a permission dialog. Without this a task that once asked for permission
+	// would report needing the user for the rest of its life. The idle grace that
+	// follows sets the conservative possibly-waiting.
 	agent.KindTurnEnded: {attention: domain.AttentionNone, arms: true},
 
 	// The provider asked for the user. This is the one signal that
@@ -106,18 +102,14 @@ var effects = map[agent.EventKind]effect{
 		},
 	},
 
-	// The explicit semantic event. It is the only entry in this table that
-	// reaches a review state, and it exists only because an agent authored a
-	// message saying so.
+	// The explicit semantic event. It is the only entry in this table that reaches a
+	// review state, and it exists only because an agent authored a message saying so.
 	//
-	// It sets no attention. A review request is something the agent wrote in the
-	// middle of a turn it then carries on with — through a completion gate, and
-	// back into its own loop when the gate fails — and the conservative
-	// possibly-waiting this row used to set stayed on the task for the whole of
-	// that work, then cleared at the end of the turn, which is the one moment it
-	// was true. What the user needs to look at is the workflow state; whether
-	// the session is waiting for a person is decided where it always is, by the
-	// end of a turn and the idle grace after it (ADR-058).
+	// It sets no attention. A review request is written in the middle of a turn the
+	// agent then carries on with, through a completion gate and back into its own
+	// loop when the gate fails. What the user looks at is the workflow state;
+	// whether the session waits for a person is decided by the end of a turn and the
+	// idle grace after it (ADR-058).
 	agent.KindReviewRequested: {
 		cancels: true,
 		workflow: func(current domain.WorkflowState) domain.WorkflowState {
@@ -127,8 +119,7 @@ var effects = map[agent.EventKind]effect{
 			case domain.WorkflowVerificationFailed:
 				// The agent fixed what the completion gate caught and is asking
 				// again. Without this edge a task whose checks failed once could
-				// never be reviewed again without a person typing something
-				// first (ADR-036).
+				// never be reviewed again without a person typing first (ADR-036).
 				return domain.WorkflowReviewRequested
 			default:
 				return ""
@@ -140,19 +131,17 @@ var effects = map[agent.EventKind]effect{
 	// the work is ready. An agent that wants review asks for it.
 	agent.KindCompletionReport: {cancels: true},
 
-	// A publication draft is words and nothing else. It sets no workflow state,
-	// no attention, and no process state: the agent is proposing what a merge
-	// request would say, and nothing reaches a forge until the user has read it
-	// and approved it (ADR-070). Like a review request, it is written in the
-	// middle of a turn the agent then carries on with, so it is activity.
+	// A publication draft is words and nothing else. It sets no workflow,
+	// attention, or process state, because nothing reaches a forge until the user
+	// has read it and approved it (ADR-070). Like a review request, it is written in
+	// the middle of a turn the agent carries on with, so it is activity.
 	agent.KindPublicationDraft: {cancels: true},
 }
 
-// applyAgentEvent records one normalized agent event against a task.
-//
-// It is the only place a provider signal changes task state. Everything it
-// applies comes from the table above, so the mapping is one thing to read
-// rather than a path through several methods.
+// applyAgentEvent records one normalized agent event against a task. It is the
+// only place a provider signal changes task state, and everything it applies
+// comes from the table above, so the mapping is one thing to read rather than a
+// path through several methods.
 func (s *service) applyAgentEvent(ctx context.Context, task *domain.Task, event agent.Event) error {
 	if task.Session == nil {
 		return fmt.Errorf("task %s has no agent session to record a %s event against", task.ID, event.Kind)
@@ -179,11 +168,10 @@ func (s *service) applyAgentEvent(ctx context.Context, task *domain.Task, event 
 	// already working: a user typing /clear would otherwise move their task's
 	// workflow.
 	//
-	// It is narrowed to a task that is already working, because that is the case
-	// the rule was written for. A task in preparing has just been launched or
-	// resumed and is waiting for exactly this event to say the agent is up; the
-	// wider rule left a resumed task sitting in preparing with a running agent,
-	// looking broken (ADR-032, narrowed by ADR-037).
+	// It is narrowed to a task that is already working. A task in preparing has just
+	// been launched or resumed and is waiting for exactly this event to say the
+	// agent is up, and the wider rule left a resumed task sitting in preparing with
+	// a running agent (ADR-032, narrowed by ADR-037).
 	if event.Kind == agent.KindSessionStarted && event.Continued &&
 		task.Workflow != domain.WorkflowPreparing {
 		change.workflow = nil
@@ -237,20 +225,16 @@ func (s *service) applyAgentEvent(ctx context.Context, task *domain.Task, event 
 	}
 
 	if event.Kind == agent.KindPublicationDraft {
-		// Recorded here rather than through a state change, because there is no
-		// state to change: what happened is that the agent wrote something, and
-		// the history is where that is said. The summary names the repositories
-		// and never the prose — the draft itself is read on the screen that
-		// publishes it, which is the one place a user reads it before it is sent.
+		// Recorded here rather than through a state change, because the agent wrote
+		// something and no state moved. The summary names the repositories and never
+		// the prose, which is read on the screen that publishes it.
 		s.record(ctx, task, domain.Event{Type: domain.EventPublicationChanged, Detail: event.Summary})
 	}
 
-	// Recorded before it is applied, and so before the message that reported it
-	// is settled in the outbox. The timer armed below is in memory: a daemon that
-	// stopped inside the grace period used to lose the transition for good,
-	// because a settled message is never read again and nothing else arms one
-	// (ADR-096). This is the one place in the agent path that did not already
-	// plan, record, then apply.
+	// Recorded before it is applied, and so before the message that reported it is
+	// settled in the outbox. The timer armed below is in memory and a settled
+	// message is never read again, so a daemon that stopped inside the grace period
+	// would otherwise lose the transition for good (ADR-096).
 	switch {
 	case change.arms:
 		task.Session.RecordTurnEnd(event.OccurredAt)
@@ -274,25 +258,20 @@ func (s *service) applyAgentEvent(ctx context.Context, task *domain.Task, event 
 }
 
 // notifyChange interrupts the user about one applied agent event, at most once.
-//
-// The workflow wins over the process when both moved, because they moved for the
-// same reason: normalization turns a dead agent into a failed task, and a user
-// told twice about one death learns to read the second one as noise. A
-// process failure that left the workflow where it was still says so, because
-// that is the case nothing else reports.
+// The workflow wins when both moved, because they moved for the same reason:
+// normalization turns a dead agent into a failed task, and a second notification
+// about one death reads as noise. A process failure that left the workflow where
+// it was still reports itself, because nothing else does.
 func (s *service) notifyChange(ctx context.Context, task *domain.Task, workflowMoved, processMoved bool) {
 	if workflowMoved {
 		if condition, ok := notify.ForWorkflow(task.Workflow); ok {
 			if condition == notify.ConditionReviewRequested {
 				if will, known := s.gateWillRun(task); will || !known {
-					// The gate is about to run the project's checks, so this task
-					// is not with the user yet. Telling them now and again when
-					// the checks finish would be two interruptions for one
-					// arrival, and the second one is the one that means something
-					// (ADR-036). The same holds when Feat cannot tell whether a
-					// gate will run: the gate fails on the same configuration a
-					// moment later and reports it as blocked, which is the later
-					// moment (ADR-096).
+					// The gate is about to run the project's checks, so the task is
+					// not with the user yet, and the notification when the checks
+					// finish is the one that means something (ADR-036). The same
+					// holds when Feat cannot tell whether a gate will run: the gate
+					// fails on the same configuration and reports it (ADR-096).
 					return
 				}
 			}
@@ -307,13 +286,10 @@ func (s *service) notifyChange(ctx context.Context, task *domain.Task, workflowM
 	}
 }
 
-// recordReport records what the agent said about its own work.
-//
-// It goes into the review aggregate, where docs/03-domain-model.md already puts
-// an agent-reported completion summary and agent-reported checks, and every
-// check is attributed to the agent rather than to anything that enforced it. A
-// dashboard that showed a claimed result and an enforced one alike would tell
-// the user something Feat does not know.
+// recordReport records what the agent said about its own work. It goes into the
+// review aggregate, where docs/03-domain-model.md puts an agent-reported
+// completion summary and agent-reported checks, and every check is attributed to
+// the agent rather than to anything that enforced it.
 func (s *service) recordReport(ctx context.Context, task *domain.Task, event agent.Event) error {
 	ref := store.Ref(task)
 	review, err := s.store.Reviews().Load(ctx, ref)
@@ -337,9 +313,8 @@ func (s *service) recordReport(ctx context.Context, task *domain.Task, event age
 	return nil
 }
 
-// Verification returns what the agent reported about its own checks.
-//
-// It reads the review aggregate rather than the task, because that is where
+// Verification returns what the agent reported about its own checks. It reads the
+// review aggregate rather than the task, because that is where
 // docs/03-domain-model.md puts an agent-reported completion summary and
 // agent-reported checks. A task with no review has reported nothing, which is
 // absence rather than failure.
@@ -382,18 +357,18 @@ func describeReport(event agent.Event) string {
 
 // deliverControl applies whatever the task's control workspace is holding.
 //
-// A message is validated by the protocol, normalized by the provider adapter,
-// and only then allowed to change anything. A message that fails any of those
-// steps is recorded as seen and refused, so it is neither applied nor offered
-// again: an agent that wrote a malformed document should be told once rather
-// than have Feat retry it for ever. Being told once is also what the user gets
-// — every refusal Feat concluded is recorded on the task, because a decision
-// announced only to a log file is a decision nobody made.
+// A message is validated by the protocol, normalized by the provider adapter, and
+// only then allowed to change anything. One that fails any of those steps is
+// recorded as seen and refused, so an agent that wrote a malformed document is
+// told once rather than retried for ever.
+//
+// Every refusal is recorded on the task as well, because a decision announced
+// only to a log file is a decision nobody made.
 func (s *service) deliverControl(ctx context.Context, task *domain.Task) error {
-	// One task's records are changed by one goroutine at a time. A completion
-	// gate runs in the background for as long as a test suite takes, and a
-	// message that arrived while it ran would otherwise be applied to a copy of
-	// the task loaded before it started (ADR-036).
+	// One task's records are changed by one goroutine at a time. A completion gate
+	// runs in the background for as long as a test suite takes, and a message that
+	// arrived meanwhile would be applied to a copy loaded before it started
+	// (ADR-036).
 	defer s.locks.lock(task.ID)()
 
 	workspace, err := s.controlWorkspace(task)
@@ -416,11 +391,9 @@ func (s *service) deliverControl(ctx context.Context, task *domain.Task) error {
 			continue
 		}
 		// Settled before it is announced, because the settle is what makes the
-		// announcement happen once. A refusal recorded first and settled never
-		// — the record is a file append, and it can fail — is a refusal the
-		// next poll reaches again, and it would reach the user again with it:
-		// the task's own event log and every attached dashboard, four times a
-		// second, for as long as the entry sits in the outbox.
+		// announcement happen once. A refusal recorded first and never settled — the
+		// record is a file append, and it can fail — is one the next poll reaches
+		// again, and the user with it, four times a second.
 		if err := workspace.MarkRefused(rejection); err != nil {
 			failures = append(failures,
 				fmt.Errorf("recording the refusal of %s for task %s: %w", rejection.File, task.ID, err))
@@ -455,12 +428,11 @@ func (s *service) deliverControl(ctx context.Context, task *domain.Task) error {
 			continue
 		}
 		if event.Kind == agent.KindReviewRequested {
-			// The completion gate, started here rather than inside the
-			// normalization above because it needs the message identifier: the
-			// agent is waiting on the helper it wrote that message with, and the
-			// verdict is named after it. It runs in the background, because a
-			// check is a test suite and every other task's messages would
-			// otherwise wait for it (ADR-036).
+			// The completion gate, started here rather than in the normalization
+			// above because it needs the message identifier: the agent waits on the
+			// helper it wrote the message with, and the verdict is named after it.
+			// It runs in the background, because every other task's messages would
+			// otherwise wait for a test suite (ADR-036).
 			s.startGate(ctx, task, message.ID)
 		}
 		failures = append(failures, s.settle(ctx, workspace, message, control.OutcomeApplied, ""))
@@ -508,20 +480,17 @@ func (s *service) armIdle(ctx context.Context, task *domain.Task, ended time.Tim
 // rearmIdle restores the idle transitions a stopped daemon was holding in memory.
 //
 // A turn end is recorded on the session before the timer that acts on it is
-// armed, so a daemon that stopped inside the grace period left a record of a
-// decision nothing had applied. This is where that record is read: for every
-// session still recorded as running with a turn end pending, the grace period is
-// armed again from the moment the provider reported, so a period that has
-// already passed becomes idle at once rather than restarting the clock.
+// armed, so a daemon that stopped inside the grace period left a decision nothing
+// had applied. Every session still recorded as running with a turn end pending is
+// armed again from the moment the provider reported, so a period that has already
+// passed becomes idle at once rather than restarting the clock.
 //
-// It runs after the control poller has caught up on the outbox, so a turn that
-// ended while the daemon was down is armed by the message reporting it and this
-// only re-arms what no message will.
+// It runs after the control poller has caught up on the outbox, so it re-arms
+// only what no message will.
 //
-// A failure to read a project's tasks is logged rather than returned. Nothing
-// here is recovery a user asked for: it is the daemon restoring its own pending
-// work, and a state directory it cannot list is already reported by the
-// reconciliation pass that ran before it.
+// A failure to read a project's tasks is logged rather than returned. This is the
+// daemon restoring its own pending work, and a state directory it cannot list is
+// already reported by the reconciliation pass that ran before it.
 func (s *service) rearmIdle(ctx context.Context) {
 	projects, err := s.store.Projects().List(ctx)
 	if err != nil {
@@ -556,31 +525,28 @@ func (s *service) rearmIdle(ctx context.Context) {
 }
 
 // cancelIdle drops a pending idle transition because the session did something.
-//
-// It drops the pending idle notification with it. An agent that started talking
-// again is not a task waiting for anybody, and a notification armed before that
-// happened would arrive about a state that is over.
+// It drops the pending idle notification with it, because an agent that started
+// talking again is not waiting for anybody and the notification would arrive
+// about a state that is over.
 func (s *service) cancelIdle(id domain.TaskID) {
 	s.idle.cancel(id)
 	s.idleNotice.cancel(id)
 }
 
 // armStartup starts the period after which an agent that has not reported
-// starting is treated as needing the user.
-//
-// It is armed by every launch and by every resume, because both start a process
-// that has said nothing yet, and cancelled by the first agent event of any kind.
+// starting is treated as needing the user. Every launch and every resume arms it,
+// because both start a process that has said nothing yet, and the first agent
+// event of any kind cancels it.
 //
 // An agent can be blocked before it emits anything at all. Claude asks for
 // workspace trust on a directory it has not seen before, and every task worktree
-// is a directory it has not seen before, so the first thing a launched session
-// does is wait for a person. No hook fires while it waits, because hooks are
-// installed for a session that has begun.
+// is one, so the first thing a launched session does is wait for a person. No
+// hook fires while it waits, because hooks are installed for a session that has
+// begun.
 //
-// Feat therefore cannot learn this from the provider, and the honest thing is to
-// say what it does know: nothing has been heard. A task that sits in `preparing`
-// reporting a running process and no attention would look like a task getting on
-// with its work, which is the one thing the startup grace exists to prevent.
+// Feat cannot learn this from the provider, so it says what it knows: nothing has
+// been heard. A task reporting a running process and no attention would look like
+// one getting on with its work.
 func (s *service) armStartup(ctx context.Context, task *domain.Task) {
 	id := task.ID
 	s.startup.arm(id, startupGrace, func() {
@@ -588,12 +554,10 @@ func (s *service) armStartup(ctx context.Context, task *domain.Task) {
 	})
 }
 
-// startupGrace is how long a launched agent has to report that it started.
-//
-// It is not configurable. It is not a policy the user should have to tune: it
-// bounds how long Feat will show a task as launched while having heard nothing,
-// and any value that is comfortably longer than an agent's start-up is as good
-// as any other.
+// startupGrace is how long a launched agent has to report that it started. It is
+// not configurable: it bounds how long Feat shows a task as launched while having
+// heard nothing, and any value comfortably longer than an agent's start-up is as
+// good as any other.
 const startupGrace = 30 * time.Second
 
 // reportSilentStart records that a launched agent has not reported starting.
@@ -606,25 +570,21 @@ func (s *service) reportSilentStart(ctx context.Context, id domain.TaskID) {
 			slog.String("task", id.String()), slog.Any("error", err))
 		return
 	}
-	// Anything at all from the session means this no longer applies, and the
-	// timer that reached here is cancelled by every agent event there is. So what
-	// is left to check is not the workflow: a resumed session is launched into a
-	// task that is already working, or that is in a review state its previous
-	// life reached, and the guard that asked for `preparing` let exactly those
-	// through unreported — two of the three longest-stuck tasks in the record
-	// that produced ADR-096 were resumes that then said nothing at all.
+	// Every agent event cancels the timer that reached here, so what is left to
+	// check is not the workflow: a resumed session is launched into a task that is
+	// already working, or in a review state its previous life reached, and a guard
+	// asking for `preparing` let exactly those through unreported (ADR-096).
 	//
-	// An archived task is the one case with nothing to say: it has been cleaned
-	// up, its terminal is gone, and there is nobody for an attention state to
-	// reach.
+	// An archived task is the one case with nothing to say: it has been cleaned up,
+	// its terminal is gone, and no attention state reaches anybody.
 	if task.Session == nil || task.Workflow == domain.WorkflowArchived {
 		return
 	}
 
-	// Something already says this task needs a person — a resumed task carrying
+	// Something already says this task needs a person: a resumed task carrying
 	// needs-input from its previous life, or a failure recorded while the grace
-	// period ran. Silence adds nothing to it, and the event this used to record
-	// anyway claimed a transition from none that never happened (ADR-058).
+	// period ran. Silence adds nothing to it, and an event recorded anyway would
+	// claim a transition from none that never happened (ADR-058).
 	if task.Attention != domain.AttentionNone {
 		s.logger.InfoContext(ctx, "an agent has not reported starting, and its task already says it needs the user",
 			slog.String("task", id.String()), slog.String("attention", string(task.Attention)))
@@ -651,12 +611,10 @@ func (s *service) reportSilentStart(ctx context.Context, id domain.TaskID) {
 	})
 }
 
-// becomeIdle records that a session has been quiet for the grace period.
-//
-// Idle is a process observation and nothing more. It does not touch the
-// workflow, and the attention it sets is the conservative one: Feat cannot tell
-// a finished turn from a question, so it says it may be waiting rather than
-// that it is (docs/03-domain-model.md).
+// becomeIdle records that a session has been quiet for the grace period. Idle is
+// a process observation and nothing more: it does not touch the workflow, and the
+// attention it sets is conservative, because Feat cannot tell a finished turn
+// from a question (docs/03-domain-model.md).
 func (s *service) becomeIdle(ctx context.Context, id domain.TaskID) {
 	defer s.locks.lock(id)()
 
@@ -703,10 +661,8 @@ func (s *service) becomeIdle(ctx context.Context, id domain.TaskID) {
 		})
 	}
 
-	// The dashboard says idle now; whether it is worth interrupting somebody
-	// about is a second question, asked after the task has stayed idle for the
-	// notification grace. This is the only notification in Feat that waits, and
-	// waiting is what makes "idle notifications do not fire immediately" a
-	// property of the mechanism rather than of a value somebody configured.
+	// The dashboard says idle now; whether it is worth interrupting somebody is a
+	// second question, asked after the task has stayed idle for the notification
+	// grace. It is the only notification in Feat that waits.
 	s.armIdleNotice(ctx, task, now)
 }

@@ -22,12 +22,9 @@ import (
 )
 
 // defaultRuntimeInterval is how often the daemon observes application services.
-//
-// It is deliberately much longer than the control poller's interval. A control
-// message is how a task reports that it is waiting for a person; a container
-// that stopped on its own is something a user finds out about when they next
-// look at the dashboard, and asking Docker four times a second would cost more
-// than the answer is worth.
+// It is much longer than the control poller's interval, because a container that
+// stopped on its own is something a user finds out about at the next look and
+// asking Docker four times a second would cost more than the answer is worth.
 const defaultRuntimeInterval = 5 * time.Second
 
 // runtimeProvider is the adapter identifier recorded on a task's runtime.
@@ -46,14 +43,14 @@ const (
 // Generated non-secret variables every managed service receives.
 //
 // They are generated task metadata rather than anything read from the project's
-// environment files, which Feat never opens (docs/05-security-model.md). They
-// exist so that an application can tell which task it is serving — in a log
-// line, a page footer, or the name of a shared resource it selects.
+// environment files, which Feat never opens (docs/05-security-model.md). An
+// application uses them to tell which task it is serving, in a log line, a page
+// footer, or the name of a shared resource it selects.
 //
-// FEAT_TASK_KEY is the one a project shares an external resource by: it is
-// short, unique, safe in a name, and not a secret. Naming a share is all Feat
-// does, and it neither knows nor asks what is behind the name — the connection
-// string lives in an environment file Feat is forbidden to open (ADR-048).
+// FEAT_TASK_KEY is the one a project shares an external resource by: short,
+// unique, safe in a name, and not a secret. Naming a share is all Feat does, and
+// the connection string behind the name lives in an environment file Feat is
+// forbidden to open (ADR-048).
 const (
 	varProject  = "FEAT_PROJECT_ID"
 	varTask     = "FEAT_TASK_ID"
@@ -70,9 +67,8 @@ const (
 // FR-RUN-009).
 //
 // The order is the recoverability rule ADR-029 set for worktrees and ADR-033 for
-// containers, applied to application services: the record naming what may exist
-// is written before anything is created, so an interruption anywhere leaves a
-// record naming a superset of what exists.
+// containers: the record naming what may exist is written before anything is
+// created, so an interruption leaves a record naming a superset of what exists.
 func (s *service) Runtime(
 	ctx context.Context, id domain.TaskID, action api.RuntimeAction,
 ) (api.RuntimeResult, error) {
@@ -80,9 +76,9 @@ func (s *service) Runtime(
 		return api.RuntimeResult{}, fmt.Errorf("%w: %q is not a runtime action", api.ErrInvalid, action)
 	}
 
-	// One budget for the whole action rather than one per Docker command, so that
-	// the ceiling exists as a single number both ends of the request know: the
-	// client waits for it, and this stops waiting at it (api.RuntimeTimeout).
+	// One budget for the whole action rather than one per Docker command, so the
+	// ceiling is a single number both ends of the request know: the client waits for
+	// it, and this stops waiting at it (api.RuntimeTimeout).
 	budget := s.runtimeBudget()
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
@@ -100,11 +96,10 @@ func (s *service) Runtime(
 	}
 
 	// What the task's services will run, said before any of them is asked to do
-	// anything. It is resolved rather than observed, so a status answers it as
-	// well as a start does — and a user who has not started anything yet is the
-	// one who can still fix it cheaply. A stop and a destroy are silent about it:
-	// they are how a user ends an application, and what its services would have
-	// run is no longer the question.
+	// anything. It is resolved rather than observed, so a status answers it as well
+	// as a start does, and a user who has started nothing can still fix it cheaply.
+	// A stop and a destroy are silent about it, because ending an application does
+	// not raise the question.
 	var provenance []string
 	switch action {
 	case api.RuntimeCreate, api.RuntimeStart, api.RuntimeObserve:
@@ -113,9 +108,9 @@ func (s *service) Runtime(
 	}
 
 	if action == api.RuntimeObserve {
-		// Status creates nothing and validates nothing about the host: a user
-		// asking what is running should get an answer even from a machine whose
-		// Docker Compose is too old to start anything.
+		// Status creates nothing and validates nothing about the host, so a user
+		// asking what is running gets an answer even from a machine whose Docker
+		// Compose is too old to start anything.
 		state, err := services.Observe(ctx)
 		if err != nil {
 			return api.RuntimeResult{}, s.explainRuntime(ctx, id, action, budget, duringTheAction, err)
@@ -124,8 +119,8 @@ func (s *service) Runtime(
 	}
 
 	if err := services.Validate(ctx); err != nil {
-		// Pre-wrapped, so that a genuine validation failure keeps the sentence
-		// written for it and only a budget that has gone replaces it.
+		// Pre-wrapped, so a genuine validation failure keeps the sentence written for
+		// it and only a budget that has gone replaces it.
 		return api.RuntimeResult{}, s.explainRuntime(ctx, id, action, budget, beforeTheAction,
 			fmt.Errorf("%w: task %s cannot manage its application services: %w",
 				api.ErrInvalid, task.ID, err))
@@ -146,18 +141,18 @@ func (s *service) Runtime(
 	}
 	if err != nil {
 		// Nothing is undone. A service that started may already have written to a
-		// volume or a shared database, and tidying up after a failed start is a
+		// volume or a shared database, so tidying up after a failed start would be a
 		// destructive act the user did not ask for (ADR-029, ADR-033).
 		return api.RuntimeResult{}, s.explainRuntime(ctx, id, action, budget, duringTheAction, err)
 	}
 
 	notes := provenance
 	if action == api.RuntimeCreate || action == api.RuntimeStart {
-		// Both halves of the same question, in the order they were answered in:
-		// what configuration said the services would run, then what the started
+		// Both halves of one question, in the order they were answered: what
+		// configuration said the services would run, then what the started
 		// containers turned out to hold. Configuration cannot see a mount the
-		// project's own files add at a path Feat was never told about, and an
-		// inspection cannot see a service that has no mount at all.
+		// project's files add at a path Feat was never told about, and an inspection
+		// cannot see a service with no mount at all.
 		notes = append(notes, s.inspectRuntime(ctx, task, services, state)...)
 	}
 	return s.recordRuntime(ctx, task, record, state, notes, string(action))
@@ -179,36 +174,30 @@ const (
 
 // explainRuntime says what a failed action failed of.
 //
-// Two of the reasons are not the project's, and neither says so on its own: a
-// Docker that was still working when the budget ran out, and a Docker that was
-// cut short because the caller went away. Both arrive here as a Compose command
-// that did not finish, and both leave whatever Compose had already created on
-// the machine — so the message names the action that says what that is rather
-// than an outcome this cannot know. The record is a superset of it either way
-// (ADR-029, ADR-033), and the observer corrects the state on its next pass.
+// Two of the reasons are not the project's: a Docker that was still working when
+// the budget ran out, and a Docker cut short because the caller went away. Both
+// arrive as a Compose command that did not finish and both leave whatever Compose
+// had created, so the message names the action rather than an outcome this cannot
+// know. The record is a superset either way (ADR-029, ADR-033), and the observer
+// corrects the state on its next pass.
 //
-// Every step of an action reports through this, not only the Compose command
-// that does the work. Which step noticed the clock is Feat's business rather
-// than the user's: a start whose budget went while the daemon was still asking
-// Docker its version failed for the same reason as one whose budget went inside
-// `up`, and the first used to arrive as `task X cannot manage its application
-// services: context deadline exceeded` — the transport error this budget exists
-// to replace (ADR-034). It also arrived that way only sometimes, because which
-// step is holding the clock when it runs out depends on how loaded the machine
-// is, which is how a user meets the same failure with two different messages.
+// Every step of an action reports through this, not only the Compose command that
+// does the work. Which step noticed the clock is Feat's business rather than the
+// user's, and it depends on how loaded the machine is, so reporting it would meet
+// one failure with two different messages — one of them the transport's `context
+// deadline exceeded` that this budget exists to replace (ADR-034).
 //
 // What genuinely differs is what may exist afterwards, and that is what the
-// sentences differ in: an action that had not begun created nothing, and there
-// is no half-finished Compose command to warn about.
+// sentences differ in: an action that had not begun created nothing, so there is
+// no half-finished Compose command to warn about.
 //
-// A caller that went away is logged as well as reported, because there is nobody
-// left to report it to: the connection that would have carried the answer is the
-// thing that has gone, and a daemon that says nothing about it leaves a user
-// with a half-started application and an empty log.
+// A caller that went away is logged as well as reported, because the connection
+// that would have carried the answer is the thing that has gone and a daemon
+// silent about it leaves a user with a half-started application and an empty log.
 //
 // An error that already carries ErrInvalid is returned as it stands. It is a
-// message somebody wrote for this user, and wrapping it again would produce a
-// sentence that says the request was invalid twice.
+// message somebody wrote for this user, and wrapping it again would say the
+// request was invalid twice.
 func (s *service) explainRuntime(
 	ctx context.Context, id domain.TaskID, action api.RuntimeAction,
 	budget time.Duration, started bool, err error,
@@ -245,16 +234,14 @@ func (s *service) explainRuntime(
 
 // RuntimeLogs returns the command that opens a task's normal Compose logs.
 //
-// The daemon builds it and the client runs it, which is the same division
-// `feat attach` uses: the daemon resolves what a task owns, and the caller's own
-// terminal is what the output belongs in (FR-RUN-006).
+// The daemon builds it and the client runs it, which is the division `feat
+// attach` uses: the daemon resolves what a task owns, and the output belongs in
+// the caller's own terminal (FR-RUN-006).
 //
-// It takes the task's lock even though it creates nothing, because resolving
-// what a task owns goes through runtimeFor, which attaches or refreshes the
-// runtime record and saves it. That is a read-modify-write of one task's
-// records, and every one of those runs under the task's own lock (ADR-036) —
-// asking where the logs are must not overwrite what a start wrote while it was
-// being asked.
+// It takes the task's lock even though it creates nothing, because resolving what
+// a task owns goes through runtimeFor, which attaches or refreshes the runtime
+// record and saves it. Asking where the logs are must not overwrite what a start
+// wrote while it was being asked (ADR-036).
 func (s *service) RuntimeLogs(ctx context.Context, id domain.TaskID) (api.RuntimeCommand, error) {
 	defer s.locks.lock(id)()
 
@@ -301,12 +288,10 @@ func (s *service) runtimeTask(ctx context.Context, id domain.TaskID) (*domain.Ta
 	return task, cfg, nil
 }
 
-// runtimeFor builds the adapter for a task and makes sure the task's record
-// names what the adapter may create.
-//
-// The record comes first and is saved before the adapter is used, so an
-// interruption leaves a task naming a Compose project that may exist rather than
-// resources nothing can name.
+// runtimeFor builds the adapter for a task and makes sure the task's record names
+// what the adapter may create. The record comes first and is saved before the
+// adapter is used, so an interruption leaves a task naming a Compose project that
+// may exist rather than resources nothing can name.
 func (s *service) runtimeFor(
 	ctx context.Context, cfg *config.Config, task *domain.Task, action api.RuntimeAction,
 ) (runtime.Runtime, *domain.RuntimeEnvironment, error) {
@@ -316,9 +301,9 @@ func (s *service) runtimeFor(
 		return nil, nil, fmt.Errorf("%w: %w", api.ErrInvalid, err)
 	}
 
-	// One act, under one lock: the record is what holds the allocation, so an
-	// allocation nothing has recorded yet would be given to the next task as free
-	// while this one was about to bind it.
+	// One act, under one lock. The record is what holds the allocation, so an
+	// allocation nothing has recorded would be given to the next task as free while
+	// this one was about to bind it.
 	record, err := s.reserveAndRecord(
 		ctx, task, spec, runtimeNeeds(cfg, documents), cfg.Runtime.Ports(),
 		cfg.Runtime.BindAddress, action)
@@ -327,9 +312,9 @@ func (s *service) runtimeFor(
 	}
 	spec = recordedInputs(spec, record, cfg.Runtime.BindAddress)
 
-	// After the record's own inputs are back in place, so that what is recorded
-	// about each service is read from the specification the documents are
-	// generated from rather than from one nothing will be written with.
+	// After the record's own inputs are back in place, so what is recorded about
+	// each service is read from the specification the documents are generated from
+	// rather than from one nothing will be written with.
 	if err := s.recordProvenance(ctx, task, record, runtimeProvenance(cfg, spec)); err != nil {
 		return nil, nil, err
 	}
@@ -341,12 +326,10 @@ func (s *service) runtimeFor(
 	return services, record, nil
 }
 
-// recordProvenance records where each managed service's code comes from.
-//
-// It is written before the adapter exists, so a create that is interrupted after
-// its first Compose command still leaves a task saying which of its services
-// were going to run its work — the ordering rule ADR-029 set for worktrees,
-// applied to a state resolved rather than observed.
+// recordProvenance records where each managed service's code comes from. It is
+// written before the adapter exists, so a create interrupted after its first
+// Compose command still leaves a task saying which of its services were going to
+// run its work (ADR-029).
 func (s *service) recordProvenance(
 	ctx context.Context, task *domain.Task, record *domain.RuntimeEnvironment,
 	provenance []domain.ServiceProvenance,
@@ -360,26 +343,21 @@ func (s *service) recordProvenance(
 // recorded applies the inputs a task's runtime already owns to a specification
 // freshly resolved from configuration.
 //
-// What the task owns wins over what configuration says today: an edited project
-// file must not point a stop or a destroy at a different Compose project than
-// the one that was started.
+// What the task owns wins over what configuration says today, because an edited
+// project file must not point a stop or a destroy at a different Compose project
+// than the one that was started.
 //
-// The mounts and the build contexts are deliberately not among those inputs.
-// They are written into the generated override every time that document is
-// written, so they follow the configuration in force rather than the
-// configuration a runtime was created under — a user who corrects a container
-// path should get the corrected mount on their next start. What they may not do
-// is name a service this task does not manage, which is what a project file that
-// has gained a service since the runtime was created would produce: those are
-// dropped here, because refusing to stop or destroy an existing runtime over a
-// service it never had is a worse answer than leaving the new service alone
-// until the runtime is absent and its inputs are resolved again.
+// The mounts and the build contexts are deliberately not among those inputs. They
+// are written into the generated override every time, so they follow the
+// configuration in force and a user who corrects a container path gets the
+// corrected mount on their next start. What they may not do is name a service
+// this task does not manage, so a service the project has gained since is dropped
+// here rather than made to refuse a stop or a destroy.
 //
 // The host ports are on the other side of that line, with the identity and the
-// file list. A published port is bound by a running container, so re-resolving
-// one from edited configuration would move a task's address out from under the
-// containers holding it — and it is what other tasks are kept away from, which
-// only works while it is the recorded value.
+// file list. A published port is bound by a running container and is what other
+// tasks are kept away from, so re-resolving one would move a task's address out
+// from under the containers holding it.
 func recordedInputs(spec runtime.Spec, record *domain.RuntimeEnvironment, bind string) runtime.Spec {
 	spec.Identity = record.Identity
 	spec.Includes = runtimeIncludesOf(record.Composition)
@@ -418,18 +396,16 @@ func recordedInputs(spec runtime.Spec, record *domain.RuntimeEnvironment, bind s
 	}
 	spec.Builds = builds
 
-	// Last, so that the publications and the addresses they generate are
-	// resolved against the services this runtime actually manages rather than
-	// against the ones configuration names today.
+	// Last, so the publications and the addresses they generate are resolved
+	// against the services this runtime manages rather than the ones configuration
+	// names today.
 	return withAllocations(spec, record.Allocations, bind)
 }
 
-// recordRuntimeInputs attaches or refreshes the task's runtime record.
-//
-// A task with no runtime gets one, absent and observing nothing. A task whose
-// runtime is absent — never created, or destroyed since — has its inputs
-// re-resolved from the project's current configuration. A task with resources
-// keeps the inputs those resources were created from.
+// recordRuntimeInputs attaches or refreshes the task's runtime record. A task
+// with no runtime gets one, absent and observing nothing. A task whose runtime is
+// absent has its inputs re-resolved from the project's current configuration, and
+// a task with resources keeps the inputs those resources were created from.
 func (s *service) recordRuntimeInputs(
 	ctx context.Context, task *domain.Task, spec runtime.Spec,
 	allocations []domain.PortAllocation, action api.RuntimeAction,
@@ -499,11 +475,9 @@ func (s *service) recordRuntimeInputs(
 	}
 }
 
-// recordRuntime saves what an action observed and reports it.
-//
-// The event is published only when the state or health actually changed. Every
-// poll would otherwise publish, every publication makes a dashboard re-read, and
-// a re-read that publishes is a loop the dashboard has paid for once already.
+// recordRuntime saves what an action observed and reports it. The event is
+// published only when the state or health changed, because every poll would
+// otherwise publish and every publication makes a dashboard re-read.
 func (s *service) recordRuntime(
 	ctx context.Context, task *domain.Task, record *domain.RuntimeEnvironment,
 	state runtime.State, notes []string, action string,
@@ -514,10 +488,9 @@ func (s *service) recordRuntime(
 		return api.RuntimeResult{}, err
 	}
 	record.ObserveResources(ports(state), state.Networks, state.Volumes, s.now())
-	// A runtime with nothing in it holds no host port. It is the release half of
-	// the allocation: a destroy gives its ports back, and so does a runtime that
-	// was removed by other means, because what makes an allocation worth keeping
-	// is a container bound to it.
+	// A runtime with nothing in it holds no host port. It is the release half of the
+	// allocation: a destroy gives its ports back, and so does a runtime removed by
+	// other means, because a container bound to it is what makes one worth keeping.
 	record.ReleasePorts(s.now())
 
 	if err := s.store.Tasks().Save(ctx, task); err != nil {
@@ -531,9 +504,9 @@ func (s *service) recordRuntime(
 			Detail: describeRuntime(record, action),
 		})
 		if from != record.State {
-			// Only a state that changed, and only one worth interrupting for. A
-			// stop is deliberately not one: v0 stops services when a user asks, so
-			// a stop is something they just did rather than news (FR-RUN-005).
+			// Only a state that changed, and only one worth interrupting for. A stop is
+			// not one: v0 stops services when a user asks, so a stop is something
+			// they just did rather than news (FR-RUN-005).
 			if condition, ok := notify.ForRuntime(record.State); ok {
 				s.notifyTask(ctx, task, condition, 0)
 			}
@@ -548,23 +521,20 @@ func (s *service) recordRuntime(
 
 // provenanceNotes say which managed services will not show the task's work.
 //
-// Two different things go wrong. A service that receives neither a worktree nor
-// a build context runs the user's ordinary checkout, and nothing about it will
-// ever change with the task; each of those is named on its own, because each is
-// a different repository's container path to fix. A service that builds the code
-// into its image runs the task's work and goes on running the copy it was built
-// from, which matters because the agent that changed the code is confined to a
-// devcontainer with no Docker and can rebuild nothing (ADR-065 evidence 9);
-// those are named together, because they all need the same one command.
+// Two different things go wrong. A service that receives neither a worktree nor a
+// build context runs the user's ordinary checkout and never changes with the
+// task; each is named on its own, because each is a different repository's
+// container path to fix. A service that builds the code into its image runs the
+// copy it was built from, and the agent that changed the code is confined to a
+// devcontainer with no Docker (ADR-065 evidence 9); those are named together,
+// because they need the same one command.
 //
-// A service that mounts a worktree *and* builds from it is still named. Whether
-// the mount makes the running code current depends on whether the image reads
-// the path it is mounted at, which Feat cannot know: an application server
-// reloading from its mounted source is current, and a web server serving the
-// files its build produced is not — and the reference project has one of each
-// (ADR-065 evidence 15). Saying that a change needs a rebuild, and that a mount
-// is current wherever the image reads it, is true of both; suppressing it
-// whenever a mount exists was true of only one.
+// A service that mounts a worktree and builds from it is still named. Whether the
+// mount makes the running code current depends on whether the image reads the
+// path it is mounted at, which Feat cannot know: an application server reloading
+// from its mounted source is current and a web server serving the files its build
+// produced is not, and the reference project has one of each (ADR-065 evidence
+// 15).
 func provenanceNotes(task *domain.Task, record *domain.RuntimeEnvironment) []string {
 	var notes []string
 	var built []string
@@ -634,11 +604,10 @@ func describeRuntime(record *domain.RuntimeEnvironment, action string) string {
 	return detail + " after " + action
 }
 
-// inspectRuntime asks the started containers what they turned out to mount.
-//
-// A failure here is logged and does not fail the action: the services are
-// running, and a user who has just started them should not be told the start
-// failed because a second question could not be asked.
+// inspectRuntime asks the started containers what they turned out to mount. A
+// failure here is logged and does not fail the action, because the services are
+// running and a user who has just started them should not be told the start
+// failed over a second question.
 func (s *service) inspectRuntime(
 	ctx context.Context, task *domain.Task, services runtime.Runtime, state runtime.State,
 ) []string {
@@ -651,10 +620,9 @@ func (s *service) inspectRuntime(
 	return report.Notes
 }
 
-// runtimeSpec resolves a task's application runtime from configuration.
-//
-// It is the only place the two vocabularies meet: everything the adapter
-// receives is final here, and the adapter reads no configuration (ADR-034).
+// runtimeSpec resolves a task's application runtime from configuration. It is the
+// only place the two vocabularies meet: everything the adapter receives is final
+// here, and the adapter reads no configuration (ADR-034).
 func (s *service) runtimeSpec(
 	cfg *config.Config, task *domain.Task, documents composeDocuments,
 ) (runtime.Spec, error) {
@@ -689,10 +657,10 @@ func (s *service) runtimeSpec(
 		Includes:        includes,
 		IncludePath:     filepath.Join(directory, runtimeIncludeName),
 		StaticOverrides: append([]string(nil), section.StaticOverrides...),
-		// Feat's own directory, holding the documents it generates. Every path
-		// in them is absolute and each include entry names the directory its own
+		// Feat's own directory, holding the documents it generates. Every path in
+		// them is absolute and each include entry names the directory its own
 		// repository's relative paths resolve against, so no repository's file is
-		// ever read against another repository's directory (ADR-065 evidence 2).
+		// read against another repository's directory (ADR-065 evidence 2).
 		Directory:    directory,
 		OverridePath: filepath.Join(directory, runtimeOverrideName),
 		EnvFiles:     append([]string(nil), section.EnvFiles...),
@@ -714,12 +682,11 @@ func (s *service) runtimeSpec(
 	return spec, nil
 }
 
-// runtimeIncludes is what the project's application is composed of.
-//
-// One entry per repository that brings Compose files, each carrying that
-// repository's own checkout as its project directory. A repository that
-// contributes a container path and no files is not an include: it has nothing
-// to join, and its worktree still reaches the services through the mounts.
+// runtimeIncludes is what the project's application is composed of: one entry per
+// repository that brings Compose files, each carrying that repository's own
+// checkout as its project directory. A repository that contributes a container
+// path and no files has nothing to join, and its worktree still reaches the
+// services through the mounts.
 func runtimeIncludes(cfg *config.Config) []runtime.Include {
 	var includes []runtime.Include
 	for _, contribution := range cfg.RuntimeComposition() {
@@ -735,11 +702,10 @@ func runtimeIncludes(cfg *config.Config) []runtime.Include {
 	return includes
 }
 
-// runtimeDirectory is where a task's generated Compose documents are written,
-// and the Compose project directory of every command Feat runs for it.
-//
-// Both identifiers are validated before either reaches a path, so no stored
-// value can name a directory outside the runtime root.
+// runtimeDirectory is where a task's generated Compose documents are written, and
+// the Compose project directory of every command Feat runs for it. Both
+// identifiers are validated before either reaches a path, so no stored value can
+// name a directory outside the runtime root.
 func (s *service) runtimeDirectory(task *domain.Task) (string, error) {
 	if err := task.ProjectID.Validate(); err != nil {
 		return "", err
@@ -778,25 +744,24 @@ func runtimeIncludesOf(sources []domain.RuntimeSource) []runtime.Include {
 
 // runtimeMounts is the code the task's services run.
 //
-// Each selected repository's task worktree, at the container path its repository
-// configures, with the access the task has. Compose merges by target, so this
-// replaces whatever the project's own files mounted there — and a container_path
-// that disagrees with those files adds a mount instead, which the adapter
-// reports after the services are up (ADR-034).
+// It is each selected repository's task worktree, at the container path its
+// repository configures, with the access the task has. Compose merges by target,
+// so this replaces whatever the project's own files mounted there; a
+// container_path that disagrees with those files adds a mount instead, which the
+// adapter reports after the services are up (ADR-034).
 //
-// The path is the repository's own runtime container path, which is a different
-// field from the one the agent's container uses and answers a different
-// question: where an application's services expect their source is a fact about
-// that application's Compose files, and where the agent's devcontainer mounts a
-// worktree is the user's free choice (ADR-065 evidence 5). Reading the agent's
-// answer here is what left a host-execution project mounting nothing at all,
-// because that field carries a value only when there is a devcontainer.
+// The path is the repository's runtime container path, which is a different field
+// from the agent container's and answers a different question: where an
+// application's services expect their source is a fact about its Compose files,
+// and where the agent's devcontainer mounts a worktree is the user's free choice
+// (ADR-065 evidence 5). The agent's field carries a value only when there is a
+// devcontainer, so reading it here left a host-execution project mounting nothing.
 //
-// A repository with no runtime container path is skipped rather than guessed at.
-// A project whose services bake that repository's code is a valid project and
-// wants no mount at all: runtimeBuilds is where its code comes from. What such a
-// repository leaves behind is a service this resolution cannot reach, which the
-// task records against that service rather than losing (ADR-065 evidence 1).
+// A repository with no runtime container path is skipped rather than guessed at,
+// because a project whose services bake that repository's code wants no mount and
+// runtimeBuilds is where its code comes from. What it leaves behind is a service
+// this resolution cannot reach, which the task records against that service
+// rather than losing (ADR-065 evidence 1).
 func runtimeMounts(cfg *config.Config, task *domain.Task) []runtime.Mount {
 	var mounts []runtime.Mount
 
@@ -810,9 +775,9 @@ func runtimeMounts(cfg *config.Config, task *domain.Task) []runtime.Mount {
 		}
 		if len(repository.Runtime.Services) == 0 {
 			// Configuration refuses this, so reaching it means the two rule sets
-			// disagree. Skipping is the safe half of the disagreement: a mount
-			// belonging to no service would fail the specification's own check
-			// with a message about a task rather than about a file.
+			// disagree. Skipping is the safe half: a mount belonging to no service
+			// would fail the specification's own check with a message about a task
+			// rather than about a file.
 			continue
 		}
 		access := "read-write"
@@ -834,25 +799,23 @@ func runtimeMounts(cfg *config.Config, task *domain.Task) []runtime.Mount {
 // runtimeBuilds is the code the task's services bake into their images.
 //
 // A mount is not the only way a repository's code reaches a service. A service
-// whose image copies the repository in has no mount to replace, so the container
-// path decides nothing about it and only its build context does: without this,
-// such a service runs the user's ordinary checkout whatever the configuration
-// says, and ADR-034's post-start inspection cannot report it because the note
-// looks at mounts and there is no mount (ADR-065 evidence 4).
+// whose image copies the repository in has no mount to replace, so only its build
+// context decides anything: without this it runs the user's ordinary checkout
+// whatever the configuration says, and ADR-034's post-start inspection looks at
+// mounts and finds none (ADR-065 evidence 4).
 //
 // The build contexts are read out of the project's own Compose files, which is
 // the one place they are stated. The reading is structural and takes the context
 // and nothing else: no `environment` value, no `build.args` entry, and no
-// `env_file` is opened, and a context containing a "${...}" is left unread
-// rather than interpolated. `docker compose config` would answer the same
-// question by rendering the whole project including the values of its
-// environment files, which Feat must never read (ADR-034 evidence 5) — reading
-// the document resolves nothing and stays allowed (ADR-065).
+// `env_file` is opened, and a context containing a "${...}" is left unread. `docker
+// compose config` would render the whole project including its environment files,
+// which Feat must never read (ADR-034 evidence 5); reading the document resolves
+// nothing and stays allowed (ADR-065).
 //
 // A context is redirected when it lies in the checkout of a repository this task
 // selected, at the same place inside that repository's worktree. A context
-// somewhere else is left alone: it is not this task's code, and pointing it at a
-// worktree would be Feat deciding what a project builds.
+// somewhere else is left alone, because it is not this task's code and pointing
+// it at a worktree would be Feat deciding what a project builds.
 func runtimeBuilds(cfg *config.Config, task *domain.Task, documents composeDocuments) []runtime.Build {
 	worktrees := taskWorktrees(cfg, task)
 	if len(worktrees) == 0 {
@@ -864,8 +827,8 @@ func runtimeBuilds(cfg *config.Config, task *domain.Task, documents composeDocum
 	}
 
 	// Later contributions win, which is the order Compose merges the include
-	// document in: a service two repositories both define builds from the
-	// context of the file that was read last.
+	// document in: a service two repositories both define builds from the context
+	// of the file that was read last.
 	contexts := make(map[string]runtime.Build)
 	var ordered []string
 	for _, contribution := range cfg.RuntimeComposition() {
@@ -891,23 +854,19 @@ func runtimeBuilds(cfg *config.Config, task *domain.Task, documents composeDocum
 	return builds
 }
 
-// composeDocuments is what each contributing repository's own Compose files
-// say about themselves, keyed by repository.
-//
-// It is read once per runtime action and passed to everything that needs it,
-// because two questions are answered from it — where a service's image is built
-// from, and which ports it publishes — and reading the same files twice for one
-// action would be two answers that could disagree with each other.
+// composeDocuments is what each contributing repository's own Compose files say
+// about themselves, keyed by repository. It is read once per runtime action and
+// passed to everything that needs it, because two questions are answered from it
+// and reading the same files twice could produce two answers.
 type composeDocuments map[string]project.Composition
 
 // readComposition reads every contributing repository's Compose files.
 //
-// Structurally, against each repository's own checkout, which is the project
-// directory its include entry carries: a relative path in those files means
-// what it would mean to a user standing in that repository. That is why the
-// checkout is both arguments — here the directory paths resolve against and the
-// repository being asked about are the same directory. It resolves no
-// interpolation and opens no environment file (ADR-065).
+// It reads structurally, against each repository's own checkout, which is the
+// project directory its include entry carries: a relative path in those files
+// means what it would mean to a user standing in that repository, so the checkout
+// is both arguments. It resolves no interpolation and opens no environment file
+// (ADR-065).
 func readComposition(env paths.Environment, cfg *config.Config) composeDocuments {
 	documents := make(composeDocuments)
 	for _, contribution := range cfg.RuntimeComposition() {
@@ -915,8 +874,8 @@ func readComposition(env paths.Environment, cfg *config.Config) composeDocuments
 			continue
 		}
 		documents[contribution.RepositoryID] = project.ComposeReader{
-			// The environment configuration was resolved against, which is the
-			// user whose home directory a "~" in those files names.
+			// The environment configuration was resolved against, which is the user
+			// whose home directory a "~" in those files names.
 			Env:        env,
 			ProjectDir: contribution.Directory,
 			Repository: contribution.Directory,
@@ -951,9 +910,8 @@ func taskWorktrees(cfg *config.Config, task *domain.Task) []worktree {
 	return held
 }
 
-// redirectBuild points one build context at the task's own copy of it.
-//
-// The deepest matching checkout wins, so a project holding one repository inside
+// redirectBuild points one build context at the task's own copy of it. The
+// deepest matching checkout wins, so a project holding one repository inside
 // another redirects a context at the repository it is really in rather than at
 // the one that happens to contain both.
 func redirectBuild(service, context string, worktrees []worktree) (runtime.Build, bool) {
@@ -995,12 +953,10 @@ func within(outer, inner string) bool {
 	return inner == outer || strings.HasPrefix(inner, outer+string(filepath.Separator))
 }
 
-// runtimeProvenance says where each managed service's code comes from.
-//
-// It is resolved from the specification the generated documents are written
-// from, so what the task records and what Compose is given cannot disagree, and
-// it is resolved before anything is created rather than inspected out of the
-// containers afterwards (ADR-065).
+// runtimeProvenance says where each managed service's code comes from. It is
+// resolved from the specification the generated documents are written from, so
+// what the task records and what Compose is given cannot disagree, and it is
+// resolved before anything is created rather than inspected afterwards (ADR-065).
 func runtimeProvenance(cfg *config.Config, spec runtime.Spec) []domain.ServiceProvenance {
 	owners := make(map[string][]string)
 	for _, contribution := range cfg.RuntimeComposition() {
@@ -1053,22 +1009,19 @@ func serviceStates(state runtime.State) []api.RuntimeService {
 	return services
 }
 
-// runtimes builds the runtime adapter for one task.
-//
-// It is a method rather than a package function so that a test can drive a whole
-// lifecycle against a fake Docker: whether one task's action can disturb another
-// should not depend on the tester having a container runtime (ADR-030's
-// reasoning for the tmux fake).
+// runtimes builds the runtime adapter for one task. It is a method rather than a
+// package function so a test can drive a whole lifecycle against a fake Docker,
+// because whether one task's action can disturb another should not depend on the
+// tester having a container runtime (ADR-030's reasoning for the tmux fake).
 func (s *service) runtimes(spec runtime.Spec) (runtime.Runtime, error) {
 	return compose.New(spec, compose.Options{Runner: s.runtimeDocker})
 }
 
-// pollRuntimes observes every task that owns a runtime.
-//
-// Only tasks with a runtime record are asked, only `ps` is run for a runtime
-// with nothing in it, and nothing is written or published unless what was
-// observed differs from what was recorded. A task whose observation fails is
-// logged and the others are still read, for the reason the control poller gives.
+// pollRuntimes observes every task that owns a runtime. Only tasks with a runtime
+// record are asked, only `ps` is run for a runtime with nothing in it, and
+// nothing is written or published unless the observation differs from the record.
+// A task whose observation fails is logged and the others are still read, for the
+// reason the control poller gives.
 func (s *service) pollRuntimes(ctx context.Context) {
 	tasks, err := s.Tasks(ctx)
 	if err != nil {
@@ -1099,27 +1052,24 @@ func (s *service) pollRuntimes(ctx context.Context) {
 }
 
 // ErrRuntimeUnconfigured reports that a task's services exist while its project
-// no longer configures a runtime at all.
-//
-// It is a distinct error because it is not a failure: the task's Compose project
-// is still there and is still the task's, and what has gone is the configuration
-// that would say how to address it. Reconciliation reports it as an orphan,
-// which is what the note in the observer promised recovery would do.
+// no longer configures a runtime at all. It is a distinct error because it is not
+// a failure: the task's Compose project is still there and still the task's, and
+// what has gone is the configuration that says how to address it. Reconciliation
+// reports it as an orphan.
 var ErrRuntimeUnconfigured = errors.New("the project no longer configures an application runtime")
 
-// observeRuntime reads one task's services, records a change, and returns what
-// it saw.
+// observeRuntime reads one task's services, records a change, and returns what it
+// saw.
 //
-// The read-change-write cycle runs under the task's own lock, because a poll
-// that started from a copy loaded outside it would overwrite whatever a request
-// wrote in between — the defect ADR-036 evidence 9 records, in the one place
-// that reaches a task's records on a timer.
+// The read-change-write cycle runs under the task's own lock, because a poll that
+// started from a copy loaded outside it would overwrite whatever a request wrote
+// in between (ADR-036 evidence 9).
 //
-// The lock is taken after Docker has answered rather than before it, because a
-// create or a start holds it for as long as its images take to build, and a
-// poller waiting behind one would leave every other task's runtime state
-// unobserved for minutes. What that costs is an answer that may have been
-// overtaken while it was being given, which stillCurrent is what refuses.
+// The lock is taken after Docker has answered rather than before, because a
+// create or a start holds it for as long as its images take to build and a poller
+// waiting behind one would leave every other task's runtime state unobserved for
+// minutes. What that costs is an answer overtaken while it was being given, which
+// stillCurrent refuses.
 func (s *service) observeRuntime(ctx context.Context, task *domain.Task) (domain.RuntimeState, error) {
 	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
 	if err != nil {
@@ -1152,8 +1102,8 @@ func (s *service) observeRuntime(ctx context.Context, task *domain.Task) (domain
 	}
 	if !stillCurrent(task.Runtime, current.Runtime) {
 		// Somebody acted on this task while the question was being asked, so this
-		// answer is about a moment that has passed. The next poll asks again
-		// against what exists now.
+		// answer is about a moment that has passed. The next poll asks again against
+		// what exists now.
 		return state.Lifecycle, nil
 	}
 	if state.Lifecycle == current.Runtime.State && state.Health == current.Runtime.Health {
@@ -1168,25 +1118,19 @@ func (s *service) observeRuntime(ctx context.Context, task *domain.Task) (domain
 // stillCurrent reports whether a runtime record is still the one an observation
 // was taken against.
 //
-// The poller lists the tasks outside any lock and asks Docker about each of
-// them, which takes long enough for a create or a start to finish in between —
-// and what it then holds is an answer about the world as it was before that
-// action. Writing it down puts the task back to what it was, and the state
-// alone would survive that, because the next poll corrects it. The allocated
-// host ports would not: a runtime recorded as absent releases them, so a stale
-// observation applied after a create gave a task's ports away while its
-// containers were bound to them.
+// The poller lists the tasks outside any lock and asks Docker about each, which
+// takes long enough for a create or a start to finish in between. The state alone
+// would survive a stale answer, because the next poll corrects it; the allocated
+// host ports would not, because a runtime recorded as absent releases them and a
+// stale observation applied after a create gave a task's ports away while its
+// containers were bound to them (ADR-065 evidence 16).
 //
-// Found by running three tasks of the reference project (ADR-065 evidence 16).
-//
-// It asks how many times the record has been written rather than whether it
-// still looks the same, because a record can be changed back into its own
-// shape. A destroy and the create after it leave the identity, the state, the
-// health and even the port numbers as they were — the allocator releases 21000
-// and then hands back the lowest free port, which is 21000 — while the
-// containers holding them are new ones. Comparing the shape passes that pair
-// and releases live ports; comparing how often the record has been written
-// cannot (G3-05).
+// It asks how many times the record has been written rather than whether it still
+// looks the same, because a record can be changed back into its own shape. A
+// destroy and the create after it leave the identity, the state, the health and
+// even the port numbers as they were — the allocator releases 21000 and hands
+// back the lowest free port, which is 21000 — while the containers holding them
+// are new ones (G3-05).
 func stillCurrent(before, current *domain.RuntimeEnvironment) bool {
 	return before != nil && current != nil && before.Generation == current.Generation
 }

@@ -11,20 +11,17 @@ import (
 	"github.com/ma8el/feat/internal/store"
 )
 
-// claimStateDirectory reads the durable daemon record, refuses a state
-// directory this build must not write to, and records that a run has begun.
+// claimStateDirectory reads the durable daemon record, refuses a state directory
+// this build must not write to, and records that a run has begun.
 //
-// ADR-027 deferred this record to the first code that reads one. It is written
-// here because it has three readers rather than because it was scheduled: the
-// state schema decides whether this build may write at all,
-// the clean-shutdown flag is what lets a recovery report say a daemon crashed
-// rather than leaving a user to infer it, and the stop time is how long Feat was
-// not looking (ADR-037).
+// The record has three readers (ADR-027, ADR-037): the state schema decides
+// whether this build may write at all, the clean-shutdown flag lets a recovery
+// report say a daemon crashed, and the stop time is how long Feat was not
+// looking.
 //
-// Nothing in it is liveness. A process identifier, a socket, and a lock belong
-// to the runtime directory, which does not survive a reboot; a durable copy of
-// one would describe a daemon that is not running, which is the bug ADR-027
-// evidence 1 exists to prevent.
+// Nothing in it is liveness. A process identifier, a socket, and a lock belong to
+// the runtime directory, which does not survive a reboot, so a durable copy would
+// describe a daemon that is not running (ADR-027 evidence 1).
 func (s *service) claimStateDirectory(ctx context.Context) error {
 	previous, err := s.store.Daemons().Load(ctx)
 	switch {
@@ -36,10 +33,8 @@ func (s *service) claimStateDirectory(ctx context.Context) error {
 	}
 
 	if previous != nil && previous.Newer() {
-		// Refusing is the conservative direction and it is the only one that is
-		// safe: an older daemon writing over a newer directory loses whatever
-		// the newer schema added, and unlike every other failure here that loss
-		// is silent.
+		// An older daemon writing over a newer directory loses whatever the newer
+		// schema added, and unlike every other failure here that loss is silent.
 		return fmt.Errorf(
 			"the state directory %s was written by a newer Feat (state schema %d, this build reads %d). "+
 				"Upgrade Feat, or set %s to a different directory, below which this build keeps state of "+
@@ -48,12 +43,10 @@ func (s *service) claimStateDirectory(ctx context.Context) error {
 			s.layout.State, previous.StateSchema, domain.StateSchemaVersion, paths.EnvDataHome)
 	}
 
-	// What the previous run left is kept in memory for this run's reconciliation
-	// and is deliberately not carried into the new record. A record describes one
-	// run: its start, and its stop once it has one. Copying the previous run's
-	// stop time forward makes a record whose stop precedes its own start, which
-	// is a state the domain refuses — so a daemon that shut down cleanly could
-	// never start again. Found by stopping and starting the real binary.
+	// The previous run is kept in memory for this run's reconciliation and not
+	// carried into the new record. Copying its stop time forward makes a record
+	// whose stop precedes its own start, which the domain refuses, so a daemon that
+	// shut down cleanly could never start again.
 	s.previousRun = previous
 	if previous != nil && !previous.EndedCleanly {
 		s.logger.WarnContext(ctx, "the previous daemon did not record a clean shutdown",
@@ -61,10 +54,9 @@ func (s *service) claimStateDirectory(ctx context.Context) error {
 			slog.String("previous_version", previous.Version))
 	}
 
-	// The claim is written with no stop at all, so a crash needs nothing to be
-	// written in order to be visible: the absence of the shutdown write is the
-	// evidence. Recording a clean end at startup would make every crash look
-	// like an orderly stop.
+	// The claim is written with no stop, so the absence of the shutdown write is
+	// the evidence of a crash. Recording a clean end at startup would make every
+	// crash look like an orderly stop.
 	record := &domain.DaemonRecord{
 		StateSchema: domain.StateSchemaVersion,
 		StartedAt:   s.now(),
@@ -77,11 +69,9 @@ func (s *service) claimStateDirectory(ctx context.Context) error {
 	return nil
 }
 
-// releaseStateDirectory records that this run ended cleanly.
-//
-// It runs on the way out of Serve, after everything that writes has stopped. A
-// daemon that is killed never reaches it, which is exactly what makes the flag
-// meaningful.
+// releaseStateDirectory records that this run ended cleanly. It runs on the way
+// out of Serve, after everything that writes has stopped, and a daemon that is
+// killed never reaches it, which is what makes the flag meaningful.
 func (s *service) releaseStateDirectory(ctx context.Context) {
 	if s.startedRecord == nil {
 		return

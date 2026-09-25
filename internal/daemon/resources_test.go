@@ -17,11 +17,9 @@ import (
 	"github.com/ma8el/feat/internal/resources"
 )
 
-// brokenResources is a machine on which nothing can be measured.
-//
-// Every command fails, which is the state the two rules that matter are about: a
-// metric must never block a task, and a collection failure must degrade rather
-// than break something.
+// brokenResources is a machine on which nothing can be measured. Every command
+// fails, which is the state the two rules that matter are about: a metric must
+// never block a task, and a collection failure must degrade rather than break.
 type brokenResources struct {
 	mu    sync.Mutex
 	calls int
@@ -40,13 +38,11 @@ func (b *brokenResources) ran() int {
 	return b.calls
 }
 
-// TestMetricsNeverBlockTaskCreation is the rule that a metric never blocks a
-// task.
-//
-// The whole lifecycle runs on a machine where every observation command fails:
-// the draft is planned, launched, and taken to working, and the daemon still
-// answers a request for resources. Nothing about capacity is consulted anywhere,
-// because Feat enforces no concurrency limit in v0 (FR-UI-005).
+// TestMetricsNeverBlockTaskCreation checks that a metric never blocks a task. The
+// whole lifecycle runs on a machine where every observation command fails: the
+// draft is planned, launched, and taken to working, and the daemon still answers
+// a request for resources. Nothing consults capacity anywhere, because Feat
+// enforces no concurrency limit in v0 (FR-UI-005).
 func TestMetricsNeverBlockTaskCreation(t *testing.T) {
 	broken := &brokenResources{}
 	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
@@ -75,22 +71,15 @@ func TestMetricsNeverBlockTaskCreation(t *testing.T) {
 }
 
 // TestASampleThatFailsEntirelyIsStillASample is the second acceptance criterion
-// at the daemon.
+// at the daemon. The sample is taken, kept, and served with its notes, because a
+// request that returned an error would leave the dashboard showing nothing rather
+// than what it has.
 //
-// The sample is taken, kept, and served with its notes. A request that returned
-// an error would be a dashboard that showed nothing rather than what it has, and
-// the figures a broken machine can still report — its core count — are the ones
-// most worth having.
-//
-// What "fails entirely" can mean here is bounded by the platform, which is why
-// this test asserts absence on the tasks rather than on the machine. A broken
-// Runner breaks every source that runs a command, and the machine is not one of
-// them on every platform: Linux reads load and memory out of /proc and the disk
-// through statfs, so its machine figures are still there while macOS loses two
-// of the three. Asserting the macOS shape here passed for the wrong reason and
-// failed on Linux for the right one. That a source which did fail reports
-// nothing rather than zero is the same property, and internal/resources proves
-// it on both platforms with an injected machine reader.
+// It asserts absence on the tasks rather than on the machine, because what "fails
+// entirely" means is bounded by the platform: a broken Runner breaks every source
+// that runs a command, and Linux reads load and memory out of /proc and the disk
+// through statfs. internal/resources proves on both platforms, with an injected
+// machine reader, that a source which did fail reports nothing rather than zero.
 func TestASampleThatFailsEntirelyIsStillASample(t *testing.T) {
 	broken := &brokenResources{}
 	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
@@ -131,11 +120,9 @@ func TestASampleThatFailsEntirelyIsStillASample(t *testing.T) {
 }
 
 // TestReadingResourcesRunsNoCommand checks that the slow work happens on the
-// sampler's schedule and never inside a request.
-//
-// Asking the container runtime what it is using costs between one and two
-// seconds. A dashboard reads this every two seconds and after every event, so a
-// request that collected would be a request a metric could stall (ADR-035).
+// sampler's schedule and never inside a request. Asking the container runtime
+// what it is using costs between one and two seconds, and a dashboard reads this
+// every two seconds and after every event (ADR-035).
 func TestReadingResourcesRunsNoCommand(t *testing.T) {
 	broken := &brokenResources{}
 	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
@@ -155,12 +142,10 @@ func TestReadingResourcesRunsNoCommand(t *testing.T) {
 	}
 }
 
-// TestSamplingPublishesNothing checks that a figure which moves every two
-// seconds does not become an event that moves every two seconds.
-//
-// The dashboard re-reads state on every event, so a sample that published would
-// make every task a permanent source of reads — the shape the dashboard paid for
-// once and the runtime poller is pinned against.
+// TestSamplingPublishesNothing checks that a figure which moves every two seconds
+// does not become an event that moves every two seconds. The dashboard re-reads
+// state on every event, so a sample that published would make every task a
+// permanent source of reads.
 func TestSamplingPublishesNothing(t *testing.T) {
 	broken := &brokenResources{}
 	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
@@ -179,10 +164,8 @@ func TestSamplingPublishesNothing(t *testing.T) {
 }
 
 // TestOnlyLiveTasksAreSampled checks that a draft is not reported as using
-// nothing.
-//
-// A draft owns no container and no process, so there is nothing to measure; a
-// row of zeroes beside it would be a measurement nobody took.
+// nothing. A draft owns no container and no process, so a row of zeroes beside it
+// would be a measurement nobody took.
 func TestOnlyLiveTasksAreSampled(t *testing.T) {
 	broken := &brokenResources{}
 	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
@@ -233,12 +216,11 @@ func TestATaskIsSampledThroughItsTerminalsProcesses(t *testing.T) {
 	}
 }
 
-// TestTheSamplingIntervalIsFlooredByTheLastSample checks that a container
-// runtime which answers slowly cannot make samples pile up.
-//
-// `docker stats` takes between one and two seconds, measured rather than
-// assumed, and the configured default is two. A sampler that ticked regardless
-// would spend a machine's time asking questions it had not finished answering.
+// TestTheSamplingIntervalIsFlooredByTheLastSample checks that a container runtime
+// which answers slowly cannot make samples pile up. `docker stats` takes between
+// one and two seconds, measured rather than assumed, and the configured default
+// is two, so a sampler that ticked regardless would ask questions it had not
+// finished answering.
 func TestTheSamplingIntervalIsFlooredByTheLastSample(t *testing.T) {
 	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
 		options.ResourceInterval = -1
@@ -263,13 +245,9 @@ func writeSettings(t *testing.T, layout paths.Layout, body string) {
 	}
 }
 
-// TestTheConfiguredSamplingIntervalIsRead checks that the interval comes from
-// the machine's settings.
-//
-// It used to come from the projects: the sampler listed every registered one and
-// parsed each one's YAML on every tick, then took the shortest answer. It is now
-// one number, resolved when the daemon started, and this asserts about a daemon
-// that has already started — which is the whole of the reading (ADR-079).
+// TestTheConfiguredSamplingIntervalIsRead checks that the interval comes from the
+// machine's settings. It is one number, resolved when the daemon started, so this
+// asserts against a daemon that has already started (ADR-079).
 func TestTheConfiguredSamplingIntervalIsRead(t *testing.T) {
 	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
 		options.ResourceInterval = -1
@@ -298,11 +276,9 @@ func TestTheSamplingIntervalDefaultsWithoutSettings(t *testing.T) {
 }
 
 // TestUnreadableSettingsDoNotStopTheDaemon covers the failure a hand-edited file
-// produces.
-//
-// An optional file with a typo in it must not stop a control plane from
-// starting. The defaults apply until it is fixed, the daemon says so once in its
-// log, and `feat settings show` is where the typo itself is diagnosed.
+// produces. An optional file with a typo must not stop a control plane from
+// starting: the defaults apply until it is fixed, the daemon says so once in its
+// log, and `feat settings show` diagnoses the typo.
 func TestUnreadableSettingsDoNotStopTheDaemon(t *testing.T) {
 	live := launchWith(t, hostFixture, installed(), true, func(options *Options) {
 		options.ResourceInterval = -1

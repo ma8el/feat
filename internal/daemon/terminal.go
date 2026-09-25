@@ -14,11 +14,9 @@ import (
 )
 
 // PrepareTerminal creates or rediscovers the persistent terminal of a confirmed
-// task, running a caller-supplied command in it.
-//
-// It is the seam ADR-030 left for whatever decides what a task terminal runs. Launch itself no longer goes through it: what a launch runs is chosen by
-// planLaunch, which knows whether an agent can start. What remains here is the
-// terminal lifecycle, exercised directly by the tests that own it.
+// task, running a caller-supplied command in it. It is the seam ADR-030 left for
+// whatever decides what a task terminal runs; a launch chooses its own command in
+// planLaunch, so what remains here is the terminal lifecycle.
 func (s *service) PrepareTerminal(ctx context.Context, ref store.TaskRef, command tmux.CommandSpec) (*domain.Task, error) {
 	if err := ref.Validate(); err != nil {
 		return nil, err
@@ -41,19 +39,15 @@ func (s *service) PrepareTerminal(ctx context.Context, ref store.TaskRef, comman
 }
 
 // ensureTerminal creates or rediscovers a confirmed task's terminal and records
-// what it observed.
-//
-// It takes the task rather than loading one, because launch has already loaded
-// it, transitioned it, and created its worktrees. Re-reading it here would put a
-// second reader between the transition and the terminal it belongs to.
+// what it observed. It takes the task rather than loading one, because launch has
+// already loaded it, transitioned it, and created its worktrees, and a second
+// reader would sit between the transition and the terminal it belongs to.
 func (s *service) ensureTerminal(
 	ctx context.Context, task *domain.Task, cfg *config.Config, plan launchPlan,
 ) (*domain.Task, error) {
-	// A launch happens in preparing or after a failure. A resume additionally
-	// reaches this for a task whose workflow never moved, because its process
-	// died while no daemon was watching — the terminal is being restarted rather
-	// than created, and refusing would leave the one task that most needs
-	// recovery unable to have it (ADR-037).
+	// A launch happens in preparing or after a failure. A resume also reaches this
+	// for a task whose workflow never moved, because its process died while no
+	// daemon was watching: the terminal is restarted rather than created (ADR-037).
 	if !plan.restart && task.Workflow != domain.WorkflowPreparing && task.Workflow != domain.WorkflowFailed {
 		return nil, fmt.Errorf("%w: task %s is %s, and its terminal is created only after confirmation",
 			api.ErrInvalid, task.ID, task.Workflow)
@@ -85,10 +79,9 @@ func (s *service) ensureTerminal(
 		if err != nil {
 			return nil, err
 		}
-		// The environment the launch prepared, recorded on the session the
-		// moment there is one to record it on. Until this point it exists and
-		// the task cannot name it, which is the window ADR-029's ordering
-		// narrows rather than closes.
+		// The environment the launch prepared, recorded on the session the moment
+		// there is one to record it on. Until here it exists and the task cannot name
+		// it, which is the window ADR-029's ordering narrows rather than closes.
 		session.Execution = plan.environment
 		if err := session.Observe(terminal.ProcessState(), s.now()); err != nil {
 			return nil, err
@@ -128,13 +121,12 @@ func (s *service) ensureTerminal(
 	// claims a running agent: a shell is not one, and even a launched Claude has
 	// not begun until its own session-start event arrives (ADR-031, ADR-032).
 	if plan.agentStarted {
-		// A session-start event follows within seconds, and a user watching the
-		// dashboard should see the task reach working then rather than at
-		// whatever point in the polling interval they happened to launch.
+		// A session-start event follows within seconds, so the dashboard shows the
+		// task working then rather than at the next tick of the polling interval.
 		s.nudge()
-		// And if it does not follow, the task must say so rather than sit there
-		// looking busy: an agent can be waiting for a person before it has
-		// emitted anything Feat could have heard.
+		// If it does not follow, the task says so rather than sitting there looking
+		// busy: an agent can be waiting for a person before it has emitted anything
+		// Feat could hear.
 		s.armStartup(ctx, task)
 	}
 	return task, nil
@@ -143,15 +135,14 @@ func (s *service) ensureTerminal(
 // ensureTmux creates, finds, or restarts the task's terminal.
 //
 // A restart is the resume path and nothing else. It falls back to creating one
-// when there is no terminal to restart, because a computer that rebooted took
-// the tmux server with it and a resume then has to make the terminal as well as
-// the session.
+// when there is no terminal to restart, because a computer that rebooted took the
+// tmux server with it and a resume then makes the terminal as well.
 //
 // A window this creates is made at the size the dashboard last drew a terminal
-// at, so that the agent's first output is wrapped at the width it will be read
-// at rather than at tmux's 80 columns (viewport, tmux.sizeBeforeStart). A
-// restart passes nothing: that window already exists, may have a client in it,
-// and is not Feat's to resize.
+// at, so the agent's first output wraps at the width it will be read at rather
+// than at tmux's 80 columns (viewport, tmux.sizeBeforeStart). A restart passes
+// nothing: that window exists, may have a client in it, and is not Feat's to
+// resize.
 func (s *service) ensureTmux(
 	ctx context.Context, task *domain.Task, plan launchPlan,
 ) (tmux.Terminal, error) {
@@ -167,12 +158,11 @@ func (s *service) ensureTmux(
 
 // OpenShell creates or finds the task's tagged shell pane.
 //
-// The daemon builds the command rather than accepting one: a program a caller
-// chose would be a program the daemon runs on its owner's behalf, and the local
-// API takes identifiers rather than things to execute
-// (docs/05-security-model.md, local daemon API). The adapter still receives a
-// resolved command, as ADR-030 requires, and a devcontainer project gets a shell
-// inside the execution environment rather than on the host.
+// The daemon builds the command rather than accepting one, because a program a
+// caller chose would be one the daemon runs on its owner's behalf and the local
+// API takes identifiers rather than things to execute (docs/05-security-model.md,
+// local daemon API). The adapter still receives a resolved command, as ADR-030
+// requires, and a devcontainer project gets its shell inside the container.
 func (s *service) OpenShell(ctx context.Context, id domain.TaskID) (api.AttachInfo, error) {
 	task, err := s.Task(ctx, id)
 	if err != nil {
@@ -186,10 +176,8 @@ func (s *service) OpenShell(ctx context.Context, id domain.TaskID) (api.AttachIn
 		return api.AttachInfo{}, translateConfig(err)
 	}
 
-	// A shell pane is a shell, whatever the agent pane is running, and it opens
-	// in the same execution profile and primary workspace as the agent
-	// (FR-TMUX-003). For a task whose agent is in a container that means a shell
-	// in that container: a host shell beside a containerised agent would look
+	// A shell pane opens in the same execution profile and primary workspace as
+	// the agent (FR-TMUX-003). A host shell beside a containerised agent would look
 	// like the agent's own environment and be a different machine.
 	command, err := s.taskShell(ctx, cfg, task)
 	if err != nil {
@@ -262,15 +250,14 @@ func (s *service) AttachInfo(ctx context.Context, id domain.TaskID) (api.AttachI
 	}, nil
 }
 
-// yieldWindow gives a task's window to the native client that is about to
-// attach to it.
+// yieldWindow gives a task's window to the native client that is about to attach
+// to it.
 //
 // The window is unzoomed, so the client sees every pane the task has rather than
 // the one the dashboard was showing, and Feat's own sizing comes off, so the
-// client's terminal is the size the window takes. Both are recorded as a
-// handover first: the client is not there yet, and a frame drawn in the meantime
-// would ask tmux who is attached, be told nobody, and pin the window again
-// before the client ever arrives (handovers).
+// client's terminal decides the size. Both are recorded as a handover first,
+// because a frame drawn before the client arrives would be told nobody is
+// attached and pin the window again (handovers).
 func (s *service) yieldWindow(ctx context.Context, id domain.TaskID, window string) error {
 	defer s.handovers.hold()()
 	s.handovers.take(id, s.now())
@@ -284,29 +271,24 @@ func (s *service) yieldWindow(ctx context.Context, id domain.TaskID, window stri
 // TerminalFrame renders one view of a task's pane.
 //
 // The pane is sized to the region the caller will draw into before it is
-// captured, because a program wraps its own output: a pane left at another size
-// would come back wrapped at a column the display does not have, and no amount
-// of care in the renderer would straighten it. The exception is a terminal a
-// native client has, or is about to have, which is sized by that client and
-// clipped by the renderer instead.
+// captured, because a program wraps its own output and no renderer can straighten
+// a line wrapped at a column the display does not have. A terminal a native
+// client has, or is about to have, is sized by that client and clipped instead.
 //
 // Nothing here reads what the pane contains. Feat draws these bytes and derives
-// no state from them, which is ADR-042's boundary and the reason this sits
-// beside AttachInfo rather than anywhere near the agent adapter.
+// no state from them (ADR-042).
 func (s *service) TerminalFrame(ctx context.Context, id domain.TaskID, view api.TerminalView) (api.TerminalFrame, error) {
 	if err := view.Validate(); err != nil {
 		return api.TerminalFrame{}, err
 	}
-	// The one place a client's dimensions reach the daemon, and so the one place
-	// a task created later can learn them from. It is the region asked for rather
-	// than the window returned: a terminal a native client owns comes back at
-	// that client's size, and the next task's window belongs to this dashboard.
+	// The one place a client's dimensions reach the daemon, so it is where a task
+	// created later learns them. It records the region asked for rather than the
+	// window returned, which a native client may own at its own size.
 	s.viewport.observe(tmux.Size{Width: view.Width, Height: view.Height})
 
-	// Held across the whole frame, and not only across the question it answers. A
-	// client that is handed this terminal while the render is deciding would
-	// otherwise have its release undone by the pin this is about to apply, which
-	// is the last few milliseconds of the defect the handover record exists for.
+	// Held across the whole frame rather than only the question it answers. A
+	// client handed this terminal mid-render would otherwise have its release
+	// undone by the pin this is about to apply.
 	defer s.handovers.hold()()
 
 	terminal, pane, err := s.terminalPane(ctx, id, view.Shell)
@@ -314,19 +296,15 @@ func (s *service) TerminalFrame(ctx context.Context, id domain.TaskID, view api.
 		return api.TerminalFrame{}, err
 	}
 
-	// A window somebody is attached to is neither sized nor zoomed: their client
-	// owns it, and a rendering must not resize the terminal they are sitting in.
-	// The frame comes back at their size and the renderer clips it — a real
-	// client wins over a rendering of one — and Feat's own sizing is taken off
-	// the window, because tmux would otherwise hold it at the dashboard's main
-	// region and leave the rest of their screen blank.
+	// A window somebody is attached to is neither sized nor zoomed: a rendering
+	// must not resize the terminal they are sitting in. The frame comes back at
+	// their size and the renderer clips it, and Feat's own sizing comes off the
+	// window, which tmux would otherwise hold at the dashboard's main region.
 	//
-	// A client that has been sent here and not arrived yet counts as attached,
-	// for the same reason and a few milliseconds earlier.
+	// A client that has been sent here and not arrived yet counts as attached.
 	//
 	// One operation rather than three, because zoom is a toggle and two callers
-	// racing on it cancel each other out — a poll and a keystroke arriving
-	// together made the agent flicker between the region's width and half of it.
+	// racing on it cancel each other out.
 	watched := terminal.Watched() || s.handovers.pending(id, s.now())
 	captured, err := s.terminals.RenderPane(ctx, terminal.Target.Window, pane,
 		view.Width, view.Height, watched)
@@ -373,11 +351,9 @@ func (s *service) SendTerminalInput(ctx context.Context, id domain.TaskID, input
 	return s.terminals.SendKeys(ctx, pane, input.Keys...)
 }
 
-// terminalPane resolves a task to one of its live panes.
-//
-// The caller names a task and a role, never a pane. Resolving which pane belongs
-// to a task is the daemon's, as it is for attachment: a client that could name a
-// pane could name one belonging to another task, or one Feat does not own.
+// terminalPane resolves a task to one of its live panes. The caller names a task
+// and a role, never a pane, because a client that could name a pane could name
+// one belonging to another task or one Feat does not own.
 func (s *service) terminalPane(ctx context.Context, id domain.TaskID, shell bool) (tmux.Terminal, string, error) {
 	task, err := s.Task(ctx, id)
 	if err != nil {

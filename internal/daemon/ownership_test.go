@@ -31,10 +31,9 @@ func testLayout(t *testing.T) paths.Layout {
 	}
 }
 
-// shortDir returns a temporary directory with a short path.
-//
-// t.TempDir() embeds the test's name, which on macOS pushes a socket path past
-// the length the platform allows for one.
+// shortDir returns a temporary directory with a short path. t.TempDir() embeds
+// the test's name, which on macOS pushes a socket path past the length the
+// platform allows.
 func shortDir(t *testing.T) string {
 	t.Helper()
 
@@ -178,14 +177,11 @@ func TestAcquireRefusesASecondDaemon(t *testing.T) {
 	}
 }
 
-// TestAcquireDistinguishesACollectedRecordFromAStartingDaemon covers the
-// misdiagnosis that cost an afternoon.
-//
-// Holding the lock without a published record was modelled as a daemon still
-// starting up, so the message said to wait. On macOS the common cause is a
-// daemon whose record the temporary-directory cleaner collected days ago, and
-// telling that user to wait sends them to wait for something that finished
-// happening a week earlier (ADR-101).
+// TestAcquireDistinguishesACollectedRecordFromAStartingDaemon covers a
+// misdiagnosis. Holding the lock without a published record was modelled as a
+// daemon still starting up, so the message said to wait. On macOS the common
+// cause is a daemon whose record the temporary-directory cleaner collected days
+// ago, and waiting for that finished happening a week earlier (ADR-101).
 func TestAcquireDistinguishesACollectedRecordFromAStartingDaemon(t *testing.T) {
 	layout := testLayout(t)
 
@@ -239,8 +235,8 @@ func TestDiagnoseNamesARecordThatIsMissingFromARunningDaemon(t *testing.T) {
 			want:   "a daemon is running, and its endpoint record is missing",
 		},
 		{
-			// Unusable for the same reason and reached by the same fallback, so
-			// it must not be described as an absent one.
+			// Unusable for the same reason and reached by the same fallback, so it
+			// must not be described as an absent one.
 			name:   "answering with one that cannot be read",
 			status: Status{Answering: true, EndpointError: errors.New("not readable JSON")},
 			want:   "its endpoint record is not readable: not readable JSON",
@@ -257,7 +253,7 @@ func TestDiagnoseNamesARecordThatIsMissingFromARunningDaemon(t *testing.T) {
 	}
 
 	// RecordMissing is the predicate the status command branches on, and it is
-	// about a daemon that is serving — not about one that is gone.
+	// about a daemon that is serving rather than one that is gone.
 	if (Status{HasEndpoint: false}).RecordMissing() {
 		t.Error("nothing answering and no record is not a daemon with a missing record")
 	}
@@ -267,10 +263,9 @@ func TestDiagnoseNamesARecordThatIsMissingFromARunningDaemon(t *testing.T) {
 }
 
 // TestAcquireReclaimsAStaleSocket covers the rule that a stale socket is
-// diagnosed and safely recovered.
-//
-// The socket file is left behind deliberately, which is what a killed daemon
-// leaves: the lock is free because the kernel released it, and nothing answers.
+// diagnosed and safely recovered. The socket file is left behind deliberately,
+// which is what a killed daemon leaves: the kernel released the lock, and nothing
+// answers.
 func TestAcquireReclaimsAStaleSocket(t *testing.T) {
 	layout := testLayout(t)
 
@@ -290,16 +285,16 @@ func TestAcquireReclaimsAStaleSocket(t *testing.T) {
 	if !Answering(layout.Socket) {
 		t.Error("the reclaimed socket does not answer")
 	}
-	// Recovery is reported, not silent: the next person debugging this needs to
-	// know a socket was removed.
+	// Recovery is reported rather than silent, because the next person debugging
+	// this needs to know a socket was removed.
 	if !strings.Contains(logged(), "reclaiming a stale socket") {
 		t.Errorf("the reclaim was not logged:\n%s", logged())
 	}
 }
 
 // TestAcquireRefusesALiveForeignSocket is the other half of stale-socket
-// recovery, and the half that protects a running daemon: something is serving
-// the path without holding the lock, so the path must not be taken.
+// recovery, and the half that protects a running daemon: something is serving the
+// path without holding the lock, so the path must not be taken.
 func TestAcquireRefusesALiveForeignSocket(t *testing.T) {
 	layout := testLayout(t)
 
@@ -368,9 +363,9 @@ func TestAcquireRejectsASymlinkedRuntimeDirectory(t *testing.T) {
 	}
 }
 
-// TestAcquireRestrictsAnOpenRuntimeDirectory covers the case Feat can fix: the
-// directory is the user's own but is readable by others, which an older build or
-// a permissive umask can produce.
+// TestAcquireRestrictsAnOpenRuntimeDirectory covers the case Feat can fix: a
+// directory the user owns that others can read, which an older build or a
+// permissive umask produces.
 func TestAcquireRestrictsAnOpenRuntimeDirectory(t *testing.T) {
 	layout := testLayout(t)
 

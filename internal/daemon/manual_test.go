@@ -63,7 +63,7 @@ func TestManualPrepare(t *testing.T) {
 		t.Fatalf("resolving the layout: %v", err)
 	}
 
-	// The configuration is the user's own; the state is not, so a probe leaves
+	// The configuration is the user's own and the state is not, so a probe leaves
 	// no task behind in the real state directory.
 	layout := paths.Layout{
 		Config:  real.Config,
@@ -132,7 +132,7 @@ func TestManualPrepare(t *testing.T) {
 		return
 	}
 
-	// The real run. The task is stored first, which is what makes the next step
+	// The real run. The task is stored first, which makes the next step
 	// recoverable, and PrepareTask repeats the plan for itself.
 	if err := service.store.Projects().Save(context.Background(), mustProject(t, cfg)); err != nil {
 		t.Fatalf("recording the project: %v", err)
@@ -265,10 +265,9 @@ func renderSelection(selection []Selection) string {
 // TestManualDevcontainer launches real tasks in the project's real devcontainer
 // and reports what the containers turned out to be.
 //
-// It is the devcontainer probe. Everything it drives is real: Git, tmux,
-// Docker, and Claude. Task records go to a temporary state directory, but the
-// worktrees, the containers, and the tmux windows are not temporary, so it
-// prints the commands that undo them.
+// Everything it drives is real: Git, tmux, Docker, and Claude. Task records go to
+// a temporary state directory, but the worktrees, the containers, and the tmux
+// windows are not temporary, so it prints the commands that undo them.
 //
 //	FEAT_PROJECT=jobharbor-dev FEAT_REPOS=api:rw,frontend:ro FEAT_APPLY=1 \
 //	  go test -tags manual -run TestManualDevcontainer ./internal/daemon/ -v
@@ -289,8 +288,8 @@ func TestManualDevcontainer(t *testing.T) {
 		t.Fatalf("resolving the layout: %v", err)
 	}
 
-	// The user's own configuration, and state of our own so that a probe leaves
-	// no task behind. The runtime directory is ours too, so the tmux server this
+	// The user's own configuration, and state of this probe's own so it leaves no
+	// task behind. The runtime directory is the probe's too, so the tmux server it
 	// starts is not the one a running daemon owns.
 	layout := paths.Layout{Config: real.Config, State: t.TempDir(), Runtime: t.TempDir()}
 	layout.Socket = filepath.Join(layout.Runtime, "feat.sock")
@@ -408,7 +407,7 @@ func manualLaunch(t *testing.T, service *service, project string, selected []Sel
 }
 
 // manualReport prints what the task's container is, which is the evidence the
-// acceptance criteria are about.
+// acceptance criteria rest on.
 func manualReport(t *testing.T, service *service, task *domain.Task) {
 	t.Helper()
 

@@ -21,12 +21,10 @@ import (
 
 // CleanupPlan resolves the exact set of resources one task owns.
 //
-// It observes and removes nothing, which is what makes it safe to call from a
-// screen a user is reading. Every target comes from the task's own record, so a
-// resource Feat did not write down is never proposed for removal (FR-CLEAN-001);
-// a recorded path that is not one Feat may remove becomes a problem rather than
-// a target, because a record that decides what gets deleted has stopped being a
-// record (ADR-029).
+// It removes nothing, which is what makes it safe to call from a screen a user is
+// reading. Every target comes from the task's own record, so a resource Feat did
+// not write down is never proposed for removal (FR-CLEAN-001). A recorded path
+// Feat may not remove becomes a problem rather than a target (ADR-029).
 func (s *service) CleanupPlan(ctx context.Context, id domain.TaskID) (api.CleanupPlan, error) {
 	task, err := s.Task(ctx, id)
 	if err != nil {
@@ -36,22 +34,18 @@ func (s *service) CleanupPlan(ctx context.Context, id domain.TaskID) (api.Cleanu
 	return s.renderCleanupPlan(task, plan), nil
 }
 
-// resolveCleanup builds the inventory.
-//
-// It returns a plan alone because it cannot fail. Every resolver below turns
-// what it could not read into a problem on the plan rather than into an error,
-// since a plan that names what is unresolvable is what lets a user decide and a
-// plan that refuses to be built tells them nothing (ADR-029). An error return
-// here would be a branch no caller could ever take.
+// resolveCleanup builds the inventory. It returns a plan alone because it cannot
+// fail: every resolver below turns what it could not read into a problem on the
+// plan, because a plan that names what is unresolvable lets a user decide and one
+// that refuses to be built tells them nothing (ADR-029).
 func (s *service) resolveCleanup(ctx context.Context, task *domain.Task) *reconcile.Plan {
 	plan := &reconcile.Plan{Project: task.ProjectID, Task: task.ID}
 
 	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
 	if err != nil {
-		// Without configuration the Git root cannot be resolved, and without the
-		// root no worktree may be removed. Everything else is addressed by the
-		// task's own record and is still resolvable, so this narrows the plan
-		// rather than failing it.
+		// Without configuration the Git root cannot be resolved, and without the root
+		// no worktree may be removed. Everything else is addressed by the task's own
+		// record, so this narrows the plan rather than failing it.
 		plan.Problems = append(plan.Problems,
 			"the project's configuration could not be read, so no worktree or branch can be resolved: "+err.Error())
 	} else {
@@ -67,11 +61,9 @@ func (s *service) resolveCleanup(ctx context.Context, task *domain.Task) *reconc
 	return plan
 }
 
-// resolveGitCleanup fills the worktree and branch targets.
-//
-// The inventory itself is internal/git's, because what is dirty, unpushed, or
-// unmerged is Git's own answer about a worktree, and this is the caller that
-// acts on it.
+// resolveGitCleanup fills the worktree and branch targets. The inventory itself
+// is internal/git's, because what is dirty, unpushed, or unmerged is Git's own
+// answer about a worktree, and this is the caller that acts on it.
 func (s *service) resolveGitCleanup(
 	ctx context.Context, cfg *config.Config, task *domain.Task, plan *reconcile.Plan,
 ) {
@@ -132,12 +124,10 @@ func (s *service) resolveGitCleanup(
 	}
 }
 
-// resolveTerminalCleanup fills the tmux target from live metadata.
-//
-// From metadata rather than from the record, because the record holds what Feat
-// asked for and the window identifier is what tmux has now — and because a
-// damaged terminal has no usable record at all while still being a thing the
-// user may want gone.
+// resolveTerminalCleanup fills the tmux target from live metadata rather than
+// from the record, because the record holds what Feat asked for and the window
+// identifier is what tmux has now. A damaged terminal has no usable record at all
+// and is still something the user may want gone.
 func (s *service) resolveTerminalCleanup(ctx context.Context, task *domain.Task, plan *reconcile.Plan) {
 	found, err := s.terminals.Discover(ctx)
 	if err != nil {
@@ -214,40 +204,36 @@ func (s *service) resolveEnvironmentCleanup(ctx context.Context, task *domain.Ta
 			Identity: volume,
 			Detail:   "a volume of the agent's Compose project",
 			Present:  true,
-			// The warning is the policy's own, because the policy requires it:
-			// the volume class is removable only when this exact warning was
-			// confirmed, so retention by default does not depend on the daemon
-			// remembering to attach it (FR-CLEAN-004).
+			// The warning is the policy's own, because the volume class is removable
+			// only when this exact warning was confirmed. Retention by default does
+			// not depend on the daemon remembering to attach it (FR-CLEAN-004).
 			Warnings: []string{reconcile.WarningVolume},
 		})
 	}
 }
 
-// resolveUnrecordedEnvironmentCleanup names the containers, networks, and
-// volumes of a task whose record carries no environment.
+// resolveUnrecordedEnvironmentCleanup names the containers, networks, and volumes
+// of a task whose record carries no environment.
 //
-// A launch that fails after its container exists leaves exactly that. The
-// container and its network are on the machine, the session that would have
-// recorded them is never created, and this function's absence is what made the
-// first `cleanup/execute` of such a task plan nothing, report success, and
-// archive the task over resources nothing could then remove.
+// A launch that fails after its container exists leaves exactly that: the
+// container and its network are on the machine and the session that would have
+// recorded them was never created. Without this, `cleanup/execute` planned
+// nothing, reported success, and archived the task over resources nothing could
+// then remove.
 //
 // It is a derivation and not a scan. The Compose project name comes from this
 // task's own two identifiers, so what it finds belongs to this task by
-// construction — which is the exactness FR-CLEAN-001 asks for, reached without
-// the record that would ordinarily supply it. Nothing else on the machine is
-// looked at, and a task that never had a container finds nothing rather than
-// finding somebody else's.
+// construction, which is the exactness FR-CLEAN-001 asks for. Nothing else on the
+// machine is looked at.
 func (s *service) resolveUnrecordedEnvironmentCleanup(
 	ctx context.Context, task *domain.Task, plan *reconcile.Plan,
 ) {
 	project, err := s.agentProject(task)
 	if err != nil {
-		// Not silence, and not an empty plan. A plan that cannot see a task's
-		// containers is the plan the dogfood run archived a task over, so the
-		// question that could not be asked is carried as a problem: a plan with
-		// one is rendered un-archivable, and the user reads what Feat could not
-		// see rather than an empty plan reporting success (ADR-059).
+		// Not silence, and not an empty plan. The question that could not be asked
+		// is carried as a problem, which renders the plan un-archivable, so the
+		// user reads what Feat could not see rather than an empty plan reporting
+		// success (ADR-059).
 		plan.Problems = append(plan.Problems, err.Error())
 		return
 	}
@@ -352,13 +338,11 @@ func (s *service) resolveControlCleanup(task *domain.Task, plan *reconcile.Plan)
 	})
 }
 
-// Cleanup removes exactly what a user selected from a plan they were shown.
-//
-// The plan is resolved again here rather than trusted from the request. The
-// token proves the same resources are still named; the warnings are checked
-// against what is true now, because a worktree that became dirty since the
-// screen was drawn is the thing the confirmation exists to protect
-// (FR-CLEAN-003, ADR-037).
+// Cleanup removes exactly what a user selected from a plan they were shown. The
+// plan is resolved again rather than trusted from the request: the token proves
+// the same resources are still named, and the warnings are checked against what
+// is true now, because a worktree that became dirty since the screen was drawn is
+// what the confirmation protects (FR-CLEAN-003, ADR-037).
 func (s *service) Cleanup(
 	ctx context.Context, id domain.TaskID, selection api.CleanupSelection,
 ) (api.CleanupResult, error) {
@@ -391,9 +375,9 @@ func (s *service) Cleanup(
 		removed, err := s.removeClass(ctx, task, plan, class)
 		result.Removed = append(result.Removed, removed...)
 		if err != nil {
-			// Nothing is undone. What was removed is gone, and the record of it
-			// is the event log; a partial cleanup is recoverable by asking for
-			// the plan again, which will name what is left (ADR-029).
+			// Nothing is undone. What was removed is gone and the event log is the
+			// record of it, so a partial cleanup is recovered by asking for the plan
+			// again, which names what is left (ADR-029).
 			s.recordCleanup(ctx, task, class, removed, err)
 			return result, fmt.Errorf("%w: removing the %s of task %s: %w",
 				api.ErrInvalid, class.Title(), task.ID, err)
@@ -461,12 +445,10 @@ func (s *service) removeTerminal(
 }
 
 // removeAgentContainers destroys the agent's Compose project and removes what
-// Feat generated to define it.
-//
-// The two are one act rather than two, in the order the resource and its
-// definition were created in: the generated override is the document the destroy
-// is run against, so it is removed once the project it described is gone
-// (ADR-037 evidence 16).
+// Feat generated to define it. The two are one act, in the order the resource and
+// its definition were created: the generated override is the document the destroy
+// runs against, so it goes once the project it described is gone (ADR-037
+// evidence 16).
 func (s *service) removeAgentContainers(
 	ctx context.Context, task *domain.Task, plan *reconcile.Plan,
 ) ([]api.CleanupRemoval, error) {
@@ -518,11 +500,9 @@ func (s *service) destroyAgentContainers(
 }
 
 // removeUnrecordedAgentContainers removes what a launch left behind, by name.
-//
-// There is no record to update afterwards, which is the whole difference from
-// the recorded path: the session that would carry the observation does not
-// exist. What happened is written to the event log by recordCleanup like every
-// other class, so the account of the removal survives the archive.
+// There is no record to update afterwards, because the session that would carry
+// the observation does not exist. recordCleanup writes what happened to the event
+// log as it does for every other class, so the account survives the archive.
 func (s *service) removeUnrecordedAgentContainers(
 	ctx context.Context, task *domain.Task, targets []reconcile.Target,
 ) ([]api.CleanupRemoval, error) {
@@ -532,10 +512,9 @@ func (s *service) removeUnrecordedAgentContainers(
 	}
 	if project == nil {
 		// The plan is re-resolved immediately before this runs and its token
-		// compared, so a target exists only because this same call answered a
-		// moment ago. Reaching here means the project stopped being resolvable in
-		// between, and removing nothing while reporting a removal is the one
-		// outcome that must not happen.
+		// compared, so a target exists only because this same call answered a moment
+		// ago. Reaching here means the project stopped being resolvable in between,
+		// and reporting a removal that did not happen is the outcome to avoid.
 		return nil, fmt.Errorf("the agent Compose project of task %s can no longer be resolved, "+
 			"so %s was not removed; ask for the plan again", task.ID, targets[0].Identity)
 	}
@@ -549,9 +528,8 @@ func (s *service) removeUnrecordedAgentContainers(
 
 // removeRuntimeContainers destroys the application's Compose project and removes
 // what Feat generated to define it, for the reason removeAgentContainers does.
-//
 // The directory is also the working directory of every Compose command Feat runs
-// for this task, which is why it goes after the destroy rather than before it.
+// for this task, so it goes after the destroy rather than before it.
 func (s *service) removeRuntimeContainers(
 	ctx context.Context, task *domain.Task, plan *reconcile.Plan,
 ) ([]api.CleanupRemoval, error) {
@@ -599,18 +577,15 @@ func (s *service) destroyRuntimeContainers(
 // removeGeneratedInputs removes one task's directory of generated Compose input,
 // and reports whether there was one.
 //
-// This is the mirror of creation ADR-037 applied to the two roots it did not
-// reach. A task's Compose override is generated from the task, written to
-// `<root>/<project-id>/<task-id>/`, and never removed, so every task that has
-// ever launched leaves a directory behind — 47 of the 48 under the execution
-// root of the dogfood machine belonged to tasks that had been cleaned up and
-// archived. It is not a target the user chooses about, for the reason the
-// directories above a worktree are not: it is where a resource was defined, not
-// a resource (ADR-037 evidence 16).
+// It is the mirror of creation ADR-037 applied to the two roots it did not reach.
+// A task's Compose override is written to `<root>/<project-id>/<task-id>/`, so a
+// task that never removed one left a directory behind: 47 of the 48 under the
+// dogfood machine's execution root belonged to archived tasks. The user does not
+// choose about it, because it is where a resource was defined rather than a
+// resource (ADR-037 evidence 16).
 //
 // The project's directory is left, exactly as the worktree walk leaves it. A
-// project outlives every task in it, and the next task of that project is
-// created inside it.
+// project outlives every task in it, and the next task is created inside it.
 //
 // The path is computed from a validated project and task identifier under a root
 // the daemon resolved, never one a caller supplied, and it is checked again here
@@ -641,12 +616,10 @@ func removeGeneratedInputs(directory, root string) (bool, error) {
 	return true, nil
 }
 
-// removeVolumes removes the volumes of whichever Compose projects the plan
-// named them for.
-//
-// By name, one at a time. The names came from the container runtime's own label
-// enumeration, so a resource the project declares external was never in the list
-// and is not excluded by a rule anybody has to remember (FR-RUN-008, ADR-037).
+// removeVolumes removes the volumes of whichever Compose projects the plan named
+// them for, by name and one at a time. The names came from the container
+// runtime's own label enumeration, so a resource the project declares external
+// was never in the list (FR-RUN-008, ADR-037).
 func (s *service) removeVolumes(
 	ctx context.Context, task *domain.Task, plan *reconcile.Plan,
 ) ([]api.CleanupRemoval, error) {
@@ -672,14 +645,13 @@ func (s *service) removeVolumes(
 			return volumeRemovals(names, removed), err
 		}
 	default:
-		// A volume of a launch that left no record. It is asked by name for the
-		// same reason its containers are: a volume the launch created carries the
+		// A volume of a launch that left no record. It is asked by name for the same
+		// reason its containers are: a volume the launch created carries the
 		// project's label whether or not anything wrote the project down.
 		//
-		// A question that could not be asked fails the removal rather than
-		// skipping it. Reporting a user's confirmed selection as not removed,
-		// with no error and no problem, tells them their choice was declined and
-		// not why — and the volumes are still on the machine either way.
+		// A question that could not be asked fails the removal rather than skipping
+		// it. Reporting a confirmed selection as not removed, with no error and no
+		// problem, says the choice was declined and not why.
 		project, err := s.agentProject(task)
 		if err != nil {
 			return volumeRemovals(names, removed), err
@@ -697,9 +669,9 @@ func (s *service) removeVolumes(
 		if err != nil {
 			return volumeRemovals(names, removed), err
 		}
-		// Whatever the first adapter did not remove. Both are asked, because a
-		// volume belongs to one of the two Compose projects and neither adapter
-		// knows about the other's.
+		// Whatever the first adapter did not remove. Both are asked, because a volume
+		// belongs to one of the two Compose projects and neither adapter knows about
+		// the other's.
 		gone, err := services.RemoveVolumes(ctx, remaining(names, removed))
 		removed = append(removed, gone...)
 		if err != nil {
@@ -759,10 +731,10 @@ func (s *service) removeWorktrees(
 		removed = append(removed, api.CleanupRemoval{
 			Class: string(reconcile.ClassWorktrees), Identity: target.Identity, Removed: removal.Removed,
 		})
-		// The generated directories the worktree sat in, when it was the last
-		// thing in them. They are reported rather than done quietly: a cleanup
-		// says what it removed, and a directory Feat deleted is part of that
-		// answer even though no target named it.
+		// The generated directories the worktree sat in, when it was the last thing
+		// in them. They are reported rather than removed quietly, because a
+		// directory Feat deleted is part of what a cleanup removed even though no
+		// target named it.
 		for _, directory := range removal.Directories {
 			removed = append(removed, api.CleanupRemoval{
 				Class: string(reconcile.ClassWorktrees), Identity: directory, Removed: true,
@@ -772,10 +744,9 @@ func (s *service) removeWorktrees(
 			return removed, err
 		}
 	}
-	// The binding is deliberately left as it is. A recorded worktree path is
-	// desired state and whether the directory exists is observed (ADR-029), so
-	// clearing it would delete the account of what the task had — which is the
-	// thing archiving exists to keep.
+	// The binding is deliberately left as it is. A recorded worktree path is desired
+	// state and whether the directory exists is observed (ADR-029), so clearing it
+	// would delete the account of what the task had, which archiving exists to keep.
 	return removed, nil
 }
 
@@ -790,12 +761,11 @@ func (s *service) removeBranches(
 	var removed []api.CleanupRemoval
 	for _, target := range plan.For(reconcile.ClassBranches) {
 		req := request[target.Repository]
-		// Two answers, carried separately because they are separate questions.
-		// The confirmation is what permits discarding work the base ref does not
-		// have; the containment answer is what keeps Feat from asking Git the
-		// question it never asked — `-d` tests the checkout's HEAD, and a
-		// checkout that has fetched is routinely behind the base ref a task
-		// branched from (ADR-097).
+		// Two answers, carried separately because they are separate questions. The
+		// confirmation permits discarding work the base ref does not have. The
+		// containment answer keeps Feat from asking Git a question it never asked:
+		// `-d` tests the checkout's HEAD, and a checkout that has fetched is
+		// routinely behind the base ref a task branched from (ADR-097).
 		req.Force = target.Risky()
 		req.Contained = target.Contained
 
@@ -814,13 +784,11 @@ func (s *service) removeBranches(
 	return removed, nil
 }
 
-// gitRemoveRequest builds the per-repository removal context.
-//
-// Every field of it is what the path check needs, and the check runs again
-// inside internal/git immediately before anything is deleted. The project's own
-// directory is resolved beside the root because the two bound different things:
-// the root is what a worktree must be inside, and the project's directory is
-// where the tidy-up above a removed worktree stops.
+// gitRemoveRequest builds the per-repository removal context. Every field is what
+// the path check needs, and the check runs again inside internal/git immediately
+// before anything is deleted. The project's own directory is resolved beside the
+// root because the two bound different things: the root is what a worktree must
+// be inside, and the project's directory is where the tidy-up stops.
 func (s *service) gitRemoveRequest(task *domain.Task) (map[domain.RepositoryID]git.RemoveRequest, error) {
 	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
 	if err != nil {
@@ -847,9 +815,9 @@ func (s *service) gitRemoveRequest(task *domain.Task) (map[domain.RepositoryID]g
 			Root:       root,
 			ProjectDir: projectDir,
 			Checkouts:  checkouts,
-			// Recorded rather than resolved: it names the evidence a forced
-			// branch deletion rests on, in what the cleanup reports and in the
-			// error if one fails. Nothing here decides anything from it.
+			// Recorded rather than resolved. It names the evidence a forced branch
+			// deletion rests on, in what the cleanup reports and in the error if one
+			// fails, and nothing here decides anything from it.
 			BaseRef: binding.BaseRef,
 		}
 	}
@@ -894,40 +862,33 @@ func (s *service) removeControl(
 //
 // The workspace is a bind-mount source for that container, and ADR-032's
 // read-only split made it three of them. On macOS the file-sharing layer holds a
-// directory that is an active mount source: the first `cleanup/execute` of a
-// task whose container was still running failed with `unlinkat …/outbox:
-// permission denied`, and the second, once the container had died, succeeded. So
-// this is an ordering rule rather than a permissions bug — destroy the
-// containers, establish that they are gone, and only then remove the tree they
-// mounted.
+// directory that is an active mount source: a `cleanup/execute` run while the
+// container was up failed with `unlinkat …/outbox: permission denied` and
+// succeeded once it had died. The rule is therefore an ordering one: destroy the
+// containers, establish that they are gone, then remove the tree they mounted.
 //
 // The class order alone does not establish it. It removes the agent containers
 // before the control workspace, but only when a user chose both, and a launch
 // that failed after its container exists leaves a container the record does not
-// name in a task whose plan may contain nothing else.
+// name.
 //
-// What it asks about is containers rather than mounts, and the difference is
-// worth stating: Feat can establish that the containers it started for this task
-// are gone, and cannot establish that nothing at all on the machine has the
-// directory open. Only the agent's Compose project is asked, because it is the
-// only one the workspace is mounted into — the application runtime's generated
-// override mounts worktrees and never the control tree (ADR-034).
+// It asks about containers rather than mounts. Feat can establish that the
+// containers it started for this task are gone, and cannot establish that nothing
+// else on the machine has the directory open. Only the agent's Compose project is
+// asked, because the application runtime's generated override mounts worktrees
+// and never the control tree (ADR-034).
 //
-// A container that has stopped holds nothing. ADR-059's evidence is an ordering
-// — the removal failed while the container was up and succeeded once it had died
-// — so the containers this refuses over are the ones that have not stopped.
-// `feat task stop` overnight leaves exited containers on purpose (ADR-057), and
-// refusing a control-workspace cleanup over those would refuse in exactly the
-// state the removal works in. A container whose state Docker did not report is
-// counted as holding it, for the same reason the rest of this function refuses
-// on what it cannot establish.
+// A container that has stopped holds nothing, because ADR-059's evidence is an
+// ordering rather than a permissions bug. `feat task stop` overnight leaves
+// exited containers on purpose (ADR-057), and refusing over those would refuse in
+// exactly the state the removal works in. A container whose state Docker did not
+// report counts as holding it.
 //
-// An unanswerable question refuses. Feat cannot say the tree is unheld while
-// Docker will not say what it holds — nor while it cannot be asked at all, which
-// is what a project switched to host mode after the launch and a Docker that has
-// left the daemon's PATH both produce — and a refusal that names why leaves the
-// user a workspace they can still remove after fixing it, where proceeding
-// leaves a half-removed tree and no account of it.
+// If Docker will not report container state, or cannot be asked at all — a
+// project switched to host mode after the launch, or a Docker that has left the
+// daemon's PATH — this refuses rather than guessing. A refusal that names why
+// leaves a workspace the user can still remove, where proceeding leaves a
+// half-removed tree and no account of it.
 func (s *service) controlWorkspaceReleased(ctx context.Context, task *domain.Task) error {
 	project, err := s.agentProject(task)
 	if err != nil {
@@ -953,9 +914,7 @@ func (s *service) controlWorkspaceReleased(ctx context.Context, task *domain.Tas
 		task.ID, held.Describe(), project.Identity())
 }
 
-// recordCleanup writes what one class removed to the task's event log.
-//
-// The log is where "Feat can explain what happened later" lives: it is
+// recordCleanup writes what one class removed to the task's event log. The log is
 // append-only, per task, and survives the archive. A failure is recorded too,
 // because a cleanup that stopped half way is the case a user most needs an
 // account of.
@@ -988,13 +947,10 @@ func (s *service) recordCleanup(
 	s.record(ctx, task, domain.Event{Type: domain.EventCleanedUp, To: string(class), Detail: detail})
 }
 
-// archiveTask records the task as archived.
-//
-// Nothing is deleted from the state directory. The snapshot keeps the branches,
-// the bases, and the session it recorded, and the event log keeps what each
-// class removed, so what a user asked for and what became of it are both still
-// answerable — which is what docs/02-user-workflows.md means by archiving task
-// metadata (ADR-037).
+// archiveTask records the task as archived. Nothing is deleted from the state
+// directory: the snapshot keeps the branches, the bases, and the session it
+// recorded, and the event log keeps what each class removed, so what a user asked
+// for and what became of it stay answerable (docs/02-user-workflows.md, ADR-037).
 func (s *service) archiveTask(ctx context.Context, task *domain.Task, removed []api.CleanupRemoval) error {
 	classes := make(map[string]bool, len(removed))
 	for _, entry := range removed {
@@ -1015,11 +971,9 @@ func (s *service) archiveTask(ctx context.Context, task *domain.Task, removed []
 }
 
 // runtimeAdapterFor rebuilds the adapter for a task's recorded application
-// services, without touching the task's record.
-//
-// It differs from runtimeFor, which attaches or refreshes a runtime record as
-// part of an action. A cleanup plan must not create a runtime record for a task
-// that has none: asking what a task owns should not give it something.
+// services, without touching the task's record. It differs from runtimeFor, which
+// attaches or refreshes a runtime record as part of an action: a cleanup plan
+// must not create a runtime record for a task that has none.
 func (s *service) runtimeAdapterFor(task *domain.Task) (runtime.Runtime, error) {
 	if task.Runtime == nil {
 		return nil, fmt.Errorf("task %s records no application runtime", task.ID)
@@ -1048,11 +1002,10 @@ func (s *service) forgetWorkspace(id domain.TaskID) {
 	delete(s.workspaces, id)
 }
 
-// renderCleanupPlan maps a resolved plan onto the wire.
-//
-// The mapping lives here rather than in internal/api because the transport is a
-// third representation and may not import the policy: renaming a field in
-// internal/reconcile must not silently change a published surface (ADR-027).
+// renderCleanupPlan maps a resolved plan onto the wire. The mapping lives here
+// rather than in internal/api because the transport is a third representation and
+// may not import the policy: renaming a field in internal/reconcile must not
+// silently change a published surface (ADR-027).
 func (s *service) renderCleanupPlan(task *domain.Task, plan *reconcile.Plan) api.CleanupPlan {
 	rendered := api.CleanupPlan{
 		TaskID:     task.ID.String(),

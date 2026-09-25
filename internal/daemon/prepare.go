@@ -13,11 +13,9 @@ import (
 	"github.com/ma8el/feat/internal/store"
 )
 
-// Selection is one repository's part in a task, as the user chose it.
-//
-// It is the output of the repository-access step of task preparation
-// (FR-TASK-003), taken as an argument here and collected from the user by the
-// draft API.
+// Selection is one repository's part in a task, as the user chose it. It is the
+// output of the repository-access step of task preparation (FR-TASK-003), taken
+// as an argument here and collected from the user by the draft API.
 type Selection struct {
 	// Repository identifies the repository within the project.
 	Repository domain.RepositoryID
@@ -28,12 +26,10 @@ type Selection struct {
 	Ref string
 }
 
-// DefaultSelection returns the repositories a project includes in a task
-// without being asked.
-//
-// A repository the configuration marks selectable, stable read-only, or omitted
-// is left out: each of those says the user decides, and choosing on their behalf
-// would put an agent in a repository nobody selected.
+// DefaultSelection returns the repositories a project includes in a task without
+// being asked. A repository the configuration marks selectable, stable read-only,
+// or omitted is left out, because choosing on the user's behalf would put an
+// agent in a repository nobody selected.
 func DefaultSelection(cfg *config.Config) []Selection {
 	var selection []Selection
 	for _, id := range cfg.RepositoryIDs() {
@@ -52,18 +48,17 @@ func DefaultSelection(cfg *config.Config) []Selection {
 	return selection
 }
 
-// PrepareTask records a selection, resolves it, and creates the Git resources
-// of the resulting plan.
+// PrepareTask records a selection, resolves it, and creates the Git resources of
+// the resulting plan.
 //
-// It is the Git half of a launch, run end to end with the confirmation supplied
-// by the plan that was just resolved. `LaunchDraft` is the same half preceded by
-// the user's own confirmation and followed by the task terminal; the API drives
-// the steps separately because between the plan a user reads and the key they
-// press a fetch can move a remote-tracking ref, and the task would then start
-// from a commit nobody was shown (ADR-031).
+// It is the Git half of a launch, confirmed by the plan it just resolved.
+// `LaunchDraft` is the same half preceded by the user's own confirmation and
+// followed by the task terminal. The API drives the steps separately, because a
+// fetch between the plan a user reads and the key they press can move a
+// remote-tracking ref (ADR-031).
 //
-// The order is what makes an interruption survivable, and it is the reason this
-// lives in the daemon rather than in the Git adapter:
+// The order is what makes an interruption survivable, and it is why this lives in
+// the daemon rather than in the Git adapter:
 //
 //  1. plan, which resolves every base to an immutable commit and proposes every
 //     branch and worktree path without creating anything;
@@ -72,11 +67,10 @@ func DefaultSelection(cfg *config.Config) []Selection {
 //  3. create them one repository at a time, recording each before the next
 //     begins.
 //
-// A failure at any point therefore leaves a record that names a superset of what
-// exists, and nothing exists that the record cannot name. Nothing is undone: a
-// worktree that was created may already have been written to, and removing it to
-// tidy up a failed launch is a destructive act the user did not ask for. The
-// task is left failed, which the workflow can resume from.
+// A failure leaves a record naming a superset of what exists, and nothing exists
+// that the record cannot name. Nothing is undone, because a created worktree may
+// already have been written to and removing it is destructive. The task is left
+// failed, which the workflow can resume from.
 func (s *service) PrepareTask(ctx context.Context, ref store.TaskRef, selection []Selection) (*domain.Task, error) {
 	task, cfg, err := s.loadDraft(ctx, ref)
 	if err != nil {
@@ -98,20 +92,17 @@ func (s *service) PrepareTask(ctx context.Context, ref store.TaskRef, selection 
 	if err != nil {
 		return nil, err
 	}
-	// The confirmation is the plan that was just resolved and nothing else. This
-	// path creates no agent session, so there is no launch for a plan-first mode
-	// to apply to and recording one would be a claim about a session nobody
-	// started.
+	// The confirmation is the plan that was just resolved. This path creates no
+	// agent session, so there is no launch for a plan-first mode to apply to and
+	// recording one would claim a session nobody started.
 	prepared, _, err := s.confirmDraft(ctx, ref, api.Confirmation{Fingerprint: plan.Fingerprint})
 	return prepared, err
 }
 
-// recordPlan writes the plan onto the task, which stays a draft.
-//
-// This is the record that makes a later failure recoverable, so it is saved
-// before anything is created. The task stays a draft because nothing has been
-// confirmed yet: the base commits, branches, and paths become immutable when the
-// user confirms them and the task leaves draft (invariant 8).
+// recordPlan writes the plan onto the task, which stays a draft. It is the record
+// that makes a later failure recoverable, so it is saved before anything is
+// created. The base commits, branches, and paths become immutable when the user
+// confirms them and the task leaves draft (invariant 8).
 func (s *service) recordPlan(ctx context.Context, task *domain.Task, plan *git.Plan) error {
 	now := s.now()
 
@@ -140,10 +131,9 @@ func (s *service) recordPlan(ctx context.Context, task *domain.Task, plan *git.P
 // change in the task's history.
 func (s *service) transition(ctx context.Context, task *domain.Task, next domain.WorkflowState, detail string) error {
 	from := task.Workflow
-	// The detail is the reason when the state is `failed`, so it is recorded on
-	// the task and not only on the event. Every path into that state comes
-	// through here — a launch, a Git apply, a resume, a terminal, and a session
-	// the provider reported as failed — which is why one branch covers them all.
+	// The detail is the reason when the state is `failed`, so it is recorded on the
+	// task and not only on the event. Every path into that state comes through here,
+	// so one branch covers them all.
 	move := func() error { return task.TransitionTo(next, s.now()) }
 	if next == domain.WorkflowFailed {
 		move = func() error { return task.FailWith(detail, s.now()) }
@@ -164,12 +154,10 @@ func (s *service) transition(ctx context.Context, task *domain.Task, next domain
 	return nil
 }
 
-// record appends an event to the task's history and publishes it.
-//
-// A history that cannot be written does not fail the operation that produced it:
-// the snapshot is the state of the world and the log is the explanation of how it
-// got there. Losing the explanation is worth a loud log line, not a worktree the
-// caller believes was never created.
+// record appends an event to the task's history and publishes it. A history that
+// cannot be written does not fail the operation that produced it: the snapshot is
+// the state and the log explains how it got there, so losing the explanation is
+// worth a loud log line rather than a worktree the caller believes never existed.
 func (s *service) record(ctx context.Context, task *domain.Task, event domain.Event) {
 	event.ProjectID = task.ProjectID
 	event.TaskID = task.ID
@@ -188,10 +176,9 @@ func (s *service) record(ctx context.Context, task *domain.Task, event domain.Ev
 	s.Publish(appended)
 }
 
-// taskJournal records each repository the Git adapter finishes.
-//
-// The adapter creates and this writes: the daemon stays the only writer of
-// persistent state (ADR-008), and the adapter stays testable without one.
+// taskJournal records each repository the Git adapter finishes. The adapter
+// creates and this writes, so the daemon stays the only writer of persistent
+// state (ADR-008) and the adapter stays testable without one.
 type taskJournal struct {
 	service *service
 	task    *domain.Task
@@ -215,12 +202,9 @@ func (j *taskJournal) Created(ctx context.Context, created git.Created) error {
 }
 
 // gitRequest turns configuration, a task, and a repository selection into the
-// request the Git adapter takes.
-//
-// Templates are expanded here rather than in the adapter. The placeholder
-// vocabulary belongs to configuration, which validates it, and an adapter that
-// had to expand a template would have to learn the shape of a YAML file to
-// create a directory.
+// request the Git adapter takes. Templates are expanded here, because the
+// placeholder vocabulary belongs to configuration and an adapter that expanded
+// one would have to learn a YAML file's shape to create a directory.
 func gitRequest(cfg *config.Config, task *domain.Task, selection []Selection) (git.Request, error) {
 	if len(selection) == 0 {
 		return git.Request{}, fmt.Errorf("task %s selects no repository", task.ID)
@@ -269,10 +253,9 @@ func gitRequest(cfg *config.Config, task *domain.Task, selection []Selection) (g
 				selected.Repository, err)
 		}
 
-		// A container path only means something where there is a container. In
-		// host execution the agent works in the worktree itself, and recording a
-		// mount point nothing mounts would be a claim about the task that is not
-		// true.
+		// A container path means something only where there is a container. In host
+		// execution the agent works in the worktree itself, so a recorded mount point
+		// would name something nothing mounts.
 		container := ""
 		if cfg.Agent.Execution.Devcontainer() {
 			container = repository.Agent.ContainerPath
@@ -294,13 +277,10 @@ func gitRequest(cfg *config.Config, task *domain.Task, selection []Selection) (g
 	return request, nil
 }
 
-// worktreePath expands the configured worktree root for one repository.
-//
-// The root names the directory that holds a task's worktrees. A template that
-// already names the repository expands to one directory per repository; one that
-// does not gets the repository appended, because otherwise every repository of a
-// task would share a single directory and the second worktree would fail on the
-// first one's files.
+// worktreePath expands the configured worktree root for one repository. A
+// template that already names the repository expands to one directory per
+// repository; one that does not gets the repository appended, because otherwise
+// the second worktree would fail on the first one's files.
 func worktreePath(template string, values config.Values) (string, error) {
 	expanded, err := config.Expand(template, values)
 	if err != nil {

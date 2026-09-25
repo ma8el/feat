@@ -15,11 +15,11 @@ import (
 // abandonedLaunch arranges the case F2-15 found: a devcontainer launch that
 // failed after its container existed.
 //
-// The refusal it uses is one of the launch's own, and it is deliberately one of
-// the late ones — every rule that inspects the container fires after the
-// container is up (ADR-033), which is why widening those refusals made this
-// class of leftovers more frequent rather than less. What it leaves is a task
-// with no session at all and a Compose project on the machine.
+// The refusal it uses is one of the launch's own, and deliberately a late one:
+// every rule that inspects the container fires after the container is up
+// (ADR-033), so widening those refusals made this class of leftovers more
+// frequent. What it leaves is a task with no session and a Compose project on the
+// machine.
 func abandonedLaunch(t *testing.T) (*drafting, *domain.Task) {
 	t.Helper()
 
@@ -55,12 +55,10 @@ func (d *drafting) leftBehind(task *domain.Task) {
 		Answer("down", "")
 }
 
-// stillRunning arranges the same Docker while the container is up.
-//
-// It is the state ADR-059's evidence 4 measured the control-workspace removal
-// failing in: the first cleanup, with the container live, failed with `unlinkat
-// …/outbox: permission denied`. leftBehind is the other one — the same container
-// hours later, exited — where the second cleanup succeeded.
+// stillRunning arranges the same Docker while the container is up. It is the
+// state ADR-059's evidence 4 measured the control-workspace removal failing in:
+// `unlinkat …/outbox: permission denied`. leftBehind is the same container hours
+// later, exited, where the removal succeeded.
 func (d *drafting) stillRunning(task *domain.Task) {
 	identity := agentIdentity(task)
 	d.docker.Answer("ps --all --format json", `{"ID":"c0ffee","Name":"`+identity+`-dev-1","Service":"dev",`+
@@ -102,11 +100,10 @@ func (d *drafting) planOf(t *testing.T, task *domain.Task) api.CleanupPlan {
 // exists for: what such a launch leaves is removable by name from the task that
 // created it.
 //
-// Before this, cleanup resolved a task's containers from the record alone. A
-// launch that fails clears — or never reaches — the session that record lives
-// on, so the plan named nothing, the cleanup reported success, and the container
-// and its network stayed on the machine with nothing in the product able to name
-// them.
+// Cleanup that resolved a task's containers from the record alone named nothing,
+// because a launch that fails clears or never reaches the session that record
+// lives on. The cleanup then reported success while the container and its network
+// stayed on the machine, unnamed by anything in the product.
 func TestALaunchThatFailedAfterItsContainerIsStillRemovable(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
 	identity := agentIdentity(task)
@@ -135,7 +132,7 @@ func TestALaunchThatFailedAfterItsContainerIsStillRemovable(t *testing.T) {
 	if !arranged.docker.Ran("down") {
 		t.Errorf("nothing removed the Compose project: %v", arranged.docker.Calls())
 	}
-	// The Compose project by name, and not counted against the removals: the same
+	// The Compose project by name, and not counted against the removals. The same
 	// class also removes the directory the launch generated to define it, and that
 	// is reported too (ADR-037 evidence 16).
 	var reported bool
@@ -150,13 +147,10 @@ func TestALaunchThatFailedAfterItsContainerIsStillRemovable(t *testing.T) {
 }
 
 // TestArchivingIsRefusedOverALaunchsLeftovers is the other half of the same
-// defect.
-//
-// The dogfood run's cleanup did not merely fail to remove the container: it
-// archived the task over it, and an archived task is one reconciliation stops
-// looking at. So the resources were left with nothing recording that they
-// belonged to anybody, which is exactly what the archive rule exists to prevent
-// — it just could not see them.
+// defect. The cleanup did not merely fail to remove the container: it archived
+// the task over it, and reconciliation stops looking at an archived task. The
+// resources were left with nothing recording whose they were, which is what the
+// archive rule prevents when it can see them.
 func TestArchivingIsRefusedOverALaunchsLeftovers(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
 
@@ -177,18 +171,13 @@ func TestArchivingIsRefusedOverALaunchsLeftovers(t *testing.T) {
 // TestTheControlWorkspaceIsNotRemovedWhileAContainerHoldsIt is the ordering rule.
 //
 // On macOS the file-sharing layer holds a directory that is an active bind-mount
-// source: the first cleanup of a task whose container was still running failed
-// with `unlinkat …/outbox: permission denied`, and the second, after it had
-// died, succeeded. The class order removes containers before the workspace, but
-// only when a user chose both — so the rule is established rather than assumed,
-// and a cleanup that would fail part way through refuses before it removes
-// anything.
+// source: a cleanup run while the container was up failed with `unlinkat
+// …/outbox: permission denied`, and one run after it had died succeeded. The
+// class order removes containers before the workspace, and only when a user chose
+// both, so the rule is established rather than assumed.
 //
-// The arrangement was rewritten rather than kept (G4-11): it refused over the
-// exited container of abandonedLaunch, which is the state the second cleanup
-// *succeeded* in, so the test that named the ordering rule pinned a refusal the
-// ordering does not call for. What holds the workspace is a container that is
-// running, and the second half below is now the one the finding is about.
+// What holds the workspace is a container that is running, so an exited one must
+// not be refused over: that is the state the removal succeeds in (G4-11).
 func TestTheControlWorkspaceIsNotRemovedWhileAContainerHoldsIt(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
 	arranged.stillRunning(task)
@@ -216,7 +205,7 @@ func TestTheControlWorkspaceIsNotRemovedWhileAContainerHoldsIt(t *testing.T) {
 	}
 
 	// And once the containers are gone, the same choice goes through: the rule is
-	// an ordering, not a prohibition.
+	// an ordering rather than a prohibition.
 	arranged.tookThemAway(task)
 	after := arranged.planOf(t, task)
 	if _, err := arranged.service.Cleanup(context.Background(), task.ID,
@@ -231,14 +220,14 @@ func TestTheControlWorkspaceIsNotRemovedWhileAContainerHoldsIt(t *testing.T) {
 // TestAStoppedContainerDoesNotHoldTheControlWorkspace is G4-11 at the caller.
 //
 // ADR-057 added `feat task stop`, which keeps a task's containers, and the
-// classes of a cleanup are independent choices (FR-CLEAN-002). So stopping a
-// task overnight and cleaning up its control workspace alone the next morning is
-// an ordinary thing to ask for, and it was refused: "mounted into container
-// feat-agent-…-dev-1 (Exited (137) 3 hours ago)". The measurement ADR-059's rule
-// comes from is that the removal succeeded once the container had died.
+// classes of a cleanup are independent choices (FR-CLEAN-002), so stopping a task
+// overnight and cleaning up its control workspace the next morning is an ordinary
+// ask. It was refused with "mounted into container feat-agent-…-dev-1 (Exited
+// (137) 3 hours ago)", while ADR-059's own measurement is that the removal
+// succeeds once the container has died.
 //
-// The containers stay on the machine throughout — that is the point. What is
-// established is that they have stopped, not that they are gone.
+// The containers stay on the machine throughout. What is established is that they
+// have stopped rather than that they are gone.
 func TestAStoppedContainerDoesNotHoldTheControlWorkspace(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
 
@@ -266,11 +255,10 @@ func TestAStoppedContainerDoesNotHoldTheControlWorkspace(t *testing.T) {
 // TestADockerThatCannotBeAskedReleasesNothing is the first of the two branches
 // G6-13 found uncovered: the question could not be asked at all.
 //
-// The sibling below it — a Docker daemon that answers with a failure — has been
-// tested since the fix branch. This one returns before that: no Docker binary,
-// no project, and the release rule read the nil as "there is nothing to ask
-// about" and removed the tree. The difference between the two nils is the whole
-// of ADR-059's refusal rule, and only one of them was pinned.
+// The sibling below it is a Docker daemon that answers with a failure. This one
+// returns before that: no Docker binary, no project, and a release rule that read
+// the nil as nothing to ask about removed the tree. The difference between the
+// two nils is the whole of ADR-059's refusal rule.
 func TestADockerThatCannotBeAskedReleasesNothing(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
 	arranged.docker.Missing("docker")
@@ -286,13 +274,11 @@ func TestADockerThatCannotBeAskedReleasesNothing(t *testing.T) {
 	}
 }
 
-// TestAPlanThatCannotSeeAContainerSaysSoAndIsNotArchivable is the consequence
-// pass 0 recorded for the same silent nil.
-//
-// "the plan names nothing, Archivable stays true, and the user can archive the
-// task over a live container exactly as before" — which is ADR-059 evidence 2
-// reproduced by a different route: the archive refusal reads the plan, so a plan
-// that could see nothing refuses nothing.
+// TestAPlanThatCannotSeeAContainerSaysSoAndIsNotArchivable is the consequence of
+// the same silent nil. The plan names nothing, Archivable stays true, and the
+// user archives the task over a live container, which is ADR-059 evidence 2
+// reached another way: the archive refusal reads the plan, so a plan that saw
+// nothing refuses nothing.
 func TestAPlanThatCannotSeeAContainerSaysSoAndIsNotArchivable(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
 	arranged.docker.Missing("docker")
@@ -310,16 +296,16 @@ func TestAPlanThatCannotSeeAContainerSaysSoAndIsNotArchivable(t *testing.T) {
 }
 
 // TestAProjectSwitchedToHostModeStillAsksAboutTheLaunchsContainers is the second
-// branch, and the one G6-13's failure scenario is written from.
+// branch G6-13 found.
 //
-// A task's environment is the one it was launched with. `agent.execution.mode`
-// is a line in a file a user edits, and reading it here let an edit made after
-// the launch decide whether Feat asked about a container the launch had already
-// created — so a project switched to host mode released a workspace a live
-// container still mounted, silently, on the one path ADR-059 exists for.
+// A task's environment is the one it was launched with. `agent.execution.mode` is
+// a line a user edits, and reading it here let a later edit decide whether Feat
+// asked about a container the launch had already created, so a project switched
+// to host mode released a workspace a live container still mounted, on the one
+// path ADR-059 exists for.
 //
-// The record is what may answer this, and for a session-less task the record
-// does not: the session that would carry the mode was never created. So the
+// Only the record may answer this, and for a session-less task it does not,
+// because the session that would carry the mode was never created. So the
 // question is asked.
 func TestAProjectSwitchedToHostModeStillAsksAboutTheLaunchsContainers(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
@@ -336,16 +322,13 @@ func TestAProjectSwitchedToHostModeStillAsksAboutTheLaunchsContainers(t *testing
 }
 
 // TestVolumesAreNotReportedUnremovedWithoutSayingWhy is the other consequence of
-// the same silent nil (G3-07).
-//
-// removeVolumes reached the same nil and skipped the removal, so the user's
-// confirmed selection came back as Removed: false with no error and no problem —
-// a choice declined without a reason, over volumes that are still on the
-// machine.
+// the same silent nil (G3-07). removeVolumes reached it and skipped the removal,
+// so a confirmed selection came back as Removed: false with no error and no
+// problem, over volumes still on the machine.
 //
 // It is checked on the rule rather than through a whole cleanup, for the reason
-// the Docker-failure test next to it is: a cleanup re-resolves its plan first
-// and would refuse earlier, on the token, for a different reason.
+// the Docker-failure test beside it is: a cleanup re-resolves its plan first and
+// would refuse earlier, on the token.
 func TestVolumesAreNotReportedUnremovedWithoutSayingWhy(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
 	arranged.docker.Missing("docker")
@@ -367,18 +350,16 @@ func TestVolumesAreNotReportedUnremovedWithoutSayingWhy(t *testing.T) {
 	}
 }
 
-// TestADockerThatCannotAnswerReleasesNothing keeps "establish" from meaning
-// "assume".
-//
-// A Docker that will not say what it holds leaves the question unanswered, and
-// removing the tree on an unanswered question is what produced the half-removed
-// workspace in the first place.
+// TestADockerThatCannotAnswerReleasesNothing keeps establishing something from
+// meaning assuming it. A Docker that will not say what it holds leaves the
+// question unanswered, and removing the tree anyway is what produced the
+// half-removed workspace.
 //
 // It is checked on the rule rather than through a whole cleanup, because a
 // cleanup would refuse earlier and for a different reason: the plan is resolved
-// again immediately before it runs, so a Docker that stopped answering between
-// the two produces a plan that no longer names the same resources, and the token
-// says so. Both refusals are right; only this one is about the mount.
+// again immediately before it runs, so a Docker that stopped answering produces a
+// plan the token no longer matches. Both refusals are right, and only this one is
+// about the mount.
 func TestADockerThatCannotAnswerReleasesNothing(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
 	arranged.docker.Fail("ps --all --format json", "Cannot connect to the Docker daemon", 1)
@@ -394,13 +375,11 @@ func TestADockerThatCannotAnswerReleasesNothing(t *testing.T) {
 	}
 }
 
-// TestALaunchsLeftoversAreReportedByReconciliation is the seeing half of "leaves
-// nothing the product cannot see".
-//
-// Reconciliation asked only about tasks whose record named an environment, so
-// this class of resource was in no report at all. Nothing is restarted or
-// removed here: the finding names the task the containers were created for and
-// the command that resolves them (FR-STATE-004).
+// TestALaunchsLeftoversAreReportedByReconciliation is the seeing half of leaving
+// nothing the product cannot see. Reconciliation asked only about tasks whose
+// record named an environment, so this class of resource was in no report at all.
+// Nothing is restarted or removed here: the finding names the task the containers
+// were created for and the command that resolves them (FR-STATE-004).
 func TestALaunchsLeftoversAreReportedByReconciliation(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
 
@@ -438,15 +417,12 @@ func TestALaunchsLeftoversAreReportedByReconciliation(t *testing.T) {
 }
 
 // TestAConfirmedTaskIsNotToldNothingIsLostWhileItsContainerIsNamed is the last
-// residual of F2-02.
-//
-// One report said both things. The terminal finding of a task with no session
-// offered "clean it up and prepare the task again; its agent never ran, so
-// nothing it did is lost", and the finding under it named the container that
-// launch had left on the machine. The reassurance is true of a task interrupted
-// before its container existed and false of the one this whole path exists for,
-// and the two are the same shape in the record — so the answer the pass already
-// has is what decides which sentence a user reads.
+// residual of F2-02. One report said both things: the terminal finding offered
+// "clean it up and prepare the task again; its agent never ran, so nothing it did
+// is lost", and the finding under it named the container that launch had left.
+// The reassurance is true of a task interrupted before its container existed and
+// false of the one this path exists for, and the two are the same shape in the
+// record, so the answer the pass already has decides which sentence a user reads.
 func TestAConfirmedTaskIsNotToldNothingIsLostWhileItsContainerIsNamed(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
 
@@ -466,8 +442,8 @@ func TestAConfirmedTaskIsNotToldNothingIsLostWhileItsContainerIsNamed(t *testing
 		t.Errorf("the finding does not say what the launch left: %q", terminal.Action)
 	}
 
-	// And the reassurance survives for the task it was written for: the same
-	// task once nothing of it is on the machine.
+	// And the reassurance survives for the task it was written for: the same task
+	// once nothing of it is on the machine.
 	arranged.tookThemAway(task)
 	report, err = arranged.service.Reconcile(context.Background())
 	if err != nil {
@@ -493,14 +469,11 @@ func terminalFinding(report api.Reconciliation, task *domain.Task) (api.Reconcil
 }
 
 // TestAnUnreadableProjectStillFindsWhatTheLaunchLeft is why the configuration is
-// read as a way of not asking rather than as a way of answering.
-//
-// The name a launch used depends on the two identifiers and on nothing else, so
-// a project file that cannot be read does not make the containers unfindable —
-// and the file is often exactly what changed, since a change to it is what makes
-// a launch slow enough to be interrupted. What the configuration saves is the
-// pointless query about a host-mode task, and that is all it may cost when it
-// goes missing.
+// read as a way of not asking rather than as a way of answering. The name a
+// launch used depends on the two identifiers and nothing else, so an unreadable
+// project file does not make the containers unfindable, and that file is often
+// what changed. What the configuration saves is a pointless query about a
+// host-mode task, and that is all it may cost when it goes missing.
 func TestAnUnreadableProjectStillFindsWhatTheLaunchLeft(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
 	if err := os.WriteFile(filepath.Join(arranged.layout.ProjectConfigDir(), "app.yaml"),
@@ -519,12 +492,10 @@ func TestAnUnreadableProjectStillFindsWhatTheLaunchLeft(t *testing.T) {
 }
 
 // TestATaskWithNoContainerIsNotAskedAbout keeps the derivation from becoming a
-// scan.
-//
-// A draft has had nothing created for it and a project that runs its agent on
-// this host has no Compose project at all, so neither is a question for Docker.
-// It is checked at the adapter: that Docker was never asked is a stronger
-// statement than that the answer was empty.
+// scan. A draft has had nothing created for it and a project that runs its agent
+// on this host has no Compose project, so neither is a question for Docker. It is
+// checked at the adapter, because Docker never being asked is a stronger
+// statement than an empty answer.
 func TestATaskWithNoContainerIsNotAskedAbout(t *testing.T) {
 	arranged := arrangeDrafting(t)
 	draft := arranged.draft(t, "Add a rate limit")
@@ -540,15 +511,12 @@ func TestATaskWithNoContainerIsNotAskedAbout(t *testing.T) {
 	}
 }
 
-// TestCleanupRemovesTheGeneratedExecutionInput is ADR-037 evidence 16's criterion for the
-// execution root.
-//
-// A launch generates `<state>/execution/<project-id>/<task-id>/compose.override.yaml`
-// and nothing ever removed the directory holding it, so every task that had ever
-// launched left one: 47 of the 48 under the execution root of the dogfood machine
-// belonged to tasks that had been cleaned up and archived. The override is the
-// document the destroy is run against, so it goes with the Compose project it
-// defines.
+// TestCleanupRemovesTheGeneratedExecutionInput is ADR-037 evidence 16's criterion
+// for the execution root. A launch generates
+// `<state>/execution/<project-id>/<task-id>/compose.override.yaml`, and nothing
+// removed the directory holding it, so 47 of the 48 under the dogfood machine's
+// execution root belonged to archived tasks. The override is the document the
+// destroy is run against, so it goes with the Compose project it defines.
 func TestCleanupRemovesTheGeneratedExecutionInput(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
 
@@ -570,8 +538,8 @@ func TestCleanupRemovesTheGeneratedExecutionInput(t *testing.T) {
 		t.Errorf("the generated execution input %s is still there: %v", directory, err)
 	}
 
-	// And it is reported. A directory Feat deleted is part of the answer to what
-	// a cleanup removed, even though no target named it.
+	// And it is reported. A directory Feat deleted is part of what a cleanup
+	// removed, even though no target named it.
 	var reported bool
 	for _, entry := range result.Removed {
 		if entry.Identity == directory {
@@ -589,12 +557,10 @@ func TestCleanupRemovesTheGeneratedExecutionInput(t *testing.T) {
 	}
 }
 
-// TestAProjectsExecutionDirectoryOutlivesItsLastTask is the boundary the
-// worktree walk already stops at, applied to the root ADR-037 evidence 16 adds.
-//
-// A project outlives every task in it, and the next task of that project is
-// created inside its directory. Removing it because it is momentarily empty
-// would delete a directory the next launch recreates.
+// TestAProjectsExecutionDirectoryOutlivesItsLastTask is the boundary the worktree
+// walk already stops at, applied to the root ADR-037 evidence 16 adds. A project
+// outlives every task in it, so removing its directory because it is momentarily
+// empty would delete what the next launch recreates.
 func TestAProjectsExecutionDirectoryOutlivesItsLastTask(t *testing.T) {
 	arranged, task := abandonedLaunch(t)
 
@@ -617,13 +583,11 @@ func TestAProjectsExecutionDirectoryOutlivesItsLastTask(t *testing.T) {
 	}
 }
 
-// TestGeneratedInputsAreOnlyRemovedFromTheirOwnRoot is the check that runs
-// again immediately before a directory tree is deleted.
-//
-// The path reaching it is computed from a validated project and task identifier
-// under a root the daemon resolved, so nothing a caller supplies can name one of
-// these. The check is here because the cost of it is nothing next to the cost of
-// being wrong, which is the rule the control workspace's own removal states.
+// TestGeneratedInputsAreOnlyRemovedFromTheirOwnRoot is the check that runs again
+// immediately before a directory tree is deleted. The path reaching it is
+// computed from a validated project and task identifier under a root the daemon
+// resolved, so nothing a caller supplies can name one, and the check costs
+// nothing next to being wrong.
 func TestGeneratedInputsAreOnlyRemovedFromTheirOwnRoot(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -658,8 +622,8 @@ func TestGeneratedInputsAreOnlyRemovedFromTheirOwnRoot(t *testing.T) {
 		})
 	}
 
-	// And the shape it is for goes through, twice: a directory that is not there
-	// is not an error, because a cleanup re-run must finish rather than refuse.
+	// And the shape it is for goes through, twice. A directory that is not there is
+	// not an error, because a re-run cleanup must finish rather than refuse.
 	task := filepath.Join(root, "app", "task")
 	if err := os.MkdirAll(task, 0o700); err != nil {
 		t.Fatalf("arranging %s: %v", task, err)

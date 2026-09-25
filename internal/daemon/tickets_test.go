@@ -45,9 +45,9 @@ func arrangeTracker(t *testing.T, answer *fakeTracker) *drafting {
 	return arranged
 }
 
-// TestAProjectsTicketsAreWhatItsCommandPrinted is the whole of what the tracker
-// is: a configured command decides which tickets are the user's, and Feat
-// carries what it printed without parsing any of it (ADR-071).
+// TestAProjectsTicketsAreWhatItsCommandPrinted checks the whole of what the
+// tracker is: a configured command decides which tickets are the user's, and Feat
+// carries what it printed without interpreting any of it (ADR-071).
 func TestAProjectsTicketsAreWhatItsCommandPrinted(t *testing.T) {
 	answer := &fakeTracker{output: []byte(`[
 	  {"reference":"ACME-14","title":"Reset links expire","body":"After five minutes.",
@@ -81,10 +81,10 @@ func TestAProjectsTicketsAreWhatItsCommandPrinted(t *testing.T) {
 	}
 }
 
-// TestTheTrackerCommandRunsAsConfiguredWithNoFilter checks that Feat adds
-// nothing to the command: a filter vocabulary would have to map onto every
-// tracker's query language, so which tickets are the user's is the command's
-// decision (ADR-071).
+// TestTheTrackerCommandRunsAsConfiguredWithNoFilter checks that Feat adds nothing
+// to the command. A filter vocabulary would have to map onto every tracker's
+// query language, so which tickets are the user's is the command's decision
+// (ADR-071).
 func TestTheTrackerCommandRunsAsConfiguredWithNoFilter(t *testing.T) {
 	answer := &fakeTracker{output: []byte(`[]`)}
 	arranged := arrangeTracker(t, answer)
@@ -106,9 +106,10 @@ func TestTheTrackerCommandRunsAsConfiguredWithNoFilter(t *testing.T) {
 	}
 }
 
-// TestAskingForTicketsRunsTheCommandEveryTime is why nothing caches the list:
-// Feat passes no filter, so a held list could not be re-filtered, and a ticket
-// that changed is found by running the command again and comparing (ADR-071).
+// TestAskingForTicketsRunsTheCommandEveryTime checks that nothing caches the
+// list. Feat passes no filter, so a held list could not be re-filtered, and a
+// ticket that changed is found by running the command again and comparing
+// (ADR-071).
 func TestAskingForTicketsRunsTheCommandEveryTime(t *testing.T) {
 	answer := &fakeTracker{output: []byte(`[]`)}
 	arranged := arrangeTracker(t, answer)
@@ -124,8 +125,7 @@ func TestAskingForTicketsRunsTheCommandEveryTime(t *testing.T) {
 }
 
 // TestOutputThatDoesNotConformIsRefusedNamingWhatWasWrong checks that a mapping
-// mistake reaches the user as something they can fix rather than as an empty
-// list.
+// mistake reaches the user as something they can fix rather than as an empty list.
 func TestOutputThatDoesNotConformIsRefusedNamingWhatWasWrong(t *testing.T) {
 	arranged := arrangeTracker(t, &fakeTracker{
 		output: []byte(`[{"number":7,"title":"t","body":"","url":"u","state":"open"}]`),
@@ -296,9 +296,8 @@ func (s *slowTracker) Run(ctx context.Context, _ tracker.Command) ([]byte, error
 }
 
 // TestATrackerThatWillNotAnswerIsEndedByTheDaemon checks that the daemon holds
-// the bound rather than leaving a request open indefinitely. It is half of a
-// contract: the client waits for this plus a margin, so that the process which
-// knows what it was waiting for is the one that answers.
+// the bound rather than leaving a request open indefinitely. The client waits for
+// this plus a margin, so the process that knows what it was waiting for answers.
 func TestATrackerThatWillNotAnswerIsEndedByTheDaemon(t *testing.T) {
 	arranged := arrangeConfigured(t, trackerFixture)
 	arranged.service.tracker = &slowTracker{started: make(chan struct{})}

@@ -24,19 +24,15 @@ const executionProvider = "compose"
 const overrideName = "compose.override.yaml"
 
 // identityPrefix distinguishes the agent's own Compose project from the
-// application runtime's, and from any project the user brings up by hand from
-// the same files.
-//
-// It is generated rather than configured: the environment is Feat's own
-// resource, and a template whose only use is to break the guarantee it provides
-// is not a setting worth having (ADR-033).
+// application runtime's, and from any project the user brings up by hand from the
+// same files. It is generated rather than configured, because the environment is
+// Feat's own resource (ADR-033).
 const identityPrefix = "feat-agent"
 
 // executionSpec resolves a task's execution environment from configuration.
-//
 // Everything the adapter receives is final here: absolute paths, an identity, a
 // service, a user, and the exact mounts. The adapter reads no configuration, so
-// this function is the only place the two vocabularies meet.
+// this is the only place the two vocabularies meet.
 func (s *service) executionSpec(
 	cfg *config.Config, task *domain.Task, workspace *control.Workspace,
 ) (execution.Spec, error) {
@@ -80,10 +76,9 @@ func (s *service) executionSpec(
 	}
 
 	if volume := cfg.Agent.Claude.ConfigVolume; volume != "" {
-		// Only when the project asked for one. A project that supplies the
-		// provider's configuration through its own Compose files — by mounting
-		// the user's own directory, which the security model permits as an
-		// explicit choice — must not have Feat mount a second one over it.
+		// Only when the project asked for one. A project that supplies the provider's
+		// configuration through its own Compose files, by mounting the user's own
+		// directory, must not have Feat mount a second one over it.
 		spec.Volumes = []execution.Volume{{Name: volume, Target: cfg.Agent.Claude.ConfigPath}}
 		spec.Variables = map[string]string{"CLAUDE_CONFIG_DIR": cfg.Agent.Claude.ConfigPath}
 	}
@@ -95,27 +90,23 @@ func (s *service) executionSpec(
 
 // agentIdentity is the Compose project name a task's agent environment has.
 //
-// It is derived from the two identifiers and reads nothing, which is what lets
-// it answer for a task whose record does not carry it. A launch that fails after
-// its container exists is exactly that task: the session the identity is
-// recorded on is created after the container, so an interruption in between
-// leaves containers on the machine and nothing in the snapshot naming them.
+// It is derived from the two identifiers and reads nothing, so it can answer for
+// a task whose record does not carry it. The session the identity is recorded on
+// is created after the container, so an interruption between them leaves
+// containers the snapshot cannot name.
 //
-// The derivation is safe to rely on because the template is Feat's own. ADR-033
-// refused to make it configurable, so there is one name a launch of this task
-// can have ever used, and the same launch writes it to the event log before
-// creating anything (recordEnvironment) — so the two records agree by
-// construction rather than by luck.
+// ADR-033 refused to make the template configurable, so a launch of this task can
+// only ever have used one name, and the same launch writes that name to the event
+// log before creating anything (recordEnvironment).
 func agentIdentity(task *domain.Task) string {
 	return identityPrefix + "-" + task.ProjectID.String() + "-" + task.ID.String()
 }
 
 // agentComposeProject is the name of the Compose project a task's agent runs in:
 // the one its session recorded, or the derived one when no session carries it.
-//
-// The recorded name wins for the reason environmentFor prefers the whole
-// recorded specification: a task's environment is the one it was launched with,
-// and an edited project file must not point an action at a different container.
+// The recorded name wins for the reason environmentFor prefers the whole recorded
+// specification: a task's environment is the one it was launched with, and an
+// edited project file must not point an action at a different container.
 func agentComposeProject(task *domain.Task) string {
 	if task.Session != nil && task.Session.Execution != nil && task.Session.Execution.Identity != "" {
 		return task.Session.Execution.Identity
@@ -127,33 +118,24 @@ func agentComposeProject(task *domain.Task) string {
 // questions that can be asked without a specification: what is still there, and
 // remove it.
 //
-// Three answers rather than two, and the third is the point. A nil project and
-// no error is a question that does not apply, and only the task's own record
-// says so: a draft has had nothing created for it (domain.WorkflowDraft), and a
-// session recording domain.ExecutionHost is a task whose agent ran on this host
-// — an invariant the domain enforces, since a host session may carry no
-// execution environment at all. Neither belongs in a report or a plan, because a
-// question that does not apply has no answer to be missing. An error is the
-// third: the question applies and could not be asked, which every caller is
-// obliged to say out loud rather than read as "nothing to worry about"
-// (ADR-059).
+// It has three answers and the third is the point. A nil project and no error is
+// a question that does not apply, which only the task's own record says: a draft
+// has had nothing created for it (domain.WorkflowDraft), and a session recording
+// domain.ExecutionHost ran its agent on this host. An error is the third: the
+// question applies and could not be asked, which every caller must say out loud
+// rather than read as nothing to worry about (ADR-059).
 //
-// What is deliberately not consulted is today's configuration. A task's
-// environment is the one it was launched with, and `agent.execution.mode` is a
-// line a user edits: reading it here made an edit after the fact decide whether
-// Feat asked about a container the launch had already created, which is the
-// answer that removed a control workspace a live container still mounted. So a
-// task whose record does not say where its agent ran is asked about — the name
-// depends on nothing but the two identifiers, so Docker can answer whatever the
-// project file says or fails to say. That is the ADR-059 case and only that
-// case: a launch that failed before it recorded a session. Every task with a
-// session carries the mode it was launched in, so a host-mode project pays no
-// query for the tasks that worked.
+// Today's configuration is deliberately not consulted. `agent.execution.mode` is
+// a line a user edits, and reading it here let a later edit decide whether Feat
+// asked about a container the launch had already created, which removed a control
+// workspace a live container still mounted. A task whose record does not say
+// where its agent ran is asked about instead, because the name depends on nothing
+// but the two identifiers. That is the ADR-059 case and only that case: a launch
+// that failed before it recorded a session.
 //
 // A machine with no Docker therefore refuses rather than answering. It is the
-// case the derived name exists for and the one where "no answer" is least
-// affordable: a task that may hold a container, on a host that cannot be asked
-// whether it does.
+// case the derived name exists for, and the one where no answer is least
+// affordable: a task that may hold a container, on a host that cannot be asked.
 func (s *service) agentProject(task *domain.Task) (*compose.Project, error) {
 	if task.Workflow == domain.WorkflowDraft {
 		return nil, nil
@@ -175,13 +157,13 @@ func (s *service) agentProject(task *domain.Task) (*compose.Project, error) {
 
 // composeDirectory is the directory the by-name Compose invocations run from.
 //
-// Any directory Feat owns would do, and this one is the execution adapter's own:
-// what matters is that it is neither the daemon's inherited working directory
-// nor anything a project controls, so no compose.yaml on the machine can become
-// the model for a project addressed by name (ADR-059's queries read no file).
+// Any directory Feat owns would do. What matters is that it is neither the
+// daemon's inherited working directory nor anything a project controls, so no
+// compose.yaml on the machine can become the model for a project addressed by
+// name (ADR-059's queries read no file).
+//
 // It is created rather than assumed, because the first task of a fresh
-// installation asks these questions before any launch has written anything under
-// it.
+// installation asks these questions before any launch has written under it.
 func (s *service) composeDirectory() (string, error) {
 	root := s.layout.ExecutionRoot()
 	if err := os.MkdirAll(root, stateDirPerm); err != nil {
@@ -190,15 +172,13 @@ func (s *service) composeDirectory() (string, error) {
 	return root, nil
 }
 
-// executionDirectory is where a task's generated execution input is written.
+// executionDirectory is where a task's generated execution input is written. It
+// is named separately from the file in it because it is created for one task's
+// agent Compose project and removed with that project, so cleanup addresses the
+// directory and a launch writes the file (ADR-037 evidence 16).
 //
-// It is named separately from the file in it because its lifetime is a thing in
-// its own right: it is created for one task's agent Compose project and is
-// removed with that project, so the directory is what cleanup addresses and the
-// file is what a launch writes (ADR-037 evidence 16).
-//
-// Both identifiers are validated before either reaches a path, so no stored
-// value can name a directory outside the execution root.
+// Both identifiers are validated before either reaches a path, so no stored value
+// can name a directory outside the execution root.
 func (s *service) executionDirectory(task *domain.Task) (string, error) {
 	if err := task.ProjectID.Validate(); err != nil {
 		return "", err
@@ -218,14 +198,11 @@ func (s *service) overridePath(task *domain.Task) (string, error) {
 	return filepath.Join(directory, overrideName), nil
 }
 
-// taskMounts is what the agent's container gets to see.
-//
-// Every entry is deliberate and there are only three kinds: a task worktree at
-// the container path its repository configures, a stable repository from its
-// ordinary checkout when the project says it is read-only there, and the control
-// workspace. Nothing else is mounted, and a project's own Compose files decide
-// nothing about the repositories, because Compose merges these by target and
-// these replace whatever was there (ADR-033).
+// taskMounts is what the agent's container gets to see. There are three kinds: a
+// task worktree at the container path its repository configures, a stable
+// repository from its ordinary checkout, and the control workspace. Nothing else
+// is mounted, and Compose merges these by target, so they replace whatever a
+// project's own files put there (ADR-033).
 func taskMounts(cfg *config.Config, task *domain.Task, workspace *control.Workspace) ([]execution.Mount, error) {
 	var mounts []execution.Mount
 
@@ -257,10 +234,10 @@ func taskMounts(cfg *config.Config, task *domain.Task, workspace *control.Worksp
 		mounts = append(mounts, metadata)
 	}
 
-	// A repository the project keeps stable and read-only is not a task
-	// repository: it has no branch and no worktree, and the agent reads it from
-	// the ordinary checkout. Mounting it read-only is what makes acceptance
-	// criterion 2 Feat's to satisfy rather than the project's.
+	// A repository the project keeps stable and read-only is not a task repository:
+	// it has no branch and no worktree, and the agent reads it from the ordinary
+	// checkout. Mounting it read-only makes acceptance criterion 2 Feat's to satisfy
+	// rather than the project's.
 	for _, id := range cfg.RepositoryIDs() {
 		repository := cfg.Repositories[id]
 		// stable() is also what decides which checkouts are forbidden, so a
@@ -285,16 +262,14 @@ func taskMounts(cfg *config.Config, task *domain.Task, workspace *control.Worksp
 // split.
 //
 // The tree is read-only: task.md, context/, and inbox/ are host-written and
-// agent-read, and agent/ is host-only — it holds the hooks the provider adapter
-// generated and the record of which messages have been applied, which is what
-// makes deduplication something the agent cannot reach (ADR-032, and the layout
-// docs/06-technical-architecture.md describes). Only the two directories the
-// agent reports through are writable.
+// agent-read, and agent/ is host-only, holding the generated hooks and the record
+// of which messages have been applied, so deduplication is out of the agent's
+// reach (ADR-032, docs/06-technical-architecture.md). Only the two directories
+// the agent reports through are writable.
 //
 // They are mounted over the tree rather than beside it. Compose merges a
-// service's volumes by target, and a nested target is a different target, so
-// what a container gets is the read-only workspace with two writable
-// directories inside it.
+// service's volumes by target and a nested target is a different target, so the
+// container gets the read-only workspace with two writable directories inside it.
 func controlMounts(cfg *config.Config, workspace *control.Workspace) []execution.Mount {
 	mounts := []execution.Mount{{
 		Source:      workspace.Root(),
@@ -313,11 +288,9 @@ func controlMounts(cfg *config.Config, workspace *control.Workspace) []execution
 }
 
 // controlWritable is what a launch must prove the agent can write to inside the
-// control workspace, as the agent sees it.
-//
-// It is the same two directories controlMounts makes writable, because proving
-// the workspace root writable would now be proving the opposite of what Feat
-// asks for.
+// control workspace, as the agent sees it. It is the same two directories
+// controlMounts makes writable, because proving the workspace root writable would
+// be proving the opposite of what Feat asks for.
 func controlWritable(cfg *config.Config) []string {
 	writable := make([]string, 0, len(control.AgentWritable()))
 	for _, name := range control.AgentWritable() {
@@ -331,18 +304,16 @@ const gitDirName = ".git"
 
 // gitMetadataMount makes Git work inside the container.
 //
-// A task worktree is not a repository on its own. Its .git is a file holding an
+// A task worktree is not a repository on its own: its .git is a file holding an
 // absolute path to the main checkout's `.git/worktrees/<name>`, and that path is
 // the host's. Without the directory it names, every Git command in the container
-// fails with "not a git repository" — so `git: full`, FR-GIT-006, and the sixth
-// acceptance criterion would all be false while everything else looked right.
+// fails with "not a git repository", so `git: full`, FR-GIT-006, and the sixth
+// acceptance criterion would be false while everything else looked right.
 //
-// The mount is therefore the main checkout's Git directory at the same absolute
-// path it has on the host, which is what makes the recorded link resolve
-// whatever Git version wrote it. What it exposes is repository metadata, which
-// docs/05-security-model.md accepts explicitly and calls by its name; what it
-// does not expose is the working copy, because the checkout's own directory
-// exists in the container holding nothing but this.
+// The mount is the main checkout's Git directory at the same absolute path it has
+// on the host, so the recorded link resolves whatever Git version wrote it. It
+// exposes repository metadata, which docs/05-security-model.md accepts by name,
+// and not the working copy.
 //
 // Its access follows the worktree's: a task that may not write the code may not
 // rewrite the history either.
@@ -385,19 +356,18 @@ func describeMount(binding domain.TaskRepository) string {
 // forbiddenSources is every host path a task's container must not expose to the
 // agent.
 //
-// Three of them are directories rather than checkouts, and they are the ones
-// nothing else would catch. Feat's runtime directory holds the daemon's API
-// socket and the tmux control socket, which are the two capabilities CLAUDE.md
-// names by hand: a container that reaches the first controls every task on this
+// Three of them are directories rather than checkouts, and nothing else would
+// catch them. Feat's runtime directory holds the daemon's API socket and the tmux
+// control socket: a container that reaches the first controls every task on this
 // machine, and one that reaches the second runs commands on the host outside its
-// own container. The state directory holds every other task's control workspace.
-// The home directory holds all of that plus the credentials the security model
-// says Feat must not mount by default.
+// own container. The state directory holds every other task's control workspace,
+// and the home directory holds all of that plus the credentials the security
+// model says Feat must not mount by default.
 //
-// The order is the order a refusal explains a mount that exposes more than one,
-// from the most direct account of what was given away to the least: the runtime
-// directory grants control, the home directory is the widest thing a reader can
-// recognise in their own Compose file, and the state directory sits inside it.
+// The order is the order a refusal explains a mount that exposes more than one:
+// the runtime directory grants control, the home directory is the widest thing a
+// reader recognises in their own Compose file, and the state directory sits
+// inside it.
 func (s *service) forbiddenSources(cfg *config.Config, task *domain.Task) ([]execution.ForbiddenSource, error) {
 	home, err := s.env.Expand("~")
 	if err != nil {
@@ -420,16 +390,13 @@ func (s *service) forbiddenSources(cfg *config.Config, task *domain.Task) ([]exe
 	return sources, nil
 }
 
-// checkouts lists the ordinary repository checkouts, which must never be
-// mounted into a task's container.
+// checkouts lists the ordinary repository checkouts, which must never be mounted
+// into a task's container.
 //
-// A stable read-only repository is among them only when this task selected it.
-// The project's declaration is that the agent reads that repository from the
-// checkout, and Feat mounts it that way itself — but a task may promote it, and
-// DefaultAccess.Permits allows exactly that. A promoted repository has a branch,
-// a worktree, and a mount of that worktree like any other, so its checkout is
-// the working copy the task exists to leave alone, and the rule that says so has
-// to apply to it.
+// A stable read-only repository is among them only when this task promoted it,
+// which DefaultAccess.Permits allows. A promoted repository has a branch, a
+// worktree, and a mount of that worktree like any other, so its checkout is the
+// working copy the task exists to leave alone.
 //
 // A nil task is one whose repositories are not resolved yet, and every stable
 // repository is then still the project's own to mount.
@@ -447,11 +414,9 @@ func checkouts(cfg *config.Config, task *domain.Task) []string {
 
 // stableCheckouts lists the checkouts Feat mounts itself, read-only, because the
 // project keeps those repositories stable and this task did not promote them.
-//
-// They are forbidden everywhere other than the one mount Feat generates. A base
-// file mounting the same checkout at a second target is not the read-only
-// infrastructure checkout the project declared; it is the user's own working
-// copy, arriving beside it and usually writable.
+// They are forbidden everywhere other than that one mount: a base file mounting
+// the same checkout at a second target is the user's own working copy, arriving
+// beside it and usually writable.
 func stableCheckouts(cfg *config.Config, task *domain.Task) []string {
 	var paths []string
 	for _, id := range cfg.RepositoryIDs() {
@@ -477,21 +442,15 @@ func stable(cfg *config.Config, task *domain.Task, id string) bool {
 	return !promoted
 }
 
-// containerShells are the shells a task shell tries inside a container, in
-// order of preference.
-//
-// The host's $SHELL means nothing in somebody else's image, so the choice is
-// made by asking the container what it has rather than by assuming. /bin/sh is
-// last because every image has one and none of the earlier answers would be
-// improved by it.
+// containerShells are the shells a task shell tries inside a container, in order
+// of preference. The host's $SHELL means nothing in somebody else's image, so the
+// container is asked what it has. /bin/sh is last because every image has one.
 var containerShells = []string{"/bin/bash", "/bin/zsh", "/bin/sh"}
 
-// taskShell is the command a task's shell pane runs.
-//
-// For a host task it is the daemon owner's own shell in the task worktree. For a
-// containerised one it is a shell inside the task's own container, in the
-// agent's working directory, so that the pane a user opens beside their agent is
-// the environment their agent is in.
+// taskShell is the command a task's shell pane runs. For a host task it is the
+// daemon owner's own shell in the task worktree; for a containerised one it is a
+// shell inside the task's container, in the agent's working directory, so the
+// pane a user opens beside their agent is the environment their agent is in.
 func (s *service) taskShell(ctx context.Context, cfg *config.Config, task *domain.Task) (tmux.CommandSpec, error) {
 	if task.Session == nil || task.Session.Execution == nil {
 		return s.shellCommand(cfg, task)
@@ -521,11 +480,9 @@ func (s *service) taskShell(ctx context.Context, cfg *config.Config, task *domai
 	return command, nil
 }
 
-// containerShell asks the container which shell it has.
-//
-// A container with none of them is not a container Feat can open a shell in at
-// all, and the last candidate is what every image has, so the fallback is the
-// honest attempt rather than a refusal.
+// containerShell asks the container which shell it has. A container with none of
+// them is one Feat cannot open a shell in at all, so the last candidate is
+// returned as an honest attempt rather than a refusal.
 func (s *service) containerShell(ctx context.Context, environment execution.Environment) string {
 	for _, shell := range containerShells {
 		output, err := environment.Run(ctx, execution.Command{Program: shell, Arguments: []string{"-c", ":"}})
@@ -536,12 +493,10 @@ func (s *service) containerShell(ctx context.Context, environment execution.Envi
 	return containerShells[len(containerShells)-1]
 }
 
-// environmentFor rebuilds the execution environment a task's session records.
-//
-// It is rebuilt from the record rather than kept in memory, because the daemon
-// may have restarted since the task launched: what a task owns has to survive in
-// the record, which is why the record carries the identity and the exact inputs
-// (docs/03-domain-model.md).
+// environmentFor rebuilds the execution environment a task's session records. It
+// is rebuilt from the record rather than kept in memory, because the daemon may
+// have restarted since the task launched and what a task owns has to survive in
+// the record (docs/03-domain-model.md).
 func (s *service) environmentFor(task *domain.Task) (execution.Environment, error) {
 	recorded := task.Session.Execution
 	if recorded == nil {
@@ -576,23 +531,19 @@ func (s *service) environmentFor(task *domain.Task) (execution.Environment, erro
 	return s.environments(spec)
 }
 
-// environments builds the execution environment for one task.
-//
-// It is a method rather than a package function so that a test can drive the
-// whole launch against a fake Docker: the branches that decide whether a
-// half-finished launch is recoverable should not depend on the tester having a
-// container runtime (ADR-030's reasoning for the tmux fake).
+// environments builds the execution environment for one task. It is a method
+// rather than a package function so a test can drive a whole launch against a
+// fake Docker, because whether a half-finished launch recovers should not depend
+// on the tester having a container runtime (ADR-030's reasoning for the tmux
+// fake).
 func (s *service) environments(spec execution.Spec) (execution.Environment, error) {
 	return compose.New(spec, compose.Options{Runner: s.docker})
 }
 
-// containerRunner runs an agent adapter's probes inside an execution
-// environment.
-//
-// It is the seam ADR-032 left: the Claude adapter asks its
-// questions through agent.Runner, and this makes the answers come from the
-// container rather than from the host. Neither adapter knows about the other —
-// this shim is the daemon's, which is what keeps both boundaries mechanical.
+// containerRunner runs an agent adapter's probes inside an execution environment.
+// It is the seam ADR-032 left: the Claude adapter asks through agent.Runner, and
+// this makes the container answer rather than the host. Neither adapter knows
+// about the other, because the shim is the daemon's.
 type containerRunner struct{ environment execution.Environment }
 
 var _ agent.Runner = containerRunner{}
