@@ -514,12 +514,12 @@ func TestProcessedMessagesSurviveAReopenAndAnInterruptedAppend(t *testing.T) {
 // TestASettledEntryIsNeverOpenedAgain is the rule that makes the outbox an
 // audit trail rather than a queue that never drains.
 //
-// Messages are deliberately kept until cleanup, so a poll that re-read them
-// would cost more every hour a task runs; and a refusal that is never settled
-// is re-read, re-judged, and re-reported four times a second for the life of
-// the task. Both are the same missing step, so both are checked here: after a
-// message has been dealt with, its file is replaced by a document that would be
-// refused loudly if anything opened it.
+// Messages are deliberately kept until cleanup, so a poll that re-read them would
+// cost more every hour a task runs, and a refusal that is never settled is
+// re-read, re-judged, and re-reported four times a second for the life of the
+// task. Both are the same missing step, so both are checked here: after a message
+// has been dealt with, its file is replaced by a document that would be refused
+// loudly if anything opened it.
 func TestASettledEntryIsNeverOpenedAgain(t *testing.T) {
 	t.Run("a message that was applied", func(t *testing.T) {
 		workspace, moment := newWorkspace(t)
@@ -687,17 +687,15 @@ func TestASettledEntryIsNeverOpenedAgain(t *testing.T) {
 // checkEntry reaches before any document is opened.
 //
 // Every one of them is a property of the entry rather than of a document, and
-// every one of them survives a poll: a directory named like a message stays a
-// directory, a link stays a link, a name too long stays too long, and nothing
-// removes any of them before cleanup. Settling such an entry records a
-// judgement, and recording a judgement is only worth anything if the next poll
-// reads it before reaching the same conclusion again.
+// every one survives a poll: a directory named like a message stays a directory,
+// a link stays a link, a name too long stays too long, and nothing removes any of
+// them before cleanup. Settling such an entry records a judgement, which is worth
+// something only if the next poll reads it before reaching the same conclusion.
 //
-// So what is asserted here is the count over many polls rather than the first
-// refusal. A test that stopped at the first one passed while a screened entry
-// was refused four times a second for the life of the task — a quarter of a
-// million task events a day from one mkdir — with the record of its refusal
-// sitting unread one line below the check that produced it.
+// What is asserted here is therefore the count over many polls rather than the
+// first refusal. A test that stopped at the first one passed while a screened
+// entry was refused four times a second for the life of the task — a quarter of a
+// million task events a day from one mkdir.
 func TestAnEntryTheListingRefusesIsRefusedOnce(t *testing.T) {
 	longName := strings.Repeat("l", 130) + ".json"
 
@@ -834,10 +832,10 @@ func TestAnEntryTheListingRefusesIsRefusedOnce(t *testing.T) {
 //
 // The rule cuts both ways and is deliberate in both. An agent that writes a bad
 // x.json, is refused, and then writes the message it meant to write under the
-// same name is ignored — it has to use a name it has not spent — and an agent
+// same name is ignored, so it has to use a name it has not spent; and an agent
 // that keeps rewriting a bad x.json cannot make Feat judge it a second time.
-// Skipping a settled entry before it is screened rather than after must not
-// move that line in either direction.
+// Skipping a settled entry before it is screened rather than after must not move
+// that line in either direction.
 func TestASettledNameIsSpentWhateverIsWrittenUnderItNext(t *testing.T) {
 	workspace, moment := newWorkspace(t)
 
@@ -888,11 +886,11 @@ func TestASettledNameIsSpentWhateverIsWrittenUnderItNext(t *testing.T) {
 // TestAReadThatFailedForFeatsOwnReasonIsTriedAgain is the other side of the
 // rule the test above pins.
 //
-// A refusal is settled and never revisited; a read that failed for a reason of
-// the host's is neither. The distinction is what stops a permission or an I/O
-// error being recorded as the agent's mistake, and it is the thing most easily
-// lost by making a poll skip more, so it is checked at the poll rather than
-// only at MarkRefused.
+// A refusal is settled and never revisited, and a read that failed for a reason
+// of the host's is neither. The distinction is what stops a permission or an I/O
+// error being recorded as the agent's mistake, and it is most easily lost by
+// making a poll skip more, so it is checked at the poll rather than only at
+// MarkRefused.
 func TestAReadThatFailedForFeatsOwnReasonIsTriedAgain(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root, which reads a file whatever its mode says")

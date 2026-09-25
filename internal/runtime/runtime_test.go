@@ -46,10 +46,9 @@ func valid() runtime.Spec {
 
 // TestASpecificationIsCheckedBeforeItCanCreateAnything covers the values that
 // end up in a command that creates containers and mounts the user's filesystem.
-//
 // Each case is a way a specification can be wrong that nothing downstream would
-// catch: the services would simply come up with the wrong identity or the wrong
-// code, and every record Feat kept about them would be correct.
+// catch: the services would come up with the wrong identity or the wrong code,
+// and every record Feat kept about them would be correct.
 func TestASpecificationIsCheckedBeforeItCanCreateAnything(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		change   func(*runtime.Spec)

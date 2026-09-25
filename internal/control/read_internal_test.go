@@ -15,12 +15,12 @@ import (
 // TestReadingAMessageRefusesWhatTheListingCouldNotProve covers the window
 // between the directory listing and the read.
 //
-// checkEntry proves that an entry is a plain, regular file within the size
-// limit, and it proves it about the snapshot os.ReadDir returned. The agent
-// owns that directory: by the time the file is opened it can be a link to
-// somewhere else on the machine, a named pipe with no writer, or a document
-// that has grown. The read is therefore tested directly, because the race it
-// closes cannot be arranged reliably through the public entry point.
+// checkEntry proves that an entry is a plain, regular file within the size limit,
+// and it proves it about the snapshot os.ReadDir returned. The agent owns that
+// directory, so by the time the file is opened it can be a link to somewhere else
+// on the machine, a named pipe with no writer, or a document that has grown. The
+// read is tested directly, because the race it closes cannot be arranged reliably
+// through the public entry point.
 func TestReadingAMessageRefusesWhatTheListingCouldNotProve(t *testing.T) {
 	workspace := internalWorkspace(t)
 	entry := func(name string) string { return filepath.Join(workspace.OutboxDir(), name) }

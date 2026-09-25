@@ -13,9 +13,9 @@ import (
 
 // Runtime is one task's application environment.
 //
-// The six lifecycle methods are FR-RUN-005's manual actions, and they are
-// manual all the way down: nothing here is called by a workflow transition, a
-// recovery pass, or an agent. Only a user asks for any of them.
+// The lifecycle methods are FR-RUN-005's manual actions, and they are manual all
+// the way down: nothing here is called by a workflow transition, a recovery pass,
+// or an agent. Only a user asks for any of them.
 //
 // Logs returns a command rather than output, because FR-RUN-006 asks for normal
 // Compose logs rather than something Feat aggregates or persists; the client
@@ -44,11 +44,10 @@ type Runtime interface {
 	// project declares external is not one of them, because it carries no
 	// label naming this Compose project.
 	Volumes(ctx context.Context) ([]string, error)
-	// RemoveVolumes removes the named volumes and reports which were removed.
-	//
-	// It is a separate method rather than a flag on Destroy, so that "volumes
-	// are retained by default" is the shape of this interface rather than an
-	// argument somebody can pass wrongly (ADR-037).
+	// RemoveVolumes removes the named volumes and reports which were removed. It
+	// is a separate method rather than a flag on Destroy, so that retaining
+	// volumes by default is the shape of this interface rather than an argument
+	// somebody can pass wrongly (ADR-037).
 	RemoveVolumes(ctx context.Context, names []string) ([]string, error)
 	// Observe reports what the runtime looks like now. It starts nothing: a
 	// stopped service is reported as stopped (FR-STATE-004).
@@ -64,11 +63,10 @@ type Runtime interface {
 // ErrNotInstalled reports an executable this host does not have.
 var ErrNotInstalled = errors.New("not installed on this host")
 
-// Spec is everything a runtime adapter needs, already resolved.
-//
-// Every value is final. The daemon reads configuration, expands the project
-// name template, and resolves paths; an adapter that read configuration would
-// duplicate a vocabulary internal/config validates (ADR-029, ADR-033, ADR-034).
+// Spec is everything a runtime adapter needs, already resolved. The daemon reads
+// configuration, expands the project name template, and resolves paths; an
+// adapter that read configuration would duplicate a vocabulary internal/config
+// validates (ADR-029, ADR-033, ADR-034).
 type Spec struct {
 	// Project and Task own the runtime. They appear in its ownership labels, so
 	// what a task owns is discoverable without reading persistent state.
@@ -92,9 +90,9 @@ type Spec struct {
 	// the generated documents rather than any repository's, because every path
 	// those documents contain is absolute and each include entry carries the
 	// directory its own repository's relative paths resolve against. A project
-	// directory belonging to one of the repositories would be the directory a
-	// second repository's relative paths were wrongly resolved against, which is
-	// the failure the include document exists to remove (ADR-065 evidence 2).
+	// directory belonging to one repository would be the directory a second
+	// repository's relative paths were wrongly resolved against, which the
+	// include document exists to remove (ADR-065 evidence 2).
 	Directory string
 	// OverridePath is where the generated override is written. It is host-only
 	// and is never mounted anywhere.
@@ -114,10 +112,9 @@ type Spec struct {
 	// Builds are the managed services whose images are built from a task
 	// worktree rather than from a repository's ordinary checkout.
 	//
-	// They are the other half of Mounts and exist because a mount is not the
-	// only way code reaches a service: one that bakes its code with COPY has no
-	// mount to replace, and only its build context decides what it runs (ADR-065
-	// evidence 4).
+	// A mount is not the only way code reaches a service: one that bakes its
+	// code with COPY has no mount to replace, and only its build context decides
+	// what it runs (ADR-065 evidence 4).
 	Builds []Build
 	// Publications are the host ports Feat allocated for this task's reachable
 	// services. They replace whatever the project's own files published, in
@@ -184,10 +181,10 @@ type Mount struct {
 // Build is one managed service's build context, pointed at a task worktree.
 //
 // A service whose image copies the repository in is not reached by any mount:
-// what it runs was decided when the image was built. Redirecting the context is
-// the same act as replacing a mount — both answer "where does this service's
-// code come from" — and doing one without the other leaves such a service
-// running the user's ordinary checkout with nothing to report it.
+// what it runs was decided when the image was built. Redirecting the context and
+// replacing a mount answer the same question, and doing one without the other
+// leaves such a service running the user's ordinary checkout with nothing to
+// report it.
 type Build struct {
 	// Service is the managed service whose build context this is.
 	Service string
@@ -270,11 +267,9 @@ func (s Spec) BuildFor(service string) (Build, bool) {
 	return Build{}, false
 }
 
-// State is what a runtime looks like now.
-//
-// Every field is an observation. Nothing is assumed from the specification that
-// created the runtime, because a record of what Feat asked for is not a record
-// of what exists (CLAUDE.md architectural rules).
+// State is what a runtime looks like now. Every field is an observation, and
+// nothing is assumed from the specification that created the runtime (CLAUDE.md
+// architectural rules).
 type State struct {
 	// Present reports whether any resource of this runtime exists.
 	Present bool
@@ -395,12 +390,9 @@ type Runner interface {
 	Look(name string) (string, error)
 }
 
-// Validate reports whether the specification can be used.
-//
-// It is strict about paths and identity for the reason execution.Spec is:
-// everything here ends up in a command that creates containers and mounts the
-// user's filesystem, and a value that is wrong in a way nobody checked becomes a
-// mount nobody intended.
+// Validate reports whether the specification can be used. It is strict about
+// paths and identity for the reason execution.Spec is: these values reach a
+// command that creates containers and mounts the user's filesystem.
 func (s Spec) Validate() error {
 	if err := s.Project.Validate(); err != nil {
 		return err
@@ -471,10 +463,9 @@ func (s Spec) Validate() error {
 //
 // Two of the checks are about the machine rather than about this task. A port
 // outside the usable range is one Compose cannot bind, and two publications of
-// one host port and protocol are two services of one task colliding with each
-// other — which the allocator does not produce and which a document nobody
-// checked would produce silently, as a start that fails on the second service
-// with an error about an address already in use.
+// one host port and protocol are two services of one task colliding, which
+// arrives as a start that fails on the second service with an error about an
+// address already in use.
 func (s Spec) validatePublications(managed map[string]bool) error {
 	taken := make(map[string]string, len(s.Publications))
 
@@ -539,9 +530,8 @@ const maxPort = 65535
 //
 // A build context reaches a generated document Compose builds an image from, so
 // the same strictness applies as to a mount source. Two redirects of one service
-// are refused rather than resolved: a service builds from one context, and which
-// of two a document should carry is not a question Feat may answer by writing
-// whichever came last.
+// are refused rather than resolved, because a service builds from one context and
+// Feat must not answer which by writing whichever came last.
 func (s Spec) validateBuilds(managed map[string]bool) error {
 	seen := make(map[string]string, len(s.Builds))
 	for _, build := range s.Builds {
@@ -580,7 +570,7 @@ func managedServices(services []string) map[string]bool {
 // directory decides what every relative path inside a repository's own files
 // means. A directory that is wrong in a way nobody checked is a service built
 // from another repository, which is the failure this composition exists to
-// prevent rather than to reproduce.
+// prevent.
 func (s Spec) validateIncludes() error {
 	seen := make(map[string]string)
 	for _, include := range s.Includes {
@@ -690,11 +680,9 @@ func checkName(kind, value string) error {
 	return nil
 }
 
-// sortedVariables renders a variable map in a fixed order.
-//
-// Environment entries reach a generated document and an argument vector, and a
-// map's iteration order does not repeat. Sorting makes a generated file the same
-// file every time, which is what lets a golden test pin one.
+// sortedVariables renders a variable map in a fixed order. Environment entries
+// reach a generated document and an argument vector, and a map's iteration order
+// does not repeat, so sorting makes a generated file the same file every time.
 type sortedVariables map[string]string
 
 func (v sortedVariables) validate() error {

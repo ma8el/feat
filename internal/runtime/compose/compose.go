@@ -10,27 +10,23 @@ import (
 	"github.com/ma8el/feat/internal/runtime"
 )
 
-// Executable is the container tool Feat drives on the host.
-//
-// It is a constant rather than a configured value: a project that could name it
-// would be naming a program the daemon starts on its owner's behalf.
+// Executable is the container tool Feat drives on the host. It is a constant
+// rather than a configured value: a project that named it would be naming a
+// program the daemon starts on its owner's behalf.
 const Executable = "docker"
 
-// MinimumVersion is the oldest Docker Compose this adapter supports.
-//
-// The generated override uses the !reset tag to remove a base file's
-// container_name and its published ports, and the !override tag to put the
-// task's own allocated ports in their place. Both arrived in the 2.24 series. An
-// older build fails with a YAML error that says nothing about why Feat wrote
-// that document (ADR-033, ADR-034, ADR-065).
+// MinimumVersion is the oldest Docker Compose this adapter supports. The
+// generated override uses the !reset tag to remove a base file's container_name
+// and its published ports, and the !override tag to put the task's own allocated
+// ports in their place; both arrived in the 2.24 series. An older build fails
+// with a YAML error that says nothing about why Feat wrote that document
+// (ADR-033, ADR-034, ADR-065).
 var MinimumVersion = Version{Major: 2, Minor: 24, Text: "2.24", Parsed: true}
 
-// Runtime runs one task's application services through the Docker Compose CLI
-// on the trusted host.
-//
-// It receives final values and reads neither configuration nor persistent
-// state: the daemon expands the project name template and records what this
-// reports (ADR-034).
+// Runtime runs one task's application services through the Docker Compose CLI on
+// the trusted host. It receives final values and reads neither configuration nor
+// persistent state: the daemon expands the project name template and records what
+// this reports (ADR-034).
 //
 // This adapter and internal/execution/compose never meet. They drive the same
 // tool and answer different questions — where the agent runs, and what the user
@@ -51,17 +47,16 @@ type Options struct {
 	Runner runtime.Runner
 }
 
-// New returns the Compose runtime for one task.
+// New returns the Compose runtime for one task. It validates the specification
+// and resolves the container tool before anything can be created, so a
+// specification that could never work is refused where the message can still name
+// the field that is wrong.
 //
-// It validates the specification and resolves the container tool before
-// anything can be created, so a specification that could never work is refused
-// where the message can still name the field that is wrong.
-//
-// It also writes the generated include document, which is the one file every
-// command needs: a status, a stop, and a destroy all name it, and the first
-// thing a user does with a runtime is ask what it is doing before anything has
-// created it. The generated override is different and is written where it is
-// used, because it exists only once there is something to override.
+// It also writes the generated include document, which every command needs: a
+// status, a stop, and a destroy all name it, and the first thing a user does with
+// a runtime is ask what it is doing before anything has created it. The generated
+// override is written where it is used, because it exists only once there is
+// something to override.
 func New(spec runtime.Spec, opts Options) (*Runtime, error) {
 	if err := spec.Validate(); err != nil {
 		return nil, err
@@ -91,12 +86,10 @@ func (r *Runtime) Identity() string { return r.spec.Identity }
 // OverridePath returns the generated override this runtime writes.
 func (r *Runtime) OverridePath() string { return r.spec.OverridePath }
 
-// Validate reports whether this host can drive the runtime.
-//
-// It asks about the host only. Whether the user's services build, bind their
-// ports, or become healthy are questions about services that do not exist until
-// something creates them, and answering them here would mean answering them
-// before there is anything to answer about.
+// Validate reports whether this host can drive the runtime. It asks about the
+// host only: whether the user's services build, bind their ports, or become
+// healthy are questions about services that do not exist until something creates
+// them.
 func (r *Runtime) Validate(ctx context.Context) error {
 	version, err := r.Version(ctx)
 	if err != nil {
@@ -129,25 +122,23 @@ func (r *Runtime) Version(ctx context.Context) (Version, error) {
 
 // Create brings the task's containers into existence without starting them.
 //
-// It exists as its own action because FR-RUN-005 names it and because a created
-// service that is not running is a state a user may want: an application whose
-// containers exist, whose volumes exist, and which is deliberately not up.
+// It is its own action because FR-RUN-005 names it and because a created service
+// that is not running is a state a user may want: an application whose containers
+// exist, whose volumes exist, and which is deliberately not up.
 //
 // `up --no-start` rather than `create`, which is the same action by name and not
 // by behaviour: `docker compose create api` builds the image of `api` and then
 // creates a container for the service `api` depends on, whose image it did not
 // build and which therefore does not exist. `up --no-start api` builds the whole
-// dependency closure and starts none of it, which is what this action means
-// (ADR-034 evidence 13).
+// dependency closure and starts none of it (ADR-034 evidence 13).
 //
 // `--build` because this is the action that makes a service's image, and a
 // service that bakes its code runs whatever its image was built from. Without it
 // the second create of a task rebuilds nothing, so a service whose code arrives
-// through its build context goes on running the copy of the worktree it was
-// first built from and Feat has no way to refresh it — which is half of what
-// redirecting the context is for (ADR-065). Start deliberately does not: a start
-// is what a user asks for when they want their application up now, and Docker's
-// own cache makes the rebuild here cheap when nothing changed.
+// through its build context goes on running the copy of the worktree it was first
+// built from (ADR-065). Docker's own cache makes the rebuild cheap when nothing
+// changed. Start deliberately does not rebuild, because a start is what a user
+// asks for when they want their application up now.
 func (r *Runtime) Create(ctx context.Context) (runtime.State, error) {
 	return r.bring(ctx, "creating", r.services("up", "--no-start", "--build")...)
 }
@@ -196,15 +187,14 @@ func (r *Runtime) bring(ctx context.Context, action string, arguments ...string)
 // Compose rejects the whole project: "service X has neither an image nor a build
 // context specified: invalid compose project". That sentence is about a document
 // Feat generated, for a service the user named in their own configuration, and
-// it says nothing about either — so a user whose `runtime.services` and
+// it says nothing about either, so a user whose `runtime.services` and
 // `runtime.compose_files` have drifted apart is sent to look at their
 // application's Compose files, where nothing is wrong.
 //
-// Found by dogfooding: switching one repository's compose_files to a file that
-// defines its production service, while its `services` still named the
-// development one, produced exactly that (ADR-065 evidence 14). `feat doctor`
-// reports the same mismatch per repository; this is the same question asked at
-// the moment the services are addressed, when it is the reason nothing started.
+// Switching one repository's compose_files to a file that defines its production
+// service, while its `services` still named the development one, produced exactly
+// that (ADR-065 evidence 14). `feat doctor` reports the same mismatch per
+// repository, and this asks it at the moment the services are addressed.
 //
 // It refuses before the override is written, so a create that is rejected does
 // not leave behind a document naming a service nothing defines.
@@ -257,7 +247,7 @@ func names(values []string) string {
 //
 // It names no services, so it stops the whole of this task's Compose project.
 // Naming the managed ones stopped exactly the containers Feat asked Compose for
-// and left the ones Compose started to satisfy them — a database still running,
+// and left the ones Compose started to satisfy them: a database still running,
 // still holding its published port, invisible to every status Feat printed, and
 // stopped by nothing short of a destroy (ADR-034 evidence 12).
 func (r *Runtime) Stop(ctx context.Context) (runtime.State, error) {
@@ -274,8 +264,7 @@ func (r *Runtime) Stop(ctx context.Context) (runtime.State, error) {
 
 // Destroy removes the containers and networks of this task's Compose project.
 //
-// Three things it deliberately does not do, and each is a rule rather than an
-// omission:
+// Three things it deliberately does not do:
 //
 //   - no --volumes, so every volume survives. Volumes are retained by default
 //     and removing one is a choice cleanup asks for explicitly (FR-CLEAN-004);
@@ -317,9 +306,9 @@ func (r *Runtime) Destroy(ctx context.Context) (runtime.State, error) {
 // Feat does not aggregate, persist, or re-render them (FR-RUN-006). The client
 // runs this with its own terminal, exactly as it runs native tmux for attach.
 //
-// The whole project, for the reason Stop takes it: the log a user needs when a
-// managed service will not start is usually the one written by the service it
-// waits for.
+// It covers the whole project, for the reason Stop does: the log a user needs
+// when a managed service will not start is usually the one written by the service
+// it waits for.
 func (r *Runtime) Logs(_ context.Context) (runtime.Invocation, error) {
 	return r.invoke("logs", "--follow"), nil
 }
@@ -343,14 +332,13 @@ func (r *Runtime) services(arguments ...string) []string {
 // the project holds more services than the project file names. Every one of them
 // needs its container_name reset and its ownership labels, or the base file's
 // fixed name is global to the Docker daemon again and the second task to start
-// collides with the first — which is the one thing a per-task Compose project
-// exists to prevent.
+// collides with the first.
 //
 // It reads names and nothing else. `docker compose config` renders the whole
 // project including the values of its environment files, which Feat never reads;
-// --services prints one service name per line. The generated override is left
-// out of the file list on purpose, so that a stale one cannot reintroduce a
-// service the project has since removed.
+// --services prints one service name per line. The generated override is left out
+// of the file list, so that a stale one cannot reintroduce a service the project
+// has since removed.
 func (r *Runtime) defined(ctx context.Context) ([]string, error) {
 	output, err := r.runner.Run(ctx, r.compose(false, "config", "--services"))
 	if err != nil {

@@ -12,7 +12,7 @@ import (
 // Bounds on one publication draft.
 //
 // They are narrower than the envelope's own limit because what they bound is
-// prose bound for somebody else's server: a title becomes a line in a merge
+// prose meant for somebody else's server: a title becomes a line in a merge
 // request list, and a description becomes a page somebody reads. A draft over
 // either bound is refused rather than truncated, because a description cut in
 // half is still sent and still reads as the agent's account.
@@ -32,17 +32,15 @@ const (
 // repository.
 //
 // It is an account rather than an action, which is why it requires no
-// capability: it asks Feat for nothing. What it carries is the one part of a
-// publication the agent is the only one who knows — the words describing what
-// it did — and the host composes the request from those words together with
-// what Feat already knows: the remote, the base branch, and the task
-// (ADR-070).
+// capability. It carries the one part of a publication only the agent knows, the
+// words describing what it did, and the host composes the request from those
+// words together with the remote, the base branch, and the task (ADR-070).
 //
 // Nothing here is sent anywhere on the strength of the agent having written it.
 // The description can carry whatever the agent read, including text injected
 // through a dependency or an issue body, so a user reading it before it is sent
-// is the control that exists; this type's validation is a bound on shape and
-// size and is never a judgement about content.
+// is the control that exists. This type's validation bounds shape and size and
+// never judges content.
 type PublicationDraft struct {
 	// Repositories are the per-repository drafts, in the order the agent wrote
 	// them.
@@ -61,19 +59,18 @@ type RepositoryDraft struct {
 	Body string `json:"body"`
 	// Commit is the commit this draft describes.
 	//
-	// It is carried by the draft rather than deduced later because the draft
+	// It is carried by the draft rather than deduced later, because the draft
 	// and the review request are separate messages and two messages can drift.
 	// A draft describing a commit that is no longer current is refused rather
-	// than published, as a confirmation fingerprint refuses a draft that
-	// changed after it was displayed (ADR-070, ADR-031).
+	// than published, as a confirmation fingerprint refuses a draft that changed
+	// after it was displayed (ADR-070, ADR-031).
 	Commit string `json:"commit"`
 }
 
-// commitPattern is a full object name, which is what a draft names.
-//
-// An abbreviation is refused rather than resolved: resolving one would mean
-// asking Git what the agent meant, and the point of the field is that the draft
-// says which commit it describes.
+// commitPattern is a full object name, which is what a draft names. An
+// abbreviation is refused rather than resolved: resolving one would mean asking
+// Git what the agent meant, and the field exists so the draft says which commit
+// it describes.
 var commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // Repository returns the draft written for one repository.
@@ -93,9 +90,9 @@ func (d PublicationDraft) Repository(id domain.RepositoryID) (RepositoryDraft, b
 // own document and only its adapter knows what is in it, while a draft is a
 // document this protocol defines and every provider writes the same one.
 //
-// A payload this refuses is the agent's mistake and is settled as refused, so
-// the returned error is a *RejectionError: the agent is told once, and the
-// message is neither applied nor offered again.
+// A payload this refuses is the agent's mistake and is settled as refused, so the
+// returned error is a *RejectionError: the agent is told once, and the message is
+// neither applied nor offered again.
 func DecodePublicationDraft(message Message) (PublicationDraft, error) {
 	if message.Type != TypePublicationDraft {
 		return PublicationDraft{}, &RejectionError{

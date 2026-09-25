@@ -84,8 +84,8 @@ func TestTheIncludeCarriesEachRepositorysOwnDirectory(t *testing.T) {
 // Every command names the include document, and a status of a runtime nothing
 // has created is the first one they run. A document written only when something
 // is created would answer "what is running?" with a Compose error about a file
-// Feat generates — which is the defect ADR-034 recorded for the generated
-// override, arriving one document over.
+// Feat generates, which is the defect ADR-034 recorded for the generated
+// override.
 func TestTheIncludeIsThereBeforeAnythingIsCreated(t *testing.T) {
 	docker := runtimetest.New()
 	_, spec := arrange(t, docker)

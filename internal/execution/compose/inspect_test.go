@@ -13,12 +13,10 @@ import (
 )
 
 // TestADockerSocketIsRefused is acceptance criterion 4 at the layer that can
-// state it narrowly.
-//
-// A container holding a Docker socket controls the host's Docker daemon and
-// therefore the host, whatever the project's declared capabilities say. The
-// check reads the running container rather than the configuration, so it is
-// evidence about what exists rather than a claim about what was asked for.
+// state it narrowly. A container holding a Docker socket controls the host's
+// Docker daemon and therefore the host, whatever the project's declared
+// capabilities say. The check reads the running container rather than the
+// configuration, so it is evidence about what exists.
 func TestADockerSocketIsRefused(t *testing.T) {
 	for name, mount := range map[string]execution.ObservedMount{
 		"the usual path": {
@@ -69,12 +67,10 @@ func TestADockerSocketIsRefused(t *testing.T) {
 }
 
 // TestAnOrdinaryCheckoutMountIsRefused is ADR-033 evidence 1 at the layer that
-// can prove it.
-//
-// This is the failure the reference project would have hit: the devcontainer's
-// own Compose file mounts the user's checkouts, and a container_path that
-// disagrees with it adds the task worktree beside them rather than replacing
-// them. Nothing about the task would look wrong afterwards.
+// can prove it. This is the failure the reference project would have hit: the
+// devcontainer's own Compose file mounts the user's checkouts, and a
+// container_path that disagrees with it adds the task worktree beside them rather
+// than replacing them. Nothing about the task would look wrong afterwards.
 func TestAnOrdinaryCheckoutMountIsRefused(t *testing.T) {
 	for name, mount := range map[string]execution.ObservedMount{
 		"the checkout itself": {
@@ -109,13 +105,12 @@ func TestAnOrdinaryCheckoutMountIsRefused(t *testing.T) {
 // TestFeatsOwnDirectoriesAreRefused is the rule CLAUDE.md states by hand: no
 // daemon or runtime-control socket reaches the agent's container.
 //
-// Feat mounts none of these directories, and until now nothing refused a project
-// that did. The consequence is larger than a Docker socket's. The runtime
-// directory holds the tmux control socket, so `tmux -S … new-window` inside the
-// container starts a command on the host outside it, and the daemon's own socket
-// beside it launches, controls, and cleans up every task on the machine. The
-// state directory and the home directory are the same absence for what the
-// security model says Feat must not mount by default.
+// The consequence is larger than a Docker socket's. The runtime directory holds
+// the tmux control socket, so `tmux -S … new-window` inside the container starts
+// a command on the host outside it, and the daemon's own socket beside it
+// launches, controls, and cleans up every task on the machine. The state
+// directory and the home directory are what the security model says Feat must
+// not mount by default.
 func TestFeatsOwnDirectoriesAreRefused(t *testing.T) {
 	environment, spec := arrange(t, composetest.New())
 	home := forbiddenPath(t, spec, execution.ForbiddenHome)
@@ -204,14 +199,13 @@ func forbiddenPath(t *testing.T, spec execution.Spec, kind execution.ForbiddenKi
 	return ""
 }
 
-// TestAReadOnlyMountThatIsWritableIsRefused is invariant 6 asked of the
-// container rather than of the document Feat generated.
+// TestAReadOnlyMountThatIsWritableIsRefused is invariant 6 asked of the container
+// rather than of the document Feat generated.
 //
 // read_only: true in the generated override is a request. Compose merges a
-// service's volumes by target, so what a path ends up being depends on every
-// file in the project: a volumes_from copies another service's bindings, and an
-// override applied after Feat's replaces them. The evidence was already being
-// decoded from `docker inspect` and read by nobody.
+// service's volumes by target, so what a path ends up being depends on every file
+// in the project: a volumes_from copies another service's bindings, and an
+// override applied after Feat's replaces them.
 func TestAReadOnlyMountThatIsWritableIsRefused(t *testing.T) {
 	environment, _ := arrange(t, composetest.New())
 
@@ -251,11 +245,9 @@ func TestAReadOnlyVolumeThatIsWritableIsRefused(t *testing.T) {
 }
 
 // TestTheTasksOwnMountsAreAccepted keeps the two refusals above from being
-// satisfied by refusing everything.
-//
-// A check that rejects the correct configuration is not a stricter check; it is
-// a broken one, and it would be invisible in a suite that only ever asserts
-// refusals.
+// satisfied by refusing everything. A check that rejects the correct
+// configuration is broken rather than stricter, and it would be invisible in a
+// suite that only ever asserts refusals.
 func TestTheTasksOwnMountsAreAccepted(t *testing.T) {
 	environment, spec := arrange(t, composetest.New())
 	home := forbiddenPath(t, spec, execution.ForbiddenHome)
@@ -307,13 +299,11 @@ func TestEveryProblemMountIsReportedAtOnce(t *testing.T) {
 	}
 }
 
-// TestMountsAreReadFromTheContainerRatherThanTheConfiguration pins which
-// command answers the question.
-//
-// `docker compose config` renders the project including the values of the
-// project's environment files, which Feat must never read (ADR-028). A test
-// that only checked the outcome would not notice the day somebody switched to
-// the more convenient command.
+// TestMountsAreReadFromTheContainerRatherThanTheConfiguration pins which command
+// answers the question. `docker compose config` renders the project including the
+// values of the project's environment files, which Feat must never read
+// (ADR-028). A test that only checked the outcome would not notice the day
+// somebody switched to the more convenient command.
 func TestMountsAreReadFromTheContainerRatherThanTheConfiguration(t *testing.T) {
 	docker := composetest.New().
 		Answer("inspect --type container --format {{json .Mounts}} c0ffee",
@@ -335,18 +325,16 @@ func TestMountsAreReadFromTheContainerRatherThanTheConfiguration(t *testing.T) {
 	}
 }
 
-// TestABindBackedVolumeIsRefusedWhereItsBindWouldBe is G7-01: the rules are
-// about what a mount reaches rather than about what the runtime calls it.
+// TestABindBackedVolumeIsRefusedWhereItsBindWouldBe is G7-01: the rules are about
+// what a mount reaches rather than about what the runtime calls it.
 //
-// `driver_opts: {type: none, device: /var/run, o: bind}` on a local volume
-// makes an ordinary bind wearing a volume's name. Measured on 2026-08-19,
-// Docker reports it as {Type: "volume", Source:
-// "/var/lib/docker/volumes/<name>/_data"} — the volume's own mountpoint, and
-// never the device — so a rule that compared the reported source compared a
-// path under the runtime's own directory against the forbidden list and found
-// nothing. Every rule below refuses the plain spelling of the same mount, which
-// made this one YAML indirection around all of them, and the Docker socket the
-// one at the end of it.
+// `driver_opts: {type: none, device: /var/run, o: bind}` on a local volume makes
+// an ordinary bind wearing a volume's name. Docker reports it as {Type: "volume",
+// Source: "/var/lib/docker/volumes/<name>/_data"} — the volume's own mountpoint,
+// never the device (measured 2026-08-19) — so a rule that compared the reported
+// source would compare a path under the runtime's own directory against the
+// forbidden list and find nothing. Every rule below refuses the plain spelling of
+// the same mount, which made this one YAML indirection around all of them.
 func TestABindBackedVolumeIsRefusedWhereItsBindWouldBe(t *testing.T) {
 	environment, spec := arrange(t, composetest.New())
 
@@ -388,12 +376,10 @@ func TestABindBackedVolumeIsRefusedWhereItsBindWouldBe(t *testing.T) {
 }
 
 // TestAnOrdinaryNamedVolumeIsStillAccepted keeps the rule above from being
-// satisfied by refusing every volume.
-//
-// A named volume the runtime backs itself is a category docs/05 blesses, and
-// Feat mounts one of its own. A device that is not a path on this host — an NFS
-// export, a CIFS share — reaches no host path either, and refusing it would
-// name a host path that does not exist.
+// satisfied by refusing every volume. A named volume the runtime backs itself is
+// a category docs/05 blesses, and Feat mounts one of its own. A device that is
+// not a path on this host — an NFS export, a CIFS share — reaches no host path
+// either, and refusing it would name a host path that does not exist.
 func TestAnOrdinaryNamedVolumeIsStillAccepted(t *testing.T) {
 	environment, _ := arrange(t, composetest.New())
 
@@ -419,12 +405,10 @@ func TestAnOrdinaryNamedVolumeIsStillAccepted(t *testing.T) {
 	}
 }
 
-// TestTheDeviceOfAMountedVolumeIsRead pins the question that makes the rule
-// above answerable.
-//
-// The device is not in `docker inspect`'s mount record at any format string:
-// the volume has to be asked about itself. A check that read only the container
-// would have nothing to compare, which is the whole of G7-01.
+// TestTheDeviceOfAMountedVolumeIsRead pins the question that makes the rule above
+// answerable. The device is not in `docker inspect`'s mount record at any format
+// string: the volume has to be asked about itself. A check that read only the
+// container would have nothing to compare, which is the whole of G7-01.
 func TestTheDeviceOfAMountedVolumeIsRead(t *testing.T) {
 	docker := composetest.New().
 		Inspect("c0ffee", "Mounts", `[{"Type":"volume","Name":"hostrun",`+
@@ -449,10 +433,9 @@ func TestTheDeviceOfAMountedVolumeIsRead(t *testing.T) {
 }
 
 // TestAVolumeThatCannotBeReadStopsTheLaunch keeps an unanswerable question from
-// being read as a reassuring answer.
-//
-// The conservative direction is the same one an unreadable identity takes: a
-// volume Feat could not resolve is a volume that might be a bind onto anything.
+// being read as a reassuring answer. The conservative direction is the one an
+// unreadable identity takes: a volume Feat could not resolve is a volume that
+// might be a bind onto anything.
 func TestAVolumeThatCannotBeReadStopsTheLaunch(t *testing.T) {
 	docker := composetest.New().
 		Inspect("c0ffee", "Mounts", `[{"Type":"volume","Name":"hostrun",`+
@@ -470,12 +453,10 @@ func TestAVolumeThatCannotBeReadStopsTheLaunch(t *testing.T) {
 	}
 }
 
-// TestANetworkVolumeIsNotTreatedAsAHostPath keeps the device rule from reading
-// a remote address as a path on this machine.
-//
-// `device` belongs to the driver: for nfs it is ":/export" and for cifs it is
-// "//server/share". Neither reaches this host, and a refusal naming "/server"
-// would be one nobody could act on.
+// TestANetworkVolumeIsNotTreatedAsAHostPath keeps the device rule from reading a
+// remote address as a path on this machine. `device` belongs to the driver: for
+// nfs it is ":/export" and for cifs it is "//server/share". Neither reaches this
+// host, and a refusal naming "/server" would be one nobody could act on.
 func TestANetworkVolumeIsNotTreatedAsAHostPath(t *testing.T) {
 	for name, options := range map[string]map[string]string{
 		"an NFS export": {"type": "nfs", "o": "addr=198.51.100.9,rw", "device": ":/export/data"},
@@ -502,14 +483,13 @@ func TestANetworkVolumeIsNotTreatedAsAHostPath(t *testing.T) {
 	}
 }
 
-// TestARootlessRuntimeDirectoryIsRefused is G4-05: the case
-// runtimeSocketNames' own comment says the known paths cannot enumerate.
+// TestARootlessRuntimeDirectoryIsRefused is G4-05: the case the known socket
+// paths cannot enumerate.
 //
 // A rootless daemon puts its socket under /run/user/<uid>, where the uid is the
 // user's own, so no fixed path names it. `- /run/user/1000/docker.sock:/x` is
 // caught by the name rule and `- /run/user/1000:/run/user/1000` was caught by
-// nothing: the containment test compares against the seven known paths, and
-// this is not one of them.
+// nothing, because the containment test compares against the seven known paths.
 func TestARootlessRuntimeDirectoryIsRefused(t *testing.T) {
 	environment, _ := arrange(t, composetest.New())
 
@@ -546,14 +526,12 @@ func TestARootlessRuntimeDirectoryIsRefused(t *testing.T) {
 	}
 }
 
-// TestAMountLandingOnAKnownSocketPathIsRefused is the destination half of
-// G4-05.
+// TestAMountLandingOnAKnownSocketPathIsRefused is the destination half of G4-05.
 //
 // Containment was tested on the source alone. Feat cannot see what a host
-// directory holds, so a directory mounted *at* /var/run puts whatever socket is
-// inside it exactly where the container's own client looks — and the source
-// path gives nothing to compare, because a socket at an unenumerable host path
-// is what the seven known paths cannot cover.
+// directory holds, so a directory mounted at /var/run puts whatever socket is
+// inside it exactly where the container's own client looks, and the source path
+// gives nothing to compare.
 func TestAMountLandingOnAKnownSocketPathIsRefused(t *testing.T) {
 	environment, _ := arrange(t, composetest.New())
 
@@ -568,12 +546,10 @@ func TestAMountLandingOnAKnownSocketPathIsRefused(t *testing.T) {
 	}
 }
 
-// TestARunOfTheMillDirectoryUnderTheRuntimeDirectoryIsAccepted keeps the
-// rootless rule from refusing what it has no reason to.
-//
-// The per-user runtime directory holds a session bus and a keyring as well as a
-// daemon socket. A rule that refused every path under it would refuse them with
-// no way out, which is the false positive a user learns to ignore checks over.
+// TestARunOfTheMillDirectoryUnderTheRuntimeDirectoryIsAccepted keeps the rootless
+// rule from refusing what it has no reason to. The per-user runtime directory
+// holds a session bus and a keyring as well as a daemon socket, and a rule that
+// refused every path under it would refuse them with no way out.
 func TestARunOfTheMillDirectoryUnderTheRuntimeDirectoryIsAccepted(t *testing.T) {
 	environment, _ := arrange(t, composetest.New())
 
@@ -585,14 +561,13 @@ func TestARunOfTheMillDirectoryUnderTheRuntimeDirectoryIsAccepted(t *testing.T) 
 	}
 }
 
-// TestAMountWithNothingOfThisHostBehindItIsAccepted keeps the two rules that
-// read a destination from firing on a mount that reaches no host path.
+// TestAMountWithNothingOfThisHostBehindItIsAccepted keeps the two rules that read
+// a destination from firing on a mount that reaches no host path.
 //
 // A tmpfs at /run is how a devcontainer that runs systemd is written, and a
 // volume the runtime backs itself holds nothing of this machine's. Neither can
 // put the host's daemon socket where a client would find it, whatever it is
-// mounted over, and refusing them would refuse an ordinary image for a rule
-// about paths it does not have.
+// mounted over.
 func TestAMountWithNothingOfThisHostBehindItIsAccepted(t *testing.T) {
 	environment, _ := arrange(t, composetest.New())
 

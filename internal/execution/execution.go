@@ -11,16 +11,8 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 )
 
-// Environment is one place an agent can run.
-//
-// The five methods are the contract in docs/06-technical-architecture.md, with
-// the three amendments ADR-033 records: Command returns an argument vector
-// rather than an *exec.Cmd, because the terminal backend constructs the
-// process; Run exists because validation asks an environment questions rather
-// than attaching a terminal to it; and Shell is folded into Command, because the
-// daemon already decides what a task shell is. Destroy belongs to cleanup,
-// which owns what is retained and what needs confirming.
-//
+// Environment is one place an agent can run. The methods are the contract in
+// docs/06-technical-architecture.md, with the three amendments ADR-033 records.
 // No method exposes an implementation type, so host-native execution can be
 // added without changing a caller (ADR-024).
 type Environment interface {
@@ -51,11 +43,9 @@ type Environment interface {
 	// Warnings reports what an environment grants that a launch will not refuse
 	// over, in the words a person needs to decide whether they meant it.
 	//
-	// It is separate from Check because the two answers are different: a refusal
-	// says a rule was broken, and a warning says a rule holds only because
-	// nobody has asked otherwise. Refusing these would fail launches a project
-	// deliberately configured; leaving them unsaid is how a requirement becomes
-	// a formality nobody notices has lapsed.
+	// Refusing these would fail launches a project configured deliberately, and
+	// saying nothing would let a requirement lapse unnoticed. Check answers the
+	// other question: which grant breaks a rule.
 	Warnings(report Report) []string
 	// Stop stops the containers of this environment and keeps them, so that a
 	// resume can start the same containers again. It removes nothing.
@@ -66,26 +56,21 @@ type Environment interface {
 	// Volumes lists the named volumes this environment owns. A volume the
 	// project declares external is not one of them.
 	Volumes(ctx context.Context) ([]string, error)
-	// RemoveVolumes removes the named volumes and reports which were removed.
-	//
-	// It is a separate method rather than a flag on Destroy, so that "volumes
-	// are retained by default" is the shape of this interface rather than an
-	// argument somebody can pass wrongly (FR-CLEAN-004, ADR-037).
+	// RemoveVolumes removes the named volumes and reports which were removed. It
+	// is a separate method rather than a flag on Destroy, so that retaining
+	// volumes by default is the shape of this interface rather than an argument
+	// somebody can pass wrongly (FR-CLEAN-004, ADR-037).
 	RemoveVolumes(ctx context.Context, names []string) ([]string, error)
 }
 
 // ErrNotInEnvironment reports an executable the agent's environment does not
-// have.
-//
-// It is a distinct error because the remedy is distinct: an absent tool is
+// have. It is a distinct error because the remedy is distinct: an absent tool is
 // installed in the image, while a failing one is configured or logged in to.
 var ErrNotInEnvironment = errors.New("not installed in the agent's environment")
 
-// Report is what a prepared environment turned out to be.
-//
-// It is evidence rather than judgement: Inspect gathers it and Check decides
-// what is unacceptable, so `feat doctor` can show the same facts that a launch
-// refuses over.
+// Report is what a prepared environment turned out to be. It is evidence rather
+// than judgement: Inspect gathers it and Check decides what is unacceptable, so
+// `feat doctor` can show the same facts that a launch refuses over.
 type Report struct {
 	// Container identifies what was inspected, when the environment has such a
 	// thing.
@@ -103,10 +88,8 @@ type Report struct {
 	// would be answered by removing the first.
 	DockerClients []string
 	// DockerVariables names the environment entries inside the environment that
-	// point a client at a container daemon.
-	//
-	// Names only. A value can carry a host, a port, and a path, and what a
-	// refusal has to say is which entry to remove.
+	// point a client at a container daemon. Names only: a value can carry a host,
+	// a port, and a path, and what a refusal has to say is which entry to remove.
 	DockerVariables []string
 	// Mounts are the environment's observed bindings.
 	Mounts []ObservedMount
@@ -115,22 +98,18 @@ type Report struct {
 	// runtime's defaults, which namespaces it shares with the host, and which
 	// host devices it holds.
 	//
-	// A mount check reads what the container can reach through the filesystem.
-	// This is what it can reach around it: a container with CAP_SYS_ADMIN
-	// remounts a read-only mount read-write, and one on the host's network
-	// namespace reaches a daemon listening on the host's own loopback with
-	// nothing mounted and no variable set.
+	// A mount check reads what the container reaches through the filesystem, and
+	// this is what it reaches around it. A container with CAP_SYS_ADMIN remounts
+	// a read-only mount read-write, and one on the host's network namespace
+	// reaches a daemon on the host's loopback with nothing mounted.
 	Privileges ObservedPrivileges
 	// Escalation names the executables inside the environment that hand the
 	// agent back the privilege it was started without, empty when there are
 	// none.
 	//
-	// UID answers what the agent starts as, which is a fact about an instant. A
-	// session can be longer than an instant: an image that installs a tool
-	// granting passwordless root passes the non-root requirement and the agent
-	// is root a command later. It is a list for the reason DockerClients is one
-	// — an image can carry more than one, and naming the first would be answered
-	// by removing the first.
+	// UID answers only what the agent starts as. An image that installs a tool
+	// granting passwordless root passes the non-root requirement, and the agent
+	// is root a command later. It is a list for the reason DockerClients is one.
 	Escalation []string
 	// MissingTools are the executables the generated hooks need and the
 	// environment does not have.
@@ -140,31 +119,25 @@ type Report struct {
 	Unwritable map[string]string
 }
 
-// ObservedMount is one binding an environment turned out to have.
-//
-// It is separate from Mount, which is what Feat asked for: a record of a request
-// and a record of what exists are different things, and conflating them is how a
-// container ends up trusted for mounts nobody checked.
+// ObservedMount is one binding an environment turned out to have. It is separate
+// from Mount, which is what Feat asked for: a container trusted for the mounts
+// Feat requested would never be checked for the ones it has.
 type ObservedMount struct {
 	// Type is the kind of mount, such as a bind or a named volume.
 	Type string
 	// Name is the volume name, for a named volume.
 	Name string
-	// Source is where it comes from on the host.
-	//
-	// For a named volume this is the volume's own storage rather than a path
-	// the project wrote: a local volume lives under the container runtime's
-	// directory whatever it is a window onto. Device is the field that says
-	// what it is a window onto.
+	// Source is where it comes from on the host. For a named volume this is the
+	// volume's own storage under the container runtime's directory rather than a
+	// path the project wrote, and Device says what that storage is a window onto.
 	Source string
 	// Device is the host path a named volume is backed by, when its driver
 	// options name one, and empty for every other mount.
 	//
 	// A local volume declared with driver_opts {type: none, device: /var/run,
-	// o: bind} is an ordinary bind wearing a volume's name: the container
-	// reaches the host path, and the runtime reports the volume's own
-	// mountpoint as its source. Reading it is the difference between checking
-	// what a mount is called and checking what it reaches.
+	// o: bind} is an ordinary bind wearing a volume's name: the container reaches
+	// the host path, and the runtime reports the volume's own mountpoint as its
+	// source. A check that read only Source would miss it.
 	Device string
 	// Destination is where it appears inside the environment.
 	Destination string
@@ -173,12 +146,9 @@ type ObservedMount struct {
 }
 
 // HostPath is where a mount comes from on the host, as a rule about host paths
-// must read it.
-//
-// A bind is its source. A named volume is the device its driver options name,
-// which is empty for the ordinary case and a host path for a bind-backed one.
-// Everything else — tmpfs, a volume with no device — reaches no host path at
-// all and is empty.
+// must read it. A bind is its source, and a named volume is the device its
+// driver options name. Everything else — tmpfs, a volume with no device —
+// reaches no host path and is empty.
 func (m ObservedMount) HostPath() string {
 	if m.Device != "" {
 		return m.Device
@@ -190,12 +160,9 @@ func (m ObservedMount) HostPath() string {
 }
 
 // Describe names a mount the way a refusal has to, so that a reader can find it
-// in their own Compose files.
-//
-// A bind is named by the path they wrote. A volume is named by the name they
-// wrote, and by the host path it is backed by when it has one: neither on its
-// own is enough, because the name is what appears in their file and the device
-// is what makes it a problem.
+// in their own Compose files. A volume needs both its name and its backing host
+// path: the name is what appears in their file, and the device is what makes it
+// a problem.
 func (m ObservedMount) Describe() string {
 	if m.Type != "volume" || m.Name == "" {
 		return m.Source
@@ -207,16 +174,12 @@ func (m ObservedMount) Describe() string {
 }
 
 // ObservedPrivileges is what an environment turned out to be granted beyond its
-// mounts.
-//
-// It is evidence rather than judgement, as the rest of Report is: the adapter
-// reads what the container runtime says it granted, and Check decides which of
-// those grants means an agent must not be started here.
+// mounts. It is evidence rather than judgement, as the rest of Report is: the
+// adapter reads what the container runtime granted, and Check decides which
+// grant means an agent must not be started here.
 type ObservedPrivileges struct {
-	// Known reports whether the grants could be read at all.
-	//
-	// An unread configuration is never treated as an empty one, for the reason
-	// an unread identity is never treated as a non-root answer: the assumption
+	// Known reports whether the grants could be read at all. An unread
+	// configuration is never treated as an empty one, because that assumption
 	// would let exactly the container this check exists for through.
 	Known bool
 	// Privileged reports whether the container runs privileged, which grants
@@ -238,10 +201,10 @@ type ObservedPrivileges struct {
 	// SecurityOptions are the confinement entries the container was given, split
 	// into the option and what it was set to.
 	//
-	// A capability is a name to compare and this is not: an entry either switches
-	// off a restriction the runtime applies to every container, or replaces it
-	// with a policy. Which of those it is decides whether a launch refuses it or
-	// says it found it, so both halves are carried and neither is judged here.
+	// An entry either switches off a restriction the runtime applies to every
+	// container, or replaces it with a policy. Which of the two it is decides
+	// whether a launch refuses it or reports it, so both halves are carried and
+	// neither is judged here.
 	SecurityOptions []SecurityOption
 	// MaskedPaths and ReadOnlyPaths are the kernel interfaces the runtime hides
 	// from the container and the ones it mounts read-only.
@@ -250,8 +213,7 @@ type ObservedPrivileges struct {
 	// `security_opt: systempaths=unconfined` does not appear among the options
 	// above, because the daemon consumes it into these two lists being empty
 	// (measured, ADR-067). /proc/kcore is the host's physical memory and
-	// /proc/sysrq-trigger reboots the machine, so what is in these lists is the
-	// difference between a root process in the container and this host.
+	// /proc/sysrq-trigger reboots the machine.
 	MaskedPaths   []string
 	ReadOnlyPaths []string
 }
@@ -261,21 +223,17 @@ type SecurityOption struct {
 	// Name is the option, lowercased: seccomp, apparmor, label,
 	// no-new-privileges, or whatever a later runtime adds.
 	Name string
-	// Value is what it was set to, verbatim and unread.
-	//
-	// It is not always a word. A container started from a profile file reports
-	// the whole profile here — `seccomp={"defaultAction":"SCMP_ACT_ALLOW"}` —
-	// because the client sends the contents rather than the path (measured,
-	// ADR-067). Describe is what a message prints; nothing prints this.
+	// Value is what it was set to, verbatim and unread. A container started from
+	// a profile file reports the whole profile here, because the client sends
+	// the contents rather than the path (measured, ADR-067). Messages print
+	// Describe instead.
 	Value string
 }
 
 // Describe names an option the way a message has to, and never prints a policy.
-//
-// What a reader has to find is the entry in their own Compose file, which is the
-// option and, when it is a word, what it was set to. A profile is neither: it
-// arrives whole, it is the thing Feat did not evaluate, and printing it would
-// bury the sentence that says so under somebody's syscall list.
+// A reader needs the entry in their own Compose file, which is the option and,
+// when it is a word, what it was set to. Printing a whole profile would bury the
+// sentence saying Feat did not evaluate it.
 func (o SecurityOption) Describe() string {
 	if o.Value == "" {
 		return o.Name
@@ -289,11 +247,10 @@ func (o SecurityOption) Describe() string {
 // Mode reports which kind of environment a specification describes.
 type Mode = domain.ExecutionMode
 
-// Spec is everything an environment needs, already resolved.
-//
-// Every value here is final. The daemon reads configuration, expands templates,
-// and resolves paths; an adapter that read configuration would duplicate a
-// vocabulary that internal/config validates (ADR-029, ADR-032, ADR-033).
+// Spec is everything an environment needs, already resolved. The daemon reads
+// configuration, expands templates, and resolves paths; an adapter that read
+// configuration would duplicate a vocabulary internal/config validates
+// (ADR-029, ADR-032, ADR-033).
 type Spec struct {
 	// Project and Task own the environment. They appear in its identity and in
 	// the labels that make it discoverable without reading stored state.
@@ -334,12 +291,9 @@ type Spec struct {
 }
 
 // ForbiddenSource is one host path a task's environment must not expose to the
-// agent.
-//
-// It carries a kind rather than a message. Which directory a path is can only be
-// answered where configuration and the layout are known, and what a container
-// did with it can only be answered once a container exists; a refusal has to say
-// both, so the daemon resolves the first and the adapter writes the second.
+// agent. It carries a kind rather than a message, because a refusal has to say
+// which directory the path is and what the container did with it: the daemon
+// knows the first, and only the adapter can see the second.
 type ForbiddenSource struct {
 	// Path is the absolute host path.
 	Path string
@@ -347,12 +301,10 @@ type ForbiddenSource struct {
 	Kind ForbiddenKind
 }
 
-// ForbiddenKind names a category of host path that must not reach an agent.
-//
-// Each is one of the things docs/05-security-model.md forbids, and each is
-// checked against the container that exists rather than against the
-// specification Feat generated: what Feat asked for and what a project's own
-// Compose files produced are different records (CLAUDE.md architectural rules).
+// ForbiddenKind names a category of host path that must not reach an agent. Each
+// is one of the things docs/05-security-model.md forbids, and each is checked
+// against the container that exists rather than the specification Feat generated
+// (CLAUDE.md architectural rules).
 type ForbiddenKind string
 
 // The categories of forbidden host path.
@@ -363,10 +315,10 @@ const (
 	// ForbiddenStableCheckout is the checkout of a repository the project keeps
 	// stable and read-only, which this task did not promote.
 	//
-	// It is the one kind Feat mounts itself, so it is forbidden everywhere
-	// except at the target Feat mounts it at: the project declared that the
-	// agent reads that repository from the checkout, and did not declare a
-	// second, writable path to it.
+	// It is the one kind Feat mounts itself, so it is forbidden everywhere except
+	// at the target Feat mounts it at. The project declared that the agent reads
+	// that repository from the checkout, and declared no second writable path to
+	// it.
 	ForbiddenStableCheckout ForbiddenKind = "stable_checkout"
 	// ForbiddenRuntime is Feat's own runtime directory.
 	ForbiddenRuntime ForbiddenKind = "runtime"
@@ -376,11 +328,10 @@ const (
 	ForbiddenHome ForbiddenKind = "home"
 )
 
-// Describe says what a kind of path is, in the user's terms.
-//
-// It is one sentence fragment, shared by the specification check and by the
-// adapter that reads a running container, so that a launch refused before
-// anything was created and a launch refused after both name the same thing.
+// Describe says what a kind of path is, in the user's terms. The specification
+// check and the adapter that reads a running container share it, so a launch
+// refused before anything was created and one refused afterwards name the same
+// thing.
 func (k ForbiddenKind) Describe() string {
 	switch k {
 	case ForbiddenCheckout:
@@ -420,10 +371,9 @@ type Volume struct {
 	ReadOnly bool
 }
 
-// Command is one thing to run inside an environment.
-//
-// It is an argument vector rather than a string, so nothing is handed to a
-// shell to re-split (CLAUDE.md architectural rules).
+// Command is one thing to run inside an environment. It is an argument vector
+// rather than a string, so nothing is handed to a shell to re-split (CLAUDE.md
+// architectural rules).
 type Command struct {
 	// Program is the executable, as the environment resolves it.
 	Program string
@@ -460,11 +410,9 @@ type Output struct {
 // Succeeded reports whether the command exited cleanly.
 func (o Output) Succeeded() bool { return o.ExitCode == 0 }
 
-// State is what an environment looks like now.
-//
-// Every field is an observation. Nothing here is assumed from the specification
-// that created the environment, because a record of what Feat asked for is not a
-// record of what exists (CLAUDE.md architectural rules).
+// State is what an environment looks like now. Every field is an observation,
+// and nothing is assumed from the specification that created the environment
+// (CLAUDE.md architectural rules).
 type State struct {
 	// Present reports whether the environment exists at all.
 	Present bool
@@ -479,11 +427,9 @@ type State struct {
 	Health domain.HealthState
 }
 
-// Validate reports whether the specification can be used.
-//
-// It is deliberately strict about paths and identity. Everything here ends up
-// in a command that creates containers and mounts the user's filesystem, and a
-// value that is wrong in a way nobody checked becomes a mount nobody intended.
+// Validate reports whether the specification can be used. It is strict about
+// paths and identity, because these values reach a command that creates
+// containers and mounts the user's filesystem.
 func (s Spec) Validate() error {
 	if err := s.Project.Validate(); err != nil {
 		return err
@@ -551,9 +497,9 @@ func (s Spec) validateMounts() error {
 				continue
 			}
 			if forbidden.Kind == ForbiddenStableCheckout {
-				// The one kind Feat mounts itself, which is what this loop is
-				// checking. Whether the container ends up with a second mount of
-				// it is a question about the container, and CheckMounts asks it.
+				// The one kind Feat mounts itself. Whether the container ends up
+				// with a second mount of it is a question about the container,
+				// and CheckMounts asks it.
 				continue
 			}
 			if forbidden.Kind == ForbiddenCheckout {
@@ -607,11 +553,9 @@ func (c Command) Validate() error {
 	return sortedVariables(c.Variables).validate()
 }
 
-// sortedVariables renders a variable map in a fixed order.
-//
-// Environment entries reach an argument vector, and a map's iteration order does
-// not repeat. Sorting makes a generated command the same command every time,
-// which is what lets a test pin one.
+// sortedVariables renders a variable map in a fixed order. Environment entries
+// reach an argument vector and a map's iteration order does not repeat, so
+// sorting makes a generated command the same command every time.
 type sortedVariables map[string]string
 
 func (v sortedVariables) validate() error {
@@ -670,12 +614,10 @@ func checkHostPath(name, value string) error {
 // this uses path rather than filepath.
 func checkAgentPath(name, value string) error { return checkHostPath(name, value) }
 
-// checkUser rejects an agent user the security model does not permit.
-//
-// Configuration already refuses root, so this is the second of the two places
-// ADR-033 checks it: this one guards a specification that was built rather than
-// parsed, and a probe inside the container checks the process that actually
-// ran.
+// checkUser rejects an agent user the security model does not permit. ADR-033
+// checks root in more than one place: configuration refuses it when parsed, this
+// guards a specification that was built rather than parsed, and a probe inside
+// the container checks the process that ran.
 func checkUser(user string) error {
 	switch user {
 	case "":

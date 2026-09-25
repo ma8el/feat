@@ -14,10 +14,10 @@ import (
 
 // Ownership labels applied to the agent's container.
 //
-// They are what makes a task's container discoverable without reading any
-// persistent state, which is how `feat doctor` finds one to probe inside
-// without a daemon and how cleanup resolves what a task owns. The schema
-// label exists so a later version can recognise a container this one created.
+// They make a task's container discoverable without reading any persistent
+// state, which is how `feat doctor` finds one to probe inside without a daemon
+// and how cleanup resolves what a task owns. The schema label exists so a later
+// version can recognise a container this one created.
 const (
 	LabelOwner   = "dev.feat.owner"
 	LabelProject = "dev.feat.project"
@@ -82,22 +82,19 @@ func writeOverride(spec execution.Spec, defined []string) error {
 // pinned by a test:
 //
 //   - every mount uses the long form, so a path containing a colon is a value
-//     rather than a syntax error waiting to happen;
+//     rather than a syntax error;
 //   - every scalar is written as a JSON string, which is a valid YAML
 //     double-quoted scalar, so no path or name can turn into YAML syntax;
 //   - container_name and ports are reset, on every service the project defines
 //     rather than on the agent's alone. Both are global — a container name to
 //     the Docker daemon, a published port to the host — so a base file carrying
-//     either could be started exactly once, and one task per machine is not the
-//     product (ADR-033).
+//     either could be started exactly once (ADR-033).
 //
-// Two kinds of service appear in it, and the difference is what Feat was asked
-// to do. The agent's own service is redirected at the task's worktrees, told
-// where to start, and labelled as this task's. A service that only appears
-// because the agent's depends on it gets the two resets and nothing else: no
-// mount, no generated variable, and no ownership label, because the project did
-// not ask Feat to run the agent in it and Feat's labels are how the agent's own
-// container is found.
+// Two kinds of service appear in it. The agent's own service is redirected at
+// the task's worktrees, told where to start, and labelled as this task's. A
+// service that only appears because the agent's depends on it gets the two
+// resets and nothing else: the project did not ask Feat to run the agent in it,
+// and Feat's labels are how the agent's own container is found.
 //
 // It is generated text and never carries a value read from an environment file,
 // because nothing that reads one ever reaches this function.
@@ -194,7 +191,7 @@ func overrideDocument(spec execution.Spec, defined []string) ([]byte, error) {
 // They are sorted, because the order Compose lists them in is the order of the
 // project's files and a generated document should be the same document every
 // time. Each name reaches the document through quote and never reaches an
-// argument vector, so there is nothing here a name could be mistaken for.
+// argument vector.
 func dependencyServices(agent string, defined []string) []string {
 	seen := map[string]bool{agent: true}
 
@@ -213,9 +210,9 @@ func dependencyServices(agent string, defined []string) []string {
 // quote renders a value as a YAML double-quoted scalar.
 //
 // YAML 1.2 is a superset of JSON and its double-quoted scalars use JSON's
-// escaping, so a JSON string is a correct YAML scalar. Doing it this way means
-// no path, name, or generated value can be read as YAML syntax, and the rule is
-// one function rather than a habit each call site has to remember.
+// escaping, so a JSON string is a correct YAML scalar. One function rather than
+// a habit each call site remembers means no path, name, or generated value can
+// be read as YAML syntax.
 func quote(value string) string {
 	encoded, err := json.Marshal(value)
 	if err != nil {

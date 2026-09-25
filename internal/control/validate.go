@@ -7,11 +7,10 @@ import (
 	"strings"
 )
 
-// messageSuffix is the extension an outbox entry must carry.
-//
-// Requiring it is what lets a writer stage a document under any other name and
-// rename it into place, and it means a stray file left in the directory by
-// something else is ignored rather than reported as a broken message.
+// messageSuffix is the extension an outbox entry must carry. Requiring it lets a
+// writer stage a document under another name and rename it into place, and it
+// means a stray file left in the directory is ignored rather than reported as a
+// broken message.
 const messageSuffix = ".json"
 
 // maxNameBytes bounds an outbox file name.
@@ -21,14 +20,14 @@ const maxNameBytes = 128
 // message.
 //
 // The security model requires path-traversal prevention and size limits on the
-// control workspace. Both are enforced here, before anything is opened: the
-// name must be a plain file name directly in the directory, the entry must be a
+// control workspace. Both are enforced here, before anything is opened: the name
+// must be a plain file name directly in the directory, the entry must be a
 // regular file rather than a symbolic link or a directory, and its size must be
 // within the bound.
 //
-// A dot-prefixed name is skipped rather than refused. That is the staging name
-// this package and the generated hooks both write before renaming, so a file
-// carrying one is a write in progress, not a message.
+// A dot-prefixed name is skipped rather than refused. It is the staging name this
+// package and the generated hooks both write before renaming, so a file carrying
+// one is a write in progress rather than a message.
 func checkEntry(entry fs.DirEntry) (skip bool, err error) {
 	name := entry.Name()
 	if strings.HasPrefix(name, ".") {
@@ -71,11 +70,10 @@ func checkEntry(entry fs.DirEntry) (skip bool, err error) {
 	return false, nil
 }
 
-// safeName reports whether a value is a plain file-name component.
-//
-// It rejects anything that could leave the directory it names, anything a
-// filesystem or a log line would read as structure, and the two relative names
-// that mean somewhere else.
+// safeName reports whether a value is a plain file-name component. It rejects
+// anything that could leave the directory it names, anything a filesystem or a
+// log line would read as structure, and the two relative names that mean
+// somewhere else.
 func safeName(value string) bool {
 	if value == "" || value == "." || value == ".." {
 		return false
@@ -91,12 +89,10 @@ func safeName(value string) bool {
 	return true
 }
 
-// checkRelative reports whether a slash-separated relative path stays inside
-// the directory it is resolved against.
-//
-// It is used for the files a provider adapter generates, which are named by the
-// adapter rather than by a user, and checked anyway: this package builds the
-// path, so this package is where the rule belongs.
+// checkRelative reports whether a slash-separated relative path stays inside the
+// directory it is resolved against. It is used for the files a provider adapter
+// generates, which are named by the adapter rather than by a user, and checked
+// anyway: this package builds the path, so this package holds the rule.
 func checkRelative(name string) error {
 	if name == "" {
 		return fmt.Errorf("the name must not be empty")

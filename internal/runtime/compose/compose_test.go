@@ -108,11 +108,10 @@ func arrangeWith(
 }
 
 // TestTheGeneratedOverrideIsPinned holds the document that decides what the
-// task's services run to a golden file.
-//
-// It is pinned rather than described because every line of it is a decision:
-// which code the services see, which paths are writable, what is reset, what is
-// deliberately not reset, and what is labelled.
+// task's services run to a golden file. It is pinned rather than described
+// because every line of it is a decision: which code the services see, which
+// paths are writable, what is reset, what is deliberately not reset, and what is
+// labelled.
 func TestTheGeneratedOverrideIsPinned(t *testing.T) {
 	docker := runtimetest.New()
 	services, spec := arrange(t, docker)
@@ -145,11 +144,10 @@ func TestTheGeneratedOverrideIsPinned(t *testing.T) {
 // decides whether Feat writes a bind address of its own.
 //
 // A repository that published its service on one address of the machine said
-// something about who reaches it, and replacing that with Feat's default would
-// be Feat overruling the user in the direction of a wider binding. The property
-// is stated in three doc comments and, before this golden, was asserted nowhere:
-// both other goldens carry the default, so the line that reads the project's own
-// address could have been deleted with the suite still green (G4-23).
+// something about who reaches it, and replacing that with Feat's default would be
+// Feat overruling the user in the direction of a wider binding. Both other
+// goldens carry the default, so without this one the line that reads the
+// project's own address could be deleted with the suite still green (G4-23).
 //
 // The address is a LAN address rather than another loopback one, so that the
 // golden distinguishes "kept" from "defaulted": with 127.0.0.1 on both sides the
@@ -205,11 +203,10 @@ func TestTheGeneratedOverrideKeepsAnAddressTheProjectNamed(t *testing.T) {
 // than as a golden line.
 //
 // Compose's default for a publication with no host_ip is every interface, so a
-// generated document that omits the key has chosen the widest binding there is
-// by saying nothing — which is what Feat did while the comment beside it said
-// localhost. A golden alone would not catch its return: a later regeneration
-// re-pins whichever behaviour exists (G6-14). Counting the two keys against each
-// other fails in both directions instead.
+// generated document that omits the key has chosen the widest binding there is by
+// saying nothing. A golden alone would not catch that, because a later
+// regeneration re-pins whichever behaviour exists (G6-14); counting the two keys
+// against each other fails in both directions instead.
 func TestEveryPublicationNamesTheAddressItBindsOn(t *testing.T) {
 	services, spec, _ := dependent(t)
 
@@ -262,10 +259,9 @@ func dependent(t *testing.T) (*compose.Runtime, runtime.Spec, *runtimetest.Docke
 // Compose starts whatever a managed service depends on, and everything it starts
 // lands in this task's project. A base file's fixed container_name is global to
 // the Docker daemon, so leaving one in place on a dependency puts the whole
-// project back to one task per machine — the thing the generated override exists
-// to prevent. What such a service gets is exactly that reset and the ownership
-// labels: the project did not ask Feat to manage it, so Feat redirects nothing
-// about it.
+// project back to one task per machine. Such a service gets that reset and the
+// ownership labels, and nothing else, because the project did not ask Feat to
+// manage it.
 func TestTheGeneratedOverrideCoversEveryServiceInTheProject(t *testing.T) {
 	services, spec, _ := dependent(t)
 
@@ -308,9 +304,9 @@ func TestTheGeneratedOverrideCoversEveryServiceInTheProject(t *testing.T) {
 //
 // Both values are global to the machine: a container name to the Docker daemon,
 // a published port to the host. A base file carrying either could be started for
-// one task and no more, so both are replaced everywhere — a service the project
-// declared reachable takes the host port allocated for this task, and every
-// other service in the project publishes nothing at all.
+// one task and no more, so both are replaced everywhere. A service the project
+// declared reachable takes the host port allocated for this task, and every other
+// service in the project publishes nothing.
 //
 // The reset has to be written for a service with no publication rather than left
 // out. A key absent from an override is a key the merged project keeps, so
@@ -491,13 +487,12 @@ func TestTheComposeInvocationIsPinned(t *testing.T) {
 // then creates a container for the service that one depends on, whose image it
 // never built. On a fresh task, where no image exists yet, the first create a
 // user asks for fails with "No such image" while a start of the same services
-// succeeds — so the action is `up --no-start`, which builds the whole closure and
+// succeeds, so the action is `up --no-start`, which builds the whole closure and
 // starts none of it (ADR-034 evidence 13).
 //
-// `--build` is the other half and was added with the redirected build contexts:
-// without it a second create reuses the image the first one made, so a service
-// that bakes its code goes on running the copy of the worktree it was built from
-// however often the user recreates it (ADR-065).
+// `--build` is the other half. Without it a second create reuses the image the
+// first one made, so a service that bakes its code goes on running the copy of
+// the worktree it was built from however often the user recreates it (ADR-065).
 func TestCreateBuildsWhatItIsAboutToCreate(t *testing.T) {
 	docker := runtimetest.New()
 	services, spec := arrange(t, docker)
@@ -571,9 +566,8 @@ func TestAServiceNothingDefinesIsRefusedByName(t *testing.T) {
 // TestAskingARuntimeThatWasNeverCreated covers the first thing a user does.
 //
 // Every command carries the generated override, and that document does not exist
-// until something creates or starts the services — so the obvious implementation
+// until something creates or starts the services, so the obvious implementation
 // answers "what is running?" with a Compose error about a file Feat generates.
-// Found by running the real thing rather than by reasoning about it.
 func TestAskingARuntimeThatWasNeverCreated(t *testing.T) {
 	docker := runtimetest.New()
 	services, spec := arrange(t, docker)
@@ -676,11 +670,10 @@ func TestDestroyRetainsVolumesAndReachesNothingOutsideTheProject(t *testing.T) {
 // found, as a test.
 //
 // A stop that named the managed services stopped exactly the containers Feat had
-// asked Compose for and left the ones Compose started to satisfy them: a
-// database still up, still holding its published port, absent from every status
-// Feat printed, and stopped by nothing short of a destroy. What starting brings
-// up, stopping takes down — so a stop names no service and addresses the task's
-// whole Compose project (ADR-034 evidence 12).
+// asked Compose for and left the ones Compose started to satisfy them: a database
+// still up, still holding its published port, absent from every status Feat
+// printed, and stopped by nothing short of a destroy. A stop therefore names no
+// service and addresses the task's whole Compose project (ADR-034 evidence 12).
 func TestStoppingReachesEverythingStartingStarted(t *testing.T) {
 	services, _, docker := dependent(t)
 	ctx := context.Background()
