@@ -41,8 +41,9 @@ func diagnosisReport() api.Diagnosis {
 	}
 }
 
-// TestDiagnosisOpensForTheSelectedTasksProject checks the standalone screen: the
-// checks `feat doctor` runs, read where the tasks they are about are (ADR-064).
+// TestDiagnosisOpensForTheSelectedTasksProject checks the standalone screen:
+// the checks `feat doctor` runs, read where the tasks they are about are
+// (ADR-064).
 func TestDiagnosisOpensForTheSelectedTasksProject(t *testing.T) {
 	backend := newFakeBackend()
 	backend.diagnosis = diagnosisReport()
@@ -75,12 +76,9 @@ func TestDiagnosisOpensForTheSelectedTasksProject(t *testing.T) {
 }
 
 // TestTheReportOpensAtTheFirstProblem checks where a report that does not fit
-// is opened.
-//
-// Most of a report is passes — seventeen of them on an ordinary project — and
-// the pane holds a dozen lines. Opening at the top would mean opening on the
-// checks that are fine, with the one that is not below the fold, which is the
-// screen deciding not to say the thing it exists to say.
+// is opened. Most of a report is passes — seventeen on an ordinary project —
+// and the pane holds a dozen lines, so opening at the top puts the one failing
+// check below the fold.
 func TestTheReportOpensAtTheFirstProblem(t *testing.T) {
 	backend := newFakeBackend()
 	report := api.Diagnosis{Environment: "this terminal"}
@@ -116,11 +114,10 @@ func TestTheReportOpensAtTheFirstProblem(t *testing.T) {
 	}
 }
 
-// TestTheDiagnosisFitsItsDialog pins the measurement the screen depends on.
-//
-// A report is longer than any dialog, so it scrolls; what must not scroll is
-// everything around it. The box clamps from the bottom, so a body one line too
-// tall costs the user the counts and the key that runs the checks again.
+// TestTheDiagnosisFitsItsDialog pins the measurement the screen depends on. A
+// report is longer than any dialog and scrolls; what is around it must not. The
+// box clamps from the bottom, so a body one line too tall costs the counts and
+// the key that runs the checks again.
 func TestTheDiagnosisFitsItsDialog(t *testing.T) {
 	backend := newFakeBackend()
 	report := diagnosisReport()

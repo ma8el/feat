@@ -12,23 +12,20 @@ import (
 )
 
 // content is what a screen renders, before the three-region layout places it.
-//
-// Tests of what the dashboard says use it so that a change to where a region
-// puts its content cannot fail a test about what the content is. Where the
-// layout itself is the subject, the tests below call View.
+// Tests of what the dashboard says use it, so a change to where a region puts
+// its content cannot fail a test about what the content is. Where the layout is
+// the subject, the tests below call View.
 func content(m Model) string { return m.stackedView() }
 
-// flowed folds a rendered block into one run of words.
-//
-// A test about what the dashboard says is not a test about where the region it
-// is drawn in wrapped the sentence, and the task panel is wrapped to its region.
+// flowed folds a rendered block into one run of words. A test about what the
+// dashboard says is not a test about where the region wrapped the sentence, and
+// the task panel is wrapped to its region.
 func flowed(block string) string { return strings.Join(strings.Fields(ansi.Strip(block)), " ") }
 
 // overrun is the lines of a body that will not fit the region it is drawn in.
-//
 // They are what a card cuts, marking the cut with an ellipsis, so a body with
-// none of them is one nothing was taken from. Measured by display width, which
-// is what the card measures by.
+// none of them is one nothing was taken from. Measured by display width, as the
+// card measures.
 func overrun(body string, width int) []string {
 	var out []string
 	for _, line := range strings.Split(body, "\n") {
@@ -58,11 +55,10 @@ func otherTask() api.Task {
 	return task
 }
 
-// TestNoLineWrapsAtTheSupportedWidth is ADR-041's layout rule.
-//
-// A task row used to be 158 cells against a terminal of 80 to 160, so three
-// tasks read as nine lines of unaligned text. Nothing the dashboard draws may
-// now exceed the terminal it is drawn in (ADR-041 evidence 1).
+// TestNoLineWrapsAtTheSupportedWidth is ADR-041's layout rule. A task row of
+// 158 cells against a terminal of 80 to 160 reads as nine lines of unaligned
+// text for three tasks, so nothing the dashboard draws exceeds the terminal it
+// is drawn in (ADR-041 evidence 1).
 func TestNoLineWrapsAtTheSupportedWidth(t *testing.T) {
 	third := otherTask()
 	third.ID, third.Key = "7c1a9f30-aaaa-bbbb-cccc-dddddddddddd", "7c1a9f30"
@@ -99,13 +95,11 @@ func TestTheFrameKeepsItsRegionsInPlace(t *testing.T) {
 	}
 }
 
-// TestTheRailFootKeepsItsOrder pins where the machine's resources sit.
-//
-// Below the tasks and above the warnings, and at the bottom of the rail whatever
-// the task list is doing. Both blocks are about the machine rather than about
-// the selected task, and neither is something a user goes looking for: they are
-// what the eye finds in the same corner every time, which is what evidence 4 of
-// ADR-041 was about.
+// TestTheRailFootKeepsItsOrder pins where the machine's resources sit: below
+// the tasks, above the warnings, and at the bottom of the rail whatever the
+// task list is doing. Both blocks are about the machine rather than the
+// selected task, and the eye finds them in the same corner every time (ADR-041
+// evidence 4).
 func TestTheRailFootKeepsItsOrder(t *testing.T) {
 	model := sized(withResources(dashboard(newFakeBackend(), liveTask()), sampled(), nil), 120, 32)
 	updated, _ := model.Update(reconciliationMsg{report: api.Reconciliation{
@@ -186,13 +180,11 @@ func TestTheRailGroupsTasksByProject(t *testing.T) {
 }
 
 // TestTheRailKeepsProjectsInAFixedOrder is ADR-041's evidence 4, one level up
-// from the row it was found on.
-//
-// Projects appeared in the order their first task did, and the list is sorted
-// newest-first, so launching a task lifted its whole project over every other
-// one. The header a user's eye had learned moved down the rail on the day they
-// were busy enough to start something, which is the day its position mattered.
-// Ordering by the project's own name means no task can move a project.
+// from the row it was found on. Projects appearing in the order their first
+// task did, against a newest-first list, means launching a task lifts its whole
+// project over every other one: the header a user's eye had learned moves on
+// the day they were busy enough to start something. Ordering by the project's
+// own name means no task can move a project.
 func TestTheRailKeepsProjectsInAFixedOrder(t *testing.T) {
 	// Newer than anything in "example", which is what used to lift "platform"
 	// above it however long both had been registered.
@@ -223,10 +215,9 @@ func TestTheRailKeepsProjectsInAFixedOrder(t *testing.T) {
 }
 
 // TestARailEntryCarriesTheRequiredListFields is FR-UI-002 after ADR-041 moved
-// the four fields FR-UI-003 and FR-UI-005 already required.
-//
-// What must remain is what answers which task to go to next: identity,
-// attention, agent state, elapsed time, and the changed-file count.
+// the four fields FR-UI-003 and FR-UI-005 already required. What remains is
+// what answers which task to go to next: identity, attention, agent state,
+// elapsed time, and the changed-file count.
 func TestARailEntryCarriesTheRequiredListFields(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
 	rail := model.railView(28)
@@ -246,12 +237,10 @@ func TestARailEntryCarriesTheRequiredListFields(t *testing.T) {
 }
 
 // TestAttentionAndAgentStateStaySeparateInTheRail keeps the domain's separation
-// where a user actually reads it.
-//
-// Feat holds process, attention, workflow, and runtime states apart, and a
-// composite badge would put them back together. A task that needs the user and a
-// task that does not must differ in the glyph while both still say what their
-// process is doing.
+// where a user reads it. Feat holds process, attention, workflow, and runtime
+// states apart, and a composite badge would put them back together: a task that
+// needs the user and one that does not differ in the glyph while both say what
+// their process is doing.
 func TestAttentionAndAgentStateStaySeparateInTheRail(t *testing.T) {
 	waiting := liveTask()
 	waiting.Attention = "needs_input"
@@ -287,9 +276,10 @@ func TestAnOverlayLeavesTheTaskListVisible(t *testing.T) {
 		t.Errorf("the task list is not visible behind the dialog:\n%s", view)
 	}
 	// A section heading rather than a hint's wording. This test is about whether
-	// the overlay opens over the list and closes again, and pinning it to a phrase
-	// that is being edited for its own reasons fails it for something it is not
-	// about — which is what "where shift is eaten" did when that line went.
+	// the overlay opens over the list and closes again, and pinning it to a
+	// phrase that is being edited for its own reasons fails it for something it
+	// is not about — which is what "where shift is eaten" did when that line
+	// went.
 	if !strings.Contains(view, "everything else") {
 		t.Errorf("the key map is not on screen:\n%s", view)
 	}
@@ -300,13 +290,12 @@ func TestAnOverlayLeavesTheTaskListVisible(t *testing.T) {
 	}
 }
 
-// TestTheKeyMapFitsTheDialogItIsDrawnIn is what the two columns are for.
-//
-// Six sections of keys is forty-one lines in one column and the dialog on a
-// hundred-and-twenty by thirty-two terminal holds twenty-seven, so the map was
-// cut from the bottom — where the sections a reader has not memorised are. It
-// had been overflowing before ADR-046 added a section; this checks the whole of
-// it arrives at every width the three-region layout supports.
+// TestTheKeyMapFitsTheDialogItIsDrawnIn is what the two columns are for. Six
+// sections of keys — the last of them ADR-046's — is forty-one lines in one
+// column, and the dialog on a hundred-and-twenty by thirty-two terminal holds
+// twenty-seven, so the map is cut from the bottom, where the sections a reader
+// has not memorised are. This checks the whole of it arrives at every width the
+// three-region layout supports.
 func TestTheKeyMapFitsTheDialogItIsDrawnIn(t *testing.T) {
 	for _, width := range []int{120, 160} {
 		model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), width, 32)
@@ -325,15 +314,12 @@ func TestTheKeyMapFitsTheDialogItIsDrawnIn(t *testing.T) {
 	}
 }
 
-// TestTheNarrowestSupportedWidthKeepsTheRule records what does not fit, and what
-// is protected when something has to go.
-//
-// At ninety-six cells the dialog is seventy-two wide, which holds one column of
-// keys and not two, and one column is thirty-nine lines against the twenty-seven
-// a thirty-two-row terminal leaves. Something is cut there, and it is cut from
-// the bottom — so what must be at the top is everything that moves, which is the
-// section the rest of the map is read against, and the cut must say it happened
-// rather than end mid-list.
+// TestTheNarrowestSupportedWidthKeepsTheRule records what does not fit, and
+// what is protected when something has to go. At ninety-six cells the dialog is
+// seventy-two wide, which holds one column of keys and not two, and one column
+// is thirty-nine lines against the twenty-seven a thirty-two-row terminal
+// leaves. The cut is from the bottom, so everything that moves is at the top,
+// and the cut says it happened.
 func TestTheNarrowestSupportedWidthKeepsTheRule(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), minimumWidth, 32)
 	view := press(t, model, "?").View()
@@ -351,12 +337,10 @@ func TestTheNarrowestSupportedWidthKeepsTheRule(t *testing.T) {
 }
 
 // TestTheKeyMapStaysInsideItsColumns pins the measurements the two columns
-// depend on.
-//
-// A description that outgrows the column pushes the right-hand column off the
-// dialog, and the map silently falls back to the single column that did not fit.
-// The constraint is cheap to break by writing a longer sentence, so it is
-// checked rather than commented.
+// depend on. A description that outgrows the column pushes the right-hand
+// column off the dialog, and the map falls back to the single column that did
+// not fit. The constraint is cheap to break by writing a longer sentence, so it
+// is checked rather than commented.
 func TestTheKeyMapStaysInsideItsColumns(t *testing.T) {
 	// A width of zero cannot hold two columns, so the map renders one and every
 	// line is a single entry. It is cut by cell rather than at a separator: one
@@ -381,11 +365,10 @@ func TestTheKeyMapStaysInsideItsColumns(t *testing.T) {
 }
 
 // TestTheOverlaysOpenFromEveryView is the defect the footer was advertising.
-//
 // The task panel and runtime answered their own keys and returned for the rest,
-// so `?` and `!` reached neither — while the frame's hints, which those views
-// draw, went on offering `? keys`. A view now falls through to the dashboard for
-// everything it does not claim.
+// so `?` and `!` reached neither, while the frame's hints those views draw went
+// on offering `? keys`. A view falls through to the dashboard for everything it
+// does not claim.
 func TestTheOverlaysOpenFromEveryView(t *testing.T) {
 	for _, open := range []string{"", "T", "R"} {
 		for _, overlay := range []struct {
@@ -412,11 +395,10 @@ func TestTheOverlaysOpenFromEveryView(t *testing.T) {
 	}
 }
 
-// TestAViewKeepsTheKeysItClaims is the other half of falling through.
-//
-// The dashboard's meaning applies only where the view has none of its own: `r`
-// compares, refreshes, or looks again depending on where it is pressed. A
-// fall-through that took precedence would have replaced all three.
+// TestAViewKeepsTheKeysItClaims is the other half of falling through. The
+// dashboard's meaning applies only where the view has none of its own: `r`
+// compares, refreshes, or looks again depending on where it is pressed, and a
+// fall-through taking precedence would replace all three.
 func TestAViewKeepsTheKeysItClaims(t *testing.T) {
 	backend := newFakeBackend()
 	panel := press(t, sized(reviewScreen(t, backend), 120, 32), "r")
@@ -431,14 +413,11 @@ func TestAViewKeepsTheKeysItClaims(t *testing.T) {
 }
 
 // TestEveryViewHasOneKeyAndTheSameKind pins the shape of the frame's view keys.
-//
-// Two of the four views had a key and two did not, and the two that had one did
-// not agree on what a key for a view looked like: `R` opened the runtime, `v` and
-// `enter` both opened the task panel, and the brief and the terminal could only
-// be cycled to with `L`, `H`, or `tab`. So the shifted letter now names the view
-// it opens, in all four cases and from all four views — they are the frame's keys,
-// like the pair that steps between them, so no view can swallow the key that
-// leaves it.
+// Two of the four views had a key and the two that did disagreed about what one
+// looked like: `R` opened the runtime, `v` and `enter` both opened the task
+// panel, and the brief and the terminal could only be cycled to. The shifted
+// letter names the view it opens in all four cases, and they are the frame's
+// keys, so no view can swallow the key that leaves it.
 func TestEveryViewHasOneKeyAndTheSameKind(t *testing.T) {
 	for _, from := range []string{"", "T", "B", "R"} {
 		for key, want := range map[string]screen{
@@ -459,11 +438,9 @@ func TestEveryViewHasOneKeyAndTheSameKind(t *testing.T) {
 }
 
 // TestEnterAndVNoLongerOpenTheTaskPanel is the other half of the same change.
-//
-// They were the inconsistency: one view reached by two keys, neither of which
-// was the shifted letter every other view now uses. `enter` in particular means
-// "confirm" in every dialog the dashboard has, and the frame was the one place it
-// did not.
+// They were the inconsistency: one view reached by two keys, neither of them
+// the shifted letter every other view uses. `enter` means "confirm" in every
+// dialog the dashboard has, and the frame was the one place it did not.
 func TestEnterAndVNoLongerOpenTheTaskPanel(t *testing.T) {
 	for _, gone := range []string{"enter", "v"} {
 		model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
@@ -473,14 +450,12 @@ func TestEnterAndVNoLongerOpenTheTaskPanel(t *testing.T) {
 	}
 }
 
-// TestEscMovesNothingBetweenViews is the reported defect.
-//
-// The panel and the brief closed onto the terminal and runtime closed onto the
-// panel, so held down from the runtime tab `esc` walked backwards through three
-// of the four views and never through the brief. It read as a back button with a
-// view missing from it. The frame's keys are the way between views now, and this
-// checks all four tabs at once because the complaint was about the pattern
-// rather than about any one of them.
+// TestEscMovesNothingBetweenViews is the reported defect. The panel and the
+// brief closed onto the terminal and runtime closed onto the panel, so held
+// down from the runtime tab `esc` walked backwards through three of the four
+// views and never through the brief, reading as a back button with a view
+// missing. The frame's keys are the way between views, and all four tabs are
+// checked because the complaint was about the pattern.
 //
 // A real Escape rather than the three runes press sends, since the point is the
 // key a terminal delivers. What esc still does is close an overlay, which
@@ -513,12 +488,11 @@ func TestEscMovesNothingBetweenViews(t *testing.T) {
 	}
 }
 
-// TestCleanupIsTheOnlyMeaningOfC records the end of an overload.
-//
-// `C` sent work back on the task panel and cleaned a task up everywhere else,
-// which is one key with two meanings and one of them destructive. Requesting
-// changes was never used in fifty-one tasks and is gone, so the key means one
-// thing wherever it is pressed (ADR-086).
+// TestCleanupIsTheOnlyMeaningOfC records the end of an overload. `C` sent work
+// back on the task panel and cleaned a task up everywhere else, which is one
+// key with two meanings and one of them destructive. Requesting changes was
+// never used in fifty-one tasks and is gone, so the key means one thing
+// wherever it is pressed (ADR-086).
 func TestCleanupIsTheOnlyMeaningOfC(t *testing.T) {
 	backend := newFakeBackend()
 
@@ -538,11 +512,9 @@ func TestCleanupIsTheOnlyMeaningOfC(t *testing.T) {
 }
 
 // TestTheTaskActionsReachEveryView checks the rest of what falling through
-// restored.
-//
-// Attaching to the agent is the one a user reaches for most, and the runtime view
-// had no answer for it at all: `a` there did nothing, from a screen whose whole
-// subject is the selected task.
+// restored. Attaching to the agent is the one a user reaches for most, and the
+// runtime view had no answer for it: `a` there did nothing, from a screen whose
+// whole subject is the selected task.
 func TestTheTaskActionsReachEveryView(t *testing.T) {
 	for _, open := range []string{"", "T", "R"} {
 		backend := newFakeBackend()
@@ -562,14 +534,11 @@ func TestTheTaskActionsReachEveryView(t *testing.T) {
 }
 
 // TestPreparationClosesOntoTheTabItOpenedOver is the second half of the same
-// report.
-//
-// `esc` was removed from the tabs and then closed `prepare a new task` onto the
-// terminal anyway, which is the same surprise arriving by another road: a user
+// report. `esc` was removed from the tabs and then closed `prepare a new task`
+// onto the terminal anyway, which is the same surprise by another road: a user
 // who opened the dialog from the task panel and changed their mind was moved to
-// a view they had not asked for, in answer to a key that had just undone the
-// only thing they had. Preparation remembered the tab on the way in and went
-// home regardless; every other overlay already returned to what was underneath.
+// a view they had not asked for. Preparation remembered the tab on the way in
+// and went home regardless.
 func TestPreparationClosesOntoTheTabItOpenedOver(t *testing.T) {
 	for key, want := range map[string]screen{
 		"A": screenTerminal,
@@ -601,13 +570,12 @@ func TestPreparationClosesOntoTheTabItOpenedOver(t *testing.T) {
 	}
 }
 
-// TestALaunchOpensTheTerminalOfTheTaskItCreated is the exception the rule keeps.
-//
-// A launch is a result rather than a movement: the terminal draws the pane of
-// the task that was just created, which is what the user asked preparation for
-// and is not the tab they left. It goes through the tab's own opener, because
-// the selection moves with it — a panel or a runtime view assigned rather than
-// opened would draw the new task's name over the previous task's answer.
+// TestALaunchOpensTheTerminalOfTheTaskItCreated is the exception the rule
+// keeps. A launch is a result rather than a movement: the terminal draws the
+// pane of the task that was just created. It goes through the tab's own opener,
+// because the selection moves with it, and a panel or runtime view assigned
+// rather than opened would draw the new task's name over the previous task's
+// answer.
 func TestALaunchOpensTheTerminalOfTheTaskItCreated(t *testing.T) {
 	backend := newFakeBackend()
 	first := liveTask()
@@ -662,10 +630,9 @@ func TestTheSizeIsNotDecidedBeforeTheTerminalReportsOne(t *testing.T) {
 	}
 }
 
-// TestEveryTabIsAboutTheSelectedTask is ADR-043.
-//
-// The overview was the one that was not: a wide cross-task table that never fitted
-// the supported width and said the same things the rail and the panel say.
+// TestEveryTabIsAboutTheSelectedTask is ADR-043. The overview was the one that
+// was not: a wide cross-task table that never fitted the supported width and
+// said the same things the rail and the panel say.
 func TestEveryTabIsAboutTheSelectedTask(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
 	bar := model.tabBar(120)
@@ -704,12 +671,10 @@ func TestTabMovesTheMainRegion(t *testing.T) {
 }
 
 // TestTheFooterCarriesTheWorktree checks the value that moved into the footer:
-// the path a user would otherwise look up and paste.
-//
-// The machine's figures were beside it until they moved to the foot of the rail,
-// where a bar can say what a number cannot. What the footer keeps of them is the
-// sentence explaining an absent figure, which is tested with the figure it
-// explains.
+// the path a user would otherwise look up and paste. The machine's figures are
+// at the foot of the rail, where a bar can say what a number cannot, and what
+// the footer keeps of them is the sentence explaining an absent figure, tested
+// with the figure it explains.
 func TestTheFooterCarriesTheWorktree(t *testing.T) {
 	model := sized(withResources(dashboard(newFakeBackend(), liveTask()), sampled(), nil), 160, 32)
 	footer := model.frameFooter(160)
@@ -772,10 +737,9 @@ func TestADialogTallerThanTheTerminalSaysWhatItDropped(t *testing.T) {
 
 // TestTabCyclesPastAViewWithItsOwnKeyboard is the defect found in use: tab
 // moved through the tabs and then stopped at the first one with its own keys.
-//
 // The task panel and runtime answer their own keys and return for everything
-// else, so they swallowed the key that was meant to leave them. The cycle has to
-// close, including back round to the first view.
+// else, so they swallowed the key meant to leave them. The cycle has to close,
+// including back round to the first view.
 func TestTabCyclesPastAViewWithItsOwnKeyboard(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
 
@@ -800,11 +764,9 @@ func TestTabCyclesPastAViewWithItsOwnKeyboard(t *testing.T) {
 
 // TestTheRailIsReachableFromEveryView is the second defect found in use: the
 // plain arrows belong to whichever view has the keyboard, so from review there
-// was no way to change task at all.
-//
-// Each spelling is checked rather than one standing for the others, because they
-// exist for readers who cannot use each other's: a terminal that eats shifted
-// arrows leaves only the letter and the control pair (ADR-046).
+// was no way to change task. Each spelling is checked rather than one standing
+// for the others, because a terminal that eats shifted arrows leaves only the
+// letter and the control pair (ADR-046).
 func TestTheRailIsReachableFromEveryView(t *testing.T) {
 	second := otherTask()
 
@@ -823,8 +785,8 @@ func TestTheRailIsReachableFromEveryView(t *testing.T) {
 	}
 }
 
-// TestSelectingATaskWrapsAtBothEnds keeps the rail's own movement closed, as the
-// tab cycle is.
+// TestSelectingATaskWrapsAtBothEnds keeps the rail's own movement closed, as
+// the tab cycle is.
 func TestSelectingATaskWrapsAtBothEnds(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
 
@@ -837,12 +799,11 @@ func TestSelectingATaskWrapsAtBothEnds(t *testing.T) {
 	}
 }
 
-// TestTheTabBarIsReachableFromEveryView is the rail test's other half.
-//
-// A view with its own keyboard used to swallow everything it did not recognise,
-// which is what stopped `tab` at the review tab. The shifted keys are answered
-// by the frame before any view sees them, so the cycle closes from wherever the
-// user is (ADR-046).
+// TestTheTabBarIsReachableFromEveryView is the rail test's other half. A view
+// with its own keyboard swallowing everything it did not recognise is what
+// stopped `tab` at the review tab. The shifted keys are answered by the frame
+// before any view sees them, so the cycle closes from wherever the user is
+// (ADR-046).
 func TestTheTabBarIsReachableFromEveryView(t *testing.T) {
 	for _, open := range []string{"", "tab", "T", "R"} {
 		model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
@@ -868,13 +829,12 @@ func TestTheTabBarIsReachableFromEveryView(t *testing.T) {
 	}
 }
 
-// TestThePlainKeysNeverMoveTheFrame is the defect this was all for.
-//
-// The plain arrows moved the rail on the terminal tab and a repository on the
-// task panel, so one key meant two things and which one depended on a tab the
-// user was not thinking about. They now move within the main region only, and on
-// the terminal tab — where an unfocused pane has no cursor of its own — they move
-// nothing at all rather than reaching past it to the rail.
+// TestThePlainKeysNeverMoveTheFrame is the defect this was all for. The plain
+// arrows moved the rail on the terminal tab and a repository on the task panel,
+// so one key meant two things and which one depended on a tab the user was not
+// thinking about. They move within the main region only, and on the terminal
+// tab — where an unfocused pane has no cursor of its own — they move nothing
+// rather than reaching past it to the rail.
 func TestThePlainKeysNeverMoveTheFrame(t *testing.T) {
 	for _, open := range []string{"", "tab", "T", "R"} {
 		for _, plain := range []string{"j", "k", "h", "l", "up", "down", "left", "right"} {
@@ -896,8 +856,8 @@ func TestThePlainKeysNeverMoveTheFrame(t *testing.T) {
 	}
 }
 
-// TestThePlainKeysMoveWithinTheView is the same rule from the other side: a view
-// that has something to move through still moves it.
+// TestThePlainKeysMoveWithinTheView is the same rule from the other side: a
+// view that has something to move through still moves it.
 func TestThePlainKeysMoveWithinTheView(t *testing.T) {
 	panel := sized(reviewScreen(t, newFakeBackend()), 120, 32)
 	if len(panel.review.status.Repositories) < 2 {
@@ -915,11 +875,9 @@ func TestThePlainKeysMoveWithinTheView(t *testing.T) {
 }
 
 // TestTheNarrowFallbackKeepsThePlainArrows checks the one place the rule reads
-// differently because the layout does.
-//
-// Below the layout's minimum there is no rail: the task list is what the single
-// column draws, so it is the main region, and moving within it is what the plain
-// keys mean everywhere else.
+// differently because the layout does. Below the layout's minimum there is no
+// rail: the task list is what the single column draws, so it is the main
+// region, and moving within it is what the plain keys mean everywhere else.
 func TestTheNarrowFallbackKeepsThePlainArrows(t *testing.T) {
 	second := otherTask()
 	model := sized(dashboard(newFakeBackend(), liveTask(), second), 80, 24)
@@ -953,11 +911,10 @@ func TestChangingTaskBringsTheOpenViewWithIt(t *testing.T) {
 }
 
 // TestTheTabCycleClosesForADraftToo checks the other way the cycle could stop.
-//
-// The task panel and runtime both used to refuse a draft, and a tab that
-// declines to open is a tab the cycle cannot pass: a user whose only task was a
-// draft could reach neither the tab after it nor the one before. They open now
-// and say what a draft does not have yet.
+// The task panel and runtime both refused a draft, and a tab that declines to
+// open is one the cycle cannot pass: a user whose only task was a draft could
+// reach neither the tab after it nor the one before. They open and say what a
+// draft does not have yet.
 func TestTheTabCycleClosesForADraftToo(t *testing.T) {
 	draft := liveTask()
 	draft.Workflow = "draft"
@@ -1000,11 +957,10 @@ func TestADialogHoldsTheFrameKeys(t *testing.T) {
 }
 
 // TestTheFrameKeysSurviveTruncation checks that the keys with no other route to
-// discovery are the ones the footer keeps.
-//
-// Review carries eleven hints of its own and the footer is one line, so
-// something is always cut. What must not be cut is how to change task or view:
-// a view's own keys are visible on the view, and these are not.
+// discovery are the ones the footer keeps. Review carries eleven hints of its
+// own and the footer is one line, so something is always cut, and what must not
+// be cut is how to change task or view: a view's own keys are visible on the
+// view, and these are not.
 func TestTheFrameKeysSurviveTruncation(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
 	footer := press(t, model, "T").frameFooter(120)
@@ -1017,12 +973,10 @@ func TestTheFrameKeysSurviveTruncation(t *testing.T) {
 }
 
 // TestTheRegionsAreCardsWithRuledHeaders is what ADR-051 changed about the
-// frame.
-//
-// The rail's heading and the tab bar were the first line of their own content,
-// which is what made a heading read as the first entry of the list under it.
-// Each region is now a box with a header of its own and a rule between that
-// header and what it heads.
+// frame. The rail's heading and the tab bar were the first line of their own
+// content, which made a heading read as the first entry of the list under it.
+// Each region is a box with a header of its own and a rule between that header
+// and what it heads.
 func TestTheRegionsAreCardsWithRuledHeaders(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
 	lines := strings.Split(ansi.Strip(model.View()), "\n")
@@ -1044,8 +998,8 @@ func TestTheRegionsAreCardsWithRuledHeaders(t *testing.T) {
 }
 
 // TestTheFooterIsRuledOffFromTheRegions is the other half of the same rule. The
-// footer is the part of the frame that holds still while the regions change, and
-// a line is what says so.
+// footer is the part of the frame that holds still while the regions change,
+// and a line is what says so.
 func TestTheFooterIsRuledOffFromTheRegions(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
 	lines := strings.Split(ansi.Strip(model.View()), "\n")
@@ -1063,10 +1017,9 @@ func TestTheFooterIsRuledOffFromTheRegions(t *testing.T) {
 	}
 }
 
-// TestTheMainRegionNamesTheTaskItIsAbout checks the header's other half.
-//
-// Every tab is a view of the selected task, and the rail answers which one by
-// moving a marker the eye has to go back to. The main region is where the eye
+// TestTheMainRegionNamesTheTaskItIsAbout checks the header's other half. Every
+// tab is a view of the selected task, and the rail answers which one by moving
+// a marker the eye has to go back to, while the main region is where the eye
 // already is.
 func TestTheMainRegionNamesTheTaskItIsAbout(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
@@ -1082,13 +1035,12 @@ func TestTheMainRegionNamesTheTaskItIsAbout(t *testing.T) {
 	}
 }
 
-// TestAProjectFoldsAwayAndKeepsSayingWhatItHolds is the marker's promise.
-//
-// Every project header has drawn a fold marker since the rail was written, on a
-// rail where nothing could be folded. Folding one now hides its tasks, and the
-// header goes on reporting how many there are and whether any of them wants the
-// user — a fold that could hide the one task that stopped would make the rail
-// unsafe to fold at all.
+// TestAProjectFoldsAwayAndKeepsSayingWhatItHolds is the marker's promise. Every
+// project header has drawn a fold marker since the rail was written, on a rail
+// where nothing could be folded. Folding one hides its tasks, and the header
+// goes on reporting how many there are and whether any wants the user: a fold
+// that could hide the one task that stopped would make the rail unsafe to fold
+// at all.
 func TestAProjectFoldsAwayAndKeepsSayingWhatItHolds(t *testing.T) {
 	waiting := liveTask()
 	waiting.Attention = "needs_input"
@@ -1164,12 +1116,10 @@ func headerLine(lines []string, project string) string {
 }
 
 // TestFoldingKeepsTheSelectionOnTheProjectItFolded is the other half of what
-// makes space one control rather than two.
-//
-// Folding used to move the cursor to the next task the rail still listed, which
-// took the user's selection away as the price of reading less about other
-// projects — and left the fold with no cursor position to press space on again
-// (ADR-052).
+// makes space one control rather than two. Folding that moved the cursor to the
+// next task the rail still listed took the user's selection away as the price
+// of reading less about other projects, and left the fold with no cursor
+// position to press space on again (ADR-052).
 func TestFoldingKeepsTheSelectionOnTheProjectItFolded(t *testing.T) {
 	first := liveTask()
 	model := sized(dashboard(newFakeBackend(), first, otherTask()), 120, 32)
@@ -1197,12 +1147,11 @@ func TestFoldingKeepsTheSelectionOnTheProjectItFolded(t *testing.T) {
 }
 
 // TestAFoldedProjectIsOneCursorStop is the reported defect: a project could be
-// folded and then never opened again.
-//
-// Folded projects were stepped over entirely, so no key put the cursor back on
-// one, and space acts on the project the cursor is in. A fold is now a single
-// stop — one for the whole project, not one per hidden task — which is both what
-// makes it reachable and what keeps it cheap to move past.
+// folded and then never opened again. Folded projects were stepped over
+// entirely, so no key put the cursor back on one, and space acts on the project
+// the cursor is in. A fold is a single stop — one for the whole project, not
+// one per hidden task — which makes it reachable and keeps it cheap to move
+// past.
 func TestAFoldedProjectIsOneCursorStop(t *testing.T) {
 	first, sibling, other := liveTask(), siblingTask(), otherTask()
 	model := sized(dashboard(newFakeBackend(), first, sibling, other), 120, 32)
@@ -1216,7 +1165,8 @@ func TestAFoldedProjectIsOneCursorStop(t *testing.T) {
 			got.Key, other.Key)
 	}
 
-	// And moving back returns to the fold, which is the position that was missing.
+	// And moving back returns to the fold, which is the position that was
+	// missing.
 	back := press(t, down, "K")
 	got, ok := back.subject()
 	if !ok || got.ProjectID != first.ProjectID {
@@ -1236,8 +1186,9 @@ func TestAFoldedProjectIsOneCursorStop(t *testing.T) {
 	}
 }
 
-// siblingTask is a second task in the first task's project, so that a fold holds
-// more than one and stepping over it can be told from stepping through it.
+// siblingTask is a second task in the first task's project, so that a fold
+// holds more than one and stepping over it can be told from stepping through
+// it.
 func siblingTask() api.Task {
 	task := liveTask()
 	task.ID = "8a11bc22-1111-2222-3333-444455556666"
@@ -1247,9 +1198,9 @@ func siblingTask() api.Task {
 	return task
 }
 
-// TestFoldingEveryProjectKeepsTheSelection is the end of the same rule: there is
-// nowhere to move the cursor to, so it stays and its project header says where
-// it is.
+// TestFoldingEveryProjectKeepsTheSelection is the end of the same rule: there
+// is nowhere to move the cursor to, so it stays and its project header says
+// where it is.
 func TestFoldingEveryProjectKeepsTheSelection(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
 
@@ -1279,11 +1230,9 @@ func TestFoldingEveryProjectKeepsTheSelection(t *testing.T) {
 }
 
 // TestFoldingDoesNotReachBackIntoTheModelItCameFrom checks that the fold is
-// carried by value like the rest of the model.
-//
-// Bubble Tea copies the model on every message. A map shared between the copies
-// would make folding a project change models that were already returned, which
-// is the sort of thing that stays invisible until something replays a key.
+// carried by value like the rest of the model. Bubble Tea copies the model on
+// every message, and a map shared between the copies would make folding a
+// project change models that were already returned.
 func TestFoldingDoesNotReachBackIntoTheModelItCameFrom(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask(), otherTask()), 120, 32)
 
@@ -1294,11 +1243,10 @@ func TestFoldingDoesNotReachBackIntoTheModelItCameFrom(t *testing.T) {
 }
 
 // TestTheRailSaysWhenTheListDoesNotFit keeps the machine's figures where they
-// are read from.
-//
-// The rail's foot is read by position — the same corner every time the eye drops
-// to it — and a task list longer than the region used to push it off the bottom.
-// The list is cut instead, and says so, and names the key that makes room.
+// are read from. The rail's foot is read by position — the same corner every
+// time the eye drops to it — and a task list longer than the region pushed it
+// off the bottom. The list is cut instead, says so, and names the key that
+// makes room.
 func TestTheRailSaysWhenTheListDoesNotFit(t *testing.T) {
 	tasks := make([]api.Task, 0, 8)
 	for i := range 8 {
@@ -1325,13 +1273,11 @@ func TestTheRailSaysWhenTheListDoesNotFit(t *testing.T) {
 }
 
 // TestAResumeIsNeverOfferedWithoutItsStop keeps the two halves of one lifecycle
-// on screen together.
-//
-// The footer names what is reachable from where the user is standing rather than
-// every key, so it is a judgement each view makes — but resume and stop are one
-// pair, and a view that named only the resume shipped that way: `t` was bound,
-// worked, and appeared in the `?` overlay, and no footer said it existed.
-// Reported by the maintainer on the first run of the new commands.
+// on screen together. The footer names what is reachable from where the user is
+// standing rather than every key, so it is a judgement each view makes — but
+// resume and stop are one pair, and a view that named only the resume shipped
+// that way: `t` was bound, worked, appeared in the `?` overlay, and no footer
+// said it existed.
 //
 // The rule is symmetry rather than presence. A view is free to name neither.
 func TestAResumeIsNeverOfferedWithoutItsStop(t *testing.T) {

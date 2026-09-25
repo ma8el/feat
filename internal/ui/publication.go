@@ -11,18 +11,18 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// Publication is the other half of the end of a task, and it is here rather
-// than on the review panel for the reason cleanup is its own screen: it is a
-// sequence — read, edit, approve — that has to be finished rather than glanced
-// at, and what it does reaches somebody else's server.
+// Publication is the other half of the end of a task, and it is a screen of its
+// own for the reason cleanup is: it is a sequence — read, edit, approve — that
+// has to be finished rather than glanced at, and what it does reaches somebody
+// else's server.
 //
 // The one rule the screen enforces is that the words are read before they are
 // sent. The agent wrote them and they can carry anything it read, so a person
-// reading them is the only control there is (ADR-070). This screen is where
-// they are read: it draws the title and the description that would be sent, one
-// repository at a time, and `enter` is refused until every line of them has been
-// on the screen. `e` hands the same words to the user's editor for rewriting,
-// and what comes back is what is drawn and what is sent (ADR-076).
+// reading them is the only control there is (ADR-070). The screen draws the
+// title and the description that would be sent, one repository at a time, and
+// `enter` is refused until every line of them has been on the screen. `e` hands
+// the same words to the user's editor, and what comes back is what is drawn and
+// what is sent (ADR-076).
 
 // publicationModel is the state of the publication screen.
 type publicationModel struct {
@@ -32,17 +32,15 @@ type publicationModel struct {
 	// status is what the last action reported.
 	status api.PublicationStatus
 	loaded bool
-	// approved is what came back from the editor, and edited reports that it
-	// did. Where nothing was edited the words that are sent are composed from
-	// the plan the screen drew, which is the same thing: what is displayed is
-	// what is sent, whichever of the two the user read it in.
+	// approved is what came back from the editor, and edited reports that it did.
+	// Where nothing was edited the words sent are composed from the plan the
+	// screen drew, so what is displayed is what is sent either way.
 	approved []api.ApprovedPublication
 	edited   bool
-	// scroll is the first line of the document drawn, and seen is how far down
-	// it the window has reached. seen is the reading gate — it counts the lines
-	// that have been on the screen and never goes backwards — so it is recorded
-	// where the window is known, which is the key handler rather than the
-	// renderer.
+	// scroll is the first line of the document drawn, and seen is how far down it
+	// the window has reached. seen is the reading gate: it counts the lines that
+	// have been on the screen and never goes backwards, so it is recorded in the
+	// key handler, where the window is known.
 	scroll int
 	seen   int
 	// confirming reports that the last question — open these merge requests —
@@ -80,10 +78,9 @@ type publicationDoneMsg struct {
 	err    error
 }
 
-// openPublication shows the publication screen for the selected task.
-//
-// Opening it composes the plan and sends nothing, which is what makes it safe to
-// reach with one key press.
+// openPublication shows the publication screen for the selected task. Opening
+// it composes the plan and sends nothing, which is what makes it safe to reach
+// with one key press.
 func (m Model) openPublication() (tea.Model, tea.Cmd) {
 	task, ok := m.subject()
 	if !ok {
@@ -153,9 +150,8 @@ func (m Model) publicationKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// What is on the screen is recorded before the key is answered, because the
 	// key may be the one that publishes and the gate is what has been displayed.
-	// Here is where the window is known: the renderer cannot write it back, and
-	// a terminal that was resized since the last press is accounted for by
-	// measuring now rather than by remembering (ADR-076).
+	// The renderer cannot write the window back, and measuring now accounts for a
+	// terminal resized since the last press (ADR-076).
 	m.publication = m.witnessPublication()
 
 	if m.publication.confirming {
@@ -196,9 +192,8 @@ func (m Model) publicationKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "e":
 		if len(api.OfferedDrafts(m.publication.status.Drafts)) == 0 {
 			// Nothing this screen shows is the user's to edit: it has all
-			// published, or its drafts are stale. The document would be empty,
-			// and an editor opening on nothing says less than the screen behind
-			// it already does.
+			// published, or its drafts are stale. An editor opening on an empty
+			// document says less than the screen behind it.
 			return m, nil
 		}
 		m.publication.err = nil
@@ -215,11 +210,10 @@ func (m Model) publicationKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// scrollPublication moves the document under the window.
-//
-// The window records what it reached as it moves, rather than only when the
-// next key arrives: scrolling to the end is the act of reading, and the gate
-// must be satisfied by it and not by whatever is pressed afterwards.
+// scrollPublication moves the document under the window. The window records
+// what it reached as it moves rather than when the next key arrives, because
+// scrolling to the end is the act of reading and the gate must be satisfied by
+// it.
 func (m Model) scrollPublication(delta int) (tea.Model, tea.Cmd) {
 	width, height := m.publicationDocumentSize()
 	lines, _ := m.publicationLines(width)
@@ -247,12 +241,11 @@ func (m Model) witnessPublication() publicationModel {
 	return published
 }
 
-// publicationRead reports that what would be sent has been read.
-//
-// Two things satisfy it, and they are the same thing: the words have been drawn
-// here in full, or they have been through the user's editor. What it is not is
-// a key press saying so — a screen that showed a title and asked for a
-// keystroke would be reading a table of contents (ADR-070, ADR-076).
+// publicationRead reports that what would be sent has been read. Two things
+// satisfy it: the words have been drawn here in full, or they have been through
+// the user's editor. A key press saying so does not, because a screen showing a
+// title and asking for a keystroke offers a table of contents (ADR-070,
+// ADR-076).
 func (m Model) publicationRead() bool {
 	if m.publication.edited {
 		return true
@@ -273,8 +266,7 @@ func (m Model) publicationApprovals() []api.ApprovedPublication {
 	approvals := make([]api.ApprovedPublication, 0, len(offered))
 	for _, draft := range offered {
 		// Trimmed exactly as the editor document's parser trims what comes back
-		// through it, so that a draft nobody edited is the same request either
-		// way. Two paths to one publication must not differ by a newline.
+		// through it, so a draft nobody edited is the same request either way.
 		approvals = append(approvals, api.ApprovedPublication{
 			RepositoryID: draft.RepositoryID,
 			Title:        strings.TrimSpace(draft.Title),
@@ -304,18 +296,17 @@ func (m Model) startPublication() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if untitled := publicationUntitled(approvals); len(untitled) > 0 {
-		// Refused here rather than sent for the daemon to refuse, and named
-		// rather than dropped: publishing the rest and saying nothing would be
-		// a publication the user believes covered every repository on the
-		// screen.
+		// Refused here rather than sent for the daemon to refuse, and named rather
+		// than dropped: publishing the rest silently leaves the user believing
+		// every repository on the screen was covered.
 		m.status = strings.Join(untitled, ", ") + " has no title, and a merge request needs one; " +
 			"e writes one in the draft"
 		return m, nil
 	}
-	// Asked of what would be sent rather than of the whole plan. A stale draft
-	// is not offered, so this is the guard for a document that disagrees with
-	// its plan — and one repository's stale draft never stops the others, which
-	// is the answer the daemon gives too.
+	// Asked of what would be sent rather than of the whole plan. A stale draft is
+	// not offered, so this guards a document that disagrees with its plan, and
+	// one repository's stale draft never stops the others, as the daemon answers
+	// too.
 	if stale := api.StaleApprovals(m.publication.status.Drafts, approvals); len(stale) > 0 {
 		m.status = "the agent's draft for " + strings.Join(stale, ", ") +
 			" describes a commit that is no longer current; ask for a fresh draft"
@@ -337,11 +328,9 @@ func publicationUntitled(approvals []api.ApprovedPublication) []string {
 	return untitled
 }
 
-// closePublication returns to the tab the screen opened over.
-//
-// Closing costs nothing: a plan is inert until it is approved, and what reaches
-// a forge is the apply rather than the screen that shows it — which is the same
-// reason cleanup's own esc is free.
+// closePublication returns to the tab the screen opened over. Closing costs
+// nothing: a plan is inert until it is approved, and what reaches a forge is
+// the apply rather than the screen that shows it, as with cleanup's own esc.
 func (m Model) closePublication() (tea.Model, tea.Cmd) {
 	m.publication = publicationModel{}
 	m.screen = screenFor(m.tab)
@@ -368,15 +357,15 @@ func (m Model) applyPublicationPlan(message publicationPlanMsg) (tea.Model, tea.
 	m.publication.scroll, m.publication.seen = 0, 0
 	m.publication.edited, m.publication.approved = false, nil
 	// A composed plan is what would happen, which is the other of the two things
-	// this screen draws. A publication that ran leaves the record it produced —
-	// and after a partial one, looking again is how the repositories it never
-	// reached are published (ADR-073). The record is not lost by clearing this:
-	// the plan carries it, and it is drawn under the drafts either way.
+	// this screen draws. After a partial publication, looking again is how the
+	// repositories it never reached are published (ADR-073). Clearing this loses
+	// no record: the plan carries it, and it is drawn under the drafts either
+	// way.
 	m.publication.done = false
 	// The frame that follows this message draws the first window of the new
 	// document, so that window has been read. A draft that fits on the screen is
-	// therefore read as soon as it arrives, which is the point: reading is what
-	// has been in front of the user, not a key press saying it was.
+	// read as soon as it arrives, because reading is what has been in front of
+	// the user rather than a key press saying it was.
 	m.publication = m.witnessPublication()
 	return m, nil
 }
@@ -439,17 +428,15 @@ const (
 	publicationHintsHeight = 2
 	// publicationMarkers is the pair of lines that say how much of the document
 	// is above and below the window. They are reserved rather than counted,
-	// because the window has to draw a known number of lines: the gate is
-	// "these lines were displayed", and a note that quietly took one of their
-	// rows would make it "these lines were displayed, less one".
+	// because the gate is "these lines were displayed" and a note taking one of
+	// their rows would make it "these lines were displayed, less one".
 	publicationMarkers = 2
 )
 
-// publicationRegion is the space this screen's body is drawn in.
-//
-// It is resolved here rather than passed in for the reason cleanup's is: the
-// document scrolls, so the key handler and the renderer have to agree about how
-// much of it is on the screen, and only one of the two can decide.
+// publicationRegion is the space this screen's body is drawn in. It is resolved
+// here rather than passed in for the reason cleanup's is: the document scrolls,
+// so the key handler and the renderer have to agree how much of it is on the
+// screen.
 func (m Model) publicationRegion() (width, height int) {
 	if m.narrow() {
 		width, height = m.frameSize()
@@ -463,8 +450,8 @@ func (m Model) publicationRegion() (width, height int) {
 	return widest - dialogChrome, tallest - dialogVerticalChrome - publicationHintsHeight
 }
 
-// publicationDocumentSize is the window the draft scrolls under: the region less
-// what is drawn above and below it.
+// publicationDocumentSize is the window the draft scrolls under: the region
+// less what is drawn above and below it.
 func (m Model) publicationDocumentSize() (width, height int) {
 	width, height = m.publicationRegion()
 	height -= drawnLines(m.publicationHead(width)) + drawnLines(m.publicationTail(width)) + publicationMarkers
@@ -509,11 +496,10 @@ func (m Model) publicationHead(width int) string {
 	case m.publication.working:
 		out.WriteString(mutedStyle.Render(m.activity.mark("  composing what publishing would do…")) + "\n")
 	}
-	// Before the document, because a plan that failed is the case with nothing
-	// else to draw and the most to say. Flattened to one line, as the footer
-	// flattens the errors it shows: this one comes from the daemon and may carry
-	// a provider CLI's output, and a block that wraps here is a block drawn over
-	// the question below it (ADR-054).
+	// Before the document, because a plan that failed has nothing else to draw
+	// and the most to say. Flattened to one line, as the footer flattens the
+	// errors it shows: this one may carry a provider CLI's output, and a block
+	// that wraps here is drawn over the question below it (ADR-054).
 	if m.publication.err != nil {
 		out.WriteString(failureStyle.Render(truncate("  "+publicationLine(m.publication.err.Error()), width)) + "\n\n")
 	}
@@ -542,16 +528,11 @@ func (m Model) publicationWindow(width, height int) string {
 	block := documentWidth(lines, max(1, width))
 
 	// Both marker rows are drawn whether or not there is a marker for them, blank
-	// where there is none. publicationDocumentSize reserves a constant two lines
-	// for them rather than counting the ones that appear, and the two have to
-	// agree: the alternative — subtracting only the markers actually drawn —
-	// would work visually and change how much of the draft the gate believes was
-	// read. ADR-076's gate is "these lines were displayed", and a note that
-	// quietly took one of their rows would make it "these lines were displayed,
-	// less one".
-	//
-	// It is also what stops the box wobbling by up to two lines as the reader
-	// moves, and losing one exactly as they reach the end.
+	// where there is none. publicationDocumentSize reserves two lines for them
+	// rather than counting the ones that appear, and the two have to agree:
+	// subtracting only the markers drawn would work visually and change how much
+	// of the draft ADR-076's gate believes was read. It also stops the box
+	// wobbling by up to two lines as the reader moves.
 	above := ""
 	if first > 0 {
 		above = mutedStyle.Render("  … " + count(first, "line", "lines") + " above")
@@ -571,13 +552,10 @@ func (m Model) publicationWindow(width, height int) string {
 }
 
 // publicationLines renders the whole document one line at a time, and reports
-// how many of those lines are the words a publication would carry.
-//
-// Built rather than printed because the screen scrolls it, and counted because
-// the count is the reading gate: the words come first, and the account of what
-// this task has already published follows them. Feat's own record is not part of
-// the gate — nobody has to scroll past a merge request that already exists to
-// publish the ones that do not.
+// how many of those lines are the words a publication would carry. The count is
+// the reading gate: the words come first and the account of what this task has
+// already published follows them, and Feat's own record is not part of the
+// gate.
 func (m Model) publicationLines(width int) (lines []string, words int) {
 	for i, draft := range m.publication.status.Drafts {
 		if i > 0 {
@@ -610,10 +588,9 @@ func (m Model) publicationEntry(draft api.PublicationDraft, width int) []string 
 		lines = append(lines, m.publicationWords(draft, width)...)
 	}
 
-	// Set off from the words above them, because they are not the words: what
-	// the push will not run is Feat's own line, and a sentence of the agent's
-	// prose with a warning butted against it reads as one paragraph by two
-	// authors.
+	// Set off from the words above them, because they are not the words: what the
+	// push will not run is Feat's own line, and the agent's prose with a warning
+	// butted against it reads as one paragraph by two authors.
 	if len(draft.Skipped) > 0 {
 		lines = append(lines, "")
 	}
@@ -681,11 +658,10 @@ func (m Model) publicationRecordLines() []string {
 	return lines
 }
 
-// publicationEntryState renders what one recorded repository amounts to.
-//
-// It is shared with the task panel, which shows the same record in its own
-// layout: a screen and a panel disagreeing about what "planned" meant would be
-// two answers to what a task published, and there is one record (ADR-073).
+// publicationEntryState renders what one recorded repository amounts to. It is
+// shared with the task panel, which shows the same record in its own layout:
+// there is one record, and two readings of "planned" would be two answers
+// (ADR-073).
 func publicationEntryState(entry api.PublicationRepository) string {
 	switch {
 	case entry.Request != nil:
@@ -740,11 +716,10 @@ func (m Model) publicationTail(width int) string {
 	return out.String()
 }
 
-// publicationGuidance is the sentence that says what this screen is waiting for.
-//
-// It is written out at every step rather than left to the key hints, because the
-// sequence is the part of this screen nobody has memorised: a footer that offers
-// "e" says which key, and this says why it is there and what follows it.
+// publicationGuidance is the sentence that says what this screen is waiting
+// for. It is written out at every step rather than left to the key hints,
+// because a footer offering "e" says which key and this says why it is there
+// and what follows it.
 func (m Model) publicationGuidance() string {
 	switch {
 	case m.publication.working, m.publication.confirming, m.publication.done:
@@ -752,10 +727,9 @@ func (m Model) publicationGuidance() string {
 	case len(m.publication.status.Drafts) == 0:
 		return ""
 	case len(api.OfferedDrafts(m.publication.status.Drafts)) == 0:
-		// Every repository is above, and none of them is one this screen can
-		// send: they have published, or their draft describes a commit that is
-		// no longer current. Saying so is the difference between a screen that
-		// offers a key that does nothing and one that says why.
+		// Every repository is above and none of them is one this screen can send:
+		// they have published, or their draft describes a commit that is no longer
+		// current. Saying so is what keeps a key that does nothing off the screen.
 		return "none of these is left to publish; the lines above say why"
 	}
 
@@ -779,10 +753,9 @@ func (m Model) publicationGuidance() string {
 func (m Model) publicationHints() string {
 	switch {
 	case m.publication.publishing:
-		// Nothing is offered while branches are being pushed and requests
-		// opened. The screen has shut its keyboard, and a key map advertising a
-		// way out beside a publication that will not be abandoned is one that
-		// has to be tried to be disbelieved.
+		// Nothing is offered while branches are being pushed and requests opened.
+		// The screen has shut its keyboard, and a key map advertising a way out of
+		// a publication that will not be abandoned invites a user to try it.
 		return mutedStyle.Render("publishing…")
 	case m.publication.confirming:
 		return keyHints(keyHint("y", "publish"), keyHint("esc", "leave it"))
@@ -822,9 +795,8 @@ func publicationCount(count int) string {
 	return strconv.Itoa(count) + " merge requests"
 }
 
-// publicationLine reduces a message to the one line a screen has room for.
-//
-// A forge's own refusal is the one string here Feat did not write, and it can
+// publicationLine reduces a message to the one line a screen has room for. A
+// forge's own refusal is the one string here Feat did not write, and it can
 // carry the several lines a CLI prints around it.
 func publicationLine(message string) string {
 	for _, line := range strings.Split(message, "\n") {
@@ -835,13 +807,11 @@ func publicationLine(message string) string {
 	return ""
 }
 
-// wrapLines folds text to a measure and indents it, one rendered line at a time.
-//
-// Each of the text's own lines is folded on its own, so that what the agent
-// wrote as a list stays a list: reflowing the whole block into one paragraph
-// would show the user something other than what is being sent. Nothing here is
-// truncated, for the same reason — a description read with its ends cut off is
-// one that was not read.
+// wrapLines folds text to a measure and indents it, one rendered line at a
+// time. Each of the text's own lines is folded on its own, so what the agent
+// wrote as a list stays a list: reflowing the block into one paragraph would
+// show the user something other than what is being sent. Nothing is truncated,
+// for the same reason.
 func wrapLines(text string, width, indent int) []string {
 	measure := max(publicationNarrowest, width-indent)
 	margin := strings.Repeat(" ", indent)

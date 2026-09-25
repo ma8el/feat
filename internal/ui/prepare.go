@@ -19,11 +19,9 @@ import (
 	"github.com/ma8el/feat/internal/paths"
 )
 
-// step is where the user is in task preparation.
-//
-// The order is FR-TASK-003's: what the task is, which repositories it touches,
-// and then everything Feat resolved from that, which is the last thing shown
-// before anything is created.
+// step is where the user is in task preparation. The order is FR-TASK-003's:
+// what the task is, which repositories it touches, and then everything Feat
+// resolved from that, which is the last thing shown before anything is created.
 type step int
 
 const (
@@ -36,11 +34,9 @@ const (
 	stepBrief
 	stepRepositories
 	stepReview
-	// stepTickets is the project's tickets offered as a selection, and
-	// stepImport is the file screen. Both are last rather than in sequence
-	// because neither is a stage of preparation: each is one answer to the
-	// source question being worked out, so each returns to that step and the
-	// trail says the user is on it.
+	// stepTickets is the project's tickets offered as a selection, and stepImport
+	// is the file screen. Neither is a stage of preparation: each is one answer
+	// to the source question being worked out, so each returns to that step.
 	stepTickets
 	stepImport
 )
@@ -54,10 +50,9 @@ type sourceOption struct {
 	note  string
 }
 
-// sourceOptions are the answers, in the order they are offered.
-//
-// "write it here" is first and the cursor opens on it, so Enter-Enter reproduces
-// the preparation this screen has always had and nobody's habit breaks.
+// sourceOptions are the answers, in the order they are offered. "write it here"
+// is first and the cursor opens on it, so Enter-Enter reproduces the
+// preparation this screen had before the question existed.
 var sourceOptions = []sourceOption{
 	{kind: "prompt", label: "write it here", note: "type it, or press ctrl+e for $EDITOR"},
 	{kind: "ticket", label: "from a ticket", note: "run this project's tracker and choose one"},
@@ -173,11 +168,9 @@ type (
 	}
 )
 
-// prepareStart is what a caller opens preparation with.
-//
-// It is a value rather than a list of arguments because every field is
-// optional and most of them are strings, so a call site that swapped two of
-// them would compile.
+// prepareStart is what a caller opens preparation with. It is a value rather
+// than a list of arguments because every field is optional and most are
+// strings, so a call site that swapped two of them would compile.
 type prepareStart struct {
 	// project preselects a project, from --project.
 	project string
@@ -236,18 +229,16 @@ func newPrepare(backend Backend, start prepareStart) prepareModel {
 	return model
 }
 
-// restart returns a fresh preparation screen, so that opening one from the
-// dashboard never shows the previous task's answers.
+// restart returns a fresh preparation screen, so opening one from the dashboard
+// never shows the previous task's answers. It carries no flags, so nothing has
+// answered the source question and the fresh run reaches that step as soon as
+// the project is known.
 //
-// It carries no flags, so nothing has answered the source question and the fresh
-// run reaches that step as soon as the project is known.
-//
-// The project is one of those answers. It used to be carried, which was
-// invisible while the dashboard opened preparation with one already named and
-// wrong once `n` did not: the second task of a session skipped the question the
-// first had asked and opened on the source step, in whichever project the
-// previous task had gone to. The list of projects is carried, because that is
-// what was read rather than what was answered.
+// The project is one of those answers, so it is not carried: carrying it makes
+// the second task of a session skip the question the first asked and open on
+// the source step, in whichever project the previous task went to. The list of
+// projects is carried, because that is what was read rather than what was
+// answered.
 //
 // A machine with one project registered still does not see the question, which
 // is chooseProject's rule rather than this one: there is nothing to choose.
@@ -370,10 +361,9 @@ func (p prepareModel) key(key tea.KeyMsg) (prepareModel, tea.Cmd) {
 	return p, nil
 }
 
-// abandon leaves preparation, cancelling a draft the daemon already holds.
-//
-// A draft only exists from the moment the user resolves one, and cancelling it
-// removes nothing: nothing has been created for a draft (FR-TASK-003).
+// abandon leaves preparation, cancelling a draft the daemon already holds. A
+// draft exists only from the moment the user resolves one, and cancelling it
+// removes nothing, because nothing has been created for a draft (FR-TASK-003).
 func (p prepareModel) abandon() tea.Cmd {
 	if p.draft == nil {
 		return func() tea.Msg { return preparedMsg{} }
@@ -395,11 +385,9 @@ func (p prepareModel) back() (prepareModel, tea.Cmd) {
 		p.step = stepRepositories
 		return p, nil
 	case stepTickets, stepImport:
-		// Back out without taking one. Both screens belong to the source step
-		// and there is one way into each, so backing out of either returns to
-		// the question it was answering — and nothing has to remember where the
-		// user came from, because there is nowhere else they can have come from
-		// (ADR-083).
+		// Back out without taking one. Both screens belong to the source step and
+		// there is one way into each, so nothing has to remember where the user
+		// came from (ADR-083).
 		return p.enterSourceStep()
 	case stepRepositories:
 		p.step = stepBrief
@@ -407,8 +395,7 @@ func (p prepareModel) back() (prepareModel, tea.Cmd) {
 	case stepBrief:
 		// This destroys what is in the editor, deliberately and with no guard.
 		// Every forward path back to the brief passes through a selection, and
-		// every selection resets it, so the key means "start over" and a key
-		// whose whole purpose is that does not need to ask (ADR-083).
+		// every selection resets it, so the key means "start over" (ADR-083).
 		if !p.preselected {
 			return p.enterSourceStep()
 		}
@@ -433,12 +420,9 @@ func (p prepareModel) chooseProject() (prepareModel, tea.Cmd) {
 	if len(p.projects) == 0 {
 		// The first step is writing a configuration, not registering one: a user
 		// with nothing configured has nothing for `feat project add` to take, and
-		// the wizard offers registration itself once the file exists.
-		//
-		// It is named as a key rather than as a command, because this screen has
-		// the keyboard and the wizard is one press away from the screen behind it
-		// (ADR-063). `feat project init` is the same conversation for somebody who
-		// would rather leave.
+		// the wizard offers registration itself once the file exists. It is named
+		// as a key rather than a command, because this screen has the keyboard and
+		// the wizard is one press away from the screen behind it (ADR-063).
 		p.err = errors.New("no project is registered; press esc, then p, to configure one")
 		return p, nil
 	}
@@ -488,17 +472,14 @@ func (p prepareModel) projectKey(key tea.KeyMsg) (prepareModel, tea.Cmd) {
 	return p, nil
 }
 
-// enterSource asks where the task's brief comes from.
+// enterSource asks where the task's brief comes from. The question is asked
+// once and after the project, because two of its three answers need the project
+// to mean anything: the tracker is configured per project (ADR-071) and the
+// file completion is seeded from the project's own checkouts (ADR-083).
 //
-// The question is asked once and after the project, because two of its three
-// answers need the project to mean anything: the tracker is configured per
-// project (ADR-071) and the file completion is seeded from the project's own
-// checkouts (ADR-083).
-//
-// A flag is an answer to it, so a run that passed one skips the step exactly as
-// --project skips the project step. --file was read before this screen opened;
-// a run that named a ticket asks for the project's tickets here, because this is
-// the first moment the project is known.
+// A flag is an answer to it, so a run that passed one skips the step as
+// --project skips the project step. A run that named a ticket asks for the
+// project's tickets here, this being the first moment the project is known.
 func (p prepareModel) enterSource() (prepareModel, tea.Cmd) {
 	p.err = nil
 	if p.ticket != "" {
@@ -540,33 +521,26 @@ func (p prepareModel) sourceKey(key tea.KeyMsg) (prepareModel, tea.Cmd) {
 	return p, nil
 }
 
-// chooseSource takes an answer to the source question.
+// chooseSource takes an answer to the source question. Every answer resets the
+// brief and fills it from the source it names: a ticket with the composed
+// document, a file with its text, and "write it here" with nothing. No
+// confirmation and no exceptions, because every source converges on the same
+// editor, so returning to this step can only mean starting over (ADR-083).
 //
-// Every answer resets the brief and fills it from the source it names: a ticket
-// with the composed document, a file with its text, and "write it here" with
-// nothing. No confirmation and no exceptions, because every source converges on
-// the same editor — so the editor is where a brief is reviewed and adjusted, and
-// returning to this step can only mean starting over. A user who wants to keep
-// what they have never leaves the editor (ADR-083).
-//
-// Any selection also discards a draft the daemon already holds, rather than only
-// a selection that changes the kind. A draft records where its brief came from
-// when it is created and nothing later replaces that: updating one replaces its
-// title, brief, and repositories. So a task could be launched whose brief came
-// from a file and whose recorded source says "prompt", which is a record nothing
-// can act on — and ticket A to ticket B is the same defect with the kind
-// unchanged, because the reference is what a merge request names and what a
-// change is compared against (ADR-071, ADR-083).
-//
-// Discarding removes nothing: nothing is created for a draft (FR-TASK-003).
+// Any selection also discards a draft the daemon already holds, rather than
+// only one that changes the kind. A draft records where its brief came from
+// when it is created and an update replaces only its title, brief, and
+// repositories, so a task could be launched whose brief came from a file and
+// whose recorded source says "prompt". Ticket A to ticket B is the same defect
+// with the kind unchanged, because the reference is what a merge request names
+// and what a change is compared against (ADR-071, ADR-083). Discarding removes
+// nothing: nothing is created for a draft (FR-TASK-003).
 //
 // The discard is built before anything else runs, because it is a pointer
-// receiver that clears the draft off this model: Go orders calls among
-// themselves but leaves the read of p relative to them unspecified, so building
-// it in the return statement would return either the model that forgot the draft
-// or the one that still names it, whichever the compiler chose. What this screen
-// needs is the first — the cancel is already in flight, and a model that still
-// named that draft would try to cancel it again on the next resolve.
+// receiver that clears the draft off this model. Go leaves the read of p
+// relative to the calls unspecified, so building it in the return statement
+// could return the model that still names the draft — which would try to cancel
+// it again on the next resolve.
 func (p prepareModel) chooseSource(option sourceOption) (prepareModel, tea.Cmd) {
 	discard := p.discardDraft()
 
@@ -637,11 +611,10 @@ func (p prepareModel) briefKey(key tea.KeyMsg) (prepareModel, tea.Cmd) {
 	return p, cmd
 }
 
-// edit hands the brief to the user's editor.
-//
-// A task brief is a Markdown document, and the editor the user already knows is
-// a better place to write one than a widget with no keybindings. It is the same
-// choice review makes for diffs and files (FR-REV-002).
+// edit hands the brief to the user's editor. A task brief is a Markdown
+// document, and the editor the user already knows has keybindings this widget
+// does not. It is the same choice review makes for diffs and files
+// (FR-REV-002).
 func (p prepareModel) edit() tea.Cmd {
 	// Named document rather than brief, which is the package that reads one.
 	backend, document := p.backend, p.brief.Value()
@@ -676,16 +649,13 @@ func (p prepareModel) edit() tea.Cmd {
 	}
 }
 
-// readTickets asks the daemon to run the project's tracker command.
-//
-// It runs on an answer the user gave rather than when a screen opens, for the
-// reason resolving a draft is its own request: the command reaches somebody's
-// tracker over a network, and a screen should not do that because a field was
-// edited (ADR-031).
+// readTickets asks the daemon to run the project's tracker command. It runs on
+// an answer the user gave rather than when a screen opens, because the command
+// reaches somebody's tracker over a network (ADR-031).
 //
 // The want is the reference `--ticket` named, and is empty for a list the user
 // asked to browse. Either way the same command runs and the same list comes
-// back: Feat passes no filter, so there is nothing else to ask for (ADR-071).
+// back, because Feat passes no filter (ADR-071).
 func (p prepareModel) readTickets(want string) (prepareModel, tea.Cmd) {
 	p.busy = true
 	p.err = nil
@@ -730,16 +700,15 @@ func (p prepareModel) ticketsRead(message ticketsMsg) (prepareModel, tea.Cmd) {
 	return p, nil
 }
 
-// afterTickets is where a tracker run that produced no brief leaves the user.
+// afterTickets is where a tracker run that produced no brief leaves the user. A
+// run that named a ticket never saw the step, so a failure leaves it on the
+// brief the run would have opened, which can still be written by hand. A user
+// who chose "from a ticket" returns to the step they chose it on, where the
+// other two answers are: a project with no tracker, an empty list, and a
+// command that failed all answer the source question rather than the brief
+// (ADR-083).
 //
-// A run that named a ticket had the source question answered by a flag and never
-// saw the step, so a failure leaves it on the brief the run would have opened —
-// which is still there to be written by hand. A user who chose "from a ticket"
-// returns to the step they chose it on, where the other two answers are: a
-// project with no tracker, an empty list, and a command that failed are all
-// answers to the source question rather than to the brief (ADR-083).
-//
-// It leaves the failure in place, because the failure is what the user is being
+// It leaves the failure in place, because that is what the user is being
 // returned to the step to read.
 func (p prepareModel) afterTickets(want string) (prepareModel, tea.Cmd) {
 	if want != "" {
@@ -751,11 +720,10 @@ func (p prepareModel) afterTickets(want string) (prepareModel, tea.Cmd) {
 	return p, nil
 }
 
-// chooseByReference finds the ticket `--ticket` named.
-//
-// The matching is api.FindTicket's, so that this screen and `feat tickets`
-// answer a reference the same way: exactly as the command printed it, with a
-// miss reported as what the command did print (ADR-071).
+// chooseByReference finds the ticket `--ticket` named. The matching is
+// api.FindTicket's, so this screen and `feat tickets` answer a reference the
+// same way: exactly as the command printed it, with a miss reported as what it
+// did print (ADR-071).
 func (p prepareModel) chooseByReference(want string) (prepareModel, tea.Cmd) {
 	ticket, err := api.FindTicket(p.tickets, want)
 	if err != nil {
@@ -766,15 +734,11 @@ func (p prepareModel) chooseByReference(want string) (prepareModel, tea.Cmd) {
 }
 
 // composeFrom fills the title and brief from a ticket and returns to the brief.
-//
 // The composed brief goes into the same field a typed prompt is written in, so
 // the confirmation, the fingerprint, and every other invariant of preparation
-// apply to it unchanged. What the confirmation displays is therefore this
-// document rather than the ticket it came from, which is what keeps the approval
-// from being a formality (ADR-070).
-// A draft recorded before the ticket was chosen was discarded by chooseSource,
-// which does it for every answer to the source question rather than for this one
-// — the reasoning is there.
+// apply to it unchanged, and what the confirmation displays is this document
+// rather than the ticket behind it (ADR-070). chooseSource discards a draft
+// recorded before the ticket was chosen.
 func (p prepareModel) composeFrom(ticket api.Ticket) (prepareModel, tea.Cmd) {
 	reference := api.NewTicketReference(ticket, p.ticketsReadAt)
 	title, composed := reference.ComposeBrief()
@@ -857,13 +821,11 @@ func (p prepareModel) pathKey(key tea.KeyMsg) (prepareModel, tea.Cmd) {
 }
 
 // take puts a candidate in the field, and reports whether it had one to put
-// there.
-//
-// It is the wizard dialog's rule on the same widget: an empty field takes the
-// first candidate, a field holding one exactly steps to the next and around the
-// list, and everything between the two is the widget's own prefix completion.
-// Tab moves a value into the field and never past it, so what Enter imports is
-// what is on the screen (ADR-077).
+// there. It is the wizard dialog's rule on the same widget: an empty field
+// takes the first candidate, a field holding one exactly steps to the next and
+// around the list, and everything between is the widget's own prefix
+// completion. Tab moves a value into the field and never past it, so what Enter
+// imports is what is on the screen (ADR-077).
 func (p *prepareModel) take() bool {
 	if len(p.candidates) == 0 {
 		return false
@@ -887,19 +849,17 @@ func (p *prepareModel) refreshCandidates() {
 	p.path.SetSuggestions(p.candidates)
 }
 
-// importFile reads the file the field names and fills the brief with it.
+// importFile reads the file the field names and fills the brief with it. The
+// client reads it and the daemon is never told the path, which is ADR-028's
+// rule and what `feat implement --file` does out of the same package. Its text
+// goes into the same editable field a typed prompt is written in, so every
+// invariant of preparation applies to it unchanged: a Markdown file is text
+// somebody else may have written, as a ticket is (ADR-070).
 //
-// The client reads it and the daemon is never told the path, which is ADR-028's
-// rule and what `feat implement --file` does with the same policy, out of the
-// same package. Its text goes into the same editable field a typed prompt is
-// written in, so the confirmation, the fingerprint, and every other invariant of
-// preparation apply to it unchanged — a Markdown file is text somebody else may
-// have written, exactly as a ticket is (ADR-070).
-//
-// It reads on the key rather than through a command: the file is bounded before
-// it is opened, and the completion under this field already reads a directory on
-// every keystroke. A failure keeps the screen, because this is where the path is
-// and where the user can correct it.
+// It reads on the key rather than through a command, because the file is
+// bounded before it is opened and the completion under this field already reads
+// a directory on every keystroke. A failure keeps the screen, where the user
+// can correct the path.
 func (p prepareModel) importFile() (prepareModel, tea.Cmd) {
 	text, path, err := brief.Read(p.path.Value())
 	if err != nil {
@@ -925,16 +885,15 @@ func (p prepareModel) importFile() (prepareModel, tea.Cmd) {
 	return p.enterBrief()
 }
 
-// pathCandidates are the paths the file screen completes to.
-//
-// The project's own checkouts come first, because a brief written before the
-// task usually sits beside the code it is about; then the directory the client
-// was started in; then the entries of whatever directory the field names, so
-// that a completed directory is somewhere to keep typing. A directory carries a
-// trailing separator, which is what says it is one.
+// pathCandidates are the paths the file screen completes to. The project's own
+// checkouts come first, because a brief written before the task usually sits
+// beside the code it is about; then the directory the client was started in;
+// then the entries of whatever directory the field names, so a completed
+// directory is somewhere to keep typing. A directory carries a trailing
+// separator, which is what says it is one.
 //
 // Entries are offered under the text the user typed rather than under what it
-// resolves to, so that a "~" they wrote stays written: the widget completes by
+// resolves to, so a "~" they wrote stays written: the widget completes by
 // prefix, and a candidate that had replaced the "~" with a home directory would
 // match nothing.
 func pathCandidates(project api.Project, value string) []string {
@@ -983,12 +942,9 @@ func withSeparator(path string) string {
 }
 
 // namedDirectory splits what the field holds into the text up to its last
-// separator and the directory that text names.
-//
-// The first is what a candidate is built on and the second is what is read. A
-// value with no separator at all names the directory the client was started in,
-// which is what a bare file name means everywhere else; an empty field names
-// nothing, and is answered by the checkouts above.
+// separator and the directory that text names. The first is what a candidate is
+// built on and the second is what is read. A value with no separator names the
+// directory the client was started in, and an empty field names nothing.
 func namedDirectory(value string) (typed, listed string) {
 	separator := string(os.PathSeparator)
 	at := strings.LastIndex(value, separator)
@@ -1107,12 +1063,10 @@ func (p *prepareModel) cycle(direction int) {
 	row.access = row.permitted[next]
 }
 
-// resolve records the draft and asks the daemon to resolve it.
-//
-// This is the first request that reaches the user's repositories, and it
-// creates nothing: it resolves bases, proposes branches and paths, and reports
-// collisions. What comes back is what the review screen shows and what
-// confirming will create.
+// resolve records the draft and asks the daemon to resolve it. This is the
+// first request that reaches the user's repositories and it creates nothing: it
+// resolves bases, proposes branches and paths, and reports collisions. What
+// comes back is what the review screen shows and what confirming will create.
 func (p prepareModel) resolve() (prepareModel, tea.Cmd) {
 	selected := make([]api.DraftRepository, 0, len(p.selection))
 	for _, row := range p.selection {
@@ -1178,10 +1132,9 @@ func (p prepareModel) reviewKey(key tea.KeyMsg) (prepareModel, tea.Cmd) {
 	case "enter", "ctrl+s":
 		return p.confirm()
 	case "p":
-		// No request. The value travels with the confirmation, so nothing on the
-		// daemon has to know it before then — and re-resolving to record it would
-		// put a fetch and a base resolution in every repository behind a key that
-		// changed nothing about where the task starts (ADR-031).
+		// No request. The value travels with the confirmation, and re-resolving to
+		// record it would put a fetch and a base resolution in every repository
+		// behind a key that changes nothing about where the task starts (ADR-031).
 		p.planFirst = !p.planFirst
 		return p, nil
 	case "x":
@@ -1190,13 +1143,10 @@ func (p prepareModel) reviewKey(key tea.KeyMsg) (prepareModel, tea.Cmd) {
 	return p, nil
 }
 
-// confirm launches the task.
-//
-// The fingerprint of the plan on screen goes with the request. A draft that
-// changed since it was displayed produces a different one and the daemon
-// refuses, so what is created is what the user read (ADR-031). The review step's
-// own answers go with it in the same request, so what was displayed is what is
-// sent.
+// confirm launches the task. The fingerprint of the plan on screen goes with
+// the request, so a draft that changed since it was displayed produces a
+// different one and the daemon refuses (ADR-031). The review step's own answers
+// go in the same request, so what was displayed is what is sent.
 func (p prepareModel) confirm() (prepareModel, tea.Cmd) {
 	if p.plan == nil || p.draft == nil {
 		p.err = errors.New("resolve the draft before confirming it")

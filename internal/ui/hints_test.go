@@ -5,18 +5,11 @@ import (
 	"testing"
 )
 
-// TestAScrollingOverlayNamesEveryKeyThatMovesIt is the reported gap.
-//
-// The publication draft and the wizard's review answer j and k as well as the
-// arrows and the page keys, and their hints named only two of the four. A key
-// that works and is not offered is as good as one that does not exist — and
-// these are the screens where it matters, because a user who has learned the
-// dashboard's own j and k has no way to find out that the same keys carry into
-// an overlay.
-//
-// Each case checks the two halves together: the key moves the document, and the
-// hints say so. A hint that names a key nothing answers is the same defect from
-// the other side, which is why the footer is not asserted on its own.
+// TestAScrollingOverlayNamesEveryKeyThatMovesIt is the reported gap: the draft
+// and the wizard's review answer j and k beside the arrows, and their hints
+// named only two of the four. Each case checks both the movement and the hint,
+// because a hint naming a key nothing answers is the same defect from the other
+// side.
 func TestAScrollingOverlayNamesEveryKeyThatMovesIt(t *testing.T) {
 	t.Run("the publication draft", func(t *testing.T) {
 		backend := newFakeBackend()

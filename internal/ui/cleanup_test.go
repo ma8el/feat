@@ -48,11 +48,10 @@ func openCleanupScreen(t *testing.T, backend *fakeBackend) Model {
 	return openCleanupPlan(t, backend, cleanupFixture())
 }
 
-// requestCleanup presses enter and answers the resolve it fires.
-//
-// Enter asks the daemon what the task owns before it asks the user anything, so
-// the confirmation appears only once a plan has come back. The plan given here is
-// what comes back.
+// requestCleanup presses enter and answers the resolve it fires. Enter asks the
+// daemon what the task owns before it asks the user anything, so the
+// confirmation appears only once a plan has come back, and the plan given here
+// is what comes back.
 func requestCleanup(t *testing.T, model Model, plan api.CleanupPlan) Model {
 	t.Helper()
 
@@ -106,12 +105,11 @@ func TestOpeningCleanupResolvesAndRemovesNothing(t *testing.T) {
 }
 
 // TestRemovingIsOneConfirmationCarryingWhatItWouldCost is FR-CLEAN-002 and
-// FR-CLEAN-003 at the screen.
-//
-// Pressing enter with nothing selected removes nothing. Selecting asks nothing —
-// a tick is a decision being assembled, and the screen already draws what each
-// class would cost beside the resources it is true of. The one question is the
-// removal's, and it carries the warnings of everything chosen (ADR-061).
+// FR-CLEAN-003 at the screen. Pressing enter with nothing selected removes
+// nothing, and selecting asks nothing, because a tick is a decision being
+// assembled and the screen already draws what each class would cost beside the
+// resources it is true of. The one question is the removal's, and it carries
+// the warnings of everything chosen (ADR-061).
 func TestRemovingIsOneConfirmationCarryingWhatItWouldCost(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
@@ -211,10 +209,9 @@ func TestTheConfirmationCollectsTheWarningsOfEverythingChosen(t *testing.T) {
 }
 
 // TestArchivingIsARowLikeAnyOther is the archive choice reached the way
-// everything else on the screen is: down to it, space to tick it.
-//
-// It had a key of its own, which made it the one checkbox the cursor could not
-// land on and a key that did nothing for most of the interaction (ADR-061).
+// everything else on the screen is: down to it, space to tick it. A key of its
+// own made it the one checkbox the cursor could not land on, and a key that did
+// nothing for most of the interaction (ADR-061).
 func TestArchivingIsARowLikeAnyOther(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
@@ -283,12 +280,10 @@ func TestArchivingIsARowLikeAnyOther(t *testing.T) {
 }
 
 // TestTheArchiveRowDoesNotMoveTheInventoryAboveIt is why it is drawn whether or
-// not it may be taken.
-//
-// It sits under the inventory, and the inventory is sized by what the tail
-// takes, so a row that appeared when the last class was ticked moved the list
-// the user was ticking it in — and moved a cursor stop in and out of existence
-// underneath them.
+// not it may be taken. It sits under the inventory, and the inventory is sized
+// by what the tail takes, so a row appearing when the last class is ticked
+// moves the list being ticked and moves a cursor stop in and out of existence
+// underneath the user.
 func TestTheArchiveRowDoesNotMoveTheInventoryAboveIt(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
@@ -313,14 +308,11 @@ func TestTheArchiveRowDoesNotMoveTheInventoryAboveIt(t *testing.T) {
 }
 
 // TestTheInventoryOnTheScreenIsTheInventoryTheCommandPrints is FR-CLEAN-001 at
-// the dashboard.
-//
-// The screen drew each target's identity and nothing else, so a worktree said a
-// path, a volume said a name beginning with a Compose project, and a tmux window
-// said `@3`. Everything that made those readable — the sentence the plan writes
-// for each target, and the project and workflow the removal is happening in —
-// was in `feat task cleanup` alone, which is to say a user had to leave the
-// dashboard to find out what they were about to remove.
+// the dashboard. Drawing each target's identity alone leaves a worktree saying
+// a path, a volume a name beginning with a Compose project, and a tmux window
+// `@3`. What makes those readable — the sentence the plan writes for each
+// target, and the project and workflow the removal is happening in — was in
+// `feat task cleanup` alone.
 func TestTheInventoryOnTheScreenIsTheInventoryTheCommandPrints(t *testing.T) {
 	backend := newFakeBackend()
 	plan := cleanupFixture()
@@ -346,12 +338,10 @@ func TestTheInventoryOnTheScreenIsTheInventoryTheCommandPrints(t *testing.T) {
 }
 
 // TestAWarningIsDrawnBesideTheTargetItIsTrueOf keeps a class of several
-// resources from saying only that one of them would lose work.
-//
-// The class's warnings are the distinct set of its targets', so a class of three
-// worktrees with one dirty one carries a single line saying a worktree has
-// uncommitted changes. Under the title that is all it says; beside the worktree
-// it is true of, it says which.
+// resources from saying only that one of them would lose work. The class's
+// warnings are the distinct set of its targets', so a class of three worktrees
+// with one dirty one carries a single line saying a worktree has uncommitted
+// changes; beside the worktree, it says which.
 func TestAWarningIsDrawnBesideTheTargetItIsTrueOf(t *testing.T) {
 	backend := newFakeBackend()
 	plan := cleanupFixture()
@@ -418,13 +408,11 @@ func longCleanupPlan(classes int) api.CleanupPlan {
 	return plan
 }
 
-// TestALongInventoryScrollsRatherThanBeingClipped keeps every class reachable on
-// a terminal smaller than the plan.
-//
-// The overlay cut what did not fit and left a note counting the lines it had
-// dropped, and nothing moved the window: a task whose inventory was taller than
-// the dialog could be read only by running `feat task cleanup`, and a class the
-// cursor was on could be selected without ever having been drawn.
+// TestALongInventoryScrollsRatherThanBeingClipped keeps every class reachable
+// on a terminal smaller than the plan. An overlay that cut what did not fit and
+// left a note counting the dropped lines, with nothing to move the window, can
+// be read only by running `feat task cleanup`, and a class the cursor was on
+// could be selected without ever having been drawn.
 func TestALongInventoryScrollsRatherThanBeingClipped(t *testing.T) {
 	backend := newFakeBackend()
 	backend.cleanupPlan = longCleanupPlan(6)
@@ -477,13 +465,11 @@ func TestALongInventoryScrollsRatherThanBeingClipped(t *testing.T) {
 }
 
 // TestTheConfirmationSurvivesATerminalTooSmallForTheInventory is the worst case
-// the one-question design has to hold in.
-//
-// Six risky classes on a terminal at the layout's minimum: the confirmation and
-// every warning it collected are more than the region has, and the inventory
-// gives up its lines rather than the question giving up its own. A question a
-// user cannot read whole is one the answer means nothing about — and the
-// inventory it displaced is still counted rather than dropped in silence.
+// the one-question design has to hold in. Six risky classes on a terminal at
+// the layout's minimum: the confirmation and every warning it collected are
+// more than the region has, so the inventory gives up its lines rather than the
+// question. The inventory it displaced is still counted rather than dropped in
+// silence.
 func TestTheConfirmationSurvivesATerminalTooSmallForTheInventory(t *testing.T) {
 	backend := newFakeBackend()
 	plan := longCleanupPlan(6)
@@ -531,11 +517,10 @@ func TestTheConfirmationSurvivesATerminalTooSmallForTheInventory(t *testing.T) {
 }
 
 // TestTheKeyMapSaysWhatEnterActsOnAndFitsSayingIt is the hint line at the width
-// it has least of.
-//
-// Enter takes the whole selection and not the row the cursor is on, and the
-// screen has to say which without spending more than a dialog has: this line has
-// been truncated before, and a hint cut in half is a key nobody finds.
+// it has least of. Enter takes the whole selection and not the row the cursor
+// is on, and the screen has to say which without spending more than a dialog
+// has: this line has been truncated before, and a hint cut in half is a key
+// nobody finds.
 func TestTheKeyMapSaysWhatEnterActsOnAndFitsSayingIt(t *testing.T) {
 	backend := newFakeBackend()
 	model := sized(openCleanupScreen(t, backend), minimumWidth, 32)
@@ -582,12 +567,10 @@ func TestTheInventorySaysTheMomentItWasTaken(t *testing.T) {
 }
 
 // TestEnterResolvesBeforeItAsks is the freshness the screen has instead of a
-// re-resolve key.
-//
-// `r` was a key a user had to know to press to find out something they could not
-// know they needed. The moment freshness is worth anything is the moment consent
-// is given, so that is when Feat looks: enter resolves, and the question is put
-// against what came back.
+// re-resolve key. `r` was a key a user had to know to press to find out
+// something they could not know they needed. Freshness is worth something at
+// the moment consent is given, so that is when Feat looks: enter resolves, and
+// the question is put against what came back.
 func TestEnterResolvesBeforeItAsks(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
@@ -623,15 +606,13 @@ func TestEnterResolvesBeforeItAsks(t *testing.T) {
 	}
 }
 
-// TestACostThatMovedIsInTheQuestionItMoved is the case the token cannot see, and
-// the likeliest one to happen.
-//
-// The token covers what a plan would remove and deliberately not what removing it
-// would cost, so that an agent writing a file is not reported as a stale plan
-// (ADR-037). But an agent writing a file is exactly what changes under an open
-// cleanup screen: a worktree that was clean when it was ticked is dirty by the
-// time enter is pressed. Resolving on enter is what puts that warning in front of
-// the user instead of in the daemon's refusal.
+// TestACostThatMovedIsInTheQuestionItMoved is the case the token cannot see,
+// and the likeliest one to happen. The token covers what a plan would remove
+// and deliberately not what removing it would cost, so an agent writing a file
+// is not reported as a stale plan (ADR-037) — and an agent writing a file is
+// exactly what changes under an open cleanup screen: a worktree clean when it
+// was ticked is dirty by the time enter is pressed. Resolving on enter puts
+// that warning in front of the user instead of in the daemon's refusal.
 func TestACostThatMovedIsInTheQuestionItMoved(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
@@ -663,13 +644,11 @@ func TestACostThatMovedIsInTheQuestionItMoved(t *testing.T) {
 }
 
 // TestAChangedResourceSetStopsShortOfTheQuestion keeps a confirmation from
-// covering something nobody has read.
-//
-// A gained or lost resource is a different plan, and the confirmation names
-// classes rather than targets — so a class that quietly grew a third worktree
-// would be confirmed by a user who had seen two. The inventory is replaced and
-// the question waits for another enter, which is the same rule FR-CLEAN-001 makes
-// about choosing against a summary.
+// covering something nobody has read. A gained or lost resource is a different
+// plan, and the confirmation names classes rather than targets, so a class that
+// quietly grew a third worktree would be confirmed by a user who had seen two.
+// The inventory is replaced and the question waits for another enter, which is
+// FR-CLEAN-001's rule about choosing against a summary.
 func TestAChangedResourceSetStopsShortOfTheQuestion(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
@@ -708,11 +687,10 @@ func TestAChangedResourceSetStopsShortOfTheQuestion(t *testing.T) {
 	}
 }
 
-// TestASelectionOutlivedByItsResourcesIsForgotten is the other half of that.
-//
-// A tick is a choice about a resource, and a resource that has gone takes its
-// choice with it: left behind it is a selection the screen cannot draw and the
-// daemon would refuse, reported as neither.
+// TestASelectionOutlivedByItsResourcesIsForgotten is the other half of that. A
+// tick is a choice about a resource, and a resource that has gone takes its
+// choice with it: left behind, it is a selection the screen cannot draw and the
+// daemon refuses.
 func TestASelectionOutlivedByItsResourcesIsForgotten(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
@@ -739,12 +717,10 @@ func TestASelectionOutlivedByItsResourcesIsForgotten(t *testing.T) {
 }
 
 // TestAFinishedCleanupClosesTheDialog is the transaction ending with the screen
-// that was opened for it.
-//
-// It stayed open over an inventory of what was left rather than what had been
-// asked about, and for an archived task over one the daemon will not resolve
-// again — an archived task is one Feat has stopped tracking. What the user needs
-// after it is whether it worked, which is a line and not a screen.
+// that was opened for it. A screen left open lists what was left rather than
+// what was asked about, and for an archived task one the daemon will not
+// resolve again, an archived task being one Feat has stopped tracking. What the
+// user needs afterwards is whether it worked, which is a line and not a screen.
 func TestAFinishedCleanupClosesTheDialog(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
@@ -825,12 +801,10 @@ func TestASummaryCountsWhatWasAlreadyGoneAndSaysWhenATaskIsArchived(t *testing.T
 	}
 }
 
-// TestACleanupThatFailedHalfwayKeepsTheDialogAndReReadsThePlan is the other side
-// of closing on success.
-//
-// The classes are removed in a fixed order, so a failure partway means some of
-// them went. The screen is the account of that, and the inventory on it is the
-// one from before — so it is read again, and it names what is left rather than
+// TestACleanupThatFailedHalfwayKeepsTheDialogAndReReadsThePlan is the other
+// side of closing on success. The classes are removed in a fixed order, so a
+// failure partway means some of them went. The screen is the account of that,
+// and the inventory on it is read again so it names what is left rather than
 // what was there (ADR-029).
 func TestACleanupThatFailedHalfwayKeepsTheDialogAndReReadsThePlan(t *testing.T) {
 	backend := newFakeBackend()
@@ -864,12 +838,11 @@ func TestACleanupThatFailedHalfwayKeepsTheDialogAndReReadsThePlan(t *testing.T) 
 	}
 }
 
-// failCleanup answers the confirmation with y and lets the removal fail.
-//
-// The whole path rather than the message it ends in: y is what sends the
-// removal, the failure comes back as the daemon's answer to it, and the resolve
-// that failure fires is answered as the daemon answers it — which is the step
-// the account of the failure used to be lost in.
+// failCleanup answers the confirmation with y and lets the removal fail. The
+// whole path rather than the message it ends in: y sends the removal, the
+// failure comes back as the daemon's answer to it, and the resolve that failure
+// fires is answered as the daemon answers it — the step the account of the
+// failure used to be lost in.
 func failCleanup(t *testing.T, model Model, backend *fakeBackend) Model {
 	t.Helper()
 
@@ -887,16 +860,14 @@ func failCleanup(t *testing.T, model Model, backend *fakeBackend) Model {
 	return updated.(Model)
 }
 
-// TestAFailedCleanupIsStillOnTheScreenOnceTheResolveComesBack is what a user saw
-// instead of an error.
-//
-// A failure re-reads the plan, so that the inventory names what is left rather
-// than what was there. The answer to that read carries an error field of its own,
-// and it used to be written into the same place the removal's was: a resolve that
-// succeeded — which is the ordinary case, because the daemon is reachable and the
-// task's resources are still there — wrote nil over the account of what had just
-// gone wrong. The dialog came back with a fresh inventory, an unticked selection,
-// and nothing at all to say why any of it was still listed.
+// TestAFailedCleanupIsStillOnTheScreenOnceTheResolveComesBack is what a user
+// saw instead of an error. A failure re-reads the plan so the inventory names
+// what is left rather than what was there, and the answer to that read carries
+// an error field of its own. One field for both lets a resolve that succeeded —
+// the ordinary case, because the daemon is reachable and the resources are
+// still there — write nil over the account of what had just gone wrong, leaving
+// a fresh inventory, an unticked selection, and nothing to say why any of it
+// was still listed.
 func TestAFailedCleanupIsStillOnTheScreenOnceTheResolveComesBack(t *testing.T) {
 	backend := newFakeBackend()
 	backend.cleanupErr = errors.New("removing the worktrees of task 7f3a1c2e: the worktree is locked")
@@ -922,11 +893,9 @@ func TestAFailedCleanupIsStillOnTheScreenOnceTheResolveComesBack(t *testing.T) {
 }
 
 // TestAResolveThatFailedIsDrawnBesideTheRemovalThatDid keeps the two apart.
-//
-// They are answers to different requests, and the second does not replace the
-// first: the removal broke, and then the read that would have said what is left
-// broke as well. A screen showing only one of them is a screen that lost a
-// failure.
+// They answer different requests and the second does not replace the first: the
+// removal broke, and then the read that would have said what is left broke as
+// well.
 func TestAResolveThatFailedIsDrawnBesideTheRemovalThatDid(t *testing.T) {
 	backend := newFakeBackend()
 	backend.cleanupErr = errors.New("removing the worktrees of task 7f3a1c2e: the worktree is locked")
@@ -954,15 +923,13 @@ func TestAResolveThatFailedIsDrawnBesideTheRemovalThatDid(t *testing.T) {
 	}
 }
 
-// TestTheDialogSaysWhatWentWrongRatherThanThatSomethingDid is what one truncated
-// line cost.
-//
-// The daemon puts the wire's classification at the front of its answer and names
-// the task by the identifier the request carried, and the cause is at the end. A
-// line cut to the dialog's width therefore got as far as "invalid request:
-// removing the worktrees of task 7f3a1c2e-2b1a-…" and stopped — which reports
-// that there was an error and nothing else. The border above already names the
-// task, so what is left of the sentence is what happened.
+// TestTheDialogSaysWhatWentWrongRatherThanThatSomethingDid is what one
+// truncated line cost. The daemon puts the wire's classification at the front
+// of its answer and names the task by the identifier the request carried, with
+// the cause at the end, so a line cut to the dialog's width got as far as
+// "invalid request: removing the worktrees of task 7f3a1c2e-2b1a-…" and
+// stopped. The border above already names the task, so what is left of the
+// sentence is what happened.
 func TestTheDialogSaysWhatWentWrongRatherThanThatSomethingDid(t *testing.T) {
 	backend := newFakeBackend()
 	task := liveTask()
@@ -997,11 +964,9 @@ func TestTheDialogSaysWhatWentWrongRatherThanThatSomethingDid(t *testing.T) {
 }
 
 // TestAPlanThatCouldNotBeReadSaysWhyTheSameWay keeps the dialog's two failures
-// legible in the same way.
-//
-// The screen holds one for the removal and one for the read, they arrive from
-// the same daemon in the same shape, and a dialog that shortened one of them and
-// cut the other would be two screens.
+// legible in the same way. The screen holds one for the removal and one for the
+// read, they arrive from the same daemon in the same shape, and shortening one
+// while cutting the other would be two screens.
 func TestAPlanThatCouldNotBeReadSaysWhyTheSameWay(t *testing.T) {
 	backend := newFakeBackend()
 	task := liveTask()
@@ -1026,12 +991,10 @@ func TestAPlanThatCouldNotBeReadSaysWhyTheSameWay(t *testing.T) {
 	}
 }
 
-// TestAnotherRemovalClearsTheFailureItSupersedes keeps the account to the removal
-// it is about.
-//
-// The failure is what the last removal did. Authorising another one makes it the
-// past, and a red line above an indicator saying a removal is in flight is a line
-// about a different request from the one the screen is waiting for.
+// TestAnotherRemovalClearsTheFailureItSupersedes keeps the account to the
+// removal it is about. A red line above an indicator saying a removal is in
+// flight is a line about a different request from the one the screen is waiting
+// for.
 func TestAnotherRemovalClearsTheFailureItSupersedes(t *testing.T) {
 	backend := newFakeBackend()
 	backend.cleanupErr = errors.New("removing the worktrees of task 7f3a1c2e: the worktree is locked")
@@ -1058,11 +1021,9 @@ func TestAnotherRemovalClearsTheFailureItSupersedes(t *testing.T) {
 }
 
 // TestOpeningAndCleaningUpAskNoQuestion keeps the confirmation to the key that
-// asks for it.
-//
-// Both resolve plans, and neither is a user pressing enter. A screen that put a
-// removal question up because a cleanup had just finished would be asking about
-// something nobody requested.
+// asks for it. Both resolve plans and neither is a user pressing enter, so a
+// screen that put a removal question up because a cleanup had just finished
+// would be asking about something nobody requested.
 func TestOpeningAndCleaningUpAskNoQuestion(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
@@ -1083,10 +1044,9 @@ func TestOpeningAndCleaningUpAskNoQuestion(t *testing.T) {
 	}
 }
 
-// TestTheDashboardShowsWhatRecoveryFound is the recovery band.
-//
-// A pass in which everything matched its record is not news, so the band appears
-// only when something needs the user.
+// TestTheDashboardShowsWhatRecoveryFound is the recovery band. A pass in which
+// everything matched its record is not news, so the band appears only when
+// something needs the user.
 func TestTheDashboardShowsWhatRecoveryFound(t *testing.T) {
 	backend := newFakeBackend()
 	model := dashboard(backend, liveTask())
@@ -1126,12 +1086,10 @@ func TestTheDashboardShowsWhatRecoveryFound(t *testing.T) {
 }
 
 // TestTheRailCountsWarningsAndTheOverlayHoldsThem is where reconciliation went.
-//
-// An orphan whose task record is gone has no panel to appear on, and a pass that
-// could not ask a question at all is not about any one task. Those would
-// otherwise be findings shown nowhere, which is what the removed overview page
-// was the only home for. The footer was tried and is too small: a finding is
-// three lines, and several of them is a list, not a line.
+// An orphan whose task record is gone has no panel to appear on, and a pass
+// that could not ask a question at all is not about any one task, so both would
+// otherwise be findings shown nowhere. The footer is too small: a finding is
+// three lines, and several of them is a list rather than a line.
 func TestTheRailCountsWarningsAndTheOverlayHoldsThem(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask()), 160, 32)
 
@@ -1178,9 +1136,8 @@ func TestTheRailCountsWarningsAndTheOverlayHoldsThem(t *testing.T) {
 }
 
 // TestTheWarningCountSitsAtTheFootOfTheRail keeps it where it was last time.
-//
-// Placed after the tasks it would move whenever one was added, and a marker that
-// only appears when something is wrong should at least appear in the same place
+// Placed after the tasks it would move whenever one was added, and a marker
+// that appears only when something is wrong should appear in the same place
 // each time it does.
 func TestTheWarningCountSitsAtTheFootOfTheRail(t *testing.T) {
 	report := api.Reconciliation{
@@ -1205,10 +1162,9 @@ func TestTheWarningCountSitsAtTheFootOfTheRail(t *testing.T) {
 	}
 }
 
-// TestLookingAgainKeepsTheOverlayOpen is what its own hint promises.
-//
-// The key says "refresh", and a key that closed the view was the answer
-// arriving somewhere the user was no longer looking.
+// TestLookingAgainKeepsTheOverlayOpen is what its own hint promises. The key
+// says "refresh", and a key that closed the view would land the answer
+// somewhere the user was no longer looking.
 func TestLookingAgainKeepsTheOverlayOpen(t *testing.T) {
 	backend := newFakeBackend()
 	backend.reconciliation = api.Reconciliation{
@@ -1265,13 +1221,11 @@ func TestASingleWarningIsCountedAsOne(t *testing.T) {
 }
 
 // TestTheRecoveryBandCanBeBroughtUpToDate is the defect using the dashboard
-// produced.
-//
-// The band described the pass that ran when the daemon started, and nothing in
-// the dashboard could ever run another: the periodic refresh and the refresh key
-// both re-read the last one. So a user who resumed a task or cleaned one up went
-// on being told about resources they had just dealt with, and the only way to
-// clear the band was to restart the daemon.
+// produced. The band described the pass that ran when the daemon started and
+// nothing in the dashboard could run another, because the periodic refresh and
+// the refresh key both re-read the last one: a user who resumed a task or
+// cleaned one up went on being told about resources they had just dealt with,
+// and only restarting the daemon cleared it.
 //
 // Reading and looking again stay different requests — a pass asks the container
 // runtime about every task, so the two-second refresh must not run one. What
@@ -1357,10 +1311,9 @@ func TestTheRecoveryBandSaysWhenItLooked(t *testing.T) {
 	}
 }
 
-// TestResumingIsAKeyTheUserPresses is what keeps recovery an offer.
-//
-// The assertion that matters is the one about everything else: no automatic
-// path, no refresh, and no event reaches a resume.
+// TestResumingIsAKeyTheUserPresses is what keeps recovery an offer. The
+// assertion that matters is the one about everything else: no automatic path,
+// no refresh, and no event reaches a resume.
 func TestResumingIsAKeyTheUserPresses(t *testing.T) {
 	backend := newFakeBackend()
 	model := dashboard(backend, liveTask())
@@ -1388,12 +1341,10 @@ func TestResumingIsAKeyTheUserPresses(t *testing.T) {
 }
 
 // TestStoppingAWorkingAgentIsAskedAboutFirst covers the one key on this
-// dashboard that interrupts a turn.
-//
-// A stop is reversible and destroys nothing, so it does not get cleanup's
-// per-class confirmation. What it does get is a question when there is something
-// to interrupt: the agent of the fixture task is running, and a key is easier to
-// hit by accident than a typed command.
+// dashboard that interrupts a turn. A stop is reversible and destroys nothing,
+// so it does not get cleanup's per-class confirmation; what it gets is a
+// question when there is something to interrupt, because a key is easier to hit
+// by accident than a typed command.
 func TestStoppingAWorkingAgentIsAskedAboutFirst(t *testing.T) {
 	backend := newFakeBackend()
 	model := dashboard(backend, liveTask())
@@ -1428,10 +1379,9 @@ func TestStoppingAWorkingAgentIsAskedAboutFirst(t *testing.T) {
 	}
 }
 
-// TestStoppingAnIdleAgentAsksNothing is the other half of that rule.
-//
-// A question with an obvious answer teaches people to answer without reading it,
-// and an agent that is not mid-turn has nothing a stop would interrupt.
+// TestStoppingAnIdleAgentAsksNothing is the other half of that rule. A question
+// with an obvious answer teaches people to answer without reading it, and an
+// agent that is not mid-turn has nothing a stop would interrupt.
 func TestStoppingAnIdleAgentAsksNothing(t *testing.T) {
 	task := liveTask()
 	task.Session.Process = "idle"

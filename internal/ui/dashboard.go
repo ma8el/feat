@@ -10,20 +10,16 @@ import (
 )
 
 // listView renders the task list, which is the narrow fallback's only way to
-// see and choose a task (FR-UI-001).
-//
-// It draws the rail's own entries rather than the wide table the overview page
-// used. That table was eleven columns and 158 cells, which is the defect ADR-041
-// was built to fix and which the fallback still had: it fitted no terminal small
-// enough to reach this view.
+// see and choose a task (FR-UI-001). It draws the rail's own entries rather
+// than a wide table: eleven columns and 158 cells fit no terminal small enough
+// to reach this view, which is the defect ADR-041 was built to fix.
 func (m Model) listView() string {
 	width, _ := m.frameSize()
 
 	var out strings.Builder
 	// The fallback has no cards to put a header in, so the rail's header and the
-	// rule under it are drawn here: below the layout's minimum this list is the
-	// whole screen, and a heading run together with its first entry reads the same
-	// way in one column as it did in two (ADR-051).
+	// rule under it are drawn here. A heading run together with its first entry
+	// reads the same way in one column as it did in two (ADR-051).
 	out.WriteString(m.railHeader(width) + "\n")
 	out.WriteString(ruleStyle.Render(strings.Repeat(cardHorizontal, width)) + "\n")
 	out.WriteString(m.railView(0))
@@ -32,9 +28,9 @@ func (m Model) listView() string {
 		// there is a command for it too, which is how a first run starts.
 		out.WriteString("\n" + mutedStyle.Render("or run `feat implement`"))
 	}
-	// The machine's own figures are at the foot of the rail this view draws.
-	// What is left is the note explaining a figure that is absent, which is a
-	// sentence and gets the fallback's full width rather than the rail's.
+	// The machine's own figures are at the foot of the rail this view draws. What
+	// is left is the note explaining an absent figure, which is a sentence and
+	// gets the fallback's full width rather than the rail's.
 	if note := m.machineNote(); note != "" {
 		out.WriteString("\n" + clampBlock(note, width))
 	}
@@ -55,9 +51,8 @@ func (m Model) listView() string {
 }
 
 // taskKey renders a task's short identifier, marking one that is still a draft.
-//
-// A draft and a launched task look alike in a list and are not alike at all:
-// one has worktrees, a branch, and a terminal, and the other has none of them.
+// A draft and a launched task look alike in a list: one has worktrees, a
+// branch, and a terminal, and the other has none of them.
 func taskKey(task api.Task) string {
 	if isDraft(task) {
 		return attentionStyle.Render(task.Key)
@@ -79,25 +74,18 @@ func pluralTasks(count int) string {
 	return "tasks"
 }
 
-// agentDetail is what runs this task, where, and in what.
-//
-// It absorbed the environment section, which was five fields and two lines of
-// explanation that were identical on every task — documentation living in a
-// status panel (ADR-086). Three things survive that. What runs and where, which
-// names the provider although v0 has one, because it is a line that would
-// otherwise be edited twice. The compose project, which is the one identifier
-// here with a use the tmux ids lacked: a name a user types into a tool they
-// already have on the trusted host. And the container's state, appended only
-// when it is not simply running — reconciliation observes an agent container
-// that is not running, and the process word cannot express that. A container
-// that is running says nothing extra, which is the panel's rule throughout: a
-// check with nothing to report reports nothing.
+// agentDetail is what runs this task, where, and in what. It absorbed the
+// environment section, whose five fields and two lines of explanation were
+// identical on every task (ADR-086). Three things survive: what runs and where,
+// the compose project — a name a user types into a tool they already have on
+// the trusted host — and the container's state, appended only when it is not
+// simply running, because reconciliation can observe an agent container that is
+// not and the process word cannot express it.
 //
 // The compose project goes on a continuation line rather than into the value.
 // It is about fifty cells against a value column of thirty-nine at the minimum
 // width and sixty-three at 120, so inside the value it would break in a
-// different place at every terminal width; on a line of its own the field is the
-// same shape everywhere.
+// different place at every terminal width.
 func agentDetail(task api.Task) string {
 	if task.Session == nil {
 		return absent + "  " + mutedStyle.Render("(no terminal yet)")
@@ -120,7 +108,6 @@ func agentDetail(task api.Task) string {
 }
 
 // agentLocation names where a session runs, in the preposition its mode takes.
-//
 // A devcontainer is something the agent runs inside; the host is not, and "in
 // host" read as the name of a container nobody had configured.
 func agentLocation(mode string) string {
@@ -131,16 +118,11 @@ func agentLocation(mode string) string {
 }
 
 // terminalNote explains a task terminal that is not what the project asked for.
-//
-// A task still preparing after its terminal exists is one whose pane holds a
-// shell rather than an agent, which happens when the project configures a
-// devcontainer this build cannot start. Saying so in words is the rule ADR-031
-// set: a value that was never measured is never displayed as one, and a
-// boundary that is not there is never implied by silence.
-//
-// The first of those sentences is startingNote's, and is written there rather
-// than here: the terminal tab says the same thing about the same state, and a
-// wording kept in two places is a wording that comes to differ.
+// A task still preparing after its terminal exists holds a shell rather than an
+// agent, which happens when the project configures a devcontainer this build
+// cannot start. ADR-031 is why that is said in words: a boundary that is not
+// there is never implied by silence. The wording for that state is
+// startingNote's, because the terminal tab says the same thing about it.
 func terminalNote(task api.Task) string {
 	if task.Session == nil {
 		return ""
@@ -159,13 +141,11 @@ func terminalNote(task api.Task) string {
 	return ""
 }
 
-// runtimeDetail is what this task's application services are doing.
-//
-// A task with none reads as the bare word rather than as the em dash: the dash
-// means "nothing measured" everywhere else on this screen, and no services
-// running is a different fact and a measured one. The sentence explaining that
-// v0 starts services only when asked was an apology on every task that had never
-// been asked, which is nearly all of them (ADR-086).
+// runtimeDetail is what this task's application services are doing. A task with
+// none reads as the bare word rather than the em dash, which means "nothing
+// measured" everywhere else on this screen, where no services running is
+// measured. The sentence explaining that v0 starts services only when asked
+// read as an apology on nearly every task (ADR-086).
 func runtimeDetail(task api.Task) string {
 	if task.Runtime == nil {
 		return "absent"
@@ -177,10 +157,9 @@ func runtimeDetail(task api.Task) string {
 	return detail
 }
 
-// sourceDetail says where a task's brief came from.
-//
-// It lives beside the brief rather than on the task panel, being a fact about
-// that document rather than about the task's state (ADR-086).
+// sourceDetail says where a task's brief came from. It lives beside the brief
+// rather than on the task panel, being a fact about that document rather than
+// about the task's state (ADR-086).
 func sourceDetail(source api.Source) string {
 	if source.Reference != "" {
 		return source.Kind + " · " + source.Reference
@@ -188,11 +167,10 @@ func sourceDetail(source api.Source) string {
 	return source.Kind
 }
 
-// field renders one label and value of the task panel.
-//
-// A label as wide as the column keeps a single space instead of the padding. A
-// fixed width wraps rather than overflows, which put "compose project" on two
-// lines and left "project" against the panel's left edge looking like a heading.
+// field renders one label and value of the task panel. A label as wide as the
+// column keeps a single space instead of the padding, because a fixed width
+// wraps rather than overflows and left "project" against the panel's edge as a
+// heading.
 func field(label, value string) string {
 	if ansi.StringWidth(label) >= fieldWidth {
 		return "  " + fieldStyle.UnsetWidth().Render(label) + " " + value + "\n"
@@ -200,16 +178,14 @@ func field(label, value string) string {
 	return "  " + fieldStyle.Render(label) + value + "\n"
 }
 
-// fieldValueColumn is the cell a field's value starts in: the panel's own margin
-// and the label column beside it.
+// fieldValueColumn is the cell a field's value starts in: the panel's own
+// margin and the label column beside it.
 const fieldValueColumn = 2 + fieldWidth
 
-// continued puts a second line under a field's value, in the value's column.
-//
-// A value that will not sit beside its label is broken here rather than left to
-// the wrap. The wrap breaks wherever the width runs out, so the same field would
-// have a different shape in every terminal; a break made deliberately is in the
-// same place in all of them.
+// continued puts a second line under a field's value, in the value's column. A
+// value that will not sit beside its label is broken here rather than left to
+// the wrap, which breaks wherever the width runs out and gives the same field a
+// different shape in every terminal.
 func continued(value, line string) string {
 	return value + "\n" + strings.Repeat(" ", fieldValueColumn) + line
 }

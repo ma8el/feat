@@ -41,11 +41,10 @@ func press(t *testing.T, model Model, key string) Model {
 }
 
 // applyCommand runs one command and applies what it produced, following a batch
-// into the commands it holds as Bubble Tea's own loop does.
-//
-// A screen that opens onto a request now returns that request batched with the
-// loading indicator's first frame, and a helper that applied only the outer
-// message would report that the request was never made.
+// into the commands it holds as Bubble Tea's own loop does. A screen that opens
+// onto a request returns it batched with the indicator's first frame, so a
+// helper that applied only the outer message would report that the request was
+// never made.
 func applyCommand(t *testing.T, model Model, cmd tea.Cmd) Model {
 	t.Helper()
 
@@ -105,11 +104,9 @@ func TestTheRuntimeScreenShowsWhatTheTaskOwns(t *testing.T) {
 }
 
 // TestTheScreenShowsWhatComposeStartedAlongTheWay keeps a container of the task
-// visible whether or not the project named the service.
-//
-// Compose starts what a configured service depends on, and Feat stops and
-// removes those with the rest, so the screen shows them and says where they came
-// from.
+// visible whether or not the project named the service. Compose starts what a
+// configured service depends on, and Feat stops and removes those with the
+// rest.
 func TestTheScreenShowsWhatComposeStartedAlongTheWay(t *testing.T) {
 	task := liveTask()
 	task.Runtime = runningRuntime()
@@ -134,12 +131,10 @@ func TestTheScreenShowsWhatComposeStartedAlongTheWay(t *testing.T) {
 }
 
 // TestTheScreenSaysWhatAPortIsBoundOnAndNotOnlyWhereToDialIt is the dashboard's
-// half of the same rule the CLI follows.
-//
-// The address of a port on every interface is localhost, exactly as it is for a
-// port on the loopback address, so a screen printing the address alone shows a
-// service open to every network this machine is joined to as one that answers
-// here. Both answers are shown: the address to dial, and the binding.
+// half of the same rule the CLI follows. The address of a port on every
+// interface is localhost, exactly as it is for one on the loopback address, so
+// a screen printing the address alone shows a service open to every network as
+// one that answers here. Both are shown: the address to dial, and the binding.
 func TestTheScreenSaysWhatAPortIsBoundOnAndNotOnlyWhereToDialIt(t *testing.T) {
 	task := liveTask()
 	task.Runtime = runningRuntime()
@@ -183,9 +178,8 @@ func TestTheScreenSaysWhatAPortIsBoundOnAndNotOnlyWhereToDialIt(t *testing.T) {
 }
 
 // TestOpeningTheRuntimeScreenStartsNothing is FR-RUN-005 at the dashboard.
-//
 // Looking at what is running must not run anything: the screen asks for the
-// status and nothing else, whatever a user was hoping to see.
+// status and nothing else.
 func TestOpeningTheRuntimeScreenStartsNothing(t *testing.T) {
 	task := liveTask()
 	backend := newFakeBackend()
@@ -227,13 +221,10 @@ func TestEachRuntimeKeyAsksForItsOwnAction(t *testing.T) {
 }
 
 // TestASecondActionWaitsForTheFirst keeps a slow start from being asked for
-// twice.
-//
-// A first start pulls the project's images and runs its builds, so the screen
-// says "waiting for start…" for minutes rather than for a moment (ADR-034
-// evidence 14). Every key press during that wait used to be another request, and
-// what a user pressing `u` twice would be asking for is the services started and
-// then started again.
+// twice. A first start pulls the project's images and runs its builds, so the
+// screen says "waiting for start…" for minutes (ADR-034 evidence 14), and a
+// user pressing `u` twice would be asking for the services started and then
+// started again.
 func TestASecondActionWaitsForTheFirst(t *testing.T) {
 	task := liveTask()
 	task.Runtime = runningRuntime()
@@ -267,10 +258,9 @@ func TestASecondActionWaitsForTheFirst(t *testing.T) {
 	}
 }
 
-// TestDestroyingAsksFirst keeps a removal behind a confirmation.
-//
-// The point is checked at the backend rather than at the screen: what matters is
-// not that a prompt appeared but that nothing was destroyed while it was up.
+// TestDestroyingAsksFirst keeps a removal behind a confirmation. It is checked
+// at the backend rather than at the screen: what matters is not that a prompt
+// appeared but that nothing was destroyed while it was up.
 func TestDestroyingAsksFirst(t *testing.T) {
 	task := liveTask()
 	task.Runtime = runningRuntime()
@@ -313,15 +303,12 @@ func confirmedDestroy(calls []string) bool {
 	return false
 }
 
-// TestReadingATaskNeverActsOnItsRuntime is the fifth acceptance criterion at the
-// dashboard.
-//
-// A task's services are the user's to keep or to end, and reading about a task
-// that has reached the end of its review path must not stop them. It used to be
-// phrased as an offer in words on both screens — "this task is approved and its
-// services are still running" — which went with the approval that produced it
-// (ADR-086). The half that mattered is this one: the dashboard never takes the
-// action itself, and t is the key that does.
+// TestReadingATaskNeverActsOnItsRuntime is the fifth acceptance criterion at
+// the dashboard. A task's services are the user's to keep or to end, and
+// reading about a task that has reached the end of its review path must not
+// stop them. The offer in words went with the approval that produced it
+// (ADR-086); what mattered is this half, that the dashboard never takes the
+// action itself and t is the key that does.
 func TestReadingATaskNeverActsOnItsRuntime(t *testing.T) {
 	task := liveTask()
 	task.Workflow = "ready_for_review"
@@ -380,15 +367,12 @@ func TestTheLogsActionYieldsTheTerminal(t *testing.T) {
 }
 
 // TestTheDashboardOutlivesTheInterruptThatLeavesTheLogs is the other half of
-// yielding the terminal.
-//
-// `docker compose logs --follow` ends when the user interrupts it, and the
-// terminal driver sends that interrupt to every process in the foreground group
-// — the dashboard included. While it holds the process-wide interrupt context,
-// the dashboard is killed by the key that leaves the logs, which left no way out
-// of them but quitting Feat. Its lifetime is its own, and Bubble Tea ends it:
-// that is the one component that knows whether the dashboard or another program
-// currently owns the terminal (ADR-049).
+// yielding the terminal. `docker compose logs --follow` ends when the user
+// interrupts it, and the terminal driver sends that interrupt to every process
+// in the foreground group, the dashboard included, so holding the process-wide
+// interrupt context leaves no way out of the logs but quitting Feat. The
+// dashboard's lifetime is its own and Bubble Tea ends it, being the one
+// component that knows who owns the terminal (ADR-049).
 func TestTheDashboardOutlivesTheInterruptThatLeavesTheLogs(t *testing.T) {
 	interrupted, interrupt := context.WithCancel(context.Background())
 	dashboard := dashboardContext(interrupted)
@@ -400,12 +384,9 @@ func TestTheDashboardOutlivesTheInterruptThatLeavesTheLogs(t *testing.T) {
 	}
 }
 
-// TestADraftReachesTheRuntimeScreenAndIsToldItHasNone.
-//
-// The screen used to refuse a draft outright. That was right about a draft
-// having no services and wrong about what to do: a tab that declines to open is
-// a tab the cycle cannot pass. It opens and says so, and still asks the daemon
-// nothing — there is nothing to observe.
+// TestADraftReachesTheRuntimeScreenAndIsToldItHasNone checks the tab a draft
+// can still reach. A draft has no services, and a tab that declines to open is
+// one the cycle cannot pass, so it opens, says so, and asks the daemon nothing.
 func TestADraftReachesTheRuntimeScreenAndIsToldItHasNone(t *testing.T) {
 	draft := liveTask()
 	draft.Workflow = "draft"
@@ -427,11 +408,10 @@ func TestADraftReachesTheRuntimeScreenAndIsToldItHasNone(t *testing.T) {
 }
 
 // TestTheRuntimeTabWrapsWhatDoesNotFitTheRegion is the report this answers.
-//
-// Every other tab is re-flowed to its region before it is drawn and this one was
-// not, so the cards cut what overran them: the sentence a user meets first on a
+// Every other tab is re-flowed to its region before it is drawn, and without
+// that the cards cut what overruns them: the sentence a user meets first on a
 // task with no services said "Feat starts services only when you" and then an
-// ellipsis, which is the half of it that says what to do about it.
+// ellipsis.
 func TestTheRuntimeTabWrapsWhatDoesNotFitTheRegion(t *testing.T) {
 	task := liveTask()
 	task.Runtime = nil
@@ -453,12 +433,11 @@ func TestTheRuntimeTabWrapsWhatDoesNotFitTheRegion(t *testing.T) {
 	}
 }
 
-// TestTheServiceTableKeepsEachServiceOnOneLine covers what the wrap put at risk.
-//
-// A row wider than the region used to lose the end of its last column and keep
-// its shape; wrapped, it folds instead, and a folded row is a row with no
-// columns in it. The status is the column that gives up the cells, down to being
-// left out where there are none to give.
+// TestTheServiceTableKeepsEachServiceOnOneLine covers what the wrap put at
+// risk. A row wider than the region loses the end of its last column and keeps
+// its shape when it is cut; wrapped, it folds, and a folded row has no columns
+// in it. The status is the column that gives up the cells, down to being left
+// out where there are none to give.
 func TestTheServiceTableKeepsEachServiceOnOneLine(t *testing.T) {
 	task := liveTask()
 	task.Runtime = runningRuntime()
@@ -493,8 +472,8 @@ func TestTheServiceTableKeepsEachServiceOnOneLine(t *testing.T) {
 	}
 }
 
-// rowHolds reports whether the line naming a service also carries a value, which
-// is what a table row that has not been folded looks like.
+// rowHolds reports whether the line naming a service also carries a value,
+// which is what a table row that has not been folded looks like.
 func rowHolds(body, service, value string) bool {
 	for _, line := range strings.Split(body, "\n") {
 		if strings.HasPrefix(line, service+" ") && strings.Contains(line, value) {

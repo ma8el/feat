@@ -9,9 +9,9 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// A resource line is a label and a bar, and the two fill the rail exactly. Fixed
-// columns rather than proportions, so that the three bars start and end in the
-// same place and can be compared by eye.
+// A resource line is a label and a bar, and the two fill the rail exactly.
+// Fixed columns rather than proportions, so that the three bars start and end
+// in the same place and can be compared by eye.
 const (
 	railLabel = 7
 	// numberWidth is the column the percentage is right-aligned in. Four holds
@@ -29,13 +29,11 @@ const (
 	barEmpty = "░"
 )
 
-// machineBlock renders the machine's resources for the foot of the rail.
-//
-// Three bars and their percentages, and no heading: the labels say what they
-// are, and the rail's one heading belongs to the tasks. The question the block
-// answers is whether there is room to start another task, and a share is what
-// answers it — 48 GiB free is roomy on one disk and nearly nothing on the next,
-// and neither the reader nor the screen has room to do the division.
+// machineBlock renders the machine's resources for the foot of the rail. Three
+// bars and their percentages, and no heading: the labels say what they are, and
+// the rail's one heading belongs to the tasks. A share answers whether there is
+// room to start another task, where 48 GiB free is roomy on one disk and nearly
+// nothing on the next.
 func (m Model) machineBlock() string {
 	switch {
 	case m.resourceErr != nil:
@@ -52,13 +50,10 @@ func (m Model) machineBlock() string {
 }
 
 // machineNote is why a figure the rail shows as absent is absent, for the
-// footer.
-//
-// It is a sentence — "machine memory is unavailable: vm_stat reported nothing" —
-// and the rail is thirty-two cells wide, so putting it beside the bars would
-// truncate it into exactly the silence FR-UI-005 is against. The rail says which
-// figure was not measured and the footer says why, and both are on the screen at
-// once.
+// footer. It is a sentence — "machine memory is unavailable: vm_stat reported
+// nothing" — and the rail is thirty-two cells wide, so beside the bars it would
+// be truncated into the silence FR-UI-005 is against. The rail says which
+// figure was not measured and the footer says why.
 func (m Model) machineNote() string {
 	if m.resourceErr != nil {
 		if daemonGone(m.resourceErr) {
@@ -76,18 +71,15 @@ func (m Model) machineNote() string {
 	return mutedStyle.Render(note)
 }
 
-// cpuRow renders the processors in use.
+// cpuRow renders the processors in use. The share is the run-queue average
+// against the core count, which is the one measure both supported platforms
+// give: a per-core utilisation percentage is not obtainable on macOS from Go
+// without cgo, so this is demand rather than occupancy (ADR-035, ADR-044). It
+// can pass 100%, and the bar stops at full while the number keeps going.
 //
-// The share is the run-queue average against the core count, which is the one
-// measure both supported platforms give: a per-core utilisation percentage is
-// not obtainable on macOS from Go without cgo, so this is derived rather than
-// read, and it is demand rather than occupancy (ADR-035, ADR-044). It can
-// therefore pass 100%, which nothing that was truly a utilisation percentage
-// could, and the bar stops at full while the number keeps going.
-//
-// A machine that did not report its cores gets no bar. There is no share without
-// a denominator — a load of four is idle on sixteen cores and saturated on two —
-// and a bar drawn against a guess is worse than one not drawn.
+// A machine that did not report its cores gets no bar. A load of four is idle
+// on sixteen cores and saturated on two, so there is no share without a
+// denominator.
 func cpuRow(machine api.MachineResources) string {
 	if machine.Load == nil || machine.Cores <= 0 {
 		return railRow("cpu", "")
@@ -103,11 +95,10 @@ func memoryRow(machine api.MachineResources) string {
 	return railRow("memory", usedBar(machine.Memory.TotalBytes, machine.Memory.AvailableBytes))
 }
 
-// diskRow renders the filesystem holding Feat's state.
-//
-// That filesystem rather than any other, because it is the one every worktree,
-// control workspace, and generated override lands on, and running out of room on
-// it is what stops the next task from being created.
+// diskRow renders the filesystem holding Feat's state. That filesystem rather
+// than any other, because it is the one every worktree, control workspace, and
+// generated override lands on, and running out of room on it stops the next
+// task from being created.
 func diskRow(machine api.MachineResources) string {
 	if machine.Disk == nil {
 		return railRow("disk", "")
@@ -115,10 +106,9 @@ func diskRow(machine api.MachineResources) string {
 	return railRow("disk", usedBar(machine.Disk.TotalBytes, machine.Disk.AvailableBytes))
 }
 
-// usedBar draws the part of a capacity that is not available.
-//
-// A capacity of zero is not a full disk and not an empty one; it is a filesystem
-// nothing measured, so it draws no bar.
+// usedBar draws the part of a capacity that is not available. A capacity of
+// zero is not a full disk and not an empty one but a filesystem nothing
+// measured, so it draws no bar.
 func usedBar(total, available uint64) string {
 	if total == 0 || available > total {
 		return ""
@@ -126,24 +116,20 @@ func usedBar(total, available uint64) string {
 	return bar(float64(total-available) / float64(total))
 }
 
-// bar draws a share of the bar column, with the percentage after it.
+// bar draws a share of the bar column, with the percentage after it. The number
+// ends the line rather than sitting in the middle of the bar, where it split
+// the blocks either side into two runs that read as two measurements. It is the
+// label's grey, because it says what the bar already says.
 //
-// The number ends the line rather than sitting in the middle of the bar, where
-// it split the blocks either side of it into two runs that read as two
-// measurements. It is the label's grey, because it is what the bar already says
-// and a second colour would make it a second thing to look at.
-//
-// A share that is neither nothing nor everything never draws as either, in the
-// bar or in the number. Rounding two percent down to an empty bar and to "0%"
-// would say the machine is idle, and ninety-nine up to a full bar and "100%"
-// would say there is no room left; both are claims the sample did not make.
+// A share that is neither nothing nor everything never draws as either.
+// Rounding two percent down to an empty bar and "0%" would say the machine is
+// idle, and ninety-nine up to "100%" would say there is no room left.
 func bar(share float64) string {
 	number := percentage(share)
 
 	// A number wider than its column takes the cells from the bar rather than
-	// from the rail. The line is a fixed thirty-two cells whatever happens, and a
-	// machine asking for twelve times its processors has a bar with nothing left
-	// to say and a number that is the whole of the news.
+	// from the rail, whose line is a fixed thirty-two cells. A machine asking for
+	// twelve times its processors has a bar with nothing left to say.
 	width := railBar
 	if over := len(number) - numberWidth; over > 0 {
 		width -= over
@@ -160,9 +146,9 @@ func bar(share float64) string {
 
 	numberStyle := mutedStyle
 	if share > 1 {
-		// More runnable work than processors to run it, which the bar cannot
-		// show because it stops at full. Marked rather than judged: it is still
-		// only a number, and Feat refuses nothing over it.
+		// More runnable work than processors to run it, which the bar cannot show
+		// because it stops at full. Marked rather than judged: Feat refuses nothing
+		// over this number.
 		numberStyle = attentionStyle
 	}
 	return drawn + " " + numberStyle.Render(number)
@@ -182,7 +168,8 @@ func filledCells(share float64, width int) int {
 	return cells
 }
 
-// percentage renders a share, refusing the two roundings that would misreport it.
+// percentage renders a share, refusing the two roundings that would misreport
+// it.
 func percentage(share float64) string {
 	rounded := int(math.Round(share * 100))
 	switch {
@@ -195,11 +182,9 @@ func percentage(share float64) string {
 	}
 }
 
-// railRow lays out one resource line.
-//
-// A metric with no bar says it was not measured rather than drawing an empty
-// one — the rule ADR-031 set for the task list holds here, where a bar at zero
-// would be the most readable false claim on the screen.
+// railRow lays out one resource line. A metric with no bar says it was not
+// measured rather than drawing an empty one, because a bar at zero would be the
+// most readable false claim on the screen (ADR-031).
 func railRow(label, drawn string) string {
 	if drawn == "" {
 		drawn = mutedStyle.Render(absent + " not measured")
@@ -217,20 +202,14 @@ func (m Model) taskResources(id string) (api.TaskResources, bool) {
 	return api.TaskResources{}, false
 }
 
-// resourceDetail renders one task's totals, in the rail's vocabulary and not its
-// bars (FR-UI-005, ADR-086).
+// resourceDetail renders one task's totals, in the rail's vocabulary and not
+// its bars (FR-UI-005, ADR-086). No bar, because the rail's bars are shares of
+// this host and these are not: a container's memory is what the container
+// runtime reported, inside its own virtual machine on macOS, and a bar against
+// the host's total would invite the comparison ADR-035 refuses.
 //
-// Two figures, each said rather than inferred from its unit. No bar: the rail's
-// bars are shares of this host and these are not — a container's memory is what
-// the container runtime reported, inside its own virtual machine on macOS, and a
-// bar against the host's total would invite exactly the comparison ADR-035
-// refuses. The breakdown and the per-container rows that sat under this were the
-// same total in two further forms, and the container's name was the compose
-// project again with a suffix on it.
-//
-// A task nothing measured shows nothing rather than zero. Those are different
-// answers, and a draft — which owns no container and no process — is the
-// commonest case: it has not been measured because there is nothing to measure.
+// A task nothing measured shows nothing rather than zero. A draft is the
+// commonest case, because it owns no container and no process.
 func (m Model) resourceDetail(task api.Task) string {
 	if m.resourceErr != nil {
 		return absent + "  " + mutedStyle.Render("("+m.resourceErr.Error()+")")
@@ -251,11 +230,9 @@ func (m Model) resourceDetail(task api.Task) string {
 	return mutedStyle.Render("cpu ") + cpu + mutedStyle.Render("   memory ") + memory
 }
 
-// count renders "1 container" and "3 containers".
-//
-// Both forms are given rather than derived, because "process" does not become
-// its plural by adding one letter, and a screen that misspelled the word is a
-// screen somebody stops reading.
+// count renders "1 container" and "3 containers". Both forms are given rather
+// than derived, because "process" does not become its plural by adding one
+// letter.
 func count(n int, singular, plural string) string {
 	if n == 1 {
 		return "1 " + singular
@@ -272,7 +249,7 @@ var byteUnits = []struct {
 	{"TiB", 1 << 40}, {"GiB", 1 << 30}, {"MiB", 1 << 20}, {"KiB", 1 << 10},
 }
 
-// bytes renders a size in the largest unit that keeps it readable.
+// humanBytes renders a size in the largest unit that keeps it readable.
 func humanBytes(size uint64) string {
 	value := float64(size)
 	for _, unit := range byteUnits {

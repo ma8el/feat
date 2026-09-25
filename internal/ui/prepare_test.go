@@ -21,13 +21,11 @@ import (
 	"github.com/ma8el/feat/internal/wizard"
 )
 
-// fakeBackend answers the dashboard from fixtures and records what it was
-// asked to do.
-//
-// The point of the Backend interface is that a screen's behaviour can be
-// checked without a socket, a daemon, or tmux. The counters below are what
-// makes the strongest assertion available: not that no worktree exists, but
-// that nothing was ever asked to create one.
+// fakeBackend answers the dashboard from fixtures and records what it was asked
+// to do. The Backend interface exists so a screen's behaviour can be checked
+// without a socket, a daemon, or tmux, and the counters below make the
+// strongest assertion available: not that no worktree exists, but that nothing
+// was ever asked to create one.
 type fakeBackend struct {
 	mu sync.Mutex
 
@@ -190,7 +188,8 @@ func (f *fakeBackend) Tasks(context.Context) ([]api.Task, error) {
 }
 
 // Tickets answers with what a project's tracker command printed, so that a
-// screen's behaviour can be checked without a tracker, an account, or a network.
+// screen's behaviour can be checked without a tracker, an account, or a
+// network.
 func (f *fakeBackend) Tickets(_ context.Context, project string) (api.TicketList, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -207,9 +206,9 @@ func (f *fakeBackend) Tickets(_ context.Context, project string) (api.TicketList
 }
 
 // StartDaemon records that the dashboard asked for one, and stops failing the
-// reads that made it ask unless the test arranged otherwise. A fake that went on
-// refusing after a successful start could not tell a dashboard that recovered
-// from one that only said it had.
+// reads that made it ask unless the test arranged otherwise. A fake that went
+// on refusing after a successful start could not tell a dashboard that
+// recovered from one that only said it had.
 func (f *fakeBackend) StartDaemon(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -487,12 +486,10 @@ func (f *fakeBackend) EditorCommand(path string) (tea.ExecCommand, error) {
 	return noopCommand{}, nil
 }
 
-// NewWizard builds a flow over a machine with one repository on it, so that the
+// NewWizard builds a flow over a machine with one repository on it, so the
 // dialog can be driven end to end without Git, a configuration directory, or a
-// file.
-//
-// The questions themselves are internal/wizard's and are tested there. What a
-// test here asserts is what the dialog does with them.
+// file. The questions themselves are internal/wizard's and are tested there;
+// what a test here asserts is what the dialog does with them.
 func (f *fakeBackend) NewWizard() (*wizard.Wizard, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -512,8 +509,8 @@ func (f *fakeBackend) NewWizard() (*wizard.Wizard, error) {
 }
 
 // WriteProject records that the file was asked for rather than writing one: the
-// exclusive create belongs to internal/wizard, and what a screen test can assert
-// is that nothing asked for it until the user confirmed.
+// exclusive create belongs to internal/wizard, and what a screen test can
+// assert is that nothing asked for it until the user confirmed.
 func (f *fakeBackend) WriteProject(flow *wizard.Wizard) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -596,10 +593,9 @@ func (noopCommand) SetStdout(_ io.Writer) {}
 func (noopCommand) SetStderr(_ io.Writer) {}
 
 // drive applies messages to a preparation model, running each returned command
-// and feeding the message back, until nothing is left.
-//
-// Bubble Tea would do this in its event loop; doing it here keeps the test
-// deterministic and single-threaded.
+// and feeding the message back, until nothing is left. Bubble Tea would do this
+// in its event loop; doing it here keeps the test deterministic and
+// single-threaded.
 func drive(t *testing.T, model prepareModel, messages ...tea.Msg) prepareModel {
 	t.Helper()
 
@@ -665,10 +661,9 @@ func key(name string) tea.KeyMsg {
 }
 
 // writing opens preparation and answers the source question the way a user who
-// types their own brief does.
-//
-// The cursor opens on "write it here", so the answer is one Enter — which is
-// what keeps Enter-Enter the preparation this screen has always had.
+// types their own brief does. The cursor opens on "write it here", so the
+// answer is one Enter, which is what keeps Enter-Enter the preparation this
+// screen has always had.
 func writing(t *testing.T, backend *fakeBackend) prepareModel {
 	t.Helper()
 	return writingFrom(t, backend, prepareStart{})
@@ -721,13 +716,11 @@ func preparedFrom(t *testing.T, backend *fakeBackend, start prepareStart) prepar
 }
 
 // TestAFirstRunIsPointedAtTheWizard checks what preparation says on a machine
-// where nothing is configured yet.
-//
-// It is the error a new user is most likely to meet, and the step that clears it
-// is writing a configuration: naming `feat project add` names a registration
-// with nothing to register (ADR-062). What it names instead is the key that
-// opens the wizard, because that is the shortest route from where the user is
-// standing when they read it (ADR-063).
+// where nothing is configured yet. It is the error a new user is most likely to
+// meet, and the step that clears it is writing a configuration: naming `feat
+// project add` names a registration with nothing to register (ADR-062). What it
+// names is the key that opens the wizard, the shortest route from where the
+// user is standing (ADR-063).
 func TestAFirstRunIsPointedAtTheWizard(t *testing.T) {
 	backend := newFakeBackend()
 	backend.projects = nil
@@ -747,11 +740,10 @@ func TestAFirstRunIsPointedAtTheWizard(t *testing.T) {
 }
 
 // TestNothingIsCreatedBeforeTheUserConfirms is FR-TASK-003 at the screen that
-// implements it.
-//
-// Everything up to the review screen may read and resolve; only the
-// confirmation may create. The assertion is that no launch was requested, which
-// is the only way a worktree, a branch, or a terminal can appear.
+// implements it. Everything up to the review screen may read and resolve, and
+// only the confirmation may create: the assertion is that no launch was
+// requested, which is the only way a worktree, a branch, or a terminal can
+// appear.
 func TestNothingIsCreatedBeforeTheUserConfirms(t *testing.T) {
 	backend := newFakeBackend()
 	model := prepared(t, backend)
@@ -797,13 +789,11 @@ func TestConfirmingCarriesTheDisplayedFingerprint(t *testing.T) {
 }
 
 // TestTheStartModeTogglesWithoutAskingTheDaemon checks the key and what it
-// costs.
-//
-// It costs nothing, which is why the value travels with the confirmation rather
-// than with the draft: recording it on the draft would mean an update and a
-// re-plan, and a re-plan is a fetch and a base resolution in every repository —
-// seconds of spinner for a value that cannot drift underneath the screen
-// (ADR-031).
+// costs. It costs nothing, which is why the value travels with the confirmation
+// rather than with the draft: recording it on the draft would mean an update
+// and a re-plan, and a re-plan is a fetch and a base resolution in every
+// repository, seconds of spinner for a value that cannot drift underneath the
+// screen (ADR-031).
 func TestTheStartModeTogglesWithoutAskingTheDaemon(t *testing.T) {
 	backend := newFakeBackend()
 	model := prepared(t, backend)
@@ -892,12 +882,10 @@ func TestConfirmingSendsTheDisplayedStartMode(t *testing.T) {
 	}
 }
 
-// TestThePlanFlagPresetsTheStartMode checks that `feat implement --plan` arrives
-// with the toggle already on.
-//
-// It presets rather than decides: the review step still appears and the key
-// still moves it, because nothing is created until the user confirms what is on
-// the screen (FR-TASK-003).
+// TestThePlanFlagPresetsTheStartMode checks that `feat implement --plan`
+// arrives with the toggle already on. It presets rather than decides: the
+// review step still appears and the key still moves it, because nothing is
+// created until the user confirms what is on the screen (FR-TASK-003).
 func TestThePlanFlagPresetsTheStartMode(t *testing.T) {
 	backend := newFakeBackend()
 	model := preparedFrom(t, backend, prepareStart{planFirst: true})
@@ -945,10 +933,9 @@ func TestCancellingPreparationCreatesNothing(t *testing.T) {
 }
 
 // TestAReadOnlyRepositoryCannotBeCycledToReadWrite checks that the selection
-// screen offers only what the project's configuration allows.
-//
-// The daemon refuses a promotion as well, but a screen that offered it would be
-// showing the user a choice Feat was never going to honour.
+// screen offers only what the project's configuration allows. The daemon
+// refuses a promotion as well, but a screen that offered it would show the user
+// a choice Feat was never going to honour.
 func TestAReadOnlyRepositoryCannotBeCycledToReadWrite(t *testing.T) {
 	backend := newFakeBackend()
 
@@ -1045,11 +1032,9 @@ func TestPreparationNeedsARepository(t *testing.T) {
 
 // TestAFailedResolutionKeepsTheDraftEditable checks the path a user meets
 // first: a branch that already exists, a checkout that has moved, a remote that
-// cannot be reached.
-//
-// Resolving creates nothing, so a draft whose plan does not hold is still a
-// draft. The screen has to say what went wrong and leave the user where they
-// can change it, rather than stranding them on a review screen with no plan.
+// cannot be reached. Resolving creates nothing, so a draft whose plan does not
+// hold is still a draft, and the screen says what went wrong and leaves the
+// user where they can change it.
 func TestAFailedResolutionKeepsTheDraftEditable(t *testing.T) {
 	backend := newFakeBackend()
 	backend.planErr = errors.New("branch feat/2c4e6a80-core already exists in /srv/repositories/core")
@@ -1085,12 +1070,11 @@ func TestAFailedResolutionKeepsTheDraftEditable(t *testing.T) {
 }
 
 // TestEditingTheBriefHandsTheCurrentTextToTheEditor checks the $EDITOR handoff.
-//
 // Reading the file back and removing it happen in the callback Bubble Tea runs
 // once the editor exits, which a model test cannot invoke. What it can check is
-// the half that decides whether the handoff is useful at all: the editor is
-// given a Markdown file holding what the user has written so far, rather than an
-// empty one that would discard it.
+// the half that decides whether the handoff is useful: the editor is given a
+// Markdown file holding what the user has written so far rather than an empty
+// one.
 func TestEditingTheBriefHandsTheCurrentTextToTheEditor(t *testing.T) {
 	backend := newFakeBackend()
 	const draft = "a first draft\n\n- with a list\n"
@@ -1260,10 +1244,8 @@ func withTickets(backend *fakeBackend) {
 }
 
 // fromTicket answers the source question with the project's tracker, which is
-// what runs the command and opens the list.
-//
-// "from a ticket" is the second answer, so it is one press down from where the
-// cursor opens.
+// what runs the command and opens the list. "from a ticket" is the second
+// answer, so it is one press down from where the cursor opens.
 func fromTicket(t *testing.T, backend *fakeBackend) prepareModel {
 	t.Helper()
 
@@ -1273,11 +1255,10 @@ func fromTicket(t *testing.T, backend *fakeBackend) prepareModel {
 }
 
 // TestTheTrackerIsAskedOnlyWhenTheUserAsks is ADR-031's rule applied to the
-// tracker: the command reaches somebody's service over a network, so nothing may
-// run it because a screen opened or a field was edited.
-//
-// The source step does not weaken that. Opening it runs nothing, because the
-// question is drawn from three constants; the command runs on the answer.
+// tracker: the command reaches somebody's service over a network, so nothing
+// may run it because a screen opened or a field was edited. The source step
+// does not weaken that: opening it runs nothing, because the question is drawn
+// from three constants.
 func TestTheTrackerIsAskedOnlyWhenTheUserAsks(t *testing.T) {
 	backend := newFakeBackend()
 	withTickets(backend)
@@ -1300,10 +1281,10 @@ func TestTheTrackerIsAskedOnlyWhenTheUserAsks(t *testing.T) {
 	}
 }
 
-// TestSelectingATicketComposesTheBriefTheUserConfirms is ADR-070's inbound rule:
-// the ticket fills the same editable brief a typed prompt is written in, and it
-// is that document — not the ticket — that the confirmation displays and the
-// agent receives.
+// TestSelectingATicketComposesTheBriefTheUserConfirms is ADR-070's inbound
+// rule: the ticket fills the same editable brief a typed prompt is written in,
+// and it is that document — not the ticket — that the confirmation displays and
+// the agent receives.
 func TestSelectingATicketComposesTheBriefTheUserConfirms(t *testing.T) {
 	backend := newFakeBackend()
 	withTickets(backend)
@@ -1380,8 +1361,9 @@ func TestATicketBriefReachesTheDaemonThroughTheOrdinaryPath(t *testing.T) {
 }
 
 // TestATicketReferenceIsMatchedAgainstWhatTheCommandEmitted is ADR-071's rule
-// that Feat never parses a reference: `--ticket` re-runs the command and matches
-// what it printed, so a tracker whose keys look like anything at all works.
+// that Feat never parses a reference: `--ticket` re-runs the command and
+// matches what it printed, so a tracker whose keys look like anything at all
+// works.
 func TestATicketReferenceIsMatchedAgainstWhatTheCommandEmitted(t *testing.T) {
 	backend := newFakeBackend()
 	withTickets(backend)
@@ -1441,14 +1423,12 @@ func TestATicketReferenceTheCommandDidNotEmitSaysWhatItDid(t *testing.T) {
 }
 
 // TestAProjectWithNoTrackerSaysSoRatherThanShowingAnEmptyList checks that the
-// absence reaches the user as the daemon's own words.
-//
-// The option is offered by a project that configures no tracker, because the
-// sentence that comes back is the most actionable one Feat has on the subject
-// and it costs one socket round trip and no network wait. Drawing the option as
-// unavailable would need tracker presence on api.Project, which is built from a
-// stored snapshot that does not carry it — a flag that would be stale the moment
-// a user configured one (ADR-083).
+// absence reaches the user as the daemon's own words. The option is offered by
+// a project that configures no tracker, because the sentence that comes back is
+// the most actionable one Feat has and it costs one socket round trip and no
+// network wait. Drawing the option as unavailable would need tracker presence
+// on api.Project, which is built from a stored snapshot that does not carry it
+// (ADR-083).
 //
 // The user stays on the source step, where the other two answers are.
 func TestAProjectWithNoTrackerSaysSoRatherThanShowingAnEmptyList(t *testing.T) {
@@ -1474,8 +1454,8 @@ func TestAProjectWithNoTrackerSaysSoRatherThanShowingAnEmptyList(t *testing.T) {
 
 // TestAnEmptyTicketListReturnsToTheSourceStep checks the other answer a tracker
 // can give. Which tickets are the user's is the command's decision, and none is
-// one of them — so it is an answer to the source question rather than a failure,
-// and it leaves the user where the other answers are.
+// one of them — so it is an answer to the source question rather than a
+// failure, and it leaves the user where the other answers are.
 func TestAnEmptyTicketListReturnsToTheSourceStep(t *testing.T) {
 	backend := newFakeBackend()
 	backend.tickets = map[string]api.TicketList{"example": {ReadAt: time.Now()}}
@@ -1528,13 +1508,12 @@ func TestTheTicketListShowsWhatTheTrackerPrinted(t *testing.T) {
 }
 
 // TestChoosingATicketAfterADraftWasRecordedStartsAgain checks the one way the
-// brief and the recorded source could come apart.
-//
-// A draft records where its brief came from when it is created, and updating one
-// replaces its title, brief, and repositories rather than that. So a user who
-// resolves a draft, steps back, and then chooses a ticket must get a new draft:
-// a task whose brief is the ticket's and whose source says otherwise is a record
-// nothing could act on (ADR-071).
+// brief and the recorded source could come apart. A draft records where its
+// brief came from when it is created, and updating one replaces its title,
+// brief, and repositories rather than that, so a user who resolves a draft,
+// steps back, and then chooses a ticket gets a new draft: a task whose brief is
+// the ticket's and whose source says otherwise is a record nothing could act on
+// (ADR-071).
 func TestChoosingATicketAfterADraftWasRecordedStartsAgain(t *testing.T) {
 	backend := newFakeBackend()
 	withTickets(backend)
@@ -1648,8 +1627,8 @@ func TestAFlagAnswersTheSourceQuestionAndSkipsTheStep(t *testing.T) {
 
 // TestEscFromABriefAFlagFilledLeavesPreparation checks the other half of a flag
 // being an answer. There is no answer of the user's own to return to, so esc
-// keeps the meaning it had before the step existed: the project step where there
-// is one to choose, and out of preparation otherwise.
+// keeps the meaning it had before the step existed: the project step where
+// there is one to choose, and out of preparation otherwise.
 func TestEscFromABriefAFlagFilledLeavesPreparation(t *testing.T) {
 	backend := newFakeBackend()
 
@@ -1714,8 +1693,7 @@ func TestTheTrailSaysSourceWhileAnAnswerIsBeingWorkedOut(t *testing.T) {
 
 // TestEveryAnswerResetsTheBrief is the rule the step is shaped by: every source
 // converges on the same editor, so the editor is where a brief is reviewed and
-// adjusted, and returning to this step can only mean starting over. A user who
-// wants to keep what they have never leaves the editor (ADR-083).
+// adjusted and returning to this step can only mean starting over (ADR-083).
 //
 // The case that makes it a rule rather than a convenience is "write it here"
 // clearing a brief a ticket composed: there is no confirmation, and the source
@@ -1751,14 +1729,12 @@ func TestEveryAnswerResetsTheBrief(t *testing.T) {
 	}
 }
 
-// TestChangingTheSourceAfterADraftWasRecordedStartsAgain is the correctness item
-// of the whole step, on the path that the ticket list never had.
-//
-// A draft records where its brief came from when it is created and nothing later
-// replaces that: updating one replaces its title, brief, and repositories. So a
-// draft recorded before the source changed has to go, or a task could be
-// launched whose brief came from a file and whose recorded source says "prompt"
-// — a record nothing can act on (ADR-071, ADR-083).
+// TestChangingTheSourceAfterADraftWasRecordedStartsAgain is the correctness
+// item of the whole step, on the path the ticket list never had. A draft
+// records where its brief came from when it is created and an update replaces
+// only its title, brief, and repositories, so a draft recorded before the
+// source changed has to go: otherwise a task could be launched whose brief came
+// from a file and whose recorded source says "prompt" (ADR-071, ADR-083).
 func TestChangingTheSourceAfterADraftWasRecordedStartsAgain(t *testing.T) {
 	backend := newFakeBackend()
 	path := writeBrief(t, "imported.md", "# Rename the runtime\n\nEverywhere.\n")
@@ -1832,11 +1808,9 @@ func TestWritingItHereAfterADraftWasRecordedStartsAgain(t *testing.T) {
 
 // TestImportingAFileFillsTheBriefTheUserConfirms is ADR-070's inbound rule
 // applied to a document: a Markdown file is also text somebody else may have
-// written, so it goes into the same editable field a typed prompt is, and it is
-// that document the confirmation displays.
-//
-// The absolute path is recorded on the source, which is what lets the brief
-// screen say where its text came from.
+// written, so it goes into the same editable field a typed prompt does and it
+// is that document the confirmation displays. The absolute path is recorded on
+// the source, which is what lets the brief screen say where its text came from.
 func TestImportingAFileFillsTheBriefTheUserConfirms(t *testing.T) {
 	backend := newFakeBackend()
 	const content = "# Rename the runtime\n\nEverywhere it is called something else.\n"
@@ -1881,11 +1855,9 @@ func TestAnImportKeepsATitleThatIsAlreadyThere(t *testing.T) {
 }
 
 // TestTheImportScreenRefusesWhatIsNotABrief keeps every refusal on the screen
-// the path was typed on, which is the screen the user can correct it on.
-//
-// A document with no text is refused here rather than at the repository step for
-// the same reason: the agent receives the brief exactly as written, and an empty
-// one is worth saying so about while the file is still on screen.
+// the path was typed on, which is the screen the user can correct it on. A
+// document with no text is refused here rather than at the repository step for
+// the same reason: the agent receives the brief exactly as written.
 func TestTheImportScreenRefusesWhatIsNotABrief(t *testing.T) {
 	oversized := writeBrief(t, "huge.md", strings.Repeat("x", 256<<10+1))
 
@@ -1926,10 +1898,9 @@ func TestTheImportScreenRefusesWhatIsNotABrief(t *testing.T) {
 }
 
 // TestTheImportScreenCompletesFromTheProjectsCheckouts checks what tab offers.
-//
 // The project's own checkouts come first, because a brief written before the
 // task usually sits beside the code it is about, and a directory is marked as
-// one so that a completed path reads as somewhere to keep typing (ADR-077).
+// one so a completed path reads as somewhere to keep typing (ADR-077).
 func TestTheImportScreenCompletesFromTheProjectsCheckouts(t *testing.T) {
 	backend := newFakeBackend()
 	root := t.TempDir()
@@ -1964,11 +1935,9 @@ func TestTheImportScreenCompletesFromTheProjectsCheckouts(t *testing.T) {
 }
 
 // TestTheBriefScreenNoLongerOffersTheTicketList checks that there is one door
-// into ticket selection rather than two.
-//
-// A second one, opened from inside the editor, would be a key that wipes the
-// document the user is standing in — which is the ambiguity the source step
-// exists to remove (ADR-083).
+// into ticket selection rather than two. A second one, opened from inside the
+// editor, would be a key that wipes the document the user is standing in, which
+// is the ambiguity the source step exists to remove (ADR-083).
 func TestTheBriefScreenNoLongerOffersTheTicketList(t *testing.T) {
 	backend := newFakeBackend()
 	withTickets(backend)
@@ -1990,11 +1959,11 @@ func TestTheBriefScreenNoLongerOffersTheTicketList(t *testing.T) {
 	}
 }
 
-// TestEscFromTheBriefReturnsToTheSourceStep is the key's intended meaning rather
-// than an oversight: there is no forward path back to the editor that does not
-// pass through a selection, and every selection resets, so esc from the brief
-// destroys what is in it. It is specified with no guard, because a key whose
-// whole purpose is "start over" does not need to ask (ADR-083).
+// TestEscFromTheBriefReturnsToTheSourceStep is the key's intended meaning
+// rather than an oversight: there is no forward path back to the editor that
+// does not pass through a selection, and every selection resets, so esc from
+// the brief destroys what is in it. It is specified with no guard, because a
+// key whose whole purpose is "start over" does not need to ask (ADR-083).
 func TestEscFromTheBriefReturnsToTheSourceStep(t *testing.T) {
 	backend := newFakeBackend()
 
@@ -2030,8 +1999,8 @@ func TestEscFromTheSourceStepLeavesPreparationWithOneProject(t *testing.T) {
 	runTo[preparedMsg](t, cmd)
 }
 
-// TestEscFromTheSourceStepReturnsToTheProjectStep is the same key where there is
-// more than one project registered.
+// TestEscFromTheSourceStepReturnsToTheProjectStep is the same key where there
+// is more than one project registered.
 func TestEscFromTheSourceStepReturnsToTheProjectStep(t *testing.T) {
 	backend := newFakeBackend()
 	backend.projects = append(backend.projects, api.Project{ID: "other", Name: "Other"})
@@ -2046,7 +2015,8 @@ func TestEscFromTheSourceStepReturnsToTheProjectStep(t *testing.T) {
 }
 
 // TestBackingOutOfTheFileScreenReturnsToTheSourceStep is the ticket list's rule
-// on the other answer: one way in, one way back, and no field to remember which.
+// on the other answer: one way in, one way back, and no field to remember
+// which.
 func TestBackingOutOfTheFileScreenReturnsToTheSourceStep(t *testing.T) {
 	backend := newFakeBackend()
 
@@ -2095,14 +2065,11 @@ func TestPreparingAgainOpensOnTheSourceQuestion(t *testing.T) {
 }
 
 // TestPreparingAgainAsksWhichProject is the same key where there is more than
-// one to ask about.
-//
-// The second task of a session opened on the source step in whichever project
-// the first had gone to: restart carried the project forward, and chooseProject
-// takes a project it is given as answered. So a user preparing two tasks was
-// asked once, and the task they did not answer for went wherever the last one
-// did — which on a machine with one project is invisible and on a machine with
-// two is a task in the wrong project.
+// one to ask about. The second task of a session opened on the source step in
+// whichever project the first had gone to: restart carried the project forward,
+// and chooseProject takes a project it is given as answered. A user preparing
+// two tasks was asked once, and the task they did not answer for went wherever
+// the last one did.
 func TestPreparingAgainAsksWhichProject(t *testing.T) {
 	backend := newFakeBackend()
 	backend.projects = append(backend.projects, api.Project{ID: "other", Name: "Other"})

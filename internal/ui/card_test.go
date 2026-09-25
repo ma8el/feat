@@ -7,11 +7,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// TestACardIsExactlyTheSizeItWasGiven is what the two regions depend on.
-//
-// They are drawn side by side by concatenating rows, so a card that grew with
-// its content or shrank without it would put its neighbour's rows out of line
-// from that row down.
+// TestACardIsExactlyTheSizeItWasGiven is what the two regions depend on. They
+// are drawn side by side by concatenating rows, so a card that grew with its
+// content would put its neighbour's rows out of line from that row down.
 func TestACardIsExactlyTheSizeItWasGiven(t *testing.T) {
 	for _, body := range []string{
 		"",
@@ -33,10 +31,9 @@ func TestACardIsExactlyTheSizeItWasGiven(t *testing.T) {
 	}
 }
 
-// TestACardRulesItsHeaderOffFromItsBody is the complaint the cards answer.
-//
-// The rail's heading and the tab bar were the first line of their own content,
-// so a heading and the first thing under it read as two entries of one list.
+// TestACardRulesItsHeaderOffFromItsBody is the complaint the cards answer: a
+// heading and the first row under it read as two entries of one list when
+// nothing rules them apart.
 func TestACardRulesItsHeaderOffFromItsBody(t *testing.T) {
 	lines := strings.Split(ansi.Strip(card("tasks", "the first task", 20, 8, false)), "\n")
 
@@ -59,11 +56,9 @@ func TestACardRulesItsHeaderOffFromItsBody(t *testing.T) {
 }
 
 // TestACardEndsTheStylingOfWhatItHolds keeps a rendered pane inside its border.
-//
-// A tmux capture carries the colour tmux emitted and not the clearing tmux does
-// as it draws, so a line that set a background and never cleared it would run
-// that background through the card's gutter, over its border, and on across the
-// region beside it.
+// A tmux capture carries the colour tmux emitted but not the clearing it does
+// as it draws, so an uncleared background would run across the region beside
+// the card.
 func TestACardEndsTheStylingOfWhatItHolds(t *testing.T) {
 	body := "\x1b[41mred to the end of the line"
 	drawn := card("header", body, 30, 6, false)
@@ -92,12 +87,10 @@ func TestACardEndsTheStylingOfWhatItHolds(t *testing.T) {
 }
 
 // TestACardCutsALineRatherThanWrappingIt is why the box is drawn here rather
-// than by lipgloss.
-//
-// A wrapped line moves every row after it, which for two cards side by side
-// means one region's content sliding down against the other's. A pane wrapped
-// mid-escape-sequence is worse: what the terminal does with half a sequence is
-// set a colour and keep it.
+// than by lipgloss. A wrapped line moves every row after it, sliding one
+// region's content down against the other's, and a pane wrapped
+// mid-escape-sequence leaves the terminal holding a colour it was never told to
+// clear.
 func TestACardCutsALineRatherThanWrappingIt(t *testing.T) {
 	drawn := card("header", "a body line that is far too long for this card", 24, 6, false)
 
@@ -111,11 +104,8 @@ func TestACardCutsALineRatherThanWrappingIt(t *testing.T) {
 }
 
 // TestAHeaderDropsItsAsideRatherThanTheTitle records which half of a header
-// survives a narrow region.
-//
-// The aside is always a summary of what is below it — how many tasks are
-// waiting, which task the region is about — so half of it says nothing the
-// content does not, while half a title says nothing at all.
+// survives a narrow region. The aside summarises what is below it, so half of
+// it says nothing the content does not, while half a title names nothing.
 func TestAHeaderDropsItsAsideRatherThanTheTitle(t *testing.T) {
 	if got := cardHeader("tasks", "3 tasks", 12); got != "tasks" {
 		t.Errorf("a header with no room for its aside rendered %q, want the title alone", got)

@@ -179,10 +179,8 @@ func TestTabTakesTheProposalAndStepsThroughTheCandidates(t *testing.T) {
 }
 
 // TestEscIsAStepBackRatherThanAnAnswer checks the outcome the caller acts on.
-//
-// The widget knows about a question and not about a conversation: whether there
-// is anything behind this one is the flow's to answer, so esc reports what the
-// user asked for and decides nothing.
+// The widget knows about a question and not about a conversation, so esc
+// reports what the user asked for and decides nothing.
 func TestEscIsAStepBackRatherThanAnAnswer(t *testing.T) {
 	model := typing(t, opened(t, wizard.Question{
 		ID: "project.id", Kind: wizard.KindText, Prompt: "Project identifier",

@@ -13,10 +13,8 @@ import (
 )
 
 // typedKeys are the key types a terminal delivers for keys that are not
-// characters.
-//
-// press builds every key as runes, which is enough for the dashboard's own
-// single-letter commands and is exactly wrong here: the whole question is
+// characters. press builds every key as runes, which is enough for the
+// dashboard's own single-letter commands and wrong here: the question is
 // whether a real Enter becomes the name Enter rather than the text "enter".
 var typedKeys = map[string]tea.KeyType{
 	"enter": tea.KeyEnter, "esc": tea.KeyEsc, "tab": tea.KeyTab,
@@ -228,12 +226,11 @@ func TestAPaneThatCannotBeReadSaysSo(t *testing.T) {
 }
 
 // TestAMissingTerminalOffersTheRecoveryForIt is where a user meets this.
-//
-// Killing the task's window from tmux left the main region printing the
-// resolver's sentence, while the key that rebuilds it was named only in the key
-// overlay and in a reconciliation finding on another view. A failure that names
-// its own remedy is the rule everywhere else in Feat, and this is the view a
-// user is looking at when it happens.
+// Killing the task's window from tmux leaves the main region printing the
+// resolver's sentence, while the key that rebuilds it is named only in the key
+// overlay and in a reconciliation finding on another view. A failure names its
+// own remedy everywhere else in Feat, and this is the view a user is looking at
+// when it happens.
 func TestAMissingTerminalOffersTheRecoveryForIt(t *testing.T) {
 	task := liveTask()
 	task.Session.ProviderSessionID = "e3f1a0c2-0000-4000-8000-1234567890ab"
@@ -275,10 +272,9 @@ func TestAMissingTerminalOffersTheRecoveryForIt(t *testing.T) {
 }
 
 // TestATerminalWithNoRecordedSessionIsNotOfferedAResume keeps the offer honest.
-//
-// Resuming continues a recorded provider session; a task whose agent never
-// reported one has nothing to continue, and the daemon refuses. Offering the
-// key anyway would send a user to a refusal.
+// Resuming continues a recorded provider session, and a task whose agent never
+// reported one has nothing to continue, so offering the key would send a user
+// to a refusal.
 func TestATerminalWithNoRecordedSessionIsNotOfferedAResume(t *testing.T) {
 	task := liveTask()
 	task.Session.ProviderSessionID = ""
@@ -299,12 +295,10 @@ func TestATerminalWithNoRecordedSessionIsNotOfferedAResume(t *testing.T) {
 }
 
 // TestTheShellViewOfATaskWithNoShellNamesTheKeyThatOpensOne is the same rule
-// applied to the other pane.
-//
-// Switching to the shell view is how a user discovers there is no shell, so
-// this is not a failure to report but a state to explain. It also says what the
-// key does, because opening a shell hands the terminal to native tmux and the
-// rest of the dashboard's keys do not.
+// applied to the other pane. Switching to the shell view is how a user
+// discovers there is no shell, so this is a state to explain rather than a
+// failure to report. It also says what the key does, because opening a shell
+// hands the terminal to native tmux and no other dashboard key does.
 func TestTheShellViewOfATaskWithNoShellNamesTheKeyThatOpensOne(t *testing.T) {
 	model := terminalDashboard(t, newFakeBackend(), liveTask())
 	switched := press(t, model, "w")
@@ -347,13 +341,11 @@ func TestADeadPaneIsExplainedRatherThanLeftBlank(t *testing.T) {
 }
 
 // TestAPaneTallerThanTheRegionShowsItsFoot is what a region has to do with a
-// window it is not the one sizing.
-//
-// Two of them arrive that way: the window a native client is attached to keeps
-// its client's size, and the window of a pane whose program has ended is never
-// made smaller, because a resize would reflow a screen nothing will repaint. The
-// rows to drop are then the ones above — a terminal's newest output is at its
-// foot, and the prompt a user is reading is the last row of all.
+// window it is not sizing. Two arrive that way: the window a native client is
+// attached to keeps its client's size, and the window of a pane whose program
+// has ended is never made smaller, because a resize would reflow a screen
+// nothing will repaint. The rows to drop are then the ones above, because a
+// terminal's newest output is at its foot.
 func TestAPaneTallerThanTheRegionShowsItsFoot(t *testing.T) {
 	content := make([]string, 24)
 	for row := range content {
@@ -382,12 +374,9 @@ func TestAPaneTallerThanTheRegionShowsItsFoot(t *testing.T) {
 }
 
 // TestAPaneThatHasNotFilledItsWindowIsDrawnFromTheTop is the other half of the
-// same clip.
-//
-// A window sized for forty rows of an agent that has printed ten holds thirty
-// blank ones underneath, and a rendering anchored on the window's foot would show
-// the blanks. The clip ends at what the panes wrote rather than at the window's
-// own height.
+// same clip. A window sized for forty rows of an agent that has printed ten
+// holds thirty blank ones underneath, and a rendering anchored on the window's
+// foot would show the blanks, so the clip ends at what the panes wrote.
 func TestAPaneThatHasNotFilledItsWindowIsDrawnFromTheTop(t *testing.T) {
 	model := terminalDashboard(t, newFakeBackend(), liveTask())
 	loaded, _ := model.Update(terminalFrameMsg{
@@ -403,12 +392,11 @@ func TestAPaneThatHasNotFilledItsWindowIsDrawnFromTheTop(t *testing.T) {
 	}
 }
 
-// TestTheCursorSurvivesTheClip keeps the one row a user typing cannot lose.
-//
-// A capture stops at the last row with something on it, and the cursor may
-// already be on the blank row after it — which is where it sits the moment a
-// program clears its prompt. Clipping a taller-than-the-region window to what was
-// written would then cut off the block that says where the keystrokes are going.
+// TestTheCursorSurvivesTheClip keeps the one row a user typing cannot lose. A
+// capture stops at the last row with something on it, and the cursor may
+// already be on the blank row after it, which is where it sits the moment a
+// program clears its prompt: clipping to what was written would cut off the
+// block that says where the keystrokes are going.
 func TestTheCursorSurvivesTheClip(t *testing.T) {
 	frame := api.TerminalFrame{Width: 80, Height: 24, Panes: []api.TerminalPane{
 		{Pane: "%11", Width: 80, Height: 24, Active: true, CursorX: 0, CursorY: 12,
@@ -465,13 +453,10 @@ func TestTheTerminalPollsOnlyWhileItIsOnScreen(t *testing.T) {
 }
 
 // TestEscapeSequencesSurviveRendering is ADR-042's pass-through, checked at the
-// only place it can break.
-//
-// tmux emits a finished screen with its colour attributes. Everything between
-// there and the terminal — clipping, the region, the frame around it — must
-// carry those bytes without touching them: Feat reads cell width out of them and
-// nothing else, and a layer that re-encoded them would be Feat deciding what
-// they mean.
+// only place it can break. tmux emits a finished screen with its colour
+// attributes, and everything between there and the terminal — clipping, the
+// region, the frame around it — carries those bytes without touching them: Feat
+// reads cell width out of them and nothing else.
 func TestEscapeSequencesSurviveRendering(t *testing.T) {
 	model := terminalDashboard(t, newFakeBackend(), liveTask())
 	updated, _ := model.Update(terminalFrameMsg{
@@ -488,8 +473,9 @@ func TestEscapeSequencesSurviveRendering(t *testing.T) {
 	}
 }
 
-// TestTheCursorIsDrawnOnlyWhenTheKeyboardIsThere keeps a user able to tell whose
-// the keyboard is. The capture does not carry a cursor, so Feat draws one.
+// TestTheCursorIsDrawnOnlyWhenTheKeyboardIsThere keeps a user able to tell
+// whose the keyboard is. The capture does not carry a cursor, so Feat draws
+// one.
 func TestTheCursorIsDrawnOnlyWhenTheKeyboardIsThere(t *testing.T) {
 	model := terminalDashboard(t, newFakeBackend(), liveTask())
 	loaded, _ := model.Update(terminalFrameMsg{
@@ -505,8 +491,8 @@ func TestTheCursorIsDrawnOnlyWhenTheKeyboardIsThere(t *testing.T) {
 	}
 }
 
-// twoPaneFrame is a window holding an agent and a shell beside it, which is what
-// a task looks like once a shell has been opened.
+// twoPaneFrame is a window holding an agent and a shell beside it, which is
+// what a task looks like once a shell has been opened.
 func twoPaneFrame() api.TerminalFrame {
 	return api.TerminalFrame{Width: 87, Height: 6, Panes: []api.TerminalPane{
 		{Pane: "%1", Left: 0, Top: 0, Width: 43, Height: 6, Active: true,
@@ -517,11 +503,9 @@ func twoPaneFrame() api.TerminalFrame {
 }
 
 // TestAWindowIsComposedFromItsPanes is the defect a user reported: the terminal
-// filled half its container.
-//
-// The window is sized to the region, and a window holding an agent and a shell
-// splits that between them. Drawing one pane of it leaves the other half blank,
-// so every pane is drawn at the place tmux gave it.
+// filled half its container. The window is sized to the region, and a window
+// holding an agent and a shell splits that between them, so drawing one pane
+// leaves the other half blank.
 func TestAWindowIsComposedFromItsPanes(t *testing.T) {
 	model := terminalDashboard(t, newFakeBackend(), liveTask())
 	loaded, _ := model.Update(terminalFrameMsg{task: liveTask().ID, frame: twoPaneFrame()})
@@ -542,13 +526,11 @@ func TestAWindowIsComposedFromItsPanes(t *testing.T) {
 }
 
 // TestAComposedWindowPlacesEachPaneWhereTmuxPutIt is the same defect measured
-// rather than read.
-//
-// It checks placement rather than total width: a pane whose lines are shorter
-// than the pane is leaves blanks at the end, and padding them would change
-// nothing a user sees. What matters is that the second pane starts at the column
-// tmux gave it, because a composition that ignored Left would stack the panes on
-// top of each other at the left edge — which is the half-empty region reported.
+// rather than read. It checks placement rather than total width, because a pane
+// whose lines are shorter than the pane leaves blanks at the end. What matters
+// is that the second pane starts at the column tmux gave it: a composition
+// ignoring Left stacks the panes at the left edge, which is the half-empty
+// region reported.
 func TestAComposedWindowPlacesEachPaneWhereTmuxPutIt(t *testing.T) {
 	model := terminalDashboard(t, newFakeBackend(), liveTask())
 	loaded, _ := model.Update(terminalFrameMsg{task: liveTask().ID, frame: twoPaneFrame()})
@@ -606,12 +588,10 @@ func TestTheCursorFollowsTheActivePane(t *testing.T) {
 }
 
 // TestAPaneStyleDoesNotBleedIntoTheOneBesideIt is the defect a user saw as a
-// coloured bar running across the whole dashboard.
-//
-// tmux clears to end of line as it draws. A capture holds the colour and not the
-// clearing, so a pane line that sets a background and never resets it carries
-// that background across the divider, through the pane beside it, and on to the
-// edge of the screen.
+// coloured bar running across the whole dashboard. tmux clears to end of line
+// as it draws, and a capture holds the colour but not the clearing, so a pane
+// line that sets a background and never resets it carries it across the divider
+// and on to the edge of the screen.
 func TestAPaneStyleDoesNotBleedIntoTheOneBesideIt(t *testing.T) {
 	frame := twoPaneFrame()
 	// A highlighted row that never clears its background, which is what a table
@@ -656,11 +636,10 @@ func TestAComposedLineEndsItsStyling(t *testing.T) {
 }
 
 // TestAFailedKeystrokeDoesNotBlankThePane keeps one undelivered key from
-// replacing the terminal.
-//
-// The pane's own error field is what the region draws instead of the pane, so an
-// input failure recorded there removes the terminal until the next frame puts it
-// back — which reads as the whole view flickering rather than as one key failing.
+// replacing the terminal. The pane's own error field is what the region draws
+// instead of the pane, so an input failure recorded there removes the terminal
+// until the next frame puts it back, which reads as the whole view flickering
+// rather than as one key failing.
 func TestAFailedKeystrokeDoesNotBlankThePane(t *testing.T) {
 	backend := newFakeBackend()
 	backend.inputErr = errors.New("terminal/input: EOF")
@@ -681,10 +660,9 @@ func TestAFailedKeystrokeDoesNotBlankThePane(t *testing.T) {
 	}
 }
 
-// TestFocusIsShownOnTheTaskItAppliesTo replaces the heading that used to say it.
-//
-// The heading carried the task key, which the rail already had, and two hints
-// the footer already had. The one thing only it said was which side has the
+// TestFocusIsShownOnTheTaskItAppliesTo replaces the heading that used to say
+// it. The heading carried the task key the rail already had and two hints the
+// footer already had; the one thing only it said was which side has the
 // keyboard, and that belongs beside the task it applies to.
 func TestFocusIsShownOnTheTaskItAppliesTo(t *testing.T) {
 	model := terminalDashboard(t, newFakeBackend(), liveTask(), otherTask())
@@ -772,13 +750,10 @@ func TestTheTerminalTabSpendsItsRowsOnTheTerminal(t *testing.T) {
 	}
 }
 
-// preparingTask is a launched task whose terminal exists and whose agent has not
-// painted in it yet.
-//
-// It is derived from liveTask rather than replacing it: the two differ in the
-// workflow and in nothing else, and the point of every test below is what the
-// region does with that one difference. liveTask is `working` and is shared, so
-// it is copied rather than moved into this state.
+// preparingTask is a launched task whose terminal exists and whose agent has
+// not painted in it yet. It is derived from liveTask rather than replacing it:
+// the two differ in the workflow and in nothing else, and liveTask is `working`
+// and shared, so it is copied rather than moved into this state.
 func preparingTask() api.Task {
 	task := liveTask()
 	task.Workflow = "preparing"
@@ -809,12 +784,10 @@ func terminalRegion(t *testing.T, task api.Task, frame api.TerminalFrame) string
 
 // TestABlankPaneSaysTheAgentHasNotStarted is the reported defect: a user who
 // launches a task lands on the terminal tab and watches an empty box for a few
-// seconds with nothing on screen saying why.
-//
-// The overlay covers the launch itself and says so. What follows it — the
-// provider starting inside a pane that already exists — had no sentence at all,
-// and the daemon's own event log puts a median of 1.51s and a worst case of
-// 12.79s in it.
+// seconds with nothing saying why. The overlay covers the launch itself; what
+// follows it — the provider starting inside a pane that already exists — had no
+// sentence at all, and the daemon's own event log puts a median of 1.51s and a
+// worst case of 12.79s in it.
 func TestABlankPaneSaysTheAgentHasNotStarted(t *testing.T) {
 	body := terminalRegion(t, preparingTask(), blankPane())
 
@@ -824,13 +797,11 @@ func TestABlankPaneSaysTheAgentHasNotStarted(t *testing.T) {
 }
 
 // TestAPreparingPaneIsStillDrawn is the test that matters most in this slice.
-//
-// Claude asks for workspace trust on a directory it has not seen before, and
-// every task worktree is one — so the question is drawn while the task is still
-// `preparing`. A note that replaced the capture would cover the question the
-// user has to answer for the launch to finish at all, which is why the note
-// takes a row beside the pane and never the pane's place (ADR-042: nothing here
-// reads the capture to decide what to draw).
+// Claude asks for workspace trust on a directory it has not seen before and
+// every task worktree is one, so the question is drawn while the task is still
+// `preparing`. A note replacing the capture would cover the question the launch
+// is waiting on, which is why the note takes a row beside the pane (ADR-042:
+// nothing here reads the capture to decide what to draw).
 func TestAPreparingPaneIsStillDrawn(t *testing.T) {
 	trust := api.TerminalFrame{Width: 87, Height: 6, Panes: []api.TerminalPane{
 		{Pane: "%1", Width: 87, Height: 6, Active: true, Content: []string{
@@ -851,11 +822,10 @@ func TestAPreparingPaneIsStillDrawn(t *testing.T) {
 	}
 }
 
-// TestADeadPaneWinsTheNoteRow checks the precedence between the two notes.
-//
-// A pane whose program has exited is not one whose agent is about to paint, so
-// the startup sentence there would be a lie. There is one note row and the true
-// note takes it.
+// TestADeadPaneWinsTheNoteRow checks the precedence between the two notes. A
+// pane whose program has exited is not one whose agent is about to paint, so
+// the startup sentence would be wrong there. There is one note row, and the
+// true note takes it.
 func TestADeadPaneWinsTheNoteRow(t *testing.T) {
 	dead := api.TerminalFrame{Width: 87, Height: 6, Panes: []api.TerminalPane{
 		{Pane: "%1", Width: 87, Height: 6, Active: true, Dead: true,
@@ -872,13 +842,12 @@ func TestADeadPaneWinsTheNoteRow(t *testing.T) {
 	}
 }
 
-// TestAStartupThatStoppedBeingOneSaysSo is what bounds the sentence.
-//
-// A task can sit in `preparing` indefinitely, and after the startup grace the
-// daemon raises attention and leaves the workflow where it is. From that moment
-// "the agent has not reported starting yet" is a claim Feat has stopped
-// believing, so it is dropped for the honest one. The bound is the attention the
-// daemon publishes rather than a clock kept in the view.
+// TestAStartupThatStoppedBeingOneSaysSo is what bounds the sentence. A task can
+// sit in `preparing` indefinitely, and after the startup grace the daemon
+// raises attention and leaves the workflow where it is: from that moment "the
+// agent has not reported starting yet" is a claim Feat has stopped believing.
+// The bound is the attention the daemon publishes rather than a clock kept in
+// the view.
 func TestAStartupThatStoppedBeingOneSaysSo(t *testing.T) {
 	task := preparingTask()
 	task.Attention = "possibly_waiting"
@@ -917,11 +886,8 @@ func TestAWorkingTaskGetsNoStartupNote(t *testing.T) {
 }
 
 // TestTheRegionDoesNotBlameTmuxForAStartingAgent covers the branch before any
-// frame has arrived.
-//
-// A user who has just launched is not waiting on tmux — the pane is there and
-// the agent has not painted in it — so being told Feat is asking tmux a question
-// is a second wrong answer to the one question they have.
+// frame has arrived. A user who has just launched is not waiting on tmux: the
+// pane is there and the agent has not painted in it.
 func TestTheRegionDoesNotBlameTmuxForAStartingAgent(t *testing.T) {
 	// No frame has been delivered, so the region has nothing recorded for this
 	// task: the state the dashboard is in the moment the overlay closes.
@@ -965,14 +931,10 @@ func rowOf(t *testing.T, body, want string) (row, rows int) {
 	return 0, 0
 }
 
-// TestTheStartupNoteKeepsItsPlace is the reported glitch.
-//
-// The note was drawn for one frame in the region's top corner and then, for the
-// rest of the wait, in its bottom one: before the first capture it was the
-// region's only line, and the moment a pane arrived underneath it moved to the
-// foot. A note about waiting that moves while you wait for it is read the same
-// way a frozen indicator is — as the dashboard doing something other than what
-// it says.
+// TestTheStartupNoteKeepsItsPlace is the reported glitch. The note was drawn
+// for one frame in the region's top corner and then, for the rest of the wait,
+// in its bottom one: before the first capture it was the region's only line,
+// and the moment a pane arrived underneath it moved to the foot.
 //
 // The two renderings either side of the first capture are the ones a user sees
 // in that order, a quarter of a second apart, so they are compared directly.
@@ -1032,13 +994,10 @@ func TestTheStartupNoteIsCentredInAnEmptyRegion(t *testing.T) {
 }
 
 // TestTheStartupNoteLeavesTheMiddleWhenThePanePaints is what makes the vertical
-// centring safe.
-//
-// The middle of the region is the note's only while there is nothing there to
-// cover. A workspace-trust prompt is drawn while the task is still `preparing`,
-// and a line across the middle would take a row of the question the launch is
-// waiting on — so the moment anything is drawn, the note goes back to a row of
-// its own at the foot.
+// centring safe. The middle of the region is the note's only while there is
+// nothing there to cover: a workspace-trust prompt is drawn while the task is
+// still `preparing`, and a line across the middle would take a row of the
+// question the launch is waiting on.
 func TestTheStartupNoteLeavesTheMiddleWhenThePanePaints(t *testing.T) {
 	painted := api.TerminalFrame{Width: 87, Height: 6, Panes: []api.TerminalPane{
 		{Pane: "%1", Width: 87, Height: 6, Active: true, Content: []string{
@@ -1066,12 +1025,10 @@ func TestTheStartupNoteLeavesTheMiddleWhenThePanePaints(t *testing.T) {
 	}
 }
 
-// TestTheStartupNoteIsAnimated is why waiting gained a terminal case.
-//
-// activity is explicit that a frozen glyph is worse than no glyph: an indicator
-// that does not move cannot be told apart from a dashboard that has stopped,
-// which is the thing it exists to answer. The mark is only honest if the one
-// spinner is running while it is drawn.
+// TestTheStartupNoteIsAnimated is why waiting gained a terminal case. An
+// indicator that does not move cannot be told apart from a dashboard that has
+// stopped, which is the thing it exists to answer, so the mark is honest only
+// while the one spinner is running.
 func TestTheStartupNoteIsAnimated(t *testing.T) {
 	model := terminalDashboard(t, newFakeBackend(), preparingTask())
 
@@ -1118,11 +1075,10 @@ func TestTheStartupSentenceHasOneHome(t *testing.T) {
 	}
 }
 
-// TestSpaceReachesTheAgent is the reported defect.
-//
-// A space arrives as its own key type, not as runes, and its name is the
-// character itself rather than "space" — so it fell through both the runes
-// branch and the name table, and every space a user typed was dropped.
+// TestSpaceReachesTheAgent is the reported defect. A space arrives as its own
+// key type rather than as runes, and its name is the character itself rather
+// than "space", so it fell through both the runes branch and the name table and
+// every space typed was dropped.
 func TestSpaceReachesTheAgent(t *testing.T) {
 	input, ok := translateKey(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
 
@@ -1134,8 +1090,8 @@ func TestSpaceReachesTheAgent(t *testing.T) {
 	}
 }
 
-// TestEveryOrdinaryKeyIsDelivered walks the keys a user presses while typing, so
-// that one falling through the translation is a failure here rather than a
+// TestEveryOrdinaryKeyIsDelivered walks the keys a user presses while typing,
+// so that one falling through the translation is a failure here rather than a
 // report.
 func TestEveryOrdinaryKeyIsDelivered(t *testing.T) {
 	for label, key := range map[string]tea.KeyMsg{
@@ -1160,12 +1116,10 @@ func TestEveryOrdinaryKeyIsDelivered(t *testing.T) {
 	}
 }
 
-// TestTypingIsNotSentAsAPaste is the second half of the same report.
-//
-// An application that has enabled bracketed paste mode is told by the markers
+// TestTypingIsNotSentAsAPaste is the second half of the same report. An
+// application that has enabled bracketed paste mode is told by the markers
 // whether text was typed or pasted, and may insert a paste without running what
-// a typed character runs. Every keystroke arriving as a paste is what made
-// ordinary keys behave oddly.
+// a typed character runs.
 func TestTypingIsNotSentAsAPaste(t *testing.T) {
 	backend := newFakeBackend()
 	focused := press(t, terminalDashboard(t, backend, liveTask()), "i")
@@ -1184,12 +1138,11 @@ func TestTypingIsNotSentAsAPaste(t *testing.T) {
 	}
 }
 
-// TestOnlyOneFrameIsAskedForAtATime is the flicker's other half.
-//
-// Zoom is a toggle, so two requests racing on it cancel each other: both read an
-// unzoomed window, both toggle, and the agent lands back at half the region's
-// width until the next round zooms it again. The daemon serialises the sequence;
-// this stops the dashboard from queueing the second request at all.
+// TestOnlyOneFrameIsAskedForAtATime is the flicker's other half. Zoom is a
+// toggle, so two requests racing on it cancel each other: both read an unzoomed
+// window, both toggle, and the agent lands back at half the region's width
+// until the next round zooms it again. The daemon serialises the sequence; this
+// stops the dashboard queueing the second request at all.
 func TestOnlyOneFrameIsAskedForAtATime(t *testing.T) {
 	model := terminalDashboard(t, newFakeBackend(), liveTask())
 	model.terminal.inFlight = false

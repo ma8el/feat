@@ -12,14 +12,11 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// streamBackend behaves the way the daemon behaves.
-//
-// The detail that matters is the first item: the daemon opens every stream with
-// a hello, so that a client learns the connection is live before anything has
-// happened (ADR-027). A fake that published nothing until asked lets a dashboard
-// that reconnects per event look correct, because the reconnection produces no
-// event to reconnect for. That is why the defect these tests pin survived a
-// suite that already had a fake event stream in it.
+// streamBackend behaves the way the daemon behaves. The detail that matters is
+// the first item: the daemon opens every stream with a hello, so a client
+// learns the connection is live before anything has happened (ADR-027). A fake
+// that published nothing until asked lets a dashboard that reconnects per event
+// look correct, because the reconnection produces no event to reconnect for.
 type streamBackend struct {
 	*fakeBackend
 
@@ -60,15 +57,13 @@ func (b *streamBackend) streams() int {
 	return b.opened
 }
 
-// TestReceivingAnEventOpensNoEventStream is the defect, stated exactly.
-//
-// A dashboard that answers an event by subscribing again is driven by its own
-// reconnections, because the answer to a connection is a hello and the answer to
-// a hello would be another connection. It ran at the speed of the socket, leaked
-// a connection, a goroutine, and a subscriber on each side of it every time
-// round, and exhausted the machine's file descriptors within a minute — which
-// then surfaced as unrelated-looking failures elsewhere, including a Git command
-// that could not be started being reported as a missing repository.
+// TestReceivingAnEventOpensNoEventStream is the defect, stated exactly. A
+// dashboard that answers an event by subscribing again is driven by its own
+// reconnections, because the answer to a connection is a hello and the answer
+// to a hello would be another connection. It runs at the speed of the socket
+// and exhausts the machine's file descriptors within a minute, which surfaces
+// elsewhere: a Git command that could not be started was reported as a missing
+// repository.
 func TestReceivingAnEventOpensNoEventStream(t *testing.T) {
 	backend := newStreamBackend()
 	model := New(Options{Backend: backend, Context: t.Context()})
@@ -128,12 +123,10 @@ func TestTheDashboardHoldsOneEventStreamOpen(t *testing.T) {
 	}
 }
 
-// TestAnEndedStreamIsNotReopened records the deliberate choice.
-//
-// v0.1 answers a lost stream by re-reading current state rather than by resuming
-// (ADR-027). Reconnecting needs a decision about how often, and the absence of
-// that decision is what made the reconnect-per-event loop possible; a test says
-// so, so that adding one is a change somebody makes on purpose.
+// TestAnEndedStreamIsNotReopened records the deliberate choice. v0.1 answers a
+// lost stream by re-reading current state rather than by resuming (ADR-027).
+// Reconnecting needs a decision about how often, and the absence of that
+// decision is what made the reconnect-per-event loop possible.
 func TestAnEndedStreamIsNotReopened(t *testing.T) {
 	backend := newStreamBackend()
 	model := New(Options{Backend: backend, Context: t.Context()})
@@ -153,17 +146,15 @@ func TestAnEndedStreamIsNotReopened(t *testing.T) {
 }
 
 // runCommands runs every command a batch holds, giving each one a moment to do
-// whatever it was going to do.
+// whatever it was going to do. A command that has not finished is left running
+// rather than waited for: the dashboard's commands block by design — awaitEvent
+// waits for an item that may never come — and what is under test is what they
+// did.
 //
-// A command that has not finished is left running rather than waited for: the
-// dashboard's commands block by design — awaitEvent waits for an item that may
-// never come — and what is under test is what they did, not whether they
-// returned.
-//
-// A batch inside a batch is followed into, as Bubble Tea's own loop follows one:
-// an update that batches its work and has that batched again with the loading
-// indicator's first frame produces exactly that shape, and a helper that stopped
-// at the first level would report that the work never ran.
+// A batch inside a batch is followed into, as Bubble Tea's own loop follows
+// one: an update that batches its work and has that batched again with the
+// indicator's first frame produces that shape, and stopping at the first level
+// would report that the work never ran.
 func runCommands(t *testing.T, cmd tea.Cmd) {
 	t.Helper()
 
@@ -179,11 +170,10 @@ func runCommands(t *testing.T, cmd tea.Cmd) {
 // settleFor bounds a test rather than describing anything real.
 const settleFor = 250 * time.Millisecond
 
-// run executes one command, giving up on a command that blocks.
-//
-// A nil command is nothing to run rather than a panic: an update that decided to
-// do nothing returns one, and a test that drives several messages should not
-// have to know which of them did.
+// run executes one command, giving up on a command that blocks. A nil command
+// is nothing to run rather than a panic: an update that decided to do nothing
+// returns one, and a test driving several messages should not have to know
+// which did.
 func run(cmd tea.Cmd) tea.Msg {
 	if cmd == nil {
 		return nil

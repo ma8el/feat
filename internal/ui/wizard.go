@@ -10,11 +10,9 @@ import (
 	"github.com/ma8el/feat/internal/wizard"
 )
 
-// wizardStep is which part of configuring a project the dialog is on.
-//
-// The questions are the wizard's and it says how many there are; these are the
-// three things that happen around them, and they are the dashboard's because
-// each is a decision with a screen of its own.
+// wizardStep is which part of configuring a project the dialog is on. The
+// questions are the wizard's; these are what happens around them, and each is
+// the dashboard's because each is a decision with a screen of its own.
 type wizardStep int
 
 const (
@@ -33,12 +31,10 @@ const (
 	wizardDone
 )
 
-// wizardModel configures a project by asking the same questions
-// `feat project init` asks (ADR-063).
-//
-// It holds the flow and draws it. Which question comes next, what it proposes,
-// and whether an answer is acceptable are decided in internal/wizard, so this
-// screen can be read as what it is: a renderer with a cursor.
+// wizardModel configures a project by asking the same questions `feat project
+// init` asks (ADR-063). It holds the flow and draws it: which question comes
+// next, what it proposes, and whether an answer is acceptable are
+// internal/wizard's.
 type wizardModel struct {
 	backend Backend
 	// flow is the questions. It is a pointer, and it is mutated only inside the
@@ -171,10 +167,9 @@ func (w wizardModel) Update(message tea.Msg) (wizardModel, tea.Cmd) {
 			return w, nil
 		}
 		w.err, w.path, w.cursor, w.step = nil, message.path, 0, wizardChecking
-		// Run rather than offered. The user has just asked for this project to
-		// exist and is waiting for it either way; the checks change nothing, and
-		// what they find is the difference between a file and a project that
-		// works (ADR-064).
+		// Run rather than offered. The user is waiting either way, the checks
+		// change nothing, and what they find is the difference between a file and a
+		// project that works (ADR-064).
 		w.check = w.check.start(w.flow.ID())
 		return w, diagnose(w.backend, w.flow.ID())
 
@@ -282,11 +277,9 @@ func (w wizardModel) answer(value string) (wizardModel, tea.Cmd) {
 	}
 }
 
-// back returns to the previous question, undoing what its answer changed.
-//
-// A dialog that could only go forwards would be a worse conversation than the
-// one at a shell, where the whole of it is in the scrollback: here the answers
-// are the only record, so stepping back is what reading back looks like.
+// back returns to the previous question, undoing what its answer changed. The
+// dialog has no scrollback, so the answers are the only record and stepping
+// back is the only way to read one again.
 func (w wizardModel) back() (wizardModel, tea.Cmd) {
 	if !w.flow.Back() {
 		return w, closeWizard
@@ -326,11 +319,9 @@ func (w wizardModel) reviewingKey(key tea.KeyMsg) (wizardModel, tea.Cmd) {
 	return w, nil
 }
 
-// checkingKey reads the diagnosis, or moves past it.
-//
-// Nothing here can fail the setup. The file exists whatever the checks found,
-// and what they found is a list of things to fix rather than a reason to undo
-// the project — so the only way through is forward.
+// checkingKey reads the diagnosis, or moves past it. Nothing here can fail the
+// setup: the file exists whatever the checks found, and what they found is a
+// list of things to fix rather than a reason to undo the project.
 func (w wizardModel) checkingKey(key tea.KeyMsg) (wizardModel, tea.Cmd) {
 	switch key.String() {
 	case "enter", "esc":
@@ -403,33 +394,26 @@ func (w wizardModel) reviewLines() int {
 	return strings.Count(strings.TrimRight(string(w.review.Text), "\n"), "\n") + 1
 }
 
-// reviewHeight is how many of them the dialog can draw at once.
-//
-// The count below is what every other line of this screen spends: the trail and
-// the blank under it, the path and the blank under it, the "more lines" note,
-// the blank and the sentence saying nothing has been written, the status line
-// with a blank on each side, the blank above the hints and the hints, and what
-// is left of the dialog's own heading and rule once preparationSize has taken
-// the card's share of it. Getting it wrong is not cosmetic — the box clamps from
-// the bottom, so an overrun costs the user the assurance that nothing has been
-// written and the keys that write it.
+// reviewHeight is how many of them the dialog can draw at once. The constant is
+// what every other line of this screen spends: the trail, the path, the "more
+// lines" note, the sentence saying nothing has been written, the status line,
+// the hints, the blanks around them, and what is left of the dialog's heading
+// and rule once preparationSize has taken the card's share. The box clamps from
+// the bottom, so an overrun costs the assurance that nothing has been written
+// and the keys that write it.
 func (w wizardModel) reviewHeight() int {
 	const chrome = 14
 	return max(3, w.height-chrome)
 }
 
 // reviewEnd is the last offset the review scrolls to: the one whose window ends
-// on the last line of the file.
-//
-// The end of a scroll is the last window, not the last line. Clamping to the
-// line left the file's final line alone in a box that had collapsed around it,
-// because dialogBox sets no height and is as tall as what it is given — so the
-// last thing a user did before writing the configuration was watch the box
-// shrink to one line of it.
+// on the last line of the file. dialogBox sets no height and is as tall as what
+// it is given, so clamping to the line leaves the file's final line alone in a
+// box that has collapsed around it.
 //
 // It is publication's form rather than clampScroll's, which clamps one line
-// short so that its last window carries a line over. That belongs to the task
-// panel and to cleanup's inventory, and neither has this collapse.
+// short so its last window carries a line over. That belongs to the task panel
+// and to cleanup's inventory, and neither has this collapse.
 func (w wizardModel) reviewEnd() int {
 	return max(0, w.reviewLines()-w.reviewHeight())
 }

@@ -53,12 +53,9 @@ func liveTask() api.Task {
 }
 
 // TestVerificationIsShownAsAClaimRatherThanAResult checks the honesty of the
-// column ADR-032 narrowed.
-//
-// An agent-reported result and a provider-enforced one are different facts, and
-// the dashboard shows checks the agent asserted about its own work. Rendering
-// them as though something had verified them would tell the user what Feat does
-// not know.
+// column ADR-032 narrowed. An agent-reported result and a provider-enforced one
+// are different facts, and rendering the agent's claim about its own work as
+// though something had verified it would tell the user what Feat does not know.
 func TestVerificationIsShownAsAClaimRatherThanAResult(t *testing.T) {
 	reported := liveTask()
 	reported.Verification = &api.Verification{
@@ -88,13 +85,10 @@ func TestVerificationIsShownAsAClaimRatherThanAResult(t *testing.T) {
 }
 
 // TestThePanelShowsWhatTheTaskPublished is what a user closing the publication
-// screen keeps.
-//
-// Nothing is rolled back, so a publication leaves a merge request per
-// repository, a failure, or an entry it never reached — and re-opening the
-// publication screen to be told so would compose a fresh plan, which is a lock,
-// a walk of every repository, and a read of the agent's outbox. The record is
-// the task's, and the panel draws it (ADR-073).
+// screen keeps. Nothing is rolled back, and re-opening the publication screen
+// to be told so would compose a fresh plan: a lock, a walk of every repository,
+// and a read of the agent's outbox. The record is the task's, and the panel
+// draws it (ADR-073).
 func TestThePanelShowsWhatTheTaskPublished(t *testing.T) {
 	published := liveTask()
 	published.Publication = &api.Publication{Repositories: []api.PublicationRepository{
@@ -157,11 +151,9 @@ func dashboard(backend *fakeBackend, tasks ...api.Task) Model {
 }
 
 // TestTheTaskPanelSaysWhatItIsWaitingOn checks the honesty rule: a field with
-// nothing in it yet says what would fill it, rather than showing nothing and
-// leaving the user to guess.
-//
-// It reads the panel rather than a rendered region, because the panel is taller
-// than any region and what a region shows depends on where the user scrolled to.
+// nothing in it yet says what would fill it. It reads the panel rather than a
+// rendered region, because the panel is taller than any region and what a
+// region shows depends on where the user scrolled to.
 func TestTheTaskPanelSaysWhatItIsWaitingOn(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask())
 	model.selected = liveTask().ID
@@ -187,12 +179,10 @@ func TestTheTaskPanelSaysWhatItIsWaitingOn(t *testing.T) {
 }
 
 // TestTheTaskPanelShowsWhereTheAgentRuns checks that a containerised session
-// says so, and says enough to be acted on.
-//
-// The identity is what a user needs to inspect or clean up the container
-// themselves, and it is the one field of the environment section with a use the
-// tmux ids lacked: a name typed into a tool the user already has on the trusted
-// host. The rest of that section said the same thing on every task (ADR-086).
+// says so, and says enough to be acted on. The identity is what a user needs to
+// inspect or clean up the container themselves: a name typed into a tool they
+// already have on the trusted host. The rest of the environment section said
+// the same on every task (ADR-086).
 func TestTheTaskPanelShowsWhereTheAgentRuns(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask())
 	model.selected = liveTask().ID
@@ -207,9 +197,7 @@ func TestTheTaskPanelShowsWhereTheAgentRuns(t *testing.T) {
 }
 
 // TestADraftIsDistinguishableFromALaunchedTask checks that the list does not
-// make a draft look like a running task.
-//
-// They differ in everything that matters: a draft has no worktree, no branch,
+// make a draft look like a running task. A draft has no worktree, no branch,
 // and no terminal.
 func TestADraftIsDistinguishableFromALaunchedTask(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask(), pendingDraft())
@@ -270,10 +258,8 @@ func TestAttachAndShellUseTheSelectedTask(t *testing.T) {
 }
 
 // TestTheProjectWizardOpensFromEveryView checks that configuring a project is
-// one key from wherever the user is (ADR-063).
-//
-// It is not an action on the selected task, and the assertion that it touched
-// none is the point: every other key on this list resumes, stops, cancels, or
+// one key from wherever the user is (ADR-063). The assertion that it touched no
+// task is the point: every other key on this list resumes, stops, cancels, or
 // attaches to one, and this one opens a screen about a project that may not
 // exist yet.
 func TestTheProjectWizardOpensFromEveryView(t *testing.T) {
@@ -308,9 +294,8 @@ func TestTheProjectWizardOpensFromEveryView(t *testing.T) {
 
 // TestAWizardThatCannotStartIsReported checks the failure a first run is most
 // likely to meet: a machine whose configuration directory cannot be resolved.
-//
-// It is reported on the screen that was opened for it, where the user is
-// looking, rather than in the footer of the dashboard behind it.
+// It is reported on the screen opened for it, where the user is looking, rather
+// than in the footer of the dashboard behind it.
 func TestAWizardThatCannotStartIsReported(t *testing.T) {
 	backend := newFakeBackend()
 	backend.wizardErr = errors.New("$HOME is not an absolute path")
@@ -346,10 +331,9 @@ func TestATaskWithNoTerminalCannotBeAttached(t *testing.T) {
 }
 
 // TestOnlyADraftIsCancelledFromTheDashboard checks that the destructive-looking
-// key is not a shortcut for removing a launched task's resources.
-//
-// Cleanup resolves exact targets and confirms per resource class; a launched
-// task must be sent there rather than quietly archived.
+// key is not a shortcut for removing a launched task's resources. Cleanup
+// resolves exact targets and confirms per resource class, so a launched task is
+// sent there rather than quietly archived.
 func TestOnlyADraftIsCancelledFromTheDashboard(t *testing.T) {
 	backend := newFakeBackend()
 	model := dashboard(backend, liveTask())

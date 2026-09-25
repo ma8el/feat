@@ -67,8 +67,8 @@ func TestHealthModelQuitKeys(t *testing.T) {
 }
 
 func TestRunHealthDoesNotStartTheProgramWhenNotInteractive(t *testing.T) {
-	// A cancelled context must not matter when there is no terminal to drive:
-	// the plain rendering is a pure write.
+	// A cancelled context must not matter when there is no terminal to drive,
+	// because the plain rendering is a pure write.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 

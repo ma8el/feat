@@ -12,9 +12,9 @@ import (
 // panelPage is how far the page keys move the task panel.
 const panelPage = 10
 
-// stackedFooterHeight is what m.footer occupies in the narrow fallback: the rule
-// that separates it from the content above, a blank line, the status line, a
-// blank line, the hints, and the daemon.
+// stackedFooterHeight is what m.footer occupies in the narrow fallback: the
+// rule that separates it from the content above, a blank line, the status line,
+// a blank line, the hints, and the daemon.
 const stackedFooterHeight = 6
 
 // taskView renders the task panel as a whole terminal, which is what the narrow
@@ -30,30 +30,25 @@ func (m Model) taskView() string {
 }
 
 // taskBody renders the task panel into a region, scrolled to where the user is.
+// A one-repository task fits the region now the brief has a tab of its own
+// (ADR-086), and a task with several repositories or a long check detail still
+// outgrows it. What does not fit is scrolled to, and the last line says what is
+// above and below, because a panel clipped in silence reads as a panel that is
+// short.
 //
-// The panel is shorter than the region for a one-repository task since the brief
-// moved to a tab of its own (ADR-086), and a task with several repositories or a
-// long check detail still outgrows it. What does not fit is scrolled to rather
-// than lost, and the last line says what is above and below: a panel clipped in
-// silence reads as a panel that is short.
-//
-// It is wrapped to the region before it is measured. Everything else the
-// dashboard draws is a line whose width it controls, and a rendered pane must
-// never be re-flowed; this is prose — a note, a captured command's output, a
-// sentence explaining what a field could not be filled with — and prose cut at
-// the region's edge loses the half of the sentence that says what to do about it.
-// Wrapping before the split is also what keeps the scroll honest: the lines
-// counted are the lines drawn.
+// It is wrapped to the region before it is measured. This is prose — a note, a
+// captured command's output, a sentence about a field Feat could not fill — and
+// prose cut at the region's edge loses the half that says what to do about it.
+// Wrapping first also keeps the scroll honest: the lines counted are the lines
+// drawn.
 func (m Model) taskBody(width, height int) string {
 	return scrollWindow(m.wrappedPanel(width), m.review.scroll, width, height)
 }
 
-// scrollWindow is the part of a rendered body that fits the region, under a line
-// saying how much of it is above and below.
-//
-// Shared by the two bodies that scroll. Each keeps its own offset — a brief and
-// a task panel sharing one would each move the other's position — and the note
-// they draw is the same, because it says the same thing about the same shape.
+// scrollWindow is the part of a rendered body that fits the region, under a
+// line saying how much of it is above and below. The two bodies that scroll
+// share it and keep their own offsets, because a brief and a task panel sharing
+// one would each move the other's position.
 func scrollWindow(body string, offset, width, height int) string {
 	if height <= 0 {
 		return body
@@ -98,27 +93,22 @@ func clampScroll(offset, total, height int) int {
 }
 
 // panelScroll is where the page keys leave the panel, bounded by its length.
-//
 // The bound is applied here rather than while rendering, because rendering
-// cannot write back: without it, holding pgdn past the end would build up an
-// offset that took as many presses to undo.
+// cannot write back and holding pgdn past the end would build an offset that
+// took as many presses to undo.
 func (m Model) panelScroll(delta int) int {
-	// The region's own size, which already excludes the card's header: the panel
-	// is drawn into what is left under the rule. It is measured wrapped, because
-	// wrapped is how it is drawn, and a bound counted on the unwrapped panel
-	// stops the scroll short of its own last lines.
+	// The region's own size, which already excludes the card's header. It is
+	// measured wrapped, because wrapped is how it is drawn, and a bound counted
+	// on the unwrapped panel stops the scroll short of its own last lines.
 	width, height := m.mainRegionSize()
 	total := len(strings.Split(m.wrappedPanel(width), "\n"))
 	return clampScroll(m.review.scroll+delta, total, height)
 }
 
 // wrappedPanel is the task panel re-flowed to the width it will be drawn at.
-//
-// Made measurable before it is measured. Most of the panel is Feat's own text,
-// but the parts a user reads it for are not: a brief they wrote, a check's
-// captured output, an error another program produced. Those carry tabs and
-// carriage returns, which are worth nothing to the wrap and everything to the
-// terminal (ADR-054).
+// The parts a user reads it for are not Feat's own text — a check's captured
+// output, an error another program produced — and those carry tabs and carriage
+// returns worth nothing to the wrap and everything to the terminal (ADR-054).
 func (m Model) wrappedPanel(width int) string {
 	panel := plainText(m.taskPanel())
 	if width <= 0 {
@@ -128,13 +118,10 @@ func (m Model) wrappedPanel(width int) string {
 }
 
 // taskPanel renders one task: what it is, what it has changed, and what is left
-// to decide about that.
-//
-// Detail and review were two tabs until ADR-042. They were conceptually
-// different and shared their subject, their header, their workflow, their
-// repository list, and their check summary, and neither filled the main region
-// on its own. This carries what FR-UI-003 requires of task detail and what
-// FR-REV-001 requires of review, once each.
+// to decide about that. ADR-042 made detail and review one tab, because they
+// shared their subject, header, workflow, repository list, and check summary
+// and neither filled the region. This carries what FR-UI-003 asks of detail and
+// what FR-REV-001 asks of review, once each.
 func (m Model) taskPanel() string {
 	task, ok := m.task(m.selected)
 	if !ok {
@@ -153,9 +140,8 @@ func (m Model) taskPanel() string {
 	out.WriteString(m.recoveryBlock(m.recoveryFindings(task)))
 
 	// Six lines and what only they can say. Attention, agent state as a bare
-	// word, elapsed time and the task's identifiers were all four cells to the
-	// left in the rail, and the runtime's detail is a whole tab; a panel that
-	// repeated them was thirty-five lines before its brief began (ADR-086).
+	// word, elapsed time, and the task's identifiers are four cells to the left
+	// in the rail, and a panel repeating them ran to thirty-five lines (ADR-086).
 	workflow := task.Workflow
 	if exits := reviewExits(task); exits != "" {
 		workflow = continued(workflow, mutedStyle.Render(exits))
@@ -169,10 +155,10 @@ func (m Model) taskPanel() string {
 	out.WriteString(field("checks", m.checksField(task)))
 	out.WriteString(field("resources", m.resourceDetail(task)))
 
-	// What the review found, under the fields and without a heading. The heading
-	// stood over a decision field and a handful of sentences, and the decision
-	// went with the two keys it named (ADR-086): what is left to say about a task
-	// in a review state is on the workflow field, as the exits it has.
+	// What the review found, under the fields and without a heading. The decision
+	// field went with the two keys it named (ADR-086), so what is left to say
+	// about a task in a review state is on the workflow field, as the exits it
+	// has.
 	out.WriteString("\n")
 	if summary := m.review.status.Review.Summary; summary != "" {
 		out.WriteString(field("the agent says", summary))
@@ -183,14 +169,14 @@ func (m Model) taskPanel() string {
 			"  a draft has nothing to compare yet; it owns no worktree until it is launched") + "\n")
 	case m.review.observing:
 		// The wait every task panel opens with, and the one `r` asks for again. It
-		// walks each of the task's worktrees, so on a task with three of them it is
-		// seconds of a panel that is otherwise complete and still; the mark is what
-		// says they are being spent (see activity).
+		// walks each of the task's worktrees, so on a task with three it is seconds
+		// of an otherwise complete and still panel; the mark says they are being
+		// spent (see activity).
 		//
-		// On the comparison in flight rather than on never having had one. Those
-		// are the same thing only the first time: a refresh on a loaded panel drew
-		// nothing at all, and a comparison that failed left this line under the
-		// error it failed with, perfectly still, saying it was still being made.
+		// On the comparison in flight rather than on never having had one, because
+		// a refresh on a loaded panel otherwise draws nothing and a failed
+		// comparison leaves this line under its own error, saying it is still being
+		// made.
 		out.WriteString(mutedStyle.Render(
 			"  "+m.activity.mark("comparing every repository against its recorded base…")) + "\n")
 	}
@@ -225,30 +211,26 @@ func (m Model) taskPanel() string {
 	out.WriteString(publicationBlock(task))
 
 	// The tmux target is not here. The socket is one value across every session
-	// this machine has ever run, being the runtime path by construction, and the
-	// other three are object ids chosen because they are stable identity rather
-	// than something a reader recognises. The one real use is running a tmux
-	// command by hand, which `a` and `feat attach` serve — and in the one
-	// situation where going around Feat makes sense, the daemon being down, this
-	// panel is not on screen while `task.json` still holds them (ADR-086).
+	// on this machine, being the runtime path by construction, and the other
+	// three are object ids chosen for stable identity rather than for a reader.
+	// Running a tmux command by hand is what `a` and `feat attach` serve, and
+	// when the daemon is down this panel is not on screen while `task.json` still
+	// holds them (ADR-086).
 	//
-	// Nor is the brief. It is a document and it is unbounded, so it was what made
-	// this panel scroll before the fields had been read; it has a tab of its own.
+	// Nor is the brief, which is a document and unbounded: it has a tab of its
+	// own.
 
 	return out.String()
 }
 
-// publicationBlock is what this task has published, or tried to.
+// publicationBlock is what this task has published, or tried to. It is here
+// rather than only on the publication screen because the record outlives the
+// screen: nothing is rolled back, and a user who closed the screen should not
+// have to compose a fresh plan — a lock, a walk of every repository, a read of
+// the agent's outbox — to be told a fact that was written down (ADR-073).
 //
-// It is here rather than only on the publication screen because the record
-// outlives the screen: nothing is rolled back, so what a publication leaves is a
-// merge request per repository, a failure, or an entry it never reached, and a
-// user who closed the screen should not have to compose a fresh plan — a lock, a
-// walk of every repository, and a read of the agent's outbox — to be told a fact
-// that was written down (ADR-073).
-//
-// A task that has never published has no section at all, which is the rule the
-// panel follows throughout: a check with nothing to report reports nothing.
+// A task that has never published has no section at all, which is the panel's
+// rule throughout: a check with nothing to report reports nothing.
 func publicationBlock(task api.Task) string {
 	if task.Publication == nil || len(task.Publication.Repositories) == 0 {
 		return ""
@@ -266,17 +248,14 @@ func publicationBlock(task api.Task) string {
 	return out.String()
 }
 
-// failureBlock is why a failed task failed, under the state it explains.
+// failureBlock is why a failed task failed, under the state it explains. It
+// sits there rather than in a section of its own because `failed` and its
+// reason are one fact, and the reason is otherwise only in the task's event log
+// on disk.
 //
-// It sits there rather than in a section of its own because it is not a separate
-// fact: `failed` and its reason are one thing said twice, and a user reading the
-// state has to travel no further to learn what it means. Before this the reason
-// was in the task's event log on disk and in an error banner that had already
-// gone, so the panel could say a launch failed and never why.
-//
-// The reason is printed as it was reported and wrapped by the panel rather than
-// truncated. It names a Compose service, a mount, or a path, and a cut sentence
-// loses exactly the end that identifies which one.
+// The reason is printed as it was reported and wrapped rather than truncated.
+// It names a Compose service, a mount, or a path, and a cut sentence loses the
+// end that identifies which one.
 func failureBlock(task api.Task) string {
 	if task.Failure == nil {
 		return ""
@@ -290,17 +269,14 @@ func failureBlock(task api.Task) string {
 }
 
 // checksField is what is known about this task's checks, from whichever source
-// has reported.
+// has reported. The task snapshot carries the agent's own count; the review
+// status carries the results with the reporter of each, which is the richer
+// answer and the one that can say Feat ran them.
 //
-// The task snapshot carries the agent's own count and the review status carries
-// the results with the reporter of each, which is the richer answer and the one
-// that can say Feat ran them. Showing both was what made two thin tabs look like
-// two different facts.
-//
-// A task whose checks are running has neither answer yet. A gate records nothing
-// until it finishes, so what is stored while it runs is the run before it, and
-// reporting that here would tell a user who has just started a run that it had
-// already failed.
+// A task whose checks are running has neither answer yet. A gate records
+// nothing until it finishes, so what is stored while it runs is the run before
+// it, and reporting that would tell a user who has just started a run that it
+// had failed.
 func (m Model) checksField(task api.Task) string {
 	if verifying(task) {
 		return "running  " + mutedStyle.Render("(Feat is running the project's configured checks)")
@@ -314,16 +290,15 @@ func (m Model) checksField(task api.Task) string {
 // verifying reports whether this task's configured checks are running now.
 func verifying(task api.Task) bool { return task.Workflow == "verifying" }
 
-// taskRepositories renders one block per repository the task binds.
+// taskRepositories renders one block per repository the task binds. It walks
+// the task's own bindings rather than the comparison's rows, so a draft — which
+// has bindings and no worktrees — is drawn with what it has. Where a comparison
+// exists its numbers are used, because those were measured against the recorded
+// base (FR-REV-001).
 //
-// It walks the task's own bindings rather than the comparison's rows, so that a
-// draft — which has bindings and no worktrees — is drawn with what it has. Where
-// a comparison exists its numbers are used, because those are the ones actually
-// measured against the recorded base (FR-REV-001).
-//
-// Four lines each rather than a row of columns: the base commit, the branch, and
-// the worktree path are what a user reads this panel to find, and a truncated one
-// has to be looked up somewhere else.
+// Four lines each rather than a row of columns: the base commit, the branch,
+// and the worktree path are what a user reads this panel to find, and a
+// truncated one has to be looked up elsewhere.
 func (m Model) taskRepositories(task api.Task) string {
 	if len(task.Repositories) == 0 {
 		return mutedStyle.Render("  none selected") + "\n"
@@ -406,12 +381,10 @@ func bindingChangeSummary(binding api.TaskRepository) string {
 	return summary
 }
 
-// taskPanelHints are the panel's own keys.
-//
-// The external commands are diff and editor, each about the repository under the
-// cursor (FR-REV-002). The status command is not among them: `s` opens the
-// task's shell here as it does everywhere else (ADR-045), and the shell is where
-// a status is read anyway.
+// taskPanelHints are the panel's own keys. The external commands are diff and
+// editor, each about the repository under the cursor (FR-REV-002). The status
+// command is not among them, because `s` opens the task's shell here as it does
+// everywhere else (ADR-045).
 func taskPanelHints() string {
 	return keyHints(
 		keyHint("j k", "repository"),

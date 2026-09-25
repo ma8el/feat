@@ -10,20 +10,16 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// frameInterval is how often the terminal tab asks for a new frame.
-//
-// It is a poll, which ADR-042 records as the interim: tmux can push a
-// notification whenever a pane paints, and a control-mode connection would turn
-// this into an event. The endpoint is the same shape either way. Until then this
+// frameInterval is how often the terminal tab asks for a new frame. It is a
+// poll, which ADR-042 records as the interim: a control-mode connection to tmux
+// would make this an event, and the endpoint is the same shape either way. It
 // is fast enough to read an agent working and slow enough not to ask the daemon
 // five times a second.
 const frameInterval = 250 * time.Millisecond
 
-// focusedInterval is the same while the pane has the keyboard.
-//
-// A user typing sees their own characters appear, so the delay is theirs rather
-// than an agent's. A quarter of a second of it reads as a broken terminal, which
-// is what a poll rate chosen for watching an agent work does to typing.
+// focusedInterval is the same while the pane has the keyboard. A user typing
+// sees their own characters appear, so the delay is theirs rather than an
+// agent's, and a quarter of a second of it reads as a broken terminal.
 const focusedInterval = 60 * time.Millisecond
 
 // terminalModel is the state of the pane the main region draws.
@@ -45,12 +41,10 @@ type terminalModel struct {
 	// polling reports that a tick is already scheduled, so that entering the tab
 	// twice does not start two of them.
 	polling bool
-	// inFlight reports that a frame has been asked for and not yet arrived.
-	//
-	// A second request while one is outstanding is dropped rather than queued.
-	// Two of them racing is what made the agent flicker between the region's
-	// width and half of it, and a frame nobody waited for is work the daemon and
-	// tmux do for a rendering that is already stale.
+	// inFlight reports that a frame has been asked for and not yet arrived. A
+	// second request while one is outstanding is dropped rather than queued: two
+	// of them racing made the agent flicker between the region's width and half
+	// of it.
 	inFlight bool
 }
 
@@ -77,11 +71,10 @@ func terminalTick(focused bool) tea.Cmd {
 	return tea.Tick(interval, func(time.Time) tea.Msg { return terminalTickMsg{} })
 }
 
-// requestFrame asks the daemon for the selected task's pane at this size.
-//
-// The size is the region it will be drawn into, and the daemon sets the pane to
-// it before capturing: a program wraps its own output, so a pane at another size
-// would arrive wrapped at a column this region does not have.
+// requestFrame asks the daemon for the selected task's pane at this size. The
+// size is the region it will be drawn into, and the daemon sets the pane to it
+// before capturing: a program wraps its own output at whatever width the pane
+// has.
 func (m *Model) requestFrame(width, height int) tea.Cmd {
 	task, ok := m.subject()
 	if !ok || task.Session == nil {
@@ -124,12 +117,10 @@ func (m Model) applyFrame(message terminalFrameMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// terminalBody renders the pane into the main region.
-//
-// Every line arrives already rendered by tmux, escape sequences and all. This
-// clips by cell so that a line cannot run past the region, and reads nothing
-// else out of it: no task, agent, attention, or workflow state is derived from a
-// terminal's contents (ADR-042).
+// terminalBody renders the pane into the main region. Every line arrives
+// already rendered by tmux, escape sequences and all. This clips by cell so a
+// line cannot run past the region, and derives no task, agent, attention, or
+// workflow state from a terminal's contents (ADR-042).
 func (m Model) terminalBody(width, height int) string {
 	task, ok := m.subject()
 	switch {
@@ -141,8 +132,7 @@ func (m Model) terminalBody(width, height int) string {
 		return mutedStyle.Render("task " + task.Key + " has no terminal yet")
 	// A frame, or a failure, belonging to another task is not drawn under this
 	// one's name. applyFrame drops what arrives after the selection moved; this
-	// is the other half — what was already held when it moved, which returning
-	// to this tab put back on the screen without asking for a new one.
+	// is the other half, what was already held when it moved.
 	case m.terminal.task != task.ID:
 		return m.awaitingFrame(task, width, height)
 	}
@@ -159,12 +149,10 @@ func (m Model) terminalBody(width, height int) string {
 	}
 
 	// A dead pane wins the note row. A pane whose program has exited is not one
-	// whose agent is about to paint, so the startup sentence there would be a
-	// lie, and the two notes cannot share a row that only one of them fits in.
-	//
-	// It keeps the foot of the region whatever else is true. It is an explanation
-	// of a terminal that is over, read beside whatever that terminal last showed,
-	// rather than the subject of a region nobody is waiting at.
+	// whose agent is about to paint, so the startup sentence would be wrong
+	// there, and one row holds one note. It keeps the foot of the region, because
+	// it explains a terminal that is over beside whatever that terminal last
+	// showed.
 	if dead := deadPanes(m.terminal.frame); dead > 0 {
 		return withNote(m.composeWindow(width, height-1),
 			failureStyle.Render(count(dead, "pane's program has", "panes' programs have")+
@@ -176,12 +164,10 @@ func (m Model) terminalBody(width, height int) string {
 		return m.composeWindow(width, height)
 	}
 
-	// The window is composed and measured before the note is placed, and it is
-	// only a window that drew nothing at all that gives up its middle. Nothing is
-	// read out of the capture to decide this (ADR-042): the question asked is
-	// whether the region has anything in it, which is the same question fitRows
-	// already asks of what tmux reported, and it is asked of Feat's own rendering
-	// rather than of the bytes inside it.
+	// The window is composed and measured before the note is placed, and only a
+	// window that drew nothing gives up its middle. Nothing is read out of the
+	// capture to decide this (ADR-042): the question is whether Feat's own
+	// rendering has anything in it.
 	window := m.composeWindow(width, height-1)
 	if blockWidth(window) == 0 {
 		return middleRow(note, height)
@@ -190,18 +176,15 @@ func (m Model) terminalBody(width, height int) string {
 }
 
 // middleRow puts a line in the middle of a region that has nothing else in it.
+// For the length of a startup the note is the only thing there, and the middle
+// of an empty box is where a reader looks for what the box is doing. It sits a
+// row above the exact centre on an even height, as centreOverlay puts a dialog.
 //
-// For the length of a startup the note is the only thing in the region, and the
-// middle of an empty box is where a reader looks for what the box is doing. It
-// sits a row above the exact centre on an even height, which is where
-// centreOverlay puts a dialog and for the same reason.
-//
-// It is only ever reached when the composed window drew nothing, so it covers
-// nothing. That condition is what makes vertical centring safe at all: a
-// workspace-trust prompt is drawn while the task is still `preparing`, and a
-// line across the middle of the region would take a row of the question the
-// launch is waiting on. The moment anything is drawn, the note goes back to a
-// row of its own (see withNote).
+// It is reached only when the composed window drew nothing, which is what makes
+// vertical centring safe: a workspace-trust prompt is drawn while the task is
+// still `preparing`, and a line across the middle would take a row of the
+// question the launch is waiting on. Once anything is drawn the note goes back
+// to a row of its own (see withNote).
 func middleRow(line string, height int) string {
 	if height < 1 {
 		height = 1
@@ -212,21 +195,14 @@ func middleRow(line string, height int) string {
 }
 
 // withNote draws a body under the region's one note, which is then the region's
-// last row.
+// last row. The note takes a row of the region rather than a row after it,
+// because the region is a card with a rule under it and a line written past the
+// last row is a line nobody sees.
 //
-// The note takes a row of the region rather than a row after it: the region is a
-// card with a rule under it, and a line written past the last row is a line
-// nobody sees — which is what a note explaining a terminal that has stopped, or
-// one that has not started yet, must not be.
-//
-// The row is fixed here rather than left to whatever the body filled, and that
-// is the defect this closes. Before the first capture there is no body, so the
-// note was the region's only line and was drawn at the top of it; the moment a
-// pane arrived underneath, the same note moved to the foot. A user watching a
-// launch saw the indicator once in the top corner and then, for the rest of the
-// wait, in the bottom one. A note about waiting that moves while you wait for it
-// is the same defect as an indicator that does not move at all: both are read as
-// the dashboard doing something other than what it says.
+// The row is fixed here rather than left to whatever the body filled. Otherwise
+// the note sits at the top of the region before the first capture and at the
+// foot the moment a pane arrives underneath, so a user watching a launch sees
+// the indicator move while they are waiting for it.
 func withNote(body, note string, height int) string {
 	if height < 1 {
 		height = 1
@@ -239,24 +215,17 @@ func withNote(body, note string, height int) string {
 }
 
 // startingNote is the sentence for a task whose terminal exists and whose agent
-// has not painted in it yet.
-//
-// It is the gap between the preparation overlay closing and the agent's first
-// frame: `LaunchDraft` runs `ensureTerminal` synchronously, so the tmux window
-// and the pane are already there when the overlay goes, and what follows is the
-// provider starting up inside them. Measured over the daemon's own event log,
-// that stretch has a median of 1.51s and a maximum of 12.79s, and it is longest
-// under host execution — where nothing had to be started, so the window appears
-// almost at once and the whole wait lands here.
+// has not painted in it yet. `LaunchDraft` runs `ensureTerminal` synchronously,
+// so the tmux window and the pane are there when the preparation overlay goes,
+// and what follows is the provider starting up inside them. Over the daemon's
+// own event log that stretch has a median of 1.51s and a maximum of 12.79s,
+// longest under host execution, where nothing had to be started first.
 //
 // It is decided from the task's own state and never from whether the capture
-// looks empty (ADR-042). That is not only the rule: a workspace-trust prompt is
-// drawn while the task is still `preparing`, so a capture with something in it
-// is exactly the case where the user has to read what is there.
-//
-// It has one home because two places say it. The task panel has said this
-// sentence since terminalNote was written, and the terminal tab — the tab a
-// launch lands on — said nothing at all.
+// looks empty (ADR-042). A workspace-trust prompt is drawn while the task is
+// still `preparing`, so a capture with something in it is exactly the case
+// where the user has to read what is there. It has one home because the task
+// panel says it too.
 func startingNote(task api.Task) string {
 	if task.Session == nil || task.Workflow != "preparing" {
 		return ""
@@ -265,24 +234,18 @@ func startingNote(task api.Task) string {
 }
 
 // startupLine is that sentence as the terminal region draws it, or the honest
-// line once the daemon has stopped believing the agent is merely slow.
+// line once the daemon has stopped believing the agent is merely slow. A task
+// can sit in `preparing` indefinitely — Claude asks for workspace trust on a
+// directory it has not seen before, and every task worktree is one — so after
+// the startup grace the daemon's `armStartup` raises attention and leaves the
+// workflow where it is. Attention bounds this note rather than a clock kept
+// here, and the rail already carries an elapsed figure.
 //
-// A task can sit in `preparing` indefinitely, and the daemon's `armStartup`
-// exists because of the commonest reason: Claude asks for workspace trust on a
-// directory it has not seen before, and every task worktree is one. After the
-// startup grace the daemon raises attention and leaves the workflow where it is,
-// so attention is what bounds this note — not a clock kept here. There is no
-// elapsed figure for the same reason: the rail carries one already.
-//
-// It is centred across the region. For the length of a startup this line is the
-// only thing in the region, and a lone sentence against the left edge of an
-// otherwise empty box reads as something left behind rather than as the box's
-// subject. It stays centred once a pane has drawn something and the note has
-// moved to a row of its own, so that what changes then is the row and not also
-// the column.
-//
-// The centring is stable while the indicator runs: MiniDot is one cell and mark
-// always spends two, so the sentence does not shift as the spinner advances.
+// It is centred across the region, because a lone sentence against the left
+// edge of an otherwise empty box reads as something left behind. It stays
+// centred once a pane has drawn something, so what changes then is the row and
+// not the column. MiniDot is one cell and mark always spends two, so the
+// sentence does not shift as the spinner advances.
 func (m Model) startupLine(task api.Task, width int) string {
 	note := startingNote(task)
 	if note == "" {
@@ -296,21 +259,19 @@ func (m Model) startupLine(task api.Task, width int) string {
 			"nothing has been heard from the agent, and the pane may be asking something"), width)
 	}
 	// Marked with the dashboard's one indicator, which Model.waiting turns on for
-	// this screen. A sentence about a wait that does not move is the thing
-	// activity was written to stop.
+	// this screen. A sentence about a wait that never moves reads as a dashboard
+	// that has stopped (see activity).
 	return centreLine(mutedStyle.Render(m.activity.mark(note)), width)
 }
 
-// awaitingFrame is what the region says before it has a frame for this task.
+// awaitingFrame is what the region says before it has a frame for this task. A
+// user who has just launched is not waiting on tmux: the pane is there and the
+// agent has not painted in it.
 //
-// A user who has just launched is not waiting on tmux — the pane is there and
-// the agent has not painted in it — so telling them Feat is asking tmux a
-// question is a second wrong answer to the one question they have.
-//
-// The startup line is placed as it is placed over a window that drew nothing,
-// because that is what the next capture will be: this branch and the frame after
-// it are a quarter of a second apart, and a note that changed place between them
-// is a note that flickers.
+// The startup line is placed as it is over a window that drew nothing, because
+// that is what the next capture will be. This branch and the frame after it are
+// a quarter of a second apart, and a note that changed place between them would
+// flicker.
 func (m Model) awaitingFrame(task api.Task, width, height int) string {
 	if line := m.startupLine(task, width); line != "" {
 		return middleRow(line, height)
@@ -319,24 +280,19 @@ func (m Model) awaitingFrame(task api.Task, width, height int) string {
 }
 
 // missingTerminal explains a task whose tmux window is not there, and what can
-// be done about it.
+// be done about it. It is the recovery entry's shape — what is wrong, then what
+// to do — because it is the same finding a reconciliation pass reports,
+// arriving through the view where a user meets it.
 //
-// It is the recovery entry's shape — what is wrong, then what to do — because
-// that is what this is: the same finding a reconciliation pass reports, arriving
-// through the view where a user actually meets it. Printing the resolver's
-// sentence instead left the remedy reachable only from the task panel or the
-// recovery overlay, which are places you look after you already suspect what
-// happened.
-//
-// The two cases are told apart rather than merged. A task whose agent recorded a
-// provider session can have that session continued; one whose agent never
-// reported starting cannot, and offering it a key that would refuse would be
-// worse than saying so.
+// The two cases are told apart rather than merged. A task whose agent recorded
+// a provider session can have that session continued; one whose agent never
+// reported starting cannot, and a key that would refuse is worse than saying
+// so.
 //
 // The lines are wrapped where they are written rather than left to the region,
-// which truncates: the main region is fifty-five cells at the narrowest terminal
-// the three-region layout supports, and a remedy cut off halfway is one nobody
-// can act on. It is the same hand-wrapping executionDetail does.
+// which truncates: the main region is fifty-five cells at the narrowest
+// terminal the three-region layout supports, and a remedy cut off halfway
+// cannot be acted on.
 func missingTerminal(task api.Task) string {
 	var out strings.Builder
 	out.WriteString(failureStyle.Render("  missing  terminal") + "\n")
@@ -356,17 +312,13 @@ func missingTerminal(task api.Task) string {
 	return out.String()
 }
 
-// missingShell explains the shell view of a task that has no shell pane.
+// missingShell explains the shell view of a task that has no shell pane. It is
+// drawn in the ordinary styles rather than as a failure, because a shell is
+// opened on demand (FR-TMUX-003) and most tasks have none for most of their
+// lives.
 //
-// It is drawn in the ordinary styles rather than as a failure, because nothing
-// has gone wrong: a shell is opened on demand (FR-TMUX-003), so most tasks have
-// none for most of their lives and switching to this view is how a user finds
-// out. The daemon's sentence — "open one first" — named neither the key that
-// opens one nor what pressing it does.
-//
-// What it does is worth saying, because it is not only a pane: opening a shell
-// hands this terminal to native tmux until the user detaches, which is a
-// different thing from the rest of the dashboard's keys.
+// What the key does is worth saying: opening a shell hands this terminal to
+// native tmux until the user detaches, which no other dashboard key does.
 func missingShell() string {
 	var out strings.Builder
 	out.WriteString(headingStyle.Render("  no shell pane yet") + "\n")
@@ -377,14 +329,10 @@ func missingShell() string {
 	return out.String()
 }
 
-// composeWindow tiles the window's panes into the region, each at the place tmux
-// put it.
-//
-// tmux draws the panes and reports where each one sits; this puts them back
-// together in the same arrangement, so a task showing an agent beside a shell
-// looks in the dashboard the way it looks when attached. Nothing here reads the
-// contents: the splice is by cell, and every escape sequence passes through
-// (ADR-042).
+// composeWindow tiles the window's panes into the region, each at the place
+// tmux put it, so a task showing an agent beside a shell looks in the dashboard
+// the way it looks when attached. Nothing here reads the contents: the splice
+// is by cell, and every escape sequence passes through (ADR-042).
 func (m Model) composeWindow(width, height int) string {
 	frame := m.terminal.frame
 	if len(frame.Panes) == 0 {
@@ -402,13 +350,11 @@ func (m Model) composeWindow(width, height int) string {
 
 	// written is the row after the last one any pane put something on. It is
 	// arithmetic on what tmux reported rather than anything read out of the
-	// content: a capture ends at the last row the program wrote, and the rows
-	// after it are the blank ones this canvas was made of.
+	// content, because a capture ends at the last row the program wrote.
 	//
 	// The cursor counts as written. A capture stops at the last row with
 	// something on it and the cursor may already be on the blank one after it,
-	// which is where it sits the moment a program clears its prompt — and a
-	// cursor clipped off the bottom is the one thing a user typing must not lose.
+	// which is where it sits the moment a program clears its prompt.
 	written := 0
 	for _, pane := range frame.Panes {
 		block := strings.Join(pane.Content, "\n")
@@ -432,30 +378,23 @@ func (m Model) composeWindow(width, height int) string {
 		canvas = m.withCursor(canvas)
 	}
 	// Clip first, then end each line: a truncation can cut a line in the middle
-	// of a styled run, and the reset has to come after the cut rather than
-	// before it. The clip is vertical as well as horizontal, because the window
-	// is whatever tmux reported and the region is what there is to draw it in: a
-	// frame that arrived taller than the region would otherwise push whatever
-	// follows it out of the card.
+	// of a styled run, and the reset has to come after the cut. The clip is
+	// vertical as well as horizontal, because a frame taller than the region
+	// would push what follows it out of the card.
 	return terminate(clampBlock(fitRows(canvas, written, height), width))
 }
 
 // fitRows takes the rows of a window a region has room for, ending at the last
-// one the panes wrote on.
+// one the panes wrote on. A window is taller than the region whenever Feat is
+// not sizing it — a native client owns the window it is attached to, and a
+// window holding a pane whose program has ended is never made smaller
+// (tmux.RenderPane) — and the rows to drop are then the ones above, because a
+// terminal's newest output is at its foot and the prompt a user would type into
+// is its last row.
 //
-// The end matters as much as the count. A window is taller than the region
-// whenever Feat is not the one sizing it — a native client owns the window it is
-// attached to, and a window holding a pane whose program has ended is never made
-// smaller (tmux.RenderPane) — and the rows to drop are then the ones above. It is
-// the opposite of what a dialog does with a body that does not fit: a dialog is
-// read from the top and its first line is its title, while a terminal's newest
-// output is at its foot and the prompt a user would type into is the last row of
-// all.
-//
-// A pane that has not filled its window is still drawn from its first row, which
-// is why this ends at what was written rather than at the window's own height. A
-// window sized for forty rows of an agent that has printed ten holds thirty blank
-// ones underneath, and a rendering anchored on those would show the blanks.
+// It ends at what was written rather than at the window's own height. A window
+// sized for forty rows of an agent that has printed ten holds thirty blank ones
+// underneath, and a rendering anchored on those would show the blanks.
 func fitRows(block string, written, height int) string {
 	if height < 1 {
 		height = 1
@@ -487,11 +426,9 @@ func deadPanes(frame api.TerminalFrame) int {
 	return dead
 }
 
-// withCursor draws a block where tmux says the cursor is.
-//
-// The capture does not carry it, and a focused pane with no visible cursor is
-// one a user cannot tell is theirs. A block covers the character beneath it,
-// which is what a block cursor does in any terminal.
+// withCursor draws a block where tmux says the cursor is. The capture does not
+// carry it, and a focused pane with no visible cursor is one a user cannot tell
+// is theirs.
 func (m Model) withCursor(body string) string {
 	for _, pane := range m.terminal.frame.Panes {
 		if !pane.Active || pane.CursorX < 0 || pane.CursorY < 0 {
@@ -516,19 +453,16 @@ func (m Model) focusTerminal() (tea.Model, tea.Cmd) {
 	m.status = ""
 
 	// A frame at once, so focusing does not wait out the slow tick already
-	// scheduled. No second tick is started: the one that is pending will
-	// reschedule itself at the focused cadence, and starting another here left
-	// two chains running for every time a user focused and unfocused.
+	// scheduled. No second tick is started: the pending one reschedules itself at
+	// the focused cadence, and another here leaves two chains running.
 	width, height := m.mainRegionSize()
 	frame := m.requestFrame(width, height)
 	return m, frame
 }
 
-// terminalInput routes a key press that belongs to the focused pane.
-//
-// One key is deliberately not forwarded. Something has to take the keyboard
-// back, and a user whose every key reaches the agent has no way to say so;
-// ctrl+q is the one agent-manager reserves for the same reason.
+// terminalInput routes a key press that belongs to the focused pane. One key is
+// not forwarded: something has to take the keyboard back, and ctrl+q is the one
+// agent-manager reserves for the same reason.
 func (m Model) terminalInput(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key.String() == "ctrl+q" {
 		// Nothing is said about it. Which side has the keyboard is on the rail,
@@ -555,11 +489,9 @@ func (m Model) terminalInput(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// tmuxKeys maps this terminal's key names onto tmux's.
-//
-// Only names tmux recognises are sent, and anything not listed is dropped rather
-// than guessed: a key forwarded under the wrong name is a key the agent acts on
-// and the user did not press.
+// tmuxKeys maps this terminal's key names onto tmux's. Anything not listed is
+// dropped rather than guessed, because a key forwarded under the wrong name is
+// one the agent acts on and the user did not press.
 var tmuxKeys = map[string]string{
 	"enter": "Enter", "esc": "Escape", "escape": "Escape", "tab": "Tab",
 	"shift+tab": "BTab", "backspace": "BSpace", "delete": "DC", "insert": "IC",
@@ -569,12 +501,11 @@ var tmuxKeys = map[string]string{
 	"f7": "F7", "f8": "F8", "f9": "F9", "f10": "F10", "f11": "F11", "f12": "F12",
 }
 
-// translateKey turns one key press into the input the daemon accepts.
-//
-// Typed characters travel as text and everything else as a key name, which is
-// how tmux itself distinguishes them: text goes through a bracketed paste so
-// that the application reading it cannot take a trailing newline as a
-// submission, and a name goes through send-keys.
+// translateKey turns one key press into the input the daemon accepts. Typed
+// characters travel as text and everything else as a key name, as tmux itself
+// distinguishes them: text goes through a bracketed paste, so the application
+// reading it cannot take a trailing newline as a submission, and a name goes
+// through send-keys.
 func translateKey(key tea.KeyMsg) (api.TerminalInput, bool) {
 	// A space arrives as its own key type rather than as runes, and its name is
 	// the character itself, so neither the runes branch nor the table below

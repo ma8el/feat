@@ -45,12 +45,11 @@ func refresh(t *testing.T, model Model) Model {
 }
 
 // TestALostDaemonAsksBeforeStartingOne is the rule the whole screen exists for.
-//
 // Starting a background process is not something a dashboard may do because a
-// read failed. A daemon that stopped may have been stopped deliberately, and it
-// may have died leaving tmux sessions and containers behind that the next one's
-// reconciliation pass will report — which is worth seeing rather than papering
-// over. So the dashboard asks, and starts nothing until it has been answered.
+// read failed: a daemon that stopped may have been stopped deliberately, and
+// one that died may have left tmux sessions and containers the next one's
+// reconciliation pass will report. So the dashboard asks, and starts nothing
+// until it has been answered.
 func TestALostDaemonAsksBeforeStartingOne(t *testing.T) {
 	backend := newFakeBackend()
 	model := stopped(t, backend)
@@ -77,9 +76,8 @@ func TestALostDaemonAsksBeforeStartingOne(t *testing.T) {
 	}
 }
 
-// TestTheFooterSaysItOnceCounts the lines the footer spends on one fact.
-//
-// Three of its rows can carry the same absence: the error line, the machine note
+// TestTheFooterSaysItOnce counts the lines the footer spends on one fact. Three
+// of its rows can carry the same absence: the error line, the machine note
 // beside the worktree, and the rail's own row. The error line is the only one
 // that names the key.
 func TestTheFooterSaysItOnce(t *testing.T) {
@@ -97,11 +95,10 @@ func TestTheFooterSaysItOnce(t *testing.T) {
 }
 
 // TestTheDialogIsSizedToItsContent keeps the box the size of its text.
-//
 // dialogBox shrinks to the widest line it is handed, and lipgloss pads every
-// wrapped line out to the width it wrapped to — so a body folded to what it was
-// allowed reported itself as exactly that wide, and a dialog holding two
-// sentences took three quarters of the terminal.
+// wrapped line out to the width it wrapped to, so a body folded to what it was
+// allowed reports itself as exactly that wide and a dialog holding two
+// sentences takes three quarters of the terminal.
 func TestTheDialogIsSizedToItsContent(t *testing.T) {
 	model := sized(stopped(t, newFakeBackend()), 200, 50)
 
@@ -129,11 +126,9 @@ func TestTheDialogStillFitsANarrowTerminal(t *testing.T) {
 	}
 }
 
-// TestTheDialogIsTitledAsAWarning keeps the heading saying what is wrong.
-//
-// Every other overlay is titled with what the user asked for — "prepare a task",
-// "keys", "recovery". This one opens because something broke, and a title that
-// read like the others would be the only line on the screen that did not say so.
+// TestTheDialogIsTitledAsAWarning keeps the heading saying what is wrong. Every
+// other overlay is titled with what the user asked for — "prepare a task",
+// "keys", "recovery" — and this one opens because something broke.
 func TestTheDialogIsTitledAsAWarning(t *testing.T) {
 	model := sized(stopped(t, newFakeBackend()), 120, 40)
 
@@ -143,12 +138,10 @@ func TestTheDialogIsTitledAsAWarning(t *testing.T) {
 	}
 }
 
-// TestSayingNoLeavesTheKeyInTheErrorMessage checks the way back.
-//
-// A user who declines is left on a dashboard where nothing works, and the only
-// thing on screen after the dialog closes is the footer. So the footer carries
-// the key rather than the command: `feat daemon start` is advice that can only
-// be taken by quitting, which is what this whole path exists to avoid.
+// TestSayingNoLeavesTheKeyInTheErrorMessage checks the way back. A user who
+// declines is left on a dashboard where nothing works, with only the footer to
+// read, so the footer carries the key rather than the command: `feat daemon
+// start` is advice that can only be taken by quitting.
 func TestSayingNoLeavesTheKeyInTheErrorMessage(t *testing.T) {
 	backend := newFakeBackend()
 	model := press(t, stopped(t, backend), "n")
@@ -172,11 +165,9 @@ func TestSayingNoLeavesTheKeyInTheErrorMessage(t *testing.T) {
 }
 
 // TestTheKeySurvivesTheFooterCut is the same message read where it is drawn.
-//
-// The footer is one line and truncates. A runtime directory under $TMPDIR is
-// ninety characters, and with the socket first the whole of "press S to start
-// one" was past the ellipsis: the dashboard said something was wrong and cut off
-// the only thing the user could do about it.
+// The footer is one line and truncates, and a runtime directory under $TMPDIR
+// is ninety characters, so with the socket first the whole of "press S to start
+// one" was past the ellipsis.
 func TestTheKeySurvivesTheFooterCut(t *testing.T) {
 	long := "/var/folders/kq/2s1n7d9j40q0m3xzcp7hbb2h0000gn/T/feat-501/feat.sock"
 
@@ -192,11 +183,9 @@ func TestTheKeySurvivesTheFooterCut(t *testing.T) {
 }
 
 // TestTheOfferIsMadeOnceUntilADaemonAnswersAgain keeps the question a question.
-//
-// The read that discovers an absent daemon runs every two seconds. A dialog that
-// reopened on each of them could not be dismissed, and the footer's key would be
-// unreachable because the overlay would take the keyboard back before it could
-// be pressed.
+// The read that discovers an absent daemon runs every two seconds, so a dialog
+// reopening on each of them could not be dismissed and would take the keyboard
+// back before the footer's key could be pressed.
 func TestTheOfferIsMadeOnceUntilADaemonAnswersAgain(t *testing.T) {
 	backend := newFakeBackend()
 	model := press(t, stopped(t, backend), "n")
@@ -218,12 +207,10 @@ func TestTheOfferIsMadeOnceUntilADaemonAnswersAgain(t *testing.T) {
 	}
 }
 
-// TestSayingYesStartsExactlyOneDaemon checks the count as well as the act.
-//
-// Two daemons on one socket is refused by the second, which is a failure the
-// user did not cause; and the key that starts one is the same key that confirms
-// every other dialog, so it is easy to press twice while the first is still
-// waiting for its socket.
+// TestSayingYesStartsExactlyOneDaemon checks the count as well as the act. The
+// second daemon on one socket is refused, which is a failure the user did not
+// cause, and the key that starts one confirms every other dialog too, so it is
+// easy to press twice while the first is still waiting for its socket.
 func TestSayingYesStartsExactlyOneDaemon(t *testing.T) {
 	backend := newFakeBackend()
 	model := stopped(t, backend)
@@ -260,11 +247,10 @@ func TestSayingYesStartsExactlyOneDaemon(t *testing.T) {
 }
 
 // TestAStartedDaemonGetsTheEventStreamBack checks that recovery is complete.
-//
-// The subscription is closed when the daemon it was made to goes away, and the
-// channel it delivered into is closed with it. A dashboard that read state again
-// without resubscribing would be correct every two seconds and never in between,
-// which is the difference between a dashboard and a report.
+// The subscription is closed when the daemon it was made to goes away, and so
+// is the channel it delivered into, so a dashboard that read state again
+// without resubscribing would be correct every two seconds and never in
+// between.
 func TestAStartedDaemonGetsTheEventStreamBack(t *testing.T) {
 	backend := newFakeBackend()
 	model := stopped(t, backend)
@@ -286,11 +272,10 @@ func TestAStartedDaemonGetsTheEventStreamBack(t *testing.T) {
 	}
 }
 
-// TestAStartThatFailedSaysWhy keeps the reason where the user is looking.
-//
-// A spawn that never began serving explains itself in the end of the daemon log,
-// which is several lines. The footer flattens an error to one line and cuts it to
-// the width of the terminal, so the dialog stays open and holds it instead.
+// TestAStartThatFailedSaysWhy keeps the reason where the user is looking. A
+// spawn that never began serving explains itself in the end of the daemon log,
+// which is several lines, and the footer flattens an error to one line and cuts
+// it to the terminal's width.
 func TestAStartThatFailedSaysWhy(t *testing.T) {
 	backend := newFakeBackend()
 	backend.daemonErr = errors.New(
@@ -318,7 +303,8 @@ func TestAStartThatFailedSaysWhy(t *testing.T) {
 	}
 }
 
-// TestTheStartKeyReopensTheOfferAfterANo is why the key is in the error message.
+// TestTheStartKeyReopensTheOfferAfterANo is why the key is in the error
+// message.
 func TestTheStartKeyReopensTheOfferAfterANo(t *testing.T) {
 	backend := newFakeBackend()
 	model := press(t, stopped(t, backend), "n")
@@ -333,10 +319,9 @@ func TestTheStartKeyReopensTheOfferAfterANo(t *testing.T) {
 }
 
 // TestTheStartKeyStartsNothingWhileADaemonIsAnswering checks the other half.
-//
-// The key is on the dashboard whatever the daemon is doing, because it is listed
-// on `?` and a key that is documented has to do something. What it must not do is
-// spawn a second daemon on a socket the first one owns.
+// The key is on the dashboard whatever the daemon is doing, because it is
+// listed on `?` and a documented key has to do something. What it must not do
+// is spawn a second daemon on a socket the first one owns.
 func TestTheStartKeyStartsNothingWhileADaemonIsAnswering(t *testing.T) {
 	backend := newFakeBackend()
 	model := press(t, dashboard(backend, liveTask()), startDaemonKey)
@@ -353,11 +338,10 @@ func TestTheStartKeyStartsNothingWhileADaemonIsAnswering(t *testing.T) {
 }
 
 // TestALostDaemonDoesNotInterruptAnOpenOverlay protects work in progress.
-//
 // Preparation holds a brief somebody is typing and cleanup holds a confirmation
-// somebody is answering. Taking the keyboard from either would return them, when
-// this dialog closed, to the tab underneath rather than to what they were doing —
-// so the failure is recorded and the question waits until they are out.
+// somebody is answering, and taking the keyboard from either would return them
+// to the tab underneath when this dialog closed. The failure is recorded and
+// the question waits.
 func TestALostDaemonDoesNotInterruptAnOpenOverlay(t *testing.T) {
 	backend := newFakeBackend()
 	model := dashboard(backend, liveTask())
@@ -381,11 +365,9 @@ func TestALostDaemonDoesNotInterruptAnOpenOverlay(t *testing.T) {
 }
 
 // TestTheDialogRefusesTheKeysBehindIt keeps an unanswered question unanswerable
-// by accident.
-//
-// Every key on the dashboard reaches the daemon, and there is not one. Moving the
-// selection or opening a task under the dialog would act on a list that stopped
-// being true when the daemon did.
+// by accident. Every key on the dashboard reaches the daemon and there is not
+// one, so moving the selection or opening a task under the dialog would act on
+// a list that stopped being true when the daemon did.
 func TestTheDialogRefusesTheKeysBehindIt(t *testing.T) {
 	backend := newFakeBackend()
 	model := stopped(t, backend)
@@ -410,13 +392,10 @@ func TestTheDialogRefusesTheKeysBehindIt(t *testing.T) {
 	}
 }
 
-// TestAPendingConfirmationIsDroppedWhenTheDaemonGoes closes a way for one yes to
-// be read as another.
-//
-// A stop and a cancel both wait for a `y`, and both are requests to the daemon.
-// The dialog takes the keyboard, so the key press that clears a stale
-// confirmation never arrives — and the first `y` after the dialog closed would be
-// read as the answer to a question the user asked before the daemon went away.
+// TestAPendingConfirmationIsDroppedWhenTheDaemonGoes closes a way for one yes
+// to be read as another. A stop and a cancel both wait for a `y` and both are
+// requests to the daemon, and the dialog takes the keyboard, so the key press
+// that clears a stale confirmation never arrives.
 func TestAPendingConfirmationIsDroppedWhenTheDaemonGoes(t *testing.T) {
 	backend := newFakeBackend()
 	model := dashboard(backend, liveTask())
@@ -436,11 +415,10 @@ func TestAPendingConfirmationIsDroppedWhenTheDaemonGoes(t *testing.T) {
 	}
 }
 
-// TestTheFooterCarriesTheAnswersWhileTheDialogIsOpen checks the hints.
-//
-// The footer says how to close an overlay, and this one is answered rather than
-// closed: a user offered only "esc close" has been told how to refuse and not how
-// to accept.
+// TestTheFooterCarriesTheAnswersWhileTheDialogIsOpen checks the hints. The
+// footer says how to close an overlay, and this one is answered rather than
+// closed: a user offered only "esc close" has been told how to refuse and not
+// how to accept.
 func TestTheFooterCarriesTheAnswersWhileTheDialogIsOpen(t *testing.T) {
 	hints := flowed(stopped(t, newFakeBackend()).hints())
 
@@ -460,10 +438,9 @@ func TestTheKeyMapNamesTheStartKey(t *testing.T) {
 	}
 }
 
-// TestOnlyALostDaemonIsOfferedAStart checks the classification.
-//
-// A daemon that answered with an error is running, and offering to start one
-// would be an offer to do nothing about a problem the user has.
+// TestOnlyALostDaemonIsOfferedAStart checks the classification. A daemon that
+// answered with an error is running, so offering to start one would be an offer
+// to do nothing about the problem the user has.
 func TestOnlyALostDaemonIsOfferedAStart(t *testing.T) {
 	backend := newFakeBackend()
 	model := dashboard(backend, liveTask())

@@ -10,13 +10,11 @@ import (
 	"github.com/ma8el/feat/internal/api"
 )
 
-// TestTheTaskPanelCarriesBothHalvesOnce is the merge.
-//
-// Detail and review were two tabs that shared their subject, their header, their
-// workflow, their repository list, and their check summary, and neither filled
-// the main region on its own (ADR-042). One panel has to carry what FR-UI-003
-// requires of task detail and what FR-REV-001 requires of review — and carry the
-// shared parts once, which is the reason for merging them.
+// TestTheTaskPanelCarriesBothHalvesOnce is the merge. Detail and review shared
+// their subject, header, workflow, repository list, and check summary, and
+// neither filled the main region on its own (ADR-042). One panel carries what
+// FR-UI-003 asks of detail and what FR-REV-001 asks of review, with the shared
+// parts said once.
 func TestTheTaskPanelCarriesBothHalvesOnce(t *testing.T) {
 	panel := reviewScreen(t, newFakeBackend()).taskPanel()
 
@@ -56,15 +54,12 @@ func TestTheTaskPanelCarriesBothHalvesOnce(t *testing.T) {
 	}
 }
 
-// TestTextFeatDidNotWriteCannotBreakTheFrame is the reported defect.
-//
-// A check's detail and a task's brief are text from outside: a captured command's
-// output, a file the user wrote. `go test` separates its columns with tabs, and a
-// tab is one byte of zero display width that the terminal draws as a jump to the
-// next multiple of eight. Every measurement the dashboard makes — the wrap, the
-// cut to the region, the padding before the border — agreed that those lines fit,
-// and the terminal drew them across the border, through the rail, and down the
-// rest of the frame.
+// TestTextFeatDidNotWriteCannotBreakTheFrame is the reported defect. A check's
+// detail and a task's brief are text from outside: `go test` separates its
+// columns with tabs, and a tab measures no cells while the terminal draws it as
+// a jump to the next multiple of eight. Every measurement the dashboard makes
+// agreed that those lines fit, and the terminal drew them across the border,
+// through the rail, and down the rest of the frame.
 func TestTextFeatDidNotWriteCannotBreakTheFrame(t *testing.T) {
 	backend := newFakeBackend()
 	status := reviewed()
@@ -115,13 +110,10 @@ func TestTextFeatDidNotWriteCannotBreakTheFrame(t *testing.T) {
 	}
 }
 
-// TestATitleWithALineBreakCannotAddARailRow is the same defect where it would be
-// worst.
-//
-// The rail counts the lines it draws to pin its foot and to cut a list that does
-// not fit. A title is a user's sentence about their own work — pasted from an
-// issue, written into a brief — and one carrying a line break would have made the
-// rail's arithmetic wrong about its own entries.
+// TestATitleWithALineBreakCannotAddARailRow is the same defect where it would
+// be worst. The rail counts the lines it draws to pin its foot and to cut a
+// list that does not fit, and a title is a user's sentence about their own
+// work, pasted from an issue or written into a brief.
 func TestATitleWithALineBreakCannotAddARailRow(t *testing.T) {
 	task := liveTask()
 	task.Title = "Add a scheduled\nexport\tjob"
@@ -129,8 +121,8 @@ func TestATitleWithALineBreakCannotAddARailRow(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), task), 120, 32)
 
 	// The entry itself, because the rail's foot is pinned by padding the list to
-	// the region: an entry that grew a third line would push a task off the bottom
-	// and the rail would still be exactly as tall as it claims.
+	// the region: an entry that grew a third line would push a task off the
+	// bottom and the rail would still be exactly as tall as it claims.
 	entry := model.railEntry(task, true)
 	if got := strings.Count(entry, "\n"); got != 2 {
 		t.Errorf("the entry is %d lines, want the two FR-UI-002 lays out: %q", got, entry)
@@ -146,11 +138,9 @@ func TestATitleWithALineBreakCannotAddARailRow(t *testing.T) {
 }
 
 // TestAnErrorCannotPushTheFooterApart is the same defect in the one part of the
-// frame that holds still.
-//
-// The footer is a fixed number of rows, and the regions above it are sized
-// against that count. A wrapped error carries whatever it wrapped — a command's
-// output, with its line breaks — and was written into the footer whole.
+// frame that holds still. The footer is a fixed number of rows the regions
+// above it are sized against, and a wrapped error carries whatever it wrapped,
+// line breaks and all.
 func TestAnErrorCannotPushTheFooterApart(t *testing.T) {
 	model := sized(dashboard(newFakeBackend(), liveTask()), 120, 32)
 	model.err = errors.New("reading tasks failed: the daemon said\n\tstatus 500\n\tno such task\r")
@@ -183,12 +173,10 @@ func TestAnErrorCannotPushTheFooterApart(t *testing.T) {
 }
 
 // TestALabelWiderThanItsColumnKeepsItsLine is a defect the merge made visible.
-//
-// The label column has a fixed width, and lipgloss wraps rather than overflows:
-// "compose project" came out as "compose" and then "project" against the panel's
-// left edge, where it read as a heading rather than a label. That label went with
-// the environment section (ADR-086) and the widest one left fills the column
-// exactly, which is the same branch.
+// The label column has a fixed width and lipgloss wraps rather than overflows,
+// so "compose project" came out as "compose" and then "project" against the
+// panel's left edge. That label went with the environment section (ADR-086),
+// and the widest one left fills the column exactly, which is the same branch.
 func TestALabelWiderThanItsColumnKeepsItsLine(t *testing.T) {
 	panel := ansi.Strip(reviewScreen(t, newFakeBackend()).taskPanel())
 
@@ -203,13 +191,11 @@ func TestALabelWiderThanItsColumnKeepsItsLine(t *testing.T) {
 }
 
 // TestThePanelDropsWhatTheRailAndTheTabsAlreadyCarry is ADR-086's first
-// decision.
-//
-// Attention, agent state as a word, and elapsed time are four cells to the left
-// in the rail; the runtime's detail is a whole tab; the tmux target is one
-// constant and three object ids nobody reads; and the environment section ended
-// in two lines of explanation identical on every task. A panel repeating them
-// was thirty-five lines before its brief began.
+// decision. Attention, agent state as a word, and elapsed time are four cells
+// to the left in the rail; the runtime's detail is a whole tab; the tmux target
+// is one constant and three object ids nobody reads; and the environment
+// section ended in two lines of explanation identical on every task. A panel
+// repeating them ran to thirty-five lines.
 func TestThePanelDropsWhatTheRailAndTheTabsAlreadyCarry(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask())
 	model.selected = liveTask().ID
@@ -248,13 +234,11 @@ func TestThePanelDropsWhatTheRailAndTheTabsAlreadyCarry(t *testing.T) {
 }
 
 // TestTheAgentFieldHasOneShapePerThingItCanSay is what the environment section
-// collapsed into.
-//
-// What runs, where, and in what: the compose project on a continuation line
-// because it is a name a user types into a tool on the trusted host, and the
-// container's state appended only when it is not simply running. That last is
-// the state 9d found in the log four times — reconciliation observing an agent
-// container as not running — and the process word cannot express it.
+// collapsed into: what runs, where, and in what. The compose project goes on a
+// continuation line because it is a name a user types into a tool on the
+// trusted host, and the container's state is appended only when it is not
+// simply running — the state 9d found in the log four times, which the process
+// word cannot express.
 func TestTheAgentFieldHasOneShapePerThingItCanSay(t *testing.T) {
 	host := liveTask()
 	host.Session.ExecutionMode = "host"
@@ -307,12 +291,9 @@ func TestTheAgentFieldHasOneShapePerThingItCanSay(t *testing.T) {
 }
 
 // TestTheComposeProjectKeepsALineOfItsOwnAtEveryWidth is why it is a
-// continuation line rather than part of the value.
-//
-// It is about fifty cells against a value column of thirty-nine at the minimum
-// width, so inside the value the wrap would break it in a different place at
-// every terminal size. Broken deliberately, the field is the same shape in all
-// of them.
+// continuation line rather than part of the value. It is about fifty cells
+// against a value column of thirty-nine at the minimum width, so inside the
+// value the wrap would break it in a different place at every terminal size.
 func TestTheComposeProjectKeepsALineOfItsOwnAtEveryWidth(t *testing.T) {
 	identity := liveTask().Session.Execution.Identity
 
@@ -341,10 +322,9 @@ func TestTheComposeProjectKeepsALineOfItsOwnAtEveryWidth(t *testing.T) {
 }
 
 // TestADraftPanelHasNoContinuationLines checks the shape a task without a
-// session leaves.
-//
-// A draft owns no environment, so there is no compose project to put under the
-// agent field and nothing to say about a container that does not exist.
+// session leaves. A draft owns no environment, so there is no compose project
+// to put under the agent field and nothing to say about a container that does
+// not exist.
 func TestADraftPanelHasNoContinuationLines(t *testing.T) {
 	model := dashboard(newFakeBackend(), pendingDraft())
 	model.selected = pendingDraft().ID
@@ -362,12 +342,10 @@ func TestADraftPanelHasNoContinuationLines(t *testing.T) {
 }
 
 // TestTheTaskPanelScrollsRatherThanHidingWhatIsBelow keeps what does not fit
-// reachable.
-//
-// The panel is shorter than the region for a one-repository task since the brief
-// took a tab of its own, and a task with two repositories and a captured check
-// detail still outgrows it. A region that clipped that in silence would read as a
-// task with nothing under the fields.
+// reachable. A one-repository task fits the region now the brief has a tab of
+// its own, and a task with two repositories and a captured check detail still
+// outgrows it. A region that clipped that in silence would read as a task with
+// nothing under the fields.
 func TestTheTaskPanelScrollsRatherThanHidingWhatIsBelow(t *testing.T) {
 	model := sized(reviewScreen(t, newFakeBackend()), 120, 32)
 
@@ -393,12 +371,10 @@ func TestTheTaskPanelScrollsRatherThanHidingWhatIsBelow(t *testing.T) {
 }
 
 // TestTheTaskPanelDoesNotScrollForAOneRepositoryTask is what moving the brief
-// bought.
-//
-// The brief is unbounded and the fields are not, so the panel was a scroller
-// before the document that made it scroll had been reached. The common case now
-// fits, which is ADR-041's fourth piece of evidence restored: a field is where it
-// was last time.
+// bought. The brief is unbounded and the fields are not, so the panel scrolled
+// before the document that made it scroll had been reached. The common case
+// fits, which is ADR-041's fourth piece of evidence restored: a field is where
+// it was last time.
 func TestTheTaskPanelDoesNotScrollForAOneRepositoryTask(t *testing.T) {
 	task := liveTask()
 	task.Repositories = task.Repositories[:1]
@@ -440,14 +416,12 @@ func TestScrollingStopsAtTheEndOfThePanel(t *testing.T) {
 	}
 }
 
-// TestSOpensTheShellOnTheTaskPanelToo records a key that used to mean two things.
-//
-// `s` ran the configured status command here and opened the task's shell
-// everywhere else. What that command printed was a line or two on the screen the
-// TUI had just left, gone before it could be read, and the panel already states
-// what it would have said (ADR-045). The command itself is still configured and
-// still expanded — `feat review` prints it — so what this test pins is the key,
-// not the feature.
+// TestSOpensTheShellOnTheTaskPanelToo records a key that used to mean two
+// things. `s` ran the configured status command here and opened the task's
+// shell everywhere else. What that command printed was a line or two on the
+// screen the TUI had just left, gone before it could be read, and the panel
+// already states what it would have said (ADR-045). The command is still
+// configured and still expanded, so this pins the key rather than the feature.
 func TestSOpensTheShellOnTheTaskPanelToo(t *testing.T) {
 	backend := newFakeBackend()
 	model := reviewScreen(t, backend)

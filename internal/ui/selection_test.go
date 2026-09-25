@@ -12,11 +12,10 @@ import (
 )
 
 // newerTask is a task created after the fixtures, which the newest-first list
-// puts at the top and every index after it therefore moves by one.
-//
-// It is what the dashboard's own launch path produces, and what `feat implement`
-// in a second terminal, another client, or a stream event that arrives between a
-// key press and the request it makes produces too.
+// puts at the top, moving every index after it by one. It is what the
+// dashboard's own launch path produces, and what `feat implement` in a second
+// terminal, another client, or a stream event arriving between a key press and
+// its request produces too.
 func newerTask() api.Task {
 	task := liveTask()
 	task.ID = "d41d8cd9-9999-8888-7777-666655554444"
@@ -29,8 +28,9 @@ func newerTask() api.Task {
 	return task
 }
 
-// newerDraft is newerTask as a draft, so that a test about a destructive key can
-// let the wrong task actually be destroyed rather than be saved by a refusal.
+// newerDraft is newerTask as a draft, so that a test about a destructive key
+// can let the wrong task actually be destroyed rather than be saved by a
+// refusal.
 func newerDraft() api.Task {
 	task := newerTask()
 	task.Workflow = "draft"
@@ -40,10 +40,9 @@ func newerDraft() api.Task {
 }
 
 // railSelection is which of the given tasks the rail draws its marker beside.
-//
 // It reads the rendered rail rather than the model, because the defect these
-// tests are about was the rail and the main region naming different tasks: a
-// test that asked the model twice would have agreed with itself either way.
+// tests are about was the rail and the main region naming different tasks:
+// asking the model twice would agree with itself either way.
 func railSelection(t *testing.T, m Model, tasks ...api.Task) []string {
 	t.Helper()
 
@@ -61,14 +60,11 @@ func railSelection(t *testing.T, m Model, tasks ...api.Task) []string {
 	return marked
 }
 
-// TestARefreshCannotRePointTheSelection is G2-04.
-//
-// The selection was an index into a list re-sorted newest-first on every read,
-// and nothing re-derived it from the task it was supposed to name. A task
-// appearing moved every index after it, so the selection silently landed on a
-// task the user had not chosen — and the rail's marker and the main region's
-// header then named different tasks, which is the one thing FR-UI-001 requires
-// the list to be right about.
+// TestARefreshCannotRePointTheSelection is G2-04. The selection was an index
+// into a list re-sorted newest-first on every read, so a task appearing moved
+// every index after it and the selection landed on a task the user had not
+// chosen. The rail's marker and the main region's header then named different
+// tasks, which is the one thing FR-UI-001 requires the list to be right about.
 func TestARefreshCannotRePointTheSelection(t *testing.T) {
 	first, second := liveTask(), otherTask()
 	model := sized(dashboard(newFakeBackend(), first, second), 120, 32)
@@ -96,15 +92,14 @@ func TestARefreshCannotRePointTheSelection(t *testing.T) {
 	}
 }
 
-// TestADestructiveKeyActsOnTheTaskTheRailNames is G2-04's consequence.
+// TestADestructiveKeyActsOnTheTaskTheRailNames is G2-04's consequence. The
+// refresh that moves the selection needs no key press to arrive: a stream event
+// between the keystroke and the action was enough to destroy something the user
+// had not selected. Two drafts, so the wrong one is cancelled rather than saved
+// by cancel's refusal to touch a launched task.
 //
-// The refresh that moves the selection needs no key press to arrive: a stream
-// event between the keystroke and the action was enough for the user to destroy
-// something they had not selected. Two drafts, so that the wrong one is
-// cancelled rather than saved by cancel's refusal to touch a launched task.
-//
-// `x` asks now, so the destruction is on the `y` — but the question is the same
-// key press and the same subject, and the task it names is what the rest of this
+// `x` asks, so the destruction is on the `y`, but the question is the same key
+// press and the same subject, and the task it names is what the rest of this
 // test is about.
 func TestADestructiveKeyActsOnTheTaskTheRailNames(t *testing.T) {
 	draft, newest := pendingDraft(), newerDraft()
@@ -133,18 +128,15 @@ func TestADestructiveKeyActsOnTheTaskTheRailNames(t *testing.T) {
 }
 
 // TestADraftIsNotDestroyedWithoutAYes is the other half of the same gate entry.
+// Naming the selection by identifier stops `x` acting on a task the rail is not
+// marking, and names nothing the key is about to destroy. A draft's brief is
+// text somebody typed and Feat holds the only copy, while `C` — cleanup, the
+// neighbouring key on the same footer — confirms per resource class for
+// containers and volumes a repository can produce again.
 //
-// Naming the selection by identifier stopped `x` acting on a task the rail was
-// not marking; it put nothing on the screen naming what the key was about to
-// destroy. A draft's brief is text somebody typed and Feat holds the only copy,
-// while `C` — cleanup, the neighbouring key on the same footer — confirms per
-// resource class for containers and volumes that a repository can produce
-// again.
-//
-// The question has to be answerable both ways, and it has to name its subject:
-// the event this whole area is about is a refresh arriving in the middle, and a
+// The question has to be answerable both ways and it has to name its subject: a
 // footer reading "cancel this draft?" over a rail whose marker has since moved
-// is the defect with a confirmation drawn on it.
+// is the same defect with a confirmation drawn on it.
 func TestADraftIsNotDestroyedWithoutAYes(t *testing.T) {
 	draft := pendingDraft()
 	backend := newFakeBackend()
@@ -176,11 +168,10 @@ func TestADraftIsNotDestroyedWithoutAYes(t *testing.T) {
 }
 
 // TestALaunchedTaskIsTheOneTheRailPointsAt is G2-04 on the dashboard's own
-// launch path, which is the shortest way to reproduce it.
-//
-// Preparation names the task it launched in the footer and made it the
-// selection; the refresh that followed listed it first and moved the marker onto
-// whatever had been first before.
+// launch path, which is the shortest way to reproduce it. Preparation names the
+// launched task in the footer and makes it the selection, and the refresh that
+// follows lists it first, moving a row-held marker onto whatever had been first
+// before.
 func TestALaunchedTaskIsTheOneTheRailPointsAt(t *testing.T) {
 	first, second := liveTask(), otherTask()
 	launched := newerTask()
@@ -203,11 +194,9 @@ func TestALaunchedTaskIsTheOneTheRailPointsAt(t *testing.T) {
 }
 
 // TestASelectionWhoseTaskLeavesTheListIsReported checks the other half of the
-// same rule.
-//
-// A task can leave the list without the user doing anything — a cleanup here, a
-// cancellation from another terminal. The selection is not moved onto whatever
-// now occupies the row, because that is the defect; it is said, in the words of
+// same rule. A task can leave the list without the user doing anything — a
+// cleanup here, a cancellation from another terminal — and the selection is
+// said rather than moved onto whatever now occupies the row, in the words of
 // the task that went.
 func TestASelectionWhoseTaskLeavesTheListIsReported(t *testing.T) {
 	first, second := liveTask(), otherTask()
@@ -228,11 +217,10 @@ func TestASelectionWhoseTaskLeavesTheListIsReported(t *testing.T) {
 	}
 }
 
-// TestTheFirstTaskListSelectsSomething keeps the dashboard startable.
-//
-// The rule above — a refresh never moves the selection — has exactly one
-// exception, and this is it: a dashboard that has never had a task list has
-// nothing selected, and a rail with no marker is not something to open on.
+// TestTheFirstTaskListSelectsSomething keeps the dashboard startable. The rule
+// above — a refresh never moves the selection — has exactly one exception: a
+// dashboard that has never had a task list has nothing selected, and a rail
+// with no marker is not something to open on.
 func TestTheFirstTaskListSelectsSomething(t *testing.T) {
 	first, second := liveTask(), otherTask()
 	model := sized(dashboard(newFakeBackend(), first, second), 120, 32)
@@ -243,13 +231,11 @@ func TestTheFirstTaskListSelectsSomething(t *testing.T) {
 	}
 }
 
-// TestAReviewResponseForAnotherTaskIsDropped is G2-05.
-//
-// A comparison walks every one of a task's worktrees, so one asked for before
-// the user moved on arrives after. It carried no task identifier and was applied
-// unconditionally, so the panel drew one task's agent report, check results,
-// repository rows and expanded commands under another task's name — and `d` and
-// `e` opened the wrong worktree.
+// TestAReviewResponseForAnotherTaskIsDropped is G2-05. A comparison walks every
+// one of a task's worktrees, so one asked for before the user moved on arrives
+// after. Carrying no task identifier, it was applied unconditionally, so the
+// panel drew one task's agent report, check results, and expanded commands
+// under another task's name, and `d` and `e` opened the wrong worktree.
 func TestAReviewResponseForAnotherTaskIsDropped(t *testing.T) {
 	slow := reviewed()
 	first, second := slow.Task, otherTask()
@@ -335,12 +321,10 @@ func TestARuntimeResponseForAnotherTaskIsDropped(t *testing.T) {
 }
 
 // TestARefreshBetweenARequestAndItsResponseChangesNothing is the interleaving
-// G6-58 says the suite never drove.
-//
-// The response is for the task that is still selected, so it is applied — a
-// screen that dropped everything after a refresh would be as wrong as one that
-// dropped nothing — and the refresh that arrived in the middle did not move the
-// selection out from under it.
+// G6-58 says the suite never drove. The response is for the task that is still
+// selected, so it is applied — a screen that dropped everything after a refresh
+// would be as wrong as one that dropped nothing — and the refresh did not move
+// the selection under it.
 func TestARefreshBetweenARequestAndItsResponseChangesNothing(t *testing.T) {
 	status := reviewed()
 	subject := status.Task
@@ -368,20 +352,15 @@ func TestARefreshBetweenARequestAndItsResponseChangesNothing(t *testing.T) {
 	}
 }
 
-// TestLeavingRuntimeOpensThePanelOnTheSelectedTask is G2-03.
+// TestLeavingRuntimeOpensThePanelOnTheSelectedTask is G2-03. Leaving runtime
+// for the panel set the screen rather than opening it, so the panel was drawn
+// for the selected task while the review model still held whatever task it was
+// last opened on: the heading named one task, and the agent report, the check
+// results, the repository rows, and every review key belonged to another.
 //
-// Leaving runtime for the panel set the screen rather than opening it, so the
-// panel was drawn for the selected task while the review model still held
-// whatever task it was last opened on. The heading named one task; the agent
-// report, the check results, the repository rows — matched by repository
-// identifier, so within one project they filled in — and every review key
-// belonged to another. Pressing `A` there approved the task the screen was not
-// about.
-//
-// It was `esc` that did it, and `T` is what leaves runtime for the panel now
-// that esc moves nothing. The defect is not about which key: it is about a
-// screen assigned rather than opened, and every route into the panel goes
-// through openTask.
+// The defect is not about which key does the leaving — `esc` did then, `T` does
+// now — but about a screen assigned rather than opened. Every route into the
+// panel goes through openTask.
 func TestLeavingRuntimeOpensThePanelOnTheSelectedTask(t *testing.T) {
 	status := reviewed()
 	first := status.Task
@@ -424,18 +403,16 @@ func TestLeavingRuntimeOpensThePanelOnTheSelectedTask(t *testing.T) {
 }
 
 // TestLeavingTheTaskPanelAsksTmuxForTheSelectedTasksPane is the same rule as
-// TestLeavingRuntimeOpensThePanelOnTheSelectedTask, on the view next door.
+// TestLeavingRuntimeOpensThePanelOnTheSelectedTask, on the view next door. The
+// panel is left through selectTab, which discards the frame the terminal was
+// holding and asks tmux for the selected task's; setting the screen directly
+// leaves the previous task's pane under the new task's name, with nothing
+// outstanding to replace it.
 //
-// Both views are left for something that holds one task's answer, and neither is
-// re-opened by assigning a screen. The panel is left through selectTab, which
-// discards the frame the terminal was holding and asks tmux for the selected
-// task's. Setting the screen directly left the previous task's pane on the
-// screen under the new task's name, with nothing outstanding to replace it.
-//
-// The half that is asserted here is the request. terminalBody's own guard makes
-// the stale pane unreadable — "asking tmux what this pane shows…" — which is the
-// safe half and is not the fix: a dashboard that says that forever is a
-// dashboard with no terminal in it.
+// What is asserted here is the request. terminalBody's own guard makes the
+// stale pane unreadable — "asking tmux what this pane shows…" — which is the
+// safe half and not the fix: a dashboard that says that forever has no terminal
+// in it.
 func TestLeavingTheTaskPanelAsksTmuxForTheSelectedTasksPane(t *testing.T) {
 	first, second := liveTask(), otherTask()
 
@@ -473,14 +450,11 @@ func TestLeavingTheTaskPanelAsksTmuxForTheSelectedTasksPane(t *testing.T) {
 }
 
 // TestLeavingTheTaskPanelRestartsThePollItLeftBehind is the other half of the
-// same return.
-//
-// The poll stops when the tab does: a tick that arrives while another view has
-// the main region clears terminal.polling, so a dashboard costs the daemon
-// nothing while nobody is watching a pane. Nothing else starts it again.
-// Returning by assigning a screen therefore left the terminal tab open with no
-// poll behind it — one frame old at best, and never updated again, which reads
-// as an agent that has stopped working.
+// same return. The poll stops when the tab does: a tick arriving while another
+// view has the main region clears terminal.polling, and nothing else starts it
+// again. Returning by assigning a screen leaves the terminal tab open with no
+// poll behind it, one frame old at best, which reads as an agent that has
+// stopped working.
 func TestLeavingTheTaskPanelRestartsThePollItLeftBehind(t *testing.T) {
 	first, second := liveTask(), otherTask()
 
@@ -517,13 +491,11 @@ func TestLeavingTheTaskPanelRestartsThePollItLeftBehind(t *testing.T) {
 	}
 }
 
-// TestFeatReviewResolvesAShortKeyToTheTaskItNames is G2-06.
-//
-// `feat review <task>` documents and accepts a task's eight-character short key.
-// It went straight into the selection, which is compared against the whole
-// identifier, so the panel said "this task is no longer listed" while `A`, `C`
-// and `V` went on working — the one screen saying the task did not exist was the
-// screen from which approving it succeeded.
+// TestFeatReviewResolvesAShortKeyToTheTaskItNames is G2-06. `feat review
+// <task>` documents and accepts a task's eight-character short key, and it went
+// straight into the selection, which is compared against the whole identifier:
+// the panel said "this task is no longer listed" while `A`, `C` and `V` went on
+// working.
 //
 // The daemon resolves the reference, so the dashboard adopts what the first
 // response carries rather than resolving it a second way of its own.
@@ -577,12 +549,9 @@ func TestFeatReviewResolvesAShortKeyToTheTaskItNames(t *testing.T) {
 }
 
 // TestTheTerminalDoesNotDrawAnotherTasksPane is G2-03's shape on the tab the
-// dashboard opens on.
-//
-// applyFrame drops a frame that arrives after the selection moved. The frame
-// already held when it moved is the other half: returning to the terminal from
-// the task panel put the previous task's pane back on the screen under the new
-// task's name, with no request outstanding to replace it.
+// dashboard opens on. applyFrame drops a frame that arrives after the selection
+// moved; the frame already held when it moved is the other half, and returning
+// to the terminal put the previous task's pane back under the new task's name.
 func TestTheTerminalDoesNotDrawAnotherTasksPane(t *testing.T) {
 	first, second := liveTask(), otherTask()
 

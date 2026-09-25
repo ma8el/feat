@@ -1,19 +1,18 @@
 // Package ask draws one of the project wizard's questions and takes its answer.
 //
-// ADR-063 split the wizard into one flow and two askers so that a question
-// added once appears in both. It carried the questions and not the interface:
-// the flow describes each question richly enough to be drawn well — a closed
-// question's options, a text question's candidates, a step back out of the
-// answer before — and the command line used about a third of what it was
-// handed. This package is the interface, extracted from the dashboard's dialog
+// ADR-063 split the wizard into one flow and two askers, so a question added
+// once appears in both. The flow describes each question richly enough to be
+// drawn well — a closed question's options, a text question's candidates, a
+// step back out of the answer before — and the command line used about a third
+// of that. This package is the interface, extracted from the dashboard's dialog
 // so that `feat project init` draws the second rendering of a question rather
-// than a third one (ADR-084).
+// than a third (ADR-084).
 //
 // It is a Bubble Tea sub-model over one wizard.Question and it decides nothing:
 // which question comes next, what it proposes, and whether an answer is
-// acceptable are internal/wizard's. What it owns is a cursor, a field, and the
-// keys that move them — and the styles it draws with, which live here rather
-// than being handed in, so that the two callers cannot drift apart.
+// acceptable are internal/wizard's. It owns a cursor, a field, the keys that
+// move them, and the styles it draws with, which live here so the two callers
+// cannot drift apart.
 package ask
 
 import (
@@ -62,12 +61,10 @@ type Model struct {
 	input textinput.Model
 	// cursor is which of a closed question's options is under it.
 	cursor int
-	// context is how many cells the prose around the question is folded into.
-	//
-	// It is not the field's width and is not derived from it: the field is one
-	// line inside the block and is capped where the block is not, and a caller
-	// that has both hands them over separately. Nought means a caller that has
-	// not been told, and the prose is then drawn as the flow wrote it.
+	// context is how many cells the prose around the question is folded into. It
+	// is not the field's width: the field is one line inside the block and is
+	// capped where the block is not. Nought means a caller that was not told, and
+	// the prose is drawn as the flow wrote it.
 	context int
 }
 
@@ -76,25 +73,21 @@ func New() Model {
 	field := textinput.New()
 	field.Prompt = ""
 	field.CharLimit = 500
-	// On for every question, and given nothing to complete on most of them. The
-	// alternative is a flag that has to be turned off again, and a question left
-	// holding the last one's candidates is a Tab that answers with a value from a
-	// different part of the file.
+	// On for every question, and given nothing to complete on most of them. A
+	// flag that has to be turned off again leaves a question holding the last
+	// one's candidates, so Tab would answer with a value from a different part of
+	// the file.
 	field.ShowSuggestions = true
 
 	return Model{input: field}
 }
 
-// Ask puts a question, replacing whatever was being answered before it.
-//
-// The proposal is a placeholder rather than the field's contents, which is what
-// it is at a shell: Enter takes it, and typing replaces it. Putting it in the
-// field meant typing appended to it, so an identifier proposed from the working
-// directory became that directory's name with the answer stuck on the end.
-//
-// Tab is how it gets into the field deliberately, along with whatever else the
-// flow found: what the user wants half the time is this value with three
-// characters changed, and that used to mean typing all of it (ADR-077).
+// Ask puts a question, replacing whatever was being answered before it. The
+// proposal is a placeholder rather than the field's contents, so Enter takes it
+// and typing replaces it; in the field, typing appends, and an identifier
+// proposed from the working directory grows the answer onto its end. Tab is how
+// the proposal gets into the field deliberately, for the answer a user wants
+// with three characters changed (ADR-077).
 func (m Model) Ask(question wizard.Question) Model {
 	m.question = question
 	m.cursor = choiceIndex(question)
@@ -110,36 +103,25 @@ func (m Model) Ask(question wizard.Question) Model {
 }
 
 // SetWidth sets how many cells the field is drawn in. A caller that has not
-// been told how wide it is leaves this alone, and the field draws itself.
-//
-// This is the field and not the block around it; see SetContextWidth, which both
-// callers compute differently and which is not a cap.
+// been told how wide it is leaves this alone, and the field draws itself. This
+// is the field and not the block around it; see SetContextWidth.
 func (m *Model) SetWidth(cells int) { m.input.Width = cells }
 
 // SetContextWidth sets how many cells the prose around the question is folded
 // into, which is what Context draws.
 //
-// It exists because that prose had nothing to fold to and the caller that could
-// have folded it cannot reach inside the widget. `Detail` is authored as
-// pre-wrapped lines and wrapped at about seventy-two cells whatever box it was
-// drawn in; a `Notes` entry is one long string, and the note saying which
-// services are built from a repository runs to a hundred and sixty cells and was
-// cut with an ellipsis at the point where it lists them. A dialog that truncates
-// a line is also a dialog that reads that line as exactly as wide as it is
-// allowed, so the same note took the box's full three-quarters allowance to show
-// a sentence it had already cut short.
+// `Detail` is authored as pre-wrapped lines; a `Notes` entry is one long
+// string, and the note listing which services a repository builds runs to a
+// hundred and sixty cells. A dialog that truncates such a line also reads it as
+// exactly as wide as it is allowed, so the box took its full allowance to show
+// a sentence it had already cut short. This is separate from SetWidth because
+// the dashboard's field is the block less its own indent and capped at a
+// hundred cells, and `feat project init`'s is the terminal less the question's
+// indent.
 //
-// It is separate from SetWidth because the two measure different things and are
-// derived differently: the dashboard's field is the block less its own indent
-// and capped at a hundred cells, and `feat project init`'s is the terminal less
-// the question's indent. A widget that guessed one from the other would be
-// guessing at a number both callers already know.
-//
-// Nought is the default and means the prose is drawn as the flow wrote it. That
-// is what `feat project init` uses — it does not call Context at all, printing
-// the same fields itself so that they stay in the scrollback after the widget
-// has exited (ADR-084) — so this setter is the dashboard's and the transcript is
-// untouched by it.
+// Nought is the default and means the prose is drawn as the flow wrote it,
+// which is what `feat project init` uses: it prints these fields itself so they
+// stay in the scrollback after the widget has exited (ADR-084).
 func (m *Model) SetContextWidth(cells int) { m.context = cells }
 
 // Value is the answer as it stands, which is what Enter would send.
@@ -149,10 +131,9 @@ func (m Model) Value() string { return m.input.Value() }
 // or empty where there is none.
 func (m Model) CurrentSuggestion() string { return m.input.CurrentSuggestion() }
 
-// Update applies one key press and says what it decided.
-//
-// The returned command is the field's own — the cursor blink — and is nil for
-// everything else, so a caller that has no use for one may drop it.
+// Update applies one key press and says what it decided. The returned command
+// is the field's own — the cursor blink — and is nil for everything else, so a
+// caller with no use for one may drop it.
 func (m Model) Update(key tea.KeyMsg) (Model, Result, tea.Cmd) {
 	switch key.String() {
 	case "esc":
@@ -209,19 +190,12 @@ func (m Model) answer() (Model, Result, tea.Cmd) {
 }
 
 // take puts a candidate in the field, and reports whether it had one to put
-// there.
-//
-// The widget completes what has been typed, which leaves the empty field — and
-// the empty field is where the proposal is, so the answers this is worth most on
-// were the ones it could not help with: an absolute path a user wants to change
-// the end of had to be typed from the first character. So an empty field takes
-// the proposal, a field holding one candidate exactly steps to the next, and
-// everything between is the widget's own prefix completion.
-//
-// What Enter means is untouched at every step of that. The proposal is still
-// what an empty field sends, an optional question is still finished by leaving
-// it empty, and what is in the field is still what is sent — Tab moves a value
-// into the field and never past it (ADR-077).
+// there. The widget's own completion works on a prefix, so it cannot help the
+// empty field, which is where the proposal is and where an absolute path had to
+// be typed from its first character. An empty field therefore takes the
+// proposal, a field holding one candidate exactly steps to the next, and
+// everything between is the widget's prefix completion. Enter still sends what
+// is in the field: Tab moves a value into it and never past it (ADR-077).
 func (m Model) take() (Model, bool) {
 	if m.question.Kind != wizard.KindText || len(m.question.Candidates) == 0 {
 		return m, false
@@ -248,12 +222,10 @@ func (m Model) options() []string {
 	return m.question.Options
 }
 
-// Label is how one of a closed question's answers is drawn.
-//
-// It is exported because the answer outlives the widget: `feat project init`
-// leaves the answered question behind as a line of its transcript, and a
-// transcript that recorded "y" where the user chose "yes" would be a second
-// vocabulary for the same answer.
+// Label is how one of a closed question's answers is drawn. It is exported
+// because the answer outlives the widget: `feat project init` leaves the
+// answered question in its transcript, and a transcript recording "y" where the
+// user chose "yes" would be a second vocabulary for one answer.
 func Label(kind wizard.Kind, option string) string {
 	if kind != wizard.KindConfirm {
 		return option

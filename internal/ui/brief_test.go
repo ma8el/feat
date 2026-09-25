@@ -18,12 +18,10 @@ func briefTab(t *testing.T, task api.Task) Model {
 	return press(t, press(t, model, "L"), "L")
 }
 
-// TestTheBriefTabOpensForEveryTaskItCanBeOn records ADR-041's rule about tabs,
-// on the one this change adds.
-//
-// A tab that declines to open is a tab the cycle cannot pass, so a task with no
+// TestTheBriefTabOpensForEveryTaskItCanBeOn records ADR-041's rule about tabs.
+// A tab that declines to open is one the cycle cannot pass, so a task with no
 // brief and a task that is no longer listed each open and say so rather than
-// leaving the region blank or refusing the key.
+// refusing the key.
 func TestTheBriefTabOpensForEveryTaskItCanBeOn(t *testing.T) {
 	empty := liveTask()
 	empty.Brief = ""
@@ -55,11 +53,10 @@ func TestTheBriefTabOpensForEveryTaskItCanBeOn(t *testing.T) {
 	}
 }
 
-// TestTheBriefNamesWhereItCameFrom is the field that moved here with it.
-//
-// Where a brief came from is a fact about the document rather than about the
-// task's state, so it is beside the heading here instead of a seventh field on
-// the panel (ADR-086).
+// TestTheBriefNamesWhereItCameFrom is the field that moved here with it. Where
+// a brief came from is a fact about the document rather than about the task's
+// state, so it is beside the heading here instead of a seventh field on the
+// panel (ADR-086).
 func TestTheBriefNamesWhereItCameFrom(t *testing.T) {
 	model := briefTab(t, liveTask())
 
@@ -110,12 +107,9 @@ func TestTheBriefScrollsAndSaysHowMuchIsLeft(t *testing.T) {
 	}
 }
 
-// TestTheBriefAndThePanelKeepSeparatePositions is why the brief has an offset of
-// its own.
-//
-// They are two tabs over one task, and a shared offset would make each of them
-// move the other's position every time it was scrolled — so returning to a tab
-// would land somewhere nobody left it.
+// TestTheBriefAndThePanelKeepSeparatePositions is why the brief has an offset
+// of its own. They are two tabs over one task, and a shared offset would make
+// each move the other's position every time it was scrolled.
 func TestTheBriefAndThePanelKeepSeparatePositions(t *testing.T) {
 	task := reviewed().Task
 	task.Brief = strings.Repeat("A paragraph of the brief, long enough to need a scroll.\n\n", 30)
@@ -156,12 +150,10 @@ func TestTheBriefAndThePanelKeepSeparatePositions(t *testing.T) {
 	}
 }
 
-// TestSelectingAnotherTaskOpensItsBriefAtTheTop keeps the offset attached to the
-// document it was measured against.
-//
-// Half way down one task's brief is nowhere in particular in another's, and a
-// tab that kept the number would open the next brief in the middle of a
-// paragraph.
+// TestSelectingAnotherTaskOpensItsBriefAtTheTop keeps the offset attached to
+// the document it was measured against. Half way down one task's brief is
+// nowhere in particular in another's, and keeping the number opens the next
+// brief mid-paragraph.
 func TestSelectingAnotherTaskOpensItsBriefAtTheTop(t *testing.T) {
 	first := liveTask()
 	first.Brief = strings.Repeat("A paragraph of the first task's brief.\n\n", 30)
@@ -185,12 +177,10 @@ func TestSelectingAnotherTaskOpensItsBriefAtTheTop(t *testing.T) {
 }
 
 // TestTextFeatDidNotWriteCannotBreakTheBriefTab is the frame defect where it is
-// now likeliest.
-//
-// The brief is a file somebody wrote, and it is nearly the whole of this body: a
-// tab is one byte of no display width that the terminal draws as a jump to the
-// next multiple of eight, and a carriage return puts the rest of the line back
-// at the terminal's left edge, over whatever is already there (ADR-054).
+// likeliest. The brief is a file somebody wrote and nearly the whole of this
+// body: a tab measures no cells and the terminal draws it as a jump to the next
+// multiple of eight, and a carriage return puts the rest of the line back at
+// the left edge, over whatever is already there (ADR-054).
 func TestTextFeatDidNotWriteCannotBreakTheBriefTab(t *testing.T) {
 	task := liveTask()
 	task.Brief = "Progress was reported like this:\r100%\vand then\tsome\bmore.\n" +

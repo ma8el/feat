@@ -12,10 +12,8 @@ import (
 )
 
 // spinning reports whether a rendered block carries a frame of the loading
-// indicator.
-//
-// Any frame, because which one is showing depends on how many ticks a test
-// happened to deliver, and that is not what any of these are about.
+// indicator. Any frame, because which one is showing depends on how many ticks
+// a test happened to deliver.
 func spinning(block string) bool {
 	stripped := ansi.Strip(block)
 	for _, frame := range spinner.MiniDot.Frames {
@@ -26,13 +24,11 @@ func spinning(block string) bool {
 	return false
 }
 
-// TestOpeningCleanupSaysItIsResolving is the wait a user meets first.
-//
-// Opening the dialog asks the daemon to walk the task's worktrees, its tmux
-// window, and its containers, which takes seconds — and until it comes back
-// there is no inventory to draw and nothing else on the screen moves. The line
-// that says what is happening carries the indicator, so that the wait reads as
-// Feat working rather than as Feat having stopped.
+// TestOpeningCleanupSaysItIsResolving is the wait a user meets first. Opening
+// the dialog asks the daemon to walk the task's worktrees, its tmux window, and
+// its containers, which takes seconds, and until it comes back there is no
+// inventory to draw and nothing else on the screen moves. The line saying what
+// is happening carries the indicator.
 func TestOpeningCleanupSaysItIsResolving(t *testing.T) {
 	backend := newFakeBackend()
 	backend.cleanupPlan = cleanupFixture()
@@ -68,14 +64,11 @@ func TestOpeningCleanupSaysItIsResolving(t *testing.T) {
 }
 
 // TestARemovalInFlightSaysSoAndTakesTheKeyboard is the longest wait the screen
-// has.
-//
-// The confirmation disappears the moment it is answered, and what replaced it
-// was the inventory exactly as it had been: worktrees coming off disk, a tmux
-// window being killed, containers and volumes going, and nothing on screen
-// saying any of it. Now the line the question was asked on says what is being
-// done, and the keys that would resolve the plan again are inert until it
-// finishes — a user who thinks nothing is happening presses them.
+// has. The confirmation disappears the moment it is answered, and an unchanged
+// inventory under it says nothing about worktrees coming off disk, a tmux
+// window being killed, or containers and volumes going. The line the question
+// was asked on says what is being done, and the keys that would resolve the
+// plan again are inert until it finishes.
 func TestARemovalInFlightSaysSoAndTakesTheKeyboard(t *testing.T) {
 	backend := newFakeBackend()
 	// Given a terminal, so that the frame's own footer is drawn as well as the
@@ -137,11 +130,9 @@ func TestARemovalInFlightSaysSoAndTakesTheKeyboard(t *testing.T) {
 }
 
 // TestAFailedRemovalGoesBackToWaitingForTheNewInventory keeps the two waits
-// distinct.
-//
-// A cleanup that failed halfway re-reads the plan, so the screen is waiting
-// again — but for a resolution and not for a removal, and the key map and the
-// line under the inventory both have to change back with it.
+// distinct. A cleanup that failed halfway re-reads the plan, so the screen is
+// waiting again for a resolution rather than a removal, and the key map and the
+// line under the inventory change back with it.
 func TestAFailedRemovalGoesBackToWaitingForTheNewInventory(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
@@ -172,11 +163,10 @@ func TestAFailedRemovalGoesBackToWaitingForTheNewInventory(t *testing.T) {
 }
 
 // TestPreparationShowsTheWaitItAsksTheUserToSit is the other half of the brief.
-//
-// Confirming a draft creates the branches, the worktrees, and the task terminal,
-// which is seconds of a screen that has nothing else to draw. The status line it
-// already had is what carries the indicator: the words are the screen's and the
-// frame in front of them is the dashboard's.
+// Confirming a draft creates the branches, the worktrees, and the task
+// terminal, which is seconds of a screen with nothing else to draw. The status
+// line carries the indicator: the words are the screen's and the frame in front
+// of them is the dashboard's.
 func TestPreparationShowsTheWaitItAsksTheUserToSit(t *testing.T) {
 	model := prepared(t, newFakeBackend())
 
@@ -215,12 +205,10 @@ func TestPreparationShowsTheWaitItAsksTheUserToSit(t *testing.T) {
 }
 
 // TestTheDashboardAnimatesOnlyWhileItIsWaiting is the rule the indicator is
-// started and stopped by.
-//
-// It is applied after every message rather than by the screens, so what this
-// checks is that a screen reporting a wait is enough to start it and that the
-// wait ending is enough to stop it — with no call anywhere in between that a
-// screen could forget to make.
+// started and stopped by. It is applied after every message rather than by the
+// screens, so a screen reporting a wait is enough to start it and the wait
+// ending is enough to stop it, with no call in between a screen could forget to
+// make.
 func TestTheDashboardAnimatesOnlyWhileItIsWaiting(t *testing.T) {
 	model := dashboard(newFakeBackend(), liveTask())
 	if model.waiting() || model.activity.running {
@@ -244,13 +232,11 @@ func TestTheDashboardAnimatesOnlyWhileItIsWaiting(t *testing.T) {
 }
 
 // TestOneWaitRunsOneChainOfFrames is what keeps the indicator readable and the
-// dashboard idle.
-//
-// Bubble Tea's ticks cannot be recalled, so a spinner is started once and
-// stopped by dropping the tick in flight. Two chains would advance the same
-// spinner at twice the rate it is meant to be read at and would go on redrawing
-// after the wait ended; the first is a decision taken after every message, so
-// starting twice has to be nothing.
+// dashboard idle. Bubble Tea's ticks cannot be recalled, so a spinner is
+// started once and stopped by dropping the tick in flight. Two chains would
+// advance one spinner at twice the rate it is meant to be read at, and the
+// start is a decision taken after every message, so starting twice has to be
+// nothing.
 func TestOneWaitRunsOneChainOfFrames(t *testing.T) {
 	indicator := newActivity()
 
@@ -280,12 +266,10 @@ func TestOneWaitRunsOneChainOfFrames(t *testing.T) {
 	}
 }
 
-// TestTheTaskPanelShowsTheComparisonItOpensWith is the review screen's own wait.
-//
-// Opening the panel compares every one of the task's worktrees against its
-// recorded base, which is seconds on a task with three of them — and the panel
-// around the line saying so is already complete, so nothing else on it moves
-// while it happens.
+// TestTheTaskPanelShowsTheComparisonItOpensWith is the review screen's own
+// wait. Opening the panel compares every one of the task's worktrees against
+// its recorded base, which is seconds on a task with three, and the panel
+// around the line saying so is already complete, so nothing else on it moves.
 func TestTheTaskPanelShowsTheComparisonItOpensWith(t *testing.T) {
 	backend := newFakeBackend()
 	backend.reviewStatus = reviewed()
@@ -345,13 +329,11 @@ func TestAReviewActionInFlightSaysSo(t *testing.T) {
 	}
 }
 
-// TestRefreshingTheTaskPanelStopsAnimatingWhenItLands is the one comparison a key
-// press asks for.
-//
-// `r` on this panel is the same observation the panel opens with, so it is held
-// in the same marker: recorded as a pending action instead, applyReview cleared
-// the other one and the panel went on saying it was waiting for a comparison it
-// had already drawn — for as long as the panel stayed open.
+// TestRefreshingTheTaskPanelStopsAnimatingWhenItLands is the one comparison a
+// key press asks for. `r` is the same observation the panel opens with, so it
+// is held in the same marker: recorded as a pending action, applyReview clears
+// the other one and the panel goes on saying it is waiting for a comparison it
+// has already drawn.
 func TestRefreshingTheTaskPanelStopsAnimatingWhenItLands(t *testing.T) {
 	backend := newFakeBackend()
 	model := reviewScreen(t, backend)
@@ -381,12 +363,10 @@ func TestRefreshingTheTaskPanelStopsAnimatingWhenItLands(t *testing.T) {
 }
 
 // TestAFailedComparisonStopsSayingItIsBeingMade is the other end of the same
-// line.
-//
-// The panel never loads, so a line drawn for not having loaded stayed under the
-// error — telling a user reading why the comparison failed that it was still
-// being made, and doing it perfectly still, because nothing was outstanding for
-// the indicator to animate.
+// line. The panel never loads, so a line drawn for not having loaded stays
+// under the error, telling a user reading why the comparison failed that it is
+// still being made — perfectly still, because nothing is outstanding for the
+// indicator to animate.
 func TestAFailedComparisonStopsSayingItIsBeingMade(t *testing.T) {
 	backend := newFakeBackend()
 	backend.reviewStatus = reviewed()
@@ -406,11 +386,9 @@ func TestAFailedComparisonStopsSayingItIsBeingMade(t *testing.T) {
 }
 
 // TestTheRuntimeScreenShowsBothOfItsWaits covers the read it opens with and the
-// action a key press asks for.
-//
-// The second is the longest wait anywhere in Feat: a first start pulls the
-// project's images and runs its builds, which is minutes. The sentence saying so
-// was already there and was perfectly still.
+// action a key press asks for. The second is the longest wait anywhere in Feat:
+// a first start pulls the project's images and runs its builds, which is
+// minutes.
 func TestTheRuntimeScreenShowsBothOfItsWaits(t *testing.T) {
 	backend := newFakeBackend()
 	model := dashboard(backend, liveTask())
@@ -447,7 +425,8 @@ func TestTheRuntimeScreenShowsBothOfItsWaits(t *testing.T) {
 		t.Errorf("the start is drawn without an indicator:\n%s", view)
 	}
 	// The explanation stays with it. An indicator says a wait is being spent and
-	// this says why it is minutes rather than seconds; neither replaces the other.
+	// this says why it is minutes rather than seconds; neither replaces the
+	// other.
 	if !strings.Contains(flowed(view), "pulls images and runs builds") {
 		t.Errorf("the screen no longer says why the first start is slow:\n%s", view)
 	}
@@ -458,13 +437,11 @@ func TestTheRuntimeScreenShowsBothOfItsWaits(t *testing.T) {
 	}
 }
 
-// TestTheOpeningReadDoesNotRefuseTheFirstKey is why the opening read is recorded
-// apart from the action a key press asked for.
-//
-// Runtime's keys are gated on that action, one at a time, because two starts of
-// the same task queue behind one lock in the daemon. The read the screen opens
-// with is nobody's key press, and recording it there would refuse the first `u`
-// pressed on a screen the user had only just opened.
+// TestTheOpeningReadDoesNotRefuseTheFirstKey is why the opening read is
+// recorded apart from the action a key press asked for. Runtime's keys are
+// gated on that action, one at a time, because two starts of the same task
+// queue behind one lock in the daemon. The read the screen opens with is
+// nobody's key press.
 func TestTheOpeningReadDoesNotRefuseTheFirstKey(t *testing.T) {
 	backend := newFakeBackend()
 	model := dashboard(backend, liveTask())
