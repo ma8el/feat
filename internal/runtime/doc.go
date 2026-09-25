@@ -5,22 +5,22 @@
 // stdruntime where both are needed.
 //
 // The application runtime is separate from agent execution even when both use
-// Docker Compose. One task owns at most one runtime environment, and runtime
-// environments are never shared between tasks in v0. internal/execution covers
-// where the agent runs; this package covers what the user tests.
+// Docker Compose. internal/execution covers where the agent runs; this package
+// covers the application's own services. One task owns at most one runtime
+// environment, and v0 never shares one between tasks.
 //
 // Rules this package must preserve:
 //
-//   - v0 lifecycle is manual and explicit: create, start, stop, status, logs,
-//     destroy. Nothing here is called by a workflow transition, a recovery pass,
-//     or an agent. Automated phases are roadmap work;
-//   - resources are managed or external; external resources such as a
-//     pre-existing staging database are referenced but never provisioned or
-//     destroyed by Feat;
-//   - container running state and service health are distinct. Without
-//     configured health checks the state is "running, health unknown";
-//   - a runtime request arriving from an agent is inert until host validation
-//     and user approval.
+//   - the lifecycle is manual: create, start, stop, status, logs, and destroy
+//     happen because a user asked for them. No workflow transition, recovery
+//     pass, or agent calls any of them, and automated phases are roadmap work;
+//   - a resource is managed or external. An external resource, such as a
+//     staging database that existed first, is referenced and never provisioned
+//     or destroyed;
+//   - a container's running state is not its health. Without configured health
+//     checks the answer is "running, health unknown";
+//   - a runtime request from an agent is inert until the host validates it and
+//     the user approves it.
 //
 // A runtime receives final values and reads neither configuration nor
 // persistent state: the daemon expands the project name template and records

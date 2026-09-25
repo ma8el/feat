@@ -1,24 +1,26 @@
 // Package tmux is the tmux execution adapter.
 //
-// tmux is a required execution backend in v0, not the product's source of
-// truth. Feat drives a dedicated named tmux server so managed sessions cannot
-// collide with the user's ordinary sessions.
+// tmux is a required execution backend in v0. Feat drives a dedicated named
+// server, so a managed session cannot collide with one the user started.
 //
-// Default topology: one Feat-owned server, one session per project, one window
-// per task, one tagged native-agent pane, and an optional tagged task shell.
-// Their user-visible indexes are presentation, not identity.
+// The default topology is one Feat-owned server, one session per project, one
+// window per task, one tagged pane for the native agent, and an optional tagged
+// task shell.
 //
 // Rules this package must enforce:
 //
-//   - tmux loads the user's normal configuration and keybindings where
-//     compatible; Feat then applies minimal metadata;
-//   - sessions, windows, and panes are tagged with stable project and task IDs
-//     using tmux user options;
-//   - numeric indexes and display names are never used as identity;
+//   - tmux loads the user's normal configuration and keybindings where they are
+//     compatible, and Feat then applies its own metadata;
+//   - sessions, windows, and panes carry stable project and task IDs in tmux
+//     user options, and a numeric index or display name is never identity;
 //   - commands are argument vectors, not interpolated shell strings;
-//   - process existence may be inspected, but semantic completion is never
-//     inferred from terminal text;
-//   - daemon startup rediscovers existing tagged sessions and windows.
+//   - a pane's process may be inspected, but semantic completion is never
+//     inferred from its terminal text;
+//   - a daemon restart rediscovers the tagged sessions and windows that
+//     outlived it rather than creating new ones.
+//
+// The package also captures pane content, so the dashboard can draw a task's
+// terminal without the user attaching to it.
 //
 // Execution-environment adapters supply this adapter with a final command
 // vector and working directory. tmux owns terminal persistence and attachment;
