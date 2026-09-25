@@ -2,8 +2,8 @@ package git
 
 import "strings"
 
-// listOf renders names for a message, so that a report about several
-// repositories reads as a sentence rather than as a slice.
+// listOf joins names so a message about several repositories reads as a
+// sentence rather than as a slice.
 func listOf(values []string) string {
 	switch len(values) {
 	case 0:

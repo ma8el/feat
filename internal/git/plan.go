@@ -15,18 +15,18 @@ import (
 // Request is the Git side of one task: which repositories it takes part in,
 // where each of them starts, and what it will be given.
 //
-// Every name and path in it is final. Templates are expanded by the caller,
-// because the placeholder vocabulary belongs to configuration and this package
-// must not learn the shape of a YAML file to create a worktree.
+// Every name and path in it is final. The caller expands templates, because the
+// placeholder vocabulary belongs to configuration and this package must not
+// learn the shape of a YAML file to create a worktree.
 type Request struct {
 	// Project owns the task.
 	Project domain.ProjectID
 	// Task is the task being prepared.
 	Task domain.TaskID
-	// Root is the fixed directory Feat owns, which is the part of the
-	// configured worktree root that contains no placeholder. Every worktree of
-	// every task must descend from it, so that the directory the user allowed
-	// and the directory Feat creates in are the same one.
+	// Root is the fixed directory Feat owns, which is the part of the configured
+	// worktree root that contains no placeholder. Every worktree of every task
+	// descends from it, so the directory the user allowed and the directory Feat
+	// creates in are the same one.
 	Root string
 	// Fetch reports whether configured remotes are fetched before bases are
 	// resolved.
@@ -40,8 +40,8 @@ type Request struct {
 type RepositoryRequest struct {
 	// ID identifies the repository within its project.
 	ID domain.RepositoryID
-	// HostPath is the user's ordinary checkout. Feat reads it and fetches into
-	// it; it never changes what is checked out there.
+	// HostPath is the user's ordinary checkout. Feat reads it and fetches into it,
+	// and never changes what is checked out there.
 	HostPath string
 	// Remote is the remote a remote base policy reads.
 	Remote string
@@ -59,7 +59,7 @@ type RepositoryRequest struct {
 	// WorktreePath is where the task worktree is created.
 	WorktreePath string
 	// ContainerPath is where the worktree is mounted in a devcontainer, carried
-	// through so that the recorded binding is complete.
+	// through so the recorded binding is complete.
 	ContainerPath string
 }
 
@@ -74,9 +74,9 @@ type Plan struct {
 	// Repositories are the resolved per-repository plans, one for each request
 	// that produced no problem.
 	Repositories []RepositoryPlan
-	// Notes record what happened that the user should know about but that does
-	// not stop the task, such as a fetch that failed while an older
-	// remote-tracking ref was still available.
+	// Notes record what the user should know about that does not stop the task,
+	// such as a fetch that failed while an older remote-tracking ref was still
+	// available.
 	Notes []Note
 	// Problems are the reasons this plan cannot be applied.
 	Problems []Problem
@@ -130,11 +130,9 @@ func (p *Plan) Err() error {
 	return &PlanError{Task: p.Task, Problems: p.Problems}
 }
 
-// PlanError reports every reason a task's Git plan cannot be applied.
-//
-// Every problem is reported rather than the first, for the reason configuration
-// validation reports every problem: the user is going to fix them by hand, and
-// finding three of them one launch at a time is three times the work.
+// PlanError reports every reason a task's Git plan cannot be applied. Every
+// problem is reported rather than the first, because the user fixes them by
+// hand, and finding three of them one launch at a time is three times the work.
 type PlanError struct {
 	// Task is the task the plan belongs to.
 	Task domain.TaskID
@@ -156,12 +154,9 @@ func (e *PlanError) Error() string {
 }
 
 // Plan resolves bases, checks for collisions, and returns what Feat would
-// create.
-//
-// It creates nothing. The only change it makes to the machine is the
-// remote-tracking refs a fetch updates, which is a change to the repository's
-// refs and never to the user's working tree, index, or checked-out branch
-// (FR-GIT-001, FR-GIT-003).
+// create. It creates nothing: the only change it makes is to the
+// remote-tracking refs a fetch updates, never to the user's working tree,
+// index, or checked-out branch (FR-GIT-001, FR-GIT-003).
 func (g *Git) Plan(ctx context.Context, req Request) (*Plan, error) {
 	plan := &Plan{Project: req.Project, Task: req.Task}
 
@@ -216,10 +211,10 @@ func (g *Git) planRepository(
 		return RepositoryPlan{}, problems, notes
 	}
 
-	// A fetch that fails is reported and does not stop the task: FR-GIT-001
-	// asks for a fetch "when network access is available", and a base that
-	// resolves from the last fetched state is a task the user can still do. What
-	// they must not have is the impression that the base is current.
+	// A fetch that fails is reported and does not stop the task. FR-GIT-001 asks
+	// for a fetch "when network access is available", and a base resolved from the
+	// last fetched state is still a task the user can do. The note is what keeps
+	// them from reading that base as current.
 	if req.Fetch && repository.Policy == PolicyRemote {
 		if err := g.Fetch(ctx, repository.HostPath, repository.Remote); err != nil {
 			note("fetching %s failed, so the base is resolved from the last fetched state: %s",
@@ -254,11 +249,9 @@ func (g *Git) planRepository(
 }
 
 // collisions reports resources a task would need that something already holds.
-//
-// They are found before anything is created so that a draft can show them, and
-// they are never resolved by choosing another name: a branch Feat renamed on the
-// user's behalf is a branch they did not agree to and will look for under the
-// name they saw.
+// They are found before anything is created so a draft can show them, and they
+// are never resolved by renaming: a branch Feat renamed is one the user did not
+// agree to and will look for under the name they saw.
 func (g *Git) collisions(ctx context.Context, repository RepositoryRequest) []Problem {
 	var problems []Problem
 	problem := func(format string, args ...any) {
@@ -278,10 +271,10 @@ func (g *Git) collisions(ctx context.Context, repository RepositoryRequest) []Pr
 	}
 	proposed := resolvePath(repository.WorktreePath)
 	for _, worktree := range worktrees {
-		// Git reports the resolved path, so both sides are resolved before they
-		// are compared. Overlap in either direction counts: a worktree inside the
-		// proposed path would be removed with the task, and the proposed path
-		// inside an existing worktree would nest one working tree in another.
+		// Git reports the resolved path, so both sides are resolved before they are
+		// compared. Overlap counts in either direction: a worktree inside the
+		// proposed path would be removed with the task, and the proposed path inside
+		// an existing worktree would nest one working tree in another.
 		existing := resolvePath(worktree.Path)
 		if paths.Under(existing, proposed) || paths.Under(proposed, existing) {
 			problem("%s already has a worktree at %s", repository.HostPath, worktree.Path)
@@ -354,8 +347,8 @@ func (r RepositoryRequest) validate() error {
 	}
 	switch {
 	case r.Access == domain.TaskAccessReadWrite && r.Branch == "":
-		// Invariant 7. A read-write repository with no branch would put the
-		// agent's commits on whatever the worktree happened to check out.
+		// Invariant 7: a read-write repository with no branch would put the agent's
+		// commits on whatever the worktree happened to check out.
 		return errors.New("a read-write repository needs a task branch")
 	case r.Access == domain.TaskAccessReadOnly && r.Branch != "":
 		return fmt.Errorf("a read-only repository has no task branch, but %q was proposed", r.Branch)
@@ -372,12 +365,12 @@ func (r RepositoryRequest) validate() error {
 //
 // The rules exist because Feat creates this directory and, later, removes it:
 //
-//   - it must be absolute and written cleanly, so that what is checked is what
-//     is used;
-//   - it must be strictly inside the root Feat owns, so that removing a task's
+//   - it must be absolute and written cleanly, so what is checked is what is
+//     used;
+//   - it must be strictly inside the root Feat owns, so removing a task's
 //     worktree can never remove the root or anything beside it;
 //   - it must not be a shared system directory, checked after symbolic links
-//     are resolved, so that a link cannot move a task's directory somewhere Feat
+//     are resolved, so a link cannot move a task's directory somewhere Feat
 //     would never have accepted;
 //   - it must not overlap any repository checkout, in either direction: a
 //     worktree inside a checkout would be deleted with the task, and a checkout
@@ -420,11 +413,9 @@ func CheckWorktreePath(root, path string, checkouts []string) error {
 }
 
 // resolvePath resolves symbolic links as far as the path exists, and keeps the
-// rest as written.
-//
-// A task worktree does not exist yet when it is checked, so the path cannot be
-// resolved as a whole. What can be resolved is the part that already exists,
-// which is where a link would have to be for the result to land somewhere else.
+// rest as written. A task worktree does not exist yet when it is checked, so
+// only the part that already exists can be resolved — which is where a link
+// would have to sit to land the result somewhere else.
 func resolvePath(path string) string {
 	cleaned := filepath.Clean(path)
 	remainder := ""

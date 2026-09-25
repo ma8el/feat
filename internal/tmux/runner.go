@@ -15,20 +15,14 @@ const Executable = "tmux"
 
 // utf8Flag makes tmux treat its output as UTF-8 whatever the environment says.
 //
-// It is not a preference. A tmux client whose locale is not UTF-8 replaces every
-// non-printable character in the output of `-F` with an underscore — a tab, a
-// newline, and a unit separator alike — and every format this package uses is
-// tab-separated. Without this flag a daemon started without LANG or LC_ALL
-// cannot parse the identifiers of the terminal it has just created, so every
-// task launch fails with "tmux returned …, want stable session, window, and pane
-// ids", and discovery finds nothing at all. Measured against tmux 3.7b; the
-// substitution follows the *client's* locale rather than the server's, which is
-// why the flag belongs here rather than on whatever starts the server.
+// A tmux client whose locale is not UTF-8 replaces every non-printable
+// character in the output of `-F` with an underscore, and every format this
+// package uses is tab-separated. A daemon started by a service manager has no
+// locale, so without this flag it cannot parse the identifiers of the terminal
+// it has just created and discovery finds nothing at all (ADR-036).
 //
-// An environment with no locale is the ordinary case for a process started by a
-// service manager, which is how a daemon is meant to run. Found by running
-// review end to end; recorded in ADR-036.
-//
+// The substitution follows the client's locale rather than the server's, which
+// is why the flag belongs here rather than on whatever starts the server.
 // Interactive attachment deliberately does not pass it: there the client is the
 // user's own terminal, and what it can render is theirs to declare.
 const utf8Flag = "-u"
@@ -40,10 +34,9 @@ const commandTimeout = 15 * time.Second
 // target retain it as an actionable error.
 var ErrServerNotRunning = errors.New("the dedicated tmux server is not running")
 
-// Runner executes non-interactive tmux control commands.
-//
-// The socket is explicit on every call. A fake runner pins every argument
-// vector in unit tests; opt-in integration tests ask the real tmux executable.
+// Runner executes non-interactive tmux control commands. The socket is explicit
+// on every call. A fake runner pins every argument vector in unit tests, and
+// opt-in integration tests ask the real tmux executable.
 type Runner interface {
 	Run(ctx context.Context, socket string, args ...string) (string, error)
 }
@@ -51,8 +44,8 @@ type Runner interface {
 // HostRunner runs the installed tmux executable.
 type HostRunner struct {
 	// Timeout bounds a control command. Zero uses the package default. Native
-	// attachment is deliberately not handled here because it lasts until the
-	// user detaches and belongs to the CLI process.
+	// attachment is not handled here, because it lasts until the user detaches and
+	// belongs to the CLI process.
 	Timeout time.Duration
 }
 

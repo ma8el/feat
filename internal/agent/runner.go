@@ -10,28 +10,23 @@ import (
 	"time"
 )
 
-// probeTimeout bounds one validation probe.
-//
-// A provider CLI's authentication check may reach the network, and a task
-// launch must not wait indefinitely on a host with no route to it. The bound is
-// long enough for a slow answer and short enough that a user sees a diagnosis
-// rather than a hang.
+// probeTimeout bounds one validation probe. A provider CLI's authentication
+// check may reach the network, and a task launch must not wait indefinitely on
+// a host with no route to it.
 const probeTimeout = 20 * time.Second
 
-// HostRunner executes probe commands on the trusted host.
-//
-// It is the environment for host-native execution; a devcontainer supplies a
-// runner that executes the same commands inside the configured container, which
-// is why nothing here is specific to a provider or to a check.
+// HostRunner executes probe commands on the trusted host. It is the environment
+// for host-native execution, and a devcontainer supplies a runner that executes
+// the same commands inside the configured container, so nothing here is
+// specific to a provider or to a check.
 type HostRunner struct{}
 
 var _ Runner = HostRunner{}
 
-// Run executes the command and captures what it produced.
-//
-// A command that runs and exits non-zero is not an error: "glab is not
-// authenticated" is an answer, and the caller decides what it means. Only a
-// command that could not be started at all fails.
+// Run executes the command and captures what it produced. A command that runs
+// and exits non-zero is not an error, because "glab is not authenticated" is an
+// answer and the caller decides what it means. Only a command that could not be
+// started fails.
 func (HostRunner) Run(ctx context.Context, command Command) (Output, error) {
 	if err := command.validate(); err != nil {
 		return Output{}, err
@@ -40,7 +35,7 @@ func (HostRunner) Run(ctx context.Context, command Command) (Output, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 
-	// An argument vector, never an interpolated shell string (CLAUDE.md).
+	// An argument vector, never an interpolated shell string.
 	process := exec.CommandContext(ctx, command.Program, command.Arguments...)
 	process.Dir = command.Directory
 
@@ -48,8 +43,8 @@ func (HostRunner) Run(ctx context.Context, command Command) (Output, error) {
 	process.Stdout = &stdout
 	process.Stderr = &stderr
 	// A probe reads nothing. Without this it would inherit the daemon's own
-	// standard input, and a CLI that decided to prompt would wait for a person
-	// who is not there.
+	// standard input, and a CLI that decided to prompt would wait for a person who
+	// is not there.
 	process.Stdin = nil
 
 	err := process.Run()
@@ -71,10 +66,9 @@ func (HostRunner) Run(ctx context.Context, command Command) (Output, error) {
 	}
 }
 
-// ErrNotInstalled reports an executable the environment does not have.
-//
-// It is a distinct error because the remedy is distinct: an absent CLI is
-// installed, while an unauthenticated one is logged in to.
+// ErrNotInstalled reports an executable the environment does not have. It is a
+// distinct error because the remedy is distinct: an absent CLI is installed,
+// while an unauthenticated one is logged in to.
 var ErrNotInstalled = errors.New("not installed in the agent environment")
 
 // validate rejects a command that could be read as something other than itself.

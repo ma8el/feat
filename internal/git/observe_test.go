@@ -11,7 +11,7 @@ import (
 //
 // Ahead and the change summary are measured against the recorded base commit,
 // which never moves; behind and merged are measured against the base ref as it
-// is now. Measured the other way round, "behind" would always be zero and
+// stands now. Measured the other way round, "behind" would always be zero and
 // "merged" would never become true.
 func TestObservationUsesTwoReferencePoints(t *testing.T) {
 	const worktree = "/work/task/api"
@@ -96,9 +96,8 @@ func TestObservationSurvivesADeletedBaseRef(t *testing.T) {
 }
 
 // TestObservationNeedsAResolvedBase checks that an observation cannot be taken
-// against a ref name. Every comparison a task makes for its whole life uses the
-// recorded commit, and accepting anything else here would let a moving
-// reference in.
+// against a ref name. Every comparison a task makes uses the recorded commit,
+// and accepting anything else here would let a moving reference in.
 func TestObservationNeedsAResolvedBase(t *testing.T) {
 	fake := newFakeGit()
 	fake.add("/work/task/api", &fakeRepository{})

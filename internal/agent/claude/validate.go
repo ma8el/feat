@@ -17,24 +17,22 @@ import (
 //
 // Every probe runs through the environment's own runner, so the questions are
 // asked where the agent will run rather than wherever the daemon happens to be.
-// That distinction is the whole reason FR-PROJ-004 words the requirement the way
-// it does, and it is what keeps this check meaningful once the agent is in a
-// container.
+// That is what keeps the check meaningful once the agent is in a container
+// (FR-PROJ-004).
 func (a Adapter) Validate(ctx context.Context, env agent.Environment) error {
 	if env.Runner == nil {
 		return fmt.Errorf("validating a Claude environment needs a runner")
 	}
 
 	// The version is probed for its side effect of proving the executable runs.
-	// An unverified version is deliberately not a failure here: it is a reason
-	// to be careful, which `feat doctor` reports, and refusing to launch on one
-	// would make every Claude release an outage until Feat caught up.
+	// An unverified version is deliberately not a failure here: it is a reason to
+	// be careful, which `feat doctor` reports, and refusing to launch on one would
+	// make every Claude release an outage until Feat caught up.
 	//
 	// Nothing else is asked. `gh` and `glab` used to be probed here, because a
-	// project could declare them required in the agent's environment; publication
-	// runs on the trusted host now, so a provider CLI inside the container is a
-	// thing the project may install and Feat has no business gating a launch on
-	// (ADR-075).
+	// project could declare them required in the agent's environment. Publication
+	// runs on the trusted host now, so a provider CLI inside the container is the
+	// project's to install and not Feat's to gate a launch on (ADR-075).
 	if _, err := a.Version(ctx, env); err != nil {
 		return err
 	}
@@ -53,11 +51,10 @@ func where(env agent.Environment) string {
 	return "on this host"
 }
 
-// Version probes the installed Claude Code in the agent's environment.
-//
-// It is exported because `feat doctor` asks the same question for a different
-// reason: launch needs to know the executable runs, and diagnostics need to
-// report which version it is and whether Feat has been checked against it.
+// Version probes the installed Claude Code in the agent's environment. It is
+// exported because `feat doctor` asks the same question for a different reason:
+// a launch needs to know the executable runs, and diagnostics report which
+// version it is and whether Feat has been checked against it.
 func (a Adapter) Version(ctx context.Context, env agent.Environment) (Version, error) {
 	output, err := env.Runner.Run(ctx, agent.Command{Program: Executable, Arguments: []string{"--version"}})
 	if errors.Is(err, agent.ErrNotInstalled) {
@@ -77,8 +74,7 @@ func (a Adapter) Version(ctx context.Context, env agent.Environment) (Version, e
 
 // Version is an installed Claude Code version.
 type Version struct {
-	// Text is what the CLI printed, kept for a diagnostic that could not parse
-	// it.
+	// Text is what the CLI printed, kept for a diagnostic that could not parse it.
 	Text string
 	// Major, Minor, and Patch are the parsed components. They are zero when the
 	// version could not be parsed.

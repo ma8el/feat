@@ -13,9 +13,9 @@ import (
 // generates: one directory per project and task, with a worktree per repository
 // inside it.
 //
-// The root is the fixed directory Feat owns, and it is deliberately not the
-// parent of the worktrees: the directories between the two are the ones a task
-// is given and nothing else uses, which is what makes them removable with it.
+// The root is the fixed directory Feat owns, and deliberately not the parent of
+// the worktrees. The directories between the two are the ones the task was
+// given and nothing else uses, which is what makes them removable with it.
 func removalFixture(t *testing.T) (*fakeGit, map[string]string, string) {
 	t.Helper()
 
@@ -51,15 +51,13 @@ func removalFixture(t *testing.T) (*fakeGit, map[string]string, string) {
 // half of FR-CLEAN-001.
 //
 // Creating a task creates the directories its worktrees sit in, so cleaning it
-// up removes them: what a cleanup leaves behind on the machine is what the next
-// recovery pass asks the user about, and a directory that outlived every
-// resource it was made for is a question with no answer worth giving.
+// up removes them. What a cleanup leaves behind is what the next recovery pass
+// asks the user about.
 //
 // Both halves are checked here. The first worktree takes nothing above it,
 // because the task's other worktree is still there and a directory holding
-// something is never removed; the second takes the directory the task was given
-// and stops there, because the directory above it is the project's and outlives
-// every task in it.
+// something is never removed. The second takes the directory the task was given
+// and stops, because the directory above it is the project's.
 func TestRemovingTheLastWorktreeTakesTheDirectoriesTheTaskWasGiven(t *testing.T) {
 	fake, paths, root := removalFixture(t)
 	adapter := New(fake)
@@ -95,9 +93,8 @@ func TestRemovingTheLastWorktreeTakesTheDirectoriesTheTaskWasGiven(t *testing.T)
 		t.Errorf("the task's own directory is still there: %v", err)
 	}
 
-	// The project's directory and the root both stay. Neither belongs to the
-	// task: the project's next task is created inside the first, and every
-	// project's tasks are created inside the second.
+	// The project's directory and the root both stay. The project's next task is
+	// created inside the first, and every project's tasks inside the second.
 	for _, name := range []string{"project", "root"} {
 		if _, err := os.Stat(paths[name]); err != nil {
 			t.Errorf("the %s directory was removed with the task: %v", name, err)
@@ -108,10 +105,10 @@ func TestRemovingTheLastWorktreeTakesTheDirectoriesTheTaskWasGiven(t *testing.T)
 // TestAWorktreeRemovedByHandStillLosesItsDirectories is the same tidy-up on the
 // path that reaches Git differently.
 //
-// A worktree somebody removed themselves leaves both a stale registration and
-// the directories above it. Cleanup of it succeeds — the user asked for it to be
-// absent and it is — and it must leave the machine in the state a cleanup leaves
-// it in, or the same orphan is reported for a task that was cleaned up properly.
+// A worktree somebody removed themselves leaves a stale registration and the
+// directories above it. Cleaning it up succeeds, and it has to leave the
+// machine in the state an ordinary cleanup does, or reconciliation reports the
+// same orphan for a task that was cleaned up properly.
 func TestAWorktreeRemovedByHandStillLosesItsDirectories(t *testing.T) {
 	fake, paths, root := removalFixture(t)
 	for _, id := range []string{"api", "store"} {
@@ -150,14 +147,14 @@ func TestAWorktreeRemovedByHandStillLosesItsDirectories(t *testing.T) {
 // be deleted.
 //
 // These are the rules that hold with no project directory to stop at, so the
-// root is the only boundary: a layout that generates one is the test above.
+// root is the only boundary. A layout that generates one is the test above.
 func TestNothingIsPrunedThatIsNotAnEmptyDirectoryBelowTheRoot(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "worktrees")
 
-	// A directory holding anything ends the walk, whatever is in it: another
-	// task's worktree, a repository this task no longer records, or a file
-	// somebody put there.
+	// A directory holding anything ends the walk, whether that is another task's
+	// worktree, a repository this task no longer records, or a file somebody put
+	// there.
 	held := filepath.Join(root, "app", "held")
 	if err := os.MkdirAll(filepath.Join(held, "api"), 0o755); err != nil {
 		t.Fatalf("arranging %s: %v", held, err)
@@ -173,8 +170,8 @@ func TestNothingIsPrunedThatIsNotAnEmptyDirectoryBelowTheRoot(t *testing.T) {
 	}
 
 	// A symbolic link is stepped over rather than followed or deleted, so a link
-	// planted between the root and a worktree cannot turn a cleanup into a
-	// removal somewhere else.
+	// planted between the root and a worktree cannot turn a cleanup into a removal
+	// somewhere else.
 	target := filepath.Join(dir, "elsewhere")
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		t.Fatalf("arranging %s: %v", target, err)
@@ -193,8 +190,8 @@ func TestNothingIsPrunedThatIsNotAnEmptyDirectoryBelowTheRoot(t *testing.T) {
 		t.Errorf("what the symbolic link pointed at is gone: %v", err)
 	}
 
-	// A worktree whose parent is the root itself — the layout a template that
-	// names the repository directly produces — prunes nothing at all.
+	// A worktree whose parent is the root itself prunes nothing. That is the
+	// layout a template naming the repository directly produces.
 	if pruned := pruneGeneratedDirectories(filepath.Join(root, "api"), RemoveRequest{Root: root}); len(pruned) != 0 {
 		t.Errorf("the root's own children were pruned: %v", pruned)
 	}
@@ -202,8 +199,8 @@ func TestNothingIsPrunedThatIsNotAnEmptyDirectoryBelowTheRoot(t *testing.T) {
 		t.Errorf("the worktree root is gone: %v", err)
 	}
 
-	// And a root that is not a prefix of the path, or is a shared system
-	// directory, prunes nothing: neither says which directories a task was
+	// A root that is not a prefix of the path, or is a shared system directory,
+	// prunes nothing either, because neither says which directories a task was
 	// given.
 	if pruned := pruneGeneratedDirectories(filepath.Join(dir, "outside", "api"), RemoveRequest{Root: root}); len(pruned) != 0 {
 		t.Errorf("a path outside the root was pruned: %v", pruned)
@@ -215,15 +212,15 @@ func TestNothingIsPrunedThatIsNotAnEmptyDirectoryBelowTheRoot(t *testing.T) {
 	}
 }
 
-// branchFixture arranges a checkout whose HEAD is behind the ref a task branched
-// from — the ordinary state of any checkout that fetches, under a remote base
-// policy.
+// branchFixture arranges a checkout whose HEAD is behind the ref a task
+// branched from, which is the ordinary state of any checkout that fetches under
+// a remote base policy.
 //
 // That is the whole reproduction. `refs/heads/main` is where the last pull left
-// it, `refs/remotes/origin/main` has moved on, and the task branch was made from
-// the second, so Feat's question about it is answered yes and Git's is answered
-// no. containedByHead is left empty for the task branch, which is what makes
-// `git branch -d` refuse.
+// it, `refs/remotes/origin/main` has moved on, and the task branch was made
+// from the second, so Feat's question is answered yes and Git's no.
+// containedByHead is left empty for the task branch, which is what makes `git
+// branch -d` refuse.
 func branchFixture(t *testing.T) (*fakeGit, string) {
 	t.Helper()
 
@@ -246,11 +243,10 @@ func branchFixture(t *testing.T) (*fakeGit, string) {
 // and the defect it was changed for.
 //
 // Feat established that the ref the task branched from contains the branch, so
-// nothing is at risk, so the plan carries no warning — and a force derived from
-// the warnings therefore could not exist. `git branch -d` asks a different
-// question, about the checkout's HEAD, and answers it no. The deletion has to
-// follow what Feat established or it fails on every checkout that has fetched,
-// with nothing the user can select to change it (ADR-097).
+// nothing is at risk and the plan carries no warning, which leaves a force
+// derived from warnings with nothing to derive. `git branch -d` asks about the
+// checkout's HEAD instead and answers no, so the deletion has to follow what
+// Feat established or fail on every checkout that has fetched (ADR-097).
 func TestAContainedBranchIsDeletedWithoutAskingGitAboutHead(t *testing.T) {
 	fake, branch := branchFixture(t)
 	adapter := New(fake)
@@ -266,8 +262,8 @@ func TestAContainedBranchIsDeletedWithoutAskingGitAboutHead(t *testing.T) {
 	if !deletion.Deleted || !deletion.Forced {
 		t.Fatalf("the deletion reported %+v, want it deleted and forced", deletion)
 	}
-	// The evidence, not just the fact. A removal that overrode Git's own refusal
-	// says what it rested on, and the recorded base ref is that.
+	// The evidence rather than the fact alone. A removal that overrode Git's own
+	// refusal names the recorded base ref it rested on.
 	if !strings.Contains(deletion.Reason, "refs/remotes/origin/main") {
 		t.Errorf("the reason is %q, want it to name the ref containment was established against", deletion.Reason)
 	}
@@ -276,12 +272,10 @@ func TestAContainedBranchIsDeletedWithoutAskingGitAboutHead(t *testing.T) {
 	}
 }
 
-// TestAnUncontainedBranchStillNeedsTheConfirmation is the half the change must
-// not weaken.
-//
-// A branch the base ref does not contain holds commits nothing else has. It
-// warns, and it is deleted only from a confirmation the user gave against that
-// warning (FR-CLEAN-003). Nothing about containment reaches it.
+// TestAnUncontainedBranchStillNeedsTheConfirmation is the half the flag
+// decision must not weaken. A branch the base ref does not contain holds
+// commits nothing else has, so it warns and is deleted only from a confirmation
+// the user gave against that warning (FR-CLEAN-003).
 func TestAnUncontainedBranchStillNeedsTheConfirmation(t *testing.T) {
 	fake, branch := branchFixture(t)
 	adapter := New(fake)
@@ -297,9 +291,9 @@ func TestAnUncontainedBranchStillNeedsTheConfirmation(t *testing.T) {
 	if !fake.ran("branch", "-d", "--", branch) {
 		t.Errorf("the deletion ran %v, want `branch -d -- %s`", fake.vectors(), branch)
 	}
-	// The error is in the plan's terms before it is in Git's. The failure this
-	// replaced said only that Git found the branch unmerged, which contradicted
-	// the plan the user had just read.
+	// The error is in the plan's terms before it is in Git's. Git's own message
+	// said only that the branch was unmerged, which contradicted the plan the user
+	// had just read.
 	for _, want := range []string{"-d", "contained", "confirmed"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %v, want it to mention %q", err, want)
@@ -321,7 +315,7 @@ func TestAnUncontainedBranchStillNeedsTheConfirmation(t *testing.T) {
 }
 
 // TestDeletingABranchThatIsAlreadyGoneRunsNoCommand keeps a partial cleanup
-// finishable: the user asked for the branch to be absent, and it is.
+// finishable. The user asked for the branch to be absent, and it is.
 func TestDeletingABranchThatIsAlreadyGoneRunsNoCommand(t *testing.T) {
 	fake, _ := branchFixture(t)
 	adapter := New(fake)

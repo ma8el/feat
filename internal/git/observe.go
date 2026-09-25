@@ -13,7 +13,7 @@ import (
 type ObserveRequest struct {
 	// WorktreePath is the task worktree to observe.
 	WorktreePath string
-	// BaseRef is the ref the base policy named. It is read as it is now, which
+	// BaseRef is the ref the base policy named. It is read as it stands now, which
 	// is what makes "behind" a useful number.
 	BaseRef string
 	// BaseCommit is the immutable commit recorded when the task was created.
@@ -25,20 +25,18 @@ type ObserveRequest struct {
 
 // Observe reports the current Git state of one task worktree.
 //
-// The two reference points are deliberately different, because they answer
-// different questions:
+// The two reference points answer different questions:
 //
 //   - ahead and the change summary compare against the recorded base commit,
 //     which never moves, so they describe the task's own work;
-//   - behind and merged compare against the base ref as it is now, so they
+//   - behind and merged compare against the base ref as it stands now, so they
 //     describe the task's relationship to a branch other people are still
 //     pushing to. Measured against the frozen commit, "behind" would always be
-//     zero and "merged" would never become true, which are numbers that look
-//     like answers without being any.
+//     zero and "merged" would never become true.
 //
-// A base ref that no longer resolves — a branch deleted on the remote, say —
-// leaves behind and merged at their zero values rather than failing the
-// observation. What Feat knows about the task's own work does not depend on it.
+// A base ref that no longer resolves leaves behind and merged at their zero
+// values rather than failing the observation, because what Feat knows about the
+// task's own work does not depend on it.
 func (g *Git) Observe(ctx context.Context, req ObserveRequest) (domain.GitObservation, error) {
 	if req.WorktreePath == "" {
 		return domain.GitObservation{}, errors.New("observing a worktree needs its path")

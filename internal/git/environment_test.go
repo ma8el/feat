@@ -8,11 +8,9 @@ import (
 	"github.com/ma8el/feat/internal/git"
 )
 
-// TestTheWorktreeEnvironmentTurnsOffAutostash pins what the entries say.
-//
-// The names are Git's own and the form is load-bearing: GIT_CONFIG_COUNT has to
-// agree with the number of key/value pairs, or Git rejects every command run
-// with it rather than ignoring the extra one.
+// TestTheWorktreeEnvironmentTurnsOffAutostash pins what the entries say. The
+// form is load-bearing: GIT_CONFIG_COUNT has to agree with the number of
+// key/value pairs, or Git rejects every command run with it.
 func TestTheWorktreeEnvironmentTurnsOffAutostash(t *testing.T) {
 	entries := git.WorktreeEnvironment()
 
@@ -52,12 +50,9 @@ func configures(values map[string]string, key, value string) bool {
 	return false
 }
 
-// TestGitReadsTheWorktreeEnvironment runs the real Git against it.
-//
-// The point of the environment is that a setting in the user's own repository
-// configuration does not reach the agent's commands, and only Git can say
-// whether its own form was written correctly. A test that only compared strings
-// would pass just as happily with a misspelled variable name.
+// TestGitReadsTheWorktreeEnvironment runs the real Git against it. Only Git can
+// say whether its own form was written correctly, because a test comparing
+// strings would pass just as happily with a misspelled variable name.
 func TestGitReadsTheWorktreeEnvironment(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")

@@ -16,8 +16,8 @@ import (
 var (
 	testProject = domain.ProjectID("app")
 	testTask    = domain.TaskID("12345678-1234-4234-8234-123456789abc")
-	// otherTask is a second task of the same project, for the tests whose
-	// subject is that one task's terminal is not another's.
+	// otherTask is a second task of the same project, for the tests whose subject
+	// is that one task's terminal is not another's.
 	otherTask = domain.TaskID("87654321-4321-4321-8321-cba987654321")
 )
 
@@ -160,7 +160,7 @@ func (f *fakeTmux) splitWindow(args []string) string {
 	return target.session + "\t" + target.window + "\t" + pane
 }
 
-// respawnPane replaces a pane's process the way tmux does: the pane keeps its
+// respawnPane replaces a pane's process the way tmux does. The pane keeps its
 // identity and its options, so metadata applied to the holder survives.
 func (f *fakeTmux) respawnPane(args []string) error {
 	if f.failCommand == "respawn-pane" {
@@ -201,10 +201,8 @@ func (f *fakeTmux) setOption(args []string) error {
 }
 
 // setWindowOption records a window option tmux spells with its own command.
-//
-// Feat's metadata goes through set-option -w; window-size goes through this
-// one, which is how the real tmux names it. The fake keeps the two apart for
-// the same reason the adapter does.
+// Feat's metadata goes through set-option -w, and window-size goes through this
+// one, which is how the real tmux names it.
 func (f *fakeTmux) setWindowOption(args []string) error {
 	index := indexOf(args, "-t")
 	if index < 0 || len(args) <= index+3 {
@@ -356,9 +354,8 @@ func TestTaskTerminalUsesDedicatedSocketAndStableMetadata(t *testing.T) {
 }
 
 // TestANewTaskWindowIsSizedBeforeItsProgramStarts pins the order, which is the
-// whole of the behaviour: a window sized after its program started is a program
-// that has already written its first screen at 80 columns, and those lines never
-// reflow.
+// whole of the behaviour. A program whose window is sized after it started has
+// already written its first screen at 80 columns, and those lines never reflow.
 func TestANewTaskWindowIsSizedBeforeItsProgramStarts(t *testing.T) {
 	runner := newFakeTmux()
 	backend, _ := New("/runtime/feat/tmux.sock", runner)
@@ -390,9 +387,9 @@ func TestANewTaskWindowIsSizedBeforeItsProgramStarts(t *testing.T) {
 	}
 }
 
-// TestATaskWindowIsLeftAloneWhenTheCallerHasNoSize keeps the fallback honest: a
+// TestATaskWindowIsLeftAloneWhenTheCallerHasNoSize keeps the fallback honest. A
 // daemon that has drawn no terminal yet knows nothing about the screen, and
-// guessing at one would be worse than tmux's own default.
+// guessing would be worse than tmux's own default.
 func TestATaskWindowIsLeftAloneWhenTheCallerHasNoSize(t *testing.T) {
 	runner := newFakeTmux()
 	backend, _ := New("/runtime/feat/tmux.sock", runner)
@@ -412,8 +409,8 @@ func TestATaskWindowIsLeftAloneWhenTheCallerHasNoSize(t *testing.T) {
 
 // TestAnExistingTaskWindowIsNotResized is the other half. Rediscovery returns a
 // terminal that already has a size and, in the resume case, may have a client
-// sitting in it: resizing there would reflow a running agent, and could resize
-// the terminal of the person watching it.
+// sitting in it, so resizing would reflow a running agent and could resize the
+// terminal of the person watching it.
 func TestAnExistingTaskWindowIsNotResized(t *testing.T) {
 	runner := newFakeTmux()
 	backend, _ := New("/runtime/feat/tmux.sock", runner)
@@ -460,7 +457,7 @@ func TestShellPaneOpensInTheProvidedPrimaryWorkspace(t *testing.T) {
 		t.Errorf("split-window calls = %d, want 1", got)
 	}
 
-	// The action is idempotent: a second request attaches to the same pane.
+	// The action is idempotent, so a second request attaches to the same pane.
 	again, err := backend.EnsureShell(context.Background(), testProject, testTask, CommandSpec{
 		Program: "/bin/zsh", Directory: "/work/primary",
 	})
@@ -496,7 +493,7 @@ func TestFailedMetadataApplicationRemovesOnlyTheNewObject(t *testing.T) {
 }
 
 // TestACommandThatCannotBeStartedRemovesOnlyTheNewObject covers the other half
-// of the tag-then-start order: the holder pane never ran the caller's command,
+// of the tag-then-start order. The holder pane never ran the caller's command,
 // so it holds no work and is removed rather than left for reconciliation.
 func TestACommandThatCannotBeStartedRemovesOnlyTheNewObject(t *testing.T) {
 	runner := newFakeTmux()
@@ -552,11 +549,9 @@ func TestCommandSpecRejectsValuesTmuxCouldInterpret(t *testing.T) {
 	}
 }
 
-// TestTheCommandEnvironmentReachesThePane pins where the entries go.
-//
-// tmux applies -e to the process it respawns, and the order matters: every flag
-// has to precede the program, or tmux reads the program as the value of the
-// flag before it and the pane starts something else entirely.
+// TestTheCommandEnvironmentReachesThePane pins where the entries go. tmux
+// applies -e to the process it respawns, and every flag has to precede the
+// program, or tmux reads the program as the value of the flag before it.
 func TestTheCommandEnvironmentReachesThePane(t *testing.T) {
 	runner := newFakeTmux()
 	backend, err := New("/run/user/501/feat/tmux.sock", runner)

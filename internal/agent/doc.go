@@ -2,22 +2,21 @@
 // normalized agent event vocabulary.
 //
 // The contract is in docs/06-technical-architecture.md. Adapter carries
-// Validate, Prepare, and ParseEvent; the observation that the conceptual
-// Reconcile stands for is the tmux adapter's, because what a session's process
-// is doing is a question about its terminal rather than about its provider.
+// Validate, Prepare, and ParseEvent. The observation the conceptual Reconcile
+// stands for is the tmux adapter's, because what a session's process is doing
+// is a question about its terminal rather than about its provider.
 //
 // Dependency rule: provider-specific flags, hooks, event schemas, and parsing
 // stay inside the provider adapter subpackage. Nothing Claude-specific may
 // appear here, and the interface must not leak implementation types, so that an
 // external plugin protocol remains possible later.
 //
-// The seam between an agent and where it runs is Workspace and LaunchSpec: an
+// The seam between an agent and where it runs is Workspace and LaunchSpec. An
 // adapter is told how the agent will see its own filesystem and answers with a
 // command in those terms. Under host-native execution those paths are the
 // host's; under a devcontainer they are the container's, and no adapter code
-// changes. Environment is the matching seam for validation,
-// so a probe always runs where the agent will run rather than wherever the
-// daemon happens to be.
+// changes. Environment is the matching seam for validation, so a probe always
+// runs where the agent will run rather than wherever the daemon happens to be.
 //
 // Rules this package must preserve:
 //

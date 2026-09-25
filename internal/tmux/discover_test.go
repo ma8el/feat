@@ -47,13 +47,13 @@ func deadPane(t *testing.T, status, signal string) Terminal {
 // TestAPaneIsDeadOnlyWhenTmuxCanSayHowItEnded is the failure Linux CI found, at
 // the level that would have caught it on any machine.
 //
-// On tmux 3.4 `pane_dead` is the pane's closed file descriptor and nothing more,
-// while `pane_dead_status` waits for `PANE_STATUSREADY` — the flag tmux sets
-// once it has reaped the child. Between the two, tmux reports a dead pane with
-// no outcome, and a reader that took the first and asked for the second in the
-// same breath called a failed agent stopped. tmux 3.7 closed the gap by making
-// `pane_dead` require the same flag, which is why a machine with a current tmux
-// never sees it and why the integration test failed only on Linux.
+// On tmux 3.4 `pane_dead` is the pane's closed file descriptor and nothing
+// more, while `pane_dead_status` waits for `PANE_STATUSREADY`, the flag tmux
+// sets once it has reaped the child. Between the two, tmux reports a dead pane
+// with no outcome, and a reader that took the first and asked for the second
+// called a failed agent stopped. tmux 3.7 closed the gap by making `pane_dead`
+// require the same flag, which is why the integration test failed only on
+// Linux.
 func TestAPaneIsDeadOnlyWhenTmuxCanSayHowItEnded(t *testing.T) {
 	terminal := deadPane(t, "", "")
 
@@ -67,11 +67,10 @@ func TestAPaneIsDeadOnlyWhenTmuxCanSayHowItEnded(t *testing.T) {
 }
 
 // TestAKilledPaneIsFailedRatherThanStopped is the other half of the same field.
-//
 // tmux publishes a process it saw exit as `pane_dead_status` and one that was
-// killed as `pane_dead_signal`, so a killed pane has no exit status at all.
-// Reading that absence as a clean exit reports an agent the OOM killer took as
-// one that finished — which is the ordinary way a container's agent dies.
+// killed as `pane_dead_signal`, so a killed pane has no exit status. Reading
+// that absence as a clean exit reports an agent the OOM killer took as one that
+// finished.
 func TestAKilledPaneIsFailedRatherThanStopped(t *testing.T) {
 	terminal := deadPane(t, "", "KILL")
 
@@ -87,8 +86,8 @@ func TestAKilledPaneIsFailedRatherThanStopped(t *testing.T) {
 	}
 }
 
-// TestAPaneThatExitedKeepsItsStatus is the case that already worked, kept beside
-// the other two so the three shapes tmux reports are read in one place.
+// TestAPaneThatExitedKeepsItsStatus is the case that already worked, kept
+// beside the other two so the three shapes tmux reports are read in one place.
 func TestAPaneThatExitedKeepsItsStatus(t *testing.T) {
 	terminal := deadPane(t, "1", "")
 

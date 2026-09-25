@@ -11,21 +11,16 @@ import (
 )
 
 // worktreeDirMode is the mode of the directories Feat creates above a task
-// worktree.
-//
-// They hold repository working trees, not secrets, and in devcontainer
-// execution a second user — the non-root container user — has to traverse them
-// to reach the mount. Git creates the worktree itself with the user's umask, so
-// a stricter mode here would only make Feat's own directories the one thing in
-// the path that cannot be entered.
+// worktree. They hold working trees rather than secrets, and in devcontainer
+// execution the non-root container user has to traverse them to reach the
+// mount. Git creates the worktree itself under the user's umask, so a stricter
+// mode here would only close the path above it.
 const worktreeDirMode = 0o755
 
-// Journal records what Apply created, one repository at a time.
-//
-// It exists so that the writer of persistent state stays the daemon while the
-// creation of resources stays here. Apply calls it after each repository and
-// before the next one begins, and stops if it fails: a record that is one
-// repository behind the world is exactly the situation Feat must never be in.
+// Journal records what Apply created, one repository at a time. It keeps the
+// daemon the only writer of persistent state while resource creation stays
+// here. Apply calls it after each repository and stops if it fails, so the
+// record is never a repository behind the world.
 type Journal interface {
 	// Created records one finished repository. Returning an error stops Apply.
 	Created(ctx context.Context, created Created) error
@@ -45,9 +40,9 @@ type Created struct {
 	WorktreePath string
 	// Branch is the branch that was created, empty for a read-only repository.
 	Branch string
-	// Observation is what the new worktree looked like immediately afterwards.
-	// It is an observation rather than an assumption: `git worktree add` runs
-	// the repository's own hooks, and a hook may leave files behind.
+	// Observation is what the new worktree looked like immediately afterwards. It
+	// is measured rather than assumed, because `git worktree add` runs the
+	// repository's own hooks and a hook may leave files behind.
 	Observation domain.GitObservation
 }
 
@@ -56,18 +51,16 @@ type Result struct {
 	// Created are the repositories whose worktrees exist, in the order they
 	// were created.
 	Created []Created
-	// Remaining are the repositories the plan still names and that Apply did
-	// not reach, which is empty on success.
+	// Remaining are the repositories the plan still names and that Apply did not
+	// reach, which is empty on success.
 	Remaining []domain.RepositoryID
 }
 
-// ApplyError reports a task creation that stopped part way through.
-//
-// It names the repository that failed and the ones that were already created,
-// because the user's next question is what exists now. Nothing is undone: a
-// worktree that was created may already have been mounted, entered, or written
-// to, and removing it to tidy up a failed launch is a destructive act the user
-// did not ask for (docs/05-security-model.md, cleanup safety).
+// ApplyError reports a task creation that stopped part way through. It names
+// the repository that failed and the ones already created, because the user's
+// next question is what exists now. Nothing is undone: a worktree that was
+// created may already have been mounted, entered, or written to
+// (docs/05-security-model.md, cleanup safety).
 type ApplyError struct {
 	// Task is the task being prepared.
 	Task domain.TaskID
@@ -92,12 +85,10 @@ func (e *ApplyError) Unwrap() error { return e.Err }
 
 // Apply creates the worktrees and branches a plan describes.
 //
-// The order is deliberate and is what makes an interruption recoverable. The
-// caller records the plan before calling this, so every path and branch name
-// that could exist afterwards is already written down; Apply then creates one
-// repository at a time and journals it before starting the next. At every point
-// — a crash, a full disk, a killed daemon — the record names a superset of what
-// exists, and nothing exists that the record cannot name.
+// The caller records the plan first, so every path and branch name that could
+// exist afterwards is written down before anything is created. Apply then
+// creates one repository at a time and journals it before starting the next, so
+// a crash leaves a record naming a superset of what exists.
 func (g *Git) Apply(ctx context.Context, plan *Plan, journal Journal) (Result, error) {
 	var result Result
 
@@ -124,9 +115,9 @@ func (g *Git) Apply(ctx context.Context, plan *Plan, journal Journal) (Result, e
 		}
 
 		if err := journal.Created(ctx, created); err != nil {
-			// The worktree exists and the record of it does not. Stopping here
-			// keeps that to one repository; continuing would add a second one
-			// the record has no observation for.
+			// The worktree exists and the record of it does not. Stopping here keeps
+			// that to one repository, where continuing would add a second the record
+			// has no observation for.
 			result.Created = append(result.Created, created)
 			result.Remaining = remaining(plan.Repositories[i+1:])
 			return result, &ApplyError{

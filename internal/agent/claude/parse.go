@@ -13,20 +13,19 @@ import (
 // providerPayload is what a generated hook writes: the event name the hook was
 // installed for, and Claude's own payload underneath it.
 //
-// The name is carried separately rather than read from the payload, so that a
-// Claude version which renames or drops hook_event_name still produces events
-// Feat can attribute. The hook knows which event it is because Feat generated
-// one script per event.
+// The name is carried separately rather than read from the payload, so a Claude
+// version that renames or drops hook_event_name still produces events Feat can
+// attribute. The hook knows which event it is because Feat generated one script
+// per event.
 type providerPayload struct {
 	Hook  string          `json:"hook"`
 	Event json.RawMessage `json:"event"`
 }
 
-// hookEvent is the part of Claude's hook payload Feat reads.
-//
-// Everything Claude sends that is not here is deliberately ignored: prompt
-// text, the last assistant message, and the transcript path are the
-// conversation, and an agent event carries state rather than transcript.
+// hookEvent is the part of Claude's hook payload Feat reads. Everything else
+// Claude sends is deliberately ignored: prompt text, the last assistant
+// message, and the transcript path are the conversation, and an agent event
+// carries state rather than transcript.
 type hookEvent struct {
 	SessionID string `json:"session_id"`
 	// Source distinguishes a session that began from one that resumed, cleared,
@@ -44,23 +43,19 @@ type hookEvent struct {
 }
 
 // continuedSources are the SessionStart sources that continue a session rather
-// than beginning one.
-//
-// A user typing /clear or /compact, or resuming after a restart, produces a
-// session start. Treating one as a launch would re-run the transition that says
-// the agent has begun work, and would do it every time somebody cleared the
-// screen.
+// than beginning one. A user typing /clear or /compact, or resuming after a
+// restart, produces a session start, and treating one as a launch would re-run
+// the transition that says the agent has begun work.
 var continuedSources = map[string]bool{
 	"resume":  true,
 	"clear":   true,
 	"compact": true,
 }
 
-// parseHook normalizes one Claude hook event.
-//
-// An event this build does not model is reported as not applicable rather than
-// as an error: a provider may emit more than Feat represents, and a future
-// Claude version emitting something new must not turn a task into a failure.
+// parseHook normalizes one Claude hook event. An event this build does not
+// model is reported as not applicable rather than as an error. A provider may
+// emit more than Feat represents, and a new event must not turn a task into a
+// failure.
 func parseHook(message control.Message) (agent.Event, bool, error) {
 	var payload providerPayload
 	if err := json.Unmarshal(message.Payload, &payload); err != nil {
@@ -89,13 +84,13 @@ func parseHook(message control.Message) (agent.Event, bool, error) {
 
 	case hookUserPromptSubmit:
 		event.Kind = agent.KindPromptSubmitted
-		// The prompt itself is deliberately not recorded. It is the
-		// conversation, and the task history is not a transcript.
+		// The prompt itself is deliberately not recorded. It is the conversation,
+		// and the task history is not a transcript.
 		event.Summary = "a prompt was submitted"
 
 	case hookStop:
-		// The end of a turn. It becomes idle after the grace period and it
-		// never becomes anything else (FR-AGENT-008, invariant 13).
+		// The end of a turn. It becomes idle after the grace period and never
+		// becomes anything else (FR-AGENT-008, invariant 13).
 		event.Kind = agent.KindTurnEnded
 		event.Summary = "the agent ended its turn"
 
@@ -145,10 +140,8 @@ type checkReport struct {
 }
 
 // parseReport normalizes an agent-authored review request or completion report.
-//
-// This is the only path to semantic completion. It exists because the agent
-// said so, which is exactly what FR-AGENT-008 requires and what no hook event
-// can substitute for.
+// This is the only path to semantic completion, because the agent has to say so
+// and no hook event can substitute for that (FR-AGENT-008).
 func parseReport(message control.Message, kind agent.EventKind) (agent.Event, bool, error) {
 	body, err := decodeReport(message)
 	if err != nil {
@@ -178,9 +171,9 @@ func parseReport(message control.Message, kind agent.EventKind) (agent.Event, bo
 //
 // The payload is a document this protocol defines rather than one Claude
 // invented, so internal/control decodes and bounds it and this adapter turns
-// what came back into an event. That is the opposite of a provider event, whose
-// payload only this package can read, and it is why a second provider would
-// reach the same validation rather than write its own.
+// what came back into an event. A provider event is the opposite, with a
+// payload only this package can read, so a second provider would reach the same
+// validation rather than write its own.
 //
 // The summary names the repositories and never the prose. A draft's title is
 // agent-authored text bound for somewhere durable, and the event log is not
@@ -240,11 +233,10 @@ func decodeReport(message control.Message) (report, error) {
 	return body, nil
 }
 
-// check converts one reported check, refusing a status Feat does not know.
-//
-// A status is not guessed. An agent that reports "mostly passed" is telling
-// Feat something Feat cannot record, and recording it as passed would turn the
-// agent's ambiguity into Feat's claim.
+// check converts one reported check, refusing a status Feat does not know. A
+// status is not guessed: an agent that reports "mostly passed" is saying
+// something Feat cannot record, and storing it as passed would turn the agent's
+// ambiguity into Feat's claim.
 func (c checkReport) check(message control.Message) (domain.Check, error) {
 	if c.ID == "" {
 		return domain.Check{}, &control.RejectionError{
@@ -267,8 +259,8 @@ func (c checkReport) check(message control.Message) (domain.Check, error) {
 		ID:     c.ID,
 		Status: status,
 		Detail: firstLine(c.Detail),
-		// Attribution is the point of recording it at all: this result was
-		// asserted by the agent, not enforced by anything.
+		// Attribution is the point of recording it at all. The agent asserted this
+		// result, and nothing enforced it.
 		Reporter: domain.ReporterAgent,
 		RanAt:    message.OccurredAt,
 	}
@@ -289,11 +281,10 @@ func (c checkReport) check(message control.Message) (domain.Check, error) {
 // stream.
 const maxSummaryBytes = 240
 
-// firstLine reduces agent-written text to one bounded line.
-//
-// Summaries reach the dashboard, the task history, and the event stream. A
-// multi-line or unbounded one would turn a state record into a place the agent
-// can write whatever it likes, and a terminal into something it can redraw.
+// firstLine reduces agent-written text to one bounded line. Summaries reach the
+// dashboard, the task history, and the event stream, and a multi-line or
+// unbounded one would turn a state record into a place the agent can write
+// whatever it likes.
 func firstLine(text string) string {
 	line := text
 	if index := strings.IndexAny(line, "\r\n"); index >= 0 {

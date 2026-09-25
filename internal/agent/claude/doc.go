@@ -15,9 +15,9 @@
 //     authentication inside the execution environment where Claude will run.
 //
 // Enforcing configured checks through a provider-native completion gate is not
-// here. Those checks run in the agent's environment, which the daemon owns; a
-// review request from a project that configures none carries what the agent
-// says it ran, attributed to the agent (ADR-032).
+// here, because those checks run in the agent's environment, which the daemon
+// owns. A review request from a project that configures none carries what the
+// agent says it ran, attributed to the agent (ADR-032).
 //
 // Rules this package must enforce:
 //
@@ -30,7 +30,7 @@
 //     this build was checked against.
 //
 // The generated hooks are the one part of this package that runs outside Go,
-// and they are deliberately almost empty: a hook copies its payload into the
+// and they are deliberately almost empty. A hook copies its payload into the
 // control outbox and exits, because parsing belongs in code that can be tested
 // and because Claude gives a hook's standard output and exit status meaning. A
 // hook that printed would put Feat's words into the user's conversation, and a

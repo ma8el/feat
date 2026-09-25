@@ -51,10 +51,10 @@ const (
 // TestOneDamagedObjectDoesNotHideTheHealthyOnes is the quarantine rule, stated
 // as the defect it replaces.
 //
-// Every row is an inconsistency that previously ended discovery for the whole
-// server: `EnsureTask` failed for every unrelated task, and startup
-// reconciliation stopped before it reached any of them (ADR-030 evidence 9).
-// Each one must now leave the healthy terminal intact.
+// Every row is an inconsistency that once ended discovery for the whole server,
+// so `EnsureTask` failed for every unrelated task and startup reconciliation
+// stopped before it reached any of them (ADR-030 evidence 9). Each one must now
+// leave the healthy terminal intact.
 func TestOneDamagedObjectDoesNotHideTheHealthyOnes(t *testing.T) {
 	good := healthy("$1", "@1", "%1", "app", goodTask)
 
@@ -79,9 +79,9 @@ func TestOneDamagedObjectDoesNotHideTheHealthyOnes(t *testing.T) {
 			},
 		},
 		{
-			// Inside the healthy window, so this one also proves that a pane
-			// Feat cannot read does not take its own task's terminal with it
-			// when the terminal is otherwise complete.
+			// Inside the healthy window, so this one also proves that a pane Feat
+			// cannot read does not take its own task's terminal with it when the
+			// terminal is otherwise complete.
 			name: "a pane with an unknown role",
 			broken: output{
 				panes: []string{join("$1", "@1", "%9", "0", "", "/work", "1", metadataVersion,
@@ -151,11 +151,10 @@ func TestOneDamagedObjectDoesNotHideTheHealthyOnes(t *testing.T) {
 	}
 }
 
-// TestAQuarantinedTerminalIsNotReturnedAsHalfATerminal keeps the unit whole.
-//
-// A window whose agent pane is damaged has no agent pane, and returning it with
-// a shell pane and an empty agent target would hand a caller something it would
-// then have to check for itself.
+// TestAQuarantinedTerminalIsNotReturnedAsHalfATerminal keeps the unit whole. A
+// window whose agent pane is damaged has no agent pane, and returning it with a
+// shell pane and an empty agent target would hand a caller something it would
+// have to check for itself.
 func TestAQuarantinedTerminalIsNotReturnedAsHalfATerminal(t *testing.T) {
 	found := discovered(output{
 		sessions: []string{join("$1", "1", metadataVersion, "app")},
@@ -180,9 +179,9 @@ func TestAQuarantinedTerminalIsNotReturnedAsHalfATerminal(t *testing.T) {
 // TestConflictingSessionsQuarantineOnlyTheirOwnProject bounds the damage to
 // where it belongs.
 //
-// Two sessions claiming one project cannot both be it, so neither is trusted and
-// the project is refused a third rather than given one — which would make the
-// ambiguity permanent. Every other project stays usable.
+// Two sessions claiming one project cannot both be it, so neither is trusted
+// and the project is refused a third rather than given one, which would make
+// the ambiguity permanent. Every other project stays usable.
 func TestConflictingSessionsQuarantineOnlyTheirOwnProject(t *testing.T) {
 	found := discovered(output{
 		sessions: []string{
@@ -211,10 +210,9 @@ func TestConflictingSessionsQuarantineOnlyTheirOwnProject(t *testing.T) {
 }
 
 // TestDiscoveryIgnoresPanesTheUserCreated keeps quarantine from turning a
-// user's own pane into damage.
-//
-// A pane a user split inside a managed window inherits the window's options and
-// has no role of its own. It is not Feat's and is not broken.
+// user's own pane into damage. A pane a user split inside a managed window
+// inherits the window's options and has no role of its own, so it is not Feat's
+// and is not broken.
 func TestDiscoveryIgnoresPanesTheUserCreated(t *testing.T) {
 	found := discovered(healthy("$1", "@1", "%1", "app", goodTask).merge(output{
 		panes: []string{join("$1", "@1", "%2", "0", "", "/work", "1", metadataVersion,
@@ -237,8 +235,8 @@ func TestDiscoveryIgnoresPanesTheUserCreated(t *testing.T) {
 //
 // The working directory is the one caller-supplied value tmux reports back, and
 // it comes back inside a tab-separated list format. A tab in it misaligns every
-// pane field and breaks discovery for every terminal on the server, which is the
-// blast radius quarantine bounds — reached before quarantine can bound it.
+// pane field and breaks discovery for every terminal on the server, before
+// quarantine can bound it.
 func TestACommandDirectoryCannotBreakDiscovery(t *testing.T) {
 	for _, directory := range []string{
 		"/work/a\tb",

@@ -6,14 +6,14 @@ import "fmt"
 //
 // docs/06-technical-architecture.md requires that the exact CLI flags and hook
 // schemas be verified against the installed version rather than assumed. These
-// constants record which version that verification was performed on, so the
-// claim is falsifiable: the flags in settings.go, the hook event names in
-// hooks.go, and the payload fields in parse.go were all read from this build.
+// constants record which version that verification was performed on: the flags
+// in settings.go, the hook event names in hooks.go, and the payload fields in
+// parse.go were all read from this build.
 //
-// A newer version is expected to work and is not refused. It is reported,
-// because the failure mode of a changed hook schema is silence — a session that
-// runs perfectly well while Feat never hears from it again — and silence is
-// worth a warning that names its likely cause.
+// A newer version is expected to work and is reported rather than refused. The
+// failure mode of a changed hook schema is silence — a session that runs
+// perfectly well while Feat never hears from it again — which is worth a
+// warning that names its likely cause.
 //
 // The flags this adapter passes were checked against the same build:
 // --settings, --append-system-prompt-file, and the initial prompt argument.
@@ -41,11 +41,9 @@ func Verified() string {
 }
 
 // Unverified reports whether an installed version is outside the range this
-// adapter was checked against, and why it is worth saying so.
-//
-// Only the major version is treated as a boundary. Hook names and payload
-// fields have been stable within a major release, and warning about every patch
-// would make the warning meaningless long before it was ever true.
+// adapter was checked against, and why it is worth saying so. Only the major
+// version is treated as a boundary, because hook names and payload fields have
+// been stable within a major release.
 func (v Version) Unverified() string {
 	if !v.Parsed {
 		return "Feat could not read the installed Claude Code version from " + quoted(v.Text) +

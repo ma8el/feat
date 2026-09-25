@@ -14,68 +14,64 @@ import (
 //
 // The four methods are the contract in docs/06-technical-architecture.md. None
 // of them exposes a provider type: an adapter receives resolved values and
-// returns normalized ones, so that adding a provider changes no caller and a
-// future external plugin protocol stays possible (ADR-024).
+// returns normalized ones, so adding a provider changes no caller and a future
+// external plugin protocol stays possible (ADR-024).
 type Adapter interface {
 	// ID is the provider identifier recorded on the agent session.
 	ID() string
-	// Validate reports whether the environment can run this provider. It is
-	// called before anything is created, so that a task whose agent could never
-	// start does not leave a terminal and a session record behind.
+	// Validate reports whether the environment can run this provider. It is called
+	// before anything is created, so a task whose agent could never start leaves
+	// no terminal and no session record behind.
 	Validate(ctx context.Context, env Environment) error
 	// Prepare generates whatever the provider needs outside the repositories
 	// and returns how to launch it. It writes only into the host-only area of
 	// the control workspace it is given.
 	//
-	// A launch-time mode recorded on the task — Task.PlanFirst is the first —
-	// is applied to a launch and never to a resume. Re-applying one to a
-	// resumed session is a silent failure of the shape ADR-037 describes for
-	// Resume itself: the session comes back looking exactly right, and behaves
-	// as though the work the user already approved had never been agreed.
+	// A launch-time mode recorded on the task, of which Task.PlanFirst is the
+	// first, is applied to a launch and never to a resume. Re-applying one to a
+	// resumed session is the silent failure ADR-037 describes for Resume itself:
+	// the session comes back looking right and behaves as though the work the
+	// user already approved had never been agreed.
 	//
 	// An adapter whose provider has no such mode returns an error rather than
-	// launching a session that will not honour it. Feat has just shown the user
-	// a screen promising that it would, which is the same obligation ADR-037
-	// put on continuing a session.
+	// launching a session that will not honour it, because Feat has just shown
+	// the user a screen promising that it would (ADR-037).
 	Prepare(ctx context.Context, req PrepareRequest) (LaunchSpec, error)
-	// ParseEvent normalizes one provider-native control message. It reports
-	// false when the message carries a provider event this build does not act
-	// on, which is not an error: a provider may emit more than Feat models.
+	// ParseEvent normalizes one provider-native control message. It reports false
+	// when the message carries a provider event this build does not act on, which
+	// is not an error, because a provider may emit more than Feat models.
 	ParseEvent(ctx context.Context, message control.Message) (Event, bool, error)
 }
 
 // Environment describes where an agent will run and how to ask it questions.
-//
 // Host-native execution fills it for the trusted host, and a devcontainer fills
-// the same structure for a Compose service. That is the whole reason validation
-// takes an environment rather than reaching for the host itself: a check that
-// ran in the wrong place answers a question nobody asked.
+// the same structure for a Compose service. Validation therefore takes an
+// environment rather than reaching for the host, because a check that ran in
+// the wrong place answers a different question.
 type Environment struct {
 	// Mode is where the agent runs.
 	Mode domain.ExecutionMode
 	// OutsideConfiguredBoundary reports that the agent will run somewhere other
-	// than where the project configured it. It exists so that a message can say
-	// so rather than implying a boundary that is not there.
+	// than where the project configured it. It exists so a message can say so
+	// rather than imply a boundary that is not there.
 	OutsideConfiguredBoundary bool
 	// Runner executes probe commands in that environment. It is required.
 	Runner Runner
 }
 
-// Runner runs one command inside an agent execution environment.
-//
-// It is an interface for the reason git.Runner and tmux.Runner are: a test can
-// arrange an unauthenticated CLI, a missing executable, or a hanging probe
-// without needing a machine that has one.
+// Runner runs one command inside an agent execution environment. It is an
+// interface for the reason git.Runner and tmux.Runner are: a test can arrange
+// an unauthenticated CLI, a missing executable, or a hanging probe without
+// needing a machine that has one.
 type Runner interface {
 	// Run executes the command and returns what it produced. A command that
 	// runs and fails is not an error; a command that could not be started is.
 	Run(ctx context.Context, command Command) (Output, error)
 }
 
-// Command is one probe executed in an agent environment.
-//
-// It is an argument vector rather than a string, so nothing is ever handed to a
-// shell to re-split (CLAUDE.md architectural rules).
+// Command is one probe executed in an agent environment. It is an argument
+// vector rather than a string, so nothing is ever handed to a shell to
+// re-split.
 type Command struct {
 	// Program is the executable.
 	Program string
@@ -102,9 +98,8 @@ func (o Output) Succeeded() bool { return o.ExitCode == 0 }
 type PrepareRequest struct {
 	// Task is the confirmed task. Its shape is frozen, so the brief here is the
 	// brief the user accepted, and so is every launch-time decision recorded
-	// beside it: an adapter reads Task.PlanFirst from here rather than being
-	// given a field of its own for it, because a second copy of one fact is a
-	// second source of truth for the same question.
+	// beside it. An adapter reads Task.PlanFirst from here rather than from a
+	// field of its own, because a second copy of one fact is a second answer.
 	Task *domain.Task
 	// Workspace says how the agent will see its own filesystem.
 	Workspace Workspace
@@ -116,29 +111,26 @@ type PrepareRequest struct {
 	// Gate says whether a completion gate will answer this task's review
 	// requests.
 	Gate Gate
-	// Publication says what publishing this task would cover, so that an
-	// adapter asks the agent for a draft only where there is somewhere to
-	// publish.
+	// Publication says what publishing this task would cover, so an adapter asks
+	// the agent for a draft only where there is somewhere to publish.
 	Publication Publication
 	// Resume is the provider's own identifier for a session to continue, empty
 	// for an ordinary launch.
 	//
-	// It is neutral on purpose: what continuing a session means is the
-	// provider's, and an adapter whose agent cannot resume one is free to
-	// refuse. What an adapter must not do is quietly start a new session
-	// instead — a resumed session that lost its history looks identical from
-	// the outside, which is the failure mode ADR-032's evidence 4 describes
-	// (ADR-037).
+	// It is neutral on purpose. What continuing a session means is the
+	// provider's, and an adapter whose agent cannot resume one is free to refuse.
+	// What it must not do is quietly start a new session instead, because a
+	// resumed session that lost its history looks identical from the outside
+	// (ADR-032 evidence 4, ADR-037).
 	Resume string
 }
 
 // Gate describes the completion gate an adapter has to tell the agent about.
 //
-// It is neutral on purpose. What a provider does with it is the provider's:
+// It is neutral on purpose, and what a provider does with it is the provider's.
 // Claude's helper waits for the verdict and exits non-zero when a check failed,
-// so that the failure arrives as a failed tool call the model reads and carries
-// on from (ADR-036). A provider whose native loop offers something better can
-// use this same description differently.
+// so the failure arrives as a failed tool call the model reads and carries on
+// from (ADR-036).
 type Gate struct {
 	// Configured reports that the project has checks the gate will run for this
 	// task. When it is false a review request is recorded and answered at once,
@@ -150,20 +142,19 @@ type Gate struct {
 	Acknowledge time.Duration
 	// Verdict is how long the agent then waits for the answer. It is the gate's
 	// own bound plus enough slack that a gate which finished is never missed by
-	// the thing waiting for it.
+	// what is waiting for it.
 	Verdict time.Duration
-	// Describe is a sentence for the generated instructions, saying what will
-	// run. It names the checks so that an agent knows what it is waiting for.
+	// Describe is a sentence for the generated instructions, saying what will run.
+	// It names the checks, so an agent knows what it is waiting for.
 	Describe string
 }
 
 // Publication describes what publishing this task's work would cover.
 //
-// It is neutral on purpose, and it carries repositories rather than forges: an
-// adapter asks the agent for words, and which forge those words are bound for
-// is the daemon's to know. A task whose project configures no forge gets an
-// empty value, and the agent is never told about a document it has nowhere to
-// send (ADR-070).
+// It carries repositories rather than forges, because an adapter asks the agent
+// for words and which forge those words are bound for is the daemon's to know.
+// A task whose project configures no forge gets an empty value, and the agent
+// is never told about a document it has nowhere to send (ADR-070).
 type Publication struct {
 	// Repositories are the identifiers of the repositories a publication would
 	// open a merge request for, in the order the task binds them. An empty list
@@ -177,9 +168,9 @@ func (p Publication) Configured() bool { return len(p.Repositories) > 0 }
 // Workspace tells an adapter how the agent will see its own filesystem.
 //
 // Every path here is expressed in the agent's terms rather than the host's.
-// Under host-native execution the two are the same; with the agent in a
-// container they are not, and the adapter is written against this structure so
-// that it never has to know which case it is in.
+// Under host-native execution the two are the same, and with the agent in a
+// container they are not, so an adapter written against this structure never
+// has to know which case it is in.
 type Workspace struct {
 	// WorkingDirectory is where the agent starts, as the agent sees it. It is
 	// the task's primary worktree.
@@ -205,11 +196,9 @@ func (w Workspace) Validate() error {
 }
 
 // LaunchSpec is how to start an agent, expressed in the terms its own
-// environment uses.
-//
-// The daemon turns it into something a terminal can run: by using the values
-// directly on the host, or by wrapping them in a command that enters the
-// configured container. Neither is the adapter's business.
+// environment uses. The daemon turns it into something a terminal can run,
+// either by using the values directly on the host or by wrapping them in a
+// command that enters the configured container.
 type LaunchSpec struct {
 	// Program is the agent executable.
 	Program string

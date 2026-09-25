@@ -64,7 +64,7 @@ func cleanupFixture(t *testing.T) (*fakeGit, CleanupRequest, string) {
 }
 
 // TestCleanupPlanSeparatesResourcesAndRemovesNothing checks FR-CLEAN-001 and
-// FR-CLEAN-002: the exact task-owned resources are enumerated, worktrees and
+// FR-CLEAN-002. The exact task-owned resources are enumerated, worktrees and
 // branches are separate choices, and producing the inventory changes nothing.
 func TestCleanupPlanSeparatesResourcesAndRemovesNothing(t *testing.T) {
 	fake, request, _ := cleanupFixture(t)
@@ -98,9 +98,9 @@ func TestCleanupPlanSeparatesResourcesAndRemovesNothing(t *testing.T) {
 	}
 }
 
-// TestDirtyAndUnmergedWorkIsWarnedAbout checks FR-CLEAN-003. The warnings are
-// what a confirmation prompt is built from, so a target that would lose work
-// must never be reported as ordinary.
+// TestDirtyAndUnmergedWorkIsWarnedAbout checks FR-CLEAN-003. A confirmation
+// prompt is built from the warnings, so a target that would lose work must
+// never be reported as ordinary.
 func TestDirtyAndUnmergedWorkIsWarnedAbout(t *testing.T) {
 	fake, request, root := cleanupFixture(t)
 	fake.repositories["/checkout/api"].dirty[filepath.Join(root, "api")] = " M app.go"
@@ -133,11 +133,8 @@ func TestDirtyAndUnmergedWorkIsWarnedAbout(t *testing.T) {
 }
 
 // TestRecordedPathsOutsideTheRootAreRefused is the cleanup half of the
-// unsafe-path criterion.
-//
-// A record can be edited, restored from a backup, or written by an older
-// version. The moment a path from one of those decides what gets deleted, the
-// record has stopped being a record and become an instruction.
+// unsafe-path criterion. A record can be edited, restored from a backup, or
+// written by an older version, and none of those may decide what gets deleted.
 func TestRecordedPathsOutsideTheRootAreRefused(t *testing.T) {
 	fake, request, _ := cleanupFixture(t)
 	request.Repositories[0].WorktreePath = "/etc"

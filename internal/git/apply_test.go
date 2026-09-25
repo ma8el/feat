@@ -13,11 +13,11 @@ import (
 // recorder is a journal that remembers what it was told, in order.
 type recorder struct {
 	created []Created
-	// fail makes the journal reject one repository, which is how a test
-	// arranges a record that cannot be written.
+	// fail makes the journal reject one repository, which is how a test arranges a
+	// record that cannot be written.
 	fail domain.RepositoryID
-	// observe is called for each entry, so that a test can assert what already
-	// existed when the record was written.
+	// observe is called for each entry, so a test can assert what already existed
+	// when the record was written.
 	observe func(Created)
 }
 
@@ -41,11 +41,9 @@ func (r *recorder) names() []string {
 }
 
 // TestEachRepositoryIsRecordedBeforeTheNextIsCreated is the ordering that makes
-// an interruption survivable.
-//
-// If two repositories were created and then recorded together, an interruption
-// between them would leave a worktree nothing knows about. Recording each one
-// before the next begins bounds what can be unrecorded at any moment to nothing.
+// an interruption survivable. Creating two worktrees and recording them
+// together would leave a worktree nothing knows about if the daemon stopped
+// between them.
 func TestEachRepositoryIsRecordedBeforeTheNextIsCreated(t *testing.T) {
 	f := twoRepositories(t, t.TempDir())
 	adapter := New(f.git)
@@ -60,8 +58,8 @@ func TestEachRepositoryIsRecordedBeforeTheNextIsCreated(t *testing.T) {
 		order = append(order, "recorded "+created.Repository.String())
 	}}
 
-	// The fake records every command, so the interleaving of creations and
-	// records is checked against the commands themselves.
+	// The fake records every command, so the interleaving of creations and records
+	// is checked against the commands themselves.
 	result, err := adapter.Apply(context.Background(), plan, journalWatcher{
 		journal: journal,
 		before: func() {
@@ -81,8 +79,8 @@ func TestEachRepositoryIsRecordedBeforeTheNextIsCreated(t *testing.T) {
 	}
 }
 
-// journalWatcher runs a hook before each record, so that a test can observe the
-// interleaving without changing the Journal interface for it.
+// journalWatcher runs a hook before each record, so a test can observe the
+// interleaving without changing the Journal interface.
 type journalWatcher struct {
 	journal Journal
 	before  func()
@@ -112,10 +110,10 @@ func lastWorktreeAdd(fake *fakeGit) string {
 // halfway through creation leaves a recoverable record and no unidentified
 // worktree.
 //
-// The adapter's half of it is checked here: what exists is reported, what does
-// not is named, and nothing that was created is silently removed. The daemon's
-// half — that the record on disk names every worktree that could exist — is
-// checked in internal/daemon.
+// The adapter's half is checked here: what exists is reported, what does not is
+// named, and nothing created is silently removed. The daemon's half, that the
+// record on disk names every worktree that could exist, is checked in
+// internal/daemon.
 func TestFailureHalfwayLeavesARecoverableRecord(t *testing.T) {
 	f := twoRepositories(t, t.TempDir())
 	adapter := New(f.git)
@@ -125,7 +123,7 @@ func TestFailureHalfwayLeavesARecoverableRecord(t *testing.T) {
 		t.Fatalf("planning: %v", err)
 	}
 
-	// The world changed between planning and applying, which is exactly when a
+	// The world changed between planning and applying, which is when a
 	// half-finished creation happens.
 	f.git.repositories["/checkout/store"].fail["worktree"] = errors.New("could not create leading directories")
 
@@ -156,9 +154,9 @@ func TestFailureHalfwayLeavesARecoverableRecord(t *testing.T) {
 		t.Errorf("the result is %+v, want one created and store remaining", result)
 	}
 
-	// Nothing is undone. A worktree that exists may already have been written
-	// to, and removing it to tidy up a failed launch is a destructive act the
-	// user did not ask for.
+	// Nothing is undone. A worktree that exists may already have been written to,
+	// and removing it to tidy up a failed launch is a destructive act the user did
+	// not ask for.
 	if f.git.ran("worktree", "remove") || f.git.ran("branch", "-D") {
 		t.Errorf("the failed launch removed something: %v", f.git.vectors())
 	}
@@ -210,8 +208,8 @@ func TestAPlanWithProblemsIsNeverApplied(t *testing.T) {
 }
 
 // TestAppliedWorktreesAreObserved checks that what the record says about a new
-// worktree is an observation rather than an assumption: `git worktree add` runs
-// the repository's own hooks, and a hook may leave files behind.
+// worktree is measured rather than assumed. `git worktree add` runs the
+// repository's own hooks, and a hook may leave files behind.
 func TestAppliedWorktreesAreObserved(t *testing.T) {
 	root := t.TempDir()
 	f := twoRepositories(t, root)

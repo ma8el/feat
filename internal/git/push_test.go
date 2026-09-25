@@ -24,10 +24,9 @@ func pushable(t *testing.T) (*fakeGit, string) {
 // TestAPushCarriesTheCommitItPlanned pins the argument vector.
 //
 // The refspec names the object rather than a local ref, because a publication
-// records the commit the agent's draft describes and the push has to put that
-// commit on the remote — not whatever the worktree acquired between the plan and
-// the push. Nothing forces: a remote that refuses a non-fast-forward is a
-// failure to record, not something to overwrite.
+// records the commit the agent's draft describes, not whatever the worktree
+// acquired between the plan and the push. Nothing forces: a remote that refuses
+// a non-fast-forward is a failure to record rather than something to overwrite.
 func TestAPushCarriesTheCommitItPlanned(t *testing.T) {
 	fake, worktree := pushable(t)
 	head := commit("feed")
@@ -56,10 +55,9 @@ func TestAPushCarriesTheCommitItPlanned(t *testing.T) {
 // that approving a publication is not how a user runs what the agent wrote.
 //
 // A task's repositories are linked worktrees whose .git/hooks and .git/config
-// the agent can write (ADR-050). The settings are passed in this one process's
-// environment, in Git's own GIT_CONFIG_COUNT form, and never written to the
-// user's configuration file — which a linked worktree shares with the user's own
-// checkout, so a value set to protect one task would outlive it.
+// the agent can write (ADR-050). The settings travel in this one process's
+// environment, in Git's own GIT_CONFIG_COUNT form, because a value written to
+// the user's shared configuration file would outlive the task.
 func TestAPushRunsWithHooksAndTheExternalToolsDisabled(t *testing.T) {
 	fake, worktree := pushable(t)
 
@@ -94,12 +92,9 @@ func TestAPushRunsWithHooksAndTheExternalToolsDisabled(t *testing.T) {
 }
 
 // TestAPushSaysWhichHookItDidNotRun is what keeps disabling hooks from being
-// silent.
-//
-// A pre-push hook is not always its author's own convenience: it may be what
-// scans for secrets before anything leaves the machine. Where one exists, Feat's
-// publication is the one route out that skips it, and a user who never chose
-// that has no way to learn it except by being told (ADR-070).
+// silent. A pre-push hook may be what scans for secrets before anything leaves
+// the machine, and Feat's publication is then the one route out that skips it
+// (ADR-070).
 func TestAPushSaysWhichHookItDidNotRun(t *testing.T) {
 	fake, worktree := pushable(t)
 	hooks := filepath.Join(worktree, ".git", "hooks")
@@ -134,12 +129,10 @@ func TestAPushSaysWhichHookItDidNotRun(t *testing.T) {
 	}
 }
 
-// TestAConfiguredHooksPathIsReportedToo checks the other half of the report.
-//
-// A repository can point Git at a hook directory of its own, and the hooks there
-// are as load-bearing as the ones in .git/hooks. Both are reported, because a
-// user who set core.hooksPath deliberately is the user most likely to depend on
-// what is in it.
+// TestAConfiguredHooksPathIsReportedToo checks the other half of the report. A
+// repository can point Git at a hook directory of its own, and a user who set
+// core.hooksPath deliberately is the one most likely to depend on what is in
+// it.
 func TestAConfiguredHooksPathIsReportedToo(t *testing.T) {
 	fake, worktree := pushable(t)
 	elsewhere := filepath.Join(t.TempDir(), "hooks")
@@ -168,11 +161,8 @@ func TestAConfiguredHooksPathIsReportedToo(t *testing.T) {
 }
 
 // TestAFailedPushStillSaysWhatItSkipped checks that the two facts are
-// independent.
-//
-// What a push does not run is decided before it runs, and a user whose pre-push
-// hook scans for secrets needs to know it was skipped whether or not the remote
-// accepted the branch.
+// independent. What a push does not run is decided before it runs, and the user
+// needs it either way.
 func TestAFailedPushStillSaysWhatItSkipped(t *testing.T) {
 	fake, worktree := pushable(t)
 	plant(t, filepath.Join(worktree, ".git", "hooks", "pre-push"), "#!/bin/sh\nexit 0\n")
@@ -192,8 +182,8 @@ func TestAFailedPushStillSaysWhatItSkipped(t *testing.T) {
 	}
 }
 
-// TestAPushRefusesAnArgumentGitWouldReadAsAnOption keeps a configured value from
-// becoming a flag.
+// TestAPushRefusesAnArgumentGitWouldReadAsAnOption keeps a configured value
+// from becoming a flag.
 func TestAPushRefusesAnArgumentGitWouldReadAsAnOption(t *testing.T) {
 	fake, worktree := pushable(t)
 

@@ -15,11 +15,10 @@ import (
 
 // requireGit ends the test unless the run is opted in and Git is installed.
 //
-// A fake runner decides what Git would say, which is enough to pin an argument
-// vector and not enough to know that a flag exists, that the output has the
-// shape the parser expects, or that a worktree behaves the way this package
-// assumes. These tests ask Git itself. Set FEAT_INTEGRATION=1 to run them; CI
-// does, on macOS and Linux.
+// A fake runner decides what Git would say, which pins an argument vector and
+// nothing about whether a flag exists, whether the output has the shape the
+// parser expects, or how a worktree behaves. These tests ask Git itself. Set
+// FEAT_INTEGRATION=1 to run them; CI does, on macOS and Linux.
 func requireGit(t *testing.T) {
 	t.Helper()
 
@@ -30,8 +29,8 @@ func requireGit(t *testing.T) {
 		integrationtest.Unavailable(t, integrationtest.Git, "git is not installed")
 	}
 
-	// Both this test and the adapter it drives inherit these, so neither reads
-	// the developer's own Git configuration, hooks, or templates.
+	// Both this test and the adapter it drives inherit these, so neither reads the
+	// developer's own Git configuration, hooks, or templates.
 	for name, value := range map[string]string{
 		"GIT_CONFIG_GLOBAL":      os.DevNull,
 		"GIT_CONFIG_SYSTEM":      os.DevNull,
@@ -167,10 +166,9 @@ func realProject(t *testing.T) *realFixture {
 // dirty changes in the ordinary checkout are preserved and do not block an
 // independent task (FR-GIT-003).
 //
-// The check is byte-for-byte on the porcelain status, and includes the branch,
-// HEAD, and the index, because "preserved" has to mean all of them: a stray
-// `git stash`, `git checkout`, or `git pull` would show up in exactly one of
-// these and in none of the others.
+// The check is byte-for-byte on the porcelain status and covers the branch,
+// HEAD, and the index, because a stray `git stash`, `git checkout`, or `git
+// pull` would each show up in exactly one of them.
 func TestRealDirtyCheckoutIsPreservedAndDoesNotBlockATask(t *testing.T) {
 	requireGit(t)
 	f := realProject(t)
@@ -204,8 +202,8 @@ func TestRealDirtyCheckoutIsPreservedAndDoesNotBlockATask(t *testing.T) {
 		}
 	}
 
-	// The task itself is real: the worktree exists and is checked out at the
-	// base the plan resolved, unaffected by the uncommitted work next to it.
+	// The task itself is real. The worktree exists and is checked out at the base
+	// the plan resolved, unaffected by the uncommitted work next to it.
 	worktree := plan.Repositories[0].WorktreePath
 	if got := git(t, worktree, "rev-parse", "HEAD"); got != plan.Repositories[0].BaseCommit {
 		t.Errorf("the task worktree is at %s, want the resolved base %s", got, plan.Repositories[0].BaseCommit)
@@ -232,10 +230,10 @@ func gitQuery(name string) []string {
 // TestRealRemoteBaseUsesTheFetchedCommit covers the rule that remote base
 // resolution uses the fetched remote-tracking commit.
 //
-// The distinction only becomes visible when the three candidate commits differ:
-// what this checkout has, what its remote-tracking ref had before the fetch, and
-// what the remote actually holds. A colleague pushes, and the task must start
-// from what they pushed.
+// The distinction is only visible when the three candidate commits differ: what
+// this checkout has, what its remote-tracking ref had before the fetch, and
+// what the remote holds. A colleague pushes, and the task starts from what they
+// pushed.
 func TestRealRemoteBaseUsesTheFetchedCommit(t *testing.T) {
 	requireGit(t)
 	f := realProject(t)
@@ -268,7 +266,7 @@ func TestRealRemoteBaseUsesTheFetchedCommit(t *testing.T) {
 		t.Errorf("the recorded base ref is %q", plan.Repositories[0].BaseRef)
 	}
 
-	// Fetching updated the remote-tracking ref and nothing else: the user's own
+	// Fetching updated the remote-tracking ref and nothing else, so the user's own
 	// branch is where they left it (FR-GIT-001).
 	if got := git(t, f.api, "rev-parse", "refs/heads/main"); got != local {
 		t.Errorf("the local branch moved to %s, and Feat must never pull", got)
@@ -307,7 +305,7 @@ func TestRealTwoRepositoryTaskMapping(t *testing.T) {
 
 	api, store := plan.Repositories[0], plan.Repositories[1]
 
-	// The read-write repository is on its own branch, and the branch is in the
+	// The read-write repository is on its own branch, and that branch is in the
 	// repository it came from rather than anywhere else.
 	if got := git(t, api.WorktreePath, "symbolic-ref", "--short", "HEAD"); got != api.Branch {
 		t.Errorf("the read-write worktree is on %q, want the task branch %q", got, api.Branch)
@@ -316,8 +314,8 @@ func TestRealTwoRepositoryTaskMapping(t *testing.T) {
 		t.Errorf("the task branch starts at %s, want the recorded base %s", got, api.BaseCommit)
 	}
 
-	// The read-only repository has a reproducible worktree at the same base and
-	// no branch at all, so nothing the agent does can commit to one by accident
+	// The read-only repository has a reproducible worktree at the same base and no
+	// branch at all, so nothing the agent does commits to one by accident
 	// (FR-GIT-005, invariant 7).
 	if _, err := exec.Command("git", "-C", store.WorktreePath, "symbolic-ref", "HEAD").Output(); err == nil {
 		t.Error("the read-only worktree is attached to a branch, want a detached HEAD")
@@ -355,8 +353,8 @@ func TestRealTwoRepositoryTaskMapping(t *testing.T) {
 //
 // "Unidentified" is checked literally: every directory under the task's
 // worktree root and every worktree Git has registered must be one the plan
-// names. The plan is what the daemon has already written down at this point, so
-// anything outside it would be a resource nothing knows about.
+// names. The daemon has already written the plan down by this point, so
+// anything outside it is a resource nothing knows about.
 func TestRealFailureHalfwayLeavesNoUnidentifiedWorktree(t *testing.T) {
 	requireGit(t)
 	f := realProject(t)
@@ -368,7 +366,7 @@ func TestRealFailureHalfwayLeavesNoUnidentifiedWorktree(t *testing.T) {
 	}
 
 	// Something takes the second repository's path between the plan and its
-	// application, which is exactly when a half-finished launch happens.
+	// application, which is when a half-finished launch happens.
 	blocked := plan.Repositories[1].WorktreePath
 	if err := os.MkdirAll(filepath.Dir(blocked), 0o755); err != nil {
 		t.Fatalf("creating %s: %v", filepath.Dir(blocked), err)
@@ -390,8 +388,7 @@ func TestRealFailureHalfwayLeavesNoUnidentifiedWorktree(t *testing.T) {
 	}
 
 	// Git reports resolved paths, and on macOS a temporary directory reaches the
-	// same place through /private, so both sides are resolved before they are
-	// compared.
+	// same place through /private, so both sides are resolved before comparison.
 	named := map[string]bool{}
 	for _, repository := range plan.Repositories {
 		named[resolvePath(repository.WorktreePath)] = true
@@ -428,16 +425,16 @@ func TestRealFailureHalfwayLeavesNoUnidentifiedWorktree(t *testing.T) {
 		t.Error("the failed repository was left with a task branch")
 	}
 
-	// What was created is still there: a launch that failed is recovered from,
-	// not tidied away.
+	// What was created is still there. A launch that failed is recovered from
+	// rather than tidied away.
 	if _, err := os.Stat(plan.Repositories[0].WorktreePath); err != nil {
 		t.Errorf("the worktree that was created is gone: %v", err)
 	}
 }
 
 // TestRealCleanupPlanSeesDirtyAndUnmergedWork checks that the inventory cleanup
-// acts on reports the risks Git actually knows about, rather than the ones a
-// fake was told to report.
+// acts on reports the risks Git knows about, rather than the ones a fake was
+// told to report.
 func TestRealCleanupPlanSeesDirtyAndUnmergedWork(t *testing.T) {
 	requireGit(t)
 	f := realProject(t)
@@ -504,12 +501,11 @@ func TestRealCleanupPlanSeesDirtyAndUnmergedWork(t *testing.T) {
 // TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety is the refusal rule
 // for broad and non-task paths, against Git itself.
 //
-// The precise rule — that a target is inside the directory Feat owns and outside
-// every checkout — is this adapter's, and it runs again immediately before
-// anything is deleted. What only real Git can settle is the other half: that
-// `worktree remove` refuses a dirty worktree without --force and takes it with
-// one, and that `branch -d` refuses an unmerged branch. Those are the safeties
-// the confirmation rule sits on top of, and a fake cannot prove they exist.
+// This adapter owns the rule that a target is inside the directory Feat owns
+// and outside every checkout, and it runs again immediately before anything is
+// deleted. Only real Git can settle the other half: `worktree remove` refuses a
+// dirty worktree without --force and takes it with one, and `branch -d` refuses
+// an unmerged branch. The confirmation rule sits on top of both.
 func TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety(t *testing.T) {
 	requireGit(t)
 	f := realProject(t)
@@ -529,9 +525,9 @@ func TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety(t *testing.T) {
 	branch := plan.Repositories[0].Branch
 	request := RemoveRequest{HostPath: f.api, Root: f.root, Checkouts: []string{f.api}}
 
-	// A path outside the directory Feat owns is refused before Git is asked.
-	// The ordinary checkout is the case that matters: it is absolute, real, and
-	// exactly what must never be removed.
+	// A path outside the directory Feat owns is refused before Git is asked. The
+	// ordinary checkout is the case that matters, because it is absolute, real,
+	// and exactly what must never be removed.
 	for _, unsafe := range []string{f.api, "/", "/tmp", filepath.Dir(f.root), "relative"} {
 		if _, err := adapter.RemoveWorktree(context.Background(), unsafe, request); err == nil {
 			t.Errorf("removing %q was allowed", unsafe)
@@ -543,8 +539,8 @@ func TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety(t *testing.T) {
 
 	// The agent committed one change, so the branch is genuinely unmerged, and
 	// left another uncommitted, so the worktree is genuinely dirty. Both are
-	// needed: Git deletes a branch that points at its base without complaint,
-	// and a test that skipped the commit would be checking nothing.
+	// needed, because Git deletes a branch that points at its base without
+	// complaint.
 	write(t, worktree, "feature.go", "package feature\n")
 	git(t, worktree, "add", "feature.go")
 	git(t, worktree, "commit", "-m", "the agent's work")
@@ -568,8 +564,8 @@ func TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety(t *testing.T) {
 	if _, err := os.Stat(worktree); !os.IsNotExist(err) {
 		t.Errorf("the worktree is still there: %v", err)
 	}
-	// The task's other worktree is still in the directory above, so nothing
-	// above this one may go with it.
+	// The task's other worktree is still in the directory above, so nothing above
+	// this one may go with it.
 	if len(removal.Directories) != 0 {
 		t.Errorf("removing one of two worktrees took %v", removal.Directories)
 	}
@@ -577,7 +573,7 @@ func TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety(t *testing.T) {
 		t.Errorf("the directory still holding the task's other worktree is gone: %v", err)
 	}
 
-	// Removing it again is a success rather than an error: the user asked for it
+	// Removing it again is a success rather than an error. The user asked for it
 	// to be absent and it is, which is what makes a partial cleanup finishable.
 	if again, err := adapter.RemoveWorktree(context.Background(), worktree, confirmed); err != nil {
 		t.Errorf("removing an absent worktree failed: %v", err)
@@ -586,8 +582,8 @@ func TestRealRemovalRefusesUnsafePathsAndRespectsGitsOwnSafety(t *testing.T) {
 	}
 
 	// The branch is unmerged and Feat established no containment for it, so the
-	// deletion is `-d` and Git refuses it. Both halves matter: the first is the
-	// safety, the second is that a confirmation can actually get past it.
+	// deletion is `-d` and Git refuses it. The second half is that a confirmation
+	// can get past that refusal.
 	if _, err := adapter.DeleteBranch(context.Background(), branch, request); err == nil {
 		t.Error("an unmerged branch was deleted without a confirmation")
 	}
@@ -631,27 +627,22 @@ func advance(t *testing.T, remotes, name, message string) string {
 // TestRealContainedBranchIsDeletedWhereGitWouldRefuse is the disagreement
 // itself, and it exists only against real Git.
 //
-// A fake cannot stand in for it, because what is being checked is what `git
-// branch -d` asks: not whether the branch is contained by the ref Feat recorded
-// as its base, but whether it is contained by the checkout's HEAD or by the
-// branch's own upstream, which a task branch never has. The fixture is the
-// ordinary state of a checkout that fetches — `origin/main` carries a commit the
-// local `main` does not, and the task branched from `origin/main` under the
-// remote base policy — so Feat's plan reports the branch as contained with
-// nothing at risk while Git refuses to delete it.
+// What is being checked is what `git branch -d` asks: containment by the
+// checkout's HEAD or by the branch's own upstream, which a task branch never
+// has. The fixture is the ordinary state of a checkout that fetches, so Feat's
+// plan reports the branch as contained with nothing at risk while Git refuses
+// to delete it.
 //
-// The three assertions are the three halves of the change: Git really does
-// refuse `-d` here, so the case is genuine; the deletion Feat performs succeeds
-// and says what it rested on; and a branch carrying a commit the base ref does
-// not have is refused exactly as before, because that one still needs a
-// confirmation (FR-CLEAN-003, ADR-097).
+// The three assertions are the three parts of the change: Git really does
+// refuse `-d` here, the deletion Feat performs succeeds and says what it rested
+// on, and a branch carrying a commit the base ref does not have is still
+// refused without a confirmation (FR-CLEAN-003, ADR-097).
 func TestRealContainedBranchIsDeletedWhereGitWouldRefuse(t *testing.T) {
 	requireGit(t)
 	f := realProject(t)
 
-	// The remote moves on after the checkout was cloned, and nothing pulls. This
-	// is not an arranged edge case: it is where any checkout sits between one
-	// pull and the next.
+	// The remote moves on after the checkout was cloned, and nothing pulls. That
+	// is where any checkout sits between one pull and the next.
 	ahead := advance(t, filepath.Join(f.dir, "remotes"), "api", "a commit the clone has not seen")
 	behind := git(t, f.api, "rev-parse", "HEAD")
 	if ahead == behind {
@@ -687,8 +678,8 @@ func TestRealContainedBranchIsDeletedWhereGitWouldRefuse(t *testing.T) {
 	}
 	removeWorktrees(t, adapter, f, plan)
 
-	// Git's question, asked about HEAD. It has to refuse, or the rest of this
-	// test is checking nothing.
+	// Git's question, asked about HEAD. It has to refuse, or the rest of this test
+	// is checking nothing.
 	refused := exec.Command("git", "branch", "-d", "--", binding.Branch)
 	refused.Dir = f.api
 	output, err := refused.CombinedOutput()
@@ -719,8 +710,8 @@ func TestRealContainedBranchIsDeletedWhereGitWouldRefuse(t *testing.T) {
 		t.Error("the branch is still there")
 	}
 
-	// And nothing of the user's moved with it: the checkout is still on the
-	// commit it was on, still behind the remote, and still has its own branch.
+	// Nothing of the user's moved with it. The checkout is still on the commit it
+	// was on, still behind the remote, and still has its own branch.
 	if head := git(t, f.api, "rev-parse", "HEAD"); head != behind {
 		t.Errorf("the ordinary checkout's HEAD is %s, want the %s it was on", head, behind)
 	}
@@ -729,10 +720,10 @@ func TestRealContainedBranchIsDeletedWhereGitWouldRefuse(t *testing.T) {
 	}
 }
 
-// TestRealUncontainedBranchStillNeedsAConfirmation is the other side of the same
-// fixture: a branch the base ref does not contain warns and is deleted only on a
-// confirmation, on the very checkout where the containment question says yes for
-// a branch that has not moved.
+// TestRealUncontainedBranchStillNeedsAConfirmation is the other side of the
+// same fixture. A branch the base ref does not contain warns and is deleted
+// only on a confirmation, on the checkout where containment says yes for a
+// branch that has not moved.
 func TestRealUncontainedBranchStillNeedsAConfirmation(t *testing.T) {
 	requireGit(t)
 	f := realProject(t)
@@ -788,9 +779,8 @@ func TestRealUncontainedBranchStillNeedsAConfirmation(t *testing.T) {
 }
 
 // removeWorktrees removes the task's worktrees, which cleanup does before it
-// deletes a branch: Git refuses to delete a branch a worktree has checked out,
-// and the class order exists so that whatever holds a resource goes first
-// (FR-CLEAN-002).
+// deletes a branch. Git refuses to delete a branch a worktree has checked out,
+// so the class order puts whatever holds a resource first (FR-CLEAN-002).
 func removeWorktrees(t *testing.T, adapter *Git, f *realFixture, plan *Plan) {
 	t.Helper()
 
@@ -824,11 +814,11 @@ func cleanupOf(f *realFixture, plan *Plan) CleanupRequest {
 // TestRealRemovalTakesTheDirectoriesTheTaskWasGiven is the other half of
 // FR-CLEAN-001 against Git itself: a cleanup leaves nothing of the task behind.
 //
-// What only real Git can settle is that `worktree remove` removes the worktree
-// directory and nothing above it. That is correct of Git — it did not create
-// those directories — and it is what left an empty `…/worktrees/{project}/{task}`
-// on the machine after every cleanup, which the next recovery pass then reported
-// as an orphan for the user to look at. Feat created them, so Feat removes them.
+// Only real Git can settle that `worktree remove` removes the worktree
+// directory and nothing above it. Git is right not to, having created none of
+// those directories, and the empty `…/worktrees/{project}/{task}` it left
+// behind was reported as an orphan by the next recovery pass. Feat created
+// them, so Feat removes them.
 //
 // The boundaries are checked here rather than only in a unit test, because they
 // are the directories in this walk that must survive a cleanup: the project's
@@ -867,7 +857,7 @@ func TestRealRemovalTakesTheDirectoriesTheTaskWasGiven(t *testing.T) {
 		pruned = append(pruned, removal.Directories...)
 	}
 
-	// Reported once: the task's directory goes with the last worktree in it, and
+	// Reported once. The task's directory goes with the last worktree in it, and
 	// nothing above it does.
 	if want := []string{taskDir}; !slices.Equal(pruned, want) {
 		t.Errorf("the removals reported %v, want %v", pruned, want)
@@ -881,8 +871,8 @@ func TestRealRemovalTakesTheDirectoriesTheTaskWasGiven(t *testing.T) {
 		}
 	}
 
-	// And the checkouts the worktrees came from are untouched, which is the rule
-	// every removal in this package is bounded by.
+	// The checkouts the worktrees came from are untouched, which is the rule every
+	// removal in this package is bounded by.
 	for _, checkout := range []string{f.api, f.store} {
 		if _, err := os.Stat(filepath.Join(checkout, ".git")); err != nil {
 			t.Errorf("the ordinary checkout %s was damaged: %v", checkout, err)
@@ -892,12 +882,11 @@ func TestRealRemovalTakesTheDirectoriesTheTaskWasGiven(t *testing.T) {
 
 // TestRealComparisonAgainstTheRecordedBase is FR-REV-001 against Git itself.
 //
-// The commit the task started from is what every number is measured against,
-// and the point of asking real Git is the parts a fake cannot decide: that
-// `--numstat` prints what the parser reads, that a binary file is reported as
-// "-" rather than as a line count, and that an untracked file is counted as
-// changed while contributing no lines — because counting its lines would mean
-// writing to the index.
+// Every number is measured against the commit the task started from. Real Git
+// decides the parts a fake cannot: that `--numstat` prints what the parser
+// reads, that a binary file is reported as "-" rather than as a line count, and
+// that an untracked file counts as changed while contributing no lines, because
+// counting its lines would mean writing to the index.
 func TestRealComparisonAgainstTheRecordedBase(t *testing.T) {
 	requireGit(t)
 	f := realProject(t)
@@ -943,8 +932,8 @@ func TestRealComparisonAgainstTheRecordedBase(t *testing.T) {
 		t.Error("the head is the base, so the comparison would be of a task that did nothing")
 	}
 	// feature.go is three lines added; README.md is one added and one removed.
-	// logo.bin changed and is binary, so Git reports no line count for it and
-	// none is invented.
+	// logo.bin is binary, so Git reports no line count for it and none is
+	// invented.
 	if comparison.Insertions != 4 || comparison.Deletions != 1 {
 		t.Errorf("counted +%d -%d, want +4 -1 with the binary file contributing no lines",
 			comparison.Insertions, comparison.Deletions)
@@ -960,9 +949,9 @@ func TestRealComparisonAgainstTheRecordedBase(t *testing.T) {
 		t.Errorf("the observation is %+v, want dirty and one commit ahead", comparison.Observation)
 	}
 
-	// Comparing changed nothing: the index is untouched and the untracked file
-	// is still untracked, which is what --no-optional-locks and the absence of
-	// any writing command are for.
+	// Comparing changed nothing. The index is untouched and the untracked file is
+	// still untracked, which is what --no-optional-locks and the absence of any
+	// writing command are for.
 	if status := git(t, worktree, "status", "--porcelain"); status != "?? scratch.txt" {
 		t.Errorf("the worktree status after comparing is %q, want the untracked file alone", status)
 	}
@@ -971,11 +960,11 @@ func TestRealComparisonAgainstTheRecordedBase(t *testing.T) {
 // TestRealPushCarriesTheCommitAndRunsNoHook is the proof a fake runner cannot
 // give.
 //
-// A fake pins the argument vector and the environment; only Git can say that the
-// refspec puts that commit on the remote and that `core.hooksPath` really stops a
-// `pre-push` hook from running. The second half is the one that matters: it is
-// the difference between approving a publication and running whatever the agent
-// left in a directory the user's own checkout shares (ADR-050, ADR-070).
+// A fake pins the argument vector and the environment. Only Git can say that
+// the refspec puts that commit on the remote, and that `core.hooksPath` really
+// stops a `pre-push` hook from running. The second is the difference between
+// approving a publication and running what the agent left in a shared directory
+// (ADR-050, ADR-070).
 func TestRealPushCarriesTheCommitAndRunsNoHook(t *testing.T) {
 	requireGit(t)
 
@@ -1036,8 +1025,8 @@ func TestRealPushCarriesTheCommitAndRunsNoHook(t *testing.T) {
 		t.Errorf("the remote's %s is %s, want the commit the publication planned, %s",
 			branch, onRemote, head)
 	}
-	// And the remote-tracking ref followed it, which is what a cleanup plan
-	// counts unpushed commits against.
+	// The remote-tracking ref followed it, which is what a cleanup plan counts
+	// unpushed commits against.
 	if tracking := git(t, worktree, "rev-parse",
 		"refs/remotes/origin/"+branch); tracking != head {
 		t.Errorf("the remote-tracking ref is %s, want %s", tracking, head)
@@ -1045,10 +1034,8 @@ func TestRealPushCarriesTheCommitAndRunsNoHook(t *testing.T) {
 }
 
 // TestRealSuppressedHooksSaysNothingWhereThereIsNothing keeps the report from
-// becoming noise.
-//
-// A fresh clone has Git's own samples in .git/hooks and no hooks at all. A check
-// with nothing to report reports nothing (ADR-028).
+// becoming noise. A fresh clone has Git's own samples in .git/hooks and no
+// hooks at all, and a check with nothing to report reports nothing (ADR-028).
 func TestRealSuppressedHooksSaysNothingWhereThereIsNothing(t *testing.T) {
 	requireGit(t)
 

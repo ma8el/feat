@@ -8,9 +8,8 @@ import (
 	"sync"
 )
 
-// commit builds a recognisable full object name, so that a failed assertion
-// says which commit was expected rather than showing forty identical hex
-// characters.
+// commit builds a recognisable full object name, so a failed assertion says
+// which commit was expected rather than showing forty identical hex characters.
 func commit(seed string) string {
 	if len(seed) > 40 {
 		seed = seed[:40]
@@ -26,11 +25,9 @@ func commit(seed string) string {
 	return digits + strings.Repeat("0", 40-len(digits))
 }
 
-// fakeRepository is what a fake Git knows about one checkout.
-//
-// It answers the commands this package issues, and nothing else: a command the
-// package does not send has no answer here, so a test cannot pass by exercising
-// a code path that does not exist.
+// fakeRepository is what a fake Git knows about one checkout. It answers the
+// commands this package issues and nothing else, so a test cannot pass by
+// exercising a code path the package never takes.
 type fakeRepository struct {
 	// refs maps a full ref name to the commit it points at. "HEAD" is included
 	// when the checkout has one.
@@ -51,10 +48,9 @@ type fakeRepository struct {
 	counts map[string]int
 	// ancestors answers `merge-base --is-ancestor`, keyed by "a b".
 	ancestors map[string]bool
-	// containedByHead are the branches `git branch -d` accepts: the ones the
-	// checkout's HEAD contains. Every other branch is refused without -D, which
-	// is the question Git asks about a deletion and is not the question Feat's
-	// plan answers (ADR-097).
+	// containedByHead are the branches `git branch -d` accepts, which are the ones
+	// the checkout's HEAD contains. Every other branch is refused without -D, and
+	// that is not the question Feat's plan answers (ADR-097).
 	containedByHead map[string]bool
 	// fail makes one subcommand fail, keyed by its first word.
 	fail map[string]error
@@ -72,13 +68,13 @@ type fakeGit struct {
 	mu sync.Mutex
 	// repositories are the checkouts, keyed by their directory.
 	repositories map[string]*fakeRepository
-	// calls records every argument vector, in order, so that a test can assert
-	// what was run and what was not.
+	// calls records every argument vector, in order, so a test can assert what was
+	// run and what was not.
 	calls [][]string
 	// dirs records the working directory of each call.
 	dirs []string
-	// environments records the extra environment of each call, so that a test
-	// can assert what a command ran under as well as what it ran.
+	// environments records the extra environment of each call, so a test can
+	// assert what a command ran under as well as what it ran.
 	environments [][]string
 }
 
@@ -222,10 +218,9 @@ func (f *fakeGit) RunWith(_ context.Context, dir string, env []string, args ...s
 		}
 		return repository.hooksPath, nil
 	case "push":
-		// What reached the remote is the argument vector, which every call
-		// records above: a second copy of it here read as coverage the assertions
-		// did not have, because nothing ever looked at it. Arranging a push that
-		// fails is fail["push"], like every other command.
+		// What reached the remote is the argument vector every call records above, so
+		// this keeps no second copy of it. A push that fails is arranged with
+		// fail["push"], like every other command.
 		return "", nil
 	default:
 		return "", fmt.Errorf("fake git: unexpected command %q", strings.Join(args, " "))
@@ -256,13 +251,11 @@ func (r *fakeRepository) revParse(args []string, dir string) (string, error) {
 // worktree answers `worktree list`, `worktree add`, `worktree remove`, and
 // `worktree prune`.
 //
-// Adding one and removing one have the effects the real command has that this
-// package depends on: a worktree is registered with its branch when it is added,
-// and its directory is deleted from disk and deregistered when it is removed.
-// Removing a dirty one without --force is refused, because that is Git's own
-// safety and the confirmation rule in internal/reconcile sits on top of it — a
-// fake that removed dirty work regardless would let a caller that forgot to
-// force pass here and fail against Git.
+// Adding and removing have the effects this package depends on: a worktree is
+// registered with its branch when added, and its directory is deleted and
+// deregistered when removed. Removing a dirty one without --force is refused,
+// because a fake that removed dirty work anyway would let a caller that forgot
+// to force pass here and fail against Git.
 func (f *fakeGit) worktree(repository *fakeRepository, args []string, dir string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -337,9 +330,8 @@ func (f *fakeGit) worktree(repository *fakeRepository, args []string, dir string
 //
 // Git's own refusal is modelled rather than assumed. `-d` deletes a branch the
 // checkout's HEAD contains and refuses one it does not, in the words Git uses;
-// `-D` deletes either. A fake that deleted whatever it was handed would let a
-// caller that chose the wrong flag pass here and fail on a real checkout, which
-// is exactly how the defect ADR-097 records survived the unit tests.
+// `-D` deletes either. A fake that deleted whatever it was handed is how the
+// defect ADR-097 records survived the unit tests.
 func (f *fakeGit) branch(repository *fakeRepository, args []string, dir string) (string, error) {
 	name := args[len(args)-1]
 	if !contains(args, "-D") && !repository.containedByHead[name] {
