@@ -19,12 +19,11 @@ const (
 
 // readLoad reports the machine's run-queue averages.
 //
-// macOS has no processor-utilisation figure that Go can read without cgo: the
-// Mach call that carries it, host_processor_info, is not reachable from pure Go,
-// and the usual library returns "not implemented" in its no-cgo build. Feat
-// therefore reports load on both platforms rather than a percentage on one and
-// something differently defined on the other (ADR-035, and the reason this
-// function exists on Linux too).
+// macOS has no processor-utilisation figure Go can read without cgo. The Mach call
+// that carries it, host_processor_info, is not reachable from pure Go, and the usual
+// library returns "not implemented" in its no-cgo build. Feat therefore reports load
+// on both platforms rather than a percentage on one and something else on the other
+// (ADR-035).
 func readLoad(ctx context.Context, runner Runner) ([3]float64, error) {
 	output, err := runner.Run(ctx, Invocation{
 		Program:   sysctlProgram,
@@ -96,9 +95,8 @@ func readMemory(ctx context.Context, runner Runner) (total, available uint64, er
 // availablePages are the counters that make up memory the kernel can hand out
 // without paging anything to disk.
 //
-// Purgeable pages are deliberately not added: vm_stat already counts them inside
-// the active and inactive figures, so adding them would count the same memory
-// twice and report a machine as having more free memory than it has.
+// Purgeable pages are not added, because vm_stat already counts them inside the
+// active and inactive figures, and adding them would count the same memory twice.
 var availablePages = []string{"Pages free", "Pages inactive", "Pages speculative"}
 
 // parseAvailableMemory reads vm_stat's page counters.
@@ -143,9 +141,8 @@ func parseAvailableMemory(output string) (uint64, error) {
 
 // parsePageSize reads "Mach Virtual Memory Statistics: (page size of 16384 bytes)".
 //
-// The size is read rather than assumed, because it is not the same on every Mac
-// and a wrong one would misreport free memory by a factor of four with nothing
-// to say so.
+// The size is read rather than assumed, because it is not the same on every Mac and a
+// wrong one would misreport free memory by a factor of four.
 func parsePageSize(heading string) (uint64, error) {
 	const marker = "page size of "
 	_, after, found := strings.Cut(heading, marker)

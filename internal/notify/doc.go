@@ -20,9 +20,9 @@
 //   - every notification is headed by Feat's mark, because the icon beside one
 //     belongs to whichever application posted it and never to Feat.
 //
-// The second rule is a property of what this package can reach rather than a
-// filter over what it writes: Compose is given a task's key, title, and project
-// and has no way to name a brief, an agent's words, a path, a command, or a
+// The second rule holds because of what this package can reach rather than by
+// filtering what it writes. Compose is given a task's key, title, and project, and
+// has no way to name a brief, an agent's words, a path, a command, or a
 // configuration value.
 //
 // See ADR-035.

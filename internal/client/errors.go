@@ -6,10 +6,9 @@ import (
 	"net/http"
 )
 
-// ErrDaemonNotRunning reports that nothing is listening on the socket.
-//
-// It is separated from every other transport failure because it is the one a
-// client can do something about: start the daemon.
+// ErrDaemonNotRunning reports that nothing is listening on the socket. It is
+// separate from every other transport failure because a client can act on it by
+// starting the daemon.
 var ErrDaemonNotRunning = errors.New("no feat daemon is listening")
 
 // StatusError reports a response the daemon refused.
@@ -38,9 +37,7 @@ func (e *StatusError) Error() string {
 // NotFound reports whether the daemon said the resource does not exist.
 func (e *StatusError) NotFound() bool { return e.Status == http.StatusNotFound }
 
-// ErrorCode returns the daemon's stable classification, which is how a caller
-// asks what kind of refusal this was without reading the message.
-//
-// It satisfies api.Coded, so the same question can be asked of an error that
-// crossed the socket and one that did not.
+// ErrorCode returns the daemon's stable classification, so a caller can ask what
+// kind of refusal this was without reading the message. It satisfies api.Coded, so
+// the same question suits an error that crossed the socket and one that did not.
 func (e *StatusError) ErrorCode() string { return e.Code }

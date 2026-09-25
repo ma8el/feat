@@ -17,17 +17,15 @@ import (
 
 // TestRealToolsThisRunDemandsAllAnswer is the tier's preflight.
 //
-// Every gated test refuses on its own demand, which is where the useful message
-// is: "this machine cannot run a container to measure" names the proof that
-// went missing. This test exists above them for the two things a per-test
-// refusal cannot do. It gives one legible failure at the top of the run instead
-// of the same absence restated eighteen times across five packages, and it
-// fails on a requirement list naming something that is not a tool — a typo
-// there would otherwise demand nothing at all, silently, which is the defect
-// wearing a variable.
+// Every gated test refuses on its own demand, which is where the useful message is:
+// "this machine cannot run a container to measure" names the proof that went
+// missing. This test exists above them for two things a per-test refusal cannot do.
+// It gives one legible failure at the top of the run instead of the same absence
+// restated eighteen times across five packages, and it fails on a requirement list
+// naming something that is not a tool, which would otherwise demand nothing at all.
 //
-// It is named for the integration run pattern like everything else in the tier,
-// so `make test-real` and CI both reach it.
+// It is named for the integration run pattern like everything else in the tier, so
+// `make test-real` and CI both reach it.
 func TestRealToolsThisRunDemandsAllAnswer(t *testing.T) {
 	if !integrationtest.Enabled() {
 		t.Skipf("set %s=1 to run the tests that drive the real tools", integrationtest.Env)
@@ -38,10 +36,9 @@ func TestRealToolsThisRunDemandsAllAnswer(t *testing.T) {
 		t.Fatalf("this run's requirements cannot be read: %v", err)
 	}
 	if len(required) == 0 {
-		// Not a failure: a bare `go test -run TestReal ./...` demands nothing,
-		// and always did. It says so, because a run that proves whatever
-		// happens to be installed should not read like a run that proved what
-		// it set out to.
+		// Not a failure, because a bare `go test -run TestReal ./...` demands
+		// nothing and always did. It says so, so a run that proves whatever happens
+		// to be installed does not read like one that proved what it set out to.
 		t.Logf("this run demands no tool, so every absent one will skip. "+
 			"Set %s to make the tier's proofs mandatory; `make test-real` does.", integrationtest.EnvRequire)
 		return
@@ -58,16 +55,13 @@ func TestRealToolsThisRunDemandsAllAnswer(t *testing.T) {
 	}
 }
 
-// probeTimeout bounds each question. A Docker daemon that has stopped
-// answering is the case this exists for, and it does not always refuse
-// promptly.
+// probeTimeout bounds each question. A Docker daemon that has stopped answering is
+// the case this exists for, and it does not always refuse promptly.
 const probeTimeout = 30 * time.Second
 
-// probe asks one tool whether it is installed and answering.
-//
-// The questions are the cheapest ones that distinguish "on PATH" from
-// "working", because a Docker CLI whose daemon is down is exactly the machine
-// state that used to pass the gate.
+// probe asks one tool whether it is installed and answering. The questions are the
+// cheapest ones that distinguish "on PATH" from "working", because a Docker CLI
+// whose daemon is down is the machine state that used to pass the gate.
 func probe(tool integrationtest.Tool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
@@ -89,10 +83,10 @@ func probe(tool integrationtest.Tool) error {
 	case integrationtest.Glab:
 		return answers(ctx, "glab", "--version")
 	case integrationtest.Notify:
-		// The notifier is asked rather than looked up on PATH: what it needs is
-		// per-platform, and the build that has no notifier at all answers this
-		// too. Feat can only ever say it handed a notification over, so this is
-		// the same question the tests behind the demand ask.
+		// The notifier is asked rather than looked up on PATH, because what it needs
+		// is per-platform and a build with no notifier at all answers this too. Feat
+		// can only ever say it handed a notification over, so this is the same
+		// question the tests behind the demand ask.
 		if available, reason := notify.Host().Available(); !available {
 			return fmt.Errorf("%s", reason)
 		}
@@ -115,11 +109,9 @@ func answers(ctx context.Context, program string, args ...string) error {
 	return nil
 }
 
-// tail returns the end of a tool's output.
-//
-// `docker info` prints a screenful about the client before it says the daemon
-// is unreachable, and the sentence a reader needs is the last one. A preflight
-// failure that scrolls the reason off the top has not told anybody anything.
+// tail returns the end of a tool's output, bounded by tailLines. `docker info`
+// prints a screenful about the client before it says the daemon is unreachable, and
+// the sentence a reader needs is the last one.
 const tailLines = 8
 
 func tail(output string) string {

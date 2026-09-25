@@ -8,19 +8,17 @@ import (
 	"time"
 )
 
-// ErrNotInstalled reports an executable this host does not have.
-//
-// It is a distinct error because an absent Docker is not a broken Docker: a
-// machine with no container runtime has no containers to attribute, which is an
-// answer rather than a failure.
+// ErrNotInstalled reports an executable this host does not have. It is a distinct
+// error because a machine with no container runtime has no containers to attribute,
+// which is an answer rather than a failure.
 var ErrNotInstalled = errors.New("not installed on this host")
 
 // Sample is one observation of the machine and of the tasks Feat manages.
 //
-// Nothing here is derived from what Feat asked for. Every figure is something a
-// tool reported, and a figure no tool reported is absent rather than zero: a
-// dashboard that printed "0 MiB" where it had not looked would be making a
-// claim, which is the rule ADR-028 established for diagnostics.
+// Nothing here is derived from what Feat asked for. Every figure is something a tool
+// reported, and a figure no tool reported is absent rather than zero. A dashboard
+// that printed "0 MiB" where it had not looked would be making a claim, which is the
+// rule ADR-028 established for diagnostics.
 type Sample struct {
 	// Machine is what the whole host reported.
 	Machine Machine
@@ -47,8 +45,8 @@ type Machine struct {
 	// is true.
 	//
 	// Feat reports load rather than a utilisation percentage because a per-core
-	// percentage is not obtainable on macOS without cgo, and one measure on both
-	// platforms is worth more than two that look alike and are not (ADR-035).
+	// percentage is not obtainable on macOS without cgo. One measure that means the
+	// same on both platforms is worth more than two that only look alike (ADR-035).
 	Load1, Load5, Load15 float64
 	LoadKnown            bool
 
@@ -68,10 +66,9 @@ type Machine struct {
 // TaskUsage is what one task's containers and processes reported.
 //
 // Container and process figures are kept apart as well as summed. On macOS a
-// container's memory is memory inside the container runtime's own virtual
-// machine, measured against that machine's limit rather than the host's, so
-// presenting the sum as a share of host memory would be a claim nothing
-// measured (ADR-035, evidence 3).
+// container's memory is memory inside the container runtime's own virtual machine,
+// measured against that machine's limit rather than the host's. Presenting the sum as
+// a share of host memory would be a claim nothing measured (ADR-035, evidence 3).
 type TaskUsage struct {
 	// Task is the identifier the caller attributes this usage to.
 	Task string
@@ -119,9 +116,8 @@ const (
 	// KindAgent is the container an agent session runs in.
 	//
 	// The agent's generated override carries no kind label, so a Feat-owned
-	// container without one is the agent's. Inferring it rather than requiring
-	// the label keeps a container an older build created classifiable, which a
-	// new label could not do (ADR-035).
+	// container without one is the agent's. Inferring it rather than requiring the
+	// label keeps a container an older build created classifiable (ADR-035).
 	KindAgent = "agent"
 )
 
@@ -155,11 +151,9 @@ type Output struct {
 // Succeeded reports whether the command exited cleanly.
 func (o Output) Succeeded() bool { return o.ExitCode == 0 }
 
-// Runner executes host commands for the observer.
-//
-// It is an interface for the reason git.Runner and runtime.Runner are: a test
-// can arrange a Docker that is missing, one that answers slowly, and one that
-// reports a container in a state this machine is not in.
+// Runner executes host commands for the observer. It is an interface for the reason
+// git.Runner and runtime.Runner are: a test can arrange a Docker that is missing, one
+// that answers slowly, and one that reports a state this machine is not in.
 type Runner interface {
 	// Run executes the command and returns what it produced. A command that ran
 	// and exited non-zero is not an error; only one that could not be started at
@@ -188,11 +182,10 @@ type Options struct {
 
 // Observer samples the machine and the tasks it is given.
 //
-// It is stateful for one reason: process CPU is a difference between two
-// readings of cumulative processor time, which is the only definition that means
-// the same thing on macOS and on Linux. The first sample therefore reports
-// process memory and no process CPU, and says so through CPUKnown rather than
-// by reporting zero.
+// It is stateful because process CPU is a difference between two readings of
+// cumulative processor time, the only definition that means the same thing on macOS
+// and on Linux. The first sample therefore reports process memory and no process
+// CPU, and says so through CPUKnown rather than by reporting zero.
 type Observer struct {
 	runner  Runner
 	disk    string
@@ -239,10 +232,10 @@ func New(opts Options) *Observer {
 
 // Observe takes one sample.
 //
-// It never returns an error. Every source is asked independently, and one that
-// cannot answer becomes a note rather than a failed sample: the acceptance
-// criterion is that collection failure degrades gracefully, and a caller that
-// had to handle an error would eventually handle it by showing nothing at all.
+// It never returns an error. Every source is asked independently, and one that cannot
+// answer becomes a note rather than a failed sample. Collection failure has to
+// degrade gracefully, and a caller made to handle an error would eventually handle it
+// by showing nothing at all.
 func (o *Observer) Observe(ctx context.Context, targets []Target) Sample {
 	started := o.now()
 	sample := Sample{TakenAt: started}

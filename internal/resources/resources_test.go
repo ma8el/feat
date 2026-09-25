@@ -9,11 +9,9 @@ import (
 	"time"
 )
 
-// fakeRunner answers the observation commands from fixtures.
-//
-// It is keyed on the program and its first argument, because that is what
-// distinguishes the four commands this package runs and nothing finer would add
-// anything.
+// fakeRunner answers the observation commands from fixtures. It is keyed on the
+// program and its first argument, which is what distinguishes the four commands this
+// package runs.
 type fakeRunner struct {
 	mu sync.Mutex
 
@@ -89,9 +87,9 @@ const (
 	otherTask = "2c4e6a80-1b3d-4f52-8a7c-9e0d1f2a3b4c"
 )
 
-// containerList is what `docker ps` prints for two tasks' containers: one
-// agent environment and one application service, plus a container of another
-// task that must not be attributed to the first.
+// containerList is what `docker ps` prints for two tasks' containers: one agent
+// environment and one application service, plus a container of another task that must
+// not be attributed to the first.
 const containerList = "aaaa11112222\tfeat-agent-example-7f3a1c2e-dev\t" + agentTask + "\t\n" +
 	"bbbb33334444\tfeat-example-7f3a1c2e-api-1\t" + agentTask + "\truntime\n" +
 	"cccc55556666\tfeat-agent-example-2c4e6a80-dev\t" + otherTask + "\t\n"
@@ -101,12 +99,10 @@ const containerStats = `{"ID":"aaaa11112222","Name":"feat-agent-example-7f3a1c2e
 {"ID":"bbbb33334444","Name":"feat-example-7f3a1c2e-api-1","CPUPerc":"3.25%","MemUsage":"512MiB / 7.653GiB"}
 {"ID":"cccc55556666","Name":"feat-agent-example-2c4e6a80-dev","CPUPerc":"99.00%","MemUsage":"1GiB / 7.653GiB"}`
 
-// TestUsageIsAttributedToTheTaskThatOwnsIt checks that a container reaches the
-// task whose label it carries, and no other.
-//
-// Attribution comes from Feat's own ownership labels rather than from a record,
-// which is what lets an application's containers be found without the daemon
-// remembering which ones Compose created for it.
+// TestUsageIsAttributedToTheTaskThatOwnsIt checks that a container reaches the task
+// whose label it carries, and no other. Attribution comes from Feat's own ownership
+// labels rather than from a record, so an application's containers are found without
+// the daemon remembering which ones Compose created.
 func TestUsageIsAttributedToTheTaskThatOwnsIt(t *testing.T) {
 	runner := newFakeRunner().
 		answer("docker ps", containerList).
@@ -132,9 +128,8 @@ func TestUsageIsAttributedToTheTaskThatOwnsIt(t *testing.T) {
 		t.Errorf("task %s uses %d bytes in containers, want %d", agentTask, first.ContainerMemoryBytes, want)
 	}
 
-	// The kinds separate the agent's own environment from the application the
-	// user is testing. Both belong to the task; only one is what they are
-	// testing.
+	// The kinds separate the agent's own environment from the application. Both
+	// belong to the task, and only one is what the user is testing.
 	kinds := map[string]string{}
 	for _, container := range first.Containers {
 		kinds[container.Name] = container.Kind
@@ -152,12 +147,10 @@ func TestUsageIsAttributedToTheTaskThatOwnsIt(t *testing.T) {
 	}
 }
 
-// TestNothingIsMeasuredForATaskThatOwnsNothing checks that absence is reported
-// as absence.
-//
-// A draft owns no container and no process. Reporting it as using nothing would
-// be a measurement nobody took, which is the rule ADR-028 established for
-// diagnostics and ADR-031 carried into the dashboard.
+// TestNothingIsMeasuredForATaskThatOwnsNothing checks that absence is reported as
+// absence. A draft owns no container and no process, and reporting it as using
+// nothing would be a measurement nobody took, which is the rule ADR-028 established
+// for diagnostics and ADR-031 carried into the dashboard.
 func TestNothingIsMeasuredForATaskThatOwnsNothing(t *testing.T) {
 	runner := newFakeRunner().answer("docker ps", "").answer("ps -A", "")
 
@@ -171,12 +164,10 @@ func TestNothingIsMeasuredForATaskThatOwnsNothing(t *testing.T) {
 	}
 }
 
-// TestNothingRunningCostsNoContainerStats checks that the slow call is not made
-// when there is nothing to make it about.
-//
-// `docker stats` takes between one and two seconds whatever it is given, so
-// paying it to confirm an absence would be paying it on every machine where no
-// task has a container at all (ADR-035).
+// TestNothingRunningCostsNoContainerStats checks that the slow call is not made when
+// there is nothing to make it about. `docker stats` takes between one and two seconds
+// whatever it is given, and confirming an absence with it would cost that on every
+// machine where no task has a container (ADR-035).
 func TestNothingRunningCostsNoContainerStats(t *testing.T) {
 	runner := newFakeRunner().answer("docker ps", "").answer("ps -A", "")
 
@@ -189,13 +180,12 @@ func TestNothingRunningCostsNoContainerStats(t *testing.T) {
 	}
 }
 
-// TestCollectionFailureDegradesGracefully is the rule that a metric never blocks
-// a task.
+// TestCollectionFailureDegradesGracefully is the rule that a metric never blocks a
+// task.
 //
-// Every source is asked independently. A machine that cannot report its memory,
-// a Docker that refuses, and a ps that is not there produce three notes and one
-// sample, rather than one failure and no sample: the figures that could be taken
-// are worth more than the ones that could not are worth losing.
+// Every source is asked independently. A machine that cannot report its memory, a
+// Docker that refuses, and a ps that is not there produce three notes and one sample,
+// rather than one failure and no sample.
 func TestCollectionFailureDegradesGracefully(t *testing.T) {
 	runner := newFakeRunner().
 		refuse("docker ps", "Cannot connect to the Docker daemon", 1).
@@ -226,11 +216,9 @@ func TestCollectionFailureDegradesGracefully(t *testing.T) {
 	}
 }
 
-// TestAnAbsentContainerRuntimeIsNotAFailure checks that a machine without Docker
-// is a machine with no containers.
-//
-// Reporting it as an error would put a note on every sample for the life of the
-// daemon, on a machine where nothing is wrong.
+// TestAnAbsentContainerRuntimeIsNotAFailure checks that a machine without Docker is a
+// machine with no containers. Reporting it as an error would put a note on every
+// sample for the life of the daemon, on a machine where nothing is wrong.
 func TestAnAbsentContainerRuntimeIsNotAFailure(t *testing.T) {
 	runner := newFakeRunner().
 		fail("docker ps", ErrNotInstalled).
@@ -248,10 +236,9 @@ func TestAnAbsentContainerRuntimeIsNotAFailure(t *testing.T) {
 // TestProcessCPUIsADifferenceBetweenTwoSamples checks the one figure that cannot
 // be read once.
 //
-// ps's own %cpu column means different things on the two supported platforms — a
-// decaying recent average on macOS, a lifetime average on Linux — so Feat
-// differences cumulative processor time instead. The first sample therefore has
-// no processor figure and says so rather than reporting zero.
+// ps's own %cpu column is a decaying recent average on macOS and a lifetime average
+// on Linux, so Feat differences cumulative processor time instead. The first sample
+// therefore has no processor figure and says so rather than reporting zero.
 func TestProcessCPUIsADifferenceBetweenTwoSamples(t *testing.T) {
 	runner := newFakeRunner().answer("docker ps", "")
 	instance := observer(t, runner, fakeMachine{})
@@ -273,8 +260,8 @@ func TestProcessCPUIsADifferenceBetweenTwoSamples(t *testing.T) {
 			first.Tasks[0].Processes)
 	}
 
-	// Ten seconds later, the subtree has used four more seconds of processor
-	// time: three in the pane and one in its child, so forty percent of one core.
+	// Ten seconds later the subtree has used four more seconds of processor time,
+	// three in the pane and one in its child, so forty percent of one core.
 	instance.now = func() time.Time { return base.Add(10 * time.Second) }
 	runner.answer("ps -A", "4321 1 8192 0:13.00\n4322 4321 4096 0:06.00\n")
 
@@ -287,8 +274,8 @@ func TestProcessCPUIsADifferenceBetweenTwoSamples(t *testing.T) {
 	}
 }
 
-// TestARecycledProcessIdentifierIsNotNegativeUse checks the one way a difference
-// can go wrong: an identifier reused by a different process between samples.
+// TestARecycledProcessIdentifierIsNotNegativeUse checks the one way a difference can
+// go wrong, an identifier reused by a different process between samples.
 func TestARecycledProcessIdentifierIsNotNegativeUse(t *testing.T) {
 	runner := newFakeRunner().answer("docker ps", "")
 	instance := observer(t, runner, fakeMachine{})
@@ -310,11 +297,10 @@ func TestARecycledProcessIdentifierIsNotNegativeUse(t *testing.T) {
 	}
 }
 
-// TestTheProcessTreeIsWalkedFromThePane checks that a task's work is what its
-// terminal started, not the terminal itself.
-//
-// Counting the pane alone would report a task compiling its project as using
-// nothing at all, because the pane's own shell is asleep while its child works.
+// TestTheProcessTreeIsWalkedFromThePane checks that a task's work is what its terminal
+// started rather than the terminal itself. Counting the pane alone would report a task
+// compiling its project as using nothing, because the pane's shell is asleep while its
+// child works.
 func TestTheProcessTreeIsWalkedFromThePane(t *testing.T) {
 	runner := newFakeRunner().answer("docker ps", "").answer("ps -A",
 		// pane, its shell, the shell's child, and an unrelated process.
@@ -332,10 +318,8 @@ func TestTheProcessTreeIsWalkedFromThePane(t *testing.T) {
 }
 
 // TestByteSizesAreReadInTheUnitsTheyWerePrintedIn pins the parsing of what the
-// container runtime prints.
-//
-// Reading "1.5GB" as 1.5 GiB would overstate a task's memory by seven percent
-// for ever, and nothing would say so.
+// container runtime prints. Reading "1.5GB" as 1.5 GiB would overstate a task's memory
+// by seven percent and nothing would report it.
 func TestByteSizesAreReadInTheUnitsTheyWerePrintedIn(t *testing.T) {
 	for value, want := range map[string]uint64{
 		"512B":     512,
@@ -351,18 +335,16 @@ func TestByteSizesAreReadInTheUnitsTheyWerePrintedIn(t *testing.T) {
 		}
 	}
 
-	// Only the used half is read. The limit beside it is the container runtime's
-	// own, which on macOS is its virtual machine's rather than the machine's.
+	// Only the used half is read. The limit beside it is the container runtime's own,
+	// which on macOS is its virtual machine's rather than the host's.
 	if got := memoryUsed("540KiB / 7.653GiB"); got != "540KiB" {
 		t.Errorf("memoryUsed read %q, want the used half alone", got)
 	}
 }
 
-// TestProcessTimesAreReadInBothPlatformsFormats pins the other parsing this
-// package depends on.
-//
-// Linux prints [dd-]hh:mm:ss and macOS prints [dd-][hh:]mm:ss.cc, so the fields
-// are read from the right rather than counted from the left.
+// TestProcessTimesAreReadInBothPlatformsFormats pins the other parsing this package
+// depends on. Linux prints [dd-]hh:mm:ss and macOS prints [dd-][hh:]mm:ss.cc, so the
+// fields are read from the right rather than counted from the left.
 func TestProcessTimesAreReadInBothPlatformsFormats(t *testing.T) {
 	for value, want := range map[string]time.Duration{
 		"0:05.00":    5 * time.Second,

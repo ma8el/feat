@@ -21,10 +21,10 @@ func requireIntegration(t *testing.T) {
 // TestRealMachineIsReadable checks the figures this build takes from the machine
 // it is running on.
 //
-// The parsers are pinned by unit tests against fixtures, which prove that Feat
-// reads a given output correctly. This proves the other half: that the output is
-// what Feat expects. Both matter, and devcontainer execution found out the hard
-// way that only the second one catches a tool that answers somewhere else.
+// The unit tests pin the parsers against fixtures, which proves Feat reads a given
+// output correctly. This proves the other half, that the output is what Feat expects.
+// Only the second catches a tool that answers from somewhere else, which devcontainer
+// execution ran into.
 func TestRealMachineIsReadable(t *testing.T) {
 	requireIntegration(t)
 
@@ -60,11 +60,9 @@ func TestRealMachineIsReadable(t *testing.T) {
 	}
 }
 
-// spin burns processor time in this process for a period.
-//
-// It is deliberately wall-clock bounded rather than a fixed number of
-// iterations, so that a slow or a loaded machine spends the same time being
-// measured as a fast one.
+// spin burns processor time in this process for a period. It is bounded by the wall
+// clock rather than by a number of iterations, so a slow or loaded machine spends the
+// same time being measured as a fast one.
 func spin(d time.Duration) {
 	deadline := time.Now().Add(d)
 	total := 0
@@ -77,16 +75,15 @@ func spin(d time.Duration) {
 // TestRealProcessUsageIsMeasured checks the process half against real ps output
 // and a real process.
 //
-// The test's own process is the subtree, so there is certainly something to
-// find, and its memory is certainly not zero. The processor figure needs two
-// samples, which is the point of taking two.
+// The test's own process is the subtree, so there is something to find and its memory
+// is not zero. The processor figure needs two samples, which is why two are taken.
 //
-// How long it must spin is a statement about ps rather than about Feat. Linux
-// reports cumulative processor time in whole seconds and macOS in centiseconds,
-// so the 200ms this test first used was a tenth of what Linux can represent at
-// all and reported zero there — correctly (ADR-035 evidence 16). It therefore
-// spins past the coarser platform's resolution and keeps going, bounded, rather
-// than for one period chosen on the platform with the finer clock.
+// How long it must spin is a statement about ps rather than about Feat. Linux reports
+// cumulative processor time in whole seconds and macOS in centiseconds, so the 200ms
+// this test first used was a tenth of what Linux can represent and correctly reported
+// zero there (ADR-035 evidence 16). It therefore spins past the coarser platform's
+// resolution and keeps going, bounded, rather than for one period chosen on the
+// platform with the finer clock.
 func TestRealProcessUsageIsMeasured(t *testing.T) {
 	requireIntegration(t)
 
@@ -104,10 +101,10 @@ func TestRealProcessUsageIsMeasured(t *testing.T) {
 		t.Errorf("the first sample reports processor use it could not have measured")
 	}
 
-	// A full second of processor time raises a whole-second counter by at least
-	// one whatever the offset it started at, so one round is enough on an idle
-	// machine. The rounds exist for a shared runner, where wall-clock spinning
-	// buys less than its own duration in processor time.
+	// A full second of processor time raises a whole-second counter by at least one
+	// whatever offset it started at, so one round is enough on an idle machine. The
+	// rounds exist for a shared runner, where wall-clock spinning buys less than its
+	// own duration in processor time.
 	var (
 		second  Sample
 		rounds  int
@@ -132,12 +129,11 @@ func TestRealProcessUsageIsMeasured(t *testing.T) {
 // TestRealContainerUsageIsMeasured checks the container half against real
 // Docker.
 //
-// It creates a container carrying Feat's ownership labels and requires the
-// observer to find it, attribute it to the task the label names, and report a
-// memory figure — which is the whole path from `docker ps` through `docker
-// stats` to a per-task total. The parsers cannot be proved right against a
-// fixture alone: what Docker prints, and in which units, is a statement about
-// Docker.
+// It creates a container carrying Feat's ownership labels and requires the observer to
+// find it, attribute it to the task the label names, and report a memory figure. That
+// is the whole path from `docker ps` through `docker stats` to a per-task total, and
+// what Docker prints, in which units, is a statement about Docker rather than about a
+// fixture.
 func TestRealContainerUsageIsMeasured(t *testing.T) {
 	requireIntegration(t)
 	if _, err := exec.LookPath(dockerProgram); err != nil {
@@ -160,9 +156,9 @@ func TestRealContainerUsageIsMeasured(t *testing.T) {
 		"--label", "dev.feat.kind=runtime",
 		"alpine", "sh", "-c", "while true; do sleep 1; done")
 	if output, err := create.CombinedOutput(); err != nil {
-		// A `docker run` that fails is the sharpest form of the gate's old
-		// silence: Docker is installed, the probe above passed, and the proof
-		// still vanished. It is a failure when the run demanded Docker.
+		// A `docker run` that fails is the sharpest form of the gate's old silence:
+		// Docker is installed, the probe above passed, and the proof still vanished. It
+		// is a failure when the run demanded Docker.
 		integrationtest.Unavailable(t, integrationtest.Docker,
 			"this machine cannot run a container to measure: %v\n%s", err, output)
 	}

@@ -11,12 +11,11 @@
 //   - samples are not persisted continuously;
 //   - a figure that was not measured is absent rather than zero.
 //
-// It is an adapter under the rule ADR-029 established for Git: it receives
-// final values — process identifiers, a label selector, a filesystem path — and
-// reads neither configuration nor persistent state. It knows nothing about the
-// agent's execution environment or the application runtime; both are containers
-// to it, which is why a `resources-stays-an-adapter` rule denies it either
-// package.
+// It is an adapter under the rule ADR-029 established for Git. It receives final
+// values — process identifiers, a label selector, a filesystem path — and reads
+// neither configuration nor persistent state. It knows nothing about the agent's
+// execution environment or the application runtime, because both are containers to
+// it, which is why a `resources-stays-an-adapter` rule denies it either package.
 //
 // See ADR-035.
 package resources

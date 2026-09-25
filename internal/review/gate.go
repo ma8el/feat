@@ -13,11 +13,10 @@ import (
 // Bounds on how long a gate may take.
 //
 // They are constants rather than configuration, for the reason ADR-032 gave the
-// startup grace: the value bounds how long Feat waits while knowing nothing, and
-// any value comfortably beyond a working case serves as well as any other. What
-// they must never do is turn a slow check into a failed one, so a check that
-// exceeds a bound is recorded as not having finished rather than as having
-// failed (ADR-036).
+// startup grace: the value bounds how long Feat waits while knowing nothing, and any
+// value comfortably beyond a working case serves as well as another. A bound must never
+// turn a slow check into a failed one, so a check that exceeds one is recorded as not
+// having finished (ADR-036).
 const (
 	// CheckTimeout bounds one check.
 	CheckTimeout = 30 * time.Minute
@@ -67,9 +66,9 @@ type Runner interface {
 
 // Gate runs a task's configured checks and records what they produced.
 //
-// Every result it produces is attributed to the provider, because the gate ran
-// the command itself. That is the difference acceptance criterion 5 is about: an
-// agent's report is a claim, and this is evidence.
+// Every result it produces is attributed to the provider, because the gate ran the
+// command itself. That is what acceptance criterion 5 is about: an agent's report is a
+// claim, and a gate's result is what Feat observed.
 type Gate struct {
 	// Host runs checks configured to run on the trusted host.
 	Host Runner
@@ -77,18 +76,18 @@ type Gate struct {
 	Agent Runner
 	// Now supplies the current time. A nil value uses the wall clock.
 	Now func() time.Time
-	// CheckTimeout and Total override the bounds above. Only a test sets them:
-	// waiting thirty real minutes to prove that a bound exists is not a test.
+	// CheckTimeout and Total override the bounds above. Only a test sets them, because
+	// waiting thirty real minutes to prove a bound exists is not a test.
 	CheckTimeout time.Duration
 	Total        time.Duration
 }
 
 // Run executes each check and returns the results, in the order given.
 //
-// Nothing here fails the run as a whole. A check that could not be started, one
-// that exceeded its bound, and one the run had no time left for are each
-// recorded as themselves, because the alternative — abandoning the run — would
-// throw away the results of the checks that did finish.
+// Nothing here fails the run as a whole. A check that could not be started, one that
+// exceeded its bound, and one the run had no time left for are each recorded as
+// themselves, because abandoning the run would throw away the results of the checks
+// that did finish.
 func (g Gate) Run(ctx context.Context, checks []Check) []domain.Check {
 	now := g.Now
 	if now == nil {
@@ -148,8 +147,8 @@ func (g Gate) run(ctx context.Context, check Check, bound time.Duration, result 
 	output, err := runner.Run(bounded, check)
 	switch {
 	case errors.Is(bounded.Err(), context.DeadlineExceeded):
-		// Deliberately not a failure. The check did not report, and saying it
-		// failed would put words in the mouth of a command that never finished.
+		// Not a failure. The check did not report, and saying it failed would put
+		// words in the mouth of a command that never finished.
 		result.Status = domain.CheckUnknown
 		result.Detail = "did not finish within " + bound.String() + "; " + excerpt(output)
 	case err != nil:
@@ -170,9 +169,9 @@ func (g Gate) run(ctx context.Context, check Check, bound time.Duration, result 
 
 // Skip records a check that was deliberately not run.
 //
-// A check that did not run is never absent: a project that configured one and a
-// screen that shows nothing would leave a user to work out for themselves which
-// of the two it was (ADR-028's rule for diagnostics).
+// A check that did not run is never absent. A project that configured one and a screen
+// showing nothing would leave the user to work out which of the two it was (ADR-028's
+// rule for diagnostics).
 func Skip(check Check, reason string, now time.Time) domain.Check {
 	return domain.Check{
 		ID:           check.ID,
@@ -186,13 +185,12 @@ func Skip(check Check, reason string, now time.Time) domain.Check {
 
 // Outcome is what a gate run amounts to.
 //
-// Three values rather than a boolean, because "did not pass" covers two things
-// that belong to different people. A check that ran and reported failure is
-// evidence about the work, and the agent is the one who can act on it. A check
-// that never ran at all is a statement about the project's check configuration
-// or about the environment it runs in, and it belongs with the user: the agent
-// cannot fix the configuration that governs its own gate, and should not, since
-// an agent that chooses its own check command certifies itself (ADR-055).
+// Three values rather than a boolean, because "did not pass" covers two things that
+// belong to different people. A check that ran and reported failure is evidence about
+// the work, and the agent can act on it. A check that never ran says something about
+// the project's check configuration or the environment it runs in, and it belongs with
+// the user, because an agent that chose its own check command would be certifying
+// itself (ADR-055).
 type Outcome string
 
 // Gate outcomes.
@@ -208,9 +206,9 @@ const (
 
 // Verdict is what a gate run means for the task.
 type Verdict struct {
-	// Outcome is what the run amounts to. It is the only record of that: a
-	// separate "passed" flag beside it would be a second answer to one question,
-	// which is the shape ADR-047 removed from the review decision.
+	// Outcome is what the run amounts to, and the only record of it. A separate
+	// "passed" flag beside it would be a second answer to one question, which is the
+	// shape ADR-047 removed from the review decision.
 	Outcome Outcome
 	// Summary says what happened, in one line.
 	Summary string
@@ -224,20 +222,18 @@ type Verdict struct {
 // Decide reads a gate's results.
 //
 // A run passes only when every check that ran passed. A check that could not be
-// started, or that exceeded its bound, is inconclusive and does not pass: a task
-// that reached ready_for_review on the strength of a check nobody managed to run
-// would be claiming a verification that did not happen, which is the whole thing
-// the reporter distinction exists to prevent.
+// started, or that exceeded its bound, is inconclusive and does not pass, because a
+// task that reached ready_for_review on the strength of a check nobody managed to run
+// would be claiming a verification that did not happen.
 //
-// It does not fail either, which is the distinction ADR-055 added. Failure
-// outranks inconclusiveness where both appear — a check that reported is
-// evidence about the work, and the checks that did not run are still named in
-// what the agent is told and on the review screen — but a run with nothing to
-// report is blocked rather than failed, because nobody has learned anything
-// about the code.
+// It does not fail either, which is the distinction ADR-055 added. Failure outranks
+// inconclusiveness where both appear, because a check that reported is evidence about
+// the work, and the checks that did not run are still named in what the agent is told
+// and on the review screen. A run with nothing to report is blocked rather than failed,
+// because nobody has learned anything about the code.
 //
-// A deliberately skipped check does not block, because skipping one is Feat's
-// own decision and it says so on the screen.
+// A skipped check does not block, because skipping one is Feat's own decision and it
+// says so on the screen.
 func Decide(results []domain.Check) Verdict {
 	verdict := Verdict{}
 	for _, result := range results {
@@ -285,10 +281,10 @@ func Decide(results []domain.Check) Verdict {
 // NotRun returns the results of the checks that never reported, in the order
 // they were given.
 //
-// It exists so that the line a blocked gate leaves in the task's history names
-// them from the same definition Decide counts them by. A check that did not run
-// is never absent (ADR-028's rule for diagnostics), and a summary saying "1 did
-// not report" without saying which one is absence with a number in front of it.
+// It exists so the line a blocked gate leaves in the task's history names them from
+// the same definition Decide counts them by. A check that did not run is never absent
+// (ADR-028's rule for diagnostics), and a summary saying "1 did not report" does not
+// say which one.
 func NotRun(results []domain.Check) []domain.Check {
 	var out []domain.Check
 	for _, result := range results {
@@ -303,10 +299,10 @@ func NotRun(results []domain.Check) []domain.Check {
 
 // excerpt renders the tail of what a check printed.
 //
-// The tail rather than the head, because a test runner's failure summary is at
-// the end and its progress output is at the start. It is bounded here as well as
-// in the domain, so that what a review document holds is decided by the code
-// that produced it rather than by a limit further downstream.
+// The tail rather than the head, because a test runner's failure summary is at the end
+// and its progress output is at the start. It is bounded here as well as in the domain,
+// so what a review document holds is decided by the code that produced it rather than
+// by a limit further downstream.
 func excerpt(output Output) string {
 	combined := strings.TrimSpace(output.Stdout)
 	if trimmed := strings.TrimSpace(output.Stderr); trimmed != "" {
@@ -319,8 +315,8 @@ func excerpt(output Output) string {
 		return ""
 	}
 
-	// Half the stored bound, so that the status line a caller prepends to it
-	// cannot push the result over the limit.
+	// Half the stored bound, so the status line a caller prepends to it cannot push the
+	// result over the limit.
 	const limit = domain.MaxCheckDetail / 2
 	if len(combined) <= limit {
 		return combined

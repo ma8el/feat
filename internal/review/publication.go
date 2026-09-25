@@ -12,12 +12,11 @@ import (
 
 // Bounds on one approved publication.
 //
-// They bound what the user approved rather than what the agent drafted: the
-// draft has its own limits where it is read, and what arrives here has been
-// through an editor. The numbers are the same because the destination is —
-// a title is a line in a merge request list either way — and the two are
-// deliberately separate checks, because a document that passed one of them
-// years ago is not evidence about the other.
+// They bound what the user approved rather than what the agent drafted. The draft has
+// its own limits where it is read, and what arrives here has been through an editor.
+// The numbers match because the destination does — a title is a line in a merge
+// request list either way — and the two stay separate checks, because passing one is
+// not evidence about the other.
 const (
 	// MaxPublicationTitle bounds a merge request title.
 	MaxPublicationTitle = 200
@@ -30,12 +29,11 @@ var commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // PublicationRequest is one repository's publication, as composed and approved.
 //
-// It reaches this package with every value already resolved: the daemon read
-// the project's configuration, the agent's draft, and the user's edits, and
-// this package decides whether what came out may be sent. That is the same
-// division New uses for a viewer command, and the difference is what happens
-// afterwards — a viewer command is run and forgotten, and a publication has a
-// result to record (ADR-070, ADR-073).
+// It reaches this package with every value already resolved. The daemon read the
+// project's configuration, the agent's draft, and the user's edits, and this package
+// decides whether what came out may be sent. That is the division New uses for a viewer
+// command, and the difference comes afterwards: a viewer command is run and forgotten,
+// and a publication has a result to record (ADR-070, ADR-073).
 type PublicationRequest struct {
 	// RepositoryID is the repository this publication is for.
 	RepositoryID domain.RepositoryID
@@ -86,13 +84,11 @@ type Publication struct {
 // NewPublication checks an approved publication and returns it, or says why it
 // may not be sent.
 //
-// The rules are about what a merge request needs and what survives an argument
-// vector, and the working-directory rule is the same one a viewer command
-// passes: one of this task's own recorded worktrees, and not a shared system
-// directory. A publication reaches a network, so the check is if anything
-// stricter — but it is deliberately not a judgement about the words. What the
-// description says is the agent's, and the control on it is that a person read
-// it (ADR-070).
+// The rules are about what a merge request needs and what survives an argument vector.
+// The working-directory rule is the one a viewer command passes, and no looser for
+// reaching a network: one of this task's own recorded worktrees, and not a shared
+// system directory. None of it judges the words. What the description says is the
+// agent's, and the control on it is that a person read it (ADR-070).
 func NewPublication(request PublicationRequest) (Publication, error) {
 	if err := request.RepositoryID.Validate(); err != nil {
 		return Publication{}, err
@@ -183,35 +179,34 @@ func publicationDirectory(subject string, request PublicationRequest) (string, e
 
 // PublicationOutcome is what came of one repository's publication.
 //
-// It is its own vocabulary rather than the gate's Outcome: a check that failed
-// and a merge request that was not opened are different findings about
-// different things, and one type covering both would let a caller compare them.
+// It is its own vocabulary rather than the gate's Outcome. A check that failed and a
+// merge request that was not opened are different findings about different things, and
+// one type covering both would let a caller compare them.
 type PublicationOutcome string
 
 // Publication outcomes.
 const (
 	// PublishedOutcome is a repository whose merge request was opened.
 	PublishedOutcome PublicationOutcome = "published"
-	// FailedOutcome is a repository whose publication failed. It does not stop
-	// the others: where the cause is common the user reads it several times,
-	// and where it is local to one repository the rest still land (ADR-073).
+	// FailedOutcome is a repository whose publication failed. It does not stop the
+	// others, so where the cause is common the user reads it several times, and where
+	// it is local to one repository the rest still land (ADR-073).
 	FailedOutcome PublicationOutcome = "failed"
 	// SkippedOutcome is a repository this publication did not attempt because
 	// it has already published.
 	//
-	// It is deliberately its own outcome rather than a kind of failure, and
-	// deliberately not the refusal that says a draft is stale: keeping those two
-	// apart is what lets a refusal keep one meaning, which is that the agent's
-	// draft describes a commit that is no longer current and never merely that
+	// It is its own outcome rather than a kind of failure, and not the refusal that
+	// says a draft is stale. Keeping the two apart lets that refusal keep one meaning:
+	// the agent's draft describes a commit that is no longer current, never merely that
 	// this ran before (ADR-073).
 	SkippedOutcome PublicationOutcome = "skipped"
 )
 
 // Result is what came of one repository's publication.
 //
-// This is what a publication has and a viewer command does not: something to
-// record. The recording itself is the task's, because the daemon is the only
-// writer of persistent state; what is here is the finding it writes down.
+// This is what a publication has and a viewer command does not: something to record.
+// The recording is the daemon's, because it is the only writer of persistent state, and
+// this is the finding it writes down.
 type Result struct {
 	// RepositoryID is the repository the result is about.
 	RepositoryID domain.RepositoryID
@@ -237,9 +232,9 @@ func (r Result) Published() bool {
 
 // SummarizePublication renders what a whole publication amounted to.
 //
-// It counts rather than lists, because a task can publish to several
-// repositories and this is one line in a history. What failed is named where a
-// user acts on it: on the screen, beside the repository it failed for.
+// It counts rather than lists, because a task can publish to several repositories and
+// this is one line in a history. What failed is named where a user acts on it, on the
+// screen beside the repository it failed for.
 func SummarizePublication(results []Result) string {
 	var published, failed, skipped int
 	for _, result := range results {

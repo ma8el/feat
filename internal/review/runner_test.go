@@ -21,8 +21,8 @@ func look(t *testing.T, program string) string {
 }
 
 // TestAHostCheckThatFailsIsAnAnswer checks the distinction every runner in this
-// repository draws: a command that ran and exited non-zero has answered, and
-// only a command that could not be started at all is an error.
+// repository draws. A command that ran and exited non-zero has answered, and only a
+// command that could not be started at all is an error.
 func TestAHostCheckThatFailsIsAnAnswer(t *testing.T) {
 	output, err := HostRunner{}.Run(context.Background(), Check{
 		ID: "test", Program: look(t, "false"), Directory: t.TempDir(), OnHost: true,
@@ -42,8 +42,8 @@ func TestAHostCheckThatFailsIsAnAnswer(t *testing.T) {
 	}
 }
 
-// TestAHostCheckRunsInTheTaskWorktree checks that a check is run where the task
-// is, rather than wherever the daemon happens to have been started.
+// TestAHostCheckRunsInTheTaskWorktree checks that a check runs where the task is,
+// rather than wherever the daemon happens to have been started.
 func TestAHostCheckRunsInTheTaskWorktree(t *testing.T) {
 	worktree := t.TempDir()
 
@@ -53,15 +53,15 @@ func TestAHostCheckRunsInTheTaskWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("running a check: %v", err)
 	}
-	// The temporary directory may be reached through a symbolic link, so the
-	// tail is what identifies it.
+	// The temporary directory may be reached through a symbolic link, so the tail is
+	// what identifies it.
 	if !strings.HasSuffix(strings.TrimSpace(output.Stdout), strings.TrimPrefix(worktree, "/private")) {
 		t.Errorf("the check ran in %q, want the task worktree %q", strings.TrimSpace(output.Stdout), worktree)
 	}
 }
 
-// TestAnAbsentHostCheckProgramIsNotAFailedCheck checks that an uninstalled tool
-// sends the user to their configuration rather than to their code.
+// TestAnAbsentHostCheckProgramIsNotAFailedCheck checks that an uninstalled tool sends
+// the user to their configuration rather than to their code.
 func TestAnAbsentHostCheckProgramIsNotAFailedCheck(t *testing.T) {
 	results := Gate{Host: HostRunner{}}.Run(context.Background(), []Check{
 		{ID: "test", RepositoryID: "api", Program: "feat-no-such-program", Directory: t.TempDir(), OnHost: true},
@@ -78,8 +78,8 @@ func TestAnAbsentHostCheckProgramIsNotAFailedCheck(t *testing.T) {
 	}
 }
 
-// TestAHostCheckIsCheckedBeforeItRuns checks that a program that would be read
-// as an option is refused, which is the rule ADR-029 set for Git arguments.
+// TestAHostCheckIsCheckedBeforeItRuns checks that a program which would be read as an
+// option is refused, under the rule ADR-029 set for Git arguments.
 func TestAHostCheckIsCheckedBeforeItRuns(t *testing.T) {
 	if _, err := (HostRunner{}).Run(context.Background(), Check{
 		ID: "test", Program: "--upload-pack=curl", Directory: t.TempDir(), OnHost: true,

@@ -24,55 +24,48 @@ const (
 	// Git is the Git command line.
 	Git Tool = "git"
 
-	// Docker is the Docker CLI, its daemon, and the Compose plugin. They are
-	// one name because they fail as one thing: a stopped Docker Desktop takes
-	// all three away, and no test in this repository needs the CLI without the
-	// daemon behind it.
+	// Docker is the Docker CLI, its daemon, and the Compose plugin. They are one
+	// name because they fail as one thing: a stopped Docker Desktop takes all three
+	// away, and no test here needs the CLI without the daemon behind it.
 	Docker Tool = "docker"
 
 	// Tmux is the tmux server this build drives on its own socket.
 	Tmux Tool = "tmux"
 
-	// Claude is an installed, authenticated Claude Code. It is demandable and
-	// is demanded by nothing by default: the tests behind it spend the
-	// maintainer's tokens and interrupt a real account, so a run that wants
-	// them says so.
+	// Claude is an installed, authenticated Claude Code. Nothing demands it by
+	// default, because the tests behind it spend the maintainer's tokens and
+	// interrupt a real account, so a run that wants them says so.
 	Claude Tool = "claude"
 
-	// Gh is the GitHub command line the forge adapter drives. It is demandable
-	// on the same terms as Glab below, and for the same reason.
+	// Gh is the GitHub command line the forge adapter drives. It is demandable on the
+	// same terms as Glab below, and for the same reason.
 	Gh Tool = "gh"
 
 	// Glab is the GitLab command line the forge adapter drives.
 	//
-	// It is demandable and demanded by nothing by default, like Claude and
-	// Notify: what the test behind it does is read `glab mr create --help` and
-	// check that the flags this build passes are still there. That needs glab
-	// installed and needs nothing else — no account, no network, no project —
-	// so a maintainer with one can make the check mandatory, and a machine
-	// without one is not made to install it to run the tier.
+	// Nothing demands it by default, as with Claude and Notify. The test behind it
+	// reads `glab mr create --help` and checks that the flags this build passes are
+	// still there, which needs glab installed and nothing else — no account, no
+	// network, no project — so a maintainer with one can make the check mandatory
+	// without a machine that has none being made to install it.
 	//
-	// It exists because there is no glab on the machine the adapter was written
-	// on, and docs/06-technical-architecture.md requires a provider CLI's flags
-	// to be verified against the installed version rather than assumed. This is
-	// where that verification runs.
+	// It exists because there is no glab on the machine the adapter was written on,
+	// and docs/06-technical-architecture.md requires a provider CLI's flags to be
+	// verified against the installed version rather than assumed. This is where that
+	// verification runs.
 	Glab Tool = "glab"
 
-	// Notify is this platform's own desktop notifier. It is demandable and,
-	// like Claude, demanded by nothing by default: no CI runner has a desktop,
-	// and on a platform Feat has no notifier for the tests behind it can never
-	// pass. What it buys is that a maintainer running the tier on their own
-	// machine can say so and find out, rather than having the proofs that a
-	// notification reached a desktop skip quietly on the one machine where they
-	// could have run.
+	// Notify is this platform's own desktop notifier. Nothing demands it by default,
+	// because no CI runner has a desktop and the tests behind it can never pass on a
+	// platform Feat has no notifier for. A maintainer running the tier on their own
+	// machine can demand it, rather than have the proofs that a notification reached
+	// a desktop skip quietly on the one machine where they could have run.
 	Notify Tool = "notify"
 )
 
-// Tools are the names EnvRequire accepts.
-//
-// A value outside this list is a failure rather than an unknown-and-ignored
-// name: "FEAT_INTEGRATION_REQUIRE=dockr" that quietly demanded nothing would be
-// the same silent green this package exists to remove.
+// Tools are the names EnvRequire accepts. A value outside this list fails rather
+// than being ignored, because a "FEAT_INTEGRATION_REQUIRE=dockr" that demanded
+// nothing would be the same silent green this package exists to remove.
 var Tools = []Tool{Git, Docker, Tmux, Claude, Gh, Glab, Notify}
 
 // Enabled reports whether this run is opted in to the integration tier.
@@ -80,11 +73,9 @@ func Enabled() bool {
 	return os.Getenv(Env) != ""
 }
 
-// Requirements returns the tools this run demands, in the order they are named,
-// or an error naming a value that is not a tool.
-//
-// An unset or empty variable demands nothing, which is what a bare
-// `go test -run TestReal ./...` does and what every run did before.
+// Requirements returns the tools this run demands, in the order they are named, or
+// an error naming a value that is not a tool. An unset or empty variable demands
+// nothing, which is what a bare `go test -run TestReal ./...` does.
 func Requirements() ([]Tool, error) {
 	return parse(os.Getenv(EnvRequire))
 }
@@ -134,11 +125,9 @@ func names() string {
 	return strings.Join(rendered, ", ")
 }
 
-// Required reports whether this run demands the named tool.
-//
-// The error is the malformed requirement list, and callers are expected to fail
-// on it rather than to read it as "not required": a typo that silently demanded
-// nothing would restore the defect exactly.
+// Required reports whether this run demands the named tool. The error is a
+// malformed requirement list, and a caller must fail on it rather than read it as
+// "not required", because a typo that demanded nothing would restore the defect.
 func Required(tool Tool) (bool, error) {
 	required, err := Requirements()
 	if err != nil {
@@ -147,11 +136,9 @@ func Required(tool Tool) (bool, error) {
 	return contains(required, tool), nil
 }
 
-// TB is the part of *testing.T this package uses.
-//
-// It is an interface so that the behaviour below — which of Skipf and Fatalf a
-// missing tool reaches — is itself testable, and so that this package does not
-// import testing.
+// TB is the part of *testing.T this package uses. It is an interface so that which
+// of Skipf and Fatalf a missing tool reaches is itself testable, and so that this
+// package does not import testing.
 type TB interface {
 	Helper()
 	Skipf(format string, args ...any)
@@ -161,10 +148,9 @@ type TB interface {
 // Unavailable ends a test whose tool is missing, unreachable, or answered
 // wrongly.
 //
-// It fails when the run demands that tool and skips when it does not. The
-// reason is the caller's, because "no Docker daemon is reachable" and "this
-// machine cannot run a container to measure" are different findings about the
-// same demand and the failure has to say which one happened.
+// It fails when the run demands that tool and skips when it does not. The reason is
+// the caller's, because "no Docker daemon is reachable" and "this machine cannot run
+// a container to measure" are different findings about the same demand.
 func Unavailable(t TB, tool Tool, format string, args ...any) {
 	t.Helper()
 
@@ -195,9 +181,9 @@ type Probe func(Tool) error
 
 // Missing returns the demanded tools that did not answer, in the order demanded.
 //
-// The probe is a parameter because this package may not run processes, and
-// because a preflight that could not be tested without uninstalling Docker
-// would be the same untested guard it replaces.
+// The probe is a parameter because this package may not run processes, and because
+// a preflight that could not be tested without uninstalling Docker would be as
+// untested as the guard it replaces.
 func Missing(required []Tool, probe Probe) []Absence {
 	var absent []Absence
 	for _, tool := range required {

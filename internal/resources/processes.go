@@ -42,11 +42,10 @@ type subtreeUsage struct {
 // processes reads the host's processes and works out what each has used since
 // the previous sample.
 //
-// Processor use is a difference between two readings of cumulative time rather
-// than the `%cpu` column, because that column means different things on the two
-// supported platforms: a decaying recent average on macOS and a lifetime average
-// on Linux. A difference means the same thing on both, and it is the only one of
-// the three that answers "what is this task doing now" (ADR-035, evidence 6).
+// Processor use is a difference between two readings of cumulative time rather than
+// the `%cpu` column, because that column is a decaying recent average on macOS and a
+// lifetime average on Linux. A difference means the same thing on both, and it is the
+// only one of the three that answers what a task is doing now (ADR-035, evidence 6).
 func (o *Observer) processes(ctx context.Context, at time.Time) (*processTree, string) {
 	output, err := o.runner.Run(ctx, Invocation{
 		Program:   psProgram,
@@ -70,9 +69,9 @@ func (o *Observer) processes(ctx context.Context, at time.Time) (*processTree, s
 
 	elapsed := at.Sub(previousAt)
 	if previous == nil || elapsed <= 0 {
-		// The first sample has nothing to difference against, so every process
-		// reports memory and no processor use. Saying that through cpuKnown rather
-		// than reporting zero is the same rule the rest of this package follows.
+		// The first sample has nothing to difference against, so every process reports
+		// memory and no processor use. It says so through cpuKnown rather than by
+		// reporting zero, as the rest of this package does.
 		return tree, ""
 	}
 	for pid, node := range tree.nodes {
@@ -82,9 +81,9 @@ func (o *Observer) processes(ctx context.Context, at time.Time) (*processTree, s
 		}
 		used := times[pid] - was
 		if used < 0 {
-			// The identifier was reused by a different process between samples.
-			// Its history belongs to something that no longer exists, so this
-			// sample reports no processor use for it rather than a negative one.
+			// The identifier was reused by a different process between samples. Its
+			// history belongs to something that no longer exists, so this sample
+			// reports no processor use for it rather than a negative one.
 			continue
 		}
 		node.cpu = 100 * used.Seconds() / elapsed.Seconds()
@@ -95,9 +94,9 @@ func (o *Observer) processes(ctx context.Context, at time.Time) (*processTree, s
 
 // parseProcesses reads what ps printed into a tree and a time reading.
 //
-// A line that cannot be read is skipped rather than failing the sample: ps
-// prints one line per process on a machine whose process table is changing while
-// it prints, and one unreadable line must not cost the other five hundred.
+// A line that cannot be read is skipped rather than failing the sample. ps prints one
+// line per process while the process table is changing under it, and one unreadable
+// line must not cost the other five hundred.
 func parseProcesses(output string) (*processTree, processTimes) {
 	tree := &processTree{nodes: make(map[int]*processNode), children: make(map[int][]int)}
 	times := make(processTimes)
@@ -166,9 +165,9 @@ func parseProcessTime(value string) (time.Duration, bool) {
 
 // subtree sums one process and its descendants.
 //
-// A task owns a terminal pane, and what the pane is really doing is whatever it
-// started: a shell, an agent, and whatever the agent ran. Counting the pane
-// alone would report a task compiling its project as using nothing at all.
+// A task owns a terminal pane, and what the pane is doing is whatever it started: a
+// shell, an agent, and whatever the agent ran. Counting the pane alone would report a
+// task compiling its project as using nothing at all.
 func (t *processTree) subtree(pid int) subtreeUsage {
 	var usage subtreeUsage
 	if t == nil {

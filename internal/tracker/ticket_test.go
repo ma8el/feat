@@ -9,11 +9,11 @@ import (
 // TestOutputThatDoesNotConformIsRefusedByName covers what a tracker command can
 // print that the published shape does not allow.
 //
-// Every case is a mapping mistake somebody will make, and what each one is
-// checked for is that the refusal names what was wrong: the command is the
-// user's own, so a message that only says "invalid" leaves them to guess which
-// of six fields it meant. The `number` case is the one `gh` produces without a
-// mapping at all, which is why the shape's own field list is in the message.
+// Every case is a mapping mistake somebody will make, and each is checked for a
+// refusal that names what was wrong. The command is the user's own, so a message that
+// only says "invalid" leaves them to guess which of six fields it meant. The `number`
+// case is the one `gh` produces without a mapping at all, which is why the shape's own
+// field list is in the message.
 func TestOutputThatDoesNotConformIsRefusedByName(t *testing.T) {
 	for _, testCase := range []struct {
 		name   string
@@ -31,9 +31,9 @@ func TestOutputThatDoesNotConformIsRefusedByName(t *testing.T) {
 			want:   []string{"is not JSON", `it begins "gh: command failed"`},
 		},
 		{
-			// The mistake this quoting was added for: a heredoc that swallowed
-			// two lines of the script, so the command printed its own source and
-			// the refusal could only name the character a parser gave up on.
+			// The mistake this quoting was added for. A heredoc swallowed two lines
+			// of the script, so the command printed its own source and the refusal
+			// could only name the character a parser gave up on.
 			name:   "a command that printed its own source",
 			output: "echo 'reading tickets' >&2\ncat <<'JSON'\n[]\n",
 			want:   []string{"is not JSON", `it begins "echo 'reading tickets' >&2"`},
@@ -114,9 +114,9 @@ func TestOutputThatDoesNotConformIsRefusedByName(t *testing.T) {
 	}
 }
 
-// TestWhatARefusalRepeatsBackIsBounded checks the other half of quoting a
-// command's own words: the output may be a quarter of a megabyte, and a
-// diagnostic, a log line, and a screen all have to hold what the refusal says.
+// TestWhatARefusalRepeatsBackIsBounded checks the other half of quoting a command's own
+// words. The output may be a quarter of a megabyte, and a diagnostic, a log line, and a
+// screen all have to hold what the refusal says.
 func TestWhatARefusalRepeatsBackIsBounded(t *testing.T) {
 	_, err := Parse([]byte("error: " + strings.Repeat("é", 4096)))
 	if err == nil {
@@ -132,8 +132,8 @@ func TestWhatARefusalRepeatsBackIsBounded(t *testing.T) {
 		t.Errorf("the refusal quotes %s, and the command began with prose", quoted)
 	}
 	// Escaping can lengthen what is quoted, so the bound checked here is not the
-	// constant itself; what it proves is that eight kilobytes of output became a
-	// line rather than a wall.
+	// constant itself. What it proves is that eight kilobytes of output became a line
+	// rather than a wall.
 	if len(quoted) > 2*maxQuotedBytes {
 		t.Errorf("the refusal repeats %d bytes back, and what it quotes is bounded at %d",
 			len(quoted), maxQuotedBytes)
@@ -141,17 +141,16 @@ func TestWhatARefusalRepeatsBackIsBounded(t *testing.T) {
 	if !strings.Contains(message, "…") {
 		t.Errorf("the refusal does not say that what it quotes was cut: %v", err)
 	}
-	// A multi-byte character cut in half would be quoted as escaped bytes that
-	// were never in the output, which is the one thing repeating a command's own
-	// words back must not do.
+	// A multi-byte character cut in half would be quoted as escaped bytes that were
+	// never in the output.
 	if strings.Contains(message, `\x`) {
 		t.Errorf("the refusal quotes bytes that were not characters in the output: %v", err)
 	}
 }
 
-// TestOutputPastTheBoundIsRefusedBySize is the rule that a tracker's output is
-// bounded for the reason a control message is: it becomes a brief, and a brief
-// is what the agent is told to do (ADR-071).
+// TestOutputPastTheBoundIsRefusedBySize is the rule that a tracker's output is bounded
+// for the reason a control message is. It becomes a brief, and a brief is what the
+// agent is told to do (ADR-071).
 func TestOutputPastTheBoundIsRefusedBySize(t *testing.T) {
 	oversized := `[{"reference":"1","title":"t","url":"u","state":"open","body":"` +
 		strings.Repeat("x", MaxOutputBytes) + `"}]`

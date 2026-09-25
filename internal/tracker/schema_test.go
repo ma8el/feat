@@ -24,14 +24,13 @@ type schema struct {
 	Defs                 map[string]*schema `json:"$defs"`
 }
 
-// TestParseEnforcesThePublishedShape keeps the schema and this package from
-// drifting apart.
+// TestParseEnforcesThePublishedShape keeps the schema and this package from drifting
+// apart.
 //
-// Both are hand-written, and they are two halves of one promise: the schema is
-// what a user writes their command against, and this package is what accepts
-// the command's output. A property added to one and not the other would mean
-// either a field an editor accepts and Feat refuses, or a field Feat carries
-// that nothing documents (ADR-071).
+// Both are hand-written, and they are two halves of one promise. The schema is what a
+// user writes their command against, and this package is what accepts the command's
+// output. A property added to one and not the other would mean either a field an editor
+// accepts and Feat refuses, or a field Feat carries that nothing documents (ADR-071).
 func TestParseEnforcesThePublishedShape(t *testing.T) {
 	ticket := publishedTicket(t)
 
@@ -83,9 +82,9 @@ func TestParseEnforcesThePublishedShape(t *testing.T) {
 	})
 }
 
-// TestTheDocumentIsAListOfTickets pins the one thing about the document itself:
-// a tracker command prints a list, so a single ticket is a mapping mistake with
-// a name rather than a list of one.
+// TestTheDocumentIsAListOfTickets pins the one thing about the document itself. A
+// tracker command prints a list, so a single ticket is a mapping mistake with a name
+// rather than a list of one.
 func TestTheDocumentIsAListOfTickets(t *testing.T) {
 	root := readSchema(t)
 	if root.Type != "array" {

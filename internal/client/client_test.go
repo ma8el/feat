@@ -155,12 +155,10 @@ func TestErrorResponsesBecomeStatusErrors(t *testing.T) {
 	}
 }
 
-// TestAMissingTerminalSurvivesTheSocket is what the dashboard's empty state
-// depends on.
-//
-// The sentinel the daemon wrapped cannot cross a socket, so the classification
-// travels as a code and is put back together here. A client that lost it would
-// leave the recovery offer to be decided by matching on message text.
+// TestAMissingTerminalSurvivesTheSocket is what the dashboard's empty state depends
+// on. The sentinel the daemon wrapped cannot cross a socket, so the classification
+// travels as a code and is rebuilt here, rather than leaving the recovery offer to
+// be decided by matching on message text.
 func TestAMissingTerminalSurvivesTheSocket(t *testing.T) {
 	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -175,8 +173,8 @@ func TestAMissingTerminalSurvivesTheSocket(t *testing.T) {
 	if !api.IsTerminalMissing(err) {
 		t.Fatalf("error = %v, want it to report a missing terminal", err)
 	}
-	// And an ordinary absence still is not one, or the offer would be made for
-	// every task identifier a user mistypes.
+	// An ordinary absence is still not one, or the offer would be made for every
+	// task identifier a user mistypes.
 	other := &StatusError{Status: http.StatusNotFound, Code: api.CodeNotFound, Message: "no task"}
 	if api.IsTerminalMissing(other) {
 		t.Error("a plain not-found was read as a missing terminal")
@@ -325,15 +323,15 @@ func contains(haystack, needle string) bool { return strings.Contains(haystack, 
 // user tried it again.
 //
 // Ten seconds is right for a request the daemon answers out of what it already
-// knows and wrong for one where it is pulling images and running builds. The
-// budgets are shrunk here so that the rule under test is which one the runtime
-// endpoint gets, rather than how long either of them is.
+// knows and wrong for one where it is pulling images and running builds. The budgets
+// are shrunk here so the rule under test is which one the runtime endpoint gets,
+// rather than how long either of them is.
 func TestARuntimeActionOutwaitsAnOrdinaryRequest(t *testing.T) {
 	const work = 300 * time.Millisecond
 
 	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// The daemon is busy for longer than an ordinary request may take, which
-		// is what a Compose that is pulling an image looks like from here.
+		// The daemon is busy for longer than an ordinary request may take, which is
+		// what a Compose that is pulling an image looks like from here.
 		select {
 		case <-time.After(work):
 		case <-r.Context().Done():
@@ -350,15 +348,15 @@ func TestARuntimeActionOutwaitsAnOrdinaryRequest(t *testing.T) {
 		t.Fatalf("a start the daemon was still working on was abandoned: %v", err)
 	}
 
-	// And the ordinary budget is still short, so this is a difference between the
+	// The ordinary budget is still short, so this is a difference between the
 	// endpoints rather than a client that waits for ever.
 	_, err := caller.Task(context.Background(), id)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error = %v, want a deadline", err)
 	}
-	// What that deadline reads as: the daemon's socket, how long this client
-	// waited, and what became of the work — none of which "context deadline
-	// exceeded" says on its own.
+	// The deadline names the daemon's socket, how long this client waited, and what
+	// became of the work, none of which "context deadline exceeded" says on its
+	// own.
 	for _, required := range []string{caller.Socket(), caller.timeout.String(), "stopped part way through"} {
 		if !contains(err.Error(), required) {
 			t.Errorf("the deadline does not mention %q: %v", required, err)
@@ -369,10 +367,10 @@ func TestARuntimeActionOutwaitsAnOrdinaryRequest(t *testing.T) {
 // TestTheRuntimeBudgetCoversTheDaemons keeps the two ends of one request in
 // agreement.
 //
-// The daemon stops waiting for Docker at api.RuntimeTimeout. A client that gave
-// up first would cancel a request the daemon is still serving, and cancelling
-// one kills the `docker compose up` it is waiting on part way through — so the
-// client's patience has to be the longer of the two.
+// The daemon stops waiting for Docker at api.RuntimeTimeout. A client that gave up
+// first would cancel a request the daemon is still serving, which kills the `docker
+// compose up` part way through, so the client's patience has to be the longer of the
+// two.
 func TestTheRuntimeBudgetCoversTheDaemons(t *testing.T) {
 	if runtimeTimeout <= api.RuntimeTimeout {
 		t.Errorf("the client waits %s for an action the daemon may spend %s on",
@@ -387,12 +385,12 @@ func TestTheRuntimeBudgetCoversTheDaemons(t *testing.T) {
 // TestTheAgentBudgetCoversTheDaemons is the same agreement for the three
 // requests that create or stop a task's agent environment.
 //
-// It is the regression for the launch that found the rule: `POST
-// /v1/task-drafts/{id}/launch` failed after 10.018 seconds with `context
-// canceled` while the daemon went on serving it, because the project's own
-// Compose file had changed and the service had to be recreated. What the
-// cancelled launch left behind — a container the record no longer named — is
-// what makes this a data problem rather than a slow one.
+// It is the regression for the launch that found the rule. `POST
+// /v1/task-drafts/{id}/launch` failed after 10.018 seconds with `context canceled`
+// while the daemon went on serving it, because the project's own Compose file had
+// changed and the service had to be recreated. The cancelled launch left behind a
+// container the record no longer named, which is a data problem rather than a slow
+// one.
 func TestTheAgentBudgetCoversTheDaemons(t *testing.T) {
 	if agentTimeout <= api.AgentTimeout {
 		t.Errorf("the client waits %s for work the daemon may spend %s on",
@@ -407,10 +405,9 @@ func TestTheAgentBudgetCoversTheDaemons(t *testing.T) {
 // TestEveryAgentEnvironmentRequestOutwaitsAnOrdinaryOne checks that all three
 // carry the longer budget.
 //
-// One of the three having been left on the ordinary budget is exactly the defect
-// this exists for, and it is invisible until the day a container has to be
-// built: the five launches before the one that failed took between 0.46 and 3.13
-// seconds.
+// Leaving one of the three on the ordinary budget is the defect this exists for,
+// and it stays invisible until the day a container has to be built. The five
+// launches before the one that failed took between 0.46 and 3.13 seconds.
 func TestEveryAgentEnvironmentRequestOutwaitsAnOrdinaryOne(t *testing.T) {
 	const work = 300 * time.Millisecond
 	const id = "12345678-1234-4234-8234-123456789abc"
@@ -444,9 +441,9 @@ func TestEveryAgentEnvironmentRequestOutwaitsAnOrdinaryOne(t *testing.T) {
 // TestLaunchSendsTheWholeConfirmation keeps the client from dropping a decision
 // the user made on the review screen.
 //
-// The confirmation is read once, by the launch it accompanies, so a value lost
-// here is a task that starts differently from the way the screen said it would
-// and nothing later that could tell the user why.
+// The confirmation is read once, by the launch it accompanies. A value lost here
+// starts the task differently from the way the screen said it would, and nothing
+// later can tell the user why.
 func TestLaunchSendsTheWholeConfirmation(t *testing.T) {
 	const id = "12345678-1234-4234-8234-123456789abc"
 
@@ -479,8 +476,8 @@ func TestLaunchSendsTheWholeConfirmation(t *testing.T) {
 // as its own.
 //
 // A caller that bounds its own request is told what it asked for, in the words
-// context uses, because the number it ran out of is theirs and this client's
-// budget never fired.
+// context uses, because the deadline that fired was theirs and this client's never
+// did.
 func TestACallersOwnDeadlineIsLeftAlone(t *testing.T) {
 	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
@@ -503,9 +500,8 @@ func TestACallersOwnDeadlineIsLeftAlone(t *testing.T) {
 // keystroke.
 //
 // The terminal input endpoint answers 204, which carries no body. Decoding it
-// anyway reported the empty body as a broken one, so a user typing into a
-// focused pane saw ".../terminal/input: EOF" flash on the screen for every
-// character they typed.
+// anyway reported the empty body as a broken one, so a user typing into a focused
+// pane saw ".../terminal/input: EOF" for every character.
 func TestANoContentReplyIsASuccess(t *testing.T) {
 	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		want := "/v1/tasks/12345678-1234-4234-8234-123456789abc/terminal/input"
@@ -522,9 +518,9 @@ func TestANoContentReplyIsASuccess(t *testing.T) {
 	}
 }
 
-// TestATruncatedReplyIsStillAFailure keeps the fix above from swallowing a
-// response that really was cut short: an empty body is only success where the
-// daemon said there would be no body.
+// TestATruncatedReplyIsStillAFailure keeps the fix above from swallowing a response
+// that really was cut short. An empty body is a success only where the daemon said
+// there would be no body.
 func TestATruncatedReplyIsStillAFailure(t *testing.T) {
 	caller := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

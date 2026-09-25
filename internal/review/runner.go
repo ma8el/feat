@@ -11,40 +11,37 @@ import (
 
 // HostRunner runs a check on the trusted host.
 //
-// It exists rather than reusing agent.HostRunner because that one bounds every
-// command at twenty seconds, which is right for a probe asking whether a
-// provider CLI is authenticated and wrong for a test suite. The bound here is
-// the gate's, and the gate applies it through the context rather than the runner
-// so that one place decides it (ADR-036).
+// It exists rather than reusing agent.HostRunner because that one bounds every command
+// at twenty seconds, which is right for a probe asking whether a provider CLI is
+// authenticated and wrong for a test suite. The gate applies its own bound through the
+// context rather than the runner, so one place decides it (ADR-036).
 type HostRunner struct{}
 
 var _ Runner = HostRunner{}
 
 // Run executes the check with its own streams captured.
 //
-// A check that runs and exits non-zero is not an error: that is the answer the
-// gate exists to collect. Only a check that could not be started at all fails,
-// and it fails with a message that says which of the two happened, because the
-// remedies are different — an absent program is installed, and a failing one is
-// fixed.
+// A check that runs and exits non-zero is not an error, because that is the answer the
+// gate exists to collect. Only a check that could not be started at all fails, and the
+// message says which of the two happened: an absent program is installed, and a failing
+// one is fixed.
 func (HostRunner) Run(ctx context.Context, check Check) (Output, error) {
 	if err := check.validate(); err != nil {
 		return Output{}, err
 	}
 
-	// An argument vector, never an interpolated shell string (CLAUDE.md).
+	// An argument vector, so nothing here can be read as shell syntax.
 	// #nosec G204 -- the program and its arguments come from the project's own
-	// configuration, whose templates are validated and whose program may never
-	// be a placeholder; every element is separate and nothing reaches a shell.
+	// configuration, whose templates are validated and whose program may never be a
+	// placeholder. Every element is separate and nothing reaches a shell.
 	process := exec.CommandContext(ctx, check.Program, check.Arguments...)
 	process.Dir = check.Directory
 
 	var stdout, stderr bytes.Buffer
 	process.Stdout = &stdout
 	process.Stderr = &stderr
-	// A check reads nothing. Without this it would inherit the daemon's own
-	// standard input, and a command that decided to prompt would wait for a
-	// person who is not there.
+	// A check reads nothing. Without this it would inherit the daemon's own standard
+	// input, and a command that prompted would wait for a person who is not there.
 	process.Stdin = nil
 
 	err := process.Run()
@@ -57,8 +54,8 @@ func (HostRunner) Run(ctx context.Context, check Check) (Output, error) {
 	case errors.As(err, &exit):
 		output.ExitCode = exit.ExitCode()
 		if output.ExitCode < 0 {
-			// Killed by a signal, which for a check under a deadline is the
-			// bound expiring. The gate reads the context and says so.
+			// Killed by a signal, which for a check under a deadline is the bound
+			// expiring. The gate reads the context and says so.
 			output.ExitCode = 1
 		}
 		return output, nil

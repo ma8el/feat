@@ -12,14 +12,14 @@ import (
 // TestRealNotificationIsDelivered hands a notification to this platform's own
 // notifier.
 //
-// It checks that Feat delivered one, which is all Feat can ever know: macOS
-// decides per application whether a notification is shown, drops an unauthorised
-// one without saying so, and exits 0 either way. Reporting delivery and never
-// sight is the honest half of that, and it is why the README says so.
+// It checks that Feat delivered one, which is all Feat can know. macOS decides per
+// application whether a notification is shown, drops an unauthorised one without
+// saying so, and exits 0 either way, so Feat reports delivery and never sight, as
+// the README says.
 //
-// Run it with -count=1. This test exists for a side effect outside the process,
-// and a cached result replays --- PASS without producing one, which looks
-// exactly like a notification the platform swallowed (ADR-035 evidence 13).
+// Run it with -count=1. The test exists for a side effect outside the process, and a
+// cached result replays --- PASS without producing one, which looks like a
+// notification the platform swallowed (ADR-035 evidence 13).
 func TestRealNotificationIsDelivered(t *testing.T) {
 	if !integrationtest.Enabled() {
 		t.Skipf("set %s=1 to deliver a real desktop notification", integrationtest.Env)
@@ -28,10 +28,10 @@ func TestRealNotificationIsDelivered(t *testing.T) {
 	notifier := Host()
 	available, reason := notifier.Available()
 	if !available {
-		// Through the demand, which is why notify is a tool name at all. No CI
-		// runner has a desktop, so this is a skip on almost every machine and
-		// must stay one; what the demand adds is that a maintainer running the
-		// tier on the one machine where it could deliver can say so and find out.
+		// Through the demand, which is why notify is a tool name at all. No CI runner
+		// has a desktop, so this skips on almost every machine and must stay a skip.
+		// The demand lets a maintainer on the one machine that could deliver ask for a
+		// failure instead.
 		integrationtest.Unavailable(t, integrationtest.Notify,
 			"this platform delivers no desktop notifications: %s", reason)
 	}
@@ -54,10 +54,10 @@ func TestRealNotificationIsDelivered(t *testing.T) {
 // TestRealNotifierRefusesTextItWouldMisread checks the guard on the two values
 // that reach an argument vector.
 //
-// A task's title is text the user typed. The script reads its arguments out of
-// argv rather than having them pasted into it, so a quotation mark is harmless;
-// what is not harmless is a value the runner would read as one of its own
-// options, which is the class of defect ADR-029 refused for Git remotes.
+// A task's title is text the user typed. The script reads its arguments out of argv
+// rather than having them pasted into it, so a quotation mark is harmless. A value
+// the runner would read as one of its own options is not, which is the class of
+// defect ADR-029 refused for Git remotes.
 func TestRealNotifierRefusesTextItWouldMisread(t *testing.T) {
 	if !integrationtest.Enabled() {
 		t.Skipf("set %s=1 to run this against the real notifier", integrationtest.Env)
