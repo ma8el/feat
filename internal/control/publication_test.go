@@ -37,10 +37,10 @@ func draftPayload(repository, commit string) string {
 // TestAPublicationDraftAsksForNothing pins the capability a draft requires.
 //
 // It is the reason the type exists at all: the agent's knowledge is carried as
-// data rather than as an action, so a draft is weaker than a runtime request,
-// which at least asks. A draft that required a capability would be refused by
-// the protocol before anybody could read it, and the one control ADR-070 relies
-// on — a person reading the words before they are sent — would never happen.
+// data rather than as an action. A draft that required a capability would be
+// refused by the protocol before anybody could read it, and the one control
+// ADR-070 relies on — a person reading the words before they are sent — would
+// never happen.
 func TestAPublicationDraftAsksForNothing(t *testing.T) {
 	if got := control.TypePublicationDraft.Requires(); got != control.CapabilityNone {
 		t.Errorf("a publication draft requires %q, and it asks for nothing", got)
@@ -164,11 +164,10 @@ func TestAWellFormedPublicationDraftIsRead(t *testing.T) {
 
 // TestTheLatestDraftIsReadableAfterItWasApplied is what publication depends on.
 //
-// A draft is applied when it arrives — the task's history says the agent wrote
-// one — and read again when the user asks to publish, which may be hours later
-// and after a daemon restart. Pending deliberately never returns a message
-// twice, so the read-back is a separate question about the same outbox: the
-// account of what the agent sent.
+// A draft is applied when it arrives and read again when the user asks to
+// publish, which may be hours later and after a daemon restart. Pending
+// deliberately never returns a message twice, so the read-back is a separate
+// question about the same outbox: the account of what the agent sent.
 func TestTheLatestDraftIsReadableAfterItWasApplied(t *testing.T) {
 	workspace, moment := newWorkspace(t)
 
@@ -214,11 +213,10 @@ func TestTheLatestDraftIsReadableAfterItWasApplied(t *testing.T) {
 // TestTwoDraftsWrittenInOneSecondResolveTheWayDeliveryDoes pins the tiebreak.
 //
 // Modification times are not always finer than a second — several filesystems
-// keep exactly one — so two drafts a hook wrote in quick succession can carry
-// the same one. Delivery breaks that tie by file name and applies them in that
-// order, so the last one it applied is the last name. A read-back that broke it
-// the other way would compose a publication from the draft that was superseded,
-// while the task's history said the newer one had arrived.
+// keep exactly one — so two drafts a hook wrote in quick succession can carry the
+// same one. Delivery breaks that tie by file name, so the last one it applied is
+// the last name. A read-back that broke it the other way would compose a
+// publication from the draft that was superseded.
 func TestTwoDraftsWrittenInOneSecondResolveTheWayDeliveryDoes(t *testing.T) {
 	workspace, moment := newWorkspace(t)
 

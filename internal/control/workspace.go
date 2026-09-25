@@ -22,9 +22,9 @@ import (
 // by the agent and read by the host; agent/ is host-only and holds what the
 // provider adapter generated plus the record of which events have been applied.
 //
-// The split is what lets an execution environment mount the parts with
-// different modes, and it is why deduplication never needs the host to write
-// into the directory the agent owns (ADR-032).
+// The split is what lets an execution environment mount the parts with different
+// modes, and it is why deduplication never needs the host to write into the
+// directory the agent owns (ADR-032).
 const (
 	briefName     = "task.md"
 	contextDir    = "context"
@@ -37,11 +37,10 @@ const (
 
 // File modes.
 //
-// A control workspace holds a task brief and the agent's reports, which belong
-// to one user in exactly the way the state directory does. Where an execution
-// environment runs the agent as another user, granting that user access is the
-// execution adapter's job and is bounded by the mount it creates: it is not a
-// reason to widen these here (ADR-032).
+// A control workspace holds a task brief and the agent's reports, which belong to
+// one user in the way the state directory does. Where an execution environment
+// runs the agent as another user, granting that user access is the execution
+// adapter's job and is bounded by the mount it creates (ADR-032).
 const (
 	dirPerm    fs.FileMode = 0o700
 	filePerm   fs.FileMode = 0o600
@@ -56,16 +55,14 @@ type Options struct {
 	// is recorded as malformed. Zero uses the default.
 	//
 	// It exists because a write in progress and a malformed document look
-	// identical to a reader, and only one of them is the agent's mistake.
+	// identical to a reader, and only one is the agent's mistake.
 	ParseGrace time.Duration
 }
 
-// Workspace is one task's control workspace on the host.
-//
-// It owns the layout, the atomic writes, the validation of what it reads, and
-// the record of what it has already applied. It does not decide what a message
-// means: that is the provider adapter's job for a provider event and the
-// daemon's for everything else.
+// Workspace is one task's control workspace on the host. It owns the layout, the
+// atomic writes, the validation of what it reads, and the record of what it has
+// already applied. It does not decide what a message means: that is the provider
+// adapter's job for a provider event and the daemon's for everything else.
 type Workspace struct {
 	root string
 	task domain.TaskID
@@ -82,9 +79,8 @@ type Workspace struct {
 	processed map[string]bool
 	// settled is the set of outbox entries that have been dealt with, applied
 	// or refused. It is keyed by file rather than by identifier because a
-	// document that never parsed has no identifier, and because an entry that
-	// is never opened again is what keeps the cost of a poll proportional to
-	// what is new rather than to everything a task has ever sent.
+	// document that never parsed has no identifier, and because never opening a
+	// settled entry again keeps the cost of a poll proportional to what is new.
 	settled map[string]bool
 	loaded  bool
 	// firstSeen records when an unparseable outbox entry was first noticed, so
@@ -97,9 +93,8 @@ type Workspace struct {
 // a few kilobytes and short relative to a person noticing a stuck task.
 const defaultParseGrace = 3 * time.Second
 
-// Open returns the control workspace of one task under the control root.
-//
-// It creates nothing. Resolving where a workspace belongs and creating it are
+// Open returns the control workspace of one task under the control root. It
+// creates nothing: resolving where a workspace belongs and creating it are
 // separate acts, and only a task that has been confirmed gets the second one.
 func Open(root string, project domain.ProjectID, task domain.TaskID, opts Options) (*Workspace, error) {
 	if !filepath.IsAbs(root) {
@@ -137,10 +132,9 @@ func Open(root string, project domain.ProjectID, task domain.TaskID, opts Option
 // execution environment should mount them.
 //
 // It exists so that an environment can express the split this layout describes
-// without repeating the names of Feat's own directories: the tree is mounted
-// read-only and these are mounted read-write over it, which is what makes
-// "agent/ is host-only" a property of the mount rather than of good behaviour
-// (ADR-032).
+// without repeating the names of Feat's own directories. The tree is mounted
+// read-only and these are mounted read-write over it, so agent/ is host-only by
+// the mount rather than by good behaviour (ADR-032).
 func AgentWritable() []string { return []string{outboxDir, reportsDir} }
 
 // Task returns the task the workspace belongs to.
@@ -167,12 +161,10 @@ func (w *Workspace) ReportsDir() string { return filepath.Join(w.root, reportsDi
 // AgentDir returns the host-only directory holding generated provider files.
 func (w *Workspace) AgentDir() string { return filepath.Join(w.root, agentDir) }
 
-// Create makes the workspace tree.
-//
-// It is idempotent, so a task whose launch failed part way through can be
-// retried without first being cleaned up. A directory that already exists as
-// something other than a directory is refused rather than written through,
-// which is the earliest point at which a tampered workspace can be caught.
+// Create makes the workspace tree. It is idempotent, so a task whose launch
+// failed part way through can be retried without first being cleaned up. A
+// directory that already exists as something else is refused rather than written
+// through, which is the earliest point at which a tampered workspace is caught.
 func (w *Workspace) Create() error {
 	for _, dir := range []string{
 		w.root, w.ContextDir(), w.InboxDir(), w.OutboxDir(), w.ReportsDir(), w.AgentDir(),
@@ -195,9 +187,8 @@ func (w *Workspace) Exists() bool {
 // This is the audit trail ADR-032 kept intact until cleanup, so removing it is
 // only ever reached from a cleanup the user confirmed. The path is the one this
 // workspace computed from a validated project and task identifier under a root
-// the daemon resolved, never one a caller supplied — and it is checked again
-// here, because this function deletes a directory tree and the cost of the check
-// is nothing next to the cost of being wrong.
+// the daemon resolved, and it is checked again here because this function deletes
+// a directory tree.
 func (w *Workspace) Remove() (bool, error) {
 	if !filepath.IsAbs(w.root) || paths.Broad(w.root) {
 		return false, fmt.Errorf("refusing to remove the control workspace %q: it is not a directory Feat owns", w.root)
@@ -217,20 +208,18 @@ func (w *Workspace) Remove() (bool, error) {
 	return true, nil
 }
 
-// WriteBrief records the confirmed task brief.
-//
-// The brief is what the agent receives, so it is written verbatim and by atomic
-// replacement: an agent that reads it while it is being written must see the
-// previous document or the new one, never half of each.
+// WriteBrief records the confirmed task brief. The brief is what the agent
+// receives, so it is written verbatim and by atomic replacement: an agent that
+// reads it while it is being written sees the previous document or the new one,
+// never half of each.
 func (w *Workspace) WriteBrief(brief string) error {
 	return w.replaceFile(w.BriefPath(), []byte(brief), filePerm)
 }
 
-// WriteAgentFile records one generated provider file in the host-only area.
-//
-// The name is a relative path inside agent/, so that an adapter can group its
-// hooks and helpers, and it is checked rather than trusted: this package builds
-// the path, and a name that could leave the directory is refused.
+// WriteAgentFile records one generated provider file in the host-only area. The
+// name is a relative path inside agent/, so that an adapter can group its hooks
+// and helpers, and it is checked rather than trusted: a name that could leave the
+// directory is refused.
 func (w *Workspace) WriteAgentFile(name string, data []byte, executable bool) error {
 	path, err := w.AgentPath(name)
 	if err != nil {
@@ -256,22 +245,21 @@ func (w *Workspace) processedPath() string { return filepath.Join(w.AgentDir(), 
 
 // errNotRegular is what every file operation in this package refuses over.
 //
-// A path built from validated identifiers says where a file belongs. It says
-// nothing about what is there, and the tree is reachable from a container: the
-// two facts together are what turned the daemon's own bookkeeping write into a
+// A path built from validated identifiers says where a file belongs and nothing
+// about what is there, and the tree is reachable from a container. Those two
+// facts together are what would turn the daemon's own bookkeeping write into a
 // write somewhere else entirely.
 var errNotRegular = errors.New("not a regular file")
 
 // openLeaf opens one file of the control workspace, refusing anything that is
 // not a regular file.
 //
-// Both extra flags earn their place. O_NOFOLLOW means the descriptor is the
-// file the path names rather than whatever a symbolic link put in its way, so a
-// link planted in the tree cannot redirect a host write to a file elsewhere on
-// the machine. O_NONBLOCK means a named pipe answers immediately instead of
-// blocking in the kernel until somebody writes to it: one goroutine polls every
-// task's workspace, so an open that never returned would stop control
-// processing for every task at once.
+// O_NOFOLLOW means the descriptor is the file the path names rather than whatever
+// a symbolic link put in its way, so a link planted in the tree cannot redirect a
+// host write elsewhere on the machine. O_NONBLOCK means a named pipe answers
+// immediately instead of blocking in the kernel until somebody writes to it: one
+// goroutine polls every task's workspace, so an open that never returned would
+// stop control processing for every task at once.
 //
 // The kind is then read from the descriptor rather than from the path, so what
 // was checked is what is used.
@@ -328,8 +316,7 @@ func (w *Workspace) prepareDirectory(dir string) error { return w.walkDirectory(
 // directory replaced by a symbolic link would still send an atomic replacement
 // somewhere else. Each component is therefore stat'ed without following links,
 // and anything that is not a directory is refused by name. The layout of a
-// control workspace is Feat's own: there is no case in which one of these is
-// legitimately a link.
+// control workspace is Feat's own, so none of these is legitimately a link.
 func (w *Workspace) walkDirectory(dir string, create bool) error {
 	relative, err := filepath.Rel(w.root, dir)
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
@@ -383,8 +370,8 @@ func (w *Workspace) walkDirectory(dir string, create bool) error {
 //
 // The rename is what makes the write atomic: a reader sees the previous file or
 // the new one, never a mixture, whatever moment the process dies at. The
-// temporary name is dot-prefixed so that a crash before the rename leaves
-// something every reader in this package already ignores.
+// temporary name is dot-prefixed, so a crash before the rename leaves something
+// every reader in this package already ignores.
 //
 // Neither step follows a symbolic link. The directory is checked component by
 // component first; the staging file is created exclusively, which fails on a

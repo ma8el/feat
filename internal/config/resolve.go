@@ -8,11 +8,9 @@ import (
 	"time"
 )
 
-// Defaults applied by Resolve.
-//
-// They are filled into the configuration rather than applied at the point of
-// use, so that `feat project show` prints the values Feat will act on. A
-// default a user cannot see is a default they cannot check.
+// Defaults applied by Resolve. They are filled into the configuration rather than
+// applied at the point of use, so `feat project show` prints the values Feat will act
+// on and the user can check them.
 const (
 	defaultBranchTemplate      = "feat/{task_key}-{slug}"
 	defaultWorktreeDir         = "worktrees"
@@ -24,25 +22,19 @@ const (
 	defaultIdleGracePeriod     = "5s"
 	defaultSampleInterval      = "2s"
 
-	// defaultPortRange is where Feat publishes a task's reachable services when
-	// a project names no range of its own.
-	//
-	// It is a thousand ports well above the privileged range and well below the
-	// ephemeral ports the kernel hands out for outgoing connections, so an
-	// allocation neither needs privilege nor collides with a socket the machine
-	// opened on its own behalf. It is a default rather than a requirement
-	// because a project that already uses these ports needs only to say so.
+	// defaultPortRange is where Feat publishes a task's reachable services when a
+	// project names no range of its own. These thousand ports sit above the privileged
+	// range and below the ephemeral ports the kernel hands out, so an allocation
+	// neither needs privilege nor collides with a socket the machine opened itself.
 	defaultPortRange = "21000-21999"
 
-	// defaultBindAddress is the host address an allocated port is published on
-	// when the project's own Compose files named none.
+	// defaultBindAddress is the host address an allocated port is published on when
+	// the project's own Compose files named none.
 	//
-	// The loopback address rather than every interface, because publishing is
-	// Feat's act rather than the user's here: the project wrote a port, Feat
-	// chose which host port replaces it, and nobody asked for the service to be
-	// answerable from the network the machine happens to be on. It is also the
-	// only default that keeps one task's containers out of another's, since a
-	// port on every interface is reachable from every container on the machine.
+	// Loopback rather than every interface, because Feat chose this host port and
+	// nobody asked for the service to answer on the network the machine happens to be
+	// on. A port on every interface is also reachable from every container on the
+	// machine, which puts one task's containers inside another's.
 	defaultBindAddress = "127.0.0.1"
 )
 
@@ -53,12 +45,11 @@ func defaultDiffCommand() []string { return []string{"git", "diff", "{base_commi
 // defaultStatusCommand shows the working tree and branch of one repository.
 func defaultStatusCommand() []string { return []string{"git", "status", "--short", "--branch"} }
 
-// Resolve expands paths and fills defaults.
-//
-// It touches no file other than the one already read: expansion needs the home
-// directory and the environment, both of which are supplied. Whether a resolved
-// path exists on this machine is a host question, and it belongs to diagnostics
-// rather than to loading (docs/04-functional-specification.md, FR-PROJ-004).
+// Resolve expands paths and fills defaults. It touches no file other than the one
+// already read, because expansion needs only the home directory and the environment,
+// both of which are supplied. Whether a resolved path exists on this machine is a
+// host question and belongs to diagnostics
+// (docs/04-functional-specification.md, FR-PROJ-004).
 func (c *Config) Resolve(opts Options) error {
 	if c.resolved {
 		return nil
@@ -113,10 +104,10 @@ func (c *Config) resolveRepositories(opts Options) error {
 		repository.HostPath = expanded
 
 		if repository.Runtime != nil {
-			// Against the repository's own checkout, which is also the project
-			// directory of its include entry. A repository names the files it
-			// brings the way it would name them to Compose standing in its own
-			// directory, and nothing relative crosses a repository boundary.
+			// Against the repository's own checkout, which is the project directory of
+			// its include entry. A repository names the files it brings the way it
+			// would name them to Compose in its own directory, so nothing relative
+			// crosses a repository boundary.
 			files, err := expandUnder(opts, "repositories."+id+".runtime.compose_files",
 				repository.HostPath, repository.Runtime.ComposeFiles)
 			if err != nil {
@@ -140,9 +131,8 @@ func (c *Config) resolveGit(opts Options) error {
 		c.Git.BranchTemplate = defaultBranchTemplate
 	}
 	if c.Git.WorktreeRoot == "" && opts.StateDir != "" {
-		// Under the state directory, one directory per project and task: the
-		// default has to be deterministic, and it has to keep two tasks from
-		// ever resolving to the same worktree.
+		// Under the state directory, one directory per project and task, so the
+		// default is deterministic and two tasks never resolve to the same worktree.
 		c.Git.WorktreeRoot = filepath.Join(
 			opts.StateDir, defaultWorktreeDir, "{project_id}", "{task_id}")
 	}
@@ -172,15 +162,15 @@ func (c *Config) resolveAgent(opts Options) error {
 		if execution.ControlPath == "" {
 			execution.ControlPath = defaultControlPath
 		}
-		// Only where there is a volume to mount. Defaulting a path for a
-		// configuration that mounts nothing would put a value in `feat project
-		// show` that nothing ever uses.
+		// Only where there is a volume to mount. Defaulting a path for a configuration
+		// that mounts nothing would put a value in `feat project show` that nothing
+		// ever uses.
 		if c.Agent.Claude.ConfigVolume != "" && c.Agent.Claude.ConfigPath == "" {
 			c.Agent.Claude.ConfigPath = defaultClaudeConfigPath
 		}
-		// The agent starts where the user works: the primary repository's mount
-		// point in the agent's own container. A project that wants another
-		// directory says so.
+		// The agent starts where the user works: the primary repository's mount point
+		// in the agent's own container. A project that wants another directory says
+		// so.
 		if execution.WorkingDirectory == "" {
 			if primary, ok := c.Primary(); ok {
 				execution.WorkingDirectory = primary.Agent.ContainerPath
@@ -194,14 +184,13 @@ func (c *Config) resolveAgent(opts Options) error {
 	}
 	execution.ComposeFiles = files
 
-	// Held as a string and parsed here, so that a malformed duration is reported
-	// against its own field rather than by the YAML decoder, which cannot name
-	// the field a custom scalar type failed in.
+	// Held as a string and parsed here, so a malformed duration is reported against
+	// its own field rather than by the YAML decoder, which cannot name the field a
+	// custom scalar type failed in.
 	//
-	// It is the one duration a project still configures. The other two moved to
-	// the machine's settings, and this one did not: it is provider-specific — it
-	// decides when Claude's ended turn counts as idle — and how an agent is driven
-	// is a fact about the project rather than about the machine (ADR-079).
+	// It is the one duration a project still configures. It decides when Claude's
+	// ended turn counts as idle, and how an agent is driven is a fact about the
+	// project rather than about the machine (ADR-079).
 	grace, err := parseInterval("agent.claude.idle_grace_period", c.Agent.Claude.IdleGracePeriod)
 	if err != nil {
 		return c.problem(err)
@@ -231,9 +220,9 @@ func (c *Config) resolveRuntime(opts Options) error {
 	if runtime.BindAddress == "" {
 		runtime.BindAddress = defaultBindAddress
 	}
-	// Parsed here and validated in Validate, so that a range which is not a
-	// range at all is reported against its own field rather than as a runtime
-	// action failing later with nothing to allocate from.
+	// Parsed here and validated in Validate, so a range that is not a range at all is
+	// reported against its own field rather than as a runtime action failing later
+	// with nothing to allocate from.
 	parsed, err := ParsePortRange(runtime.PortRange)
 	if err != nil {
 		return c.problem(&fieldError{path: "runtime.port_range", reason: err.Error()})
@@ -256,12 +245,9 @@ func (c *Config) resolveRuntime(opts Options) error {
 	return nil
 }
 
-// resolveTracker fills the tracker's kind.
-//
-// A configured command is the only kind there is, so the field decides nothing
-// and a project need not write it. It is filled in rather than left empty for
-// the reason every other default is: `feat project show` prints the values Feat
-// will act on, and a default a user cannot see is one they cannot check.
+// resolveTracker fills the tracker's kind. A configured command is the only kind
+// there is, so a project need not write it. It is filled in for the reason every
+// other default is: `feat project show` prints the values Feat will act on.
 func (c *Config) resolveTracker() {
 	if c.Tracker == nil {
 		return
@@ -271,11 +257,9 @@ func (c *Config) resolveTracker() {
 	}
 }
 
-// resolveReviewSection fills the review commands Feat has a default for.
-//
-// It is a function on the section rather than a method on either document that
-// holds one, because both do: the settings file is where the section lives, and
-// a project's copy is still read until it is moved (ADR-079).
+// resolveReviewSection fills the review commands Feat has a default for. It is a
+// function on the section rather than a method on a document, because two documents
+// hold one: the settings file, and a project's copy until it is moved (ADR-079).
 func resolveReviewSection(opts Options, review *ReviewSection) {
 	if review.Diff.Empty() {
 		review.Diff.Command = defaultDiffCommand()
@@ -283,23 +267,18 @@ func resolveReviewSection(opts Options, review *ReviewSection) {
 	if review.Status.Empty() {
 		review.Status.Command = defaultStatusCommand()
 	}
-	// FR-REV-003 defaults the editor to $EDITOR. An unset $EDITOR leaves the
-	// command empty rather than guessing an editor: diagnostics report it, and a
-	// machine that never opens an editor is still configured.
+	// FR-REV-003 defaults the editor to $EDITOR. An unset $EDITOR leaves the command
+	// empty rather than guessing an editor: diagnostics report it, and a machine that
+	// never opens an editor is still configured.
 	//
-	// An environment with no reader reads no variables, rather than falling
-	// through to the process's own. Resolution has no hidden inputs — that is
-	// what Options is for — and settings resolve on paths a project's
-	// configuration never took, so this must not be the one place a value
-	// arrives from outside them.
+	// An Options with no environment reader reads no variables rather than falling
+	// through to the process's own, because resolution has no hidden inputs.
 	//
 	// $EDITOR is split on whitespace, because it holds a command rather than a
-	// program: `code -w` and `emacsclient -nw` are ordinary values of it, and a
-	// single element would make the whole string the name of an executable to
-	// look up. That is what the client already did on its own fallback path, and
-	// two answers to one question in one product was the defect — an editor
-	// whose path contains a space is the cost, and it is the one every tool that
-	// reads this variable pays.
+	// program: `code -w` and `emacsclient -nw` are ordinary values of it, and a single
+	// element would make the whole string the name of an executable to look up. An
+	// editor whose path contains a space is the cost, and every tool that reads this
+	// variable pays it.
 	if review.Editor.Empty() && opts.Env.Getenv != nil {
 		if fields := strings.Fields(opts.Env.Getenv("EDITOR")); len(fields) > 0 {
 			review.Editor.Command = append(fields, "{repository_path}")
@@ -307,13 +286,11 @@ func resolveReviewSection(opts Options, review *ReviewSection) {
 	}
 }
 
-// parseInterval reads one duration field, reporting a malformed or negative
-// value against the field it was written in.
-//
-// The durations are held as strings so that this is possible at all: a custom
-// scalar type would fail inside the YAML decoder, which cannot name the field it
-// was decoding. It is shared by the two documents that hold one — a project's
-// provider grace, and the machine's two settings.
+// parseInterval reads one duration field, reporting a malformed or negative value
+// against the field it was written in. The durations are held as strings because a
+// custom scalar type would fail inside the YAML decoder, which cannot name the field
+// it was decoding. Two documents hold one: a project's provider grace, and the
+// machine's two settings.
 func parseInterval(path, value string) (time.Duration, error) {
 	parsed, err := time.ParseDuration(value)
 	if err != nil {
@@ -331,11 +308,9 @@ func parseInterval(path, value string) (time.Duration, error) {
 	return parsed, nil
 }
 
-// expand resolves a leading "~" and requires the result to be absolute.
-//
-// A template placeholder is left in place: git.worktree_root is expanded here
-// and completed per task by the Git adapter, so "~/x/{task_id}" has to survive
-// this step intact.
+// expand resolves a leading "~" and requires the result to be absolute. A template
+// placeholder is left in place: git.worktree_root is completed per task by the Git
+// adapter, so "~/x/{task_id}" has to survive this step intact.
 func expand(opts Options, path, value string) (string, error) {
 	if value == "" {
 		return "", nil
@@ -353,13 +328,11 @@ func expand(opts Options, path, value string) (string, error) {
 	return expanded, nil
 }
 
-// expandUnder resolves every path in a list against a base directory.
-//
-// A path that expands to an absolute one is taken as it stands; anything else
-// is joined to the base. It is what lets a repository name the Compose files it
-// brings the way it would name them standing in its own checkout, and it is
-// refused outright when the base is unknown, because joining onto nothing would
-// silently produce a path relative to wherever the daemon was started.
+// expandUnder resolves every path in a list against a base directory. A path that
+// expands to an absolute one is taken as it stands, and anything else is joined to
+// the base, so a repository can name the Compose files it brings the way it would
+// name them standing in its own checkout. An unknown base is refused, because joining
+// onto nothing would produce a path relative to wherever the daemon was started.
 func expandUnder(opts Options, path, base string, values []string) ([]string, error) {
 	if len(values) == 0 {
 		return nil, nil
@@ -413,15 +386,13 @@ type fieldError struct {
 
 func (e *fieldError) Error() string { return e.path + ": " + e.reason }
 
-// problem wraps a resolution failure with the file it came from, so that it
-// reads like every other configuration error and can be shown in place.
+// problem wraps a resolution failure with the file it came from, so it reads like
+// every other configuration error and can be shown in place.
 func (c *Config) problem(err error) error { return asProblem(c.path, c.source, err) }
 
-// asProblem wraps a resolution failure with the file it came from.
-//
-// It takes the file and its bytes rather than a document, because both
-// documents this package resolves — a project's and the machine's settings —
-// report a bad field the same way, in place and against its own path.
+// asProblem wraps a resolution failure with the file it came from. It takes the file
+// and its bytes rather than a document, because both documents this package
+// resolves, a project's and the machine's settings, report a bad field the same way.
 func asProblem(file string, source []byte, err error) error {
 	var field *fieldError
 	if errors.As(err, &field) {

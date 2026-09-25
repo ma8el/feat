@@ -16,8 +16,8 @@ import (
 	"github.com/ma8el/feat/internal/schematest"
 )
 
-// testEnvironment returns an environment rooted at a temporary home, so that a
-// test never expands a path into the developer's own home directory.
+// testEnvironment returns an environment rooted at a temporary home, so a test never
+// expands a path into the developer's own home directory.
 func testEnvironment(t *testing.T, variables map[string]string) (paths.Environment, string) {
 	t.Helper()
 	home := t.TempDir()
@@ -82,11 +82,10 @@ func problemAt(t *testing.T, err *config.Error, path string) config.Problem {
 	return config.Problem{}
 }
 
-// TestUnknownFieldFailsWithLocationAndMessage covers the requirement that
-// unknown YAML fields fail with a useful location and message.
-//
-// Useful means three things, and each is asserted separately: the message names
-// the field, it says where the field is, and the file is not loaded anyway.
+// TestUnknownFieldFailsWithLocationAndMessage covers the requirement that unknown
+// YAML fields fail with a useful location and message. Three things are asserted
+// separately: the message names the field, it says where the field is, and the file
+// is not loaded.
 func TestUnknownFieldFailsWithLocationAndMessage(t *testing.T) {
 	const body = `version: 1
 project:
@@ -160,11 +159,10 @@ func TestUnknownFieldIsRejectedAtEveryDepth(t *testing.T) {
 
 // TestARemovedCapabilityFailsNamingItself is the whole migration ADR-080 needs.
 //
-// No `replaced` entry was added for either key, on ADR-075's reasoning: that
-// mechanism earns its place where a field has a successor to name, and these
-// have none. What is left has to be enough on its own, so it is asserted rather
-// than assumed — a file carrying either key fails to load, and the message
-// names the key whose line is to be deleted.
+// No `replaced` entry was added for either key, because that mechanism earns its
+// place where a field has a successor to name and these have none (ADR-075). What is
+// left is asserted rather than assumed: a file carrying either key fails to load, and
+// the message names the key whose line is to be deleted.
 func TestARemovedCapabilityFailsNamingItself(t *testing.T) {
 	base := fixture(t, "app.yaml")
 
@@ -353,24 +351,20 @@ func TestDocumentedExampleIsValid(t *testing.T) {
 	// Valid is not the whole of what this file has to be. Every configuration
 	// `feat project init` writes points its reader here for the fields it left
 	// out, so a section added to the interface and not to the example is one a
-	// user following Feat's own instructions cannot discover. `tracker` and
-	// `forge` each accumulated exactly that way, because every assertion above
-	// is about a field the example already has.
+	// user following Feat's own instructions cannot discover.
 	requireExampleUsesEverySchemaProperty(t, body)
 }
 
 // requireExampleUsesEverySchemaProperty fails when the published schema has a
 // property the documented example does not use.
 //
-// It walks the two levels a section is added at — the document's own properties
-// and one repository's — and asks the parsed example for each name, so that a
-// property counts where the example configures it rather than where a comment
-// happens to mention it.
+// It walks the two levels a section is added at, the document's own properties and
+// one repository's, and asks the parsed example for each name, so a property counts
+// where the example configures it rather than where a comment happens to mention it.
 //
-// A property that legitimately cannot appear in the example belongs here by
-// name, with the reason it cannot, rather than in a walk relaxed until it
-// passes: an assertion that cannot fail is what left two sections undocumented.
-// There is no such property today, which is why there is no list of them.
+// A property that legitimately cannot appear in the example belongs here by name,
+// with the reason it cannot, rather than in a walk relaxed until it passes. There is
+// no such property today, which is why there is no list of them.
 func requireExampleUsesEverySchemaProperty(t *testing.T, body []byte) {
 	t.Helper()
 
@@ -421,8 +415,8 @@ func requireExampleUsesEverySchemaProperty(t *testing.T, body []byte) {
 	}
 }
 
-// propertyNames returns a schema object's property names in a stable order, so
-// that two failing runs report them the same way.
+// propertyNames returns a schema object's property names in a stable order, so two
+// failing runs report them the same way.
 func propertyNames(properties map[string]*schematest.Schema) []string {
 	sorted := make([]string, 0, len(properties))
 	for name := range properties {

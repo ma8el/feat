@@ -18,13 +18,11 @@ import (
 // another tool's namespace.
 var volumeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 
-// Validate reports every rule the resolved configuration breaks.
-//
-// It checks shape and safety only. Whether a configured path exists, whether it
-// holds a Git repository, and whether an executable is installed are host
-// questions, and they belong to diagnostics: a configuration file must stay
-// loadable on a machine where a repository is temporarily missing, or `feat
-// doctor` would have nothing left to report it with.
+// Validate reports every rule the resolved configuration breaks. It checks shape and
+// safety only: whether a configured path exists, holds a Git repository, or names an
+// installed executable is a host question and belongs to diagnostics. A configuration
+// file must stay loadable on a machine where a repository is temporarily missing, or
+// `feat doctor` could not report it.
 func (c *Config) Validate() error {
 	if !c.resolved {
 		return fmt.Errorf("the configuration must be resolved before it is validated")
@@ -141,18 +139,17 @@ func (c *Config) validateRepositories(found *problems) {
 	checkOverlaps(found, "agent", agentMounts)
 }
 
-// mount is one repository's container path, kept with its repository so that an
-// overlap can be reported as the pair it is.
+// mount is one repository's container path, kept with its repository so an overlap
+// can be reported as the pair it is.
 type mount struct {
 	id   string
 	path string
 }
 
-// checkOverlaps rejects two repositories mounted inside one another.
-//
-// One mount inside another does not fail at Compose; it produces a container
-// where one repository shadows part of another, which is far harder to
-// recognise later than a rejected configuration now.
+// checkOverlaps rejects two repositories mounted inside one another. One mount inside
+// another does not fail at Compose: it produces a container where one repository
+// shadows part of another, which is harder to recognise later than a rejected
+// configuration now.
 func checkOverlaps(found *problems, kind string, mounts []mount) {
 	for i, outer := range mounts {
 		for _, inner := range mounts[i+1:] {
@@ -166,13 +163,10 @@ func checkOverlaps(found *problems, kind string, mounts []mount) {
 	}
 }
 
-// validateRepositoryRuntime checks one repository's contribution to the
-// application runtime.
-//
-// Whether a contribution without a container path can produce a runtime worth
-// having is a separate question with a separate answer: it produces services
-// running the user's ordinary checkout, which is ADR-065 evidence 1, and
-// refusing it belongs where the services those are can also be named.
+// validateRepositoryRuntime checks one repository's contribution to the application
+// runtime. A contribution without a container path produces services running the
+// user's ordinary checkout (ADR-065 evidence 1), and checkMountable refuses that,
+// because it can also name the services.
 func (c *Config) validateRepositoryRuntime(found *problems, id string, repository Repository) {
 	runtime := repository.Runtime
 	if runtime == nil {
@@ -226,10 +220,9 @@ func (c *Config) validateRepositoryRuntime(found *problems, id string, repositor
 	}
 	checkContainerPath(found, field+".container_path", runtime.ContainerPath)
 	if len(runtime.Services) == 0 {
-		// The path is where this repository's worktree is mounted in this
-		// repository's own services, so a path with no services is a mount
-		// nothing would ever receive — the silent kind of wrong this whole
-		// section exists to remove (ADR-065 evidence 7).
+		// The path is where this repository's worktree is mounted in its own
+		// services, so a path with no services is a mount nothing would ever
+		// receive (ADR-065 evidence 7).
 		found.add(field+".container_path", fmt.Sprintf(
 			"is %q, and %s.services names no service to mount it in: a repository's runtime container "+
 				"path is where its own services expect its source, so a repository that manages none has "+
@@ -237,14 +230,10 @@ func (c *Config) validateRepositoryRuntime(found *problems, id string, repositor
 	}
 }
 
-// validateRepositoryForge checks where one repository's merge requests are
-// opened.
-//
-// The forge is declared rather than inferred, so the only thing to check is
-// that it is one Feat publishes to: a value Feat does not recognise would leave
-// a publication with no adapter to make it, and finding that out at the moment
-// of publishing is exactly what configuration validation exists to prevent
-// (ADR-071).
+// validateRepositoryForge checks where one repository's merge requests are opened.
+// The forge is declared rather than inferred, so the only thing to check is that Feat
+// publishes to it: an unrecognised value would leave a publication with no adapter to
+// make it, found out at the moment of publishing (ADR-071).
 func validateRepositoryForge(found *problems, id string, repository Repository) {
 	if repository.Forge == nil {
 		return
@@ -261,13 +250,11 @@ func validateRepositoryForge(found *problems, id string, repository Repository) 
 	}
 }
 
-// validateTracker checks where the project's tickets come from.
-//
-// The command is the whole of the mechanism, so it is checked the way every
-// other user-supplied command is — an argument vector whose program is fixed by
-// configuration — with one difference: it may contain no placeholder at all. A
-// tracker command runs before there is a task, so there is nothing to fill one
-// with, and Feat passes it no filter of its own (ADR-071).
+// validateTracker checks where the project's tickets come from. The command is the
+// whole of the mechanism, so it is checked like every other user-supplied command: an
+// argument vector whose program is fixed by configuration. It may contain no
+// placeholder, because a tracker command runs before there is a task and Feat passes
+// it no filter of its own (ADR-071).
 func (c *Config) validateTracker(found *problems) {
 	if c.Tracker == nil {
 		return
@@ -297,11 +284,9 @@ func (c *Config) validateGit(found *problems) {
 	c.validateWorktreeRoot(found, p)
 }
 
-// validateWorktreeRoot checks where task worktrees are created.
-//
-// This is the one template whose expansion Feat later removes files from, so it
-// is checked against what it resolves to rather than only against how it is
-// written.
+// validateWorktreeRoot checks where task worktrees are created. This is the one
+// template whose expansion Feat later removes files from, so it is checked against
+// what it resolves to rather than only against how it is written.
 func (c *Config) validateWorktreeRoot(found *problems, p probe) {
 	const field = "git.worktree_root"
 
@@ -362,14 +347,12 @@ func (c *Config) validateAgent(found *problems) {
 	c.validateClaudeConfigPath(found)
 }
 
-// validateClaudeConfigPath checks where the Claude configuration volume is
-// mounted.
-//
-// The path exists only to carry a volume, so configuring one without the other
-// is rejected rather than ignored, as every other field a mode would not use is
-// (ADR-028). Where it does apply, it is checked exactly as the control path is:
-// a mount that landed inside a repository would hide part of the repository
-// behind Claude's own state.
+// validateClaudeConfigPath checks where the Claude configuration volume is mounted.
+// The path exists only to carry a volume, so configuring one without the other is
+// rejected rather than ignored, as every other field a mode would not use is
+// (ADR-028). Where it applies, it is checked exactly as the control path is, because
+// a mount inside a repository would hide part of the repository behind Claude's
+// state.
 func (c *Config) validateClaudeConfigPath(found *problems) {
 	claude := c.Agent.Claude
 	devcontainer := c.Agent.Execution.Devcontainer()
@@ -507,15 +490,11 @@ func (c *Config) validateExecution(found *problems) {
 	}
 }
 
-// validateCapabilities checks the declared capability against what Feat can
-// actually deliver.
-//
-// It accepts one value. That is deliberate: Feat has no mechanism that grants
-// an agent Docker, so accepting another value would record a promise the binary
-// does not keep. The declaration is still worth making, because the running
-// container is checked against it (docs/05-security-model.md) — which is what
-// `network` and `git` never had, and why they were removed rather than kept
-// beside it (ADR-080).
+// validateCapabilities checks the declared capability against what Feat can actually
+// deliver. It accepts one value, because Feat has no mechanism that grants an agent
+// Docker and another value would record a promise the binary does not keep. The
+// declaration is still worth making, because the running container is checked against
+// it, which `network` and `git` never were (docs/05-security-model.md, ADR-080).
 func (c *Config) validateCapabilities(found *problems) {
 	if docker := c.Agent.Capabilities.Docker; docker != CapabilityDenied {
 		found.add("agent.capabilities.docker", fmt.Sprintf(
@@ -550,12 +529,10 @@ func (c *Config) validateRuntime(found *problems) {
 	c.validateReachable(found)
 }
 
-// The bounds of a host port range Feat will allocate from.
-//
-// The privileged ports are excluded because binding one needs privilege the
-// daemon does not have and should not be given, and a range that reached into
-// them would produce an allocation that fails at Compose with an error about
-// permission rather than about configuration.
+// The bounds of a host port range Feat will allocate from. The privileged ports are
+// excluded because binding one needs privilege the daemon does not have and should
+// not be given, and a range reaching into them would fail at Compose with an error
+// about permission rather than about configuration.
 const (
 	firstUnprivilegedPort = 1024
 	lastPort              = 65535
@@ -587,15 +564,13 @@ func (c *Config) validatePortRange(found *problems) {
 
 // validateBindAddress checks the host address an allocated port is published on.
 //
-// It has to be a literal address rather than a name, because it reaches a
-// generated Compose document as a `host_ip` and Compose binds it: a name would
-// be resolved by Docker at a moment Feat cannot see, to an address Feat could
-// not then tell the user their service was at. A name that resolved to several
-// addresses would not even be one binding.
+// It has to be a literal address rather than a name, because it reaches a generated
+// Compose document as a `host_ip` and Docker would resolve a name at a moment Feat
+// cannot see. Feat could not then tell the user what address their service was at,
+// and a name resolving to several addresses is not one binding.
 //
-// The wildcard addresses are accepted, because publishing on every interface is
-// a thing some users want and the point of the key is that they may say so. What
-// they may not do is get it without saying so, which is the default's job.
+// The wildcard addresses are accepted, because a user may ask to publish on every
+// interface. The default is what keeps them from getting it without asking.
 func (c *Config) validateBindAddress(found *problems) {
 	const field = "runtime.bind_address"
 	address := c.Runtime.BindAddress
@@ -613,15 +588,14 @@ func (c *Config) validateBindAddress(found *problems) {
 // does: nothing here ever chooses it.
 const wildcardAddress = "0.0.0.0"
 
-// validateReachable refuses two reachable services whose generated variables
-// would collide.
+// validateReachable refuses two reachable services whose generated variables would
+// collide.
 //
 // Feat tells every managed service the host address of each reachable one, as
-// FEAT_HOST_URL_<service> and FEAT_HOST_PORT_<service> with the service name
-// upper-cased and everything else replaced. A variable name has no room for the
-// dots and hyphens a Compose service name allows, so "web-app" and "web.app"
-// render alike — and one service would then receive the other's address, which
-// is the silent kind of wrong the whole runtime section is written against.
+// FEAT_HOST_URL_<service> and FEAT_HOST_PORT_<service>, with the service name
+// upper-cased and everything else replaced. A variable name has no room for the dots
+// and hyphens a Compose service name allows, so "web-app" and "web.app" render alike
+// and one service would receive the other's address.
 func (c *Config) validateReachable(found *problems) {
 	owners := make(map[string]string)
 	for _, contribution := range c.RuntimeComposition() {
@@ -641,17 +615,14 @@ func (c *Config) validateReachable(found *problems) {
 	}
 }
 
-// validateComposition checks the runtime the repositories compose between them.
-//
-// The per-repository rules are checked where the repositories are. What is left
-// is what only the whole can say: that there is something to run, and that no
-// file is brought twice.
+// validateComposition checks the runtime the repositories compose between them. The
+// per-repository rules are checked where the repositories are, so what is left is
+// what only the whole can say: that there is something to run, and that no file is
+// brought twice.
 //
 // Two repositories naming one service is deliberately allowed. A repository's
-// services are the ones that run its code, and a service that runs an
-// application and a shared library it depends on runs the code of two
-// repositories — at two container paths, which is exactly what a per-repository
-// container path is for.
+// services are the ones that run its code, and one service can run an application and
+// a shared library it depends on, at the two container paths those repositories give.
 func (c *Config) validateComposition(found *problems) {
 	composition := c.RuntimeComposition()
 
@@ -686,22 +657,21 @@ func (c *Config) validateComposition(found *problems) {
 
 // checkMountable refuses a runtime that could mount no task worktree at all.
 //
-// This is the half of "a service is not running the task's code" that needs no
-// Docker to diagnose, and it is the shape a real project arrived at twice: no
-// repository said where its source goes, so the generated override carried no
-// `volumes:` at all, every service ran the user's ordinary checkout, and every
-// record Feat kept about the task stayed correct (ADR-065 evidence 1).
+// This is the half of "a service is not running the task's code" that needs no Docker
+// to diagnose, and it is the shape a real project arrived at twice. No repository
+// said where its source goes, so the generated override carried no `volumes:`, every
+// service ran the user's ordinary checkout, and every record Feat kept about the task
+// stayed correct (ADR-065 evidence 1).
 //
-// It is asked of the runtime rather than of each repository, because
-// configuration cannot see the other way a repository's code reaches a service.
-// A service whose image is built from the repository runs the task's worktree
-// once Feat redirects its build context, and it may have no mount anywhere and
-// want none — the reference project's frontend is a multi-stage build ending in
-// nginx, where mounting a worktree would be meaningless at best. Requiring a
-// container path of every contributing repository would refuse that project;
-// requiring one somewhere refuses only the runtime that can carry no task work
-// at all. Which particular service is not running the task's code is resolved
-// when the runtime is, where the project's own Compose files can be read.
+// It is asked of the runtime rather than of each repository, because configuration
+// cannot see the other way a repository's code reaches a service. A service whose
+// image is built from the repository runs the task's worktree once Feat redirects its
+// build context, and may have no mount anywhere and want none, as a multi-stage build
+// ending in a web server does. Requiring a container path of every contributing
+// repository would refuse such a project, while requiring one somewhere refuses only
+// a runtime that can carry no task work at all. Which service is not running the
+// task's code is resolved when the runtime is, where the project's own Compose files
+// can be read.
 //
 // A repository no task ever selects is not counted: it has no worktree to mount,
 // whatever it says here.
@@ -739,11 +709,9 @@ func expectation(names []string) string {
 		" of this repository expect their source"
 }
 
-// validateReviewSection checks the review commands.
-//
-// The placeholders are the same vocabulary a check command may use, because both
-// run for one repository of one task: the commands moved to the machine's
-// settings, and what they are expanded against did not (ADR-079).
+// validateReviewSection checks the review commands. The placeholders are the same
+// vocabulary a check command may use, because both run for one repository of one
+// task, which the move to the machine's settings did not change (ADR-079).
 func validateReviewSection(found *problems, review ReviewSection) {
 	for _, command := range []struct {
 		path  string
@@ -797,12 +765,10 @@ func (c *Config) validateChecks(found *problems) {
 	}
 }
 
-// checkCommand validates one external command against the placeholders its
-// caller can fill.
-//
-// The vocabulary is a parameter because it is not the same everywhere: a review
-// or check command runs for one task repository and can name it, and a tracker
-// command runs before any task exists.
+// checkCommand validates one external command against the placeholders its caller can
+// fill. The vocabulary is a parameter because a review or check command runs for one
+// task repository and can name it, while a tracker command runs before any task
+// exists.
 func checkCommand(found *problems, path string, command []string, allowed []string) {
 	if len(command) == 0 {
 		found.add(path, "must be an argument vector whose first element is the program to run")
@@ -878,25 +844,23 @@ func (c *Config) probe() probe {
 	return probe{projectID: id, repositoryID: repository}
 }
 
-// PathsOverlap reports whether one path is the other, or is inside it.
-//
-// It is exported because the questions that compose a configuration have to
-// refuse what loading one refuses, in the words of the question rather than at
-// the end of the conversation. Two implementations of the same rule would drift,
-// and the one a user meets first would be the one that was wrong.
+// PathsOverlap reports whether one path is the other, or is inside it. It is exported
+// because the questions that compose a configuration have to refuse what loading one
+// refuses, in the words of the question rather than at the end of the conversation,
+// and two implementations of the rule would drift.
 func PathsOverlap(a, b string) bool {
 	a = strings.TrimSuffix(a, "/")
 	b = strings.TrimSuffix(b, "/")
 	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
 
-// StaticPrefix returns the fixed leading directory of a path template:
-// everything before the first placeholder, cut back to the last separator.
+// StaticPrefix returns the fixed leading directory of a path template: everything
+// before the first placeholder, cut back to the last separator.
 //
-// It is the deepest directory Feat can know it will create things under, which
-// is the directory whose ownership matters. Validation checks it here, and the
-// Git adapter requires every worktree it creates to descend from it, so the
-// directory a user allowed and the directory Feat writes to are the same one.
+// It is the deepest directory Feat can know it will create things under, so it is the
+// directory whose ownership matters. Validation checks it here, and the Git adapter
+// requires every worktree it creates to descend from it, so the directory a user
+// allowed is the directory Feat writes to.
 func StaticPrefix(template string) string {
 	index := strings.IndexByte(template, '{')
 	if index < 0 {
@@ -912,22 +876,21 @@ func StaticPrefix(template string) string {
 	return filepath.Clean(head)
 }
 
-// ProjectPrefix returns the directory a worktree root gives one project:
-// the leading part of the template that names the project and nothing narrower,
-// with the project substituted.
+// ProjectPrefix returns the directory a worktree root gives one project: the leading
+// part of the template that names the project and nothing narrower, with the project
+// substituted.
 //
-// It sits between StaticPrefix and a task's own worktree, and it is a different
-// kind of directory from either. The static prefix is the fixed directory a user
-// allowed Feat to write under, and it is shared by every project on the machine.
-// A task's directory belongs to that task and goes when the task is cleaned up.
-// What is between them — `…/worktrees/{project_id}` under the default root —
-// belongs to the project: Feat creates it for the project's first task, the
-// project's next task is created inside it, and it says nothing about whether
-// the project has a task right now.
+// It sits between StaticPrefix and a task's own worktree, and it is a different kind
+// of directory from either. The static prefix is the fixed directory a user allowed
+// Feat to write under, shared by every project on the machine, and a task's directory
+// goes when the task is cleaned up. What is between them, `…/worktrees/{project_id}`
+// under the default root, belongs to the project: Feat creates it for the project's
+// first task, the project's next task is created inside it, and it says nothing about
+// whether the project has a task right now.
 //
-// So it is neither removed with a task nor reported as a directory nobody
-// claims. A template that generates no such directory, `…/worktrees/{task_id}`
-// among them, returns the static prefix, and both rules then apply from there.
+// So it is neither removed with a task nor reported as a directory nobody claims. A
+// template that generates no such directory, `…/worktrees/{task_id}` among them,
+// returns the static prefix, and both rules then apply from there.
 func ProjectPrefix(template, projectID string) string {
 	static := StaticPrefix(template)
 	if projectID == "" {
@@ -983,13 +946,10 @@ func isRoot(user string) bool {
 	return name == "root" || name == "0"
 }
 
-// forgeKinds names the forges Feat publishes to, so that a rejection says what
-// would have been accepted.
-//
-// The list is the domain's, because the same list is what `feat project init`
-// offers: a rejection naming forges the question does not offer, or a question
-// offering one this would refuse, is the drift reading it from one place
-// prevents (ADR-100).
+// forgeKinds names the forges Feat publishes to, so a rejection says what would have
+// been accepted. The list is the domain's, because `feat project init` offers the
+// same one, and reading it from one place keeps a rejection and a question from
+// disagreeing (ADR-100).
 func forgeKinds() []string {
 	kinds := domain.ForgeKinds()
 	names := make([]string, len(kinds))
@@ -1011,8 +971,8 @@ func accessModes() []string {
 }
 
 // reason extracts the explanation from a domain validation error, which already
-// states the rule, so that a configuration problem reads as one sentence rather
-// than as two nested ones.
+// states the rule, so a configuration problem reads as one sentence rather than two
+// nested ones.
 func reason(err error) string {
 	var invalid *domain.ValidationError
 	if errors.As(err, &invalid) {
@@ -1021,8 +981,8 @@ func reason(err error) string {
 	return err.Error()
 }
 
-// sortedKeys returns a map's keys in order, so that problems appear in the same
-// sequence on every run.
+// sortedKeys returns a map's keys in order, so problems appear in the same sequence
+// on every run.
 func sortedKeys[V any](values map[string]V) []string {
 	keys := make([]string, 0, len(values))
 	for key := range values {

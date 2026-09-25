@@ -22,11 +22,11 @@ var ErrNotInEnvironment = execution.ErrNotInEnvironment
 // DockerSocketPaths are the socket paths that would give a container control of
 // the host's Docker daemon.
 //
-// The agent must never receive one (docs/05-security-model.md, Docker
-// boundary). The list is of destinations inside the container as well as sources
-// on the host, because either end being a daemon socket is the same capability.
-// A source is compared by containment as well as by equality: a directory
-// holding one of these hands over the socket inside it without naming it.
+// The agent must never receive one (docs/05-security-model.md, Docker boundary).
+// The list covers destinations inside the container as well as sources on the
+// host, because either end being a daemon socket is the same capability. A source
+// is compared by containment too: a directory holding one of these hands over the
+// socket inside it without naming it.
 var DockerSocketPaths = []string{
 	"/var/run/docker.sock",
 	"/run/docker.sock",
@@ -37,14 +37,12 @@ var DockerSocketPaths = []string{
 	"/var/run/containerd/containerd.sock",
 }
 
-// runtimeSocketNames are the file names a container runtime gives its API
-// socket.
+// runtimeSocketNames are the file names a container runtime gives its API socket.
 //
 // The paths above cannot be enumerated: a rootless daemon puts its socket under
 // /run/user/<uid>, a Docker Desktop replacement puts it under the user's home
-// directory, and a project is free to point its client anywhere. What does not
-// vary is the name, and every runtime named here speaks an API that creates
-// containers on the host.
+// directory, and a project can point its client anywhere. The name does not vary,
+// and every runtime named here speaks an API that creates containers on the host.
 var runtimeSocketNames = []string{
 	"docker.sock",
 	"podman.sock",
@@ -61,12 +59,9 @@ type mount struct {
 	Writable    bool   `json:"RW"`
 }
 
-// hostConfiguration decodes the grants of `docker inspect`.
-//
-// Every field here is something the container runtime was asked for by the
-// project's own Compose files and reports back on the container. What is
-// decoded is what a rule below reads: a field nobody checks would be a claim
-// that it had been looked at.
+// hostConfiguration decodes the grants of `docker inspect`. Every field here is
+// something the project's own Compose files asked the container runtime for, and
+// every field decoded is one a rule below reads.
 type hostConfiguration struct {
 	Privileged  bool     `json:"Privileged"`
 	CapAdd      []string `json:"CapAdd"`
@@ -90,9 +85,9 @@ type hostConfiguration struct {
 //
 // It reads the container rather than the resolved Compose configuration, for two
 // reasons. `docker compose config` renders the project including values taken
-// from the project's environment files, which Feat must not read; and the
-// container is evidence about what exists, while the configuration is a claim
-// about what was asked for (ADR-033, ADR-028).
+// from the project's environment files, which Feat must not read. The container
+// is evidence about what exists, while the configuration is a claim about what
+// was asked for (ADR-033, ADR-028).
 func (e *Environment) Mounts(ctx context.Context, container string) ([]execution.ObservedMount, error) {
 	if container == "" {
 		return nil, fmt.Errorf("inspecting the mounts of Compose project %s needs a container", e.spec.Identity)
@@ -141,17 +136,16 @@ func (e *Environment) Mounts(ctx context.Context, container string) ([]execution
 // volumeDevice reports the host path a named volume is backed by, and "" for
 // the ordinary volume that is backed by storage the runtime owns.
 //
-// It is a second question because the first one cannot answer it. A local
-// volume declared `driver_opts: {type: none, device: /var/run, o: bind}` is a
-// bind wearing a volume's name, and `docker inspect` reports it as
-// {Type: "volume", Source: "/var/lib/docker/volumes/<name>/_data"} — the
-// volume's own mountpoint, never the device. Measured on Docker Desktop
-// 2026-08-19; the rules below all read a host path, and without this call there
-// is no host path for them to read, so every one of them is one YAML
-// indirection away from being bypassed.
+// It is a second question because the first cannot answer it. A local volume
+// declared `driver_opts: {type: none, device: /var/run, o: bind}` is a bind
+// wearing a volume's name, and `docker inspect` reports it as {Type: "volume",
+// Source: "/var/lib/docker/volumes/<name>/_data"} — the volume's own mountpoint,
+// never the device (measured on Docker Desktop 2026-08-19). The rules below all
+// read a host path, so without this call each of them is one YAML indirection
+// away from being bypassed.
 //
 // The volume is asked rather than the project's Compose files, for the reason
-// Mounts gives: what exists is evidence and what was written is a claim.
+// Mounts gives.
 func (e *Environment) volumeDevice(ctx context.Context, name string) (string, error) {
 	output, err := e.runner.Run(ctx, execution.Invocation{
 		Program:   e.docker,
@@ -184,9 +178,8 @@ func (e *Environment) volumeDevice(ctx context.Context, name string) (string, er
 // device belongs to the driver rather than to Docker: the local driver hands it
 // to mount(2), so it is a host path for `type: none` and `type: ext4`, and a
 // remote address for nfs (":/export") or cifs ("//server/share"). Only an
-// absolute local path is a window onto this host, and refusing a network volume
-// by naming a host path that does not exist would be a refusal nobody could act
-// on.
+// absolute local path is a window onto this host, and a network volume refused by
+// a host path that does not exist would be a refusal nobody could act on.
 func hostDevice(device string) string {
 	if !strings.HasPrefix(device, "/") || strings.HasPrefix(device, "//") {
 		return ""
@@ -196,12 +189,12 @@ func hostDevice(device string) string {
 
 // Privileges reports what the running container was granted beyond its mounts.
 //
-// The mount rules read what a container can reach through its filesystem, and
-// this is what it can reach around it. A container with CAP_SYS_ADMIN remounts
-// the read-only control workspace read-write, so the read-only half of what
-// Feat grants holds only while the runtime's default capability set does; one
-// on the host's network namespace reaches a daemon on the host's own loopback
-// with nothing mounted and no DOCKER_HOST for Endpoints to find.
+// The mount rules read what a container reaches through its filesystem, and this
+// is what it reaches around it. A container with CAP_SYS_ADMIN remounts the
+// read-only control workspace read-write, so Feat's read-only mounts hold only
+// while the runtime's default capability set does. One on the host's network
+// namespace reaches a daemon on the host's loopback with nothing mounted and no
+// DOCKER_HOST for Endpoints to find.
 //
 // The container is asked rather than the configuration, for the reason Mounts
 // gives (ADR-028, ADR-033).
@@ -264,9 +257,8 @@ func (e *Environment) Privileges(ctx context.Context, container string) (executi
 //
 // Both separators, because both reach a running container: Compose passes
 // `seccomp:unconfined` through to the daemon exactly as it passes
-// `seccomp=unconfined`, measured rather than assumed (ADR-067). A rule written
-// for one spelling would be a rule with the other spelling as its bypass, which
-// is what capabilityName exists to prevent one field up.
+// `seccomp=unconfined` (measured, ADR-067). A rule written for one spelling would
+// have the other as its bypass.
 //
 // Only the first separator splits. A value carries both characters — a label is
 // written `label=user:someone` and a seccomp profile arrives as JSON — and an
@@ -287,7 +279,7 @@ func securityOption(entry string) execution.SecurityOption {
 //
 // Docker keeps what the project wrote, and a project may write SYS_ADMIN,
 // CAP_SYS_ADMIN, or cap_sys_admin. A comparison that missed one of the three
-// would be a deny-list with a spelling as its bypass.
+// would have a spelling as its bypass.
 func capabilityName(value string) string {
 	return strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(value)), "CAP_")
 }
@@ -309,7 +301,7 @@ var DockerEndpointVariables = []string{
 //
 // It returns names and never values. A value carries a host, a port, and a path
 // into somebody's filesystem, and what a refusal needs to say is which entry to
-// remove — the project's own Compose files are where it is written.
+// remove from the project's own Compose files.
 //
 // The container is asked rather than the configuration, for the reason Mounts
 // gives: `docker compose config` would render the project including the values
@@ -360,8 +352,8 @@ func (e *Environment) Endpoints(ctx context.Context, container string) ([]string
 // CheckMounts refuses a container whose mounts break a rule the security model
 // states.
 //
-// Two rules, and each is a statement about the running system rather than about
-// what Feat generated:
+// Three rules, each a statement about the running system rather than about what
+// Feat generated:
 //
 //   - no mount is a container runtime's socket, because a container with one
 //     controls the host's containers and therefore the host;
@@ -371,21 +363,20 @@ func (e *Environment) Endpoints(ctx context.Context, container string) ([]string
 //   - no path the task holds read-only is writable, which is invariant 6 asked
 //     of the container rather than of the document Feat generated.
 //
-// Each of the first two reads the host path a mount reaches rather than the
-// source the runtime reports, because those are not the same thing for a named
-// volume: a local volume with a bind device is an ordinary bind wearing a
-// volume's name, and reading the reported source would compare the volume's own
-// mountpoint against every rule and find nothing.
+// The first two read the host path a mount reaches rather than the source the
+// runtime reports, because those differ for a named volume: a local volume with a
+// bind device is an ordinary bind wearing a volume's name, and reading the
+// reported source would compare the volume's own mountpoint against every rule
+// and find nothing.
 //
-// Both failures are silent: a task with an extra mount behaves normally and
-// every record Feat keeps about it is correct. That is the failure ADR-033
-// evidence 1 describes, and the reason this check reads the container.
+// Both failures are silent: a task with an extra mount behaves normally and every
+// record Feat keeps about it is correct (ADR-033 evidence 1).
 //
 // A mount reports at most one problem. The specification lists its forbidden
 // paths in the order a refusal should explain them, because a single mount can
 // expose several — a container that mounts the home directory reaches Feat's
-// state through it — and a reader needs the most direct account of what they
-// gave away rather than all of them.
+// state through it — and a reader needs the most direct account of what they gave
+// away.
 func (e *Environment) CheckMounts(mounts []execution.ObservedMount) error {
 	var problems []error
 
@@ -406,11 +397,9 @@ func (e *Environment) CheckMounts(mounts []execution.ObservedMount) error {
 }
 
 // ForbiddenCapability is one capability an agent's container must not be given,
-// with what holding it would let a process do.
-//
-// The reason travels with the name because a refusal has to survive contact
-// with a reader who added the line for an unrelated purpose: "SYS_ADMIN is not
-// allowed" invites an argument, and "SYS_ADMIN is mount(2)" ends one.
+// with what holding it would let a process do. The reason travels with the name
+// so a refusal can say what the capability does rather than only that it is
+// refused.
 type ForbiddenCapability struct {
 	// Name is the capability as Linux names it, without the CAP_ prefix.
 	Name string
@@ -422,12 +411,11 @@ type ForbiddenCapability struct {
 // agent's container.
 //
 // docs/05-security-model.md accepts the container runtime's default capability
-// set — "dropped capabilities beyond runtime defaults" is listed as not
-// required — so what is refused here is an addition to those defaults rather
-// than the defaults themselves. Each of these reaches past the container in a
-// way the mount rules cannot see: the rules refuse a mount of the home
-// directory, and a process that can mount the host's disk from inside has
-// strictly more than that mount would have given it.
+// set — "dropped capabilities beyond runtime defaults" is listed as not required
+// — so what is refused here is an addition to those defaults rather than the
+// defaults themselves. Each of these reaches past the container in a way the
+// mount rules cannot see: a process that can mount the host's disk from inside
+// has more than a refused mount of the home directory would have given it.
 //
 // SYS_PTRACE is deliberately absent. It is what a debugger needs, devcontainer
 // templates add it for exactly that, and inside the container's own PID
@@ -450,13 +438,9 @@ var ForbiddenCapabilities = []ForbiddenCapability{
 }
 
 // ConfinementLayer is one restriction a container runtime applies to every
-// container, named by the security_opt entry that switches it off.
-//
-// The reason travels with the name for the reason ForbiddenCapability's does. A
-// reader who added the line to make one tool work is owed the sentence that ends
-// the argument rather than the one that starts it: "seccomp=unconfined is not
-// allowed" invites a reply, and "seccomp=unconfined is what makes the capability
-// rule above a rule" does not.
+// container, named by the security_opt entry that switches it off. The reason
+// travels with the name for the reason ForbiddenCapability's does: a reader who
+// added the line to make one tool work is owed what removing the layer reaches.
 type ConfinementLayer struct {
 	// Option is the security_opt entry, as Docker names it.
 	Option string
@@ -472,16 +456,16 @@ const UnconfinedValue = "unconfined"
 // agent's container.
 //
 // docs/05-security-model.md lists "custom seccomp/AppArmor policy" among the
-// things the dogfood profile does not require, which is not the same statement
-// as permitting the default one to be removed. Every rule in this file compares
-// a name — a path, a capability, a namespace — and each layer here is what makes
-// one of those rules enforceable rather than advisory: the capability deny-list
-// is a rule about what Docker was asked to add, and the syscall filter is what
-// stops a process manufacturing the same capability for itself.
+// things the dogfood profile does not require, which is not the same as
+// permitting the default one to be removed. Every other rule in this file
+// compares a name — a path, a capability, a namespace — and each layer here is
+// what makes one of those rules enforceable: the capability deny-list is a rule
+// about what Docker was asked to add, and the syscall filter is what stops a
+// process manufacturing the same capability for itself.
 //
-// systempaths is the third of these and is checked separately below. It is the
-// one that reports itself nowhere: the daemon consumes it rather than recording
-// it, so the rule that finds it reads its effect (ADR-067).
+// systempaths is the third of these and is checked separately below. It reports
+// itself nowhere, because the daemon consumes it rather than recording it, so the
+// rule that finds it reads its effect (ADR-067).
 var ConfinementLayers = []ConfinementLayer{
 	{"seccomp", "the syscall filter every container is given by default. It is what keeps a process " +
 		"in the container from calling unshare(2) into a user namespace of its own, where it holds the " +
@@ -494,27 +478,26 @@ var ConfinementLayers = []ConfinementLayer{
 // interfaces a runtime hides from every container.
 //
 // It is a constant rather than a ConfinementLayer because no container reports
-// it: `docker inspect` does not carry it under .HostConfig.SecurityOpt at all,
-// since the daemon turns it into empty MaskedPaths and ReadonlyPaths when the
-// container is created (measured, ADR-067). The rule below reads that effect and
-// the message names this cause, so a reader is told what was observed before
-// they are sent to a line in their own file.
+// it: `docker inspect` does not carry it under .HostConfig.SecurityOpt, since the
+// daemon turns it into empty MaskedPaths and ReadonlyPaths when the container is
+// created (measured, ADR-067). The rule below reads that effect and the message
+// names this cause, so a reader is told what was observed before they are sent to
+// a line in their own file.
 const SystemPathsOption = "systempaths=unconfined"
 
 // CheckPrivileges refuses a container granted more than its mounts.
 //
 // It is the other half of CheckMounts and asks the same kind of question: what
-// the running container turned out to be, rather than what the generated
-// override asked for. A project's own Compose files decide all of this, Feat
-// generates none of it, and each grant below defeats a rule Feat does enforce —
-// the read-only mounts, the forbidden host paths, and the Docker boundary that
-// a daemon on the host's loopback sits outside of.
+// the running container turned out to be, rather than what the generated override
+// asked for. A project's own Compose files decide all of this, and each grant
+// below defeats a rule Feat does enforce — the read-only mounts, the forbidden
+// host paths, and the Docker boundary that a daemon on the host's loopback sits
+// outside of.
 //
 // The last two read what the container is confined by rather than what it holds.
-// They are the same question asked of the enforcement: a rule about a capability
-// nobody added is worth what the syscall filter and the mandatory access control
-// profile are worth, and a mask nobody removed is what stands between a root
-// process in the container and this host's memory.
+// A rule about a capability nobody added is worth what the syscall filter and the
+// mandatory access control profile are worth, and a mask nobody removed is what
+// stands between a root process in the container and this host's memory.
 func (e *Environment) CheckPrivileges(privileges execution.ObservedPrivileges) error {
 	if !privileges.Known {
 		return fmt.Errorf(
@@ -615,12 +598,9 @@ func switchedOff(options []execution.SecurityOption) []ConfinementLayer {
 	return found
 }
 
-// switchesOff reports whether one entry sets a layer this package refuses to
-// lose to no policy at all.
-//
-// The value is compared without case for the reason hostNamespace ignores it,
-// and the name arrives lowercased from securityOption: a deny-list answered by a
-// spelling is not one.
+// switchesOff reports whether one entry sets a layer this package refuses to lose
+// to no policy at all. The value is compared without case for the reason
+// hostNamespace ignores it, and the name arrives lowercased from securityOption.
 func switchesOff(option execution.SecurityOption) bool {
 	if !strings.EqualFold(strings.TrimSpace(option.Value), UnconfinedValue) {
 		return false
@@ -635,14 +615,13 @@ func switchesOff(option execution.SecurityOption) bool {
 //
 // Both lists have to be empty, and the container must not be privileged. Docker
 // reports the two as null for a privileged container and as [] for one given
-// systempaths=unconfined (measured, ADR-067); privileged is refused above by the
-// line that produced it, and adding a second refusal naming a security_opt entry
-// nobody wrote would send that reader looking for a line that is not there.
+// systempaths=unconfined (measured, ADR-067). Privileged is refused above by the
+// line that produced it, and a second refusal naming a security_opt entry nobody
+// wrote would send that reader looking for a line that is not there.
 //
 // A runtime that reported neither list would be read as unmasked here. That is
-// the direction this whole file errs in — an unread answer is never the
-// reassuring one — and the refusal says what was observed before it names the
-// line, so a reader on such a runtime is told something true.
+// the direction this whole file errs in, and the refusal says what was observed
+// before it names the line.
 func unmasked(privileges execution.ObservedPrivileges) bool {
 	return !privileges.Privileged &&
 		len(privileges.MaskedPaths) == 0 && len(privileges.ReadOnlyPaths) == 0
@@ -658,15 +637,13 @@ func unmasked(privileges execution.ObservedPrivileges) bool {
 // and every other rule here compares a name.
 //
 // So they are said out loud rather than refused, which is ADR-066's decision
-// applied to the same kind of fact: the project is entitled to configure this
-// and the next person is not entitled to be surprised by it. Refusing instead
-// would refuse the user who hardened their container, and the edit that answered
-// the refusal would be deleting the profile.
+// applied to the same kind of fact. Refusing instead would refuse the user who
+// hardened their container, and the edit that answered the refusal would be
+// deleting the profile.
 //
 // no-new-privileges is left silent. It only ever tightens — it is the flag that
 // stops a setuid binary handing back privilege — and a warning about a container
-// doing better than the default is a warning people learn to skip, which is the
-// reasoning EscalationTools' own presence check follows.
+// doing better than the default is one people learn to skip.
 func unevaluatedOptions(privileges execution.ObservedPrivileges) []execution.SecurityOption {
 	var found []execution.SecurityOption
 	for _, option := range privileges.SecurityOptions {
@@ -712,10 +689,8 @@ func hostNamespace(mode string) bool {
 // to it. Compose merges a service's volumes by target, so what a path ends up
 // being depends on every file in the project as well as on Feat's: volumes_from
 // copies another service's bindings, and a static override applied after Feat's
-// replaces them. Nothing else in the product asks this question — the field is
-// decoded from `docker inspect` and was until now read by nobody — and a task
-// that can write the code it said it may only read looks correct in every record
-// Feat keeps.
+// replaces them. A task that can write the code it said it may only read looks
+// correct in every record Feat keeps.
 func (e *Environment) writableProblem(mount execution.ObservedMount) error {
 	if !mount.Writable {
 		return nil
@@ -748,9 +723,9 @@ func (e *Environment) writableRefusal(mount execution.ObservedMount, description
 // forbiddenProblem says what a mount exposed and what to do about it.
 //
 // Every message names the mount as the container reports it, then the path it
-// exposes, then the one edit that removes it. These are the user's only route
-// out of a refused launch: the mount is in the project's own Compose files,
-// which Feat does not edit and deliberately cannot read the environment of.
+// exposes, then the one edit that removes it. That edit is the user's only route
+// out of a refused launch: the mount is in the project's own Compose files, which
+// Feat does not edit and deliberately cannot read the environment of.
 func (e *Environment) forbiddenProblem(mount execution.ObservedMount, forbidden execution.ForbiddenSource) error {
 	switch forbidden.Kind {
 	case execution.ForbiddenCheckout:
@@ -801,11 +776,9 @@ func (e *Environment) forbiddenProblem(mount execution.ObservedMount, forbidden 
 }
 
 // target is where this task's own specification mounts a host path, or the path
-// itself when it mounts it nowhere.
-//
-// It exists so that a refusal about a second mount of something Feat mounts can
-// say where the first one is. A user reading "remove that mount" needs to know
-// which of the two is theirs.
+// itself when it mounts it nowhere. It exists so a refusal about a second mount
+// of something Feat mounts can say where the first one is, because a user reading
+// "remove that mount" needs to know which of the two is theirs.
 func (e *Environment) target(source string) string {
 	for _, own := range e.spec.Mounts {
 		if samePath(own.Source, source) {
@@ -816,11 +789,9 @@ func (e *Environment) target(source string) string {
 }
 
 // exposed names the forbidden path a mount exposes, saying which it is when the
-// mount is not that path itself.
-//
-// `- /tmp:/tmp` and a mount of the runtime directory are the same refusal and
-// read as different problems, and the first is the one nobody would find without
-// being told the path.
+// mount is not that path itself. `- /tmp:/tmp` and a mount of the runtime
+// directory are the same refusal and read as different problems, and the first is
+// the one nobody would find without being told the path.
 func exposed(forbidden execution.ForbiddenSource, mount execution.ObservedMount) string {
 	if samePath(mount.HostPath(), forbidden.Path) {
 		return forbidden.Kind.Describe()
@@ -830,11 +801,10 @@ func exposed(forbidden execution.ForbiddenSource, mount execution.ObservedMount)
 
 // socketProblem says which mount reaches a daemon socket, and how.
 //
-// The forms are worth keeping apart. A mount of the socket itself is something
-// a reader can see in their own Compose file; a mount of the directory holding
-// it is not, and telling them "the container mounts /var/run/docker.sock" about
-// the line `- /var/run:/var/run` would send them looking for a line that is not
-// there.
+// The forms are worth keeping apart. A mount of the socket itself is something a
+// reader can see in their own Compose file, and a mount of the directory holding
+// it is not: telling them "the container mounts /var/run/docker.sock" about the
+// line `- /var/run:/var/run` sends them looking for a line that is not there.
 func (e *Environment) socketProblem(mount execution.ObservedMount, exposure socketExposure) error {
 	switch exposure.reason {
 	case socketInDirectory:
@@ -856,10 +826,9 @@ func (e *Environment) socketProblem(mount execution.ObservedMount, exposure sock
 	}
 
 	// The socket is named twice when the mount is not the socket itself — a
-	// volume with a socket for a device, or a source that lands on one. What a
-	// reader has to find in their own Compose file is the mount, and what makes
-	// it a refusal is the socket; a message with only one of the two sends them
-	// looking for a line that is not there.
+	// volume with a socket for a device, or a source that lands on one. A reader
+	// has to find the mount in their own Compose file, and the socket is what
+	// makes it a refusal.
 	if description := mount.Describe(); !samePath(description, exposure.path) {
 		return fmt.Errorf(
 			"the container mounts %s at %s, and %s is a container runtime's API socket. A container that "+
@@ -900,27 +869,24 @@ const (
 
 // dockerSocket reports the daemon socket a mount exposes and how it reaches it.
 //
-// Several ways, because a socket is a capability rather than a path. The mount
-// is one of the sockets this package knows; it is a directory holding one of
-// them, which is what `- /var/run:/var/run` does without naming it; it is named
-// like a runtime socket wherever it sits, which is what a Docker Desktop
-// replacement under the user's home directory produces; or it is the per-user
-// runtime directory a rootless daemon puts its socket in, which is the case
-// runtimeSocketNames' own comment says the known paths cannot enumerate.
+// Several ways, because a socket is a capability rather than a path. The mount is
+// one of the sockets this package knows; it is a directory holding one of them,
+// which is what `- /var/run:/var/run` does without naming it; it is named like a
+// runtime socket wherever it sits, which is what a Docker Desktop replacement
+// under the user's home directory produces; or it is the per-user runtime
+// directory a rootless daemon puts its socket in.
 //
-// The host path is read rather than the reported source, so that a bind-backed
-// named volume is examined as the bind it is. Both ends are read: a path the
-// container's own client will find is the same capability as the host path it
-// came from, and Feat cannot see what a host directory holds, so a mount of
-// something on this machine that lands where a socket lives is refused by
-// where it lands.
+// The host path is read rather than the reported source, so a bind-backed named
+// volume is examined as the bind it is. Both ends are read: a path the container's
+// own client will find is the same capability as the host path it came from, and
+// Feat cannot see what a host directory holds, so a mount that lands where a
+// socket lives is refused by where it lands.
 func dockerSocket(mount execution.ObservedMount) socketExposure {
 	source := mount.HostPath()
 	// The two rules that read where a mount lands rather than where it comes
-	// from need it to come from somewhere: a tmpfs at /run, which is how a
-	// devcontainer running systemd is written, holds nothing of this machine's
-	// however it is mounted, and neither does a volume the runtime backs
-	// itself.
+	// from need it to come from somewhere. A tmpfs at /run, which is how a
+	// devcontainer running systemd is written, holds nothing of this machine's,
+	// and neither does a volume the runtime backs itself.
 	fromTheHost := source != ""
 
 	for _, known := range DockerSocketPaths {
@@ -974,16 +940,16 @@ var runtimeNames = []string{"docker", "podman", "containerd"}
 // exposes, and "" when it exposes none.
 //
 // A rootless daemon puts its socket under /run/user/<uid>, where the uid is the
-// user's own: no fixed path names it, which is why DockerSocketPaths cannot
-// hold it and why `- /run/user/1000:/run/user/1000` passes every rule above.
-// The directory is refused rather than searched, because what a host directory
-// holds is not something this check can see.
+// user's own. No fixed path names it, which is why DockerSocketPaths cannot hold
+// it and why `- /run/user/1000:/run/user/1000` passes every rule above. The
+// directory is refused rather than searched, because what a host directory holds
+// is not something this check can see.
 //
 // What is matched is the runtime directory itself and a runtime's own directory
-// inside it — /run/user/1000/podman, which is where rootless podman puts
-// podman.sock. A path inside it that is neither is left alone: a project that
-// mounts one file of a session bus has not mounted a daemon socket, and a rule
-// that refused every path under that directory would refuse it with no way out.
+// inside it — /run/user/1000/podman, where rootless podman puts podman.sock. A
+// path inside it that is neither is left alone: a project that mounts one file of
+// a session bus has not mounted a daemon socket, and a rule that refused every
+// path under that directory would refuse it with no way out.
 func rootlessRuntimeDirectory(value string) string {
 	if value == "" {
 		return ""
@@ -1026,11 +992,11 @@ func rootlessRuntimeDirectory(value string) string {
 // usually live there, and refusing them would refuse the configuration the
 // product documents.
 //
-// What is compared is the host path the mount reaches rather than the source
-// the runtime reports. For a bind those are the same; for a named volume the
-// reported source is the volume's own mountpoint, and comparing it would let
-// `driver_opts: {type: none, device: <any forbidden path>, o: bind}` past every
-// rule here while the plain spelling of the same mount is refused.
+// What is compared is the host path the mount reaches rather than the source the
+// runtime reports. For a bind those are the same; for a named volume the reported
+// source is the volume's own mountpoint, and comparing it would let `driver_opts:
+// {type: none, device: <any forbidden path>, o: bind}` past every rule here while
+// the plain spelling of the same mount is refused.
 func (e *Environment) forbidden(mount execution.ObservedMount) (execution.ForbiddenSource, bool) {
 	source := mount.HostPath()
 	if source == "" || e.declared(mount) {
@@ -1061,16 +1027,15 @@ func (e *Environment) forbidden(mount execution.ObservedMount) (execution.Forbid
 // directories are usually under the home directory. Without this the check would
 // refuse the launch it exists to protect.
 //
-// Source and destination must both match. The same source at a second target is
-// a different mount, and a second mount of the control workspace would give the
-// agent the host-only agent/ directory read-write — which is the boundary
-// ADR-032 draws and the one the read-only split of controlMounts implements.
+// Source and destination must both match. The same source at a second target is a
+// different mount, and a second mount of the control workspace would give the
+// agent the host-only agent/ directory read-write, which is the boundary ADR-032
+// draws.
 //
 // A named volume is not compared here at all. Feat declares its volumes by name
 // and a volume with a device is a bind whatever it is called, so a volume that
-// reaches a forbidden host path is refused even if its name and target are
-// Feat's own: the name is what the project wrote and the device is what it
-// does.
+// reaches a forbidden host path is refused even if its name and target are Feat's
+// own.
 func (e *Environment) declared(mount execution.ObservedMount) bool {
 	if mount.Type == "volume" {
 		return false
@@ -1089,12 +1054,12 @@ const gitDirName = ".git"
 // virtualPrefixes are the paths a container runtime puts in front of a host
 // path when it reports one back.
 //
-// Docker Desktop shares the host filesystem through its own virtual machine, so
-// a bind source can be reported as /host_mnt/Users/... rather than /Users/....
-// The prefixes are stripped explicitly rather than matched by suffix: a suffix
+// Docker Desktop shares the host filesystem through its own virtual machine, so a
+// bind source can be reported as /host_mnt/Users/... rather than /Users/.... The
+// prefixes are stripped explicitly rather than matched by suffix: a suffix
 // comparison would make /elsewhere/repos/api look like the configured /repos/api,
-// and a mount check that reports a repository the user does not have is a check
-// they will learn to ignore.
+// and a check that reports a repository the user does not have is one they learn
+// to ignore.
 var virtualPrefixes = []string{"/host_mnt", "/run/desktop/mnt/host"}
 
 // normalize strips a container runtime's own prefix and cleans the path.
@@ -1133,9 +1098,8 @@ func Sources(mounts []execution.ObservedMount) []string {
 		}
 		// A volume is named by the name the project wrote, and by the host path
 		// it is backed by when it has one. The name alone is the reassuring
-		// half: `hostrun -> /var/run (volume, rw)` reads as a named volume,
-		// which is a category the security model blesses, and says nothing
-		// about the volume being a window onto /var/run.
+		// half: `hostrun -> /var/run (volume, rw)` reads as a named volume and
+		// says nothing about the volume being a window onto /var/run.
 		source := mount.Source
 		if mount.Type == "volume" && mount.Name != "" {
 			source = mount.Name

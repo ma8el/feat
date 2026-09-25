@@ -9,9 +9,9 @@ import (
 // Version is an installed Docker Compose version.
 //
 // Parsed reports whether it could be read at all. An unreadable version is not
-// treated as too old: refusing to launch because a tool printed something
-// unfamiliar would make every Docker release an outage, and the failure it
-// guards against announces itself clearly when it happens.
+// treated as too old, because refusing to launch over an unfamiliar string would
+// make every Docker release an outage. The failure this guards against announces
+// itself clearly.
 type Version struct {
 	Major, Minor int
 	Text         string

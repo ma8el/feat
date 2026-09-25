@@ -32,12 +32,10 @@ func settingsFixture(t *testing.T) string {
 	return string(body)
 }
 
-// TestSettingsAreDefaultedWhenNoFileExists covers the case every machine is in
-// until somebody writes a file.
-//
-// Absence is not a failure here, unlike a project Feat was asked about and
-// cannot find: every value has a documented default, so the file exists to
-// change one rather than to supply one.
+// TestSettingsAreDefaultedWhenNoFileExists covers the case every machine is in until
+// somebody writes a file. Absence is not a failure here, unlike a project Feat was
+// asked about and cannot find, because every value has a documented default and the
+// file exists to change one.
 func TestSettingsAreDefaultedWhenNoFileExists(t *testing.T) {
 	opts, _ := testOptions(t, map[string]string{"EDITOR": "hx"})
 
@@ -69,10 +67,8 @@ func TestSettingsAreDefaultedWhenNoFileExists(t *testing.T) {
 // TestTheEditorVariableIsACommandRatherThanAProgram covers a $EDITOR that
 // carries flags, which is an ordinary value of it.
 //
-// It is split on whitespace: `code -w` names a program and a flag, and keeping
-// it whole would make the entire string an executable to look up. The client
-// already split it on its own fallback path, and one product answering the same
-// question two ways was the defect.
+// It is split on whitespace: `code -w` names a program and a flag, and keeping it
+// whole would make the entire string an executable to look up.
 func TestTheEditorVariableIsACommandRatherThanAProgram(t *testing.T) {
 	opts, _ := testOptions(t, map[string]string{"EDITOR": "code -w"})
 
@@ -250,10 +246,9 @@ review:
 // TestSettingsMarkEveryValueAsDefaultOrConfigured is what `feat settings show`
 // rests on.
 //
-// The file is optional and mostly absent, so a printed value a user cannot tell
-// from a default is one they cannot tell they set. The editor carries a third
-// origin, which is the tell that made this a settings section: nothing
-// configured it, and it came from the user's own environment.
+// The file is optional and mostly absent, so a printed value has to say whether the
+// user set it. The editor carries a third origin, which is why this is a settings
+// section: nothing configured it, and it came from the user's own environment.
 func TestSettingsMarkEveryValueAsDefaultOrConfigured(t *testing.T) {
 	dir := writeSettings(t, "settings.yaml", `version: 1
 
@@ -335,11 +330,9 @@ func TestSettingsFixtureLoads(t *testing.T) {
 // TestAProjectFileNoLongerCarriesTheMovedSections is the break ADR-079 chose to
 // take rather than write a migration for.
 //
-// Strict decoding is what makes that choice safe: a project file still carrying
-// a section that has moved fails to load, naming the field, rather than being
-// silently ignored — which is the failure a migration would have existed to
-// prevent. The message is generic rather than naming the new home, which is
-// enough at one user.
+// Strict decoding is what makes that choice safe: a project file still carrying a
+// moved section fails to load and names the field, rather than being silently
+// ignored. The message does not name the new home, which is enough at one user.
 func TestAProjectFileNoLongerCarriesTheMovedSections(t *testing.T) {
 	dir := write(t, "app.yaml", fixture(t, "app.yaml")+`
 resources:
@@ -359,10 +352,10 @@ resources:
 // TestTheTemplateIsAllDefaults is the property that makes the template safe to
 // write on somebody's machine.
 //
-// Only the version is live. Everything `feat settings init` writes is commented
-// out, so a machine that ran it is configured exactly as one that did not — a
-// default written down is a value that stops following Feat when Feat's own
-// changes, and this whole file is defaults (ADR-062, ADR-079).
+// Only the version is live. Everything `feat settings init` writes is commented out,
+// so a machine that ran it is configured exactly as one that did not: a default
+// written down stops following Feat when Feat's own changes, and this whole file is
+// defaults (ADR-062, ADR-079).
 func TestTheTemplateIsAllDefaults(t *testing.T) {
 	dir := writeSettings(t, "settings.yaml", config.SettingsTemplate)
 	opts, _ := testOptions(t, map[string]string{"EDITOR": "hx"})

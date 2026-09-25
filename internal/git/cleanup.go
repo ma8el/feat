@@ -9,11 +9,9 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 )
 
-// CleanupRequest asks what a task owns in Git.
-//
-// It is built from the task's own record, never from a path a caller supplied:
-// the resources Feat may remove are the ones it wrote down when it created them
-// (FR-CLEAN-001).
+// CleanupRequest asks what a task owns in Git. It is built from the task's own
+// record, never from a path a caller supplied, because the resources Feat may
+// remove are the ones it wrote down when it created them (FR-CLEAN-001).
 type CleanupRequest struct {
 	// Project owns the task.
 	Project domain.ProjectID
@@ -50,9 +48,8 @@ type CleanupRepository struct {
 // each of them risky to remove.
 //
 // It has no execute method: this package produces the inventory and removes
-// nothing. Producing it and acting on it are separate steps on purpose: the
-// user chooses per class of resource, and the classes are separate here for the
-// same reason (FR-CLEAN-002).
+// nothing. Worktrees and branches are kept apart because the user chooses per
+// class of resource (FR-CLEAN-002).
 type CleanupPlan struct {
 	// Project owns the task.
 	Project domain.ProjectID
@@ -62,8 +59,8 @@ type CleanupPlan struct {
 	Worktrees []WorktreeTarget
 	// Branches are the task branches, one per read-write binding.
 	Branches []BranchTarget
-	// Problems are recorded resources the plan refuses to name as targets,
-	// which is what an unsafe or unresolvable path becomes.
+	// Problems are recorded resources the plan refuses to name as targets, which
+	// is what an unsafe or unresolvable path becomes.
 	Problems []Problem
 }
 
@@ -81,11 +78,11 @@ type WorktreeTarget struct {
 	Registered bool
 	// Dirty reports uncommitted or untracked changes.
 	Dirty bool
-	// Locked reports a worktree the user locked, which Git will not remove
-	// without being forced.
+	// Locked reports a worktree the user locked, which Git will not remove without
+	// being forced.
 	Locked bool
-	// Warnings are the reasons removing this worktree needs explicit
-	// confirmation (FR-CLEAN-003).
+	// Warnings are the reasons removing this worktree needs explicit confirmation
+	// (FR-CLEAN-003).
 	Warnings []string
 }
 
@@ -99,23 +96,19 @@ type BranchTarget struct {
 	HostPath string
 	// Present reports whether the branch exists now.
 	Present bool
-	// Contained reports whether the ref the branch was made from contains its
-	// tip.
+	// Contained reports whether the ref the branch was made from contains its tip.
 	//
-	// It is deliberately not called merged. `git branch -d` uses that word for a
-	// different question — containment by the checkout's HEAD, or by the
-	// branch's own upstream, which a task branch never has — and the two answers
-	// disagree on any checkout whose HEAD is behind the base ref, which is the
-	// ordinary state under a remote base policy. Treating them as one answer is
-	// the defect ADR-097 records.
+	// It is deliberately not called merged. `git branch -d` uses that word for
+	// containment by the checkout's HEAD or by the branch's own upstream, which a
+	// task branch never has. The two answers disagree on any checkout whose HEAD
+	// is behind the base ref (ADR-097).
 	Contained bool
 	// Unpushed counts commits that exist only here. Without a remote-tracking
-	// branch, every commit the task made is unpushed.
+	// branch, every commit the task made counts.
 	Unpushed int
 	// Pushed reports whether a remote-tracking branch exists at all.
 	Pushed bool
-	// Warnings are the reasons deleting this branch needs explicit
-	// confirmation.
+	// Warnings are the reasons deleting this branch needs explicit confirmation.
 	Warnings []string
 }
 
@@ -131,10 +124,9 @@ func (t BranchTarget) Risky() bool { return len(t.Warnings) > 0 }
 //
 //   - a target comes from the task's record, so a resource Feat did not write
 //     down is never proposed for removal;
-//   - a recorded path that is not inside the root Feat owns is refused, not
+//   - a recorded path outside the root Feat owns is refused rather than
 //     removed. A record can be edited, restored from a backup, or written by an
-//     older version, and the moment a path from one of those decides what gets
-//     deleted, the record has become an instruction.
+//     older version, and none of those may decide what gets deleted.
 func (g *Git) CleanupPlanFor(ctx context.Context, req CleanupRequest) (*CleanupPlan, error) {
 	if err := req.Project.Validate(); err != nil {
 		return nil, err
@@ -194,8 +186,8 @@ func (g *Git) worktreeTarget(ctx context.Context, repository CleanupRepository) 
 		}
 	case errors.Is(err, os.ErrNotExist):
 		// A worktree that is already gone is reported as absent rather than as a
-		// problem: cleanup after a manual `git worktree remove` should still be
-		// able to tidy the branch and the record.
+		// problem, so cleanup after a manual `git worktree remove` can still tidy
+		// the branch and the record.
 	default:
 		problem("%s cannot be examined: %s", repository.WorktreePath, err)
 	}
@@ -207,7 +199,7 @@ func (g *Git) worktreeTarget(ctx context.Context, repository CleanupRepository) 
 	}
 	recorded := resolvePath(repository.WorktreePath)
 	for _, worktree := range worktrees {
-		// Git reports the resolved path, so a recorded path that reaches the same
+		// Git reports the resolved path, so a recorded path reaching the same
 		// directory through a symbolic link still matches its registration.
 		if resolvePath(worktree.Path) == recorded {
 			target.Registered = true
@@ -257,10 +249,9 @@ func (g *Git) branchTarget(ctx context.Context, repository CleanupRepository) (B
 		return target, problems
 	}
 
-	// Containment is asked about the recorded base ref and about nothing else. A
-	// base ref that is not configured, is no longer there, or cannot be compared
-	// leaves the answer at false, which warns and asks — the conservative end of
-	// a question Feat is deciding a force flag from (ADR-097).
+	// Containment is asked about the recorded base ref and nothing else. A base
+	// ref that is missing or cannot be compared leaves the answer false, which
+	// warns and asks, because a force flag is decided from it (ADR-097).
 	if repository.BaseRef != "" {
 		if present, err := g.Exists(ctx, repository.HostPath, repository.BaseRef); err == nil && present {
 			contained, err := g.IsAncestor(ctx, repository.HostPath, ref, repository.BaseRef)
@@ -274,8 +265,8 @@ func (g *Git) branchTarget(ctx context.Context, repository CleanupRepository) (B
 	}
 
 	// Unpushed work is counted against the branch's own remote-tracking ref when
-	// it has one, and against the recorded base otherwise: a branch that was
-	// never pushed has every commit of the task still only on this machine.
+	// it has one, and against the recorded base otherwise, because a branch that
+	// was never pushed has every commit of the task still on this machine.
 	upstream := "refs/remotes/" + repository.Remote + "/" + repository.Branch
 	from := repository.BaseCommit
 	if repository.Remote != "" {

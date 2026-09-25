@@ -15,11 +15,9 @@ import (
 // ContainerClients are the executables inside an environment that speak a
 // container runtime's API.
 //
-// Asking for one name was asking the wrong question. `podman` and `nerdctl` both
-// speak the Docker API — podman ships a `docker` alias for exactly that reason —
-// so an image carrying either has the capability agent.capabilities.docker
-// declares denied, and reporting "no Docker client" about it would be a claim
-// Feat had not checked.
+// `podman` and `nerdctl` both speak the Docker API — podman ships a `docker`
+// alias for exactly that reason — so an image carrying either has the capability
+// agent.capabilities.docker declares denied.
 //
 // Each is probed by running it, as the hook tools are: --version creates
 // nothing, and only the environment reporting no such executable means absent.
@@ -29,28 +27,22 @@ var ContainerClients = []string{Executable, "podman", "nerdctl"}
 // its user does not have, each with a way of asking whether they would do it
 // without anybody being there to type a password.
 //
-// `id -u` answers who the agent starts as, and a session is longer than its
-// first instant. An image that installs `sudo` and writes a NOPASSWD rule
-// answers the root refusal with `dev` and gives the agent uid 0 for the asking,
-// so the requirement is satisfied at the moment it is measured and not
-// afterwards. What that reaches is the runtime's default capability set, which
-// is smaller than a privileged container's and is not small: CAP_DAC_OVERRIDE
-// is in Docker's default set, so every writable bind mount becomes writable
-// regardless of what owns the files on the host — which is most of what the
-// non-root requirement was written for. What it does not reach is
-// CAP_SYS_ADMIN, which the default set excludes, so the read-only control
-// workspace stays read-only by the kernel's rule.
+// `id -u` answers who the agent starts as, and a session is longer than its first
+// instant: an image that installs `sudo` with a NOPASSWD rule satisfies the root
+// refusal and gives the agent uid 0 for the asking. What that reaches is the
+// runtime's default capability set, which includes CAP_DAC_OVERRIDE, so every
+// writable bind mount becomes writable regardless of what owns the files on the
+// host. It excludes CAP_SYS_ADMIN, so the read-only control workspace stays
+// read-only by the kernel's rule.
 //
-// Each is probed by running it, as the hook tools are. `-n` is the whole of the
-// question: it makes the tool fail rather than prompt when a password would be
-// needed, so exiting zero means the privilege is there for the asking and
-// anything else means it is not. `true` creates nothing.
+// Each is probed by running it, as the hook tools are. `-n` makes the tool fail
+// rather than prompt when a password would be needed, so exiting zero means the
+// privilege is there for the asking. `true` creates nothing.
 //
-// This is a list rather than a check for `sudo` because sudo is not the only
-// binary that hands back privilege and the dogfood image is not the only image.
-// What it cannot see is a rule narrow enough to exclude `true` — a sudoers file
-// permitting one command — and Feat does not claim to have read a sudoers file
-// it never opens. What is reported is what was established.
+// It is a list rather than a check for `sudo`, because sudo is not the only binary
+// that hands back privilege. What it cannot see is a sudoers rule narrow enough to
+// exclude `true`, and Feat does not claim to have read a sudoers file it never
+// opens.
 var EscalationTools = []struct {
 	Name      string
 	Arguments []string
@@ -62,17 +54,16 @@ var EscalationTools = []struct {
 // HookTools are the executables the generated provider hooks need, each with a
 // harmless way of running it.
 //
-// The hooks are shell scripts that copy a payload into the control outbox, and
-// an image missing one of these produces a session that runs perfectly well
-// while Feat never hears from it again. That is the failure ADR-032 was written
-// against, so it is checked rather than assumed.
+// The hooks are shell scripts that copy a payload into the control outbox, and an
+// image missing one of these produces a session that runs perfectly well while
+// Feat never hears from it again (ADR-032).
 //
-// Each tool is probed by running it, because `command -v` is a shell builtin
-// and `exec` starts a program rather than a shell: asking that way would report
-// every tool as missing on every image. Every invocation below creates nothing
-// and prints at most a word. `sh -c :` is the exception that proves the rule —
-// the only way to find out whether a shell exists is to run one, and the script
-// is a constant with nothing interpolated into it.
+// Each tool is probed by running it, because `command -v` is a shell builtin and
+// `exec` starts a program rather than a shell: asking that way would report every
+// tool as missing on every image. Every invocation below creates nothing and
+// prints at most a word. `sh -c :` runs a shell, because running one is the only
+// way to find out whether a shell exists, and the script is a constant with
+// nothing interpolated into it.
 var HookTools = []struct {
 	Name      string
 	Arguments []string
@@ -95,10 +86,10 @@ var HookTools = []struct {
 // run as, because the answer for another user is not the answer to the
 // question. The paths are the agent's own view of them.
 //
-// What is asked of the container runtime about the container is what the rules
-// read: its mounts, its environment, and what it was granted beyond them. A
-// question nobody asks is a rule nobody can enforce, which is how a privileged
-// container passed a check that refuses a home-directory mount.
+// What is asked of the container runtime is what the rules read: the container's
+// mounts, its environment, and what it was granted beyond them. A question nobody
+// asks is a rule nobody can enforce, which is how a privileged container passed a
+// check that refuses a home-directory mount.
 func (e *Environment) Inspect(ctx context.Context, writable []string) (execution.Report, error) {
 	// The container is resolved here rather than passed in: the environment
 	// knows which one is its own, and a caller that had to find out first could
@@ -193,12 +184,10 @@ func (e *Environment) Inspect(ctx context.Context, writable []string) (execution
 	return report, nil
 }
 
-// present reports whether an executable exists in the environment.
-//
-// A tool that runs and fails is still present: the question here is whether the
-// image has it, and "it ran and disagreed" is a different answer from "there is
-// nothing to run". Only the environment reporting no such executable means
-// absent.
+// present reports whether an executable exists in the environment. A tool that
+// runs and fails is still present: "it ran and disagreed" is a different answer
+// from "there is nothing to run", and only the environment reporting no such
+// executable means absent.
 func (e *Environment) present(ctx context.Context, program string, arguments []string) (bool, error) {
 	_, err := e.Run(ctx, execution.Command{Program: program, Arguments: arguments})
 	if errors.Is(err, ErrNotInEnvironment) {
@@ -213,11 +202,10 @@ func (e *Environment) present(ctx context.Context, program string, arguments []s
 // escalates reports whether an executable hands the agent privilege without
 // asking anybody for it.
 //
-// Presence is not the question, which is what separates this from present(): an
-// image carrying `sudo` whose sudoers file grants the agent nothing is an image
-// where the non-root requirement holds, and warning about it would teach a user
-// to ignore the warning. Only a tool that ran and exited zero counts — a tool
-// that ran and refused has just demonstrated the requirement holding.
+// Presence is not the question, which separates this from present: an image
+// carrying `sudo` whose sudoers file grants the agent nothing is an image where
+// the non-root requirement holds, and warning about it would teach a user to
+// ignore the warning. Only a tool that ran and exited zero counts.
 func (e *Environment) escalates(ctx context.Context, program string, arguments []string) (bool, error) {
 	output, err := e.Run(ctx, execution.Command{Program: program, Arguments: arguments})
 	if errors.Is(err, ErrNotInEnvironment) {
@@ -315,13 +303,11 @@ func (e *Environment) Check(report execution.Report) error {
 // Warnings reports what the container grants that the launch will not refuse
 // over.
 //
-// A refusal answers a rule; this answers a requirement that holds only until
-// somebody asks otherwise, which is a different thing and reads wrongly as
-// either of the two answers Check has. Dropping the grant instead was
-// considered and rejected: a project that wants its agent to install packages
-// mid-session is entitled to say so, and a launch that refused it would be
-// answered by whichever edit made the check stop looking. What Feat can do
-// honestly is say what it found, every time, so the choice is made out loud.
+// A refusal answers a rule, and this answers a requirement that holds only until
+// somebody asks otherwise. Dropping the grant was considered and rejected: a
+// project that wants its agent to install packages mid-session is entitled to say
+// so, and a launch that refused it would be answered by whichever edit made the
+// check stop looking.
 func (e *Environment) Warnings(report execution.Report) []string {
 	var warnings []string
 
@@ -352,11 +338,9 @@ func (e *Environment) Warnings(report execution.Report) []string {
 }
 
 // describeOptions renders security_opt entries for a message, in the order the
-// container reports them.
-//
-// Each is named and none is quoted: a profile arrives whole under Docker's own
-// reporting, and a warning whose subject is "Feat did not read this policy"
-// cannot be a warning that prints it (ADR-067).
+// container reports them. Each is named and none is quoted: a profile arrives
+// whole under Docker's own reporting, and a warning whose subject is "Feat did not
+// read this policy" cannot be a warning that prints it (ADR-067).
 func describeOptions(options []execution.SecurityOption) []string {
 	described := make([]string, 0, len(options))
 	for _, option := range options {

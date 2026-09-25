@@ -20,11 +20,11 @@ import (
 // requireClaude ends the test unless a real, authenticated Claude Code is
 // available.
 //
-// These tests cannot run in CI: they need an authenticated installation and
-// they spend a model call. They are the only place the hook schema is checked
-// against the provider rather than against Feat's own fixtures, which is what
-// docs/06-technical-architecture.md means by verifying flags and hook schemas
-// against the installed version.
+// These tests cannot run in CI, because they need an authenticated installation
+// and they spend a model call. They are the only place the hook schema is
+// checked against the provider rather than against Feat's own fixtures, which
+// is what docs/06-technical-architecture.md means by verifying flags and hook
+// schemas against the installed version.
 func requireClaude(t *testing.T) {
 	t.Helper()
 
@@ -38,10 +38,10 @@ func requireClaude(t *testing.T) {
 
 // TestRealClaudeEmitsTheHooksThisAdapterInstalls drives the actual CLI.
 //
-// The failure it exists to catch is silence: a renamed hook event or a changed
+// The failure it exists to catch is silence. A renamed hook event or a changed
 // payload field produces a session that runs perfectly well and never reports
-// anything, which no test against Feat's own fixtures can see. Here the fixtures
-// are checked against the provider itself.
+// anything, which no test against Feat's own fixtures can see, so here the
+// fixtures are checked against the provider itself.
 func TestRealClaudeEmitsTheHooksThisAdapterInstalls(t *testing.T) {
 	requireClaude(t)
 
@@ -88,8 +88,8 @@ func TestRealClaudeEmitsTheHooksThisAdapterInstalls(t *testing.T) {
 		t.Fatalf("preparing a launch: %v", err)
 	}
 
-	// The real CLI, non-interactively, with exactly the flags a launch passes.
-	// -p is the only difference from what the task terminal runs, and it is what
+	// The real CLI, non-interactively, with exactly the flags a launch passes. -p
+	// is the only difference from what the task terminal runs, and it is what
 	// makes the session end by itself.
 	arguments := append([]string{"-p"}, spec.Arguments...)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -127,13 +127,11 @@ func TestRealClaudeEmitsTheHooksThisAdapterInstalls(t *testing.T) {
 		}
 		seen[event.Kind]++
 
-		// Only a hook payload carries one, and a renamed field in one is what
-		// this is watching for. A report is written by Feat's own helper —
-		// review_requested, completion_report, open_question — and parseReport
-		// builds the event from a summary and its checks, so there is no session
-		// id in the message to carry. Requiring one of every event tested the
-		// helper's format against a rule that was only ever about Claude's, and
-		// failed whenever the session happened to call the review helper.
+		// Only a hook payload carries one, and a renamed field in one is what this
+		// is watching for. Feat's own helper writes a report from a summary and its
+		// checks, so there is no session id in that message to carry. Requiring one
+		// of every event tested the helper's format against a rule that was only
+		// ever about Claude's.
 		if message.Type != control.TypeProviderEvent {
 			continue
 		}
@@ -155,11 +153,9 @@ func TestRealClaudeEmitsTheHooksThisAdapterInstalls(t *testing.T) {
 }
 
 // TestRealClaudeReadsTheGeneratedSettings checks that the settings document is
-// one the installed CLI accepts.
-//
-// A settings file Claude rejects is loaded as nothing, and the session then runs
-// with no hooks at all — the same silence as a renamed event, from a different
-// cause.
+// one the installed CLI accepts. A settings file Claude rejects is loaded as
+// nothing, and the session then runs with no hooks at all, which is the same
+// silence as a renamed event from a different cause.
 func TestRealClaudeReadsTheGeneratedSettings(t *testing.T) {
 	requireClaude(t)
 
@@ -178,8 +174,8 @@ func TestRealClaudeReadsTheGeneratedSettings(t *testing.T) {
 	defer cancel()
 
 	// `claude doctor` reads settings files in the current directory without a
-	// trust prompt and reports what it found, which is the cheapest way to ask
-	// the installed CLI whether it understands this document.
+	// trust prompt and reports what it found, which is the cheapest way to ask the
+	// installed CLI whether it understands this document.
 	check := exec.CommandContext(ctx, claude.Executable, "doctor")
 	check.Dir = t.TempDir()
 	output, err := check.CombinedOutput()

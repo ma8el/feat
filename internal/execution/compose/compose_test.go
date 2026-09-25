@@ -76,12 +76,10 @@ func arrange(t *testing.T, docker *composetest.Docker) (*compose.Environment, ex
 }
 
 // TestTheGeneratedOverrideIsPinned holds the document that decides what the
-// agent's container mounts to a golden file.
-//
-// It is pinned rather than described because every line of it is a decision:
-// which paths are writable, which are not, what is reset, and what is labelled.
-// A change here should be visible in a diff rather than inferred from a passing
-// test.
+// agent's container mounts to a golden file. It is pinned rather than described
+// because every line of it is a decision: which paths are writable, which are
+// not, what is reset, and what is labelled. A change should show in a diff rather
+// than be inferred from a passing test.
 func TestTheGeneratedOverrideIsPinned(t *testing.T) {
 	docker := composetest.New()
 	environment, spec := arrange(t, docker)
@@ -93,10 +91,9 @@ func TestTheGeneratedOverrideIsPinned(t *testing.T) {
 	compare(t, spec, "override.golden")
 }
 
-// compare holds the generated override against a golden file.
-//
-// The temporary directory changes per run, so the two paths that carry it are
-// normalised before comparison.
+// compare holds the generated override against a golden file. The temporary
+// directory changes per run, so the two paths that carry it are normalised before
+// comparison.
 func compare(t *testing.T, spec execution.Spec, name string) string {
 	t.Helper()
 
@@ -128,9 +125,9 @@ func compare(t *testing.T, spec execution.Spec, name string) string {
 // the application expects to be there.
 //
 // Compose lists them in the order of the project's files, so the fixture answers
-// out of alphabetical order: the generated document sorts them, because it is
-// rewritten on every start and a document that reordered itself would show a
-// diff nobody made.
+// out of alphabetical order. The generated document sorts them, because it is
+// rewritten on every start and a document that reordered itself would show a diff
+// nobody made.
 func dependent(t *testing.T) (*compose.Environment, execution.Spec, *composetest.Docker) {
 	t.Helper()
 
@@ -146,10 +143,9 @@ func dependent(t *testing.T) (*compose.Environment, execution.Spec, *composetest
 // every container it starts is in this task's Compose project. A base file's
 // fixed container_name is global to the Docker daemon and its published port is
 // global to the host, so leaving either on a dependency puts the project back to
-// one task per machine — the thing the generated override exists to prevent,
-// arriving one service over (F7-01, F3-22).
+// one task per machine (F7-01, F3-22).
 //
-// What such a service gets is those two resets and nothing else: no worktree, no
+// Such a service gets those two resets and nothing else: no worktree, no
 // generated variable, and no ownership label, because the agent does not run in
 // it and Feat's labels are how the container the agent does run in is found.
 func TestTheGeneratedOverrideCoversEveryServiceInTheProject(t *testing.T) {
@@ -181,9 +177,9 @@ func TestTheGeneratedOverrideCoversEveryServiceInTheProject(t *testing.T) {
 // TestTheServicesAreReadWithoutTheGeneratedOverride pins how the question is
 // asked.
 //
-// Two reasons, and each is a defect avoided rather than a preference. The
-// override does not exist on a first launch, so passing it would make the first
-// thing every task does fail with a Compose error about a file Feat generates;
+// Two reasons. The override does not exist on a first launch, so passing it
+// would make the first thing every task does fail with a Compose error about a
+// file Feat generates;
 // and a stale one would reintroduce a service the project has since removed,
 // which is the ADR-034 evidence-11 shape. It reads names and nothing else, so no
 // value from an environment file is rendered (ADR-028).
@@ -211,11 +207,9 @@ func TestTheServicesAreReadWithoutTheGeneratedOverride(t *testing.T) {
 }
 
 // TestAProjectWhoseServicesCannotBeReadStartsNothing keeps a launch that cannot
-// establish isolation from proceeding without it.
-//
-// Feat cannot reset what it cannot enumerate, so a project it could not read is
-// refused where the message can still name it rather than one container later,
-// when the collision it would have prevented has already happened.
+// establish isolation from proceeding without it. Feat cannot reset what it
+// cannot enumerate, so a project it could not read is refused where the message
+// can still name it, rather than one container later.
 func TestAProjectWhoseServicesCannotBeReadStartsNothing(t *testing.T) {
 	docker := composetest.New().
 		Fail("config --services", "services.dev.depends_on contains an invalid type", 15)
@@ -239,11 +233,9 @@ func TestAProjectWhoseServicesCannotBeReadStartsNothing(t *testing.T) {
 }
 
 // TestTheOverrideResetsWhatWouldPreventASecondTask is ADR-033 evidence 3 as a
-// test.
-//
-// A container name is global to the Docker daemon and a published port is global
-// to the host, so a base file carrying either can be brought up once. Acceptance
-// criterion 6 is three tasks at once, and it is these two lines that make it
+// test. A container name is global to the Docker daemon and a published port is
+// global to the host, so a base file carrying either can be brought up once.
+// Acceptance criterion 6 is three tasks at once, and these two lines make it
 // possible.
 func TestTheOverrideResetsWhatWouldPreventASecondTask(t *testing.T) {
 	docker := composetest.New()
@@ -265,11 +257,9 @@ func TestTheOverrideResetsWhatWouldPreventASecondTask(t *testing.T) {
 }
 
 // TestEveryComposeCommandNamesTheTasksOwnProject pins the flags that make an
-// action affect one task and no other.
-//
-// A missing --project-name would act on whatever project the working directory
-// implied, which for a devcontainer definition is the user's own manually
-// started container.
+// action affect one task and no other. A missing --project-name would act on
+// whatever project the working directory implied, which for a devcontainer
+// definition is the user's own manually started container.
 func TestEveryComposeCommandNamesTheTasksOwnProject(t *testing.T) {
 	docker := composetest.New()
 	environment, spec := arrange(t, docker)
@@ -299,13 +289,11 @@ func TestEveryComposeCommandNamesTheTasksOwnProject(t *testing.T) {
 	}
 }
 
-// TestAnAgentCommandRunsAsTheConfiguredUser pins the exec vector.
-//
-// Three things in it are load-bearing: the user, because the security model
-// requires a non-root agent; the working directory, because the agent must start
-// in its own worktree; and the ordering, because a flag taking a list
-// immediately before a positional argument swallows it, which is the defect
-// ADR-032 evidence 12 records.
+// TestAnAgentCommandRunsAsTheConfiguredUser pins the exec vector. Three things in
+// it are load-bearing: the user, because the security model requires a non-root
+// agent; the working directory, because the agent must start in its own worktree;
+// and the ordering, because a flag taking a list immediately before a positional
+// argument swallows it (ADR-032 evidence 12).
 func TestAnAgentCommandRunsAsTheConfiguredUser(t *testing.T) {
 	docker := composetest.New()
 	environment, _ := arrange(t, docker)
@@ -339,12 +327,10 @@ func TestAnAgentCommandRunsAsTheConfiguredUser(t *testing.T) {
 }
 
 // TestAnInteractiveCommandKeepsItsTerminal is ADR-033 evidence 7 at the level a
-// unit test can reach.
-//
-// `docker compose exec` registers --no-TTY with a documented default of true. A
-// probe says so explicitly; an agent session must not, or the native Claude
-// interface would start with no terminal. Whether it genuinely gets one is
-// proved by the real test in a real pane.
+// unit test can reach. `docker compose exec` registers --no-TTY with a documented
+// default of true. A probe says so explicitly; an agent session must not, or the
+// native Claude interface would start with no terminal. The real test in a real
+// pane proves whether it genuinely gets one.
 func TestAnInteractiveCommandKeepsItsTerminal(t *testing.T) {
 	docker := composetest.New()
 	environment, _ := arrange(t, docker)
@@ -368,11 +354,9 @@ func TestAnInteractiveCommandKeepsItsTerminal(t *testing.T) {
 }
 
 // TestAServiceThatDoesNotStayRunningIsExplained covers the devcontainer mistake
-// most likely to be made once: a service whose command exits immediately.
-//
-// `up --detach` succeeds for such a service, and every later probe then fails
-// with "container is not running", which describes the symptom and not the
-// cause.
+// most likely to be made once: a service whose command exits immediately. `up
+// --detach` succeeds for such a service, and every later probe then fails with
+// "container is not running", which describes the symptom and not the cause.
 func TestAServiceThatDoesNotStayRunningIsExplained(t *testing.T) {
 	docker := composetest.New().
 		Answer("ps --all --format json dev",
@@ -477,7 +461,6 @@ func TestObservationNeverStartsAnything(t *testing.T) {
 }
 
 // TestAnOldComposeIsRefusedBeforeAnythingIsCreated checks the version gate.
-//
 // Without !reset, the generated override is a YAML error rather than a mount
 // policy, and Compose's own message says nothing about why Feat wrote it.
 func TestAnOldComposeIsRefusedBeforeAnythingIsCreated(t *testing.T) {
@@ -546,16 +529,14 @@ func TestAFailingProbeIsAnAnswerRatherThanAnError(t *testing.T) {
 	}
 }
 
-// TestAnAbsentExecutableIsRecognisedOnEitherStream pins a provider behaviour
-// that a plausible implementation gets wrong.
+// TestAnAbsentExecutableIsRecognisedOnEitherStream pins a provider behaviour that
+// a plausible implementation gets wrong.
 //
 // Docker Compose reports "no such executable" on standard output rather than
 // standard error. Reading only standard error looks correct, passes every test
-// written against a fixture, and reports every absent tool as present — so a
-// container with no mktemp would launch an agent Feat could never hear from, and
-// a required provider CLI that is not installed would pass validation.
-//
-// It was found by running the real thing (ADR-033).
+// written against a fixture, and reports every absent tool as present, so a
+// container with no mktemp would launch an agent Feat could never hear from
+// (ADR-033).
 func TestAnAbsentExecutableIsRecognisedOnEitherStream(t *testing.T) {
 	const message = `OCI runtime exec failed: exec failed: unable to start container process: ` +
 		`exec: "mktemp": executable file not found in $PATH`
@@ -582,11 +563,9 @@ func TestAnAbsentExecutableIsRecognisedOnEitherStream(t *testing.T) {
 }
 
 // TestAFileTheProgramCouldNotOpenIsNotAMissingProgram is the other half of the
-// same distinction.
-//
-// A tool that ran and could not open a file also says "no such file or
-// directory". Reading that as an absent executable would tell a user to install
-// something they already have, and hide what actually went wrong.
+// same distinction. A tool that ran and could not open a file also says "no such
+// file or directory". Reading that as an absent executable would tell a user to
+// install something they already have, and hide what actually went wrong.
 func TestAFileTheProgramCouldNotOpenIsNotAMissingProgram(t *testing.T) {
 	docker := composetest.New().
 		Reply(probeKey("cat", "/srv/api/missing.txt"),

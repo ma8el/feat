@@ -11,25 +11,21 @@ import (
 	"github.com/ma8el/feat/internal/execution"
 )
 
-// Executable is the container tool Feat drives on the host.
-//
-// It is a constant rather than a configured value, for the reason the Claude
-// executable is: a project that could name it would be naming a program the
-// daemon starts on its owner's behalf.
+// Executable is the container tool Feat drives on the host. It is a constant
+// rather than a configured value, for the reason the Claude executable is: a
+// project that named it would be naming a program the daemon starts on its
+// owner's behalf.
 const Executable = "docker"
 
-// MinimumVersion is the oldest Docker Compose this adapter supports.
-//
-// The generated override uses the !reset tag to remove a base file's
-// container_name and published ports, which Compose gained in 2.24. An older
-// build fails with a YAML error that says nothing about why Feat wrote that
-// document, so the version is checked and reported instead (ADR-033).
+// MinimumVersion is the oldest Docker Compose this adapter supports. The
+// generated override uses the !reset tag to remove a base file's container_name
+// and published ports, which Compose gained in 2.24. An older build fails with a
+// YAML error that says nothing about why Feat wrote that document (ADR-033).
 var MinimumVersion = Version{Major: 2, Minor: 24, Text: "2.24", Parsed: true}
 
-// Environment runs an agent inside a Compose service on the trusted host.
-//
-// It receives final values and reads neither configuration nor persistent
-// state: the daemon expands templates and records what this reports (ADR-033).
+// Environment runs an agent inside a Compose service on the trusted host. It
+// receives final values and reads neither configuration nor persistent state:
+// the daemon expands templates and records what this reports (ADR-033).
 type Environment struct {
 	spec   execution.Spec
 	runner Runner
@@ -64,11 +60,10 @@ const (
 	defaultPollInterval = 500 * time.Millisecond
 )
 
-// New returns the Compose environment for one task.
-//
-// It validates the specification and resolves the container tool before
-// anything can be created, so a specification that could never work is refused
-// where the message can still name the field that is wrong.
+// New returns the Compose environment for one task. It validates the
+// specification and resolves the container tool before anything can be created,
+// so a specification that could never work is refused where the message can
+// still name the field that is wrong.
 func New(spec execution.Spec, opts Options) (*Environment, error) {
 	if err := spec.Validate(); err != nil {
 		return nil, err
@@ -110,12 +105,10 @@ func (e *Environment) Identity() string { return e.spec.Identity }
 // OverridePath returns the generated override this environment writes.
 func (e *Environment) OverridePath() string { return e.spec.OverridePath }
 
-// Validate reports whether this host can run the environment.
-//
-// It asks about the host only. Whether the container has Claude, runs as a
-// non-root user, or can write the control workspace are questions about a
-// container that does not exist until Prepare, and asking them here would mean
-// answering them somewhere other than where the agent runs.
+// Validate reports whether this host can run the environment. It asks about the
+// host only: whether the container has Claude, runs as a non-root user, or can
+// write the control workspace are questions about a container that does not
+// exist until Prepare.
 func (e *Environment) Validate(ctx context.Context) error {
 	version, err := e.Version(ctx)
 	if err != nil {
@@ -146,12 +139,10 @@ func (e *Environment) Version(ctx context.Context) (Version, error) {
 	return ParseVersion(strings.TrimSpace(output.Stdout)), nil
 }
 
-// Prepare writes the generated override and brings the agent's service up.
-//
-// It is the one method that creates something, and what it creates is recorded
-// before it exists: the daemon writes the environment onto the task before
-// calling this, so an interruption leaves a record naming a superset of what
-// exists (ADR-029's ordering, applied to containers).
+// Prepare writes the generated override and brings the agent's service up. What
+// it creates is recorded before it exists: the daemon writes the environment onto
+// the task before calling this, so an interruption leaves a record naming a
+// superset of what exists (ADR-029's ordering, applied to containers).
 func (e *Environment) Prepare(ctx context.Context) error {
 	defined, err := e.defined(ctx)
 	if err != nil {
@@ -178,8 +169,7 @@ func (e *Environment) Prepare(ctx context.Context) error {
 // `up --detach` returns once the container has been started, which is not the
 // same as the container still being up: an image whose command exits at once
 // leaves a service that was started and is already gone. Probing such a service
-// produces "container is not running", which describes the symptom rather than
-// the cause.
+// reports "container is not running", which is the symptom rather than the cause.
 func (e *Environment) waitRunning(ctx context.Context) error {
 	deadline := e.now().Add(e.readyTimeout)
 	var last execution.State
@@ -215,14 +205,13 @@ func (e *Environment) waitRunning(ctx context.Context) error {
 		e.spec.Service, e.spec.Identity, describe(last), Executable, e.spec.Identity, e.spec.Service)
 }
 
-// explain adds what Feat knows about a failure the container runtime reported
-// in its own terms.
+// explain adds what Feat knows about a failure the container runtime reported in
+// its own terms.
 //
-// The runtime's message is accurate and describes a path, not a decision. When
-// that path is inside something Feat mounted read-only, the decision was the
-// task's repository access, and saying so turns "read-only file system" into a
-// choice the user can make differently. Nothing is added when Feat has nothing
-// to add: a guess dressed as an explanation is worse than the original message.
+// The runtime's message describes a path rather than a decision. When that path
+// is inside something Feat mounted read-only, the decision was the task's
+// repository access, and saying so turns "read-only file system" into a choice
+// the user can make differently. Nothing is added when Feat has nothing to add.
 func (e *Environment) explain(reported string) string {
 	lowered := strings.ToLower(reported)
 
@@ -275,11 +264,10 @@ func describe(state execution.State) string {
 	}
 }
 
-// Command returns how to run something inside the environment.
-//
-// The result is an argument vector for the host: the terminal backend starts
-// the process and keeps its terminal, and this adapter decides only what that
-// process is (ADR-030, ADR-033).
+// Command returns how to run something inside the environment. The result is an
+// argument vector for the host: the terminal backend starts the process and keeps
+// its terminal, and this adapter decides only what that process is (ADR-030,
+// ADR-033).
 func (e *Environment) Command(_ context.Context, command execution.Command) (execution.Invocation, error) {
 	if err := command.Validate(); err != nil {
 		return execution.Invocation{}, err
@@ -328,9 +316,7 @@ func (e *Environment) Run(ctx context.Context, command execution.Command) (execu
 	//
 	// Both streams are read, because Docker Compose writes this particular
 	// failure to standard output rather than standard error. Reading only
-	// standard error looks right and reports every absent tool as present,
-	// which was found by running the real thing rather than by reasoning about
-	// it (ADR-033).
+	// standard error would report every absent tool as present (ADR-033).
 	if !output.Succeeded() && notFound(output.Stdout+"\n"+output.Stderr, command.Program) {
 		return output, fmt.Errorf("%w: %s", ErrNotInEnvironment, command.Program)
 	}
@@ -340,12 +326,11 @@ func (e *Environment) Run(ctx context.Context, command execution.Command) (execu
 // notFound reports whether Compose refused a command because the container has
 // no such executable.
 //
-// The distinction it draws is narrow on purpose. A tool that ran and could not
-// open a file also says "no such file or directory", and reading that as an
-// absent executable would report a missing settings file as a missing Claude —
-// sending the user to install something they already have. Only the container
-// runtime's own refusal to start the process counts, which it announces by
-// quoting the program it could not exec.
+// The distinction is narrow on purpose. A tool that ran and could not open a
+// file also says "no such file or directory", and reading that as an absent
+// executable would send the user to install a Claude they already have. Only the
+// container runtime's own refusal to start the process counts, which it announces
+// by quoting the program it could not exec.
 func notFound(reported, program string) bool {
 	lowered := strings.ToLower(reported)
 	if strings.Contains(lowered, "executable file not found") {
@@ -358,10 +343,9 @@ func notFound(reported, program string) bool {
 	return strings.Contains(lowered, quoted) && strings.Contains(lowered, "no such file or directory")
 }
 
-// Observe reports what the environment looks like now.
-//
-// It starts nothing. A stopped container is reported as stopped, which is what
-// FR-STATE-004 requires of every observation Feat makes.
+// Observe reports what the environment looks like now. It starts nothing: a
+// stopped container is reported as stopped, which is what FR-STATE-004 requires
+// of every observation Feat makes.
 func (e *Environment) Observe(ctx context.Context) (execution.State, error) {
 	output, err := e.runner.Run(ctx, e.invoke("ps", "--all", "--format", "json", e.spec.Service))
 	if err != nil {
@@ -401,11 +385,9 @@ type container struct {
 	Status  string `json:"Status"`
 }
 
-// parseContainers reads what Compose printed.
-//
-// Compose has printed both a JSON array and newline-delimited objects across
-// its versions, so both are accepted rather than one being assumed. Guessing
-// wrong here would report every task's container as absent, and the daemon
+// parseContainers reads what Compose printed. Compose has printed both a JSON
+// array and newline-delimited objects across its versions, so both are accepted.
+// Guessing wrong would report every task's container as absent, and the daemon
 // would then say a running agent had stopped.
 func parseContainers(output string) ([]container, error) {
 	trimmed := strings.TrimSpace(output)
@@ -436,11 +418,10 @@ func parseContainers(output string) ([]container, error) {
 	return containers, nil
 }
 
-// health maps Compose's health to the domain's.
-//
-// A service with no health check reports nothing, which is "unknown" rather
-// than "healthy": docs/02-user-workflows.md requires that a container without a
-// health check is shown as running with health unknown.
+// health maps Compose's health to the domain's. A service with no health check
+// reports nothing, which is "unknown" rather than "healthy":
+// docs/02-user-workflows.md requires that a container without a health check is
+// shown as running with health unknown.
 func health(c container) domain.HealthState {
 	switch strings.ToLower(c.Health) {
 	case "healthy":
@@ -456,19 +437,17 @@ func health(c container) domain.HealthState {
 
 // defined asks Compose which services this task's project defines.
 //
-// Feat brings up the agent's service and Compose brings up whatever that
-// service depends on, so the project holds more services than the launch names.
-// Every one of them needs the base file's fixed container_name and published
-// ports removed, or the second task to start collides with the first over a
-// service the user did not know Feat was starting — which is the one thing a
-// per-task Compose project exists to prevent.
+// Feat brings up the agent's service and Compose brings up whatever that service
+// depends on, so the project holds more services than the launch names. Every one
+// of them needs the base file's fixed container_name and published ports removed,
+// or the second task to start collides with the first over a service the user did
+// not know Feat was starting.
 //
 // It reads names and nothing else. `docker compose config` renders the whole
 // project including the values of its environment files, which Feat never reads;
 // --services prints one service name per line (ADR-028). The generated override
-// is left out of the file list on purpose, so that a stale one cannot
-// reintroduce a service the project has since removed — and because on a first
-// launch it does not exist yet.
+// is left out of the file list, so that a stale one cannot reintroduce a service
+// the project has since removed, and because on a first launch it does not exist.
 func (e *Environment) defined(ctx context.Context) ([]string, error) {
 	output, err := e.runner.Run(ctx, e.compose(false, "config", "--services"))
 	if err != nil {
@@ -493,7 +472,7 @@ func (e *Environment) defined(ctx context.Context) ([]string, error) {
 //
 // Every invocation carries the project name and the project directory. The
 // project name is what makes an action affect one task's container and no
-// other's; the project directory is the first configured file's directory, so
+// other's. The project directory is the first configured file's directory, so
 // that file's relative sources and build contexts keep resolving while the
 // generated override lives under the state directory (ADR-033).
 func (e *Environment) invoke(arguments ...string) execution.Invocation {
@@ -526,11 +505,10 @@ func (e *Environment) compose(generated bool, arguments ...string) execution.Inv
 // lastLine returns the last non-empty line of the given outputs.
 //
 // Bringing a service up is the one command whose failure is at the end rather
-// than the beginning: Compose narrates every build step and every resource it
+// than the beginning. Compose narrates every build step and every resource it
 // creates, so the first line of a failed `up` is "Image … Building" and the
-// reason is the last thing printed. Reporting the first line looks reasonable
-// and tells the user nothing at all, which is how a mount error in their own
-// Compose file reached them as a progress message.
+// reason is the last thing printed. Reporting the first line reached the user as
+// a progress message.
 func lastLine(outputs ...string) string {
 	for _, output := range outputs {
 		lines := strings.Split(output, "\n")

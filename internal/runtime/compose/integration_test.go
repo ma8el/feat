@@ -51,8 +51,9 @@ func realDocker(t *testing.T) {
 // Whatever the test does, the Compose project is removed when it ends: a test
 // that leaves containers behind on the machine running it has broken the rule it
 // exists to check.
+//
 // A host port may be given, which is what Feat allocates for a task's one
-// reachable service. Without one the fixture's own fixed publications are simply
+// reachable service. Without one the fixture's own fixed publications are
 // removed, which is what every service the project did not declare reachable
 // gets.
 func realRuntime(t *testing.T, id domain.TaskID, publish ...int) (*compose.Runtime, runtime.Spec, string) {
@@ -154,11 +155,11 @@ func realRuntime(t *testing.T, id domain.TaskID, publish ...int) (*compose.Runti
 	}
 	t.Cleanup(func() {
 		// Only this task's own Compose project, named explicitly, and with its
-		// volumes — the fixture creates none, and a test that left one behind
+		// volumes: the fixture creates none, and a test that left one behind
 		// would be leaving it on somebody's machine. `--rmi local` removes the
 		// image the fixture builds, which is named after this task's Compose
-		// project and is of no use to anything else; an image the fixture names
-		// itself, such as alpine, carries a tag of its own and is left alone.
+		// project. An image the fixture names itself, such as alpine, carries a
+		// tag of its own and is left alone.
 		down := exec.Command(compose.Executable, "compose",
 			"--project-name", spec.Identity, "--project-directory", spec.Directory,
 			"--file", spec.IncludePath, "--file", spec.OverridePath,
@@ -394,7 +395,7 @@ func mustObserve(t *testing.T, services *compose.Runtime) runtime.State {
 //
 // The fixture carries a fixed container name, which is global to the Docker
 // daemon, so this passes only because the generated override resets it. Without
-// that line the second task fails and one task per machine is the product.
+// that line the second task's launch fails.
 func TestRealTwoTasksRunTheSameServicesAtOnce(t *testing.T) {
 	realDocker(t)
 

@@ -8,8 +8,8 @@ import (
 )
 
 // scriptedRunner answers each tmux subcommand from a script and records what it
-// was asked, so that a test can assert on the argument vector rather than on a
-// shell string.
+// was asked, so a test can assert on the argument vector rather than on a shell
+// string.
 type scriptedRunner struct {
 	replies map[string]string
 	queued  map[string][]string
@@ -75,10 +75,10 @@ func captureAdapter(t *testing.T, runner Runner) *Tmux {
 }
 
 // TestCapturingAPaneAsksForWhatTmuxAlreadyDrew is ADR-042's boundary in one
-// assertion: -e keeps the colour tmux rendered, so what comes back is a finished
-// screen rather than a stream to interpret.
+// assertion. -e keeps the colour tmux rendered, so what comes back is a
+// finished screen rather than a stream to interpret.
 //
-// And not -J: joining a wrapped line makes it wider than the pane, and a caller
+// And not -J. Joining a wrapped line makes it wider than the pane, and a caller
 // drawing into a region that wide clips the join off, losing the text tmux had
 // put on the next row.
 func TestCapturingAPaneAsksForWhatTmuxAlreadyDrew(t *testing.T) {
@@ -113,8 +113,8 @@ func TestCapturingAPaneAsksForWhatTmuxAlreadyDrew(t *testing.T) {
 	}
 }
 
-// TestADeadPaneIsReportedRatherThanDrawnAsLive keeps the distinction the adapter
-// already draws for a process that exited.
+// TestADeadPaneIsReportedRatherThanDrawnAsLive keeps the distinction the
+// adapter already draws for a process that exited.
 func TestADeadPaneIsReportedRatherThanDrawnAsLive(t *testing.T) {
 	runner := newScriptedRunner()
 	runner.replies["display-message"] = "80\t24\t0\t0\t1"
@@ -172,9 +172,9 @@ func TestKeysArePassedAfterATerminator(t *testing.T) {
 	}
 }
 
-// TestPastingBracketsTheTextAndCleansUpAfterItself is why typed text does not go
-// through send-keys: a long string is truncated, and an unbracketed paste can be
-// submitted by the application reading it.
+// TestPastingBracketsTheTextAndCleansUpAfterItself is why typed text does not
+// go through send-keys. A long string is truncated, and an unbracketed paste
+// can be submitted by the application reading it.
 func TestPastingBracketsTheTextAndCleansUpAfterItself(t *testing.T) {
 	runner := newScriptedRunner()
 
@@ -267,12 +267,9 @@ func TestAMalformedMeasurementIsReportedRatherThanGuessed(t *testing.T) {
 }
 
 // TestReleasingASizeUndoesThePin is the regression test for what rendering did
-// to a native attach.
-//
-// Sizing a window pins it, and tmux keeps it pinned however large the terminal
-// attaching to it is. A user who looked at a pane in the dashboard and then
-// attached to it got a terminal the size of the dashboard's main region, with
-// the rest of their screen blank.
+// to a native attach. Sizing a window pins it, and tmux keeps it pinned however
+// large the terminal attaching to it is. A user who looked at a pane in the
+// dashboard and then attached got a terminal the size of its main region.
 func TestReleasingASizeUndoesThePin(t *testing.T) {
 	runner := newScriptedRunner()
 
@@ -289,11 +286,10 @@ func TestReleasingASizeUndoesThePin(t *testing.T) {
 	}
 }
 
-// TestReleasingDoesNotResize is the second half of the same regression, and the
-// reason it needs a test of its own: the first attempt at this released the
-// option and then called resize-window -A, which re-set window-size to manual
-// and pinned the window again at the server's default — smaller than the size it
-// was undoing. A release that resizes is not a release.
+// TestReleasingDoesNotResize is the second half of the same regression. The
+// first attempt at this released the option and then called resize-window -A,
+// which re-set window-size to manual and pinned the window again at the
+// server's default, smaller than the size it was undoing.
 func TestReleasingDoesNotResize(t *testing.T) {
 	runner := newScriptedRunner()
 
@@ -317,7 +313,7 @@ func TestReleasingRefusesAName(t *testing.T) {
 }
 
 // TestZoomingIsIdempotent keeps a poll from toggling the zoom four times a
-// second, which is what a bare resize-pane -Z would do: it toggles.
+// second, which is what a bare resize-pane -Z would do.
 func TestZoomingIsIdempotent(t *testing.T) {
 	runner := newScriptedRunner()
 	// Already zoomed, and on this pane.
@@ -345,7 +341,7 @@ func TestZoomingASinglePaneWindowDoesNothing(t *testing.T) {
 	}
 }
 
-// TestZoomingReleasesAnotherPanesZoomFirst is the toggle trap: zooming while a
+// TestZoomingReleasesAnotherPanesZoomFirst is the toggle trap. Zooming while a
 // different pane is zoomed would otherwise unzoom the window rather than zoom
 // this pane.
 func TestZoomingReleasesAnotherPanesZoomFirst(t *testing.T) {
@@ -369,12 +365,11 @@ func TestZoomingReleasesAnotherPanesZoomFirst(t *testing.T) {
 
 // TestARenderThatNeedsNothingChangesNothing is the flicker.
 //
-// Resizing a zoomed window to the size it already has is not a no-op: tmux sets
+// Resizing a zoomed window to the size it already has is not a no-op. tmux sets
 // the zoomed pane's pty to the size it would have unzoomed and then back, so a
 // full-screen program repaints at half the width and repaints again. Issued on
-// every poll it flickered continuously; issued once per task switch it flickered
-// once. tmux reports the pane at the zoomed width throughout, which is why this
-// is invisible from outside the pane and has to be a rule here.
+// every poll it flickered continuously. tmux reports the pane at the zoomed
+// width throughout, which is why this is invisible from outside the pane.
 func TestARenderThatNeedsNothingChangesNothing(t *testing.T) {
 	runner := newScriptedRunner()
 	// A 100x30 window, zoomed on this pane and pinned at that size, which is the
@@ -392,8 +387,8 @@ func TestARenderThatNeedsNothingChangesNothing(t *testing.T) {
 			t.Errorf("a settled frame ran %q", strings.Join(args, " "))
 		}
 	}
-	// And it costs one measurement rather than two: the state it decided on
-	// carries the pane's own size, so nothing has to ask again.
+	// And it costs one measurement rather than two, because the state it decided
+	// on carries the pane's own size.
 	if measured := runner.ran("display-message"); measured != 1 {
 		t.Errorf("a settled frame measured %d times, want 1", measured)
 	}
@@ -403,7 +398,7 @@ func TestARenderThatNeedsNothingChangesNothing(t *testing.T) {
 	}
 }
 
-// TestARenderSizesTheWindowWhenTheRegionChanged is the other half: the rule is
+// TestARenderSizesTheWindowWhenTheRegionChanged is the other half. The rule is
 // to change nothing that is already right, not to stop changing anything.
 //
 // The frame is measured again afterwards, because the measurement that decided
@@ -441,9 +436,7 @@ func TestARenderSizesTheWindowWhenTheRegionChanged(t *testing.T) {
 //
 // A resize is a request to repaint and a stopped pane cannot answer it. tmux
 // reflows the screen it stopped on instead, so a full-width prompt comes apart
-// onto the row below and stays there for as long as the pane is retained — which
-// is for as long as the task is kept, because the retained pane is the account of
-// what the agent did.
+// onto the row below and stays there for as long as the task is kept.
 func TestARenderDoesNotShrinkAWindowHoldingAStoppedPane(t *testing.T) {
 	runner := newScriptedRunner()
 	// One dead pane in a 100x30 window, drawn into a region of 80x20.
@@ -460,8 +453,8 @@ func TestARenderDoesNotShrinkAWindowHoldingAStoppedPane(t *testing.T) {
 			t.Errorf("a stopped pane was reflowed by %q", strings.Join(args, " "))
 		}
 	}
-	// And it is reported at the size it kept, so the renderer clips it rather
-	// than believing it is the size of the region.
+	// And it is reported at the size it kept, so the renderer clips it rather than
+	// believing it is the size of the region.
 	if frame.Width != 100 || frame.Height != 30 {
 		t.Errorf("the frame reports %dx%d, want the 100x30 the pane stopped at", frame.Width, frame.Height)
 	}
@@ -490,10 +483,8 @@ func TestAStoppedPaneIsMeasuredByItsWindow(t *testing.T) {
 }
 
 // TestARenderGrowsAWindowHoldingAStoppedPane keeps the rule one-directional.
-//
-// Growing is the repair rather than more of the damage: tmux rejoins exactly the
-// rows it split, so a screen a narrower region already took apart comes back
-// whole as soon as there is room for it.
+// Growing is the repair rather than more of the damage, because tmux rejoins
+// exactly the rows it split.
 func TestARenderGrowsAWindowHoldingAStoppedPane(t *testing.T) {
 	runner := newScriptedRunner()
 	runner.script("display-message", "60\t20\t0\t1\t1\t60\t20\t0\t0\t1\t1\tmanual", "100\t30\t0\t0\t1")
@@ -516,8 +507,8 @@ func TestARenderGrowsAWindowHoldingAStoppedPane(t *testing.T) {
 	}
 }
 
-// TestARenderStillShrinksAWindowOfLivePanes is the other half of the same rule:
-// a program that can repaint is told about the region, whichever way it moved.
+// TestARenderStillShrinksAWindowOfLivePanes is the other half of the same rule.
+// A program that can repaint is told about the region, whichever way it moved.
 func TestARenderStillShrinksAWindowOfLivePanes(t *testing.T) {
 	runner := newScriptedRunner()
 	runner.script("display-message", "100\t30\t0\t1\t1\t100\t30\t0\t0\t0\t0\tmanual", "80\t20\t0\t0\t0")
@@ -561,13 +552,12 @@ func TestAWatchedRenderTouchesNothing(t *testing.T) {
 // TestAWatchedRenderReleasesThePin is the half of the attach defect that the
 // release at hand-over cannot reach.
 //
-// Sizing a window pins it, and tmux then holds it at that size however large the
-// client attaching is. The size is released as the attach target is handed out,
-// but the client takes tens of milliseconds to arrive and a frame drawn in that
-// gap is told nobody is attached and pins the window again. The client then
-// lands in a terminal showing the dashboard's main region with the rest filled
-// in with dots — and stays there, because the dashboard that would notice is
-// blocked for as long as it has given its terminal away.
+// Sizing a window pins it, and tmux then holds it at that size however large
+// the client attaching is. The size is released as the attach target is handed
+// out, but the client takes tens of milliseconds to arrive, and a frame drawn
+// in that gap is told nobody is attached and pins the window again. The client
+// then lands in a terminal showing the dashboard's main region and stays there,
+// because the dashboard that would notice has given its terminal away.
 //
 // So the first frame that sees a client on a window Feat has pinned hands the
 // size back, whichever way that client got there.
@@ -590,15 +580,15 @@ func TestAWatchedRenderReleasesThePin(t *testing.T) {
 	if got := strings.Join(released, " "); got != "set-window-option -u -t @3 window-size" {
 		t.Errorf("released with %q", got)
 	}
-	// Released, not resized: a rendering must not choose the size of a terminal
-	// somebody is sitting in, and resizing would pin it again.
+	// Released rather than resized. A rendering must not choose the size of a
+	// terminal somebody is sitting in, and resizing would pin it again.
 	for _, command := range []string{"resize-window", "resize-pane"} {
 		if args, found := runner.call(command); found {
 			t.Errorf("rendering a watched window ran %q", strings.Join(args, " "))
 		}
 	}
 	// And the frame is measured again, because releasing the pin is what makes
-	// tmux resize the window to its client: reporting the pinned size would tell
+	// tmux resize the window to its client. Reporting the pinned size would tell
 	// the renderer to draw the client's screen as the region's.
 	if frame.Width != 200 || frame.Height != 50 {
 		t.Errorf("the frame reports %dx%d, want the 200x50 the client gave it",

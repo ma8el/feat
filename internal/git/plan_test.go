@@ -24,7 +24,7 @@ var remoteBase = commit("beef")
 
 // fixture is a two-repository task: one the agent may write to, one it may only
 // read. It is the shape docs/08-v0-scope.md describes for the dogfood project,
-// with generic names.
+// under generic names.
 type fixture struct {
 	git  *fakeGit
 	root string
@@ -119,9 +119,9 @@ func TestPlanResolvesBasesAndCreatesNothing(t *testing.T) {
 }
 
 // TestFetchFailureIsReportedAndTheTaskContinues checks FR-GIT-001's "when
-// network access is available". A laptop on a train can still start a task from
-// the last fetched state; what it must not do is leave the user believing the
-// base is current.
+// network access is available". A laptop with no network still starts a task
+// from the last fetched state, and the note is what keeps the user from reading
+// that base as current.
 func TestFetchFailureIsReportedAndTheTaskContinues(t *testing.T) {
 	f := twoRepositories(t, filepath.Join(t.TempDir(), "worktrees"))
 	f.git.repositories["/checkout/api"].fail["fetch"] = errors.New("could not resolve host: example.invalid")
@@ -157,8 +157,7 @@ func TestMissingRemoteBaseNamesTheRemedy(t *testing.T) {
 }
 
 // TestEveryProblemIsReported checks that a plan reports all of its problems
-// rather than the first, for the reason configuration validation does: the user
-// is going to fix them by hand.
+// rather than the first, because the user is going to fix them by hand.
 func TestEveryProblemIsReported(t *testing.T) {
 	f := twoRepositories(t, filepath.Join(t.TempDir(), "worktrees"))
 	delete(f.git.repositories["/checkout/api"].refs, "refs/remotes/origin/main")
@@ -183,9 +182,9 @@ func TestEveryProblemIsReported(t *testing.T) {
 }
 
 // TestCollisionsAreDetectedBeforeAnythingIsCreated covers the three ways a task
-// can ask for a resource something already holds. None of them is resolved by
-// choosing another name: a branch Feat renamed is a branch the user did not
-// agree to and will look for under the name they saw.
+// can ask for a resource something already holds. None is resolved by renaming,
+// because a branch Feat renamed is one the user did not agree to and will look
+// for under the name they saw.
 func TestCollisionsAreDetectedBeforeAnythingIsCreated(t *testing.T) {
 	t.Run("the branch already exists", func(t *testing.T) {
 		f := twoRepositories(t, filepath.Join(t.TempDir(), "worktrees"))
@@ -226,8 +225,8 @@ func TestCollisionsAreDetectedBeforeAnythingIsCreated(t *testing.T) {
 // TestUnsafeAndBroadPathsAreRejected covers unsafe and broad path rejection.
 //
 // Every path below is one Feat would later remove, so each case is a directory
-// that must never become a task worktree. The check runs before any Git command,
-// so a rejected path is a plan that ran nothing at all.
+// that must never become a task worktree. The check runs before any Git
+// command, so a rejected path runs nothing at all.
 func TestUnsafeAndBroadPathsAreRejected(t *testing.T) {
 	// A root deep enough to be one Feat could own, written without any literal
 	// that names a real machine's directories.
@@ -237,7 +236,7 @@ func TestUnsafeAndBroadPathsAreRejected(t *testing.T) {
 		name string
 		root string
 		// path is the proposed worktree. An empty value is the root's own "api"
-		// subdirectory, which is what an ordinary task would ask for.
+		// subdirectory, which is what an ordinary task asks for.
 		path     string
 		checkout string
 		want     string
@@ -248,8 +247,8 @@ func TestUnsafeAndBroadPathsAreRejected(t *testing.T) {
 			want: "not a directory Feat may own",
 		},
 		{
-			// Every entry of the shared-directory list is one component deep, so
-			// one stands for all of them here and the list itself is checked in
+			// Every entry of the shared-directory list is one component deep, so one
+			// stands for all of them here and the list itself is checked in
 			// internal/paths.
 			name: "a directory directly below the filesystem root",
 			root: filepath.Join("/", "var"),
@@ -300,9 +299,9 @@ func TestUnsafeAndBroadPathsAreRejected(t *testing.T) {
 			fake := newFakeGit()
 			fake.add("/checkout/api", &fakeRepository{refs: map[string]string{"refs/heads/main": remoteBase}})
 
-			// The second repository is what puts a checkout where the case needs
-			// one: the overlap rule compares a proposed worktree against the
-			// checkouts of every repository in the same request.
+			// The second repository puts a checkout where the case needs one, because
+			// the overlap rule compares a proposed worktree against the checkouts of
+			// every repository in the same request.
 			_, err := New(fake).Plan(context.Background(), Request{
 				Project: testProject,
 				Task:    testTask,
@@ -332,8 +331,8 @@ func TestUnsafeAndBroadPathsAreRejected(t *testing.T) {
 }
 
 // TestOneWorktreePerRepository checks the rule that keeps two repositories of
-// one task apart. Sharing a directory would put the second checkout on top of
-// the first.
+// one task apart. Sharing a directory would check the second repository out on
+// top of the first.
 func TestOneWorktreePerRepository(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "worktrees")
 	f := twoRepositories(t, root)
@@ -346,7 +345,7 @@ func TestOneWorktreePerRepository(t *testing.T) {
 }
 
 // TestReadWriteRepositoriesNeedABranch checks invariant 7 from the adapter's
-// side: a read-write repository with no branch would put the agent's commits on
+// side. A read-write repository with no branch would put the agent's commits on
 // whatever the worktree happened to check out.
 func TestReadWriteRepositoriesNeedABranch(t *testing.T) {
 	f := twoRepositories(t, filepath.Join(t.TempDir(), "worktrees"))

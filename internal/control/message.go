@@ -8,25 +8,22 @@ import (
 	"github.com/ma8el/feat/internal/domain"
 )
 
-// SchemaVersion is the control-message schema this build understands.
-//
-// A message declaring another version is rejected rather than interpreted, for
-// the reason configuration is: a document Feat half-understands would change
-// state the agent did not ask it to change.
+// SchemaVersion is the control-message schema this build understands. A message
+// declaring another version is rejected rather than interpreted, for the reason
+// configuration is: a document Feat half-understands would change state the agent
+// did not ask it to change.
 const SchemaVersion = 1
 
-// MaxMessageBytes bounds one control message.
-//
-// The messages are state changes and short reports, not payloads. A bound well
-// below the point where reading one is expensive means an oversized document is
-// refused by size rather than by the memory it took to find out.
+// MaxMessageBytes bounds one control message. The messages are state changes and
+// short reports rather than payloads, so a bound well below the point where
+// reading one is expensive refuses an oversized document by size rather than by
+// the memory it took to find out.
 const MaxMessageBytes = 256 << 10
 
-// MessageType is what a control message asks for or reports.
-//
-// The vocabulary is provider-neutral on purpose. A Claude hook event arrives as
-// TypeProviderEvent carrying the provider's own payload, and only the provider
-// adapter knows how to read it; this package never learns what a Stop event is.
+// MessageType is what a control message asks for or reports. The vocabulary is
+// provider-neutral on purpose: a Claude hook event arrives as TypeProviderEvent
+// carrying the provider's own payload, and only the provider adapter knows how to
+// read it.
 type MessageType string
 
 // Message types. docs/03-domain-model.md lists the agent-authored ones;
@@ -51,15 +48,13 @@ const (
 	// It is its own type rather than a field on TypeReviewRequested because the
 	// protocol already separates the act from the account: a review request is
 	// the only way a task reaches that state, and a draft is an account. A
-	// project with no forge configured never sees this type, where a field
-	// would sit unused in every generated protocol document, and correcting a
-	// description does not have to re-enter a workflow state to do it. What the
+	// project with no forge configured never sees this type, and correcting a
+	// description does not have to re-enter a workflow state. What the
 	// separation costs is that two messages can drift, which is why the draft
 	// carries the commit it describes (ADR-070).
 	//
-	// It requires no capability, because it asks for nothing: it is weaker than
-	// a runtime request, which at least asks. Nothing in it reaches a forge
-	// until the user has read it and approved it.
+	// It requires no capability, because it asks for nothing. Nothing in it
+	// reaches a forge until the user has read it and approved it.
 	TypePublicationDraft MessageType = "publication_draft"
 	// TypeRuntimeRequested is the agent asking for application services.
 	//
@@ -67,7 +62,7 @@ const (
 	// agent-requested runtime after v0, and a request stays inert until host
 	// validation and explicit user approval in every version
 	// (docs/05-security-model.md). Recognising it is what lets Feat say that it
-	// refused something, rather than leaving the agent to wonder whether anyone
+	// refused something, rather than leaving the agent to wonder whether anybody
 	// read it.
 	TypeRuntimeRequested MessageType = "runtime_requested"
 )
@@ -104,10 +99,9 @@ func (t MessageType) Requires() Capability {
 	return CapabilityNone
 }
 
-// Message is one document exchanged through the control workspace.
-//
-// It is a wire format, so its fields carry JSON tags and its identifiers are
-// strings until they have been validated against the task that owns them.
+// Message is one document exchanged through the control workspace. It is a wire
+// format, so its fields carry JSON tags and its identifiers are strings until
+// they have been validated against the task that owns them.
 type Message struct {
 	// SchemaVersion is the envelope version. It must be SchemaVersion.
 	SchemaVersion int `json:"schema_version"`
@@ -133,9 +127,9 @@ type Message struct {
 // File returns the outbox file the message was read from.
 func (m Message) File() string { return m.file }
 
-// idPattern bounds a message identifier. It reaches log lines and the processed
-// record, and it is generated rather than typed, so the pattern is deliberately
-// narrower than the identifier needs to be.
+// maxIDBytes bounds a message identifier. It reaches log lines and the host-only
+// record of settled messages, and it is generated rather than typed, so the bound
+// is deliberately narrower than an identifier needs to be.
 const maxIDBytes = 128
 
 // Validate reports whether the message is well formed and belongs to the task
@@ -143,9 +137,9 @@ const maxIDBytes = 128
 //
 // Every rule the security model lists for a control message is checked here or
 // in the reader that found the file: schema version, task ownership, message
-// type, event identity, size, path, and required capability. What is not
-// checked here is whether it was already processed, which is a question about
-// history rather than about the document.
+// type, event identity, size, path, and required capability. Whether it was
+// already processed is a question about history rather than about the document,
+// and is answered elsewhere.
 func (m Message) Validate(owner domain.TaskID) error {
 	if m.SchemaVersion != SchemaVersion {
 		return &RejectionError{
@@ -180,10 +174,9 @@ func (m Message) Validate(owner domain.TaskID) error {
 	return nil
 }
 
-// RejectionError explains why a control message was not applied.
-//
-// It is a distinct type because a rejected message is a normal event rather
-// than a failure of the daemon: it is recorded, reported, and never retried.
+// RejectionError explains why a control message was not applied. It is a distinct
+// type because a rejected message is a normal event rather than a failure of the
+// daemon: it is recorded, reported, and never retried.
 type RejectionError struct {
 	// File is the outbox entry, when the failure is about one.
 	File string
@@ -198,12 +191,10 @@ func (e *RejectionError) Error() string {
 	return "the control message in " + e.File + " " + e.Reason
 }
 
-// maxQuotedBytes bounds what a refusal repeats back.
-//
-// Every value quoted here was written by an agent, and a refusal reaches a log
-// line, the host-only record of settled messages, and the task's own event log.
-// A message may be a quarter of a megabyte, and none of those readers is
-// improved by a field that long.
+// maxQuotedBytes bounds what a refusal repeats back. Every value quoted here was
+// written by an agent, and a refusal reaches a log line, the host-only record of
+// settled messages, and the task's own event log. A message may be a quarter of a
+// megabyte, and none of those readers is improved by a field that long.
 const maxQuotedBytes = 96
 
 func quote(value string) string {

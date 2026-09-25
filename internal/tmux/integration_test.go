@@ -44,8 +44,8 @@ func realTmux(t *testing.T) *realServer {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	// The managed server must load normal user configuration. These values are
-	// intentionally hostile to any implementation that assumes pane 0 or
-	// window 0, while automatic rename makes the display name non-authoritative.
+	// hostile to any implementation that assumes pane 0 or window 0, and automatic
+	// rename makes the display name non-authoritative.
 	home := filepath.Join(dir, "home")
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatalf("creating test home: %v", err)
@@ -181,10 +181,10 @@ func TestRealShellUsesPrimaryWorkspace(t *testing.T) {
 // A program that fails at once is the ordinary first-run failure: the agent
 // binary is missing, or its configuration is rejected. Against real tmux, a
 // pane created with such a command dies before any option can be set, which
-// destroys the window and — for the first task — the whole server. The failure
-// then surfaces as "the dedicated tmux server is not running", which is both
-// wrong and unactionable. Creating the pane first has to turn that into an
-// observable dead pane carrying its exit status.
+// destroys the window and, for the first task, the whole server. The failure
+// then surfaces as "the dedicated tmux server is not running", which is wrong
+// and unactionable. Creating the pane first turns that into an observable dead
+// pane carrying its exit status.
 func TestRealCommandThatExitsImmediatelyStaysObservable(t *testing.T) {
 	server := realTmux(t)
 	ctx := context.Background()
@@ -222,12 +222,11 @@ func TestRealCommandThatExitsImmediatelyStaysObservable(t *testing.T) {
 // TestRealAgentStartsInTheSizeItWillBeDrawnAt proves the fix where it has to
 // hold: in the program's own idea of its terminal, at the moment it starts.
 //
-// Real tmux rather than a fake because that is the whole claim. A window sized
-// after its program started is a program that has already written its first
-// screen at 80 columns, and those lines never reflow — a resize signal arriving
-// later cannot repair what has been committed, and on one dogfood run it did not
-// arrive at all. stty is asked because it reads the pty rather than tmux's
-// bookkeeping, which is the only answer that matters.
+// Real tmux rather than a fake, because that is the whole claim. A program
+// whose window is sized after it started has already written its first screen
+// at 80 columns, and those lines never reflow. A resize signal arriving later
+// cannot repair what was committed, and on one dogfood run it never arrived.
+// stty is asked because it reads the pty rather than tmux's bookkeeping.
 func TestRealAgentStartsInTheSizeItWillBeDrawnAt(t *testing.T) {
 	server := realTmux(t)
 	ctx := context.Background()
@@ -290,7 +289,7 @@ func awaitDeadAgent(t *testing.T, backend *Tmux) Terminal {
 
 // TestRealDetachEndsTheNativeClient exercises attach and detach through a real
 // tmux control-mode client. Control mode avoids needing a human terminal while
-// retaining tmux's attach-session and detach-client lifecycle.
+// keeping tmux's attach-session and detach-client lifecycle.
 func TestRealDetachEndsTheNativeClient(t *testing.T) {
 	server := realTmux(t)
 	backend, _ := New(server.socket, server.runner)
@@ -338,8 +337,8 @@ func TestRealDetachEndsTheNativeClient(t *testing.T) {
 	}
 }
 
-// TestRealAnAttachedClientGetsItsOwnSizeBack is the reported defect against tmux
-// itself: attaching to a task and finding the agent drawn into part of the
+// TestRealAnAttachedClientGetsItsOwnSizeBack is the reported defect against
+// tmux itself: attaching to a task and finding the agent drawn into part of the
 // terminal, with tmux's fill characters over the rest of it.
 //
 // A rendering sizes the window to the dashboard's main region, and tmux holds a
@@ -350,7 +349,7 @@ func TestRealDetachEndsTheNativeClient(t *testing.T) {
 // a client on a window Feat pinned gives the size back.
 //
 // The first part measures what tmux does, so the assertion afterwards is about
-// Feat's choice rather than about a claim about some version's behaviour.
+// Feat's choice rather than about a claim about a version's behaviour.
 func TestRealAnAttachedClientGetsItsOwnSizeBack(t *testing.T) {
 	server := realTmux(t)
 	backend, _ := New(server.socket, server.runner)
@@ -378,7 +377,7 @@ func TestRealAnAttachedClientGetsItsOwnSizeBack(t *testing.T) {
 	defer client()
 	waitForWatched(ctx, t, backend, terminal.Task, true, output)
 
-	// What tmux does with the pin still on: the client's terminal is not the
+	// What tmux does with the pin still on. The client's terminal is not the
 	// window's size, which is the blank space the user reported.
 	held, err := backend.CapturePane(ctx, pane)
 	if err != nil {
@@ -387,9 +386,9 @@ func TestRealAnAttachedClientGetsItsOwnSizeBack(t *testing.T) {
 	if held.Width >= clientWidth {
 		// The precondition this test needs is a behaviour of the installed tmux,
 		// and a tmux that does not produce it leaves the repair below unproven.
-		// Through the demand rather than as a bare skip: a run that asked for tmux
-		// and got one this test cannot use has not made the proof, and a skipped
-		// package still prints "ok".
+		// Through the demand rather than as a bare skip, because a run that asked
+		// for tmux and got one this test cannot use has not made the proof, and a
+		// skipped package still prints "ok".
 		integrationtest.Unavailable(t, integrationtest.Tmux,
 			"this tmux gave a pinned window to its client anyway (%d cells), so the blank space "+
 				"this checks the repair of cannot be arranged on it", held.Width)
@@ -404,8 +403,8 @@ func TestRealAnAttachedClientGetsItsOwnSizeBack(t *testing.T) {
 		t.Errorf("the attached client was left with a %dx%d window, want its own %dx%d",
 			frame.Width, frame.Height, clientWidth, clientHeight)
 	}
-	// And the option is off rather than set to some value of Feat's, so the
-	// window keeps following the client from here on.
+	// And the option is off rather than set to some value of Feat's, so the window
+	// keeps following the client from here on.
 	option, err := server.runner.Run(ctx, server.socket, "show-window-options", "-t", window, "window-size")
 	if err != nil {
 		t.Fatalf("reading the released window's sizing: %v", err)
@@ -419,9 +418,9 @@ func TestRealAnAttachedClientGetsItsOwnSizeBack(t *testing.T) {
 // the function that detaches it.
 //
 // Control mode avoids needing a human terminal while keeping tmux's attach
-// lifecycle. Such a client has no window size of its own, so it is given one:
-// refresh-client is how tmux itself lets a control client say how big it is, and
-// a size is the whole point of these tests.
+// lifecycle. Such a client has no window size of its own, so it is given one
+// with refresh-client, which is how tmux lets a control client say how big it
+// is.
 func attachClient(
 	ctx context.Context, t *testing.T, server *realServer, terminal Terminal, width, height int,
 ) (func(), *bytes.Buffer) {
@@ -484,11 +483,11 @@ func withoutTmux(environment []string) []string {
 // suppression turns on.
 //
 // The question is "is the user looking at this task's terminal", and it has to
-// be answered per window: a user attached to a project's session is looking at
+// be answered per window. A user attached to a project's session is looking at
 // one of its tasks and not at the others. tmux answers it with
 // window_active_clients, which this measures against a real client and requires
-// to follow a window switch — because a signal that lagged behind the user would
-// silence the task they had just left (ADR-035).
+// to follow a window switch, since a lagging answer would silence the task the
+// user had just left (ADR-035).
 func TestRealWindowClientsFollowTheUser(t *testing.T) {
 	server := realTmux(t)
 	backend, _ := New(server.socket, server.runner)
@@ -534,8 +533,8 @@ func TestRealWindowClientsFollowTheUser(t *testing.T) {
 		_ = client.Wait()
 	}()
 
-	// The client attached to one task's window. That task is watched and the
-	// other one is not, which is the whole distinction.
+	// The client attached to one task's window. That task is watched and the other
+	// one is not, which is the whole distinction.
 	waitForWatched(ctx, t, backend, watched.Task, true, &output)
 	for _, terminal := range mustDiscover(ctx, t, backend) {
 		if terminal.Task == other.Task && terminal.Watched() {
@@ -563,7 +562,6 @@ func mustDiscover(ctx context.Context, t *testing.T, backend *Tmux) []Terminal {
 }
 
 // waitForWatched waits until a task's window reports the expected viewer state.
-//
 // tmux applies an attach and a window switch asynchronously to the client, so
 // the state is polled rather than read once.
 func waitForWatched(
@@ -588,15 +586,15 @@ func waitForWatched(
 // TestRealTerminalsWorkWithoutALocale pins the defect an end-to-end review run
 // found in this adapter.
 //
-// A tmux client whose locale is not UTF-8 replaces every non-printable character
-// in the output of `-F` with an underscore, and every format this package uses
-// is tab-separated. Without the flag that forces UTF-8 output, creating a
-// terminal cannot parse the identifiers of the terminal it just created and
-// discovery finds nothing — so a daemon started by a service manager, which is
-// how a daemon is meant to run, could not launch a single task.
+// A tmux client whose locale is not UTF-8 replaces every non-printable
+// character in the output of `-F` with an underscore, and every format this
+// package uses is tab-separated. Without the flag that forces UTF-8 output, a
+// creation cannot parse the identifiers of the terminal it just made and
+// discovery finds nothing, so a daemon started by a service manager could not
+// launch a single task.
 //
-// The environment is emptied of every locale variable rather than set to a wrong
-// one, because that is what a sanitised environment looks like.
+// The environment is emptied of every locale variable rather than set to a
+// wrong one, because that is what a sanitised environment looks like.
 func TestRealTerminalsWorkWithoutALocale(t *testing.T) {
 	server := realTmux(t)
 	ctx := context.Background()
@@ -625,7 +623,7 @@ func TestRealTerminalsWorkWithoutALocale(t *testing.T) {
 	}
 
 	// And what was created can be found again, which is the half a substituted
-	// separator breaks silently: discovery would return nothing and every task
+	// separator breaks silently. Discovery would return nothing, and every task
 	// would look like a task whose terminal had gone.
 	found, ok, err := adapter.Find(ctx, testProject, testTask)
 	if err != nil {
@@ -637,9 +635,9 @@ func TestRealTerminalsWorkWithoutALocale(t *testing.T) {
 	if found.Target != terminal.Target {
 		t.Errorf("discovery found %+v, want the created %+v", found.Target, terminal.Target)
 	}
-	// The tail rather than the whole path: a temporary directory on macOS is
+	// The tail rather than the whole path. A temporary directory on macOS is
 	// reached through a symbolic link, and what this checks is that the field
-	// after the separator survived rather than what the kernel calls it.
+	// after the separator survived.
 	if !strings.HasSuffix(found.Agent.Directory, filepath.Base(server.dir)) {
 		t.Errorf("the discovered working directory is %q, want the created %q", found.Agent.Directory, server.dir)
 	}
@@ -652,8 +650,8 @@ func TestRealTerminalsWorkWithoutALocale(t *testing.T) {
 // claim is what this checks: that a capture returns what the program printed
 // with its colour intact, that measurements arrive as five fields, that keys
 // sent after a terminator reach the program, that a bracketed paste arrives and
-// takes its buffer away with it, and that a manually sized window keeps the size
-// Feat asked for. Without this the unit tests only prove Feat builds the
+// takes its buffer away with it, and that a manually sized window keeps the
+// size Feat asked for. Without this, the unit tests only prove Feat builds the
 // argument vectors it means to.
 func TestRealPaneCaptureAndInputRoundTrip(t *testing.T) {
 	server := realTmux(t)
@@ -777,17 +775,16 @@ func TestRealPaneCaptureAndInputRoundTrip(t *testing.T) {
 		t.Errorf("unzooming left the pane filling the window: %d cells", restored.Width)
 	}
 
-	// Rendering pins the window. A native client attaching afterwards must get
-	// its own size back, which is the regression a real attach showed: the
-	// dashboard's main region became the size of the whole terminal.
+	// Rendering pins the window. A native client attaching afterwards must get its
+	// own size back, which is the regression a real attach showed: the dashboard's
+	// main region became the size of the whole terminal.
 	if err := backend.ReleaseWindowSize(ctx, terminal.Target.Window); err != nil {
 		t.Fatalf("ReleaseWindowSize: %v", err)
 	}
-	// What matters is the option rather than the size: the window keeps its
-	// pinned dimensions until a client arrives, and tmux resizes it then. A
-	// release that resized here would have re-pinned it — resize-window -A sets
-	// window-size back to manual, which is how the first attempt at this made a
-	// native attach smaller than the defect it was fixing.
+	// What matters is the option rather than the size. The window keeps its pinned
+	// dimensions until a client arrives, and tmux resizes it then. A release that
+	// resized here would have re-pinned it, because resize-window -A sets
+	// window-size back to manual.
 	option, err := server.runner.Run(ctx, server.socket, "show-window-options",
 		"-t", terminal.Target.Window, "window-size")
 	if err != nil {
@@ -808,12 +805,12 @@ func TestRealPaneCaptureAndInputRoundTrip(t *testing.T) {
 // tmux itself: an agent's prompt drawn over two rows in the terminal tab, for
 // tasks whose agent had stopped.
 //
-// tmux reflows a pane when its width changes, and a pane whose program has ended
-// has nobody to repaint it, so the reflow is the last word. Feat's own
+// tmux reflows a pane when its width changes, and a pane whose program has
+// ended has nobody to repaint it, so the reflow is the last word.
 // remain-on-exit is what keeps such a pane readable (ADR-030), and rendering it
-// used to size its window to the dashboard's region — which took the retained
-// screen apart. The first half of this measures the reflow, so that the second
-// half is a check on Feat rather than on a claim about tmux.
+// used to size its window to the dashboard's region, which took the retained
+// screen apart. The first half measures the reflow, so the second half checks
+// Feat rather than a claim about tmux.
 func TestRealAStoppedPaneKeepsTheScreenItStoppedOn(t *testing.T) {
 	server := realTmux(t)
 	ctx := context.Background()
@@ -827,7 +824,7 @@ func TestRealAStoppedPaneKeepsTheScreenItStoppedOn(t *testing.T) {
 	// will draw again.
 	//
 	// Three of them, because tmux scrolls the screen by one row to write its own
-	// "Pane is dead" line under it: a prompt printed on the first row would be in
+	// "Pane is dead" line under it. A prompt printed on the first row would be in
 	// the history rather than on the screen, and a capture reads the screen.
 	prompt := "│ > " + strings.Repeat(" ", 66) + "│"
 	terminal, err := backend.EnsureTask(ctx, testProject, testTask, CommandSpec{
@@ -855,8 +852,8 @@ func TestRealAStoppedPaneKeepsTheScreenItStoppedOn(t *testing.T) {
 	region := painted.Height
 	narrow := len([]rune(prompt)) - 6
 
-	// What tmux does to it, measured here so that the assertions below are about
-	// Feat's choice rather than about a claim about some version's behaviour.
+	// What tmux does to it, measured here so the assertions below are about Feat's
+	// choice rather than about a claim about a version's behaviour.
 	if err := backend.ResizeWindow(ctx, window, narrow, region); err != nil {
 		t.Fatalf("ResizeWindow smaller: %v", err)
 	}
@@ -865,7 +862,7 @@ func TestRealAStoppedPaneKeepsTheScreenItStoppedOn(t *testing.T) {
 		t.Fatalf("CapturePane after shrinking: %v", err)
 	}
 	if slices.Contains(reflowed.Content, prompt) {
-		// Same shape as the pinned-window measurement above: the loss this test
+		// Same shape as the pinned-window measurement above. The loss this test
 		// checks Feat prevents is one the installed tmux has to be able to inflict
 		// before there is anything to prevent.
 		integrationtest.Unavailable(t, integrationtest.Tmux,
@@ -888,7 +885,7 @@ func TestRealAStoppedPaneKeepsTheScreenItStoppedOn(t *testing.T) {
 		t.Errorf("the frame reports %d cells, want the %d the pane stopped at", frame.Width, painted.Width)
 	}
 
-	// A region with room for it is the repair: tmux rejoins what it split, so a
+	// A region with room for it is the repair. tmux rejoins what it split, so a
 	// screen an earlier Feat already wrapped comes back whole.
 	if err := backend.ResizeWindow(ctx, window, narrow, region); err != nil {
 		t.Fatalf("ResizeWindow to the wrapped state: %v", err)

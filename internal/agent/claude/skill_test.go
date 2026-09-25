@@ -36,8 +36,8 @@ func readSkill(t *testing.T, dir string) (document []byte, record map[string]str
 
 // TestSkillDirIsClaudesOwnDiscoveryPath pins where the skill goes: the skills
 // directory under ~/.claude, or under CLAUDE_CONFIG_DIR when Claude Code has
-// been told its configuration lives elsewhere — a skill written to ~/.claude
-// on such a machine is one Claude Code never reads.
+// been told its configuration lives elsewhere. A skill written to ~/.claude on
+// such a machine is one Claude Code never reads.
 func TestSkillDirIsClaudesOwnDiscoveryPath(t *testing.T) {
 	home := filepath.Join("/", "home", "someone")
 
@@ -78,8 +78,8 @@ func TestInstallSkillWritesTheDocumentAndItsRecord(t *testing.T) {
 
 	document, record := readSkill(t, dir)
 
-	// The frontmatter is what Claude Code discovers the skill by, so the
-	// document must lead with it and it must name the directory it lives in.
+	// The frontmatter is what Claude Code discovers the skill by, so the document
+	// leads with it and it names the directory it lives in.
 	text := string(document)
 	if !strings.HasPrefix(text, "---\n") {
 		t.Errorf("the skill does not lead with frontmatter:\n%.80s", text)
@@ -104,14 +104,14 @@ func TestInstallSkillWritesTheDocumentAndItsRecord(t *testing.T) {
 	}
 }
 
-// TestInstallSkillReplacesItsOwnEarlierInstall is the upgrade path: a file
+// TestInstallSkillReplacesItsOwnEarlierInstall is the upgrade path. A file
 // still matching what an install recorded is Feat's own words, and replacing
 // them loses nothing anyone authored.
 func TestInstallSkillReplacesItsOwnEarlierInstall(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "feat-setup")
 
 	// An older binary's install: a different document, with a record whose
-	// checksum matches it — which is all "an older binary wrote this" is.
+	// checksum matches it, which is all "an older binary wrote this" means.
 	older := []byte("---\nname: feat-setup\n---\n\nAn earlier build's words.\n")
 	sum := sha256.Sum256(older)
 	record, err := json.Marshal(map[string]string{
@@ -148,10 +148,10 @@ func TestInstallSkillReplacesItsOwnEarlierInstall(t *testing.T) {
 	}
 }
 
-// TestInstallSkillRefusesWhatItDidNotWrite covers both indistinguishable-
-// without-the-record causes: a file edited since Feat installed it, and a file
-// nothing recorded installing. Each is refused with its reason, left exactly
-// as it was, and replaced only by --force (ADR-093).
+// TestInstallSkillRefusesWhatItDidNotWrite covers the two causes the record
+// exists to separate: a file edited since Feat installed it, and a file nothing
+// recorded installing. Each is refused with its reason, left exactly as it was,
+// and replaced only by --force (ADR-093).
 func TestInstallSkillRefusesWhatItDidNotWrite(t *testing.T) {
 	t.Run("edited since install", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "feat-setup")
@@ -229,7 +229,7 @@ func TestInstallSkillRefusesWhatItDidNotWrite(t *testing.T) {
 }
 
 // TestSkillIsWhatInstallWrites pins the byte-for-byte claim `feat skill show`
-// makes: the document Skill returns is the document InstallSkill puts on disk,
+// makes. The document Skill returns is the document InstallSkill puts on disk,
 // so diffing an installed copy against it shows exactly what an edit changed.
 func TestSkillIsWhatInstallWrites(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "feat-setup")
@@ -244,8 +244,8 @@ func TestSkillIsWhatInstallWrites(t *testing.T) {
 }
 
 // TestPlanSkillInstallDecidesWithoutWriting holds the dry run to its two
-// promises: it returns the decision the install would act on — the same
-// refusal included — and it leaves the machine exactly as it found it.
+// promises: it returns the decision the install would act on, refusal included,
+// and it leaves the machine exactly as it found it.
 func TestPlanSkillInstallDecidesWithoutWriting(t *testing.T) {
 	t.Run("a fresh machine", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "skills", "feat-setup")
@@ -282,8 +282,8 @@ func TestPlanSkillInstallDecidesWithoutWriting(t *testing.T) {
 			t.Fatalf("planning over an edited skill returned %v, want a SkillDivergedError", err)
 		}
 
-		// With force the plan reports the replacement the install would make,
-		// and still makes none of it.
+		// With force the plan reports the replacement the install would make, and
+		// still makes none of it.
 		planned, err := claude.PlanSkillInstall(dir, true)
 		if err != nil {
 			t.Fatalf("PlanSkillInstall with force: %v", err)
@@ -302,7 +302,7 @@ func TestPlanSkillInstallDecidesWithoutWriting(t *testing.T) {
 }
 
 // TestInstallSkillHealsAMissingRecord covers a file that is exactly what this
-// binary writes with no record beside it — a record deleted, or an install
+// binary writes with no record beside it, from a record deleted or an install
 // interrupted between the two writes. Refusing it would demand --force for a
 // replacement that changes nothing, so it is treated as Feat's.
 func TestInstallSkillHealsAMissingRecord(t *testing.T) {

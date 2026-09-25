@@ -83,8 +83,8 @@ func TestEveryBasePolicyResolvesItsOwnRef(t *testing.T) {
 }
 
 // TestADetachedCheckoutStillHasACurrentBase checks the case where there is no
-// branch name to record: what matters is the commit, and HEAD is the only
-// honest name for where it came from.
+// branch name to record. The commit is what matters, and HEAD is the only name
+// available for where it came from.
 func TestADetachedCheckoutStillHasACurrentBase(t *testing.T) {
 	fake := newFakeGit()
 	fake.add("/checkout/api", &fakeRepository{refs: map[string]string{"HEAD": commit("dad0")}})
@@ -101,8 +101,8 @@ func TestADetachedCheckoutStillHasACurrentBase(t *testing.T) {
 }
 
 // TestAMissingBaseNamesTheRemedyForItsPolicy checks that the message says what
-// to do, which differs by policy: an unfetched remote and a misconfigured
-// default branch are fixed in different places.
+// to do. The remedy differs by policy, because an unfetched remote and a
+// misconfigured default branch are fixed in different places.
 func TestAMissingBaseNamesTheRemedyForItsPolicy(t *testing.T) {
 	for _, tc := range []struct {
 		request BaseRequest
@@ -126,8 +126,8 @@ func TestAMissingBaseNamesTheRemedyForItsPolicy(t *testing.T) {
 	}
 }
 
-// TestOnlyTheRemotePolicyFetches checks that Feat does not reach the network for
-// an answer that cannot depend on it.
+// TestOnlyTheRemotePolicyFetches checks that Feat does not reach the network
+// for an answer that cannot depend on it.
 func TestOnlyTheRemotePolicyFetches(t *testing.T) {
 	for _, policy := range []BasePolicy{PolicyLocal, PolicyCurrent, PolicyExplicit} {
 		f := twoRepositories(t, t.TempDir())
@@ -146,7 +146,7 @@ func TestOnlyTheRemotePolicyFetches(t *testing.T) {
 }
 
 // TestAnUnknownPolicyIsRejected checks that a policy this build does not
-// implement fails rather than resolving something arbitrary.
+// implement fails rather than resolving an arbitrary ref.
 func TestAnUnknownPolicyIsRejected(t *testing.T) {
 	fake := newFakeGit()
 	fake.add("/checkout/api", &fakeRepository{})

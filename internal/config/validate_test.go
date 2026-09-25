@@ -231,9 +231,8 @@ func TestTheTrackerAndTheForgeAreEachOptional(t *testing.T) {
 // TestTheTrackerKindHasADefault checks that a project need not write the one
 // value the field can hold.
 //
-// It is filled in rather than left empty for the reason every other default is:
-// `feat project show` prints what Feat will act on, and a default a user cannot
-// see is one they cannot check.
+// It is filled in rather than left empty for the reason every other default is: `feat
+// project show` prints what Feat will act on, so the user can check it.
 func TestTheTrackerKindHasADefault(t *testing.T) {
 	loaded, err := loadReplacing(t, "  kind: command\n", "")
 	if err != nil {
@@ -433,10 +432,10 @@ func mustFail[T any](_ T, err error) error { return err }
 // TestThePortRangeHasADefault keeps a project that never thought about ports
 // running.
 //
-// The reachable declaration was collected before anything allocated from it, so
-// a project written then names no range — and a range is a decision about this
-// machine's own ports rather than about the project, which is exactly the kind
-// of value that should have a default the user can see.
+// The reachable declaration was collected before anything allocated from it, so a
+// project written then names no range. A range is a decision about this machine's own
+// ports rather than about the project, which is the kind of value that should have a
+// default the user can see.
 func TestThePortRangeHasADefault(t *testing.T) {
 	cfg, err := loadReplacing(t, "", "")
 	if err != nil {
@@ -489,10 +488,9 @@ func TestTheBindAddressDefaultsToThisMachineAlone(t *testing.T) {
 // TestABindAddressThatIsNotAnAddressIsRefused keeps a value Compose would take
 // out of the generated override.
 //
-// It reaches the document as a host_ip and Compose binds it. A name would be
-// resolved by Docker at a moment Feat cannot see, to an address Feat could not
-// then tell the user their service was at — and one resolving to several would
-// not be one binding at all.
+// It reaches the document as a host_ip and Compose binds it. Docker would resolve a
+// name at a moment Feat cannot see, to an address Feat could not then tell the user
+// their service was at, and one resolving to several would not be one binding.
 func TestABindAddressThatIsNotAnAddressIsRefused(t *testing.T) {
 	for name, value := range map[string]string{
 		"a host name":           "localhost",
@@ -518,9 +516,8 @@ func TestABindAddressThatIsNotAnAddressIsRefused(t *testing.T) {
 // who wants it.
 //
 // The default is narrow because nobody chose it, not because the wide answer is
-// wrong: a dev server a phone on the same network should reach is a real case,
-// and the point of the key is that a user can say so. What they may not do is
-// get it without saying so.
+// wrong. A dev server a phone on the same network should reach is a real case, and
+// the key is how a user asks for it.
 func TestAProjectMayAskForEveryInterface(t *testing.T) {
 	cfg, err := loadReplacing(t,
 		`  project_name_template: "feat-{project_id}-{task_id}"`,
@@ -554,11 +551,10 @@ func TestTwoReachableServicesCannotShareAGeneratedVariable(t *testing.T) {
 	}
 }
 
-// TestEveryProblemIsReportedTogether checks that validation collects problems
-// rather than stopping at the first.
-//
-// A configuration file is edited by hand. Finding four mistakes one round trip
-// at a time is four times the work of seeing them together.
+// TestEveryProblemIsReportedTogether checks that validation collects problems rather
+// than stopping at the first. A configuration file is edited by hand, and finding
+// four mistakes one round trip at a time is four times the work of seeing them
+// together.
 func TestEveryProblemIsReportedTogether(t *testing.T) {
 	base := fixture(t, "app.yaml")
 	body := base

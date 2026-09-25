@@ -5,8 +5,7 @@
 // retain volumes, two tasks acting on their own projects — runs in the default
 // `go test ./...` rather than only on a machine with Docker. Those branches
 // decide whether a half-finished lifecycle is recoverable and whether one task
-// can disturb another, which is exactly what should not depend on the tester's
-// machine.
+// can disturb another.
 //
 // It is the application runtime's fake. internal/execution/compose/composetest
 // is the agent environment's, and the two are separate for the same reason the
@@ -84,10 +83,9 @@ func Container(service, id, state, status string) string {
 // particular exit status.
 //
 // The exit status is a field of its own rather than something read out of the
-// status text, and it is what decides whether a stopped service is a failure or
-// an ordinary stop. A fixture that could not express it could not arrange a
-// failed runtime at all, which is how the notification for one came to have no
-// test that reached it.
+// status text, and it decides whether a stopped service is a failure or an
+// ordinary stop. A fixture that could not express it could not arrange a failed
+// runtime at all.
 func ExitedContainer(service, id, state, status string, exitCode int) string {
 	return fmt.Sprintf(
 		`{"ID":%q,"Name":"feat-%s-1","Service":%q,"State":%q,"Status":%q,"Health":"","ExitCode":%d}`,
@@ -187,7 +185,7 @@ func (d *Docker) Run(ctx context.Context, invocation runtime.Invocation) (runtim
 	}
 
 	// Asked again after the hook, because a hook is how a test arranges a
-	// command that takes time: a real Docker that outlasts its context is killed
+	// command that takes time. A real Docker that outlasts its context is killed
 	// and reports that, and a fake that answered anyway would let a command
 	// succeed after the budget it was running under had gone.
 	if err := ctx.Err(); err != nil {

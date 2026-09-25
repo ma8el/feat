@@ -21,9 +21,9 @@ import (
 	"github.com/ma8el/feat/internal/tracker"
 )
 
-// fakeRunner answers diagnostic commands from a script, so that a test can
-// arrange a machine without Git, or a checkout without a remote, without
-// changing the machine it runs on.
+// fakeRunner answers diagnostic commands from a script, so a test can arrange a
+// machine without Git, or a checkout without a remote, without changing the machine
+// it runs on.
 type fakeRunner struct {
 	// missing are executables that are not installed.
 	missing map[string]bool
@@ -555,9 +555,9 @@ func TestUncheckableChecksAreSkippedRatherThanPassed(t *testing.T) {
 	report := w.diagnose(t)
 	findings := w.only(t, report).Findings
 
-	// These need a container, and each says so and says what to do about it.
-	// The Docker capability is among them from this build on: it is the one that
-	// used to be asserted instead of either run or named (F6-08).
+	// These need a container, and each says so and says what to do about it. The
+	// Docker capability is among them, because a claim about it has to be asked of the
+	// container rather than asserted (F6-08).
 	for _, check := range []string{
 		"agent.executable",
 		"agent.execution.user",
@@ -592,7 +592,6 @@ func TestUncheckableChecksAreSkippedRatherThanPassed(t *testing.T) {
 
 }
 
-// rewrite edits the arranged configuration in place.
 // hostMode rewrites the fixture to run its agent on the host, which is the
 // environment this build can actually look inside.
 func hostMode(t *testing.T, w *world) {
@@ -623,9 +622,9 @@ func hostMode(t *testing.T, w *world) {
 // FR-PROJ-004.
 //
 // The requirement is worded around the environment where the agent runs, so a
-// host-mode project is checked on this machine and a devcontainer one is not. What was
-// skipped before must genuinely run here, or the wording would be satisfied by
-// a check that never looks at anything.
+// host-mode project is checked on this machine and a devcontainer one is not. The
+// checks have to genuinely run here, or the wording would be satisfied by a check
+// that looks at nothing.
 func TestHostModeChecksTheEnvironmentTheAgentWillRunIn(t *testing.T) {
 	w := arrange(t)
 	hostMode(t, w)
@@ -655,11 +654,10 @@ func TestHostModeChecksTheEnvironmentTheAgentWillRunIn(t *testing.T) {
 // TestAHostModeProjectIsNotToldItHasAContainerBoundary is F6-06 for
 // `feat doctor`.
 //
-// The capability check used to run for every project and say the same thing to
-// all of them. A host-mode agent is a process of the user the daemon runs as,
-// with `/var/run/docker.sock` and that user's own `docker` on its path, so
-// "no Docker socket and no host Docker CLI reach the agent" was a claim about a
-// boundary the mode line above it says does not exist.
+// A host-mode agent is a process of the user the daemon runs as, with
+// `/var/run/docker.sock` and that user's own `docker` on its path. Saying "no Docker
+// socket and no host Docker CLI reach the agent" would claim a boundary the mode line
+// above it says does not exist.
 func TestAHostModeProjectIsNotToldItHasAContainerBoundary(t *testing.T) {
 	w := arrange(t)
 	hostMode(t, w)
@@ -692,11 +690,11 @@ func TestAHostModeProjectIsNotToldItHasAContainerBoundary(t *testing.T) {
 
 // TestADevcontainerProjectNamesTheHostAgentOverride is the other half of F6-06.
 //
-// FEAT_HOST_AGENT moves a devcontainer project's agent onto the host, and it is
-// read from the daemon's own environment (ADR-032). `feat doctor` runs without a
-// daemon and before one exists (ADR-028), so it cannot know whether the mode it
-// prints is the one in force — and a diagnosis that said nothing about the
-// variable left every claim below the mode line unqualified.
+// FEAT_HOST_AGENT moves a devcontainer project's agent onto the host, and it is read
+// from the daemon's own environment (ADR-032). `feat doctor` runs without a daemon
+// and before one exists (ADR-028), so it cannot know whether the mode it prints is
+// the one in force, and a diagnosis silent about the variable leaves every claim
+// below the mode line unqualified.
 func TestADevcontainerProjectNamesTheHostAgentOverride(t *testing.T) {
 	w := arrange(t)
 	found := finding(t, w.only(t, w.diagnose(t)).Findings, "agent.execution.mode")
@@ -734,11 +732,10 @@ func TestNoProviderCLICheckAsksTheAgentEnvironment(t *testing.T) {
 	}
 }
 
-// TestNoCapabilityFindingRestatesTheConfigurationFile is the absence ADR-080
-// leaves behind. `feat doctor` reported `network` and `git` as passing checks,
-// which read as two more things it had verified: nothing was asked of the
-// machine, because there was nothing either field could gate. Docker is the one
-// that survives, and it survives by being answerable.
+// TestNoCapabilityFindingRestatesTheConfigurationFile is the absence ADR-080 leaves
+// behind. `network` and `git` reported as passing checks read as two more things
+// `feat doctor` had verified, while nothing was asked of the machine, because neither
+// field gated anything. Docker is the one that survives, by being answerable.
 func TestNoCapabilityFindingRestatesTheConfigurationFile(t *testing.T) {
 	w := arrange(t)
 	hostMode(t, w)
@@ -785,6 +782,7 @@ func TestAMissingAgentExecutableFailsDoctor(t *testing.T) {
 	}
 }
 
+// rewrite edits the arranged configuration in place.
 func rewrite(t *testing.T, w *world, old, replacement string) {
 	t.Helper()
 	file := filepath.Join(w.configDir, "app.yaml")
@@ -1475,9 +1473,9 @@ func TestAWayBackToRootInTheContainerIsReportedByDoctor(t *testing.T) {
 // TestTheAgentsIdentityIsMoreThanItsUid pins the question rather than the
 // outcome, as its sibling one check down does.
 //
-// The green answer is the one that had to change: "uid 1000" was reported as the
-// non-root requirement met, and a test that only checked the warning above would
-// pass again on the day the second probe was dropped.
+// Reporting "uid 1000" as the non-root requirement met is the claim this rejects, and
+// a test that only checked the warning above would pass again on the day the second
+// probe was dropped.
 func TestTheAgentsIdentityIsMoreThanItsUid(t *testing.T) {
 	w := arrange(t)
 	w.liveContainer("c0ffee")
@@ -1503,10 +1501,9 @@ func TestTheAgentsIdentityIsMoreThanItsUid(t *testing.T) {
 
 // TestTheDockerCapabilityIsProbedRatherThanAsserted is F6-08.
 //
-// `feat doctor` found a live container, ran three probes inside it, and then
-// reported the Docker capability as a green line without asking that container
-// anything. The finding has to carry evidence or say it has none; this is the
-// evidence half, and the probe has to appear in what was actually run.
+// Reporting the Docker capability as a green line without asking the container
+// anything is the shape this rejects. The finding has to carry evidence or say it has
+// none, so the probe has to appear in what was actually run.
 func TestTheDockerCapabilityIsProbedRatherThanAsserted(t *testing.T) {
 	w := arrange(t)
 	w.liveContainer("c0ffee")
@@ -1601,9 +1598,9 @@ func TestDoctorStartsNoContainer(t *testing.T) {
 	}
 }
 
-// fakeTracker answers with what a project's ticket command is meant to have
-// printed, so that whether a project is configured does not depend on the
-// tester holding an account with somebody's tracker.
+// fakeTracker answers with what a project's ticket command is meant to have printed,
+// so whether a project is configured does not depend on the tester holding an account
+// with somebody's tracker.
 type fakeTracker struct {
 	output  []byte
 	err     error

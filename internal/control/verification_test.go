@@ -14,9 +14,9 @@ import (
 // status, in that order and separated by single spaces, so that the generated
 // helper can read all three without parsing anything.
 //
-// The helper is a POSIX shell script, and a document that needed a JSON parser
-// on that side would put interpretation into a generated script — which is the
-// thing ADR-032 keeps out of them.
+// The helper is a POSIX shell script, and a document that needed a JSON parser on
+// that side would put interpretation into a generated script, which is what
+// ADR-032 keeps out of them.
 func TestAVerdictIsReadableByAShellScript(t *testing.T) {
 	workspace, _ := newWorkspace(t)
 

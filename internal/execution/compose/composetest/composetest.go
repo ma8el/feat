@@ -1,11 +1,10 @@
 // Package composetest supplies a fake Docker for tests.
 //
 // It exists so that the orchestration around a devcontainer — a service that
-// refuses to start, a container that exits at once, a probe that reports root,
-// a mount that should never have been there — runs in the default `go test
-// ./...` rather than only on a machine with Docker. Those branches decide
-// whether a half-finished launch is recoverable, which is exactly what should
-// not depend on the tester's machine.
+// refuses to start, a container that exits at once, a probe that reports root, a
+// mount that should never have been there — runs in the default `go test ./...`
+// rather than only on a machine with Docker. Those branches decide whether a
+// half-finished launch is recoverable.
 //
 // Test support only; no production code imports it.
 package composetest
@@ -81,11 +80,11 @@ func New() *Docker {
 // MaskedPaths and ReadonlyPaths are what a container runtime hides from an
 // ordinary container and what it mounts read-only there.
 //
-// Verbatim from Docker 29.5.2 on 2026-08-22, because their being non-empty is
-// the ordinary answer a rule reads: `security_opt: systempaths=unconfined`
-// appears nowhere else, and the container that has it is the one reporting both
-// of these empty. A fixture that abbreviated them would be a fixture asserting
-// something about a container Docker does not produce.
+// Verbatim from Docker 29.5.2 on 2026-08-22, because their being non-empty is the
+// ordinary answer a rule reads: `security_opt: systempaths=unconfined` appears
+// nowhere else, and the container that has it is the one reporting both of these
+// empty. A fixture that abbreviated them would assert something about a container
+// Docker does not produce.
 var (
 	MaskedPaths = []string{
 		"/proc/acpi", "/proc/asound", "/proc/interrupts", "/proc/kcore", "/proc/keys",
@@ -101,10 +100,9 @@ var (
 // fields a test cares about, over the defaults an ordinary container has.
 //
 // It is written as fields rather than as a JSON string so that a fixture states
-// what the container was granted and nothing else, and it lives here rather than
-// beside one test so that two fixtures arranging different grants cannot
-// disagree about the rest of the record — which is what would decide, silently,
-// whether a rule about the fields nobody set was being exercised at all.
+// what the container was granted and nothing else. It lives here rather than
+// beside one test so that two fixtures arranging different grants cannot disagree
+// about the rest of the record.
 func HostConfiguration(fields map[string]any) string {
 	config := map[string]any{
 		"Privileged": false, "CapAdd": nil, "CapDrop": nil, "PidMode": "",
@@ -122,20 +120,17 @@ func HostConfiguration(fields map[string]any) string {
 // Inspect arranges what `docker inspect` reports for one field of one container.
 //
 // It is a field rather than a format string so that a fixture can state what a
-// container *is* rather than only what the product currently asks about it: a
-// fake keyed to the queries the code already makes can confirm the checks that
-// exist and can never express the hazard living in a field nobody reads, which
-// is how a privileged container stayed invisible to a suite full of mount
-// refusals (G6-17).
+// container is rather than only what the product currently asks about it. A fake
+// keyed to the queries the code already makes can never express the hazard living
+// in a field nobody reads, which is how a privileged container stayed invisible to
+// a suite full of mount refusals (G6-17).
 func (d *Docker) Inspect(container, field, answer string) *Docker {
 	return d.Answer("inspect --type container --format {{json ."+field+"}} "+container, answer)
 }
 
 // Volume arranges what `docker volume inspect` reports about a volume's driver
-// options.
-//
-// The options are what say whether a named volume is storage the runtime owns
-// or a bind wearing a volume's name, and the fixture writes them the way a
+// options. The options are what say whether a named volume is storage the runtime
+// owns or a bind wearing a volume's name, and the fixture writes them the way a
 // project's Compose file does: driver_opts, verbatim.
 func (d *Docker) Volume(name string, options map[string]string) *Docker {
 	// A volume with no options is reported as null rather than as {}, which is

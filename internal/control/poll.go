@@ -16,9 +16,9 @@ import (
 //
 // It carries the entry rather than only a reason because a refusal has to be
 // settled, and settling it needs to know which file it was about. An entry
-// refused and left as it was would be read, refused, and reported again on
-// every poll for the life of the task, which is the opposite of what this
-// package promises: an agent that wrote a bad document is told once.
+// refused and left as it was would be read, refused, and reported again on every
+// poll for the life of the task, where an agent that wrote a bad document should
+// be told once.
 type Rejection struct {
 	// File is the outbox entry that was refused.
 	File string
@@ -67,10 +67,10 @@ func refuse(file, id string, err error) Rejection {
 // and the task carries on. Only a failure to read the directory itself is an
 // error.
 //
-// An entry that has already been settled — applied or refused — is skipped
-// before it is screened or opened. Messages stay in the outbox until cleanup as
-// the account of what the agent sent, so a poll that re-read them would grow
-// without bound in the number of messages a task has ever written, and one that
+// An entry that has already been settled, applied or refused, is skipped before
+// it is screened or opened. Messages stay in the outbox until cleanup as the
+// account of what the agent sent, so a poll that re-read them would grow without
+// bound in the number of messages a task has ever written, and one that
 // re-screened them would keep refusing the same entry four times a second.
 //
 // Ordering is by modification time with the file name as a tiebreak. The
@@ -113,16 +113,14 @@ func (w *Workspace) Pending() ([]Message, []Rejection, error) {
 		name := entry.Name()
 		if w.settled[name] {
 			// Dealt with, once. The entry stays where it is as the account of
-			// what the agent sent — removing it belongs to cleanup — and nothing
+			// what the agent sent, removing it belongs to cleanup, and nothing
 			// screens, opens, or judges it again.
 			//
-			// This comes before checkEntry rather than after it because the
-			// conditions checkEntry refuses are the ones an entry keeps: a
-			// directory named like a message, a link, a name too long, a
-			// document over the limit. Screened first, each of those would be
-			// refused and reported again on every poll for the life of the
-			// task, with the record of the refusal sitting unread one line
-			// below.
+			// This comes before checkEntry because the conditions checkEntry
+			// refuses are the ones an entry keeps: a directory named like a
+			// message, a link, a name too long, a document over the limit.
+			// Screened first, each of those would be refused and reported again
+			// on every poll for the life of the task.
 			continue
 		}
 		skip, err := checkEntry(entry)
@@ -167,10 +165,9 @@ func (w *Workspace) Pending() ([]Message, []Rejection, error) {
 		if w.processed[message.ID] {
 			// Already applied, under this name or another. A replayed identifier
 			// is the case the identifier exists for, so it is skipped in silence
-			// rather than reported — and the entry carrying it is remembered for
-			// as long as this process runs, so that a second copy is not opened
-			// on every poll from now on. It is not recorded on disk: nothing was
-			// applied, and a read is not a reason to write.
+			// rather than reported, and the entry carrying it is remembered for
+			// as long as this process runs. It is not recorded on disk: nothing
+			// was applied, and a read is not a reason to write.
 			w.settled[name] = true
 			continue
 		}
@@ -508,25 +505,22 @@ func completeEnd(file *os.File) (int64, error) {
 // Latest returns the newest message of one type the outbox holds, whether or
 // not it has already been applied.
 //
-// Pending is the delivery path and skips everything it has settled, which is
-// what stops one message being applied twice. This is the other question:
-// messages stay in the outbox as the account of what the agent sent, and a
-// publication composes from the draft the agent wrote at the time it asked for
-// review — which was applied when it arrived and is read again when the user
-// asks to publish. Nothing here is settled, marked, or remembered: it is a
-// read.
+// Pending is the delivery path and skips everything it has settled, which is what
+// stops one message being applied twice. This is the other question: messages stay
+// in the outbox as the account of what the agent sent, and a publication composes
+// from the draft the agent wrote when it asked for review. Nothing here is
+// settled, marked, or remembered.
 //
 // An entry that does not screen, parse, or validate is skipped rather than
-// reported. Delivery has already judged every one of them once and told the
-// agent; a second judgement made while composing a publication would refuse the
+// reported. Delivery has already judged each of them once and told the agent, and
+// a second judgement made while composing a publication would refuse the
 // publication for a message that has nothing to do with it.
 //
 // The entries are ordered from the listing and then opened one at a time until
 // one answers, rather than all opened to find out which was newest. What that
 // costs is what an outbox holds: every message the task has ever sent, none of
-// them removed before cleanup, each up to MaxMessageBytes — and a publication
-// asks this twice, once to compose the plan and once to check what came back,
-// with the task's lock held both times.
+// them removed before cleanup, each up to MaxMessageBytes, and a publication asks
+// this twice with the task's lock held both times.
 func (w *Workspace) Latest(kind MessageType) (Message, bool, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

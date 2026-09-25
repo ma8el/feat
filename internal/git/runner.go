@@ -13,22 +13,15 @@ import (
 // Executable is the program this package drives. It is never a shell.
 const Executable = "git"
 
-// commandTimeout bounds one Git command.
-//
-// A fetch over a slow network is the only command here that legitimately takes
-// long, so the bound is generous rather than tight. What it prevents is a
-// command that will never answer — a credential prompt on a terminal nobody is
-// watching, or a remote that accepted the connection and then stopped talking —
-// from holding a task launch open forever.
+// commandTimeout bounds one Git command. A fetch over a slow network is the
+// only command here that legitimately takes long, so the bound is generous. It
+// stops a credential prompt or a silent remote from holding a launch open.
 const commandTimeout = 2 * time.Minute
 
-// Runner runs Git.
-//
-// It is an interface so that planning, applying, and observing can be tested
-// against the exact argument vectors they produce, and against failures that are
-// difficult to arrange with a real repository. The opt-in tests use HostRunner
-// against real repositories, because a fake runner can only confirm the
-// assumptions its author already had.
+// Runner runs Git. It is an interface so planning, applying, and observing can
+// be tested against the exact argument vectors they produce, and against
+// failures that are hard to arrange with a real repository. The opt-in tests
+// use HostRunner against real repositories.
 type Runner interface {
 	// Run executes one Git command in dir and returns its standard output with
 	// surrounding whitespace removed. A command that ran and failed returns an
@@ -36,19 +29,15 @@ type Runner interface {
 	Run(ctx context.Context, dir string, args ...string) (string, error)
 	// RunWith is Run with extra environment entries, as KEY=VALUE.
 	//
-	// It exists because two of this package's operations have to be run under
-	// settings rather than under flags: a task session's Git runs with autostash
-	// turned off, and a host-side push runs with hooks, the pager, and an
-	// external diff driver turned off. Both are expressed in Git's own
-	// GIT_CONFIG_COUNT form, because the alternative is writing them into the
-	// user's configuration file — which a linked worktree shares with the user's
-	// own checkout, so a value set to protect one task would outlive it
+	// Two operations here run under settings rather than flags: a task session's
+	// Git runs with autostash off, and a host-side push runs with hooks, the
+	// pager, and an external diff driver off. Both use Git's GIT_CONFIG_COUNT
+	// form, because a value written to the configuration file would outlive the
+	// task — a linked worktree shares that file with the user's own checkout
 	// (environment.go, ADR-056, ADR-070).
 	//
-	// It is on the interface rather than optional so that a runner which cannot
-	// carry them cannot be handed a command that needs them. A push that
-	// silently ran with the settings it was meant to run without is exactly the
-	// failure the settings exist to prevent.
+	// It is on the interface rather than optional, so a runner that cannot carry
+	// the settings cannot be handed a command that needs them.
 	RunWith(ctx context.Context, dir string, env []string, args ...string) (string, error)
 }
 
@@ -58,13 +47,10 @@ type HostRunner struct {
 	Timeout time.Duration
 }
 
-// Run executes one Git command as an argument vector.
-//
-// The process inherits the user's environment, so credential helpers, SSH
-// agents, and Git configuration keep working, with one addition:
-// GIT_TERMINAL_PROMPT=0 turns an interactive credential prompt into a failure.
-// Feat runs Git with no terminal attached, so a prompt would otherwise hang
-// until the timeout and report nothing useful about why.
+// Run executes one Git command as an argument vector. The process inherits the
+// user's environment, so credential helpers, SSH agents, and Git configuration
+// keep working. GIT_TERMINAL_PROMPT=0 turns a credential prompt into a failure,
+// because Feat runs Git with no terminal attached and a prompt would hang.
 func (r HostRunner) Run(ctx context.Context, dir string, args ...string) (string, error) {
 	return r.RunWith(ctx, dir, nil, args...)
 }
@@ -106,12 +92,9 @@ func (r HostRunner) RunWith(ctx context.Context, dir string, env []string, args 
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// ExitError reports a Git command that ran and failed.
-//
-// The exit code is part of the error because Git uses it to answer questions
-// rather than to report trouble: `merge-base --is-ancestor` exits 1 for "no",
-// and `rev-parse --verify --quiet` exits 1 for "no such ref". A caller that
-// cannot tell those from a real failure would have to parse messages.
+// ExitError reports a Git command that ran and failed. The exit code is part of
+// the error because Git uses it to answer questions: `merge-base --is-ancestor`
+// exits 1 for "no", and `rev-parse --verify --quiet` exits 1 for "no such ref".
 type ExitError struct {
 	// Args is the argument vector, without the program name.
 	Args []string
@@ -159,10 +142,9 @@ func exitCode(err error) (int, bool) {
 	return 0, false
 }
 
-// firstLine returns the first non-empty line of a command's error output.
-//
-// Git's first line says what went wrong; the rest is usually advice addressed to
-// a person at a terminal, and Feat has its own advice to give.
+// firstLine returns the first non-empty line of a command's error output. Git's
+// first line says what went wrong; the rest is advice addressed to a person at
+// a terminal, which Feat does not relay.
 func firstLine(output string) string {
 	for _, line := range strings.Split(output, "\n") {
 		if trimmed := strings.TrimSpace(line); trimmed != "" {

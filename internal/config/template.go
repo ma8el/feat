@@ -7,12 +7,9 @@ import (
 	"strings"
 )
 
-// Placeholders a template may contain.
-//
-// The vocabulary is closed. An unknown placeholder is rejected rather than left
-// in place, because a name Feat does not expand survives into a branch name, a
-// path, or a command argument, and the failure then happens somewhere with no
-// idea what "{repo}" was meant to be.
+// Placeholders a template may contain. The vocabulary is closed, and an unknown
+// placeholder is rejected rather than left in place, because a name Feat does not
+// expand survives into a branch name, a path, or a command argument.
 const (
 	// PlaceholderProjectID is the project identifier.
 	PlaceholderProjectID = "project_id"
@@ -68,12 +65,10 @@ var (
 	taskScopedPlaceholders = []string{PlaceholderTaskID, PlaceholderTaskKey}
 )
 
-// Values are the values Feat substitutes for the placeholders of a template.
-//
-// A field left empty is a value this expansion does not have. Using a
-// placeholder whose value is empty is an error rather than a silent gap,
-// because an empty expansion is how two tasks end up sharing one branch or one
-// directory.
+// Values are the values Feat substitutes for the placeholders of a template. A field
+// left empty is a value this expansion does not have, and using a placeholder whose
+// value is empty is an error rather than a silent gap, because an empty expansion is
+// how two tasks end up sharing one branch or one directory.
 type Values struct {
 	// ProjectID is the project identifier.
 	ProjectID string
@@ -117,16 +112,12 @@ func (v Values) value(name string) (string, bool) {
 	}
 }
 
-// Expand fills a template's placeholders.
+// Expand fills a template's placeholders. The vocabulary is the same closed one
+// validation checks, and it is checked again here, so a disagreement between the two
+// fails rather than producing a name containing a literal "{repo}".
 //
-// The vocabulary is the same closed one validation checks, and it is checked
-// again here: a template reaches this function from a configuration that was
-// validated, and the day the two disagree, expansion should fail rather than
-// produce a name containing a literal "{repo}".
-//
-// Expansion is not recursive. A value that happens to contain braces is
-// substituted once and never looked at again, so no expanded value can
-// introduce a placeholder.
+// Expansion is not recursive. A value that happens to contain braces is substituted
+// once and never looked at again, so no expanded value can introduce a placeholder.
 func Expand(template string, values Values) (string, error) {
 	// A stray brace is a mistyped placeholder, and it is checked against the
 	// template rather than against the result: a substituted value may contain
@@ -160,11 +151,10 @@ func Expand(template string, values Values) (string, error) {
 	return expanded, nil
 }
 
-// Uses reports whether a template contains one particular placeholder.
-//
-// The worktree root is the caller: a root that already names the repository
-// expands to one directory per repository, and a root that does not needs the
-// repository appended, or every repository of a task would share one worktree.
+// Uses reports whether a template contains one particular placeholder. The worktree
+// root is the caller: a root that already names the repository expands to one
+// directory per repository, and a root that does not needs the repository appended,
+// or every repository of a task would share one worktree.
 func Uses(template, placeholder string) bool {
 	return contains(placeholders(template), placeholder)
 }
@@ -178,14 +168,13 @@ const slugSeparator = "-"
 // whole paragraph pasted into one.
 const slugLimit = 40
 
-// Slug derives a short, safe slug from a task title.
+// Slug derives a short, safe slug from a task title. Everything outside the lowercase
+// ASCII alphanumerics becomes a separator, runs of separators collapse, and the
+// result is cut to slugLimit at a separator where possible.
 //
-// Everything outside the lowercase ASCII alphanumerics becomes a separator,
-// runs of separators collapse, and the result is cut to slugLimit at a
-// separator where possible. A title with nothing to keep — one written entirely
-// in a non-Latin script, for instance — produces "task", because the branch
-// template still has to expand to something, and the task key beside it is what
-// makes the name unique.
+// A title with nothing to keep, such as one written entirely in a non-Latin script,
+// produces "task". The branch template still has to expand to something, and the task
+// key beside it is what makes the name unique.
 func Slug(title string) string {
 	var b strings.Builder
 	b.Grow(len(title))
@@ -227,12 +216,10 @@ func allPlaceholders() []string {
 	}
 }
 
-// probe supplies representative values for checking what a template produces.
-//
-// Every value Feat substitutes is an identifier it has already validated, so
-// the only text a template can contribute that is not safe is its own literal
-// part. Expanding with safe values and checking the result therefore tests
-// exactly what the user wrote.
+// probe supplies representative values for checking what a template produces. Every
+// value Feat substitutes is an identifier it has already validated, so expanding with
+// safe values and checking the result tests the template's own literal part, which is
+// what the user wrote.
 type probe struct {
 	projectID    string
 	repositoryID string
@@ -410,8 +397,8 @@ func list(values []string) string {
 	}
 }
 
-// words renders accepted plain values for an error message, so that a
-// rejection always says what would have been accepted instead.
+// words renders accepted plain values for an error message, so a rejection always
+// says what would have been accepted instead.
 func words(values []string) string {
 	quoted := make([]string, len(values))
 	for i, value := range values {

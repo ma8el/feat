@@ -12,24 +12,21 @@ import (
 )
 
 // composeProjectLabel is the label Docker Compose puts on every resource it
-// creates for a project.
-//
-// Feat asks Docker for the networks and volumes carrying this task's project
-// name rather than rendering the Compose configuration, because
-// `docker compose config` resolves the project including the values of its
-// environment files, and those must never be read (ADR-028, ADR-034).
+// creates for a project. Feat asks Docker for the networks and volumes carrying
+// this task's project name rather than rendering the Compose configuration,
+// because `docker compose config` resolves the project including the values of
+// its environment files (ADR-028, ADR-034).
 const composeProjectLabel = "com.docker.compose.project"
 
 // Observe reports what the runtime looks like now.
 //
-// It starts nothing. A stopped service is reported as stopped and stays stopped,
+// It starts nothing: a stopped service is reported as stopped and stays stopped,
 // which is what FR-STATE-004 requires of every observation Feat makes.
 //
-// It asks about the whole Compose project rather than about the managed
-// services. Everything in the project is there because Feat acted, and a
-// container Feat started and never shows is one nobody can act on: the state
-// said stopped while a database of that task was up and holding its port
-// (ADR-034 evidence 12).
+// It asks about the whole Compose project rather than about the managed services.
+// Everything in the project is there because Feat acted, and a container Feat
+// started and never shows is one nobody can act on: the state said stopped while
+// a database of that task was up and holding its port (ADR-034 evidence 12).
 func (r *Runtime) Observe(ctx context.Context) (runtime.State, error) {
 	output, err := r.runner.Run(ctx, r.invoke("ps", "--all", "--format", "json"))
 	if err != nil {
@@ -68,22 +65,20 @@ func (r *Runtime) Observe(ctx context.Context) (runtime.State, error) {
 // Volumes lists the named volumes Compose labelled with this task's project.
 //
 // It is separate from Observe because Observe stops asking once nothing is
-// present, and a cleanup needs the volumes precisely then: the containers are
-// the thing a user removes first, and the volumes they left behind are the next
+// present, and a cleanup needs the volumes precisely then: the containers are the
+// thing a user removes first, and the volumes they left behind are the next
 // question. A volume the project declares external carries another project's
-// label, or none, so it cannot appear here — which makes the external-resource
-// rule a property of the enumeration rather than a filter to remember
-// (FR-RUN-008, ADR-037).
+// label, or none, so it cannot appear here, and the external-resource rule holds
+// by construction rather than by a filter somebody remembers (FR-RUN-008,
+// ADR-037).
 func (r *Runtime) Volumes(ctx context.Context) ([]string, error) {
 	return r.resources(ctx, "volume")
 }
 
-// RemoveVolumes removes the named volumes, one at a time, and reports which
-// were removed.
-//
-// By name rather than through `docker compose down --volumes`, which is all or
-// nothing and would remove a volume the plan never named. A volume that is
-// already gone is not an error; one that is still in use is reported with
+// RemoveVolumes removes the named volumes, one at a time, and reports which were
+// removed. By name rather than through `docker compose down --volumes`, which is
+// all or nothing and would remove a volume the plan never named. A volume that is
+// already gone is not an error, and one that is still in use is reported with
 // Docker's own reason rather than forced.
 func (r *Runtime) RemoveVolumes(ctx context.Context, names []string) ([]string, error) {
 	var removed []string
@@ -151,11 +146,11 @@ type container struct {
 
 // publisher is one published port of one container.
 //
-// URL is Compose's name for the host address the port is bound on, and it is
-// read because it is the one observation that can contradict the allocation Feat
-// recorded: a task whose record says it is reached on this machine alone, whose
-// containers answer on every interface, is a disagreement nothing could see
-// while this field was dropped (G4-18).
+// URL is Compose's name for the host address the port is bound on. It is read
+// because it is the one observation that can contradict the allocation Feat
+// recorded: a task whose record says it is reached on this machine alone, and
+// whose containers answer on every interface, is a disagreement nothing else
+// would see (G4-18).
 type publisher struct {
 	URL           string `json:"URL"`
 	TargetPort    int    `json:"TargetPort"`
@@ -163,12 +158,10 @@ type publisher struct {
 	Protocol      string `json:"Protocol"`
 }
 
-// parseContainers reads what Compose printed.
-//
-// Compose has printed both a JSON array and newline-delimited objects across its
-// versions, so both are accepted rather than one being assumed. Guessing wrong
-// would report every task's services as absent, and Feat would then tell a user
-// their running application had stopped.
+// parseContainers reads what Compose printed. Compose has printed both a JSON
+// array and newline-delimited objects across its versions, so both are accepted.
+// Guessing wrong would report every task's services as absent, and Feat would
+// then tell a user their running application had stopped.
 func parseContainers(output string) ([]container, error) {
 	trimmed := strings.TrimSpace(output)
 	if trimmed == "" {
@@ -201,23 +194,22 @@ func parseContainers(output string) ([]container, error) {
 // aggregate turns the observed containers into one runtime state.
 //
 // The mapping is a table rather than a chain of conditions, in the shape ADR-026
-// used for the workflow transitions and ADR-032 for agent events: what a runtime
-// state means is a product decision, and a product decision should be readable
-// as itself rather than reconstructed from the order of a few if statements.
+// used for the workflow transitions and ADR-032 for agent events. What a runtime
+// state means is a product decision, and it should be readable as itself rather
+// than reconstructed from the order of a few if statements.
 //
 // The managed services come first, in configured order, so a service that has no
-// container at all is reported as such rather than omitted — a runtime missing
+// container at all is reported as such rather than omitted: a runtime missing
 // half its services is not a runtime that is running. Everything else Compose
-// started to satisfy them follows, sorted, marked as unmanaged, and reported
-// with the same detail: it belongs to this task and this task alone.
+// started to satisfy them follows, sorted, marked as unmanaged, and reported with
+// the same detail, because it belongs to this task alone.
 //
 // An unmanaged service counts towards the aggregate state unless it exited
 // cleanly. A one-shot migration that has done its job is the ordinary path of
 // every project that uses service_completed_successfully, and a runtime that
 // called itself degraded every time one succeeded would be a state people learn
-// to ignore — the same reason stoppedByASignal exists. A dependency that is up,
-// restarting, or failed is another matter: the application is partly there, or
-// broken, and neither is something to leave to the table below.
+// to ignore. A dependency that is up, restarting, or failed is another matter:
+// the application is partly there, or broken.
 func aggregate(managed []string, containers []container) runtime.State {
 	observed := make(map[string]container, len(containers))
 	for _, one := range containers {
@@ -300,14 +292,13 @@ func unmanaged(managed []string, containers []container) []string {
 // published are the host publications of one container, without the repeats.
 //
 // Docker publishes a port on IPv4 and on IPv6 and reports each binding
-// separately, so the same port arrives twice and was printed twice.
+// separately, so the same port arrives twice.
 //
-// The repeat is decided by the port rather than by the whole binding, because
-// the two entries of that pair differ only in their address — "0.0.0.0" and
-// "::" — and they are one port a user reaches. Every publication Feat writes
-// carries one host address, so the first binding's is that address; the second
-// is its counterpart in the other family rather than a second place the service
-// answers.
+// The repeat is decided by the port rather than by the whole binding, because the
+// two entries of that pair differ only in their address — "0.0.0.0" and "::" —
+// and they are one port a user reaches. Every publication Feat writes carries one
+// host address, so the first binding's is that address and the second is its
+// counterpart in the other family.
 func published(service string, one container) []domain.PortAssignment {
 	var ports []domain.PortAssignment
 	seen := make(map[[2]int]bool, len(one.Publisher))
@@ -400,8 +391,8 @@ func (t *tally) add(one container, health domain.HealthState) {
 // The order of the cases is the table, and each row says what a user is looking
 // at:
 //
-//   - anything unhealthy, or up beside something that is not, is degraded: the
-//     application is partly there, which is neither running nor stopped;
+//   - anything unhealthy, or up beside something that is not, is degraded,
+//     because the application is partly there;
 //   - a container that exited non-zero is a failure, and one that exited cleanly
 //     or was never started is stopped. Feat never restarts either;
 //   - health is separate from all of it, and without a health check the honest
@@ -441,13 +432,11 @@ func (t tally) resolve() (domain.RuntimeState, domain.HealthState) {
 // stoppedByASignal reports whether an exit status is how a container ends when
 // somebody stops it.
 //
-// This distinction was found by running the real thing rather than by reasoning
-// about it. `docker compose stop` sends SIGTERM and kills the container when it
-// does not exit, and a process running as PID 1 has no default signal handlers —
-// so an ordinary `sleep infinity` service exits 137, and the obvious rule
-// "non-zero means failed" reports every stop the user asked for as a failure.
-// That is worse than saying nothing: a state that cries wolf on the ordinary
-// path is a state people learn to ignore.
+// `docker compose stop` sends SIGTERM and kills the container when it does not
+// exit, and a process running as PID 1 has no default signal handlers. An
+// ordinary `sleep infinity` service therefore exits 137, and the rule "non-zero
+// means failed" would report every stop the user asked for as a failure
+// (ADR-034 evidence 9).
 //
 // The shell's convention is 128 plus the signal number, and the three that end a
 // container on purpose are SIGINT, SIGKILL, and SIGTERM. Anything else non-zero
@@ -462,11 +451,10 @@ func stoppedByASignal(code int) bool {
 	}
 }
 
-// healthOf maps Compose's health onto the domain's.
-//
-// A service with no health check reports nothing, which is unknown rather than
-// healthy: docs/02-user-workflows.md requires a container without a health check
-// to be shown as running with health unknown.
+// healthOf maps Compose's health onto the domain's. A service with no health
+// check reports nothing, which is unknown rather than healthy:
+// docs/02-user-workflows.md requires a container without a health check to be
+// shown as running with health unknown.
 func healthOf(c container) domain.HealthState {
 	switch strings.ToLower(c.Health) {
 	case "healthy":

@@ -40,13 +40,10 @@ runtime:
     - api
 `
 
-// TestThePreviousShapeIsRefusedByName covers the rule the rename came with.
-//
-// There is no version bump and no compatibility period: Feat is used by its
-// author and nobody else. The break is still a break the user should not have to
-// diagnose, and strict decoding would report each of these as an unknown key —
-// which is what it says about a typo, so a user reading it goes looking for a
-// spelling mistake in a field they spelled correctly.
+// TestThePreviousShapeIsRefusedByName covers the rule the rename came with. There is
+// no version bump and no compatibility period, because Feat is used by its author and
+// nobody else. Strict decoding would report each of these as an unknown key and send
+// the user looking for a spelling mistake in a field they spelled correctly.
 func TestThePreviousShapeIsRefusedByName(t *testing.T) {
 	dir := write(t, "app.yaml", previousShape)
 	opts, _ := testOptions(t, nil)

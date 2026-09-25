@@ -19,14 +19,12 @@ import (
 // the name is enough to ask what exists and enough to remove it.
 //
 // That is what makes it the answer for a launch that failed after its container
-// existed. Such a task records no environment — the session that would have
-// carried it is never created — and the Compose file that would have to be read
-// may be the very thing that was edited, since a change to it is what makes a
-// launch slow enough to be interrupted in the first place. A name derived from
-// the two identifiers survives both (ADR-033).
+// existed. Such a task records no environment, because the session that would
+// have carried it is never created, and the Compose file that would have to be
+// read may be the very thing that was edited. A name derived from the two
+// identifiers survives both (ADR-033).
 //
-// It observes and removes; it never creates. A container this can find is one
-// something else already made.
+// It observes and removes; it never creates.
 type Project struct {
 	runner    Runner
 	docker    string
@@ -40,15 +38,13 @@ type Project struct {
 // volume name: it becomes an argument to Docker, and a value that could be read
 // as a flag is not one Feat passes on.
 //
-// The directory is required, and required to be absolute, because Compose has
-// one when it is not given one: an invocation with no --project-directory and no
+// The directory is required, and required to be absolute, because Compose has one
+// when it is not given one. An invocation with no --project-directory and no
 // working directory runs in whatever directory the daemon inherited from the
 // shell that started it, and Compose discovers its files by walking up from
-// there. A daemon started from an application repository — the repository that
-// by construction holds the Compose files — would then be asking about this
-// project through that repository's compose.yaml. What this type acts on must
-// not depend on where `feat daemon start` was typed, so the caller names a
-// directory Feat owns and every invocation below carries it.
+// there. A daemon started from an application repository would then be asking
+// about this project through that repository's compose.yaml, so the caller names
+// a directory Feat owns and every invocation below carries it.
 func ByName(identity, directory string, opts Options) (*Project, error) {
 	name := strings.TrimSpace(identity)
 	if name == "" || strings.HasPrefix(name, "-") {
@@ -73,12 +69,11 @@ func ByName(identity, directory string, opts Options) (*Project, error) {
 // invoke builds one command of this project, run from the directory the caller
 // named.
 //
-// Compose invocations also carry it as --project-directory, which is what the
-// flag means: the directory a project's relative paths resolve against. This
-// project has no files and therefore no relative paths, so what the flag buys
-// here is the negative — Compose does not go looking for a directory of its own,
-// and no file it discovers can become the model for a project Feat addresses by
-// name alone.
+// Compose invocations also carry it as --project-directory, which is the
+// directory a project's relative paths resolve against. This project has no files
+// and therefore no relative paths, so what the flag buys here is the negative:
+// Compose does not go looking for a directory of its own, and no file it
+// discovers can become the model for a project Feat addresses by name alone.
 func (p *Project) invoke(arguments ...string) execution.Invocation {
 	return execution.Invocation{
 		Program:   p.docker,
@@ -123,8 +118,7 @@ type Remaining struct {
 	Status string
 	// State is the state Docker names, such as `running` or `exited`. It is
 	// Docker's own word rather than a flag of Feat's, for the reason Status is
-	// kept verbatim: what the container runtime called something is what a
-	// diagnostic should quote.
+	// kept verbatim: a diagnostic should quote what the container runtime said.
 	//
 	// Status is prose meant for a person and State is one of a fixed set, which
 	// is why a rule reads this one. It is empty for a network, and empty for a
@@ -134,15 +128,14 @@ type Remaining struct {
 
 // Stopped reports whether Docker says the container's process has ended.
 //
-// Only `exited` and `dead` say so. Everything else — running, paused,
-// restarting, created, removing, and a state Compose did not report at all —
-// counts as not stopped, because this answer decides whether a directory a
-// container mounts may be removed (ADR-059): a state nothing established must
-// come out the way an unanswerable question does, which is the careful one.
+// Only `exited` and `dead` say so. Everything else — running, paused, restarting,
+// created, removing, and a state Compose did not report at all — counts as not
+// stopped, because this answer decides whether a directory a container mounts may
+// be removed (ADR-059).
 //
 // `created` is in the careful half deliberately. A container that was never
 // started is unlikely to hold anything, and nothing has measured that, so it is
-// not the place to spend the evidence ADR-059's rule was written from.
+// not where ADR-059's evidence is spent.
 func (r Remaining) Stopped() bool {
 	switch strings.ToLower(strings.TrimSpace(r.State)) {
 	case "exited", "dead":
@@ -171,12 +164,12 @@ func (r Remains) Containers() Remains {
 
 // Live returns the containers that have not stopped.
 //
-// It is what the control-workspace ordering rule reads, and the distinction is
-// the whole of it: ADR-059's evidence is that removing the tree failed while the
-// container was up and succeeded once it had died, so a project reduced to
-// exited containers is one whose mounts are released. Reporting those as holding
-// the workspace refuses a cleanup in exactly the state the removal works in —
-// which is what `feat task stop` overnight leaves behind (ADR-057).
+// It is what the control-workspace ordering rule reads. ADR-059's evidence is
+// that removing the tree failed while the container was up and succeeded once it
+// had died, so a project reduced to exited containers is one whose mounts are
+// released. Reporting those as holding the workspace would refuse a cleanup in
+// exactly the state the removal works in, which is what `feat task stop`
+// overnight leaves behind (ADR-057).
 func (r Remains) Live() Remains {
 	var found Remains
 	for _, entry := range r.Containers() {
@@ -211,9 +204,7 @@ func (r Remains) Describe() string {
 //
 // Neither question reads a Compose file. `ps` given a project name and no file
 // answers from what Docker holds, which is the only source that can still be
-// right about a project whose file has changed since (ADR-028's rule that Feat
-// never renders a project's own configuration applies here as a consequence
-// rather than as a precaution).
+// right about a project whose file has changed since (ADR-028).
 func (p *Project) Remains(ctx context.Context) (Remains, error) {
 	found, err := p.containers(ctx)
 	if err != nil {
@@ -254,10 +245,10 @@ func (p *Project) containers(ctx context.Context) (Remains, error) {
 
 // networks asks Docker which networks carry the project name.
 //
-// By Compose's own label, as listVolumes does. A network Compose created for
-// this project is labelled with it; a network the user attached the service to
-// carries their own project's label or none, and is therefore not something this
-// can name or remove.
+// By Compose's own label, as listVolumes does. A network Compose created for this
+// project is labelled with it, and a network the user attached the service to
+// carries their own project's label or none, so this can neither name nor remove
+// it.
 func (p *Project) networks(ctx context.Context) (Remains, error) {
 	output, err := p.runner.Run(ctx, p.invoke(
 		"network", "ls",
@@ -290,9 +281,7 @@ func (p *Project) networks(ctx context.Context) (Remains, error) {
 // own containers are untouched by construction.
 //
 // A project with nothing left is not an error. Compose says so and exits zero,
-// which is the same answer removeVolumes gives a volume that has already gone: a
-// removal of something absent is a success, because what the user asked for is
-// true.
+// which is the answer removeVolumes gives a volume that has already gone.
 func (p *Project) Destroy(ctx context.Context) error {
 	output, err := p.runner.Run(ctx, p.compose("down"))
 	if err != nil {

@@ -9,16 +9,15 @@ import (
 // The completion gate's verdict, as the agent's side of the protocol sees it.
 //
 // It is the first thing written into the inbox, which ADR-032 defined as
-// host-written and agent-read and left without a writer until there was
-// something to say. What it says is what a gate decided about a review request
-// the agent made.
+// host-written and agent-read. What it says is what a gate decided about a review
+// request the agent made.
 //
-// It is a line-oriented document rather than JSON, and that is deliberate: the
-// only thing that reads it is the generated helper, which is a POSIX shell
-// script, and ADR-032's reason for keeping parsing out of generated scripts
-// applies to reading exactly as it does to writing. The first line carries the
-// format name, the schema version, and the status, so a reader can tell all
-// three with one `read` and refuse a document from a version it does not know.
+// It is a line-oriented document rather than JSON, because the only thing that
+// reads it is the generated helper, which is a POSIX shell script: ADR-032's
+// reason for keeping parsing out of generated scripts applies to reading as it
+// does to writing. The first line carries the format name, the schema version,
+// and the status, so a reader can tell all three with one `read` and refuse a
+// document from a version it does not know.
 const (
 	// verificationFormat names the document, so that a file that is not one is
 	// recognised rather than half-read.
@@ -59,19 +58,16 @@ type Verification struct {
 	// Status is one of the statuses above.
 	Status string
 	// Report is what to tell the agent: which checks failed and what they
-	// printed, or a line saying the work is with the user now.
-	//
-	// It is the agent's own environment's output being handed back to the agent
-	// that produced the work, which is why there is nothing to redact here that
-	// was not already in front of it.
+	// printed, or a line saying the work is with the user now. It is the agent's
+	// own environment's output handed back to the agent that produced the work,
+	// so there is nothing to redact that was not already in front of it.
 	Report string
 }
 
-// VerificationName is the inbox file carrying the verdict of one request.
-//
-// It is named after the request rather than being a single well-known file,
-// because a task asks for review more than once and an answer to a previous
-// request must never be read as the answer to this one.
+// VerificationName is the inbox file carrying the verdict of one request. It is
+// named after the request rather than being a single well-known file, because a
+// task asks for review more than once and an answer to a previous request must
+// never be read as the answer to this one.
 func VerificationName(request string) (string, error) {
 	if !safeName(request) {
 		return "", fmt.Errorf("%q is not a plain message identifier", request)
@@ -82,9 +78,7 @@ func VerificationName(request string) (string, error) {
 	return verificationPrefix + request + verificationSuffix, nil
 }
 
-// WriteVerification records a gate's answer where the waiting agent will find
-// it.
-//
+// WriteVerification records a gate's answer where the waiting agent will find it.
 // The write is atomic, as every write in this package is: the helper polls for
 // this file, and a partial document would be read as a verdict.
 func (w *Workspace) WriteVerification(request string, verification Verification) error {

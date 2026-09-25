@@ -43,8 +43,8 @@ func (t *Tmux) Socket() string { return t.socket }
 //
 // The size is the one a new window is given before its program starts, and is
 // the caller's best account of the region the terminal will be drawn into. It
-// is ignored when a terminal already exists: that window has a size, and a
-// program is running in it that would be told to reflow for no reason.
+// is ignored when a terminal already exists, because that window has a size and
+// a program running in it that would be told to reflow for no reason.
 func (t *Tmux) EnsureTask(
 	ctx context.Context, project domain.ProjectID, task domain.TaskID, command CommandSpec, size Size,
 ) (Terminal, error) {
@@ -68,9 +68,9 @@ func (t *Tmux) EnsureTask(
 	if existing, ok := found.Terminal(project, task); ok {
 		return existing, nil
 	}
-	// A task whose terminal was quarantined must not be given a second one: the
-	// first still exists, and creating another would make the ambiguity
-	// permanent. The damage is what the caller is told about.
+	// A task whose terminal was quarantined must not be given a second one. The
+	// first still exists, and creating another would make the ambiguity permanent,
+	// so the damage is what the caller is told about.
 	if damage := found.DamageFor(project, task); len(damage) > 0 {
 		return Terminal{}, fmt.Errorf("task %s already has a tmux terminal that Feat cannot use: %s",
 			task, damage[0].Reason)
@@ -91,9 +91,9 @@ func (t *Tmux) EnsureTask(
 		return Terminal{}, err
 	}
 
-	// Once all three scopes are tagged, a storage failure must leave the
-	// terminal in place: discovery can recover it, while rollback could destroy
-	// work already entered in the pane (ADR-030).
+	// Once all three scopes are tagged, a storage failure leaves the terminal in
+	// place. Discovery can recover it, where a rollback could destroy work already
+	// entered in the pane (ADR-030).
 	found, err = t.discover(ctx)
 	if err != nil {
 		return Terminal{}, fmt.Errorf("task terminal %s was created and tagged at %s/%s/%s but could not be rediscovered: %w",
@@ -107,9 +107,8 @@ func (t *Tmux) EnsureTask(
 	return terminal, nil
 }
 
-// describeDamage appends the reason a just-created terminal was quarantined,
-// so a creation that succeeded and then vanished says why rather than only
-// that it did.
+// describeDamage appends the reason a just-created terminal was quarantined, so
+// a creation that succeeded and then vanished says why.
 func describeDamage(damage []Damaged) string {
 	if len(damage) == 0 {
 		return ""
@@ -119,7 +118,7 @@ func describeDamage(damage []Damaged) string {
 
 // EnsureShell creates the one on-demand shell pane for a task, or returns the
 // existing tagged pane. The caller supplies the execution-environment command
-// and primary workspace; tmux does not construct either one.
+// and primary workspace, and tmux constructs neither.
 func (t *Tmux) EnsureShell(ctx context.Context, project domain.ProjectID, task domain.TaskID, command CommandSpec) (Terminal, error) {
 	if err := project.Validate(); err != nil {
 		return Terminal{}, err
@@ -147,10 +146,10 @@ func (t *Tmux) EnsureShell(ctx context.Context, project domain.ProjectID, task d
 		return terminal, nil
 	}
 
-	// -h puts the shell beside the agent rather than below it, which is tmux's
-	// default and was never a choice Feat made. Both panes hold wrapped text a
-	// user reads, and halving the height of the agent's transcript costs more
-	// than halving its width (ADR-041).
+	// -h puts the shell beside the agent rather than below it, which is where
+	// tmux's own default would put it. Both panes hold wrapped text a user reads,
+	// and halving the height of the agent's transcript costs more than halving its
+	// width (ADR-041).
 	output, err := t.runner.Run(ctx, t.socket, "split-window", "-h", "-d", "-P", "-F", createFormat,
 		"-t", terminal.Target.Pane, "-c", command.Directory)
 	if err != nil {
@@ -189,16 +188,14 @@ func (t *Tmux) EnsureShell(ctx context.Context, project domain.ProjectID, task d
 
 // Restart replaces the program running in a task's agent pane.
 //
-// It is what a resume needs and what EnsureTask deliberately does not do:
+// It is what a resume needs and what EnsureTask deliberately does not do.
 // EnsureTask returns an existing terminal untouched, because repeating a launch
-// must not restart an agent that is already working. A resume is the one case
-// where the caller means to replace the process, and it means it because a user
-// asked.
+// must not restart an agent that is already working, and a resume replaces the
+// process because a user asked for it.
 //
-// The pane is kept whatever happens. Unlike a pane created moments ago, this one
-// may hold scrollback the user wants — the output of the session that died is
-// often the only account of why — so a failure to start the new program leaves
-// the terminal in place rather than removing it (ADR-030's retention rule).
+// The pane is kept whatever happens. It may hold scrollback the user wants —
+// the output of the session that died is often the only account of why — so a
+// failure to start the new program leaves the terminal in place (ADR-030).
 func (t *Tmux) Restart(
 	ctx context.Context, project domain.ProjectID, task domain.TaskID, command CommandSpec,
 ) (Terminal, error) {
@@ -256,12 +253,10 @@ func (t *Tmux) Find(ctx context.Context, project domain.ProjectID, task domain.T
 // The target is resolved from live metadata rather than from a stored
 // identifier, so a window index or display name the user changed cannot make
 // this remove somebody else's window. It reports whether there was anything to
-// remove, because a cleanup of a terminal that is already gone is a success
-// rather than a failure.
+// remove, because cleaning up a terminal that is already gone is a success.
 //
-// A quarantined terminal is deliberately removable: the whole point of
-// reporting damage rather than repairing it is that the user decides, and
-// "remove it" is one of the decisions available to them.
+// A quarantined terminal is deliberately removable. Damage is reported rather
+// than repaired so the user decides, and removing it is one of their choices.
 func (t *Tmux) RemoveTask(ctx context.Context, project domain.ProjectID, task domain.TaskID) (bool, error) {
 	if err := project.Validate(); err != nil {
 		return false, err
@@ -370,29 +365,24 @@ func (t *Tmux) createWindow(
 // sizeBeforeStart gives a window the size its program will be drawn at, while
 // there is still no program in it to care.
 //
-// tmux makes a window nobody is attached to 80x24, and Feat used to leave it
-// there until the dashboard drew that task for the first time. Everything the
-// agent printed in between — the provider's banner, its "do you trust this
-// folder" prompt, the first turn of work — was therefore written into a
-// 80-column terminal, and a terminal's committed lines do not reflow when it is
-// resized afterwards. They stay 80 columns wide in a region three times that
-// for as long as the task is kept.
+// tmux makes a window nobody is attached to 80x24, and a terminal's committed
+// lines do not reflow when it is resized afterwards. Everything the agent
+// printed before the dashboard first drew that task therefore stayed 80 columns
+// wide in a region three times that, for as long as the task was kept.
 //
-// The later resize is also the only correction there was, which makes it a
-// single delivery of SIGWINCH that has to land while the agent happens to be
-// listening. Observed on this machine against tmux 3.7b: a task window read
-// 171x49 while the agent inside it was still drawing 80-cell rules, and a
-// resize to 170 and back to 171 straightened it at once. Sizing here means the
-// common case asks for no signal at all — the dashboard's first frame finds the
-// window already the size it wanted and changes nothing.
+// The later resize was also the only correction, which makes it one delivery of
+// SIGWINCH that has to land while the agent is listening. Observed against tmux
+// 3.7b: a task window read 171x49 while the agent drew 80-cell rules, and a
+// resize to 170 and back straightened it at once. Sizing here means the
+// dashboard's first frame finds the window already the size it wanted.
 //
 // Only a window Feat has this moment created is sized here. An existing one may
-// have a client attached, and resizing that window would resize the terminal
-// somebody is sitting in.
+// have a client attached, and resizing it would resize the terminal somebody is
+// sitting in.
 //
 // new-window takes no -x/-y, so this is a resize rather than an argument, and
 // it is the same resize the renderer performs: it pins the window, and
-// ReleaseWindowSize is what takes the pin off again for a native attach.
+// ReleaseWindowSize takes the pin off again for a native attach.
 func (t *Tmux) sizeBeforeStart(ctx context.Context, window string, size Size) error {
 	if !size.Known() {
 		return nil
@@ -404,19 +394,18 @@ func (t *Tmux) sizeBeforeStart(ctx context.Context, window string, size Size) er
 //
 // Panes are created without a command and tagged first, so remain-on-exit is
 // already in effect when the real program starts. A program that exits at once
-// then leaves a dead pane carrying its exit status, which discovery reports as
-// a failed process. Starting the program with the pane would instead destroy
-// the pane, its window, and possibly the server before any metadata landed,
-// and the caller would be told the tmux server was not running.
+// then leaves a dead pane carrying its exit status, where starting the program
+// with the pane would destroy the pane, its window, and possibly the server
+// before any metadata landed.
 //
 // The holder shell never ran the caller's command, so a failure here removes
-// the exact object just created rather than leaving it for reconciliation: the
-// retention rule in ADR-030 protects work entered in a pane, and there is none.
+// the object just created. ADR-030's retention rule protects work entered in a
+// pane, and there is none.
 func (t *Tmux) start(ctx context.Context, pane string, command CommandSpec) error {
 	// Every flag precedes the program, and the environment precedes the working
-	// directory: -e takes one value and the program follows -c, so the pane's
-	// command stays the last thing on the line and nothing variadic can swallow
-	// it (ADR-030).
+	// directory. -e takes one value and the program follows -c, so the pane's
+	// command stays last on the line and nothing variadic can swallow it
+	// (ADR-030).
 	args := []string{"respawn-pane", "-k", "-t", pane}
 	for _, entry := range command.Entries() {
 		args = append(args, "-e", entry)
@@ -508,12 +497,10 @@ func findTerminal(terminals []Terminal, project domain.ProjectID, task domain.Ta
 	return Terminal{}, false
 }
 
-// projectSession returns the managed session a project's windows belong in.
-//
-// It reads the discovered sessions rather than the terminals, because a project
-// whose every window was quarantined still has a session: deriving it from
-// healthy terminals would answer "none" and give that project a second session,
-// which is the conflict quarantine exists to avoid making permanent.
+// projectSession returns the managed session a project's windows belong in. It
+// reads the discovered sessions rather than the terminals, because a project
+// whose every window was quarantined still has a session, and deriving it from
+// healthy terminals would answer "none" and give that project a second one.
 func projectSession(found Discovery, project domain.ProjectID) (string, error) {
 	for _, damaged := range found.Damaged {
 		if damaged.Kind == DamagedSession && damaged.Project == project {

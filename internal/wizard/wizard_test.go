@@ -238,12 +238,12 @@ func TestTheFlowComposesAConfigurationFromWhatItIsTold(t *testing.T) {
 	}
 }
 
-// TestVerificationIsNotAsked is the removal, at the flow that used to ask.
+// TestVerificationIsNotAsked is ADR-078's removal, checked at the flow.
 //
-// Three questions became none, and the section they belonged to is gone from the
-// path an asker draws. What did not change is anything else about `checks:`: the
-// configuration model, the schema, the example file, and `feat doctor` all still
-// have it, so a hand-written gate works exactly as it did (ADR-078).
+// No question asks about a check, and the section they belonged to is gone from the
+// path an asker draws. Everything else about `checks:` stays: the configuration
+// model, the schema, the example file, and `feat doctor` all still have it, so a
+// hand-written gate works.
 func TestVerificationIsNotAsked(t *testing.T) {
 	for _, section := range Sections() {
 		if section == "checks" {
@@ -540,13 +540,11 @@ func TestTheAgentsMountIsProposedFromItsOwnComposeFiles(t *testing.T) {
 // TestAMountInsideAnotherRepositorysMountIsRefusedWhereItIsGiven is the failure
 // the derived proposal made reachable.
 //
-// Two proposals of "/srv/<id>" are always siblings, so before the mount could be
-// read out of the Compose files, the wizard could not compose an overlapping
-// pair. A path the files state can be the parent of the next repository's
-// default — and configuration refuses two repositories mounted inside one
-// another when the composed file is loaded back, which is after the last
-// question. Meeting it there ends the conversation and takes every answer with
-// it, so it is met here instead.
+// Two proposals of "/srv/<id>" are always siblings, while a path the files state can
+// be the parent of the next repository's default. Configuration refuses two
+// repositories mounted inside one another when the composed file is loaded back,
+// after the last question, and meeting it there would end the conversation and take
+// every answer with it.
 func TestAMountInsideAnotherRepositorysMountIsRefusedWhereItIsGiven(t *testing.T) {
 	flow, host := start(t, "app")
 	answers(t, flow,
@@ -619,10 +617,10 @@ func TestAMountInsideAnotherRepositorysMountIsRefusedWhereItIsGiven(t *testing.T
 // those services expect its source. The proposals come from that repository's
 // own Compose files, read structurally.
 //
-// It is asked before the execution mode is known at all, which is the strongest
-// form of what ADR-065 evidence 6 asks for: the runtime container path used to
-// be skipped for a host-native agent, and now the question cannot even see which
-// mode this project will run in.
+// It is asked before the execution mode is known at all, which is the strongest form
+// of what ADR-065 evidence 6 asks for: the question cannot see which mode this
+// project will run in, so it cannot skip the runtime container path for a host-native
+// agent.
 func TestTheApplicationIsAnsweredOneRepositoryAtATime(t *testing.T) {
 	flow, _ := start(t, "app")
 	answers(t, flow,
@@ -649,9 +647,8 @@ func TestTheApplicationIsAnsweredOneRepositoryAtATime(t *testing.T) {
 	answers(t, flow, "", "")
 
 	// The services that run this repository's code, and not every service its
-	// files declare: the database among them runs none of it, so a user
-	// accepting the proposal would have been managing more than the project
-	// meant (ADR-100).
+	// files declare: the database among them runs none of it, so a user accepting
+	// a wider proposal would manage more than the project meant (ADR-100).
 	services, _ := flow.Step()
 	if services.ID != "runtime.services" || services.Proposed != "dev worker" {
 		t.Fatalf("the services question proposes %q, want the services that run this "+
@@ -720,15 +717,13 @@ func TestTheApplicationIsAnsweredOneRepositoryAtATime(t *testing.T) {
 
 // TestBlankFinishesAFileLoop is the defect a real run found.
 //
-// A loop cannot both propose the next file and finish on an empty answer: they
-// are two meanings for one key, and finishing lost. A user pressing Enter at
-// "Compose file (blank to finish) [/some/path]" accepted the bracketed path
-// instead — twice — and ended up with an application's Compose files defining
-// the container their agent runs in, reported back as a service list they did
-// not recognise.
+// A loop cannot both propose the next file and finish on an empty answer, because
+// those are two meanings for one key. A user pressing Enter at "Compose file (blank
+// to finish) [/some/path]" accepts the bracketed path instead, and ends up with an
+// application's Compose files defining the container their agent runs in.
 //
-// So a loop proposes only its first, and Enter after that means what the prompt
-// says it means.
+// So a loop proposes only its first, and Enter after that means what the prompt says
+// it means.
 func TestBlankFinishesAFileLoop(t *testing.T) {
 	flow, host := start(t, "app")
 	answers(t, flow,
@@ -824,14 +819,13 @@ func TestTheProposalIsTheHeadOfTheCandidates(t *testing.T) {
 	}
 }
 
-// TestTheFilesBesideARepositoryAreOfferedAndNotOnlyNamed is the derivation that
-// had nowhere to go.
+// TestTheFilesBesideARepositoryAreOfferedAndNotOnlyNamed covers what the flow does
+// with the files it derives.
 //
-// The flow finds every Compose file beside a repository, proposes the first, and
-// has until now reported the rest as a sentence — so a user who wanted the
-// second one read its path off the screen and typed it back in. It is still a
-// sentence, for the asker that can only print one, and it is now also a list the
-// dashboard can complete from.
+// It finds every Compose file beside a repository and proposes the first. The rest
+// are a sentence, for the asker that can only print one, and also a list the
+// dashboard can complete from, so nobody has to read a path off the screen and type
+// it back in.
 func TestTheFilesBesideARepositoryAreOfferedAndNotOnlyNamed(t *testing.T) {
 	flow, host := start(t, "app")
 	answers(t, flow,
@@ -861,13 +855,12 @@ func TestTheFilesBesideARepositoryAreOfferedAndNotOnlyNamed(t *testing.T) {
 	}
 }
 
-// TestARepeatedFileQuestionAsksForAnOverride is the question that arrived with
-// nothing to go on.
+// TestARepeatedFileQuestionAsksForAnOverride covers what a repeat has to say.
 //
-// Both loops asked for the next file with the same words as the first and
-// "(blank to finish)" appended, so the repeat said what to do with it and never
-// what it was. A user who has given the one Compose file they know about has no
-// reason to think another exists; the prompt names it now, in Compose's own noun.
+// A repeat in the first question's words with "(blank to finish)" appended says what
+// to do with the file and never what it is. A user who has given the one Compose file
+// they know about has no reason to think another exists, so the prompt names it in
+// Compose's own noun.
 func TestARepeatedFileQuestionAsksForAnOverride(t *testing.T) {
 	for _, loop := range []struct {
 		name    string
@@ -974,18 +967,17 @@ func mustReview(t *testing.T, flow *Wizard) Review {
 	return review
 }
 
-// TestEveryMountQuestionSaysWhatMakesAnAnswerCorrect is the guidance both
-// container paths were decided without.
+// TestEveryMountQuestionSaysWhatMakesAnAnswerCorrect covers the guidance both
+// container paths need.
 //
-// One rule decides both: Compose merges a service's volumes on the target, and
-// Feat's generated override is merged last, so an answer matching a target the
-// project's own files already mount at replaces that mount and an answer
-// matching nothing adds a second one beside it. It is now on every mount
-// question of both groups rather than on the first of each — the departure
-// ADR-082 records — because the failure is silent and the sentence separating
-// the agent's container from the application's services is needed most at the
-// second repository, which under the convention is asked nothing but "Mount
-// point for store".
+// One rule decides both: Compose merges a service's volumes on the target, and Feat's
+// generated override is merged last, so an answer matching a target the project's own
+// files already mount at replaces that mount, and an answer matching nothing adds a
+// second one beside it.
+//
+// It is on every mount question of both groups rather than on the first of each,
+// which is the departure ADR-082 records, because the failure is silent and the
+// second repository is otherwise asked nothing but "Mount point for store".
 func TestEveryMountQuestionSaysWhatMakesAnAnswerCorrect(t *testing.T) {
 	flow, host := start(t, "app")
 	answers(t, flow,
@@ -1062,10 +1054,10 @@ var theMergeRule = map[string][]string{
 // mustCarryTheMergeRule fails unless a mount question states the rule an answer
 // to it is right or wrong by.
 //
-// The words rather than the presence of a block, because a detail that had been
-// shortened into saying only what the field is would be the gap again with a
-// test passing over it: what has to survive is the override, the path it
-// replaces a mount at, and what an answer matching nothing produces instead.
+// The words rather than the presence of a block, because a detail shortened into
+// saying only what the field is would leave this test passing over the gap. What has
+// to survive is the override, the path it replaces a mount at, and what an answer
+// matching nothing produces instead.
 func mustCarryTheMergeRule(t *testing.T, question Question, repository string) {
 	t.Helper()
 
@@ -1088,15 +1080,13 @@ func mustCarryTheMergeRule(t *testing.T, question Question, repository string) {
 	}
 }
 
-// TestAProposalReadFromAComposeFileNamesTheFile is gap 3 of the same finding,
-// and the smallest of it.
+// TestAProposalReadFromAComposeFileNamesTheFile is gap 3 of the same finding, and the
+// smallest of it.
 //
-// The flow reported its readings only in the negative: an entry it could not
-// read was named, and a path it transcribed out of the user's own file arrived
-// as a proposal with nothing beside it. So the two proposals a user must treat
-// differently — a transcription, which is always right to accept, and a path
-// Feat made up, which is right only where those files mount the repository
-// nowhere — looked identical (ADR-082).
+// A transcription out of the user's own file is always right to accept, and a path
+// Feat made up is right only where those files mount the repository nowhere. Reported
+// only in the negative, by naming what could not be read, the two look identical
+// (ADR-082).
 func TestAProposalReadFromAComposeFileNamesTheFile(t *testing.T) {
 	flow, host := start(t, "app")
 	agentFile := filepath.Join(host.root, "devcontainer", "compose.yaml")
@@ -1348,11 +1338,10 @@ func TestATrackerCommandThatCannotBeReadIsRefusedWhereItWasTyped(t *testing.T) {
 // TestTheAgentsComposeQuestionProposesWhatTheApplicationLeft is finding 4 of the
 // second pass, which is the one that reorders the rest.
 //
-// The agent's environment used to be answered before the application's, so this
-// question could not tell a devcontainer's Compose file from an application's
-// and honestly proposed neither. The application is asked first now, so what is
-// left is a list — and the file in a `.devcontainer` directory heads it
-// (ADR-100).
+// Asked before the application's, this question could not tell a devcontainer's
+// Compose file from an application's and would honestly propose neither. The
+// application is asked first, so what is left is a list, and the file in a
+// `.devcontainer` directory heads it (ADR-100).
 func TestTheAgentsComposeQuestionProposesWhatTheApplicationLeft(t *testing.T) {
 	flow, host := start(t, "app")
 	claimed := filepath.Join(host.root, "api", "compose.yaml")
