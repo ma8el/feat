@@ -8,9 +8,8 @@ import (
 	"github.com/ma8el/feat/internal/paths"
 )
 
-// draftOptions resolves a draft against a machine that is not this one, so that
-// the tests do not depend on the home directory or the state directory of
-// whoever runs them.
+// draftOptions resolves a draft against a machine that is not this one, so the tests
+// do not depend on the home directory or the state directory of whoever runs them.
 func draftOptions() Options {
 	return Options{
 		Env:      paths.Environment{Home: "/user", Getenv: func(string) string { return "" }},

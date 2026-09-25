@@ -4,24 +4,18 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// replaced reports a configuration written in the shape this build no longer
-// reads.
+// replaced reports a configuration written in the shape this build no longer reads.
+// There is no version bump and no compatibility period, because Feat is used by its
+// author and nobody else (ADR-065).
 //
-// There is no version bump and no compatibility period: Feat is used by its
-// author and nobody else, so a migration path would buy ceremony (ADR-065). The
-// break is still a break the user should not have to diagnose, and strict
-// decoding would report each of these fields as an unknown key — which is what
-// it says about a typo, and a user who reads it as one goes looking for a
-// spelling mistake in a field they spelled correctly.
-//
-// It runs before the strict decode, so a file in the old shape produces the
-// three sentences that name the replacements rather than three sentences about
-// keys Feat does not know. A file the lenient decode cannot read is left to the
-// strict decode, which reports the syntax error with the line it is on.
+// It runs before the strict decode, which would report each of these fields as an
+// unknown key and send the user looking for a spelling mistake in a field they
+// spelled correctly. A file the lenient decode cannot read is left to the strict
+// decode, which reports the syntax error with the line it is on.
 func replaced(file string, data []byte) error {
-	// Every field is a pointer or a slice, so "absent" and "present but empty"
-	// are distinguishable: `container_path:` with nothing after it is still the
-	// old shape, and still worth naming.
+	// Every field is a pointer or a slice, so absent and present-but-empty are
+	// distinguishable. `container_path:` with nothing after it is still the old
+	// shape, and still worth naming.
 	var document struct {
 		Repositories map[string]struct {
 			ContainerPath *string `yaml:"container_path"`

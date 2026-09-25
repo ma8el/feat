@@ -20,17 +20,15 @@ import (
 
 // Checkout is what an ordinary Git checkout can say about itself.
 //
-// It is what `feat project init` asks a directory before it proposes a
-// repository: the identity of a repository is the user's to choose, but the
-// branch it develops on and the remote it fetches are facts the checkout
-// already holds, and asking a user to retype a fact their tools know is how a
-// configuration file acquires a value that was never true.
+// `feat project init` asks a directory this before it proposes a repository. The
+// identity of a repository is the user's to choose, and the branch it develops on and
+// the remote it fetches are facts the checkout already holds, which a user asked to
+// retype can mistype.
 //
-// A field this package could not establish is empty rather than guessed. An
-// empty remote is a repository with none, and an empty branch is a checkout
-// whose HEAD is detached or whose remote publishes no default; the caller
-// decides what to propose instead, and says that it is proposing rather than
-// reporting.
+// A field this package could not establish is empty rather than guessed. An empty
+// remote is a repository with none, and an empty branch is a checkout whose HEAD is
+// detached or whose remote publishes no default. The caller decides what to propose
+// instead, and says it is proposing rather than reporting.
 type Checkout struct {
 	// Root is the absolute path of the working tree's root, which is not
 	// necessarily the directory that was asked: a subdirectory answers with the
@@ -55,12 +53,9 @@ type Checkout struct {
 	DefaultBranch string
 }
 
-// Inspect asks the repository containing a directory about itself.
-//
-// A directory that is not in a repository is an error, because the caller asked
-// about a repository and there is none: everything else this returns is
-// optional, and this is the one answer that decides whether there is anything
-// to configure at all.
+// Inspect asks the repository containing a directory about itself. A directory that
+// is not in a repository is an error: everything else this returns is optional, and
+// this is the one answer that decides whether there is anything to configure at all.
 func Inspect(ctx context.Context, runner Runner, dir string) (Checkout, error) {
 	if runner == nil {
 		runner = HostRunner{}
@@ -115,14 +110,13 @@ func remoteOf(ctx context.Context, runner Runner, root string) string {
 // defaults to when configuration names none.
 const defaultRemote = "origin"
 
-// remoteURLOf reads where a remote points.
+// remoteURLOf reads where a remote points. It is the fetch URL, which `get-url`
+// reports without `--push`, because every clone has one and a repository's merge
+// requests are opened where its code is read from.
 //
-// The fetch URL, which is the one `get-url` reports without `--push`: a
-// repository whose pushes go somewhere else is a repository whose merge
-// requests are opened where its code is read from, and the fetch URL is the one
-// every clone has. A repository with no remote is asked nothing, and a remote
-// Git will not answer for answers nothing — neither is a failure, because the
-// caller proposes from this and asks where it has nothing to propose.
+// A repository with no remote is asked nothing, and a remote Git will not answer for
+// answers nothing. Neither is a failure: the caller proposes from this and asks where
+// it has nothing to propose.
 func remoteURLOf(ctx context.Context, runner Runner, root, remote string) string {
 	if remote == "" {
 		return ""
@@ -171,41 +165,34 @@ var composeFileNames = []string{
 // composeOverlayPattern matches the overlays a project keeps beside those: the
 // development one, the production one, the extra one for a particular machine.
 //
-// They are found because leaving them out cost the reference project everything
-// that matters. Its `docker-compose.dev.yml` files carry the bind mounts a task
-// worktree replaces, the reset of a published port, and, in one repository, the
-// only service anybody runs; the base files beside them build a static image.
-// Offering only the base names proposed a runtime with no container path, no
-// reachable service worth the name, and the production build of a frontend —
-// which is the configuration ADR-065 evidence 1 describes, arrived at by the
-// command meant to prevent it.
+// They are found because a real project keeps in them the bind mounts a task worktree
+// replaces, the reset of a published port, and sometimes the only service anybody
+// runs, while the base files beside them build a static image. Offering only the base
+// names proposed a runtime with no container path and no reachable service worth the
+// name, which is the configuration ADR-065 evidence 1 describes.
 var composeOverlayPattern = regexp.MustCompile(`^(compose|docker-compose)\.[^/]+\.ya?ml$`)
 
 // composeSubdirectories are the directories a project keeps its Compose files
 // in, beside the root of a checkout.
 //
 // `.devcontainer` is among them because the Dev Containers specification puts a
-// project's container definition there, and a project following it often keeps
-// a Compose file in that directory. That is where the claim stops: the
-// specification's own file is `devcontainer.json`, which may point its
-// `dockerComposeFile` anywhere, and Feat neither reads it nor implements that
-// specification — Feat's `devcontainer` execution mode means the agent runs in
-// a configured Compose service and is its own idea. So this is a place worth
-// looking rather than a rule about what will be found there.
+// project's container definition there, and a project following it often keeps a
+// Compose file in that directory. Feat neither reads `devcontainer.json` nor
+// implements that specification, and its own `devcontainer` mode only means the agent
+// runs in a configured Compose service. So this is a place worth looking rather than
+// a rule about what will be found there.
 var composeSubdirectories = []string{".", ".devcontainer", "docker"}
 
 // ComposeFiles returns the Compose files present under a directory.
 //
-// It looks one level deep, in the places a project keeps them, and it returns
-// what exists rather than what might: the caller offers these as candidates and
-// the user confirms or replaces them, so a file this misses costs a user one
-// line of typing and a file this invents would be a path in a configuration
-// that does not resolve.
+// It looks one level deep, in the places a project keeps them, and returns what
+// exists rather than what might. The caller offers these as candidates and the user
+// confirms or replaces them, so a file this misses costs one line of typing and a
+// file this invents would be a path in a configuration that does not resolve.
 //
-// The order is the order they should be offered in. A base file comes before
-// the overlays that layer over it, because that is the order they are listed in
-// to Compose, and the overlays are sorted so that two runs propose the same
-// thing in the same sequence.
+// The order is the order they should be offered in. A base file comes before the
+// overlays that layer over it, because that is the order Compose is given them, and
+// the overlays are sorted so two runs propose the same sequence.
 func ComposeFiles(dir string) []string {
 	var found []string
 	for _, subdirectory := range composeSubdirectories {
@@ -256,17 +243,15 @@ const maxComposeFileBytes = 1 << 20
 
 // ComposeServices returns the service names the given Compose files declare.
 //
-// Only the keys of the top-level `services` mapping are read. Nothing else in
-// the file is looked at, and no value is ever carried out of it: a Compose file
-// names environment files, image registries, and sometimes a password that
-// should not have been written there, and none of that has any business
-// reaching a suggestion (docs/05-security-model.md).
+// Only the keys of the top-level `services` mapping are read, and no value is ever
+// carried out of the file. A Compose file names environment files, image registries,
+// and sometimes a password that should not have been written there
+// (docs/05-security-model.md).
 //
-// It is deliberately best effort and returns no error. A file that does not
-// parse, uses a feature this does not understand, or is not there yet is a file
-// this has nothing to suggest from, and the caller asks the question without a
-// suggestion. Whether the file and service really exist is `feat doctor`'s
-// answer, which it gets from Compose itself rather than from a partial reading.
+// It is deliberately best effort and returns no error. A file that does not parse,
+// uses a feature this does not understand, or is not there yet leaves the caller
+// asking its question without a suggestion. Whether the file and service really exist
+// is `feat doctor`'s answer, which it gets from Compose itself.
 func ComposeServices(files ...string) []string {
 	seen := make(map[string]bool)
 	var names []string
@@ -306,58 +291,50 @@ func serviceNames(file string) []string {
 // nothing derived here is persisted in Feat's own state (ADR-065).
 //
 // Five things are read and nothing else: service keys, the bind mounts of the
-// repository — the container targets of those whose source is the repository
-// itself, the paths inside it that others name, and the ones writing into where
-// Feat mounts a task's worktree — whether a service is built from the
-// repository, and the container ports it publishes to the host. No
-// `environment` value, no `build.args` entry, and no `env_file` is opened, and
-// an entry containing a "${...}" is left unread rather than resolved — Feat
-// could not derive it without interpolating, so the user is asked instead.
+// repository — the container targets of those whose source is the repository itself,
+// the paths inside it that others name, and the ones writing into where Feat mounts a
+// task's worktree — whether a service is built from the repository, and the container
+// ports it publishes to the host.
+//
+// No `environment` value, no `build.args` entry, and no `env_file` is opened. An
+// entry containing a "${...}" is left unread rather than resolved, because Feat could
+// not derive it without interpolating, so the user is asked instead.
 type Composition struct {
 	// Services are what the files declare, in name order.
 	Services []ComposeService
-	// Mounts are the paths inside the repository that a bind mount names one at
-	// a time, rather than mounting the repository itself — which is what
-	// SourceTargets holds.
+	// Mounts are the paths inside the repository that a bind mount names one at a time,
+	// rather than mounting the repository itself, which is what SourceTargets holds.
 	//
-	// They are the mounts a task cannot take for granted. A task works in a
-	// worktree, and a worktree holds only what Git tracks, so a mount naming an
-	// ignored `.env` or a `node_modules` built in place names something that
-	// will not be there. What to do about that is the caller's: a file a build
-	// step creates is a legitimate absence, so this is read to report and never
-	// to refuse (internal/runtime/compose/explain.go).
+	// They are the mounts a task cannot take for granted. A task works in a worktree,
+	// and a worktree holds only what Git tracks, so a mount naming an ignored `.env` or
+	// a `node_modules` built in place names something that will not be there. A file a
+	// build step creates is a legitimate absence, so this is read to report and never to
+	// refuse (internal/runtime/compose/explain.go).
 	Mounts []MountedPath
-	// Targets are the bind mounts that write into where Feat mounts a task's
-	// worktree, rather than out of the repository — which is what Mounts holds.
+	// Targets are the bind mounts that write into where Feat mounts a task's worktree,
+	// rather than out of the repository, which is what Mounts holds.
 	//
-	// They are the other half of the same question and the harder half. The
-	// container runtime has to create the mount point, and on a runtime whose
-	// binds cross a virtual machine that path resolves outside the container's
-	// rootfs and it will not create a file there. So unlike a mount in Mounts,
-	// which a build step may yet satisfy, nothing in the container can repair
-	// this one: the failure precedes every command in it, and the container is
-	// never created. Which runtimes do that is not settled here — the severity
-	// is taken from the runtime where the check runs (ADR-098).
+	// The container runtime has to create the mount point, and on a runtime whose binds
+	// cross a virtual machine that path resolves outside the container's rootfs and it
+	// will not create a file there. Unlike a mount in Mounts, which a build step may yet
+	// satisfy, nothing in the container can repair this one: the failure precedes every
+	// command in it, and the container is never created. Which runtimes do that is not
+	// settled here, so the severity is taken from the runtime where the check runs
+	// (ADR-098).
 	//
-	// Only the entries whose mount point would have to be a file are here, which
-	// is what mountPointFor establishes. What is bound over it decides nothing —
-	// a `/dev/null` and a real file need the same thing — and what kind of thing
-	// it is decides everything.
+	// Only the entries whose mount point would have to be a file are here, which is what
+	// mountPointFor establishes. What is bound over it decides nothing, because a
+	// `/dev/null` and a real file need the same thing.
 	//
-	// Only a caller that supplies ComposeReader.ContainerPath gets any of these:
-	// where Feat mounts no worktree there is no substitution for a mount to fall
-	// foul of.
+	// Only a caller that supplies ComposeReader.ContainerPath gets any of these: where
+	// Feat mounts no worktree, there is no substitution for a mount to fall foul of.
 	Targets []MountedTarget
-	// UnreadMounts names the bind mounts left unread because they interpolate.
-	//
-	// They are in Undecided as well, and they are separately here because they
-	// are what a report about mounts cannot speak for: one that listed what it
-	// checked and stayed silent about what it could not read would claim a
-	// coverage it does not have.
+	// UnreadMounts names the bind mounts left unread because they interpolate. They are
+	// in Undecided as well, and separately here so a report about mounts can say what it
+	// could not read rather than claim a coverage it does not have.
 	UnreadMounts []string
-	// Undecided names the entries left unread because they interpolate. It is
-	// what turns "Feat proposed nothing" into "Feat could not tell, and here is
-	// where to look".
+	// Undecided names the entries left unread because they interpolate, so "Feat
+	// proposed nothing" comes with somewhere to look.
 	Undecided []string
 }
 
@@ -366,9 +343,9 @@ type MountedPath struct {
 	// Path is the absolute host path the mount's source resolves to, resolved
 	// the way Compose will resolve it.
 	Path string
-	// Where is the file and the service that wrote the entry, in the words the
-	// unread entries are named in: a reader sent to look at one has the same
-	// problem either way.
+	// Where is the file and the service that wrote the entry, in the words the unread
+	// entries are named in, because a reader sent to look at one has the same problem
+	// either way.
 	Where string
 }
 
@@ -383,12 +360,10 @@ type MountedTarget struct {
 	// a task's worktree would have to hold for the mount point to be creatable,
 	// and so the path to ask Git about.
 	Relative string
-	// Source is the entry's source as it was written, which is how a reader
-	// sent to the file finds the line.
-	//
-	// What it points at is not what fails — a `/dev/null` masking a file and the
-	// file itself fail alike — but that it is not a directory is why this entry
-	// is here at all (mountPointFor).
+	// Source is the entry's source as it was written, which is how a reader sent to the
+	// file finds the line. What it points at is not what fails, because a `/dev/null`
+	// masking a file and the file itself fail alike, but that it is not a directory is
+	// why this entry is here at all (mountPointFor).
 	Source string
 	// Where is the file and the service that wrote the entry, as MountedPath
 	// names it.
@@ -505,12 +480,10 @@ func (c Composition) Names() []string {
 	return names
 }
 
-// ComposeReader reads Compose files structurally, for one repository.
-//
-// The three fields are what a path inside those files needs to mean what it
-// will mean to Compose. Reading them any other way answers a different question
-// from the one Compose is going to be asked, which is the only way this can be
-// wrong while looking right.
+// ComposeReader reads Compose files structurally, for one repository. The three
+// fields are what a path inside those files needs to mean what it will mean to
+// Compose, because reading them any other way answers a different question from the
+// one Compose is going to be asked.
 type ComposeReader struct {
 	// Env is what a leading "~" expands against.
 	//
@@ -527,23 +500,21 @@ type ComposeReader struct {
 	// contexts are the ones worth reporting.
 	//
 	// It is separate from ProjectDir because the two are one directory only by
-	// coincidence. A repository's application files are given that repository's
-	// checkout as their project directory, so the coincidence holds there and a
-	// caller sets both to it. The agent's own Compose files are given the
-	// directory of the first of them and are asked about each configured
-	// repository in turn, so there the two differ and a reader that assumed one
-	// would answer about the wrong repository.
+	// coincidence. A repository's application files are given that repository's checkout
+	// as their project directory, so a caller sets both to it. The agent's own Compose
+	// files are given the directory of the first of them and are asked about each
+	// configured repository in turn, so there the two differ and a reader that assumed
+	// one would answer about the wrong repository.
 	Repository string
 	// ContainerPath is where a task's worktree of Repository is mounted inside
 	// the container these files describe.
 	//
-	// It is empty unless the caller knows Feat will mount one there, and that is
-	// the whole of what turns Composition.Targets on: a reader deriving a
-	// container path does not have one yet, a repository whose services bake
-	// their code has none, and a repository no task takes gets no worktree. In
-	// each of those, a mount into that path is the project's own arrangement
-	// standing exactly as it was written, and nothing here has anything to say
-	// about it.
+	// It is empty unless the caller knows Feat will mount one there, which is the whole
+	// of what turns Composition.Targets on. A reader deriving a container path does not
+	// have one yet, a repository whose services bake their code has none, and a
+	// repository no task takes gets no worktree. In each of those, a mount into that
+	// path is the project's own arrangement standing as it was written, and nothing here
+	// has anything to say about it.
 	//
 	// Like Repository, it is per repository rather than per file: a devcontainer
 	// holds every repository a task takes, and each is mounted at its own path.
@@ -610,17 +581,14 @@ func (r ComposeReader) mergeService(c *Composition, position int, file string, r
 			continue
 		}
 		if relative, inside := insideContainerPath(r.ContainerPath, target); inside {
-			// An entry writing into where Feat mounts the worktree, which is a
-			// harder question than the one below and is asked first: it fails
-			// before the container exists, so the softer finding would be a
-			// second report about one line at a severity this entry has already
-			// outgrown.
+			// An entry writing into where Feat mounts the worktree. It is asked before
+			// the question below because it fails before the container exists, so the
+			// softer finding would report the same line at a severity it has outgrown.
 			//
-			// Only where the mount point would have to be a file. That is the
-			// whole of the difference and it is measured rather than reasoned
-			// (see checkMountTargets): a directory the runtime creates and the
-			// container starts, which is the ordinary soft case the fall-through
-			// below reports.
+			// Only where the mount point would have to be a file, which is measured
+			// rather than reasoned (see checkMountTargets). A directory the runtime
+			// creates and the container starts, which is the ordinary soft case the
+			// fall-through below reports.
 			switch mountPointFor(resolved) {
 			case mountPointFile:
 				c.targeted(MountedTarget{
@@ -642,11 +610,10 @@ func (r ComposeReader) mergeService(c *Composition, position int, file string, r
 			}
 			continue
 		}
-		// Everything else that comes out of the repository. A mount of one file
-		// or one directory inside it is not a candidate for the container path —
-		// a whole worktree mounted at one target would not replace it — but it
-		// is a path the mount needs to be there, and that is a different
-		// question from the one the container path answers.
+		// Everything else that comes out of the repository. A mount of one file or
+		// one directory inside it is not a candidate for the container path, because a
+		// whole worktree mounted at one target would not replace it, but it is still a
+		// path the mount needs to be there.
 		if within(r.Repository, resolved) {
 			c.mounted(MountedPath{Path: resolved, Where: where})
 		}
@@ -684,12 +651,11 @@ func (r ComposeReader) mergeService(c *Composition, position int, file string, r
 
 // unread records one bind mount this could not read, once.
 //
-// Once per service and file, however many of that service's volumes were
-// unreadable for the same reason: they are named by where they were written, so
-// a service with three interpolated sources would otherwise disclose the same
-// sentence three times. The sentence carries its own reason, because "not read"
-// and "not read because it interpolates" are different claims and a reader sent
-// to look at the entry needs the second one.
+// Once per service and file, however many of that service's volumes were unreadable
+// for the same reason: they are named by where they were written, so a service with
+// three interpolated sources would otherwise repeat one sentence three times. The
+// sentence carries its own reason, because a reader sent to look at the entry needs
+// to know it interpolates.
 func (c *Composition) unread(entry string) {
 	if !contains(c.UnreadMounts, entry) {
 		c.UnreadMounts = append(c.UnreadMounts, entry)
@@ -909,15 +875,12 @@ func bindMount(raw yaml.RawMessage) (source, target string, ok bool) {
 // It reports the context, whether it was read, and whether it was left unread
 // because reading it would mean resolving a "${...}".
 //
-// The interpolation is judged on the context alone rather than on the whole
-// `build` mapping, and that is the difference between reading the reference
-// project's frontend and not reading it. Its production service writes a plain
-// `context: .` beside a `build.args` entry carrying a "${...}" — a value Feat
-// never reads and has no business reading — and taking the mapping as one value
-// made the plainest build context in the project undecidable. That service is a
-// multi-stage build ending in nginx, so its build context is the only thing that
-// decides what it runs (ADR-065 evidence 4): a reader that cannot see it is a
-// reader that cannot see the failure this whole check exists for.
+// The interpolation is judged on the context alone rather than on the whole `build`
+// mapping. A service can write a plain `context: .` beside a `build.args` entry
+// carrying a "${...}", a value Feat never reads, and taking the mapping as one value
+// would make the plainest build context undecidable. Such a service is often a
+// multi-stage build with no mount to replace, so its build context is the only thing
+// that decides what it runs (ADR-065 evidence 4).
 func buildContext(raw yaml.RawMessage) (context string, read, undecided bool) {
 	if len(raw) == 0 {
 		return "", false, false
@@ -955,20 +918,18 @@ func interpolated(raw yaml.RawMessage) bool {
 // resolve it, and reports whether it could.
 //
 // Three forms, and each is resolved the way Compose resolves it. A leading "~"
-// expands against the user's home directory: Compose does expand one — measured
-// against Docker Compose v2.40, which renders `~/.claude` as the home directory
-// — so a reader that joined it to the project directory would put the home
-// directory inside the repository, which is exactly how the mount Feat's own
-// devcontainer recommends came to be reported as a path a task's worktree would
-// not hold. An absolute path is taken as it stands. Everything else resolves
-// against the project directory rather than against the file's own directory,
-// because that is the `project_directory` Compose is given.
+// expands against the user's home directory, because Compose expands one, measured
+// against Docker Compose v2.40 rendering `~/.claude` as the home directory. A reader
+// that joined it to the project directory would put the home directory inside the
+// repository. An absolute path is taken as it stands, and everything else resolves
+// against the project directory rather than against the file's own directory, because
+// that is the `project_directory` Compose is given.
 //
-// It fails for a "~other", which paths.Expand refuses rather than resolves —
-// configuration reaching into another user's home is far more likely to be a
-// mistake than an intention — and on a machine whose home directory cannot be
-// established. A caller must not place a path this could not resolve: the whole
-// value of resolving one is that it means what Compose will mean by it.
+// It fails for a "~other", which paths.Expand refuses rather than resolves, because
+// configuration reaching into another user's home is more likely a mistake than an
+// intention, and on a machine whose home directory cannot be established. A caller
+// must not place a path this could not resolve, because resolving one is what makes
+// it mean what Compose will mean by it.
 func (r ComposeReader) absolutePath(value string) (string, bool) {
 	switch {
 	case value == "":
@@ -1032,21 +993,19 @@ const (
 // `/dev/null` bound over a file and a real file bound over it need the same
 // thing, and the same entry pointed at a directory needs something else.
 //
-// Whether needing a file is a problem is the runtime's answer rather than this
-// one's, and the two were confused once already: Docker Desktop refuses to
-// create a file mount point there, because its binds cross a virtual machine and
-// the path resolves outside the container's rootfs, while a native Linux daemon
-// creates the file and the container starts. Neither refuses a directory
-// (ADR-098, evidence 10).
+// Whether needing a file is a problem is the runtime's answer rather than this one's.
+// Docker Desktop refuses to create a file mount point there, because its binds cross
+// a virtual machine and the path resolves outside the container's rootfs, while a
+// native Linux daemon creates the file and the container starts. Neither refuses a
+// directory (ADR-098, evidence 10).
 //
 // That question is asked where the severity is decided
-// (project.RefusesFileMountPoint, checkMountTargets), and it cannot be asked
-// here: a ComposeReader has no runner, because reading a Compose file
-// structurally is not something that should need to run anything. This function
-// stats one path, which is a fact about the entry in front of it. The runtime is
-// a fact about the machine, asked once for a whole diagnosis rather than once
-// per bind mount — and a diagnosis that could not ask, because the daemon is
-// absent or stopped, still reads these entries exactly as it does now.
+// (project.RefusesFileMountPoint, checkMountTargets), and it cannot be asked here: a
+// ComposeReader has no runner, because reading a Compose file structurally should not
+// need to run anything. This function stats one path, which is a fact about the entry
+// in front of it, while the runtime is a fact about the machine, asked once for a
+// whole diagnosis. A diagnosis that could not ask, because the daemon is absent or
+// stopped, still reads these entries exactly as it does now.
 //
 // The file-or-directory test itself is why the check is usable at all, on every
 // runtime. A rule that skipped it would name every `node_modules` bind and every
@@ -1073,11 +1032,9 @@ func mountPointFor(source string) mountPointKind {
 // ComposeService.SourceTargets exists to collect.
 //
 // It works in "path" rather than "path/filepath" because both of these are the
-// container's paths and neither is this machine's. On the two platforms Feat
-// targets the two packages agree, so this is a statement about what the values
-// mean rather than a fix for anything: a path read out of a Compose file is
-// resolved by a container runtime, and joining it to something with this host's
-// separator would be answering a question nobody asked.
+// container's paths and neither is this machine's. On the two platforms Feat targets
+// the two packages agree, so this says what the values mean rather than fixing
+// anything: a path read out of a Compose file is resolved by a container runtime.
 func insideContainerPath(containerPath, target string) (string, bool) {
 	if containerPath == "" || target == "" {
 		return "", false
@@ -1100,8 +1057,8 @@ func insideContainerPath(containerPath, target string) (string, bool) {
 	return relative, true
 }
 
-// sortedNames returns a service mapping's keys in order, so that a proposal is
-// the same proposal twice.
+// sortedNames returns a service mapping's keys in order, so a proposal is the same
+// proposal twice.
 func sortedNames(services map[string]yaml.RawMessage) []string {
 	names := make([]string, 0, len(services))
 	for name := range services {

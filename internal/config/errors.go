@@ -9,10 +9,9 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// ErrNotFound reports that no configuration file exists for a project.
-//
-// It is separate from an invalid file because the two need different actions
-// from the user: one is a file to write and the other is a file to fix.
+// ErrNotFound reports that no configuration file exists for a project. It is
+// separate from an invalid file because one is a file to write and the other is a
+// file to fix.
 var ErrNotFound = errors.New("no project configuration")
 
 // Problem is one rule a configuration file breaks.
@@ -29,11 +28,9 @@ type Problem struct {
 	excerpt string
 }
 
-// Error reports configuration Feat refuses to use.
-//
-// It carries every problem rather than the first one. A configuration file is
-// edited by hand, and finding four mistakes one round trip at a time is four
-// times the work of seeing them together.
+// Error reports configuration Feat refuses to use. It carries every problem rather
+// than the first one, because a configuration file is edited by hand and one round
+// trip per mistake is four times the work.
 type Error struct {
 	// File is the configuration file the problems were found in.
 	File string
@@ -41,14 +38,14 @@ type Error struct {
 	// file where that is known.
 	Problems []Problem
 
-	// source is the file's bytes, kept so that Annotated can show a problem in
-	// place. It is not exported: configuration is the user's own text, and
-	// nothing should copy it around by accident.
+	// source is the file's bytes, kept so Annotated can show a problem in place. It
+	// stays unexported because configuration is the user's own text, and nothing
+	// should copy it around by accident.
 	source []byte
 }
 
-// Error renders the problems without source excerpts, so that the message stays
-// usable in a log line, an API response, and a test assertion.
+// Error renders the problems without source excerpts, so the message stays usable in
+// a log line, an API response, and a test assertion.
 func (e *Error) Error() string {
 	var out strings.Builder
 	out.WriteString(e.summary())
@@ -63,10 +60,9 @@ func (e *Error) Error() string {
 	return out.String()
 }
 
-// Annotated renders the problems with an excerpt of the file around each one.
-//
-// It is what a terminal should print: the location of a mistake in a nested
-// YAML document is most of the work of fixing it.
+// Annotated renders the problems with an excerpt of the file around each one. A
+// terminal prints this, because locating a mistake in a nested YAML document is most
+// of the work of fixing it.
 func (e *Error) Annotated() string {
 	var out strings.Builder
 	out.WriteString(e.summary())
@@ -97,12 +93,9 @@ func (e *Error) summary() string {
 	return subject + " has " + plural(len(e.Problems), "problem") + ":"
 }
 
-// excerpt returns the lines of the file around a problem.
-//
-// A decoding problem arrives with its own excerpt, because the decoder knows
-// exactly which byte it rejected. A semantic problem is located by looking its
-// path up in the document, which fails harmlessly when the problem is that the
-// value is not there at all.
+// excerpt returns the lines of the file around a problem. A decoding problem arrives
+// with its own excerpt, because the decoder knows which byte it rejected. A semantic
+// problem is located by its path, which fails harmlessly when the value is absent.
 func (e *Error) excerpt(problem Problem) string {
 	if problem.excerpt != "" {
 		return problem.excerpt
@@ -132,8 +125,8 @@ func (p *problems) add(path, reason string) {
 	p.list = append(p.list, Problem{Path: path, Reason: reason})
 }
 
-// addf records a problem only when cond holds, which keeps the caller's
-// validation rules readable as a list of rules.
+// require records a problem unless cond holds, which keeps a caller's validation
+// rules readable as a list of rules.
 func (p *problems) require(cond bool, path, reason string) {
 	if !cond {
 		p.add(path, reason)

@@ -11,51 +11,45 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// SettingsSchemaVersion is the settings schema this build understands.
-//
-// It is a second number rather than the project file's, because the two files
-// are two compatibility surfaces. A project file and a settings file describe
-// different things and change for different reasons, and one number would make
-// every change to either a version bump for both.
+// SettingsSchemaVersion is the settings schema this build understands. It is a second
+// number rather than the project file's, because the two files describe different
+// things and change for different reasons, and one number would make every change to
+// either a version bump for both.
 const SettingsSchemaVersion = 1
 
-// settingsFileName is the settings file's stem. Its extension is one of the
-// two a project file may carry, so that a user who writes ".yml" everywhere is
-// not told they must write ".yaml" here.
+// settingsFileName is the settings file's stem. Its extension is one of the two a
+// project file may carry, so a user who writes ".yml" everywhere is not told they
+// must write ".yaml" here.
 const settingsFileName = "settings"
 
-// Where a resolved settings value came from.
-//
-// `feat settings show` prints one beside every value. The file is optional and
-// on most machines absent, so without this a user cannot tell a value they set
-// from one Feat chose for them — which is the question the command exists to
-// answer.
+// Where a resolved settings value came from. `feat settings show` prints one beside
+// every value, because the file is optional and a user otherwise cannot tell a value
+// they set from one Feat chose for them.
 const (
 	originFile    = "configured"
 	originDefault = "default"
-	// originEditor is the tell that made review a settings section rather than a
-	// project one: the editor default already reaches for a user-level source,
-	// and until now there was no user-level file for it to reach for.
+	// originEditor is why review is a settings section rather than a project one: the
+	// editor default already reaches for a user-level source, and until this file
+	// there was none for it to reach for.
 	originEditor = "from $EDITOR"
 )
 
-// Settings is what Feat is told once for this machine and this user, rather
-// than once per project.
+// Settings is what Feat is told once for this machine and this user, rather than once
+// per project.
 //
-// Three sections are here rather than in project configuration because none of
-// them is a fact about a project. Sampling the machine's resources produces one
-// machine-wide number, so a per-project interval had to be reconciled by a rule
-// ("the most eager project wins") that existed only because the setting was
-// misplaced; notifications are about the person at the keyboard and the desktop
-// they are using; and the review commands are that person's tools, which the
-// editor default has always said out loud by falling back to $EDITOR (ADR-079).
+// Three sections are here rather than in project configuration because none of them
+// is a fact about a project. Sampling the machine's resources produces one
+// machine-wide number, so a per-project interval needed a reconciliation rule that
+// existed only because the setting was misplaced; notifications are about the person
+// at the keyboard and the desktop they are using; and the review commands are that
+// person's tools, which the editor default reaches for by falling back to $EDITOR
+// (ADR-079).
 //
-// There is deliberately no per-project override. Precedence rules are
-// load-bearing and hard to remove once written, and nothing has yet asked for
-// one — an override can be added later, on evidence that somebody wants it.
+// There is deliberately no per-project override. Precedence rules are load-bearing
+// and hard to remove once written, and nothing has yet asked for one.
 //
-// The file is optional. Every value has a documented default, so the file
-// exists to change one, and a machine that has written none still has settings.
+// The file is optional. Every value has a documented default, so the file exists to
+// change one, and a machine that has written none still has settings.
 type Settings struct {
 	// Version is the settings schema version. It must be SettingsSchemaVersion.
 	Version int `yaml:"version"`
@@ -75,28 +69,23 @@ type Settings struct {
 	// resolved records that Resolve has run, so that a caller cannot validate or
 	// use unfilled defaults by mistake.
 	resolved bool
-	// origins records where each described value came from, keyed by the dotted
-	// path Describe prints. It is filled by Resolve, which is the only moment
-	// the difference between "the file said so" and "Feat chose it" is still
-	// visible.
+	// origins records where each described value came from, keyed by the dotted path
+	// Describe prints. Resolve fills it, because that is the last moment the file's
+	// own values and Feat's are still distinguishable.
 	origins map[string]string
 }
 
-// SettingsFile returns the settings file path.
-//
-// It is beside the projects directory rather than inside it, because it is not
-// one project's answer to anything: a file in projects/ is named after the
-// project it describes, and this one would have no such name.
+// SettingsFile returns the settings file path. It sits beside the projects directory
+// rather than inside it, because a file in projects/ is named after the project it
+// describes and this one describes none.
 func SettingsFile(dir string) string {
 	return filepath.Join(dir, settingsFileName+extensions[0])
 }
 
-// FindSettings returns the settings file, or an empty path when there is none.
-//
-// Both accepted extensions are looked for, and finding two is an error rather
-// than a preference, for the reason a project configured twice is one: which of
-// them Feat used would otherwise depend on a rule the user has no reason to
-// know, and the one they edited might be the other one.
+// FindSettings returns the settings file, or an empty path when there is none. Both
+// accepted extensions are looked for, and finding two is an error for the reason a
+// project configured twice is: which one Feat used would depend on a rule the user
+// has no reason to know.
 func FindSettings(dir string) (string, error) {
 	var found []string
 	for _, extension := range extensions {
@@ -119,12 +108,9 @@ func FindSettings(dir string) (string, error) {
 	}
 }
 
-// LoadSettings reads, resolves, and validates the global settings.
-//
-// A missing file is not an error, which is the one place this differs from
-// loading a project. A project Feat was asked about and cannot find is a
-// question with no answer; settings Feat was never told are settings it has,
-// because every value here has a default and the file exists to change one.
+// LoadSettings reads, resolves, and validates the global settings. A missing file is
+// not an error, which is the one place this differs from loading a project: every
+// value here has a default, so a machine that wrote no file still has settings.
 func LoadSettings(dir string, opts Options) (*Settings, error) {
 	file, err := FindSettings(dir)
 	if err != nil {
@@ -159,10 +145,9 @@ func LoadSettingsFile(file string, opts Options) (*Settings, error) {
 	return settings, nil
 }
 
-// DefaultSettings returns the settings of a machine that has written no file.
-//
-// Every value is a default and Describe says so of each one, so that the output
-// of `feat settings show` is the same shape whether or not a file exists.
+// DefaultSettings returns the settings of a machine that has written no file. Every
+// value is a default and Describe says so of each one, so `feat settings show` prints
+// the same shape whether or not a file exists.
 func DefaultSettings(opts Options) (*Settings, error) {
 	settings := &Settings{Version: SettingsSchemaVersion}
 	if err := settings.Resolve(opts); err != nil {
@@ -174,12 +159,10 @@ func DefaultSettings(opts Options) (*Settings, error) {
 	return settings, nil
 }
 
-// ParseSettings decodes one settings document.
-//
-// Decoding is strict in both directions that matter to a hand-edited file, for
-// the reasons Parse gives: a field Feat does not know is an error rather than a
-// value silently ignored, and a key given twice is an error rather than a value
-// silently discarded.
+// ParseSettings decodes one settings document. Decoding is strict in both directions
+// that matter to a hand-edited file, for the reasons Parse gives: a field Feat does
+// not know is an error rather than a value silently ignored, and so is a key given
+// twice.
 func ParseSettings(file string, data []byte) (*Settings, error) {
 	settings := &Settings{path: file, source: data}
 
@@ -196,13 +179,11 @@ func (s *Settings) Path() string { return s.path }
 // SettingsTemplate is the file `feat settings init` writes, and the documented
 // example in docs/examples/settings.yaml. A test holds the two together.
 //
-// Every value is commented out and only the version is live. That is the same
-// rule `feat project init` follows and it matters more here, not less: a default
-// written down is a value that stops following Feat when Feat's own changes, and
-// this whole file is defaults. What it is for is being read and edited, so it
-// shows each value where it goes rather than leaving the user to find it in a
-// schema — and `feat settings show` will say every one of them is a default
-// until a line is uncommented, which is the truth (ADR-062, ADR-079).
+// Every value is commented out and only the version is live, as in `feat project
+// init`: a default written down stops following Feat when Feat's own changes, and
+// this whole file is defaults. It still shows each value where it goes rather than
+// leaving the user to find it in a schema, and `feat settings show` reports every one
+// as a default until a line is uncommented (ADR-062, ADR-079).
 const SettingsTemplate = `# Feat's settings for this machine and this user.
 #
 # Everything here is global: it applies to every project, and there is no
@@ -276,20 +257,19 @@ version: 1
 #  sample_interval: 2s
 `
 
-// DocumentEditor returns the editor command for opening one document that is
-// not a repository, with the argument that would have named one left off.
+// DocumentEditor returns the editor command for opening one document that is not a
+// repository, with the argument that would have named one left off.
 //
 // The configured command names an editor, its flags, and the thing it opens. A
-// publication draft and this settings file are both the third of those without
-// being the first two's subject, so the flags are kept — ` + "`nvim --clean`" + ` has to
-// stay ` + "`nvim --clean`" + `, or the editor behaves differently from everywhere else —
-// and a placeholder argument is dropped rather than expanded, because every
-// placeholder in this command is about a repository and none of them is this
-// document.
+// publication draft and this settings file are the third of those without being the
+// first two's subject, so the flags are kept: `nvim --clean` has to stay `nvim
+// --clean`, or the editor behaves differently from everywhere else. A placeholder
+// argument is dropped rather than expanded, because every placeholder in this command
+// is about a repository.
 //
-// It returns nothing when no editor is configured, which is the documented case:
-// the editor falls back to $EDITOR, and the process that can see one is the
-// client's rather than the daemon's (FR-REV-003).
+// It returns nothing when no editor is configured, which is the documented case: the
+// editor falls back to $EDITOR, and the client's process can see one where the
+// daemon's cannot (FR-REV-003).
 func (r ReviewSection) DocumentEditor() []string {
 	if r.Editor.Empty() {
 		return nil
@@ -307,10 +287,9 @@ func (r ReviewSection) DocumentEditor() []string {
 	return vector
 }
 
-// Resolve fills the defaults and records which values it had to fill.
-//
-// It touches no file. Everything it needs beyond the document is in Options:
-// the environment $EDITOR is read from, and nothing else.
+// Resolve fills the defaults and records which values it had to fill. It touches no
+// file: everything it needs beyond the document is in Options, which is the
+// environment $EDITOR is read from and nothing else.
 func (s *Settings) Resolve(opts Options) error {
 	if s.resolved {
 		return nil
@@ -326,11 +305,9 @@ func (s *Settings) Resolve(opts Options) error {
 	return nil
 }
 
-// resolveReview fills the review commands and records where each came from.
-//
-// The editor has three origins rather than two, and the third is the reason
-// this section is here at all: an unset command falls back to $EDITOR, which is
-// the user's own tool named by the user's own environment.
+// resolveReview fills the review commands and records where each came from. The
+// editor has three origins rather than two, because an unset command falls back to
+// $EDITOR, which is the user's own tool named by their own environment.
 func (s *Settings) resolveReview(opts Options) {
 	s.mark("review.diff.command", !s.Review.Diff.Empty())
 	s.mark("review.status.command", !s.Review.Status.Empty())
@@ -350,9 +327,9 @@ func (s *Settings) resolveReview(opts Options) {
 	}
 }
 
-// resolveIntervals fills and parses the durations, which are held as strings so
-// that a malformed one is reported against its own field rather than by the
-// YAML decoder, which cannot name the field a custom scalar type failed in.
+// resolveIntervals fills and parses the durations, which are held as strings so a
+// malformed one is reported against its own field rather than by the YAML decoder,
+// which cannot name the field a custom scalar type failed in.
 func (s *Settings) resolveIntervals() error {
 	s.mark("notifications.desktop", s.Notifications.Desktop != nil)
 	s.mark("notifications.suppress_while_attached", s.Notifications.SuppressWhileAttached != nil)
@@ -392,11 +369,9 @@ func (s *Settings) mark(path string, configured bool) {
 	s.origins[path] = originDefault
 }
 
-// Validate reports every rule the resolved settings break.
-//
-// It checks shape only, exactly as Validate does for a project: whether the
-// configured editor is installed on this machine is a host question, and it
-// belongs to `feat doctor`.
+// Validate reports every rule the resolved settings break. It checks shape only,
+// exactly as Validate does for a project: whether the configured editor is installed
+// on this machine is a host question, and it belongs to `feat doctor`.
 func (s *Settings) Validate() error {
 	if !s.resolved {
 		return fmt.Errorf("the settings must be resolved before they are validated")
@@ -413,12 +388,9 @@ func (s *Settings) Validate() error {
 	return found.err(s.path, s.source)
 }
 
-// Describe renders the resolved settings.
-//
-// It is what `feat settings show` prints: the values Feat will act on with the
-// defaults filled in, each marked with where it came from. A default a user
-// cannot see is a default they cannot check, and a value they cannot tell from
-// a default is one they cannot tell they set.
+// Describe renders the resolved settings. It is what `feat settings show` prints: the
+// values Feat will act on with the defaults filled in, each marked with where it came
+// from, so a user can tell a value they set from one Feat chose.
 func (s *Settings) Describe() []Section {
 	return []Section{s.describeReview(), s.describeNotifications(), s.describeResources()}
 }

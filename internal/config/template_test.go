@@ -41,12 +41,10 @@ func TestExpandFillsTheDocumentedPlaceholders(t *testing.T) {
 	}
 }
 
-// TestExpandRefusesWhatItCannotFill checks the closed vocabulary.
-//
-// A name Feat does not expand must never survive into a branch name, a path, or
-// a command argument, and neither must a placeholder this particular expansion
-// has no value for: an empty expansion is how two tasks end up sharing one
-// branch.
+// TestExpandRefusesWhatItCannotFill checks the closed vocabulary. A name Feat does
+// not expand must never survive into a branch name, a path, or a command argument,
+// and neither must a placeholder this expansion has no value for, because an empty
+// expansion is how two tasks end up sharing one branch.
 func TestExpandRefusesWhatItCannotFill(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -117,16 +115,15 @@ func TestUsesFindsAPlaceholder(t *testing.T) {
 	}
 }
 
-// TestProjectPrefixNamesTheDirectoryAProjectKeeps separates the three
-// directories a worktree root generates, because each of them is treated
-// differently and only their boundaries say which is which.
+// TestProjectPrefixNamesTheDirectoryAProjectKeeps separates the three directories a
+// worktree root generates, because each is treated differently and only their
+// boundaries say which is which.
 //
-// The fixed prefix is shared by every project on the machine, a task's own
-// directory goes when the task is cleaned up, and what is between them belongs
-// to the project: it survives the last task and is not a directory nobody
-// claims. A layout that generates nothing between them answers with the fixed
-// prefix, so both rules apply from there rather than from a directory that does
-// not exist.
+// The fixed prefix is shared by every project on the machine, a task's own directory
+// goes when the task is cleaned up, and what is between them belongs to the project:
+// it survives the last task and is not a directory nobody claims. A layout that
+// generates nothing between them answers with the fixed prefix, so both rules apply
+// from there rather than from a directory that does not exist.
 func TestProjectPrefixNamesTheDirectoryAProjectKeeps(t *testing.T) {
 	for _, tc := range []struct {
 		template string
@@ -153,11 +150,9 @@ func TestProjectPrefixNamesTheDirectoryAProjectKeeps(t *testing.T) {
 	}
 }
 
-// TestSlugIsSafeInABranchName checks what a task title becomes.
-//
-// The slug reaches a branch name, so what matters is that nothing survives it
-// that Git, a filesystem, or a command line would treat as something other than
-// text.
+// TestSlugIsSafeInABranchName checks what a task title becomes. The slug reaches a
+// branch name, so nothing may survive it that Git, a filesystem, or a command line
+// would treat as something other than text.
 func TestSlugIsSafeInABranchName(t *testing.T) {
 	for _, tc := range []struct {
 		title string

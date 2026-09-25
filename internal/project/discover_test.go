@@ -150,10 +150,9 @@ func TestTheMountsWritingIntoAWorktreeAreCollected(t *testing.T) {
 // TestWithoutAContainerPathNoMountIsJudgedByItsTarget is the property that keeps
 // this reading out of everything that is not `feat doctor`.
 //
-// The wizard reads these files to derive a container path and does not have one
-// yet, and the daemon reads them for build contexts. Neither asks where a mount
-// writes, so neither is answered about it: the same document read without a
-// container path is the document as it read before any of this existed.
+// The wizard reads these files to derive a container path and does not have one yet,
+// and the daemon reads them for build contexts. Neither asks where a mount writes, so
+// neither is answered about it.
 func TestWithoutAContainerPathNoMountIsJudgedByItsTarget(t *testing.T) {
 	root := t.TempDir()
 	repository, devcontainer, file := mountFixtureFiles(t, root)
@@ -335,13 +334,11 @@ func TestTheSubdirectoriesAreSearchedInOrder(t *testing.T) {
 
 // TestOverlaysAreFoundBesideTheirBaseFile is the defect a real run found.
 //
-// The reference project keeps everything that matters in `docker-compose.dev.yml`:
-// the bind mounts a task worktree replaces, the reset of a published port, and,
-// in one repository, the only service anybody runs — the base file beside it
-// builds a static image. Offering only the four names Compose looks for by
-// default proposed a runtime with no container path at all, which is the
-// configuration ADR-065 evidence 1 describes, reached through the command meant
-// to prevent it.
+// A project can keep everything that matters in `docker-compose.dev.yml`: the bind
+// mounts a task worktree replaces, the reset of a published port, and sometimes the
+// only service anybody runs, while the base file beside it builds a static image.
+// Offering only the four names Compose looks for by default proposed a runtime with
+// no container path at all, which is the configuration ADR-065 evidence 1 describes.
 func TestOverlaysAreFoundBesideTheirBaseFile(t *testing.T) {
 	root := repositoryWith(t, map[string]string{
 		"docker-compose.yml":      "services: {}\n",
@@ -585,15 +582,13 @@ func TestARelativePathIsReadAgainstTheRepository(t *testing.T) {
 }
 
 // TestABuildContextIsReadBesideAnInterpolatedArgument is the service this whole
-// reading exists for, in the shape the reference project writes it.
+// reading exists for, in the shape a real project writes it.
 //
-// Its frontend is a multi-stage build ending in nginx: it mounts nothing
-// anywhere, so its build context is the only thing that decides what it runs
-// (ADR-065 evidence 4). The context is a plain ".", and beside it is a
-// build argument carrying a "${...}" — a value Feat never reads and has no
-// business reading. Judging the interpolation on the whole `build` mapping made
-// the plainest build context in the project unreadable, and a reader that cannot
-// see it cannot see the failure it exists to find.
+// A multi-stage build ending in a web server mounts nothing anywhere, so its build
+// context is the only thing that decides what it runs (ADR-065 evidence 4). The
+// context is a plain ".", and beside it is a build argument carrying a "${...}",
+// which is a value Feat never reads. Judging the interpolation on the whole `build`
+// mapping makes the plainest build context in the project unreadable.
 func TestABuildContextIsReadBesideAnInterpolatedArgument(t *testing.T) {
 	root := repositoryWith(t, map[string]string{"docker-compose.yml": `services:
   site:
@@ -666,14 +661,13 @@ func TestABuildContextInsideTheRepositoryIsTheRepositorys(t *testing.T) {
 	}
 }
 
-// TestTheMountsIntoARepositoryAreCollected covers what the reader used to
-// discard.
+// TestTheMountsIntoARepositoryAreCollected covers the mounts that name something
+// other than the repository root.
 //
-// Everything that is not the repository root was dropped, because it is not a
-// candidate for the container path. It is still a path the mount needs: a task
-// works in a worktree and a worktree holds only what Git tracks, so a bind of an
-// ignored file is a bind of something that will not be there. Whether it is
-// tracked is Git's answer and `feat doctor`'s question; this reads the paths.
+// Such a path is no candidate for the container path, and it is still a path the
+// mount needs: a task works in a worktree and a worktree holds only what Git tracks,
+// so a bind of an ignored file is a bind of something that will not be there. Whether
+// it is tracked is Git's answer and `feat doctor`'s question; this reads the paths.
 func TestTheMountsIntoARepositoryAreCollected(t *testing.T) {
 	root := t.TempDir()
 	repository := filepath.Join(root, "api")
@@ -734,15 +728,15 @@ func TestTheMountsIntoARepositoryAreCollected(t *testing.T) {
 	}
 }
 
-// TestATildeIsResolvedTheWayComposeResolvesIt is the spelling that used to
-// answer a different question from the one Compose is asked.
+// TestATildeIsResolvedTheWayComposeResolvesIt is the spelling that answers a
+// different question from the one Compose is asked unless it is expanded.
 //
-// Docker Compose expands a leading "~" against the user's home directory —
-// measured against v2.40 — so a repository mounted as `~/repos/api` is the same
-// mount as one written absolutely, and a devcontainer's `~/.claude` is the home
-// directory rather than something inside the repository. Feat joined both to the
-// project directory, which made the first invisible and the second look like a
-// path a task's worktree would have to hold.
+// Docker Compose expands a leading "~" against the user's home directory, measured
+// against v2.40, so a repository mounted as `~/repos/api` is the same mount as one
+// written absolutely, and a devcontainer's `~/.claude` is the home directory rather
+// than something inside the repository. Joining both to the project directory would
+// make the first invisible and the second look like a path a task's worktree has to
+// hold.
 func TestATildeIsResolvedTheWayComposeResolvesIt(t *testing.T) {
 	home := t.TempDir()
 	repository := filepath.Join(home, "repos", "api")
@@ -771,8 +765,8 @@ func TestATildeIsResolvedTheWayComposeResolvesIt(t *testing.T) {
 		Repository: repository,
 	}.Read(file)
 
-	// The repository, mounted where the file says it is. This is the whole point:
-	// the container path is derivable from a file written this way, and was not.
+	// The repository, mounted where the file says it is, so the container path is
+	// derivable from a file written this way.
 	dev, known := composition.Service("dev")
 	if !known {
 		t.Fatal("the service was not read at all")
@@ -780,9 +774,9 @@ func TestATildeIsResolvedTheWayComposeResolvesIt(t *testing.T) {
 	if !slices.Equal(dev.SourceTargets, []string{"/srv/api"}) {
 		t.Errorf("the repository's own mount is %v, want [/srv/api]", dev.SourceTargets)
 	}
-	// A build context written the same way resolves the same way. Joined to the
-	// project directory it became <devcontainer>/~/repos/api — a path that exists
-	// nowhere, and one a task's build would have been redirected at.
+	// A build context written the same way resolves the same way. Joined to the project
+	// directory it would be <devcontainer>/~/repos/api, a path that exists nowhere and
+	// one a task's build would be redirected at.
 	if dev.BuildContext != repository || !dev.BuildsFromSource {
 		t.Errorf("the build context is %q, built from source %t, want the repository",
 			dev.BuildContext, dev.BuildsFromSource)

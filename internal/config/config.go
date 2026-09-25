@@ -8,25 +8,21 @@ import (
 	"time"
 )
 
-// SchemaVersion is the configuration schema this build understands.
-//
-// It is the version a file declares in its `version` field. A file that
-// declares another version is rejected rather than interpreted, because a
-// configuration Feat half-understands would produce resources the user did not
-// ask for.
+// SchemaVersion is the configuration schema this build understands, as a file
+// declares it in its `version` field. A file declaring another version is rejected
+// rather than interpreted, because a configuration Feat half-understands would
+// produce resources the user did not ask for.
 const SchemaVersion = 1
 
 // Config is one project's configuration, as authored in YAML.
 //
-// The Go type is the file format: the JSON Schema in schema/ describes these
-// fields, and a test keeps the two in step. That is deliberate, and it is the
-// opposite of the choice made for stored documents in internal/store/fs, which
-// are a separate representation from the domain. Here the file is the only
-// representation there is, so a second copy would be a second thing to keep
-// correct rather than a boundary worth having.
+// The Go type is the file format: the JSON Schema in schema/ describes these fields,
+// and a test keeps the two in step. Stored documents in internal/store/fs are a
+// separate representation from the domain, and this is the opposite choice, because
+// here the file is the only representation there is.
 //
-// A parsed Config is not usable until Resolve has expanded its paths and filled
-// its defaults, and Validate has accepted it. Load does all three.
+// A parsed Config is not usable until Resolve has expanded its paths and filled its
+// defaults, and Validate has accepted it. Load does all three.
 type Config struct {
 	// Version is the configuration schema version. It must be SchemaVersion.
 	Version int `yaml:"version"`
@@ -99,25 +95,23 @@ type Repository struct {
 // RepositoryAgent is where the agent's own execution environment puts one
 // repository.
 //
-// It is separate from RepositoryRuntime because the two answer different
-// questions with different owners: where the agent's devcontainer mounts a
-// worktree is the user's free choice, and where an application's own services
-// expect their source is a fact about that application's Compose files. One
-// field could not say both (ADR-065 evidence 5).
+// It is separate from RepositoryRuntime because where the agent's devcontainer mounts
+// a worktree is the user's free choice, and where an application's own services
+// expect their source is a fact about that application's Compose files. One field
+// could not say both (ADR-065 evidence 5).
 type RepositoryAgent struct {
 	// ContainerPath is where task worktrees are mounted in the devcontainer.
 	ContainerPath string `yaml:"container_path"`
 }
 
-// RepositoryRuntime is what one repository contributes to the project's
-// application runtime.
+// RepositoryRuntime is what one repository contributes to the project's application
+// runtime.
 //
-// A runtime is composed of its repositories: each brings its own Compose files,
-// resolved against its own checkout, and Feat generates the `include` document
-// that joins them. Listing two repositories' files together instead would
-// resolve every relative path against the first one's directory, so the second
-// repository's build contexts and bind sources would point into the first
-// (ADR-065 evidence 2).
+// Each repository brings its own Compose files, resolved against its own checkout,
+// and Feat generates the `include` document that joins them. Listing two
+// repositories' files together would resolve every relative path against the first
+// one's directory, pointing the second's build contexts and bind sources into the
+// first (ADR-065 evidence 2).
 type RepositoryRuntime struct {
 	// ComposeFiles are the Compose files this repository brings. A relative path
 	// resolves against the repository's own checkout, which is also the project
@@ -137,21 +131,17 @@ type RepositoryRuntime struct {
 
 // RepositoryForge is where one repository's merge requests are opened.
 //
-// It is per repository rather than per project because a repository lives on
-// exactly one forge and a task may span several: a project holding a private
-// repository and a public dependency publishes to two, and a publication is one
-// merge request per changed repository (ADR-071 evidence 3).
+// It is per repository rather than per project because a repository lives on exactly
+// one forge and a task may span several. A project holding a private repository and a
+// public dependency publishes to two, and a publication is one merge request per
+// changed repository (ADR-071 evidence 3).
 //
-// It is separate from the project's tracker for the same reason the two
-// sections exist at all: a forge hosts code and a tracker holds tickets, and
-// neither implies the other (ADR-071).
+// It is separate from the project's tracker because a forge hosts code and a tracker
+// holds tickets, and neither implies the other (ADR-071).
 type RepositoryForge struct {
-	// Kind is the forge this repository publishes to.
-	//
-	// It is declared rather than inferred, because inference works only where
-	// the remote's host is one Feat recognises: a self-hosted instance is not
-	// guessable, and guessing wrong would open a merge request somewhere the
-	// user did not mean (ADR-071).
+	// Kind is the forge this repository publishes to. It is declared rather than
+	// inferred, because a self-hosted instance is not guessable and guessing wrong
+	// would open a merge request somewhere the user did not mean (ADR-071).
 	Kind string `yaml:"kind"`
 }
 
@@ -212,13 +202,12 @@ func (e ExecutionSection) Devcontainer() bool { return e.Mode == ModeDevcontaine
 
 // ClaudeSection holds Claude Code settings.
 type ClaudeSection struct {
-	// ConfigVolume is the dedicated Claude configuration volume, which keeps
-	// one interactive login out of the user's own ~/.claude.
+	// ConfigVolume is the dedicated Claude configuration volume, which keeps one
+	// interactive login out of the user's own ~/.claude.
 	//
-	// It is optional. Without it Feat mounts nothing and sets no
-	// CLAUDE_CONFIG_DIR, leaving the provider's configuration to whatever the
-	// project's own Compose files supply — which a project that deliberately
-	// mounts the user's ~/.claude is entitled to do (ADR-033).
+	// It is optional. Without it Feat mounts nothing and sets no CLAUDE_CONFIG_DIR,
+	// leaving the provider's configuration to the project's own Compose files, which
+	// may deliberately mount the user's ~/.claude (ADR-033).
 	ConfigVolume string `yaml:"config_volume"`
 	// ConfigPath is where ConfigVolume is mounted in the devcontainer, and the
 	// value of CLAUDE_CONFIG_DIR. It means nothing without a volume.
@@ -233,30 +222,24 @@ type ClaudeSection struct {
 // IdleGrace returns the parsed idle grace period.
 func (c ClaudeSection) IdleGrace() time.Duration { return c.idleGracePeriod }
 
-// CapabilitiesSection declares what the agent environment may reach.
-//
-// Docker is what is left of it (ADR-080). A capability belongs here when Feat
-// stands between what a project declares and what the agent's environment turns
-// out to be; `network` and `git` did not, and the exposure they described is
-// stated where it holds regardless of any declaration
-// (docs/05-security-model.md).
+// CapabilitiesSection declares what the agent environment may reach. Docker is what
+// is left of it (ADR-080). A capability belongs here when Feat stands between what a
+// project declares and what the agent's environment turns out to be; `network` and
+// `git` did not, and docs/05-security-model.md states the exposure they described.
 type CapabilitiesSection struct {
-	// Docker is the agent's Docker access. Only "denied" is accepted: Feat has
-	// no mechanism that grants an agent Docker, so any other value would be a
-	// promise the binary does not keep. Unlike the two capabilities removed with
-	// it, the declaration is checked: a launch refuses a container that carries
-	// a client speaking a container runtime's API, and `feat doctor` asks a
-	// running one the same question.
+	// Docker is the agent's Docker access. Only "denied" is accepted, because Feat has
+	// no mechanism that grants an agent Docker and any other value would be a promise
+	// the binary does not keep. The declaration is checked: a launch refuses a
+	// container carrying a client that speaks a container runtime's API, and `feat
+	// doctor` asks a running one the same question.
 	Docker string `yaml:"docker"`
 }
 
-// RuntimeSection configures the application services of a task.
-//
-// What the application is made of is not here: the Compose files and the
-// managed services belong to the repositories that bring them
-// (RepositoryRuntime). What is left is the whole runtime's own settings — how
-// it is driven, when it starts, what is layered over it, and what its Compose
-// project is called.
+// RuntimeSection configures the application services of a task. What the application
+// is made of is not here: the Compose files and the managed services belong to the
+// repositories that bring them (RepositoryRuntime). What is left is the whole
+// runtime's own settings: how it is driven, when it starts, what is layered over it,
+// and what its Compose project is called.
 type RuntimeSection struct {
 	// Provider is the runtime adapter. Compose is the only v0 provider.
 	Provider string `yaml:"provider"`
@@ -278,19 +261,17 @@ type RuntimeSection struct {
 	// on, written "<first>-<last>". Feat allocates one port per reachable
 	// service per task from it and releases them when the runtime is destroyed.
 	PortRange string `yaml:"port_range"`
-	// BindAddress is the host address Feat publishes an allocated port on when
-	// the project's own Compose files named none.
+	// BindAddress is the host address Feat publishes an allocated port on when the
+	// project's own Compose files named none.
 	//
-	// It defaults to the loopback address, so a task's services answer on the
-	// machine running them and nowhere else. The alternative is not a smaller
-	// exposure written differently: a port bound to every interface is reachable
-	// from every other machine on whatever network this one is on, and from every
-	// container on this one — which is one task's agent able to dial another
-	// task's database. Widening it is a decision a user makes, for the case that
-	// wants it, such as reaching a dev server from a phone on the same network.
+	// It defaults to the loopback address, so a task's services answer on the machine
+	// running them and nowhere else. A port bound to every interface is reachable from
+	// every other machine on this one's network and from every container on it, which
+	// is one task's agent able to dial another task's database. Widening it is the
+	// user's decision, for a case such as reaching a dev server from a phone.
 	//
-	// An address the project's own file named is kept as it is: this is the
-	// default for a publication that named none, not an address applied over one.
+	// An address the project's own file named is kept as it is, because this is the
+	// default for a publication that named none.
 	BindAddress string `yaml:"bind_address"`
 
 	portRange PortRange
@@ -299,12 +280,10 @@ type RuntimeSection struct {
 // Ports returns the parsed host port range.
 func (r RuntimeSection) Ports() PortRange { return r.portRange }
 
-// PortRange is the span of host ports a project's tasks may be published on.
-//
-// It is a range rather than a single port because a published port is global to
-// the machine: the whole point is that a second task gets a different one, and
-// what bounds the choice has to be the user's, since these are ports on their
-// own machine.
+// PortRange is the span of host ports a project's tasks may be published on. It is a
+// range rather than a single port because a published port is global to the machine,
+// so a second task gets a different one. The user bounds the choice, because these
+// are ports on their own machine.
 type PortRange struct {
 	// First and Last are inclusive.
 	First int
@@ -328,11 +307,9 @@ func (p PortRange) String() string { return strconv.Itoa(p.First) + "-" + strcon
 // Contains reports whether a port lies in the range.
 func (p PortRange) Contains(port int) bool { return !p.Empty() && port >= p.First && port <= p.Last }
 
-// ParsePortRange reads the "<first>-<last>" form.
-//
-// Both ends are required. A single number would be a range of one, which is a
-// project that can run one task's application and is far more likely to be a
-// typing mistake than a decision.
+// ParsePortRange reads the "<first>-<last>" form. Both ends are required, because a
+// single number would be a range of one, which is far more likely a typing mistake
+// than a project that can run one task's application.
 func ParsePortRange(value string) (PortRange, error) {
 	first, last, found := strings.Cut(strings.TrimSpace(value), "-")
 	if !found {
@@ -349,11 +326,9 @@ func ParsePortRange(value string) (PortRange, error) {
 	return PortRange{First: from, Last: to}, nil
 }
 
-// ReviewSection configures the external commands review opens.
-//
-// It belongs to the machine's settings rather than to a project: these are the
-// user's own tools, which the editor default has always said out loud by falling
-// back to $EDITOR (ADR-079).
+// ReviewSection configures the external commands review opens. It belongs to the
+// machine's settings rather than to a project, because these are the user's own
+// tools, which is why the editor default falls back to $EDITOR (ADR-079).
 type ReviewSection struct {
 	// Diff opens the change of one repository against its recorded base.
 	Diff Command `yaml:"diff"`
@@ -385,37 +360,32 @@ type Check struct {
 	Execution string `yaml:"execution"`
 }
 
-// TrackerSection configures where a project's tickets come from.
+// TrackerSection configures where a project's tickets come from. It is per project
+// because a ticket seeds a task, and a task belongs to one project.
 //
-// It is per project because the thing a ticket seeds is a task, and a task
-// belongs to one project. Feat does not model where tickets live: trackers do
-// not agree on it — issues hang off a repository, stories off a workspace, a
-// board off an organisation — so the section says how to obtain a list and the
-// scope of that list belongs to whatever produces it (ADR-071 evidence 2 and 4).
+// Feat does not model where tickets live, because trackers do not agree: issues hang
+// off a repository, stories off a workspace, a board off an organisation. The section
+// says how to obtain a list, and the scope of that list belongs to whatever produces
+// it (ADR-071 evidence 2 and 4).
 type TrackerSection struct {
-	// Kind is how tickets are obtained.
-	//
-	// A configured command is the only kind, so the field decides nothing
-	// today. It is here because the configuration file is a compatibility
-	// surface: a discriminator added after that surface is finalised means
-	// either a breaking change or an inference from which fields happen to be
-	// present (ADR-071).
+	// Kind is how tickets are obtained. A configured command is the only kind, so the
+	// field decides nothing today. The configuration file is a compatibility surface,
+	// and a discriminator added after it is finalised means either a breaking change
+	// or an inference from which fields happen to be present (ADR-071).
 	Kind string `yaml:"kind"`
 	// Command prints the user's tickets as JSON conforming to
-	// schema/feat-tickets.schema.json, and is held as an argument vector for
-	// the reason every other user-supplied command is.
+	// schema/feat-tickets.schema.json, and is held as an argument vector for the
+	// reason every other user-supplied command is.
 	//
-	// Feat passes it no filter: a filter vocabulary would have to map onto
-	// every tracker's query language, and iteration is exactly where that
-	// fails. What the user's tickets are is the command's decision (ADR-071).
+	// Feat passes it no filter, because a filter vocabulary would have to map onto
+	// every tracker's query language and iteration is where that fails. What the
+	// user's tickets are is the command's decision (ADR-071).
 	Command []string `yaml:"command"`
 }
 
-// NotificationsSection configures attention notifications.
-//
-// It belongs to the machine's settings rather than to a project: being
-// interrupted is about the person at the keyboard and the desktop they are
-// using, neither of which varies by repository (ADR-079).
+// NotificationsSection configures attention notifications. It belongs to the
+// machine's settings rather than to a project, because being interrupted is about the
+// person at the keyboard and the desktop they are using (ADR-079).
 type NotificationsSection struct {
 	// Desktop enables desktop notifications. Unset means true.
 	Desktop *bool `yaml:"desktop"`
@@ -440,10 +410,9 @@ func (n NotificationsSection) SuppressedWhileAttached() bool {
 // IdleGrace returns the parsed idle grace period.
 func (n NotificationsSection) IdleGrace() time.Duration { return n.idleGracePeriod }
 
-// ResourcesSection configures resource sampling.
-//
-// It belongs to the machine's settings rather than to a project: one sample
-// measures the whole machine, whatever project asked for it (ADR-079).
+// ResourcesSection configures resource sampling. It belongs to the machine's settings
+// rather than to a project, because one sample measures the whole machine, whatever
+// project asked for it (ADR-079).
 type ResourcesSection struct {
 	// SampleInterval is how often whole-machine and per-task resources are
 	// sampled. Sampling is observational and never blocks task creation.
@@ -462,10 +431,9 @@ func (c *Config) Path() string { return c.path }
 // ID returns the project identifier.
 func (c *Config) ID() string { return c.Project.ID }
 
-// RepositoryIDs returns the repository identifiers in a stable order.
-//
-// YAML mappings have no order a Go map preserves, so Feat imposes one rather
-// than letting the order of a printed table depend on a hash seed.
+// RepositoryIDs returns the repository identifiers in a stable order. YAML mappings
+// have no order a Go map preserves, so Feat imposes one rather than letting a printed
+// table depend on a hash seed.
 func (c *Config) RepositoryIDs() []string {
 	ids := make([]string, 0, len(c.Repositories))
 	for id := range c.Repositories {
@@ -487,13 +455,10 @@ func (c *Config) Primary() (Repository, bool) { return c.Repository(c.Project.Pr
 // HasRuntime reports whether the project configures an application runtime.
 func (c *Config) HasRuntime() bool { return c.Runtime != nil }
 
-// RuntimeContribution is one repository's part of the application runtime,
-// already joined with the repository facts a caller would otherwise look up.
-//
-// It exists so that everything composing a runtime reads the same list in the
-// same order — the daemon generating the include document, `feat doctor`
-// checking the files, and `feat project show` printing them — rather than each
-// walking the repositories with its own idea of which ones count.
+// RuntimeContribution is one repository's part of the application runtime, joined
+// with the repository facts a caller would otherwise look up. Everything composing a
+// runtime reads the same list in the same order: the daemon generating the include
+// document, `feat doctor` checking the files, and `feat project show` printing them.
 type RuntimeContribution struct {
 	// RepositoryID identifies the repository within the project.
 	RepositoryID string
@@ -514,12 +479,9 @@ type RuntimeContribution struct {
 }
 
 // RuntimeComposition returns the repositories contributing to the application
-// runtime, in repository order.
-//
-// A project with no runtime section contributes nothing, whatever its
-// repositories say: a contribution to a runtime that does not exist is a
-// configuration error rather than something to act on, and validation reports
-// it as one.
+// runtime, in repository order. A project with no runtime section contributes
+// nothing, whatever its repositories say, because a contribution to a runtime that
+// does not exist is a configuration error validation reports.
 func (c *Config) RuntimeComposition() []RuntimeContribution {
 	if c.Runtime == nil {
 		return nil
@@ -545,13 +507,13 @@ func (c *Config) RuntimeComposition() []RuntimeContribution {
 // RuntimeServices returns every service the project asks Feat to manage, in
 // repository order and without repetition.
 //
-// It is the list a create and a start target, and it is not the whole of what
-// runs: Compose starts whatever those services depend on, and everything it
-// starts belongs to the task's own Compose project (ADR-034).
+// It is the list a create and a start target, and not the whole of what runs: Compose
+// starts whatever those services depend on, and everything it starts belongs to the
+// task's own Compose project (ADR-034).
 //
 // A service two repositories both name appears once. Naming it twice is not a
-// mistake — a service that runs an application and a shared library it depends
-// on runs the code of two repositories — but Compose is asked for it once.
+// mistake, because a service can run the code of an application and of a shared
+// library it depends on, but Compose is asked for it once.
 func (c *Config) RuntimeServices() []string {
 	var services []string
 	seen := make(map[string]bool)
@@ -568,10 +530,8 @@ func (c *Config) RuntimeServices() []string {
 }
 
 // RuntimeReachable returns every service a repository declares reachable, in
-// repository order and without repetition.
-//
-// It is the list Feat allocates a host port for. A service two repositories
-// both declare is reached at one address, because it is one service.
+// repository order and without repetition. Feat allocates a host port for each, and a
+// service two repositories both declare is reached at one address.
 func (c *Config) RuntimeReachable() []string {
 	var services []string
 	seen := make(map[string]bool)
@@ -587,9 +547,9 @@ func (c *Config) RuntimeReachable() []string {
 	return services
 }
 
-// Accepted values. They are the vocabularies docs/07-configuration-model.md
-// documents, and validation names the accepted values when it rejects one, so
-// a user never has to find this list in source.
+// Accepted values, the vocabularies docs/07-configuration-model.md documents.
+// Validation names them when it rejects a value, so a user never has to find this
+// list in source.
 const (
 	// PolicyRemote resolves the base from the configured remote-tracking
 	// branch after a fetch. It is the recommended default.
@@ -610,16 +570,15 @@ const (
 	// EnvHostAgent opts a daemon in to launching agents on this host even for a
 	// project that configures a container.
 	//
-	// It is deliberately an environment variable of the daemon rather than a
-	// flag on a request or a field in project configuration: a request that
-	// could move an agent outside its configured boundary would be a caller
-	// granting itself a capability (ADR-032).
+	// It is an environment variable of the daemon rather than a flag on a request or
+	// a field in project configuration, because a request that could move an agent
+	// outside its configured boundary would be a caller granting itself a capability
+	// (ADR-032).
 	//
-	// It is named here, beside the modes it overrides, rather than in the daemon
-	// that reads it, because the two commands that print a project's execution
-	// mode — `feat doctor` and `feat project show` — run without a daemon and
-	// cannot see its environment. What they can do is name the variable that
-	// decides whether the mode they printed is the one in force.
+	// It is named here, beside the modes it overrides, because `feat doctor` and
+	// `feat project show` print a project's execution mode without a daemon and
+	// cannot see its environment. Naming the variable lets them say what decides
+	// whether the mode they printed is in force.
 	EnvHostAgent = "FEAT_HOST_AGENT"
 
 	// ProviderClaude is the Claude Code adapter.
