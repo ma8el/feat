@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         npm \
         make \
         sudo \
+        jq \
     && rm -rf /var/lib/apt/lists/*
 
 # The GitHub CLI from its own repository rather than Debian's, which lags far
