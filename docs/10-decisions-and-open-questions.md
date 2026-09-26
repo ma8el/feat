@@ -535,6 +535,12 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   supported in bash, zsh, and fish; project arguments complete without a daemon,
   and task identifiers do not complete. It settles what ADR-099 deferred.
 
+- **[ADR-103 — No telemetry is enforced at import, and stops at a subprocess](decisions/ADR-103-no-telemetry-is-enforced-at-import-and-stops-at-a-subprocess.md)** · accepted  
+  A depguard rule denies the packages that dial a host outside the socket and
+  its client, and a guard test follows `go list -deps` for the shipped binary.
+  Subprocesses, raw syscall sockets and an HTTP client inside the socket
+  packages are outside the promise. It makes ADR-022's "no telemetry" checkable.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is
