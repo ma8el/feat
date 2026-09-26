@@ -2,20 +2,18 @@ package api
 
 // Diagnosis is one `feat doctor` run, in the shape a screen can draw.
 //
-// It crosses this package rather than internal/project's own types because the
-// dashboard is a client and reaches no adapter (ADR-031): the checks run where
-// the host commands are built, and what comes back is data. Nothing publishes
-// it over the socket today — diagnosis works before a daemon exists (ADR-028),
-// so it is run by the process the user is in front of — and it is described
-// here so that a daemon that publishes one later changes no renderer.
+// It lives here rather than in internal/project because the dashboard is a client
+// and reaches no adapter (ADR-031). Nothing publishes it over the socket: doctor
+// works before a daemon exists, so the process the user is in front of runs it
+// (ADR-028). Describing it here lets a daemon publish one later without changing
+// a renderer.
 type Diagnosis struct {
 	// Host holds the findings about this machine, which no project changes.
 	Host []Finding `json:"host"`
 	// Projects holds the findings for each project that was checked.
 	Projects []ProjectDiagnosis `json:"projects"`
-	// Environment says where the checks were run from, because that is what
-	// they are about. A check is only true of the process that ran it: a tool
-	// on this terminal's PATH is not necessarily on the daemon's.
+	// Environment says where the checks ran. A check is only true of the process
+	// that ran it: a tool on this terminal's PATH need not be on the daemon's.
 	Environment string `json:"environment"`
 }
 
@@ -31,22 +29,22 @@ type ProjectDiagnosis struct {
 
 // Finding is one diagnostic result.
 type Finding struct {
-	// Check names what was checked, in the same dotted form configuration uses
-	// where there is a corresponding field.
+	// Check names what was checked, in the dotted form configuration uses where
+	// there is a corresponding field.
 	Check string `json:"check"`
 	// Severity is how much the finding demands: ok, skipped, warning, or error.
 	Severity string `json:"severity"`
 	// Summary says what was found.
 	Summary string `json:"summary"`
-	// Action says what to do about it, and is empty when there is nothing to do.
+	// Action says what to do about it, empty when there is nothing to do.
 	Action string `json:"action,omitempty"`
 }
 
 // Severities a finding may carry.
 //
-// Skipped is not a pass. A diagnostic that claimed a check it did not run would
-// be worse than no diagnostic at all, so a skipped check says why it did not
-// run and is counted separately wherever findings are counted (ADR-033).
+// Skipped is not a pass. A skipped check says why it did not run and is counted
+// separately wherever findings are counted, so no diagnostic claims a check it
+// never ran (ADR-033).
 const (
 	SeverityOK      = "ok"
 	SeveritySkipped = "skipped"

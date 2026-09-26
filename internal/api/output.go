@@ -2,41 +2,32 @@ package api
 
 // The documents `--json` prints.
 //
-// Three of the four reading commands print what the daemon already answered
-// them with — a task list, a review, a runtime status — so their shapes are the
-// ones above and there is one model rather than a second to keep in step. What
-// is here is the two that have no shape already: the envelope a list needs to
-// be an object, and the resolved project configuration, which `feat project
-// show` reads from the configuration directory rather than over the socket.
+// Three of the four reading commands print what the daemon already answered them
+// with — a task list, a review, a runtime status — so their shapes are the wire
+// types above and there is one model rather than two to keep in step. The two
+// shapes here had none: the envelope a list needs to be an object, and the
+// resolved project configuration, which `feat project show` reads from the
+// configuration directory rather than over the socket.
 //
-// The mapping from a loaded configuration to ProjectConfiguration is the CLI's,
-// because the CLI is what loads one. This package describes the shape and does
-// not acquire a dependency on internal/config to fill it in.
+// The CLI maps a loaded configuration onto ProjectConfiguration, because the CLI
+// is what loads one. This package describes the shape and takes no dependency on
+// internal/config to fill it in.
 
 // TaskList is the document `feat task list --json` prints.
 //
-// It is an envelope around the array rather than the array itself, so that
-// every document this CLI prints is an object and a field can be added to one
-// without changing what a parser is looking at.
-//
-// It holds what the table holds. Archived is why the envelope earns its place:
-// a list that quietly left tasks out would be a document a caller could not
-// tell was partial.
+// It is an envelope around the array rather than the array itself, so every
+// document this CLI prints is an object and a field can be added without changing
+// what a parser looks at.
 type TaskList struct {
 	// Tasks are the tasks the list shows, newest first.
 	Tasks []Task `json:"tasks"`
 	// Archived is how many archived tasks there are, whether or not this list
 	// shows them.
 	//
-	// Archived is terminal and nothing prunes it: every task ever cleaned up and
-	// every draft ever abandoned stays, so a list that carried them would grow
-	// without bound while the tasks somebody is working on stayed few. They are
-	// left out unless --all was given, and this is what says how many — so a
-	// caller can tell a partial list from a whole one.
-	//
-	// It counts the same tasks either way, because it is a fact about the tasks
-	// rather than about the list. Saying nought under --all would be a document
-	// reporting no archived tasks while carrying them.
+	// The archive is terminal and nothing prunes it, so the list leaves archived
+	// tasks out unless --all was given, and this count is how a caller tells a
+	// partial list from a whole one. It counts the same tasks either way, because
+	// it is a fact about the tasks rather than about the list.
 	Archived int `json:"archived"`
 }
 
@@ -44,14 +35,10 @@ type TaskList struct {
 // configuration Feat will act on, after "~" expansion and after defaults are
 // filled.
 //
-// It is a resolved view rather than the configuration file's own shape. The
-// file is what `schema/feat-project.schema.json` describes, and reproducing it
-// here would be a second model of the same document to keep in step with the
-// first.
-//
-// Files that may hold secrets appear as paths and never as contents, which is a
-// property of what the configuration package holds rather than a filter applied
-// here: nothing ever read them.
+// It is a resolved view rather than the configuration file's own shape, which
+// `schema/feat-project.schema.json` already describes. Files that may hold
+// secrets appear as paths and never as contents, because nothing ever read
+// them.
 type ProjectConfiguration struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -64,18 +51,16 @@ type ProjectConfiguration struct {
 	// words the table prints: a dotted configuration path, the value Feat will
 	// use, and a note where one is needed.
 	//
-	// They are names and values rather than a typed object for the reason the
-	// type comment gives. What a caller reads them for is what Feat resolved,
-	// and a caller who wants the configuration's own shape has the file.
+	// They are names and values rather than a typed object, because a caller who
+	// wants the configuration's own shape has the file.
 	Sections []ConfigurationSection `json:"sections"`
 }
 
 // ConfiguredRepository is one repository's resolved place.
 //
-// Every field is present whether or not it has a value, so that a caller can
-// read one without asking whether the key is there. An empty agent path is a
-// host-native project; an empty runtime path is a repository whose code no
-// service runs.
+// Every field is present whether or not it has a value, so a caller can read one
+// without asking whether the key is there. An empty agent path is a host-native
+// project; an empty runtime path is a repository whose code no service runs.
 type ConfiguredRepository struct {
 	ID string `json:"id"`
 	// HostPath is the ordinary checkout, after expansion.
@@ -108,8 +93,7 @@ type ConfigurationField struct {
 	Name string `json:"name"`
 	// Value is the resolved value as it will be used.
 	Value string `json:"value"`
-	// Note explains a value that would otherwise need explaining, such as a
-	// default Feat filled in or a file it does not read. It is empty when there
-	// is nothing to explain.
+	// Note explains a value that needs it, such as a default Feat filled in or a
+	// file it does not read. It is empty otherwise.
 	Note string `json:"note"`
 }

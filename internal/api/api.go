@@ -19,11 +19,11 @@ import (
 
 // Service is what the API needs from the daemon.
 //
-// Most methods are reads. Registration and live-target reconciliation may
-// update persistent observations, and both go through the daemon for the reason
-// ADR-008 gives: the daemon is the only writer of persistent state. The
-// interface is declared here so that the transport can be tested with a fake
-// and the daemon can implement it without a cycle.
+// Most methods are reads. Registration and live-target reconciliation may update
+// persistent observations, and both go through the daemon because it is the only
+// writer of persistent state (ADR-008). The interface is declared here so the
+// transport can be tested with a fake and the daemon can implement it without a
+// cycle.
 type Service interface {
 	// Health reports what the daemon knows about itself. It answers even when
 	// part of the state is unreadable, saying so in the report.
@@ -33,22 +33,21 @@ type Service interface {
 	// Project returns one project, or an error matching ErrNotFound.
 	Project(ctx context.Context, id domain.ProjectID) (*domain.Project, error)
 	// RegisterProject reads the project's configuration file, validates it, and
-	// records the project. It is idempotent: registering a project that is
-	// already registered re-reads its configuration and updates the record,
-	// which is what a user who edited their YAML expects.
+	// records the project. It is idempotent: registering an already registered
+	// project re-reads its configuration and updates the record, which is what a
+	// user who edited their YAML expects.
 	//
-	// It returns an error matching ErrNotFound when no configuration file
-	// exists, and one matching ErrInvalid when the file does not validate.
+	// It returns an error matching ErrNotFound when no configuration file exists,
+	// and one matching ErrInvalid when the file does not validate.
 	RegisterProject(ctx context.Context, id domain.ProjectID) (RegisteredProject, error)
 	// Tickets runs the project's configured tracker command and returns the
 	// tickets it printed, validated against the shape Feat publishes.
 	//
-	// It runs the command every time it is asked, because that is the only way
-	// to learn what the user's tickets are now: the command decides what they
-	// are and Feat passes it no filter, so there is nothing to re-filter and
-	// nothing worth caching in place of asking (ADR-071). A project that
-	// configures no tracker returns an error matching ErrNotFound, and output
-	// that does not conform one matching ErrInvalid.
+	// It runs the command every time, because the command decides what the user's
+	// tickets are and Feat passes it no filter, so there is nothing worth caching
+	// in place of asking (ADR-071). A project that configures no tracker returns
+	// an error matching ErrNotFound, and output that does not conform one matching
+	// ErrInvalid.
 	Tickets(ctx context.Context, id domain.ProjectID) (TicketList, error)
 	// Tasks returns every task of every project, ordered by project and task.
 	Tasks(ctx context.Context) ([]*domain.Task, error)
@@ -62,12 +61,9 @@ type Service interface {
 	// ErrInvalid rather than one of them, and one that names none returns an
 	// error matching ErrNotFound. Both say where a valid value is printed.
 	ResolveTask(ctx context.Context, ref domain.TaskRef) (domain.TaskID, error)
-	// Verification returns what the agent reported about its own checks, and
-	// false when it has reported none.
-	//
-	// It is separate from the task because it lives in the review aggregate,
-	// where docs/03-domain-model.md puts an agent-reported completion summary
-	// and agent-reported checks.
+	// Verification returns what the agent reported about its own checks, and false
+	// when it has reported none. It is separate from the task because it lives in
+	// the review aggregate (docs/03-domain-model.md).
 	Verification(ctx context.Context, id domain.TaskID) (Verification, bool, error)
 	// CreateDraft records a new task draft and creates nothing else. No
 	// worktree, branch, terminal, or container exists until the draft is
@@ -85,19 +81,18 @@ type Service interface {
 	LaunchDraft(ctx context.Context, id domain.TaskID, confirmation Confirmation) (*domain.Task, error)
 	// CancelDraft abandons a draft, archiving the record.
 	CancelDraft(ctx context.Context, id domain.TaskID) (*domain.Task, error)
-	// TerminalFrame returns one rendered view of a task's pane, after setting
-	// the pane to the size the caller will draw it into.
+	// TerminalFrame returns one rendered view of a task's pane, after setting the
+	// pane to the size the caller will draw it into.
 	//
 	// It is display and never a source of truth: the daemon reads nothing out of
-	// the bytes it returns, and every task state continues to come from provider
-	// hooks (ADR-042). A caller that wants a real terminal, with scrollback and a
-	// mouse, attaches instead.
+	// the bytes, and every task state comes from provider hooks (ADR-042). A
+	// caller that wants scrollback and a mouse attaches instead.
 	TerminalFrame(ctx context.Context, id domain.TaskID, view TerminalView) (TerminalFrame, error)
 	// SendTerminalInput delivers keys or typed text to a task's pane.
 	//
 	// This is a write to a running agent, so the request is validated rather than
-	// trusted, and the caller names a task rather than a pane: resolving which
-	// pane belongs to a task is the daemon's, as every other tmux operation is.
+	// trusted. The caller names a task rather than a pane, because resolving which
+	// pane belongs to a task is the daemon's job.
 	SendTerminalInput(ctx context.Context, id domain.TaskID, input TerminalInput) error
 	// AttachInfo resolves a task's live, tagged tmux target. The client uses the
 	// returned stable IDs to attach its own terminal to native tmux.
@@ -114,29 +109,26 @@ type Service interface {
 	// RuntimeLogs returns the host command that opens the task's normal Compose
 	// logs. Feat does not aggregate or persist them (FR-RUN-006).
 	RuntimeLogs(ctx context.Context, id domain.TaskID) (RuntimeCommand, error)
-	// Review performs one review action and returns what the task's review
-	// shows: every repository compared against its own recorded base commit,
-	// the check results with who produced each one, and the configured external
-	// commands expanded for this task.
+	// Review performs one review action and returns what the task's review shows:
+	// every repository compared against its own recorded base commit, the check
+	// results with who produced each one, and the configured external commands
+	// expanded for this task.
 	//
-	// No action starts, stops, or removes anything. Approval is a statement
-	// about the work, and the runtime the user was testing it in is theirs
-	// (FR-REV-004, ADR-034).
+	// No action starts, stops, or removes anything, so the runtime the user was
+	// testing in stays theirs (FR-REV-004, ADR-034).
 	Review(ctx context.Context, id domain.TaskID, action ReviewAction) (ReviewResult, error)
-	// PublicationPlan composes what publishing a task would do — one merge
-	// request per changed repository, from the agent's draft together with the
-	// remote, the base branch, and the commit — and records nothing.
-	//
-	// It is the document the user reads and edits. Nothing reaches a forge on
-	// the strength of it (ADR-070).
+	// PlanPublication composes what publishing a task would do — one merge request
+	// per changed repository, from the agent's draft together with the remote, the
+	// base branch, and the commit — and records nothing. It is the document the
+	// user reads and edits, and nothing reaches a forge on the strength of it
+	// (ADR-070).
 	PlanPublication(ctx context.Context, id domain.TaskID) (PublicationResult, error)
-	// Publish opens one merge request per approved repository.
+	// ApplyPublication opens one merge request per approved repository.
 	//
-	// It records the whole plan before it attempts anything and each result
-	// before the next repository begins, so that an interrupted publication
-	// names what it had not yet attempted. Nothing is rolled back: a partial
-	// publication is a recorded state, because a merge request that was just
-	// opened cannot be un-created reliably (ADR-073).
+	// It records the whole plan before it attempts anything, and each result
+	// before the next repository begins, so an interrupted publication names what
+	// it had not yet attempted. Nothing is rolled back, because a merge request
+	// that was just opened cannot be un-created reliably (ADR-073).
 	ApplyPublication(ctx context.Context, id domain.TaskID, request PublishRequest) (PublicationResult, error)
 	// Reconciliation returns the most recent reconciliation pass without
 	// running one, and false when none has run.
@@ -154,24 +146,21 @@ type Service interface {
 	Cleanup(ctx context.Context, id domain.TaskID, selection CleanupSelection) (CleanupResult, error)
 	// Resume continues a task's recorded agent session in a new terminal.
 	//
-	// It is an offered recovery and never an automatic restart: nothing in
+	// It is an offered recovery and never an automatic restart. Nothing in
 	// reconciliation reaches it, and it continues the provider session the task
 	// recorded rather than opening an empty one (ADR-032, ADR-037).
 	Resume(ctx context.Context, id domain.TaskID) (*domain.Task, error)
 	// Stop stops the environment a task's agent session runs in, keeping the
-	// containers so that a resume starts the same ones again.
+	// containers so a resume starts the same ones again.
 	//
-	// It is the only way to stop a task's agent short of removing it, and it is
-	// reversible by exactly one act: resuming the session that owns the
-	// environment (ADR-057).
+	// It is the only way to stop a task's agent short of removing it, and resuming
+	// the session that owns the environment is what undoes it (ADR-057).
 	Stop(ctx context.Context, id domain.TaskID) (*domain.Task, error)
 	// Resources returns the most recent resource sample.
 	//
-	// It reads what a background sampler collected rather than taking a sample:
-	// asking the container runtime what it is using costs between one and two
-	// seconds, and a metric that could slow a request would eventually be a
-	// metric that failed one. Sampling is observational and never blocks anything
-	// (FR-UI-005, ADR-035).
+	// It reads what a background sampler collected rather than taking one, because
+	// asking the container runtime what it is using costs one to two seconds.
+	// Sampling is observational and blocks nothing (FR-UI-005, ADR-035).
 	Resources(ctx context.Context) (ResourceReport, error)
 	// Subscribe returns the event stream for one client. The channel is closed
 	// when the context ends, or when the subscriber fell too far behind, which
@@ -181,14 +170,14 @@ type Service interface {
 
 // Limits applied to every request.
 const (
-	// maxRequestBody bounds a request body. The limit was in place before the
-	// first endpoint that read one.
+	// maxRequestBody bounds a request body, so no client can make the daemon
+	// allocate without limit.
 	maxRequestBody = 1 << 20
 	// writeTimeout bounds one non-streaming response. The event stream clears
 	// its deadline instead, because an idle stream is not a stuck one.
 	writeTimeout = 15 * time.Second
-	// defaultHeartbeat is how often an idle event stream writes a comment, so
-	// that a client and the daemon both notice a connection that has died.
+	// defaultHeartbeat is how often an idle event stream writes a comment, so a
+	// client and the daemon both notice a connection that has died.
 	defaultHeartbeat = 15 * time.Second
 )
 
@@ -199,7 +188,7 @@ type Options struct {
 	// Logger records requests and unexpected failures. A nil logger discards
 	// them.
 	Logger *slog.Logger
-	// Heartbeat is the event-stream keepalive interval. Zero uses the default;
+	// Heartbeat is the event-stream keepalive interval. Zero uses the default, and
 	// a negative value disables heartbeats, which only a test wants.
 	Heartbeat time.Duration
 }
@@ -215,8 +204,8 @@ func NewHandler(opts Options) http.Handler {
 	server := &server{service: opts.Service, logger: opts.Logger, heartbeat: opts.Heartbeat}
 
 	mux := http.NewServeMux()
-	// The patterns carry no method, so that a wrong method produces the same
-	// JSON error shape as everything else rather than net/http's plain text.
+	// The patterns carry no method, so a wrong method produces the same JSON error
+	// shape as everything else rather than net/http's plain text.
 	mux.Handle("/v1/health", get(server.health))
 	mux.Handle("/v1/events", get(server.events))
 	mux.Handle("/v1/projects", route(map[string]http.HandlerFunc{
@@ -224,10 +213,10 @@ func NewHandler(opts Options) http.Handler {
 		http.MethodPost: server.registerProject,
 	}))
 	mux.Handle("/v1/projects/{project_id}", get(server.project))
-	// A project's tickets hang off the project because the tracker is
-	// configured there: a task is what a ticket seeds, and a task belongs to one
-	// project (ADR-071). It is a GET because it records nothing; what it does is
-	// run somebody's command and read what it printed.
+	// A project's tickets hang off the project because the tracker is configured
+	// there, and a ticket seeds a task that belongs to one project (ADR-071). It
+	// is a GET because it records nothing: it runs somebody's command and reads
+	// what that printed.
 	mux.Handle("/v1/projects/{project_id}/tickets", get(server.tickets))
 	mux.Handle("/v1/resources", get(server.resources))
 	mux.Handle("/v1/tasks", get(server.tasks))
@@ -238,41 +227,40 @@ func NewHandler(opts Options) http.Handler {
 	mux.Handle("/v1/tasks/{task_id}/shell", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.shell,
 	}))
-	// A frame is a POST because asking for one sets the pane's size, which
-	// changes something; the input endpoint is separate because sending keys to
-	// an agent is a different capability from looking at one.
+	// A frame is a POST because asking for one sets the pane's size. The input
+	// endpoint is separate because sending keys to an agent is a different
+	// capability from looking at one.
 	mux.Handle("/v1/tasks/{task_id}/terminal", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.terminalFrame,
 	}))
 	mux.Handle("/v1/tasks/{task_id}/terminal/input", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.terminalInput,
 	}))
-	// One endpoint per manual action, because each is a separate thing a user
-	// asks for and the path is what names it. Destroy is the only one carrying a
-	// body, and what it carries is the confirmation.
+	// One endpoint per manual action, because the path is what names what a user
+	// asked for. Destroy is the only one carrying a body, and it carries the
+	// confirmation.
 	mux.Handle("/v1/tasks/{task_id}/runtime/{action}", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.runtime,
 	}))
 	mux.Handle("/v1/tasks/{task_id}/runtime/logs-info", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.runtimeLogs,
 	}))
-	// The review actions follow the same rule as the runtime's: an action Feat
-	// does not perform is a path that does not exist, rather than a request the
-	// daemon has to interpret. Observing is a POST because it observes and
-	// records what it observed.
+	// The review actions follow the runtime's rule: an action Feat does not
+	// perform is a path that does not exist, rather than a request the daemon has
+	// to interpret. Observing is a POST because it records what it observed.
 	mux.Handle("/v1/tasks/{task_id}/review/{action}", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.review,
 	}))
-	// Publication sits beside review because it is the other half of the end of
-	// a task, and its two actions are plan and apply for the reason cleanup's
-	// are: what is sent has to be what the user read. The apply is the only one
-	// carrying a body, and what it carries is the words the user approved.
+	// Publication sits beside review because it is the other half of the end of a
+	// task. Its two actions are plan and apply for the reason cleanup's are: what
+	// is sent has to be what the user read. Apply is the only one carrying a body,
+	// and it carries the words the user approved.
 	mux.Handle("/v1/tasks/{task_id}/publication/{action}", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.publication,
 	}))
-	// The two cleanup endpoints are plan and execute rather than one request,
-	// for the reason preparation is plan and launch: what is removed has to be
-	// what the user read, and a plan token is how the second request proves it
+	// The two cleanup endpoints are plan and execute rather than one request, for
+	// the reason preparation is plan and launch: what is removed has to be what
+	// the user read, and the plan token is how the second request proves it
 	// (FR-CLEAN-001, ADR-037).
 	mux.Handle("/v1/tasks/{task_id}/cleanup/plan", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.cleanupPlan,
@@ -280,21 +268,21 @@ func NewHandler(opts Options) http.Handler {
 	mux.Handle("/v1/tasks/{task_id}/cleanup/execute", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.cleanupExecute,
 	}))
-	// Resuming a dead agent session is its own path, because it is its own thing
-	// a user asks for. Nothing else reaches it: reconciliation reports that a
-	// session can be resumed and never resumes one.
+	// Resuming a dead agent session is its own path, because it is its own thing a
+	// user asks for. Reconciliation reports that a session can be resumed and
+	// never resumes one.
 	mux.Handle("/v1/tasks/{task_id}/resume", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.resume,
 	}))
-	// Stopping one is the inverse and is a sibling rather than an action under a
-	// noun of its own: there is no third verb for an agent environment, because
+	// Stopping one is the inverse, and a sibling rather than an action under a
+	// noun of its own. There is no third verb for an agent environment, because
 	// coming back is always a resume of the session that owns it (ADR-057).
 	mux.Handle("/v1/tasks/{task_id}/stop", route(map[string]http.HandlerFunc{
 		http.MethodPost: server.stop,
 	}))
 	// Reading the last pass and running a new one are the same resource: GET
 	// answers with what was found, and POST looks again. It is the shape runtime
-	// status uses — an observation is a POST because it records what it
+	// status uses, where an observation is a POST because it records what it
 	// observed.
 	mux.Handle("/v1/reconciliation", route(map[string]http.HandlerFunc{
 		http.MethodGet:  server.reconciliation,
@@ -324,8 +312,8 @@ type server struct {
 	logger    *slog.Logger
 	heartbeat time.Duration
 
-	// requests numbers requests so that a log line about a failure can be
-	// matched with the request that caused it.
+	// requests numbers requests, so a log line about a failure can be matched with
+	// the request that caused it.
 	requests atomic.Uint64
 }
 
@@ -360,8 +348,8 @@ func (s *server) projects(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) project(w http.ResponseWriter, r *http.Request) {
 	id := domain.ProjectID(r.PathValue("project_id"))
-	// The identifier is validated before it reaches the daemon, so a malformed
-	// one can never be joined into a path.
+	// The identifier is validated before it reaches the daemon, so a malformed one
+	// can never be joined into a path.
 	if err := id.Validate(); err != nil {
 		s.fail(w, r, err)
 		return
@@ -379,9 +367,8 @@ func (s *server) project(w http.ResponseWriter, r *http.Request) {
 //
 // The request carries the project identifier and nothing else. The daemon reads
 // the file from the configuration directory it resolved for itself, so no
-// caller-supplied filesystem path crosses the socket, and the file Feat
-// validates is the one at the documented location rather than one a client
-// pointed it at (docs/05-security-model.md, local daemon API).
+// caller-supplied path crosses the socket (docs/05-security-model.md, local
+// daemon API).
 func (s *server) registerProject(w http.ResponseWriter, r *http.Request) {
 	var request RegisterProject
 	if err := decodeBody(r, &request); err != nil {
@@ -401,8 +388,8 @@ func (s *server) registerProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 201 for a project Feat did not have, 200 for one it re-read. A user who
-	// runs the command twice should be able to tell which happened.
+	// 201 for a project Feat did not have, 200 for one it re-read, so a user who
+	// runs the command twice can tell which happened.
 	status := http.StatusOK
 	if registered.Created {
 		status = http.StatusCreated
@@ -415,9 +402,9 @@ func (s *server) registerProject(w http.ResponseWriter, r *http.Request) {
 
 // tickets lists what a project's tracker command printed.
 //
-// Nothing is sent but the project identifier. Which tickets are the user's is
-// the command's decision, and Feat passes it no filter, so there is no query
-// for a caller to supply and none for this handler to validate (ADR-071).
+// Nothing is sent but the project identifier. Which tickets are the user's is the
+// command's decision, and Feat passes it no filter, so there is no query for this
+// handler to validate (ADR-071).
 func (s *server) tickets(w http.ResponseWriter, r *http.Request) {
 	id := domain.ProjectID(r.PathValue("project_id"))
 	if err := id.Validate(); err != nil {
@@ -432,7 +419,7 @@ func (s *server) tickets(w http.ResponseWriter, r *http.Request) {
 	}
 	if list.Tickets == nil {
 		// Always a list rather than null, so a client can iterate the response
-		// without a nil check. A user with no tickets is an answer.
+		// without a nil check.
 		list.Tickets = []Ticket{}
 	}
 	writeJSON(w, http.StatusOK, list)
@@ -440,10 +427,9 @@ func (s *server) tickets(w http.ResponseWriter, r *http.Request) {
 
 // resources returns the most recent resource sample.
 //
-// It is a GET because it changes nothing, and it changes nothing because it
-// reads a sample somebody else took. A metric that a request collected would be
-// a metric a request could be slowed or failed by, and metrics are the one thing
-// in Feat that must never do either (FR-UI-005).
+// It is a GET because it reads a sample the background sampler took rather than
+// collecting one. A metric a request collected could slow or fail that request
+// (FR-UI-005).
 func (s *server) resources(w http.ResponseWriter, r *http.Request) {
 	report, err := s.service.Resources(r.Context())
 	if err != nil {
@@ -465,11 +451,10 @@ func (s *server) tasks(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	// One lookup per task rather than one for the list: the review lives in its
-	// own aggregate, and the number of tasks a user runs at once is small by
-	// construction. A task whose verification cannot be read is rendered without
-	// one, because a dashboard that failed entirely over a check summary would
-	// be worse than a dashboard missing a column.
+	// One lookup per task rather than one for the list, because the review lives
+	// in its own aggregate and a user runs few tasks at once. A task whose
+	// verification cannot be read is rendered without one, so a dashboard does not
+	// fail entirely over a check summary.
 	verifications := make(map[string]Verification, len(tasks))
 	for _, task := range tasks {
 		reported, ok, err := s.service.Verification(r.Context(), task.ID)
@@ -575,8 +560,8 @@ func (s *server) attachInfo(w http.ResponseWriter, r *http.Request) {
 // shell opens or finds the task's shell pane.
 //
 // The request carries a task identifier and nothing else. The daemon decides
-// which program runs and where, because a caller-supplied command would be a
-// command the daemon runs on its owner's behalf.
+// which program runs and where, because it would run a caller-supplied command on
+// its owner's behalf.
 func (s *server) shell(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.taskID(w, r, "task_id")
 	if !ok {
@@ -620,9 +605,9 @@ func (s *server) cleanupPlan(w http.ResponseWriter, r *http.Request) {
 // cleanupExecute removes exactly the classes a selection names.
 //
 // The body carries a plan token, the classes chosen, and the warnings the user
-// accepted — identifiers and confirmations, never a path. A request with no
-// token is refused here rather than reaching the resolver, because "which plan
-// was this" is the one question a destructive request must not leave open.
+// accepted — identifiers and confirmations, never a path. A request with no token
+// is refused here rather than at the resolver, because a destructive request must
+// say which plan it was shown.
 func (s *server) cleanupExecute(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.taskID(w, r, "task_id")
 	if !ok {
@@ -733,11 +718,10 @@ func fillReconciliation(report Reconciliation) Reconciliation {
 
 // runtime performs one manual application-runtime action.
 //
-// The action is a path segment rather than a field, so an unknown one is a 404
-// on an endpoint that does not exist rather than a request that reached the
-// daemon carrying an instruction it had to interpret. Every action but destroy
-// takes no body at all: what a task's services are is the daemon's to resolve
-// from the project's configuration, never the caller's to supply.
+// The action is a path segment rather than a field, so an unknown one is a 404 on
+// an endpoint that does not exist. Every action but destroy takes no body: what a
+// task's services are is the daemon's to resolve from the project's
+// configuration, never the caller's to supply.
 func (s *server) runtime(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.taskID(w, r, "task_id")
 	if !ok {
@@ -756,18 +740,16 @@ func (s *server) runtime(w http.ResponseWriter, r *http.Request) {
 
 	if action == RuntimeDestroy {
 		var request DestroyRuntime
-		// An absent body is a request that confirms nothing, which is refused
-		// below with the message that explains what confirmation means here. A
-		// body that is present and malformed is still an error: a client that
-		// tried to say something should be told it was not understood.
+		// An absent body confirms nothing and is refused below. A body that is
+		// present and malformed is still an error, so a client that tried to say
+		// something is told it was not understood.
 		if err := decodeBody(r, &request); err != nil && !errors.Is(err, io.EOF) {
 			s.fail(w, r, err)
 			return
 		}
 		if !request.Confirm {
-			// A request that removes something says that somebody meant it, which
-			// is the rule ADR-031 applied to launching a task: what is created is
-			// what was displayed, and what is removed is what was confirmed.
+			// ADR-031's rule in the other direction: what is created is what was
+			// displayed, and what is removed is what was confirmed.
 			s.fail(w, r, fmt.Errorf("%w: destroying a task's application services needs an explicit "+
 				"confirmation. Volumes are retained either way", ErrInvalid))
 			return
@@ -814,9 +796,9 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 		}})
 		return
 	}
-	// No review action carries a body. The decision is in the path, and a
-	// request that could name a command or a path would be a caller deciding
-	// what the daemon runs (ADR-034's rule for the shell endpoint).
+	// No review action carries a body. The decision is in the path, and a request
+	// that could name a command or a path would be a caller deciding what the
+	// daemon runs (ADR-034).
 	if err := decodeEmptyBody(r); err != nil {
 		s.fail(w, r, err)
 		return
@@ -849,9 +831,8 @@ func (s *server) publication(w http.ResponseWriter, r *http.Request) {
 	var result PublicationResult
 	var err error
 	if action == PublicationPlan {
-		// A plan carries no body. It asks what publishing would do, and a
-		// request that could name a title would be a caller writing the words
-		// before anybody had read them.
+		// A plan carries no body. A request that could name a title would be a
+		// caller writing the words before anybody had read them.
 		if err := decodeEmptyBody(r); err != nil {
 			s.fail(w, r, err)
 			return
@@ -964,7 +945,7 @@ func (s *server) updateDraft(w http.ResponseWriter, r *http.Request) {
 
 // planDraft resolves the draft's bases and proposes its branches and paths.
 //
-// It is a request of its own because it fetches: a network call against the
+// It is a request of its own because it fetches, and a network call against the
 // user's repositories should follow a key they pressed rather than a field they
 // edited (ADR-031).
 func (s *server) planDraft(w http.ResponseWriter, r *http.Request) {
@@ -1003,12 +984,10 @@ func (s *server) launchDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The body and the value the daemon takes hold the same fields, because
-	// every one of them is a decision the user made on the review screen and
-	// there is nothing here to resolve or validate into a different vocabulary.
-	// A field added to one and not the other stops compiling on this line, which
-	// is where a caller would rather find out than in a launch that quietly
-	// dropped it.
+	// The body and the value the daemon takes hold the same fields, because each
+	// is a decision the user made on the review screen and there is nothing to
+	// resolve into another vocabulary. A field added to one and not the other
+	// stops compiling on this line rather than being dropped by a launch.
 	task, err := s.service.LaunchDraft(r.Context(), id, Confirmation(request))
 	if err != nil {
 		s.fail(w, r, err)
@@ -1034,16 +1013,14 @@ func (s *server) cancelDraft(w http.ResponseWriter, r *http.Request) {
 
 // taskID resolves the task a request names.
 //
-// Every endpoint that takes a task comes through here, drafts included, so there
-// is one place where what a user typed becomes a task identifier. A whole
-// identifier is used as it stands: it names one task by construction, so
-// resolving it would be reading every task to learn what the caller already
-// knew, which is the path the dashboard takes on every request it makes.
+// Every endpoint that takes a task comes through here, drafts included, so one
+// place turns what a user typed into a task identifier. A whole identifier is
+// used as it stands, because it names one task by construction and the dashboard
+// sends one on every request it makes.
 //
-// Anything shorter is resolved by the daemon, and what comes back is an
-// identifier it read out of storage rather than anything a caller composed. That
-// is a stronger guarantee than the validation it replaces: no value from a
-// request reaches a filesystem path at all.
+// Anything shorter is resolved by the daemon, which returns an identifier it read
+// out of storage rather than one a caller composed. No value from a request
+// reaches a filesystem path at all.
 func (s *server) taskID(w http.ResponseWriter, r *http.Request, name string) (domain.TaskID, bool) {
 	ref := domain.TaskRef(r.PathValue(name))
 	if id, exact := ref.Exact(); exact {
@@ -1112,8 +1089,7 @@ func route(handlers map[string]http.HandlerFunc) http.Handler {
 // decodeBody reads a JSON request body strictly.
 //
 // A field the daemon does not know is an error rather than a value silently
-// ignored, for the same reason the YAML decoder rejects one: a client that
-// asked for something Feat did not do should be told, not left to assume.
+// ignored, so a client that asked for something Feat does not do is told.
 func decodeBody(r *http.Request, payload any) error {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -1132,17 +1108,16 @@ func decodeBody(r *http.Request, payload any) error {
 // decodeEmptyBody accepts a request that carries no instructions.
 //
 // An endpoint that takes only an identifier must not silently ignore a body
-// asking for something else. The daemon runs commands on its owner's behalf, so
-// a caller that sent a program to run should be told that Feat does not take
-// one rather than left believing it did.
+// asking for something else. The daemon runs commands on its owner's behalf, so a
+// caller that sent a program to run is told that Feat takes none.
 func decodeEmptyBody(r *http.Request) error {
 	var empty struct{}
 
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&empty); err != nil {
-		// No body at all means the same thing as an empty one, so `curl -X
-		// POST` works as well as the client does.
+		// No body at all means the same thing as an empty one, so `curl -X POST`
+		// works as well as the client does.
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
@@ -1170,8 +1145,8 @@ func limitBody(next http.Handler) http.Handler {
 	})
 }
 
-// recoverPanic keeps one failing request from taking the daemon down with it.
-// The daemon serves several clients and owns every task's state; a nil map in a
+// recoverPanic keeps one failing request from taking the daemon down with it. The
+// daemon serves several clients and owns every task's state, so a nil map in a
 // handler must not end the session of three running agents.
 func (s *server) recoverPanic(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1180,8 +1155,8 @@ func (s *server) recoverPanic(next http.Handler) http.Handler {
 			if recovered == nil {
 				return
 			}
-			// http.ErrAbortHandler is the documented way to abort a response,
-			// and net/http expects to handle it itself.
+			// http.ErrAbortHandler is the documented way to abort a response, and
+			// net/http expects to handle it itself.
 			if aborted, ok := recovered.(error); ok && errors.Is(aborted, http.ErrAbortHandler) {
 				panic(recovered)
 			}
@@ -1201,14 +1176,13 @@ func (s *server) recoverPanic(next http.Handler) http.Handler {
 // logRequests records one line per request.
 //
 // At debug level, because every dashboard refresh and every CLI invocation is a
-// request: an access log kept at the default level is the one thing here whose
-// volume is set by how long the daemon has been running rather than by anything
-// happening.
+// request, and an access log at the default level would grow with how long the
+// daemon has run rather than with anything happening.
 //
-// What the default level keeps is the part that reports a problem: fail logs a
-// request the daemon could not explain, and recoverPanic logs one that panicked.
-// A request rejected as malformed is not logged at either level, because the
-// client was told exactly why in the response it got back.
+// The default level keeps the part that reports a problem: fail logs a request
+// the daemon could not explain, and recoverPanic logs one that panicked. A
+// request rejected as malformed is logged at neither level, because the response
+// already told the client why.
 func (s *server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := s.requests.Add(1)
@@ -1258,15 +1232,15 @@ func (r *statusRecorder) status() int {
 	return r.code
 }
 
-// writeJSON writes one response with a bounded write deadline, so that a client
-// that stops reading cannot hold a daemon goroutine forever.
+// writeJSON writes one response with a bounded write deadline, so a client that
+// stops reading cannot hold a daemon goroutine forever.
 func writeJSON(w http.ResponseWriter, status int, payload any) {
-	// Indented output costs a few bytes on a local socket and makes both curl
-	// and the golden files readable.
+	// Indented output costs a few bytes on a local socket and makes both curl and
+	// the golden files readable.
 	body, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
-		// A DTO that cannot be marshalled is a programming error, and the
-		// response has not been started yet, so the client still gets a body.
+		// A DTO that cannot be marshalled is a programming error. The response
+		// has not been started yet, so the client still gets a body.
 		http.Error(w, `{"error":{"code":"internal_error","message":"the daemon could not encode the response"}}`,
 			http.StatusInternalServerError)
 		return
@@ -1274,15 +1248,15 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	body = append(body, '\n')
 
 	controller := http.NewResponseController(w)
-	// A writer without deadline support is fine; the deadline is a safeguard,
-	// not a requirement.
+	// A writer without deadline support is fine, because the deadline is a
+	// safeguard rather than a requirement.
 	_ = controller.SetWriteDeadline(time.Now().Add(writeTimeout))
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(status)
 	if _, err := w.Write(body); err != nil {
-		// The client went away mid-response. There is nothing left to tell it,
+		// The client went away mid-response, so there is nothing left to tell it
 		// and the access log already records the request.
 		_ = err
 	}

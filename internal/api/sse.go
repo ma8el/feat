@@ -11,10 +11,9 @@ import (
 
 // events serves GET /v1/events as a Server-Sent Events stream.
 //
-// The stream reports its own health. It opens with a hello, answers a resume
+// The stream reports its own health: it opens with a hello, answers a resume
 // attempt with an explicit resync rather than a pretended replay, and ends a
-// subscriber that fell behind with a stream_lost item instead of quietly
-// skipping events (ADR-027).
+// subscriber that fell behind with a stream_lost item (ADR-027).
 func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -25,8 +24,8 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	}
 
 	controller := http.NewResponseController(w)
-	// An event stream is open for as long as the client wants it, so the
-	// response deadline that protects ordinary requests must be cleared here.
+	// An event stream stays open for as long as the client wants it, so the
+	// response deadline that protects ordinary requests is cleared here.
 	if err := controller.SetWriteDeadline(time.Time{}); err != nil {
 		s.fail(w, r, fmt.Errorf("this connection cannot stream events: %w", err))
 		return
@@ -40,7 +39,7 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The opening item tells the client the stream is live before anything has
-	// happened, which is also how it learns that its state may be stale.
+	// happened, and that its view of state may be stale.
 	if !s.send(w, controller, Event{StreamSequence: 0, Kind: KindHello, Detail: describeStream()}) {
 		return
 	}
@@ -62,14 +61,14 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-ctx.Done():
-			// The client disconnected or the daemon is shutting down. There is
-			// nobody left to inform.
+			// The client disconnected or the daemon is shutting down, so there
+			// is nobody left to inform.
 			return
 
 		case event, open := <-events:
 			if !open {
-				// A closed channel with a live context means the subscriber
-				// fell too far behind and the daemon dropped it.
+				// A closed channel with a live context means the subscriber fell
+				// too far behind and the daemon dropped it.
 				s.send(w, controller, Event{
 					StreamSequence: delivered,
 					Kind:           KindStreamLost,
@@ -98,8 +97,8 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 
 // send writes one event and reports whether the stream is still usable.
 func (s *server) send(w http.ResponseWriter, controller *http.ResponseController, event Event) bool {
-	// Event data must be one line, so the compact encoding is required here
-	// rather than the indented one used for ordinary responses.
+	// Event data must be one line, so this uses the compact encoding rather than
+	// the indented one ordinary responses use.
 	data, err := json.Marshal(event)
 	if err != nil {
 		s.logger.Error("dropping an event that cannot be encoded",
@@ -134,9 +133,8 @@ func (s *server) newHeartbeat() heartbeat {
 	return heartbeat{ticker: time.NewTicker(s.heartbeat)}
 }
 
-// C returns the tick channel, or nil when heartbeats are disabled. A receive
-// from a nil channel blocks forever, which is exactly the wanted behaviour in
-// the select above.
+// C returns the tick channel, or nil when heartbeats are disabled. A receive from
+// a nil channel blocks forever, which is what the select above wants.
 func (h heartbeat) C() <-chan time.Time {
 	if h.ticker == nil {
 		return nil

@@ -16,9 +16,9 @@ func runtimePath(action string) string {
 
 // TestRuntimeResponseBodies pins the manual lifecycle's published surface.
 //
-// One endpoint per action, because each is a separate thing a user asks for and
-// because the path is what names it: an action Feat does not perform is a 404
-// rather than a request the daemon had to interpret.
+// One endpoint per action, because the path is what names what a user asked for.
+// An action Feat does not perform is a 404 rather than a request the daemon has
+// to interpret.
 func TestRuntimeResponseBodies(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -52,13 +52,13 @@ func TestRuntimeResponseBodies(t *testing.T) {
 	}
 }
 
-// TestDestroyingWithoutConfirmationIsRefused keeps a removal behind something
-// somebody meant.
+// TestDestroyingWithoutConfirmationIsRefused keeps a removal behind an explicit
+// confirmation.
 //
-// It is the rule ADR-031 applied in the other direction: what is created is what
-// was displayed, and what is removed is what was confirmed. Volumes are retained
-// either way, which the refusal says so that a user is not left believing the
-// confirmation is about them.
+// It is ADR-031's rule in the other direction: what is created is what was
+// displayed, and what is removed is what was confirmed. Volumes are retained
+// either way, which the refusal says so the user does not read the confirmation
+// as being about them.
 func TestDestroyingWithoutConfirmationIsRefused(t *testing.T) {
 	service := newFakeService()
 	handler := NewHandler(Options{Service: service})
@@ -86,9 +86,8 @@ func TestDestroyingWithoutConfirmationIsRefused(t *testing.T) {
 
 // TestAnUnknownRuntimeActionIsNotAnInstruction keeps the vocabulary closed.
 //
-// The action is a path segment, so something Feat does not do is an endpoint
-// that does not exist rather than a field the daemon has to decide what to make
-// of.
+// The action is a path segment, so something Feat does not do is an endpoint that
+// does not exist rather than a field the daemon has to interpret.
 func TestAnUnknownRuntimeActionIsNotAnInstruction(t *testing.T) {
 	service := newFakeService()
 	handler := NewHandler(Options{Service: service})
@@ -105,10 +104,10 @@ func TestAnUnknownRuntimeActionIsNotAnInstruction(t *testing.T) {
 // TestAPublicationSaysWhatItIsBoundOnAndNotOnlyWhereToDialIt makes the recorded
 // address readable by the surfaces that print the publication.
 //
-// The field was carried into this payload and then read by nothing: every
-// surface rendered Address, which is localhost for a loopback binding and
-// localhost for a binding on every interface. These are the two questions kept
-// apart — where to dial the service, and what the port is open to.
+// Nothing read the field: every surface rendered Address, which is localhost for
+// a loopback binding and localhost for a binding on every interface. The two
+// questions are kept apart here — where to dial the service, and what the port is
+// open to.
 func TestAPublicationSaysWhatItIsBoundOnAndNotOnlyWhereToDialIt(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		allocation PortAllocation
@@ -151,8 +150,8 @@ func TestAPublicationSaysWhatItIsBoundOnAndNotOnlyWhereToDialIt(t *testing.T) {
 				t.Errorf("bound on every interface = %t, want %t", got, testCase.everywhere)
 			}
 
-			// And the runtime answers for the whole list, which is what decides
-			// whether the sentence explaining such a binding is printed at all.
+			// The runtime answers for the whole list, which decides whether the
+			// sentence explaining such a binding is printed at all.
 			runtime := &Runtime{Allocations: []PortAllocation{
 				{HostIP: "127.0.0.1", Address: "localhost:21001"},
 				testCase.allocation,
@@ -172,8 +171,7 @@ func TestAPublicationSaysWhatItIsBoundOnAndNotOnlyWhereToDialIt(t *testing.T) {
 // follows, applied here.
 //
 // The daemon runs these commands on its owner's behalf, so a caller that sent a
-// service list, a Compose file, or a program is told that Feat does not take one
-// rather than left believing it did.
+// service list, a Compose file, or a program is told that Feat takes none.
 func TestARuntimeActionCarriesNothingToExecute(t *testing.T) {
 	service := newFakeService()
 	handler := NewHandler(Options{Service: service})

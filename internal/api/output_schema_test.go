@@ -10,24 +10,23 @@ import (
 	"github.com/ma8el/feat/internal/schematest"
 )
 
-// outputSchemaFile describes the documents `feat` prints when it is asked for
-// one with --json.
+// outputSchemaFile describes the documents `feat` prints when it is asked for one
+// with --json.
 //
-// It is not published as a compatibility promise. What it does is say what this
-// build prints, in one place a person can read, so that changing the shape is a
-// decision somebody made rather than a consequence of editing a struct. What is
-// promised about it is a later decision (ADR-099).
+// It is not a compatibility promise. It says what this build prints, in one place
+// a person can read, so changing the shape is a decision somebody made rather
+// than a consequence of editing a struct. What is promised about it is a later
+// decision (ADR-099).
 const outputSchemaFile = "../../schema/feat-output.schema.json"
 
 // documents are the printed shapes, by the name each carries in the schema.
 //
-// Four of them are the daemon's own answers, unchanged: a command that prints
-// a document prints what it was already given, so there is one model for the
-// socket and for the command line rather than a second to keep in step. The
-// ticket reference is the shape a task records, built by the command from one
-// entry of the list. The other three are the shapes that had none — the
-// envelope a task list needs to be an object, the resolved project
-// configuration, and the plan a dry run prints.
+// Four are the daemon's own answers, unchanged: a command that prints a document
+// prints what it was already given, so one model serves the socket and the
+// command line. The ticket reference is the shape a task records, built by the
+// command from one entry of the list. The other three had no shape already: the
+// envelope a task list needs to be an object, the resolved project configuration,
+// and the plan a dry run prints.
 var documents = map[string]reflect.Type{
 	"task_list":             reflect.TypeOf(api.TaskList{}),
 	"review_status":         reflect.TypeOf(api.ReviewStatus{}),
@@ -39,14 +38,14 @@ var documents = map[string]reflect.Type{
 	"ticket_reference":      reflect.TypeOf(api.TicketReference{}),
 }
 
-// TestOutputSchemaMatchesTheGoTypes keeps the published shape and the types
-// that produce it from drifting apart.
+// TestOutputSchemaMatchesTheGoTypes keeps the published shape and the types that
+// produce it from drifting apart.
 //
 // The schema is hand-written, so nothing makes it follow a struct on its own. A
-// field added to a document without a schema entry would be printed and
-// undocumented; a field left in the schema after it was removed would promise a
-// caller something nothing produces. Both directions are checked, which is the
-// treatment schema/feat-project.schema.json already gets (ADR-028).
+// field added without a schema entry would be printed and undocumented, and a
+// field left in the schema after it was removed would promise a caller something
+// nothing produces. Both directions are checked, which is the treatment
+// schema/feat-project.schema.json already gets (ADR-028).
 func TestOutputSchemaMatchesTheGoTypes(t *testing.T) {
 	root := readOutputSchema(t)
 	comparison := schematest.Comparison{Root: root, Tag: "json", Fallback: outputSchemaFile}
@@ -63,16 +62,16 @@ func TestOutputSchemaMatchesTheGoTypes(t *testing.T) {
 	}
 }
 
-// TestOutputSchemaDescribesEveryField keeps the document worth reading. A
-// caller asking what a field means is the only reason to write a schema by
-// hand rather than derive one.
+// TestOutputSchemaDescribesEveryField checks that every field carries a
+// description, which is the reason to write a schema by hand rather than derive
+// one.
 func TestOutputSchemaDescribesEveryField(t *testing.T) {
 	schematest.Described(t, readOutputSchema(t))
 }
 
 // TestEveryDefinitionIsReachedByADocument guards the direction the drift check
-// cannot see: a type that stopped being printed leaves its definition behind,
-// and a definition nothing reaches describes a shape no command produces.
+// cannot see: a type that stopped being printed leaves its definition behind, and
+// a definition nothing reaches describes a shape no command produces.
 func TestEveryDefinitionIsReachedByADocument(t *testing.T) {
 	root := readOutputSchema(t)
 

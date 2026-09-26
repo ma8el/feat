@@ -47,13 +47,12 @@ func TestPublicationResponseBodies(t *testing.T) {
 	}
 }
 
-// TestATaskCarriesWhatItPublished is why the record travels with the task.
+// TestATaskCarriesWhatItPublished checks that the record travels with the task.
 //
-// What a task published is a fact that was written down. What publishing would
-// do now is a question with a per-task lock and a walk of every repository
-// behind it, and a client that had to ask it to answer the first would be paying
-// for a plan to read a record. It is on the task rather than beside it, so there
-// is one answer to what a task published (ADR-073).
+// What a task published is a fact that was written down, while asking what
+// publishing would do now takes a per-task lock and a walk of every repository.
+// The record is on the task rather than beside it, so there is one answer to what
+// a task published (ADR-073).
 func TestATaskCarriesWhatItPublished(t *testing.T) {
 	carried := newTask(storetest.Published(), nil)
 
@@ -73,8 +72,8 @@ func TestATaskCarriesWhatItPublished(t *testing.T) {
 		t.Errorf("the failed repository reads %+v, want the forge's own refusal", failed)
 	}
 
-	// And a task that never published says nothing, rather than an empty record
-	// that would read as a publication with no repositories in it.
+	// A task that never published says nothing, rather than carrying an empty
+	// record that would read as a publication with no repositories in it.
 	if quiet := newTask(storetest.Task(), nil); quiet.Publication != nil {
 		t.Errorf("a task that never published carries %+v", quiet.Publication)
 	}
@@ -98,8 +97,7 @@ func TestAnUnknownPublicationActionIsNotAnInstruction(t *testing.T) {
 // TestAPlanCarriesNothing is the rule every reading endpoint follows.
 //
 // A plan asks what publishing would do. A request that could name a title would
-// be a caller writing the words before anybody had read them, which is the one
-// thing the approval step exists to prevent.
+// be a caller writing the words before anybody had read them.
 func TestAPlanCarriesNothing(t *testing.T) {
 	service := newFakeService()
 	handler := NewHandler(Options{Service: service})

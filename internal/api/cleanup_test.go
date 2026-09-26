@@ -11,9 +11,8 @@ import (
 // TestRecoveryResponseBodies pins the reconciliation and cleanup surface.
 //
 // The wire format is a published surface (ADR-027), and these payloads decide
-// what a user is shown before they remove something: a field that changed
-// meaning without failing here would change what a screen says it is about to
-// delete.
+// what a user is shown before they remove something. A field that changed meaning
+// without failing here would change what a screen says it is about to delete.
 func TestRecoveryResponseBodies(t *testing.T) {
 	task := storetest.TaskID.String()
 
@@ -49,9 +48,9 @@ func TestRecoveryResponseBodies(t *testing.T) {
 // TestReconciliationIsReadableWithoutRunningOne separates the two verbs on one
 // path.
 //
-// A GET must not trigger a pass: reconciliation asks the container runtime about
-// every task, and a dashboard polling a read would be asking Docker several
-// times a minute.
+// A GET must not trigger a pass. Reconciliation asks the container runtime about
+// every task, and a dashboard polling a read would ask Docker several times a
+// minute.
 func TestReconciliationIsReadableWithoutRunningOne(t *testing.T) {
 	service := newFakeService()
 	handler := NewHandler(Options{Service: service})
@@ -78,9 +77,8 @@ func TestReconciliationIsReadableWithoutRunningOne(t *testing.T) {
 // TestACleanupWithoutAPlanTokenIsRefused is the destructive-request rule: a
 // request that removes something says which plan it was shown.
 //
-// It is refused by the transport rather than passed through, because "which plan
-// was this" is the one question a destructive request must not leave open — and
-// a client that sent nothing should be told rather than have a daemon guess.
+// The transport refuses it rather than passing it through, so no daemon has to
+// guess which plan a removal was shown, and a client that sent nothing is told.
 func TestACleanupWithoutAPlanTokenIsRefused(t *testing.T) {
 	service := newFakeService()
 	handler := NewHandler(Options{Service: service})
@@ -141,8 +139,8 @@ func TestACleanupCarriesIdentifiersAndConfirmations(t *testing.T) {
 // TestPlanningACleanupTakesNoBody keeps the plan a question.
 //
 // It carries an identifier and nothing else, for the reason every other task
-// endpoint does: the resources are the daemon's to resolve, never the caller's
-// to supply.
+// endpoint does: the resources are the daemon's to resolve, never the caller's to
+// supply.
 func TestPlanningACleanupTakesNoBody(t *testing.T) {
 	handler := NewHandler(Options{Service: newFakeService()})
 

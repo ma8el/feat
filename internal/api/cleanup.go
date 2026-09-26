@@ -8,10 +8,9 @@ import (
 
 // CleanupPlan is the response of POST /v1/tasks/{task_id}/cleanup/plan.
 //
-// It is an inventory and not an instruction. Producing it removes nothing, and
-// the token is what a later execution carries back so that what is removed is
-// what the user read — the shape ADR-031 used for a launch fingerprint, applied
-// to the other direction (FR-CLEAN-001).
+// Producing it removes nothing. A later execution carries the token back, so what
+// is removed is what the user read — the shape ADR-031 used for a launch
+// fingerprint, applied in the other direction (FR-CLEAN-001).
 type CleanupPlan struct {
 	// TaskID is the task the plan belongs to.
 	TaskID string `json:"task_id"`
@@ -19,9 +18,9 @@ type CleanupPlan struct {
 	TaskKey string `json:"task_key"`
 	// ProjectID owns the task.
 	ProjectID string `json:"project_id"`
-	// Workflow is the task's state, so a screen can say what is being cleaned
-	// up: a task still working on something is a different decision from an
-	// approved one.
+	// Workflow is the task's state, so a screen can say what is being cleaned up.
+	// Cleaning up a task that is still working is a different decision from
+	// cleaning up one whose work is done.
 	Workflow string `json:"workflow"`
 	// Token names exactly the resources below. An execution that carries a
 	// different one is refused rather than performed.
@@ -29,12 +28,12 @@ type CleanupPlan struct {
 	// Classes are the independent choices, in the order they would be removed.
 	Classes []CleanupClass `json:"classes"`
 	// Problems are recorded resources the plan refuses to name as targets, with
-	// the reason. They are not removable and are shown so that a user is not
-	// left wondering why something is missing from the list.
+	// the reason. They are not removable, and listing them explains why they are
+	// missing from the classes above.
 	Problems []string `json:"problems,omitempty"`
-	// Archivable reports whether the task could be archived by removing
-	// everything the plan names. It is false when a class the plan lists cannot
-	// currently be resolved.
+	// Archivable reports whether removing everything the plan names would let the
+	// task be archived. It is false when a class the plan lists cannot currently
+	// be resolved.
 	Archivable bool `json:"archivable"`
 	// ResolvedAt is when the inventory was taken. Everything in it is an
 	// observation of that moment.
@@ -49,10 +48,9 @@ type CleanupClass struct {
 	Title string `json:"title"`
 	// Targets are the resources this choice would remove.
 	Targets []CleanupTarget `json:"targets"`
-	// Warnings are every distinct reason this class needs explicit
-	// confirmation. A selection echoes them back, which is what makes the
-	// confirmation a statement about what the user was actually shown
-	// (FR-CLEAN-003).
+	// Warnings are every distinct reason this class needs explicit confirmation.
+	// A selection echoes them back, so the confirmation is about what the user was
+	// shown (FR-CLEAN-003).
 	Warnings []string `json:"warnings,omitempty"`
 }
 
@@ -74,9 +72,9 @@ type CleanupTarget struct {
 
 // CleanupSelection is the body of POST /v1/tasks/{task_id}/cleanup/execute.
 //
-// It carries identifiers and confirmations, never a path: a destructive request
-// names resources the daemon resolved, for the reason every other destructive
-// request does (docs/05-security-model.md, local daemon API).
+// It carries identifiers and confirmations, never a path, so a destructive
+// request names only resources the daemon resolved (docs/05-security-model.md,
+// local daemon API).
 type CleanupSelection struct {
 	// Token is the token of the plan the user was shown.
 	Token string `json:"token"`
@@ -84,8 +82,8 @@ type CleanupSelection struct {
 	// displayed for it.
 	Classes []CleanupChoice `json:"classes"`
 	// Archive asks for the task's metadata to be archived once the selected
-	// resources are gone. It is refused while the plan still names resources
-	// the selection leaves behind.
+	// resources are gone. It is refused while the plan still names resources the
+	// selection leaves behind.
 	Archive bool `json:"archive"`
 }
 
@@ -102,8 +100,7 @@ type CleanupStatus struct {
 	// Task is the task as it is now recorded.
 	Task Task `json:"task"`
 	// Removed is one entry per resource the cleanup addressed, saying whether it
-	// went. A resource that was already gone reports false and is not a failure:
-	// the user asked for it to be absent, and it is.
+	// went. A resource that was already gone reports false and is not a failure.
 	Removed []CleanupRemoval `json:"removed"`
 	// Archived reports whether the task's metadata was archived.
 	Archived bool `json:"archived"`
@@ -117,10 +114,9 @@ type CleanupRemoval struct {
 	Identity string `json:"identity"`
 	// Removed reports whether there was something to remove.
 	Removed bool `json:"removed"`
-	// Note is how the removal was performed, where that was not the only way it
-	// could have been. It is empty for the ordinary case, and carries the
-	// evidence behind a forced removal otherwise, so the event log says why one
-	// was allowed rather than only that it happened (ADR-097).
+	// Note is how the removal was performed, where more than one way was possible.
+	// It is empty for the ordinary case and carries the evidence behind a forced
+	// removal otherwise, so the event log says why one was allowed (ADR-097).
 	Note string `json:"note,omitempty"`
 }
 

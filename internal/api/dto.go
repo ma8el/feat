@@ -18,8 +18,8 @@ const (
 	// StatusOK reports a daemon serving requests with everything it needs.
 	StatusOK = "ok"
 	// StatusDegraded reports a daemon that is serving but could not read part of
-	// its state. It is deliberately not an error: a client learns more from a
-	// degraded answer than from a failed request.
+	// its state. It is not an error, because a client learns more from a degraded
+	// answer than from a failed request.
 	StatusDegraded = "degraded"
 )
 
@@ -47,19 +47,17 @@ type Daemon struct {
 	GoVersion string `json:"go_version"`
 	// Platform is the operating system and architecture.
 	Platform string `json:"platform"`
-	// PID is the process identifier, which is also what stops it.
+	// PID is the process identifier, which is also what a signal is sent to.
 	PID int `json:"pid"`
-	// StartedAt is when the process acquired ownership. Clients derive uptime
-	// from it rather than reading a second, redundant field.
+	// StartedAt is when the process acquired ownership. Clients derive uptime from
+	// it rather than reading a second, redundant field.
 	StartedAt time.Time `json:"started_at"`
 	// Socket is the path the daemon is listening on.
 	Socket string `json:"socket"`
 	// HostAgent reports that this daemon was started with the opt-in that runs
-	// agents on this host even where a project configures a container.
-	//
-	// It is reported because it changes what a task's isolation actually is, and
-	// a boundary that is not there should never have to be inferred from the
-	// absence of a message.
+	// agents on this host even where a project configures a container. It is
+	// published because it changes what a task's isolation is, and a missing
+	// boundary should not have to be inferred.
 	HostAgent bool `json:"host_agent"`
 }
 
@@ -71,9 +69,9 @@ type State struct {
 	Projects int `json:"projects"`
 }
 
-// HealthReport is what the daemon knows about itself. The api package wraps it
-// into a Health response, because the envelope and its version belong to this
-// surface rather than to the daemon.
+// HealthReport is what the daemon knows about itself. This package wraps it into
+// a Health response, because the envelope and its version belong to this surface
+// rather than to the daemon.
 type HealthReport struct {
 	// Daemon identifies the process.
 	Daemon Daemon
@@ -86,10 +84,9 @@ type HealthReport struct {
 
 // RegisterProject is the body of POST /v1/projects.
 //
-// It carries an identifier rather than a path or a document: the daemon reads
-// the configuration from the directory it resolved, so a client cannot point it
-// at another file, and the file that is validated is the one that will be read
-// again later.
+// It carries an identifier rather than a path or a document. The daemon reads the
+// configuration from the directory it resolved, so a client cannot point it at
+// another file and the file that is validated is the one read again later.
 type RegisterProject struct {
 	// ProjectID names the project, and therefore its configuration file.
 	ProjectID string `json:"project_id"`
@@ -114,9 +111,9 @@ type RegisteredProject struct {
 
 // CreateDraft is the body of POST /v1/task-drafts.
 //
-// The brief arrives as content rather than as a path. A Markdown import is read
-// by the client, so the daemon never opens a file a caller named, which is the
-// rule POST /v1/projects follows for the same reason (ADR-028).
+// The brief arrives as content rather than as a path. The client reads a Markdown
+// import, so the daemon never opens a file a caller named, which is the rule
+// POST /v1/projects follows (ADR-028).
 type CreateDraft struct {
 	// ProjectID names the project the task belongs to.
 	ProjectID string `json:"project_id"`
@@ -132,8 +129,8 @@ type CreateDraft struct {
 
 // UpdateDraft is the body of PUT /v1/task-drafts/{draft_id}.
 //
-// It replaces the draft's editable shape rather than patching it, because that
-// is what the preparation screen holds: a whole draft the user edits and saves.
+// It replaces the draft's editable shape rather than patching it, because the
+// preparation screen holds a whole draft the user edits and saves.
 type UpdateDraft struct {
 	Title string `json:"title"`
 	Brief string `json:"brief"`
@@ -161,19 +158,18 @@ type LaunchDraft struct {
 	// PlanFirst asks the task's agent to plan its work and wait for the user's
 	// approval before it changes anything.
 	//
-	// It travels with the confirmation rather than with the draft. The
-	// fingerprint defends against a value that can drift between the screen the
-	// user read and the key they pressed — a resolved base, a proposed branch —
-	// and a decision carried in the request that confirms cannot drift, so it is
-	// deliberately not part of the digest.
+	// It travels with the confirmation rather than with the draft, and is not part
+	// of the digest. The fingerprint defends against values that can drift between
+	// the screen the user read and the key they pressed, such as a resolved base;
+	// a decision carried in the confirming request cannot drift.
 	PlanFirst bool `json:"plan_first,omitempty"`
 }
 
 // Confirmation is what a user confirmed a draft with.
 //
-// It is a value rather than a bare fingerprint because confirming carries the
+// It is a value rather than a bare fingerprint, because confirming carries the
 // decisions the review screen collects as well as the identity of the plan it
-// displayed, and this is where the next one goes when there is one.
+// displayed.
 type Confirmation struct {
 	// Fingerprint identifies the plan that was displayed.
 	Fingerprint string
@@ -184,7 +180,7 @@ type Confirmation struct {
 // DraftRequest is what the daemon needs to record a new draft.
 //
 // Like RegisteredProject, it is the interface's own shape rather than the wire
-// shape: the handler validates every identifier before the daemon sees it, so a
+// shape. The handler validates every identifier before the daemon sees it, so a
 // malformed one never reaches a filesystem path (ADR-027).
 type DraftRequest struct {
 	// Project owns the task.
@@ -230,9 +226,8 @@ type DraftPlan struct {
 	// Task is the draft as it is now recorded, carrying every resolved base and
 	// every proposed branch and worktree path.
 	Task Task `json:"task"`
-	// Notes are what happened while resolving that the user should know about
-	// without it stopping the task, such as a fetch that failed while an older
-	// remote-tracking ref was still available.
+	// Notes are what happened while resolving that did not stop the task, such as
+	// a fetch that failed while an older remote-tracking ref was still available.
 	Notes []string `json:"notes"`
 	// Fingerprint identifies this exact draft, and is what launching carries
 	// back.
@@ -254,8 +249,8 @@ type Repository struct {
 	ID string `json:"id"`
 	// Name is the display name.
 	Name string `json:"name"`
-	// HostPath is the ordinary checkout on the host. Paths are the user's own
-	// and are not secrets; `feat doctor` prints resolved paths too.
+	// HostPath is the ordinary checkout on the host. The user's own paths are not
+	// secrets, and `feat doctor` prints resolved ones too.
 	HostPath string `json:"host_path"`
 	// ContainerPath is where the repository is mounted in a devcontainer, empty
 	// for host-native projects.
@@ -267,10 +262,9 @@ type Repository struct {
 
 // Task is one unit of agent work.
 //
-// The brief is included in list responses as well as in a single task, because
-// v0 lists the tasks of one machine and splitting the shape would mean two
-// mappings and two golden files for no observed cost. It can be split if the
-// dashboard turns out to need it.
+// List responses carry the brief as well, because v0 lists the tasks of one
+// machine and a separate list shape would mean two mappings and two golden files
+// for no observed gain. It can be split if the dashboard needs it.
 type Task struct {
 	ID string `json:"id"`
 	// Key is the human-facing short identifier derived from the ID.
@@ -281,30 +275,29 @@ type Task struct {
 	Source    Source `json:"source"`
 	// Workflow is the product-level state Feat decides.
 	Workflow string `json:"workflow"`
-	// Attention records whether the user may need to intervene. It is separate
-	// from every other dimension on purpose.
+	// Attention records whether the user may need to intervene, and is kept apart
+	// from every other dimension.
 	Attention string `json:"attention"`
 	// Failure is why the task is in `failed`, and null in every other state. It
-	// travels with the state because a client that can show one and not the
-	// other can only report that something went wrong.
+	// travels with the state, so no client has to report that something went wrong
+	// without saying what.
 	Failure      *TaskFailure     `json:"failure,omitempty"`
 	Repositories []TaskRepository `json:"repositories"`
 	// Session is the task's agent session, or null before it is launched.
 	Session *Session `json:"session"`
 	// Runtime is the task's application runtime, or null when it has none.
 	Runtime *Runtime `json:"runtime"`
-	// Verification is what the agent reported about its own checks, or null
-	// when it has reported none. It is the agent's claim rather than a result
-	// anything enforced, which is why the source is part of it.
+	// Verification is what the agent reported about its own checks, or null when
+	// it has reported none. It is the agent's claim rather than a result anything
+	// enforced, which is why the source is part of it.
 	Verification *Verification `json:"verification"`
 	// Publication is what the task has recorded about publishing — one entry per
-	// repository the last publication planned, with what came of it — or null
-	// for a task that has never published.
+	// repository the last publication planned, with what came of it — or null for
+	// a task that has never published.
 	//
-	// It travels with the task because it is the task's, and because the
-	// alternative is composing a plan to read it: what publishing would do now
-	// is a question with a lock and a walk of every repository behind it, and
-	// what a task published is a fact that was written down (ADR-073).
+	// It travels with the task because what a task published is a fact that was
+	// written down, while composing a plan to read it would take a lock and walk
+	// every repository (ADR-073).
 	Publication *Publication `json:"publication"`
 	CreatedAt   time.Time    `json:"created_at"`
 	UpdatedAt   time.Time    `json:"updated_at"`
@@ -320,9 +313,9 @@ type TaskFailure struct {
 
 // Verification is a task's check results, attributed to whoever produced them.
 //
-// The attribution is the point. A provider-gated result was enforced and an
-// agent-reported one was asserted, and a dashboard that showed them alike would
-// tell the user something Feat does not know.
+// A provider-gated result was enforced and an agent-reported one was asserted. A
+// dashboard that showed them alike would tell the user something Feat does not
+// know.
 type Verification struct {
 	// Source is who produced the results: "agent" for a result the agent
 	// claimed, "provider" for one a completion gate enforced. Only "agent"
@@ -346,9 +339,8 @@ type Source struct {
 	Kind      string `json:"kind"`
 	Reference string `json:"reference,omitempty"`
 	// Ticket is the ticket the brief was composed from, present exactly for a
-	// ticket source. It travels in both directions: a client composing a brief
-	// from a ticket sends what it read, and a task carries it back so that a
-	// caller can say which ticket the work came from.
+	// ticket source. It travels both ways: a client sends what it read, and a task
+	// carries it back so a caller can say which ticket the work came from.
 	Ticket *TicketReference `json:"ticket,omitempty"`
 }
 
@@ -364,17 +356,15 @@ type Ticket struct {
 	Body      string `json:"body"`
 	URL       string `json:"url"`
 	State     string `json:"state"`
-	// Source is which tracker the ticket came from, empty for a project drawing
-	// on one. Where a merged command labels tickets with it, it becomes the
-	// provider on the task's ticket reference.
+	// Source is which tracker the ticket came from, empty for a project drawing on
+	// one. Where a merged command labels tickets with it, it becomes the provider
+	// on the task's ticket reference.
 	Source string `json:"source,omitempty"`
 }
 
-// TicketList is what a project's tracker printed, and when.
-//
-// The time is on the list rather than on each ticket because one run of the
-// command produced all of them, and it is what a snapshot taken from one of
-// them records as the moment Feat read it.
+// TicketList is what a project's tracker printed, and when. The time is on the
+// list rather than on each ticket, because one run of the command produced all of
+// them and a snapshot taken from one records it as the moment Feat read it.
 type TicketList struct {
 	ReadAt  time.Time `json:"read_at"`
 	Tickets []Ticket  `json:"tickets"`
@@ -382,10 +372,10 @@ type TicketList struct {
 
 // TicketReference is the ticket a task's brief was composed from.
 //
-// It is provider-neutral because the tracker is a configured command rather
-// than an adapter per service, and it is a snapshot rather than a live read: a
-// ticket that changes never silently alters the context an agent is already
-// working from (ADR-071, FR-TASK-005).
+// It is provider-neutral because the tracker is a configured command rather than
+// an adapter per service. It is a snapshot rather than a live read, so a ticket
+// that changes never silently alters the context an agent is working from
+// (ADR-071, FR-TASK-005).
 type TicketReference struct {
 	// Provider is which tracker the ticket came from, and is what the published
 	// shape's optional source fills.
@@ -402,14 +392,13 @@ type TicketReference struct {
 // NewTicketReference records one of a project's tickets as the reference a task
 // composed from it would carry.
 //
-// The read time comes from the list rather than from each ticket, because one
-// run of the tracker command produced all of them, and it is what versions the
-// snapshot: the published shape carries no revision of the tracker's own
-// (ADR-071).
+// The read time comes from the list, because one run of the tracker command
+// produced every ticket in it. That time is what versions the snapshot, since the
+// published shape carries no revision of the tracker's own (ADR-071).
 func NewTicketReference(ticket Ticket, readAt time.Time) TicketReference {
 	return TicketReference{
-		// A merged command labels each ticket with the tracker it came from,
-		// and that label is what the task records as the provider.
+		// A merged command labels each ticket with the tracker it came from, and
+		// that label is what the task records as the provider.
 		Provider:  ticket.Source,
 		Reference: ticket.Reference,
 		URL:       ticket.URL,
@@ -425,10 +414,9 @@ func NewTicketReference(ticket Ticket, readAt time.Time) TicketReference {
 // ComposeBrief renders the task title and brief a task from this ticket starts
 // with.
 //
-// It delegates to the domain, so that what the user confirms is decided in one
-// place rather than by whichever client composed it. A client that showed the
-// user one document and recorded another would make the confirmation a
-// formality (ADR-070).
+// It delegates to the domain, so one place decides what the user confirms. A
+// client that showed one document and recorded another would make the
+// confirmation a formality (ADR-070).
 func (t TicketReference) ComposeBrief() (title, brief string) {
 	return TicketFrom(&t).ComposeBrief()
 }
@@ -439,7 +427,7 @@ type TicketSnapshot struct {
 	Body  string `json:"body"`
 	State string `json:"state"`
 	// TakenAt is when the tracker command that printed it ran, which is what
-	// versions a snapshot: the published shape carries no revision of the
+	// versions a snapshot. The published shape carries no revision of the
 	// tracker's own.
 	TakenAt time.Time `json:"taken_at"`
 }
@@ -490,8 +478,8 @@ type Session struct {
 
 // Execution is the isolated environment one agent session runs in.
 //
-// It is a separate concept from Runtime even when both are Compose projects:
-// this is how the agent runs, and that is the application the user tests.
+// It is separate from Runtime even when both are Compose projects: this is how
+// the agent runs, and that is the application the user tests.
 type Execution struct {
 	// Provider identifies the execution adapter, such as the Compose adapter.
 	Provider string `json:"provider"`
@@ -536,41 +524,38 @@ type AttachInfo struct {
 
 // Runtime is a task's application runtime.
 //
-// The lifecycle is manual: nothing here starts because a task reached a state,
-// and nothing stops because it reached another. What a task owns is named
-// explicitly, because a resource a user cannot see is a resource they cannot
-// clean up.
+// The lifecycle is manual: nothing starts because a task reached a state, and
+// nothing stops because it reached another. What a task owns is named explicitly,
+// because a user cannot clean up a resource they cannot see.
 type Runtime struct {
 	Provider string `json:"provider"`
 	// Identity is the unique runtime identity, which is what makes an action
 	// affect one task's services and no other's.
 	Identity string   `json:"identity"`
 	Services []string `json:"services"`
-	// Provenance says where each managed service's code comes from. It is
-	// resolved from configuration and the project's own Compose files when the
-	// runtime is, so a service that will not run the task's work says so before
-	// anything is started rather than after.
+	// Provenance says where each managed service's code comes from. It is resolved
+	// with the runtime, from configuration and the project's own Compose files, so
+	// a service that will not run the task's work says so before anything starts.
 	Provenance []ServiceProvenance `json:"provenance"`
 	// Allocations are the host ports Feat reserved for this task's reachable
-	// services, held until the runtime is destroyed. They are what the task will
-	// be published on; Ports is what the started containers turned out to
-	// publish, which is empty until something starts.
+	// services, held until the runtime is destroyed. Ports is what the started
+	// containers turned out to publish, which is empty until something starts.
 	Allocations []PortAllocation `json:"allocations"`
 	Ports       []Port           `json:"ports"`
 	State       string           `json:"state"`
-	// Health is separate from State: without a configured health check the
-	// honest answer is unknown.
+	// Health is separate from State, because without a configured health check the
+	// answer is unknown.
 	Health string `json:"health"`
-	// Networks and Volumes are what Compose reports as this project's. Volumes
-	// are listed because destroying a runtime retains every one of them, and a
-	// retained resource nobody can see is one nobody will remove.
+	// Networks and Volumes are what Compose reports as this project's. Volumes are
+	// listed because destroying a runtime retains every one of them, and nobody
+	// removes a retained resource they cannot see.
 	Networks []string `json:"networks"`
 	Volumes  []string `json:"volumes"`
-	// Composition, StaticOverrides, EnvFiles, and the two generated paths are
-	// the exact inputs this runtime was created from, kept so that a later action
-	// reaches the same resources even if the project's configuration has since
-	// been edited. They are the user's own paths, which are not secrets; no value
-	// from an environment file is ever read, let alone published.
+	// Composition, StaticOverrides, EnvFiles, and the two generated paths are the
+	// exact inputs this runtime was created from, kept so a later action reaches
+	// the same resources even after the project's configuration is edited. They
+	// are the user's own paths and are not secrets; no value from an environment
+	// file is ever read.
 	//
 	// Composition is what the application is made of, one entry per repository
 	// that brings Compose files. GeneratedIncludePath is the document Feat wrote
@@ -586,9 +571,8 @@ type Runtime struct {
 // BoundEverywhere reports whether any of this runtime's allocated publications
 // answers on every interface the machine has.
 //
-// It is asked of the runtime rather than of each allocation because what such a
-// binding means is one sentence for the whole list, and a sentence repeated per
-// port is one a reader stops reading.
+// It is asked of the runtime rather than of each allocation, so a surface
+// explains such a binding once for the whole list rather than once per port.
 func (r *Runtime) BoundEverywhere() bool {
 	for _, allocation := range r.Allocations {
 		if allocation.BoundEverywhere() {
@@ -612,10 +596,9 @@ type RuntimeSource struct {
 // ServiceProvenance is where one managed service's code comes from.
 //
 // A service reaches a task's work by mounting its worktree or by building its
-// image from it, and a service that does neither runs whatever the project's own
-// Compose files point at — the user's ordinary checkout — while every record
-// Feat keeps stays correct. RunsTaskCode is that question answered, so a client
-// asks it rather than deriving it from two lists.
+// image from it. A service that does neither runs whatever the project's own
+// Compose files point at, which is the user's ordinary checkout. RunsTaskCode
+// answers that, so a client does not derive it from two lists.
 type ServiceProvenance struct {
 	Service string `json:"service"`
 	// Repositories are the repositories that asked Feat to manage the service.
@@ -645,10 +628,9 @@ type Port struct {
 
 // PortAllocation is one host port Feat reserved for one service of one task.
 //
-// It is separate from Port because it is an intention rather than an
-// observation: this is the port the generated override asks Compose to publish,
-// and Port is what `docker compose ps` reported afterwards. A task that has
-// allocated and started nothing has the first and not the second.
+// It is separate from Port because it is an intention rather than an observation.
+// This is the port the generated override asks Compose to publish, and Port is
+// what `docker compose ps` reported afterwards.
 type PortAllocation struct {
 	Service       string `json:"service"`
 	ContainerPort int    `json:"container_port"`
@@ -659,21 +641,19 @@ type PortAllocation struct {
 	// runtime.bind_address when it named none. It is empty only in a record
 	// written before Feat had a bind address of its own.
 	HostIP string `json:"host_ip,omitempty"`
-	// Address is where the service is reached from this machine, which is the
-	// value of its generated FEAT_HOST_URL variable without the scheme. It is
-	// not the address another container reaches it at: a published port belongs
-	// to the host's network namespace, and a service calling a sibling uses the
-	// Compose service name and the container port.
+	// Address is where the service is reached from this machine, and is its
+	// generated FEAT_HOST_URL without the scheme. It is not the address another
+	// container reaches it at: a service calling a sibling uses the Compose
+	// service name and the container port.
 	Address string `json:"address"`
 }
 
-// Binding is the host address this publication is bound on, as a surface says
-// it.
+// Binding is the host address this publication is bound on, as a surface says it.
 //
-// It is the second answer about a published port and not one Address can be read
-// for: a port on the loopback address and a port on every interface are both
-// dialled at localhost from this machine, so they print alike there while
-// differing by whether the network this machine is on can open the service.
+// Address cannot answer this. A port on the loopback address and a port on every
+// interface are both dialled at localhost from this machine, so they print alike
+// while differing by whether the network this machine is on can reach the
+// service.
 //
 // An allocation carrying no address is a record written before Feat had a bind
 // address of its own, whose containers were given every address.
@@ -696,7 +676,7 @@ type RuntimeService struct {
 	// Container is the observed container, empty when the service has none.
 	Container string `json:"container,omitempty"`
 	// State is what the container runtime called it, and Status its own longer
-	// phrasing, kept verbatim so a client quotes the tool rather than
+	// phrasing. Both are verbatim, so a client quotes the tool rather than
 	// paraphrasing it.
 	State  string `json:"state,omitempty"`
 	Status string `json:"status,omitempty"`
@@ -704,17 +684,16 @@ type RuntimeService struct {
 	// ExitCode is the exit status of a service that has stopped.
 	ExitCode int `json:"exit_code,omitempty"`
 	// Managed reports whether the project's runtime.services names this one. A
-	// service that it does not name is one Compose started because a managed
-	// service depends on it; it belongs to this task's Compose project all the
-	// same, and Feat stops and removes it with the rest.
+	// service it does not name was started because a managed one depends on it,
+	// and Feat stops and removes it with the rest.
 	Managed bool `json:"managed"`
 }
 
 // RuntimeAction is one manual lifecycle action a user asked for.
 //
 // The five are FR-RUN-005's, and the vocabulary lives here because the endpoint
-// path is what names them. Every one of them is an explicit user request: no
-// workflow transition, no reconciliation, and no agent reaches any of them.
+// path is what names them. Every one is an explicit user request: no workflow
+// transition, no reconciliation, and no agent reaches any of them.
 type RuntimeAction string
 
 // The manual runtime actions.
@@ -746,19 +725,15 @@ func (a RuntimeAction) Valid() bool {
 // the answer being written.
 //
 // It belongs to the endpoint's contract rather than to the daemon's private
-// business, because both ends have to hold the same number. The daemon stops
-// waiting for Docker when it runs out; a client that gave up sooner would cancel
-// a request the daemon is still serving, and cancelling one kills the
-// `docker compose up` it is waiting on part way through.
+// business, because both ends have to hold the same number. A client that gave up
+// sooner would cancel a request the daemon is still serving, and cancelling one
+// kills the `docker compose up` it is waiting on part way through.
 //
-// Minutes, because the work is minutes. The first start of a task's services
+// Minutes, because the work is minutes: the first start of a task's services
 // pulls every image the project names and runs every build it defines, while the
-// second start of the same task answers in about a second — so the ceiling is
-// invisible until the first run of a project nobody has built here yet. Ten
-// seconds, which was every request's budget, is what a user met as `Post
-// "http://feat/v1/tasks/…/runtime/start": context deadline exceeded` on a start
-// that then worked when they tried it again, because by then the images were
-// pulled and the containers existed.
+// second answers in about a second. Under the ten seconds that was every
+// request's budget, a first start failed with `context deadline exceeded` and
+// worked on the retry, once the images were pulled.
 const RuntimeTimeout = 15 * time.Minute
 
 // AgentTimeout bounds one request that creates or stops a task's agent
@@ -767,17 +742,14 @@ const RuntimeTimeout = 15 * time.Minute
 // It exists for the reason RuntimeTimeout does, and it was found the same way. A
 // launch that had to recreate its container because the project's own Compose
 // file had changed took 10.018 seconds and was cancelled by the client at ten,
-// while the daemon went on serving it — leaving a container the request that
-// created it no longer knew about. The five launches before it took between 0.46
-// and 3.13 seconds, so the ceiling is invisible until the day a project's file
-// changes.
+// while the daemon went on serving it. That left a container the request no
+// longer knew about; the five launches before it took between 0.46 and 3.13
+// seconds.
 //
-// It is three minutes rather than fifteen because the daemon's own patience for
-// a container to come up is three (compose.defaultReadyTimeout), and a budget
-// wider than the one the work is bounded by would only postpone the same answer.
-// The application runtime's is longer because it pulls and builds a project's
-// whole service graph; an agent environment is one service that has usually been
-// built already.
+// It is three minutes rather than fifteen because the daemon's own patience for a
+// container to come up is three (compose.defaultReadyTimeout). The application
+// runtime's budget is longer because it pulls and builds a project's whole
+// service graph, while an agent environment is one already-built service.
 const AgentTimeout = 3 * time.Minute
 
 // TicketTimeout bounds one listing of a project's tickets, from the request
@@ -785,21 +757,18 @@ const AgentTimeout = 3 * time.Minute
 //
 // It belongs to the endpoint's contract for the reason RuntimeTimeout does: both
 // ends have to hold the same number, or a client gives up on a daemon that is
-// still waiting for somebody's tracker and the user is told nothing about which
-// of the two was slow.
+// still waiting for somebody's tracker.
 //
 // Seconds rather than minutes, because the work is one request against a service
 // the user is already authenticated to. A command that has not answered in this
-// long is stuck rather than slow, and saying so is better than a picker that
-// never opens.
+// long is stuck rather than slow.
 const TicketTimeout = 30 * time.Second
 
 // DestroyRuntime is the body of POST /v1/tasks/{task_id}/runtime/destroy.
 //
 // It carries the user's confirmation, for the reason a launch carries the
-// fingerprint of the plan that was displayed: a request that removes something
-// should say that somebody meant it. Volumes are retained whatever it says, and
-// removing one is a choice cleanup asks for separately (FR-CLEAN-002).
+// fingerprint of the plan that was displayed. Volumes are retained whatever it
+// says, and removing one is a choice cleanup asks for separately (FR-CLEAN-002).
 type DestroyRuntime struct {
 	Confirm bool `json:"confirm"`
 }
@@ -808,15 +777,13 @@ type DestroyRuntime struct {
 type RuntimeStatus struct {
 	// Task is the task as it is now recorded, carrying its runtime.
 	Task Task `json:"task"`
-	// Services are what was observed: one entry per configured service, so that
-	// a service with no container is reported as one — a runtime missing half
-	// its services is not a runtime that is running — followed by everything
-	// else in the task's Compose project, which is everything Compose started
-	// because a configured service depends on it.
+	// Services are what was observed: one entry per configured service, so a
+	// service with no container is still reported, followed by everything else in
+	// the task's Compose project that a configured service depends on.
 	Services []RuntimeService `json:"services"`
 	// Notes are what a user should know about what they just started, in Feat's
-	// terms rather than the container runtime's. They are observations of the
-	// running containers and are recomputed by the next action.
+	// terms rather than the container runtime's. They observe the running
+	// containers, and the next action recomputes them.
 	Notes []string `json:"notes"`
 }
 
@@ -832,14 +799,12 @@ type RuntimeResult struct {
 
 // ResourceReport is the response of GET /v1/resources.
 //
-// It is a separate document rather than fields on a task, for two reasons. A
-// sample is not persisted (docs/06-technical-architecture.md, storage rules), so
-// it is not part of what a task record says about itself; and it has its own
-// time and its own failure mode, which a task carrying the figures would have to
-// borrow.
+// It is a separate document rather than fields on a task, because a sample is not
+// persisted (docs/06-technical-architecture.md, storage rules) and it carries its
+// own time and its own failure mode.
 //
-// The same type is the wire shape and the daemon's, as AttachInfo is: there is
-// one representation of an observation nobody stores.
+// The same type is the wire shape and the daemon's, as AttachInfo is: one
+// representation for an observation nobody stores.
 type ResourceReport struct {
 	// Machine is what the whole host reported.
 	Machine MachineResources `json:"machine"`
@@ -847,11 +812,11 @@ type ResourceReport struct {
 	// something that can use resources.
 	Tasks []TaskResources `json:"tasks"`
 	// Notes are what could not be collected, in terms a user can act on. A report
-	// with notes is still a report: metrics are observational and one unreadable
-	// source never discards the others (FR-UI-005).
+	// with notes is still a report, because metrics are observational and one
+	// unreadable source never discards the others (FR-UI-005).
 	Notes []string `json:"notes"`
-	// CollectedAt is when the sample was taken. Sampling runs on its own
-	// schedule, so this is deliberately not the time of the request.
+	// CollectedAt is when the sample was taken. Sampling runs on its own schedule,
+	// so this is not the time of the request.
 	CollectedAt time.Time `json:"collected_at,omitzero"`
 	// Sampled reports whether any sample has been taken yet. A daemon that has
 	// just started has not, which is different from a machine that reported
@@ -862,16 +827,16 @@ type ResourceReport struct {
 // MachineResources is what the whole host reported.
 //
 // Every figure is a pointer, so a value nothing measured is null rather than
-// zero: a dashboard printing "0 GiB free" where it had not looked would be
-// making a claim, which is the rule ADR-028 established for diagnostics.
+// zero. A dashboard printing "0 GiB free" where nothing looked would be making a
+// claim, which is the rule ADR-028 established for diagnostics.
 type MachineResources struct {
 	// Cores is how many processors the machine has.
 	Cores int `json:"cores"`
 	// Load is the run-queue average, or null when it could not be read.
 	//
-	// Feat reports load rather than a utilisation percentage because a per-core
-	// percentage is not obtainable on macOS without cgo, and one measure on both
-	// platforms is worth more than two that look alike and are not (ADR-035).
+	// Feat reports load rather than a utilisation percentage, because a per-core
+	// percentage is not obtainable on macOS without cgo and one measure on both
+	// platforms beats two that look alike and are not (ADR-035).
 	Load *LoadAverage `json:"load"`
 	// Memory is the machine's memory, or null when it could not be read.
 	Memory *Capacity `json:"memory"`
@@ -913,9 +878,9 @@ type TaskResources struct {
 	// ContainerBytes and ProcessBytes are the two halves of that total.
 	//
 	// They are reported apart as well as together because they are not measured
-	// against the same thing: on macOS a container's memory is memory inside the
-	// container runtime's own virtual machine, so the sum is what this task is
-	// using and not a share of the machine's memory above (ADR-035).
+	// against the same thing. On macOS a container's memory lives inside the
+	// container runtime's virtual machine, so the sum is what the task uses rather
+	// than a share of the machine's memory above (ADR-035).
 	ContainerBytes uint64 `json:"container_bytes"`
 	ProcessBytes   uint64 `json:"process_bytes"`
 	// Containers are the task's own containers, whatever they run.
@@ -940,30 +905,27 @@ type ContainerResources struct {
 //
 // The vocabulary lives here because the endpoint path is what names them, as it
 // does for the runtime actions. Every one is an explicit request: no workflow
-// transition and no agent reaches any of them, and none of them touches a
-// container, a worktree, or a branch.
+// transition and no agent reaches any of them, and none touches a container, a
+// worktree, or a branch.
 type ReviewAction string
 
 // The review actions.
 const (
 	// ReviewObserve compares every repository against its recorded base and
-	// returns what review shows. It observes and records what it observed,
-	// which is why it is a POST.
+	// returns what review shows. It is a POST because it records what it
+	// observed.
 	ReviewObserve ReviewAction = "observe"
 	// ReviewVerify runs the project's configured checks now. It is how a gate
-	// interrupted by a restart is run again, and recovery in Feat is an action a
-	// user takes rather than something that happens on its own.
+	// interrupted by a restart is run again, because recovery in Feat is an action
+	// a user takes rather than something that happens on its own.
 	ReviewVerify ReviewAction = "verify"
 )
 
 // Valid reports whether the action is one Feat performs.
 //
-// There is deliberately no action that records a decision. Approving and
-// requesting changes were reached once and never in fifty-one tasks; nothing
-// read the state either produced, and requesting changes told the agent nothing
-// — it recorded a label and then told the user to attach and do the real thing
-// (ADR-086). What is left observes and verifies, and both of those measure
-// something.
+// No action records a decision. Approving and requesting changes were reached
+// once and never in fifty-one tasks, nothing read the state either produced, and
+// requesting changes only recorded a label (ADR-086).
 func (a ReviewAction) Valid() bool {
 	switch a {
 	case ReviewObserve, ReviewVerify:
@@ -986,8 +948,8 @@ type ReviewStatus struct {
 	// checked. The client runs them with its own terminal.
 	Commands []ReviewCommand `json:"commands"`
 	// Notes are what a user should know: a repository that could not be read, a
-	// command that could not be expanded, or a count that means less than it
-	// looks like.
+	// command that could not be expanded, or a count that means less than it looks
+	// like.
 	Notes []string `json:"notes"`
 }
 
@@ -1000,8 +962,8 @@ type Review struct {
 	Summary string `json:"summary,omitempty"`
 	// Checks are the results, each attributed to whoever produced it.
 	Checks []ReviewCheck `json:"checks"`
-	// Gated reports that a completion gate ran at least one of them. It is the
-	// difference between a verification and a claim about one.
+	// Gated reports that a completion gate ran at least one of them, which is what
+	// separates a verification from a claim about one.
 	Gated bool `json:"gated"`
 	// RequestedAt is when the agent asked for review, or null if it has not.
 	RequestedAt *time.Time `json:"requested_at"`
@@ -1011,9 +973,9 @@ type Review struct {
 type ReviewCheck struct {
 	ID           string `json:"id"`
 	RepositoryID string `json:"repository_id,omitempty"`
-	// Status is passed, failed, skipped, or unknown. Unknown is a check that
-	// did not report — one that could not be started, or that ran out of time —
-	// and it is deliberately not a failure.
+	// Status is passed, failed, skipped, or unknown. Unknown is a check that did
+	// not report, such as one that could not be started or that ran out of time,
+	// and it is not a failure.
 	Status string `json:"status"`
 	// Reporter is "agent" for a claimed result and "provider" for one a gate
 	// enforced.
@@ -1030,9 +992,9 @@ type ReviewRepository struct {
 	Access       string `json:"access"`
 	Branch       string `json:"branch,omitempty"`
 	WorktreePath string `json:"worktree_path"`
-	// BaseRef is the ref the base policy named and BaseCommit is what it
-	// resolved to. The commit is what every comparison uses, for the whole life
-	// of the task (invariant 8).
+	// BaseRef is the ref the base policy named and BaseCommit is what it resolved
+	// to. Every comparison uses the commit, for the whole life of the task
+	// (invariant 8).
 	BaseRef    string `json:"base_ref"`
 	BaseCommit string `json:"base_commit"`
 	// HeadCommit is what the worktree has checked out, empty when the agent has
@@ -1064,9 +1026,9 @@ const (
 
 // ReviewCommand is one expanded external command.
 //
-// It is a command rather than output, as RuntimeCommand is: Feat renders no
-// diff of its own, and the client runs the user's own tools with the user's own
-// terminal (FR-REV-002, ADR-006).
+// It is a command rather than output, as RuntimeCommand is. Feat renders no diff
+// of its own, and the client runs the user's tools in the user's terminal
+// (FR-REV-002, ADR-006).
 type ReviewCommand struct {
 	// Kind is diff, editor, or status.
 	Kind         string   `json:"kind"`
@@ -1090,12 +1052,11 @@ type ReviewResult struct {
 	Notes []string
 }
 
-// RuntimeCommand is the response of POST
-// /v1/tasks/{task_id}/runtime/logs-info.
+// RuntimeCommand is the response of POST /v1/tasks/{task_id}/runtime/logs-info.
 //
 // It is a command rather than output: FR-RUN-006 asks for normal Compose logs,
-// and the client runs this with its own terminal exactly as it runs native tmux
-// for attach. The client checks what it is given before running it.
+// and the client runs this in its own terminal as it runs native tmux for attach.
+// The client checks what it is given before running it.
 type RuntimeCommand struct {
 	Program   string   `json:"program"`
 	Arguments []string `json:"arguments"`
@@ -1148,10 +1109,9 @@ func newTicketReference(ticket *domain.ExternalTaskReference) *TicketReference {
 
 // TicketFrom reads a ticket reference a caller sent back.
 //
-// It is the inverse of newTicketReference and lives here so that both
-// directions of one shape are read in one place. Whether the values make a
-// consistent record is the domain's to say, and it says it when the task is
-// created.
+// It is the inverse of newTicketReference and lives here so both directions of
+// one shape stay together. The domain decides whether the values make a
+// consistent record, when the task is created.
 func TicketFrom(ticket *TicketReference) *domain.ExternalTaskReference {
 	if ticket == nil {
 		return nil
@@ -1182,9 +1142,9 @@ func newProjects(projects []*domain.Project) []Project {
 
 // NewVerification summarises a review's checks for the dashboard.
 //
-// A review with no reported checks and no summary produces nothing, so that an
-// absent value is genuinely absent rather than a row of zeroes claiming that
-// nothing failed.
+// A review with no reported checks and no summary produces nothing, so an absent
+// value is genuinely absent rather than a row of zeroes claiming nothing
+// failed.
 func NewVerification(review *domain.Review) (Verification, bool) {
 	if review == nil || (len(review.Checks) == 0 && review.CompletionSummary == "") {
 		return Verification{}, false
@@ -1197,12 +1157,11 @@ func NewVerification(review *domain.Review) (Verification, bool) {
 	}
 	if len(review.Checks) > 0 {
 		// The weakest reporter present decides the label: a set is enforced only
-		// if every result in it was, because one asserted result is enough to
-		// make "verified" a claim rather than a fact.
+		// if every result in it was, because one asserted result makes "verified"
+		// a claim rather than a fact.
 		//
 		// This condition was unreachable until a gate first produced a provider
-		// result: it started from "agent" and only ever tested whether it was
-		// not "agent" (ADR-036 evidence 1).
+		// result (ADR-036 evidence 1).
 		verification.Source = string(domain.ReporterProvider)
 	}
 	for _, check := range review.Checks {
@@ -1224,10 +1183,10 @@ func NewVerification(review *domain.Review) (Verification, bool) {
 // NewReviewStatus renders what a review action produced.
 //
 // The per-repository rows are built from the task and the review together,
-// because the two hold different halves of one answer: the binding says what the
-// task started from and where its worktree is, and the review says what was
-// found there. Joining them here rather than storing one inside the other is the
-// same choice ADR-026 made for the domain and the stored documents.
+// because each holds half the answer: the binding says what the task started from
+// and where its worktree is, and the review says what was found there. Joining
+// them here rather than storing one inside the other is the choice ADR-026 made
+// for the domain and the stored documents.
 func NewReviewStatus(result ReviewResult) ReviewStatus {
 	verification, ok := NewVerification(result.Review)
 	var reported *Verification
@@ -1277,9 +1236,8 @@ func newReview(review *domain.Review) Review {
 
 // newReviewRepositories renders one row per repository the task holds.
 //
-// A repository with no summary yet is still a row: it is part of the task, and
-// leaving it out would make a review of three repositories look like a review of
-// two.
+// A repository with no summary yet is still a row, because leaving it out would
+// make a review of three repositories look like a review of two.
 func newReviewRepositories(task *domain.Task, review *domain.Review) []ReviewRepository {
 	rows := make([]ReviewRepository, 0, len(task.Repositories))
 	for _, binding := range task.Repositories {
@@ -1420,9 +1378,9 @@ func newSession(session *domain.AgentSession) *Session {
 // newExecution renders the agent's execution environment.
 //
 // The identity, service, and user are what Feat asked for; the container and its
-// state are what it saw. A client can tell them apart, because a task whose
-// container has gone is a different thing from one that was never given a
-// container (docs/03-domain-model.md).
+// state are what it saw. A client tells them apart, because a task whose
+// container has gone differs from one that was never given a container
+// (docs/03-domain-model.md).
 func newExecution(environment *domain.ExecutionEnvironment) *Execution {
 	if environment == nil {
 		return nil
@@ -1524,14 +1482,13 @@ func list(values []string) []string {
 
 // Terminal input and rendering bounds.
 //
-// Every one of these is a limit on what a client may ask the daemon to do to an
-// agent's terminal. Sending keys is a write, so the request is bounded rather
-// than trusted, which is the rule the control workspace already follows for
-// every message it accepts.
+// Every one of these bounds what a client may ask the daemon to do to an agent's
+// terminal. Sending keys is a write, so the request is bounded rather than
+// trusted, as the control workspace bounds every message it accepts.
 const (
-	// MaxTerminalText is the most typed text one request may paste. It is
-	// generous enough for a brief pasted into a prompt and far short of what
-	// would make a tmux buffer a memory question.
+	// MaxTerminalText is the most typed text one request may paste: enough for a
+	// brief pasted into a prompt, and far short of a tmux buffer large enough to
+	// matter.
 	MaxTerminalText = 32 << 10
 	// MaxTerminalKeys is the most key names one request may send.
 	MaxTerminalKeys = 32
@@ -1542,20 +1499,20 @@ const (
 	MaxTerminalSize = 1000
 )
 
-// terminalKeyName is the shape of a tmux key name: Enter, Escape, Up, F12,
-// C-c, M-x, S-Up.
+// terminalKeyName is the shape of a tmux key name: Enter, Escape, Up, F12, C-c,
+// M-x, S-Up.
 //
-// A name is matched rather than passed through, so that a value arriving over
-// the socket cannot become anything tmux would read as a flag or a second
-// argument. The adapter also passes keys after a terminator; this is the check
-// that does not depend on that one.
+// A name is matched rather than passed through, so a value arriving over the
+// socket cannot become anything tmux would read as a flag or a second argument.
+// The adapter also passes keys after a terminator; this is the check that does
+// not depend on that one.
 var terminalKeyName = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
 
 // TerminalView asks for one rendered frame of a task's pane.
 //
 // The size is the region the caller will draw into. The daemon sets the pane to
-// it before capturing, because a program wraps its own output and would
-// otherwise wrap at a width the display does not have.
+// it before capturing, because a program wraps its own output and would otherwise
+// wrap at a width the display does not have.
 type TerminalView struct {
 	Width  int `json:"width"`
 	Height int `json:"height"`
@@ -1580,8 +1537,8 @@ func (v TerminalView) Validate() error {
 //
 // Content carries the escape sequences tmux emitted. Feat draws them and reads
 // nothing out of them but their width: no task, agent, attention, or workflow
-// state is derived from a terminal's contents, which remains what provider hooks
-// report (ADR-042).
+// state comes from a terminal's contents, and every one still comes from provider
+// hooks (ADR-042).
 type TerminalFrame struct {
 	// Width and Height are the window's size in cells: the rectangle the panes
 	// below tile between them.
@@ -1589,9 +1546,9 @@ type TerminalFrame struct {
 	Height int `json:"height"`
 	// Panes are every pane of the task's window, each with the place it occupies.
 	//
-	// A window rather than a pane, because a pane is not what a user sees. A task
-	// window holds the agent and, once one exists, a shell beside it, and drawing
-	// one of them into a region sized for both leaves half of it empty.
+	// A window rather than a pane, because a task window holds the agent and, once
+	// one exists, a shell beside it. Drawing one of them into a region sized for
+	// both leaves half of it empty.
 	Panes []TerminalPane `json:"panes"`
 }
 
@@ -1607,15 +1564,15 @@ type TerminalPane struct {
 	Content []string `json:"content"`
 	// Active reports the pane tmux would send a key to.
 	Active bool `json:"active,omitempty"`
-	// Dead reports a pane whose program has exited and which tmux is retaining,
-	// which is a terminal to explain rather than one to keep redrawing.
+	// Dead reports a pane whose program has exited and which tmux is retaining.
+	// That is a terminal to explain rather than one to keep redrawing.
 	Dead bool `json:"dead,omitempty"`
 }
 
 // TerminalInput is what a user typed into a focused pane.
 //
 // Keys and text are separate because tmux delivers them differently: a key name
-// goes through send-keys, and text goes through a bracketed paste so that the
+// goes through send-keys, and text goes through a bracketed paste, so the
 // application reading it cannot take a trailing newline as a submission the user
 // did not make.
 type TerminalInput struct {
@@ -1623,11 +1580,9 @@ type TerminalInput struct {
 	Text string   `json:"text,omitempty"`
 	// Paste asks for the text to arrive as a paste rather than as typing.
 	//
-	// The difference is visible to the program receiving it: an application that
-	// has enabled bracketed paste mode is told which one this was, and may insert
-	// a paste without running what a typed character runs. A keystroke is
-	// therefore not a paste, and sending one as a paste made ordinary keys
-	// behave oddly.
+	// An application that has enabled bracketed paste mode is told which one this
+	// was, and may insert a paste without running what a typed character runs.
+	// Sending a keystroke as a paste made ordinary keys behave oddly.
 	Paste bool `json:"paste,omitempty"`
 	// Shell directs the input at the task's shell pane rather than the agent's.
 	Shell bool `json:"shell,omitempty"`
@@ -1656,21 +1611,20 @@ func (i TerminalInput) Validate() error {
 
 // PublicationAction is one thing a user asks of a task's publication.
 //
-// There are two and they are plan and apply, for the reason cleanup's two are:
-// what is sent has to be what the user read, and a publication reaches somebody
-// else's server, where nothing Feat creates can be reliably un-created
-// (ADR-073).
+// The two are plan and apply, for the reason cleanup's two are: what is sent has
+// to be what the user read, and a publication reaches somebody else's server,
+// where nothing Feat creates can be reliably un-created (ADR-073).
 type PublicationAction string
 
 // The publication actions.
 const (
 	// PublicationPlan composes what publishing this task would do and records
-	// nothing. It is a POST because it reads the task's worktrees and the
-	// agent's draft to answer.
+	// nothing. It is a POST because it reads the task's worktrees and the agent's
+	// draft to answer.
 	PublicationPlan PublicationAction = "plan"
-	// PublicationApply carries the approved words back and publishes. It
-	// records the plan, then applies one repository at a time, recording each
-	// result before the next begins.
+	// PublicationApply carries the approved words back and publishes. It records
+	// the plan, then applies one repository at a time, recording each result
+	// before the next begins.
 	PublicationApply PublicationAction = "apply"
 )
 
@@ -1679,12 +1633,12 @@ func (a PublicationAction) Valid() bool {
 	return a == PublicationPlan || a == PublicationApply
 }
 
-// PublicationDraft is what publishing one repository would do, before anything
-// is sent.
+// PublicationDraft is what publishing one repository would do, before anything is
+// sent.
 //
-// It is the agent's words together with what Feat already knows: the remote,
-// the base branch, and the commit. The user reads it, edits it, and only then
-// does any of it reach a forge (ADR-070).
+// It is the agent's words together with what Feat already knows: the remote, the
+// base branch, and the commit. The user reads it and edits it, and only then does
+// any of it reach a forge (ADR-070).
 type PublicationDraft struct {
 	RepositoryID string `json:"repository_id"`
 	// Forge is the forge this repository's configuration declares.
@@ -1702,10 +1656,10 @@ type PublicationDraft struct {
 	// DraftCommit is the commit the agent's draft describes, empty where there
 	// is no draft for this repository.
 	DraftCommit string `json:"draft_commit,omitempty"`
-	// Stale reports that the draft describes a commit that is no longer
-	// current, which is refused rather than published. It is deliberately not
-	// the same thing as Published below: one says the words are out of date and
-	// the other says the work is already on the forge (ADR-070, ADR-073).
+	// Stale reports that the draft describes a commit that is no longer current,
+	// which is refused rather than published. It is not Published below: one says
+	// the words are out of date, the other that the work is already on the forge
+	// (ADR-070, ADR-073).
 	Stale bool `json:"stale"`
 	// Published names the merge request already opened for this repository. A
 	// re-publication skips it as already published.
@@ -1719,18 +1673,17 @@ type PublicationDraft struct {
 // Offered reports whether this repository's words are the user's to approve.
 //
 // A repository that has already published is on the forge, and a stale draft is
-// refused rather than sent whatever words it carries — the refusal is about the
-// commit the agent described rather than about the prose, so rewriting it
-// changes nothing. Neither is something an edit can resolve, so both are named
-// in the plan and left out of the document (ADR-070, ADR-073).
+// refused over the commit it describes rather than over its prose. No edit
+// resolves either, so both are named in the plan and left out of the document
+// (ADR-070, ADR-073).
 func (d PublicationDraft) Offered() bool { return d.Published == nil && !d.Stale }
 
 // OfferedDrafts returns the repositories a publication may still send.
 //
 // It lives beside the wire types because two clients ask it and have to answer
-// alike: a dashboard that offered what a terminal refused — or either of them
-// refusing a whole publication over one repository the daemon would have
-// accepted without — is the drift this removes.
+// alike. A dashboard that offered what a terminal refused, or either of them
+// refusing a whole publication over one repository, would be drift the daemon
+// never sees.
 func OfferedDrafts(drafts []PublicationDraft) []PublicationDraft {
 	offered := make([]PublicationDraft, 0, len(drafts))
 	for _, draft := range drafts {
@@ -1750,11 +1703,11 @@ type MergeRequest struct {
 
 // EditorCommand is how the client opens a document in the user's editor.
 //
-// It is the project's configured editor command with its own flags kept and the
-// path it opens left off: a review command names a repository to open and a
-// publication names a draft, and the argument that said which is the one the
-// client fills in. An empty program means the project configures none, and the
-// client falls back to the editor its own environment names (FR-REV-003).
+// It is the project's configured editor command with its flags kept and the path
+// left off, because the client is what knows which file to open: a repository for
+// a review, a draft for a publication. An empty program means the project
+// configures none, and the client falls back to the editor its own environment
+// names (FR-REV-003).
 type EditorCommand struct {
 	Program   string   `json:"program"`
 	Arguments []string `json:"arguments"`
@@ -1770,7 +1723,7 @@ type PublicationRepository struct {
 	Commit string `json:"commit"`
 	// State is planned, published, or failed. A planned entry is one this
 	// publication had not attempted when it stopped, which is what makes an
-	// interrupted publication recoverable rather than mysterious.
+	// interrupted publication recoverable.
 	State string `json:"state"`
 	// Request is the merge request that was opened, present exactly while the
 	// state is published.
@@ -1805,11 +1758,10 @@ type PublicationStatus struct {
 
 // ApprovedPublication is one repository's publication, as the user approved it.
 //
-// The words are what was displayed, sent back verbatim: what is displayed is
-// what is sent, so the daemon composes the request from this rather than from
-// the agent's message. The commit is what the approval was composed against,
-// and a repository whose head has moved since is refused rather than published
-// (ADR-070, ADR-031).
+// The words are what was displayed, sent back verbatim, so the daemon composes
+// the request from this rather than from the agent's message. The commit is what
+// the approval was composed against, and a repository whose head has moved since
+// is refused rather than published (ADR-070, ADR-031).
 type ApprovedPublication struct {
 	RepositoryID string `json:"repository_id"`
 	Title        string `json:"title"`
@@ -1821,10 +1773,9 @@ type ApprovedPublication struct {
 // that is no longer current.
 //
 // The question is asked of what the user approved rather than of the whole plan,
-// which is how the daemon asks it: one repository's stale draft leaves every
-// other repository publishable. A client that refused all of them for one would
-// leave a user waiting for the agent to write a fresh draft for a repository
-// they were not publishing, and no edit would get them out of it.
+// as the daemon asks it: one repository's stale draft leaves every other
+// repository publishable. A client that refused all of them for one would strand
+// the user on a repository they were not publishing.
 func StaleApprovals(drafts []PublicationDraft, approved []ApprovedPublication) []string {
 	stale := make(map[string]bool, len(drafts))
 	for _, draft := range drafts {
@@ -1863,11 +1814,9 @@ type PublicationResult struct {
 // NewPublicationStatus renders what a publication action produced.
 //
 // The recorded publication is the task's own field rather than one beside it,
-// because the task is where it lives and a copy in this response would be a
-// second answer to what a task published (ADR-073). It travels with every task
-// for the same reason: a client that has the task has the record, and asking
-// what a publication would do now is a different and far more expensive
-// question.
+// because a copy in this response would be a second answer to what a task
+// published (ADR-073). A client that has the task has the record, and asking what
+// a publication would do now is a far more expensive question.
 func NewPublicationStatus(result PublicationResult) PublicationStatus {
 	status := PublicationStatus{
 		Task:   newTask(result.Task, nil),

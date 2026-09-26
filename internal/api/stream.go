@@ -11,35 +11,34 @@ type EventKind string
 
 // Event kinds.
 //
-// Only KindTask carries a domain state change. The other three are statements
-// about the stream itself, and they are separate kinds so that a client never
-// has to infer the health of its connection from the absence of events.
+// Only KindTask carries a domain state change. The other three describe the
+// stream itself, so a client never has to infer the health of its connection
+// from the absence of events.
 const (
-	// KindHello opens every stream. It states that the daemon is connected and
-	// that the client's view of state may be stale, since resume is not
-	// supported in v0.1.
+	// KindHello opens every stream. It says the daemon is connected and that the
+	// client's view of state may be stale, since v0.1 supports no resume.
 	KindHello EventKind = "hello"
 	// KindResync answers a client that asked to resume from an event ID. Feat
-	// keeps no replay buffer, so the honest answer is to say the position was
-	// ignored and current state must be read again.
+	// keeps no replay buffer, so it reports that the position was ignored and
+	// that current state must be read again.
 	KindResync EventKind = "resync"
 	// KindTask carries one recorded task event.
 	KindTask EventKind = "task_event"
-	// KindStreamLost ends a stream whose subscriber fell too far behind. It is
-	// the last item the client receives, so that lost events are reported
-	// rather than silently missing (ADR-027).
+	// KindStreamLost ends a stream whose subscriber fell too far behind. It is the
+	// last item the client receives, so lost events are reported rather than
+	// silently missing (ADR-027).
 	KindStreamLost EventKind = "stream_lost"
 )
 
 // Event is one item on the daemon's event stream.
 type Event struct {
-	// StreamSequence orders the items of one connection. The opening hello is
-	// 0 and recorded events start at 1.
+	// StreamSequence orders the items of one connection. The opening hello is 0
+	// and recorded events start at 1.
 	StreamSequence uint64 `json:"stream_sequence"`
 	// Kind is what this item describes.
 	Kind EventKind `json:"kind"`
-	// Detail explains a stream-level item in one line. It carries no task text
-	// and no secret.
+	// Detail explains a stream-level item in one line, carrying no task text and
+	// no secret.
 	Detail string `json:"detail,omitempty"`
 	// TaskEvent is the recorded state change, present when Kind is KindTask.
 	TaskEvent *TaskEvent `json:"task_event,omitempty"`
@@ -64,9 +63,9 @@ type TaskEvent struct {
 	OccurredAt time.Time `json:"occurred_at"`
 }
 
-// TaskEventOf wraps a recorded domain event for the stream. The stream sequence
-// is assigned by whatever publishes it, because it orders one connection rather
-// than one task.
+// TaskEventOf wraps a recorded domain event for the stream. Whatever publishes
+// the event assigns the stream sequence, because that sequence orders one
+// connection rather than one task.
 func TaskEventOf(event domain.Event) Event {
 	return Event{
 		Kind: KindTask,

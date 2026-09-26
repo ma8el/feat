@@ -17,9 +17,9 @@ func reviewPath(action string) string {
 
 // TestReviewResponseBodies pins the review surface.
 //
-// One endpoint per action, as the runtime has: what a user asks for is named by
-// the path, so an action Feat does not perform is a 404 rather than a request
-// the daemon has to interpret.
+// One endpoint per action, as the runtime has: the path names what a user asks
+// for, so an action Feat does not perform is a 404 rather than a request the
+// daemon has to interpret.
 func TestReviewResponseBodies(t *testing.T) {
 	for _, action := range []string{"observe", "verify"} {
 		t.Run(action, func(t *testing.T) {
@@ -45,8 +45,8 @@ func TestReviewResponseBodies(t *testing.T) {
 // the runtime's is.
 //
 // The two decisions ADR-086 removed are checked beside a word that was never an
-// action, because a client built against the old daemon is exactly what would
-// send them: they are refused at the door rather than interpreted.
+// action, because a client built against the old daemon would send them. All
+// three are refused rather than interpreted.
 func TestAnUnknownReviewActionIsNotAnInstruction(t *testing.T) {
 	for _, action := range []string{"merge", "approve", "changes"} {
 		t.Run(action, func(t *testing.T) {
@@ -68,9 +68,9 @@ func TestAnUnknownReviewActionIsNotAnInstruction(t *testing.T) {
 // TestAReviewActionCarriesNothingToExecute is the rule the shell and runtime
 // endpoints follow, applied here.
 //
-// The commands review returns are run by the client, and the daemon decides what
-// they are from the project's own configuration. A caller that sent one is told
-// that Feat does not take one rather than left believing it did.
+// The client runs the commands review returns, and the daemon decides what they
+// are from the project's own configuration. A caller that sent one is told that
+// Feat takes none.
 func TestAReviewActionCarriesNothingToExecute(t *testing.T) {
 	service := newFakeService()
 	handler := NewHandler(Options{Service: service})
@@ -88,13 +88,12 @@ func TestAReviewActionCarriesNothingToExecute(t *testing.T) {
 
 // TestAGatedResultIsDistinguishableFromAClaim is FR-AGENT-006 on the wire.
 //
-// The published verification says who produced the results, and the rule is that
-// one asserted result makes the set a claim: a client cannot tell a user that a
-// task was verified unless everything in it was.
+// The published verification says who produced the results, and one asserted
+// result makes the whole set a claim: a client cannot call a task verified unless
+// everything in it was.
 //
-// The condition was unreachable before the gate existed — the label started at
-// "agent" and only ever tested whether it was not "agent" — so this is also the
-// test that would have caught it (ADR-036 evidence 1).
+// The condition was unreachable before the gate existed, so this is also the test
+// that would have caught it (ADR-036 evidence 1).
 func TestAGatedResultIsDistinguishableFromAClaim(t *testing.T) {
 	for _, test := range []struct {
 		name     string
