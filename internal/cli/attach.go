@@ -24,8 +24,9 @@ var (
 )
 
 // TerminalAttacher attaches this process's streams to a native task terminal.
-// It lives in the CLI rather than internal/tmux because attachment must inherit
-// the client's terminal and may last until the user detaches (ADR-030).
+//
+// It lives in the CLI rather than internal/tmux because attachment inherits the
+// client's terminal and may last until the user detaches (ADR-030).
 type TerminalAttacher interface {
 	Attach(ctx context.Context, info api.AttachInfo, stdin io.Reader, stdout, stderr io.Writer) error
 }
@@ -34,19 +35,18 @@ type hostAttacher struct{}
 
 // attachCommand builds the native tmux client for one resolved target.
 //
-// It is shared by `feat attach` and by the dashboard's attach and shell
-// actions, so that there is one place where a target becomes a command and one
-// place where that target is validated.
+// `feat attach` and the dashboard's attach and shell actions share it, so one
+// place turns a target into a command and one place validates that target.
 func attachCommand(ctx context.Context, info api.AttachInfo) (*exec.Cmd, error) {
 	if err := validateAttachInfo(info); err != nil {
 		return nil, err
 	}
 
-	// tmux accepts a full stable target for attach. No name or numeric index is
-	// involved, and selecting the pane as part of the target makes `feat attach`
-	// return to the agent even after an on-demand shell was active.
+	// tmux accepts a full stable target for attach, so no name or numeric index
+	// is involved. Naming the pane makes `feat attach` return to the agent even
+	// after an on-demand shell was active.
 	target := info.Session + ":" + info.Window + "." + info.Pane
-	// #nosec G204 -- tmux is a fixed executable; every dynamic target component
+	// #nosec G204 -- tmux is a fixed executable. Every dynamic target component
 	// is validated above and passed as its own argument, never through a shell.
 	command := exec.CommandContext(ctx, "tmux", "-S", info.Socket, "attach-session", "-t", target)
 	command.Env = outsideTmux(command.Environ())
@@ -129,9 +129,9 @@ func validateAttachInfo(info api.AttachInfo) error {
 	return nil
 }
 
-// outsideTmux removes the variables that make tmux reject an attach as a
-// nested session. Feat's dedicated server is intentionally attachable from a
-// dashboard running inside the user's ordinary tmux server.
+// outsideTmux removes the variables that make tmux reject an attach as a nested
+// session. Feat's dedicated server is meant to be attachable from a dashboard
+// running inside the user's ordinary tmux server.
 func outsideTmux(environment []string) []string {
 	out := make([]string, 0, len(environment))
 	for _, entry := range environment {

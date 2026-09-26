@@ -9,10 +9,9 @@ import (
 
 // table renders aligned columns.
 //
-// Widths are computed from the content rather than guessed, because the widest
-// cell in these tables is a filesystem path and no guess survives a real one: a
-// fixed width either wastes half the terminal or lets one long path push every
-// following column out of line.
+// Widths come from the content rather than a guess. The widest cell in these
+// tables is a filesystem path, and a fixed width either wastes half the terminal
+// or lets one long path push every following column out of line.
 type table struct {
 	header []string
 	rows   [][]string
@@ -75,16 +74,14 @@ func renderRow(prefix string, row []string, widths []int) string {
 
 // mountTable builds the repository-to-container path mapping.
 //
-// It is a table of its own because it is the mapping tasks depend on and the
-// one most worth checking by eye: a repository mounted at the wrong path is a
-// task that compiles nothing, or an application serving the ordinary checkout
-// while every record Feat keeps stays correct.
+// It is a table of its own because it is the mapping tasks depend on and the one
+// most worth checking by eye. A repository mounted at the wrong path is a task
+// that compiles nothing, or an application serving the ordinary checkout while
+// every record Feat keeps stays correct.
 //
-// Each column appears where it means something, and the two mount columns mean
-// something under different conditions. The agent's path exists only where
-// there is a container around the agent. The runtime's exists wherever there
-// are application services, host-native agent or not — which is the column that
-// used to be dropped for exactly the projects whose services it decides
+// Each of the two mount columns appears only where it means something. The
+// agent's path exists where a container surrounds the agent. The runtime's
+// exists wherever there are application services, host-native agent or not
 // (ADR-065 evidence 6).
 func mountTable(cfg *config.Config) *table {
 	mounts := cfg.Mounts()

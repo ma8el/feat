@@ -20,8 +20,8 @@ var update = flag.Bool("update", false, "rewrite golden files")
 // top-level command model.
 //
 // It compares a normalized rendering of the command tree rather than cobra's
-// help text, so that a cobra formatting change does not fail the build while a
-// change to the command model still does.
+// help text, so a cobra formatting change does not fail the build while a change
+// to the command model still does.
 func TestCommandSurface(t *testing.T) {
 	golden := filepath.Join("testdata", "command-surface.golden")
 	got := renderCommandSurface(NewRootCommand(Options{}))
@@ -84,11 +84,11 @@ func localFlagNames(cmd *cobra.Command) []string {
 // work yet says what that work is, instead of failing vaguely or, worse,
 // reporting success.
 func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
-	// Commands that are implemented. Their RunE is not invoked here: the root
-	// command opens the dashboard, the daemon commands start, stop, and inspect
-	// a background process, and the project and doctor commands read the
-	// running user's configuration directory. Leaving one of them out of this
-	// list would make this test run it.
+	// Commands that are implemented. Their RunE is not invoked here, because the
+	// root command opens the dashboard, the daemon commands start, stop, and
+	// inspect a background process, and the project and doctor commands read the
+	// running user's configuration directory. Leaving one out of this list would
+	// make this test run it.
 	implemented := map[string]bool{
 		"feat":                true,
 		"feat version":        true,
@@ -110,18 +110,18 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 		// nothing from the machine at all.
 		"feat project schema":  true,
 		"feat project example": true,
-		// Installing the skill writes into the running user's own ~/.claude;
-		// show prints the embedded document and reads nothing.
+		// Installing the skill writes into the running user's own ~/.claude.
+		// Show prints the embedded document and reads nothing.
 		"feat skill install": true,
 		"feat skill show":    true,
 		// Initialising a project reads the running user's configuration
 		// directory, and with no terminal it refuses rather than asking
 		// questions into a pipe. Invoking it here would do neither usefully.
 		"feat project init": true,
-		// The settings commands read the running user's configuration
-		// directory, exactly as the project ones do. `init` and `edit` write to
-		// it and `edit` starts an editor, so invoking either here would leave a
-		// file behind and open a terminal editor in the test process.
+		// The settings commands read the running user's configuration directory,
+		// as the project ones do. `init` and `edit` write to it and `edit` starts
+		// an editor, so invoking either here would leave a file behind and open a
+		// terminal editor in the test process.
 		"feat settings show": true,
 		"feat settings path": true,
 		"feat settings init": true,
@@ -156,8 +156,8 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 		"feat task resume": true,
 		"feat task stop":   true,
 		// Publishing reaches the daemon, pushes branches, and opens merge
-		// requests on somebody else's server. Invoking it here would be the one
-		// command in this list whose effect is not on this machine.
+		// requests on somebody else's server. It is the one command in this list
+		// whose effect would not be on this machine.
 		"feat task publish": true,
 	}
 
@@ -190,13 +190,13 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 // What it compares is the code pointer behind each command's RunE. An alias is
 // given the canonical command's own function value, so the two agree by
 // construction and this fails the moment somebody gives the alias a body of its
-// own and answers a change to one by editing the other.
+// own.
 //
 // It deliberately does not call the same constructor twice and compare the
-// results. Two closures over one function literal do not share a code pointer:
-// the compiler inlines the constructor at each call site, which is what
-// `NewRootCommand.newAttachCommand.func4` and `newTaskCommand.newAttachCommand.func2`
-// were before the alias was made a copy instead.
+// results. Two closures over one function literal do not share a code pointer,
+// because the compiler inlines the constructor at each call site and names them
+// `NewRootCommand.newAttachCommand.func4` and
+// `newTaskCommand.newAttachCommand.func2`.
 func TestAnAliasIsOneImplementationUnderTwoNames(t *testing.T) {
 	aliases := map[string]string{
 		"feat attach":  "feat task attach",
@@ -240,11 +240,11 @@ func TestAnAliasIsOneImplementationUnderTwoNames(t *testing.T) {
 		if !strings.Contains(alias.Long, canonicalName) {
 			t.Errorf("%s does not say in its help that it is %s", name, canonicalName)
 		}
-		// One implementation under two names has to accept the same
-		// invocations, and the flags are the half the code pointer above says
-		// nothing about: `feat task review --json` and `feat review --json` ran
-		// the same function, and one of them called the flag unknown until
-		// aliasOf carried the flag set across.
+		// One implementation under two names has to accept the same invocations,
+		// and the flags are the half the code pointer above says nothing about.
+		// Without aliasOf carrying the flag set across, `feat task review --json`
+		// and `feat review --json` would run the same function and one of them
+		// would call the flag unknown.
 		if got, want := localFlagNames(alias), localFlagNames(canonical); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s offers %v and %s offers %v\n"+
 				"\tThe alias is the same command under a second name, so it takes the same flags.",

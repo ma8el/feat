@@ -73,11 +73,10 @@ type implementOptions struct {
 	// briefGiven and fileGiven report that the flag appeared, which is a
 	// different question from whether it holds anything.
 	//
-	// `--brief ""` names a source and supplies nothing. Reading that as though
-	// the flag were absent is what made `--brief "$DESC"` mean two things: with
-	// DESC unset it asked for a screen, and with DESC set to a space it created
-	// a task. Two nearly identical invocations diverged, and the quiet one was
-	// the one that wrote.
+	// `--brief ""` names a source and supplies nothing. Read as though the flag
+	// were absent, `--brief "$DESC"` would mean two things: with DESC unset it
+	// asks for a screen, and with DESC set to a space it creates a task. The
+	// quieter of the two nearly identical invocations is the one that writes.
 	briefGiven bool
 	fileGiven  bool
 }
@@ -85,10 +84,10 @@ type implementOptions struct {
 // hasBrief and hasFile report that a source was named, by the flag appearing or
 // by it carrying something.
 //
-// A value is as good as the flag that carried it: only the command line can set
-// the two fields above, so reading the values as well means this value is
-// meaningful on its own, and a caller that builds one without them — every test
-// in this package — cannot quietly turn the blank-brief guard off.
+// A value is as good as the flag that carried it. Only the command line sets the
+// two fields above, so reading the values as well keeps this struct meaningful
+// on its own, and a caller that builds one without them, which is every test in
+// this package, cannot quietly turn the blank-brief guard off.
 func (o implementOptions) hasBrief() bool { return o.briefGiven || o.brief != "" }
 func (o implementOptions) hasFile() bool  { return o.fileGiven || o.file != "" }
 
@@ -97,18 +96,18 @@ func (o implementOptions) named() bool { return o.hasBrief() || o.hasFile() }
 
 // complete reports whether the invocation says what the task is.
 //
-// A project and a named brief source are the whole of it. Everything else Feat
-// resolves — which repositories, from which commits, onto which branches and
-// paths — and --dry-run is how a caller reads that before it exists.
+// A project and a named brief source are the whole of it. Feat resolves
+// everything else, which repositories from which commits onto which branches and
+// paths, and --dry-run is how a caller reads that before it exists.
 //
-// Whether the named source holds anything is a separate question, answered
-// where the brief is read. Answering it here would make an empty source look
-// like an absent one, which is how a blank brief reached a launch.
+// Whether the named source holds anything is a separate question, answered where
+// the brief is read. Answering it here would make an empty source look like an
+// absent one, which is how a blank brief reaches a launch.
 //
 // --ticket is deliberately not a brief for this purpose. It names a document
 // somebody else may have written, which becomes the agent's instructions, and
-// what a user approves is the brief Feat composed from it rather than the
-// ticket (ADR-070). There is nobody to read it in a pipe.
+// what a user approves is the brief Feat composed from it rather than the ticket
+// (ADR-070). A pipe has nobody to read that.
 func (o implementOptions) complete() bool {
 	return o.project != "" && o.named()
 }
@@ -175,7 +174,7 @@ func newImplementCommand(env *environment) *cobra.Command {
 	// The reference is the tracker's own, exactly as its command printed it.
 	// Feat parses no part of one: it re-runs the command and matches (ADR-071).
 	cmd.Flags().String("ticket", "", "compose the brief from this ticket of the project's tracker")
-	// It presets the review step's toggle rather than deciding anything: the
+	// It presets the review step's toggle rather than deciding anything. The
 	// step still appears, the key still moves it, and nothing is created until
 	// the user confirms what is on the screen.
 	cmd.Flags().Bool("plan", false, "start the agent in plan mode, so it proposes a plan before it changes anything")
@@ -235,9 +234,9 @@ func readImplementFlags(cmd *cobra.Command) (implementOptions, error) {
 
 // check refuses an invocation that cannot mean what it says.
 //
-// Every refusal here is a combination where carrying on would either discard
-// something the user asked for or quietly ignore it. A flag that does nothing is
-// worse than a flag that is refused: the user believes it worked.
+// Every refusal here is a combination where carrying on would discard or ignore
+// something the user asked for. A flag that does nothing is worse than one that
+// is refused, because the user believes it worked.
 func (o implementOptions) check(interactive bool) error {
 	switch {
 	case o.ticket != "" && o.named():
@@ -255,8 +254,8 @@ func (o implementOptions) check(interactive bool) error {
 	}
 
 	if o.project != "" {
-		// Validated here so that a malformed identifier is a usage error rather
-		// than something the daemon has to explain.
+		// Validated here so a malformed identifier is a usage error rather than
+		// something the daemon has to explain.
 		if err := domain.ProjectID(o.project).Validate(); err != nil {
 			return err
 		}
@@ -304,26 +303,24 @@ func (o implementOptions) check(interactive bool) error {
 
 // readBrief returns the brief this run was given, and where it came from.
 //
-// It answers for both paths, so that a brief the user takes to the screen with
-// --tui is the same brief a headless run would have created from. A run that
-// was given none gets an empty document, which is the screen's starting state.
+// It answers for both paths, so a brief the user takes to the screen with --tui
+// is the same brief a headless run would have created from. A run that was given
+// none gets an empty document, which is the screen's starting state.
 //
-// A brief typed into a flag and a brief piped in are both text the caller
-// supplied, so both are recorded as a prompt. Only a file has a path worth
-// recording, and the client is what reads it: no caller-supplied filesystem
-// path crosses the socket (ADR-028).
+// The source travels with the document. A flag or a pipe is recorded as a
+// prompt, and only a file has a path worth recording, which the client reads
+// rather than the daemon (ADR-028).
 func (o implementOptions) readBrief(stdin io.Reader) (string, api.Source, error) {
 	document, source, err := o.resolveBrief(stdin)
 	if err != nil {
 		return "", api.Source{}, err
 	}
 
-	// One guard for every source rather than one per source. The daemon refuses
-	// a task with no brief before it creates anything, and so does the screen,
-	// which trims — but both compare against the empty string, so a brief of
-	// spaces is a brief to them. This is the same mistake made where there is no
-	// screen to say so, and it is caught before a draft exists rather than after
-	// one has been created and archived.
+	// One guard for every source rather than one per source. The daemon refuses a
+	// task with no brief before it creates anything, and so does the screen, but
+	// both compare against the empty string, so a brief of spaces is a brief to
+	// them. This catches it before a draft exists rather than after one has been
+	// created and archived.
 	if o.named() && strings.TrimSpace(document) == "" {
 		return "", api.Source{}, o.blankBrief()
 	}
@@ -346,14 +343,14 @@ func (o implementOptions) blankBrief() error {
 //
 // A brief typed into a flag and a brief piped in are both text the caller
 // supplied, so both are recorded as a prompt. Only a file has a path worth
-// recording, and the client is what reads it: no caller-supplied filesystem
-// path crosses the socket (ADR-028). What is sent is the content, with the path
-// recorded only so that the task can say where its brief came from.
+// recording, and the client reads it, because no caller-supplied filesystem path
+// crosses the socket (ADR-028). What is sent is the content, and the path is
+// recorded only so the task can say where its brief came from.
 //
-// The reading of a file is internal/brief's, because the import screen applies
-// the same rule and internal/ui cannot import this package (ADR-083). What
-// stays here is the source the flag implies: the package that reads the file
-// knows nothing about the DTO, so each caller builds its own.
+// Reading a file is internal/brief's job, because the import screen applies the
+// same rule and internal/ui cannot import this package (ADR-083). What stays
+// here is the source the flag implies: the package that reads the file knows
+// nothing about the DTO, so each caller builds its own.
 func (o implementOptions) resolveBrief(stdin io.Reader) (string, api.Source, error) {
 	switch {
 	case o.hasBrief():
@@ -374,24 +371,24 @@ func (o implementOptions) resolveBrief(stdin io.Reader) (string, api.Source, err
 		return text, api.Source{Kind: string(domain.SourceMarkdown), Reference: path}, nil
 
 	default:
-		// No source was named, so there is no document and nothing to refuse:
-		// this is the screen's starting state.
+		// No source was named, so there is no document and nothing to refuse.
+		// This is the screen's starting state.
 		return "", api.Source{Kind: string(domain.SourcePrompt)}, nil
 	}
 }
 
 // createTask records a draft, resolves it, and launches what was resolved.
 //
-// The confirmation is the invocation. What the fingerprint defends against is a
-// draft that changed between the plan and the launch, and here it still can:
-// the value carried back is the one this run was just given, so a draft that
-// moved underneath it is refused rather than launched (ADR-031, ADR-099). It is
-// the same confirmation `daemon.PrepareTask` supplies itself.
+// The confirmation is the invocation. The fingerprint defends against a draft
+// that changed between the plan and the launch, which can still happen here: the
+// value carried back is the one this run was just given, so a draft that moved
+// underneath it is refused rather than launched (ADR-031, ADR-099). It is the
+// same confirmation `daemon.PrepareTask` supplies itself.
 //
-// Nothing that was created is undone: a launch that fails leaves a failed task
+// Nothing that was created is undone. A launch that fails leaves a failed task
 // whose record names a superset of what exists (ADR-029). A failure before the
-// launch has created nothing, and its draft is archived rather than left in the
-// list — see discardDraft for why this path differs from the screen's.
+// launch has created nothing, and discardDraft says why its draft is archived
+// rather than left in the list.
 func createTask(cmd *cobra.Command, caller drafter, opts implementOptions, document string, source api.Source) error {
 	ctx := cmd.Context()
 
@@ -429,10 +426,9 @@ func createTask(cmd *cobra.Command, caller drafter, opts implementOptions, docum
 	}
 
 	if opts.dryRun {
-		// Discarded before anything is printed, so that a run which cannot
-		// discard it reports that instead of printing a document and then
-		// failing. The record is archived rather than removed, which is what
-		// cancelling a draft has always done.
+		// Discarded before anything is printed, so a run that cannot discard
+		// it reports that instead of printing a document and then failing.
+		// Cancelling archives the record rather than removing it.
 		if _, err := caller.CancelDraft(ctx, draft.ID); err != nil {
 			return fmt.Errorf("the draft was resolved and could not be discarded, "+
 				"so task %s is still a draft: %w", draft.Key, err)
@@ -459,10 +455,9 @@ func createTask(cmd *cobra.Command, caller drafter, opts implementOptions, docum
 
 // drafter is what creating a task needs from the daemon.
 //
-// It is an interface so that the whole flow can be tested without a socket,
-// which is what `publisher` exists for in the command beside this one. What it
-// is mostly made of is the order of four requests and what happens when one of
-// them fails.
+// It is an interface so a test can drive the whole flow without a socket, which
+// is what `publisher` does for the command beside this one. Most of the flow is
+// the order of four requests and what happens when one of them fails.
 type drafter interface {
 	Project(ctx context.Context, id string) (api.Project, error)
 	CreateDraft(ctx context.Context, request api.CreateDraft) (api.Task, error)
@@ -478,9 +473,9 @@ type drafter interface {
 // The daemon leaves such a draft alone, because on the preparation screen it is
 // a task the user can still change and resolve again. There is no screen here:
 // the run is over, and a run that tried again would record a second draft rather
-// than edit this one. So this archives it, which is what cancelling a draft has
-// always done — the record survives and says what was started and abandoned,
-// and `feat task list` counts it rather than showing it.
+// than edit this one. So this cancels it, which archives the record. The record
+// survives saying what was started and abandoned, and `feat task list` counts it
+// rather than showing it.
 //
 // Nothing is destroyed by archiving one. Planning creates no branch, no
 // worktree, and no container, so a draft that failed to resolve owns nothing at
@@ -498,7 +493,7 @@ func discardDraft(ctx context.Context, caller drafter, draft api.Task, cause err
 //
 // A bare identifier takes the repository's configured default access, which is
 // what the project already says about it. The three defaults that are not a task
-// access — selectable, stable_read_only, and omitted — are a choice the project
+// access, selectable, stable_read_only, and omitted, are a choice the project
 // deliberately left open, so this refuses rather than making it.
 func resolveSelection(ctx context.Context, caller drafter, opts implementOptions) ([]api.DraftRepository, error) {
 	if len(opts.repositories) == 0 {
@@ -560,7 +555,7 @@ func resolveSelection(ctx context.Context, caller drafter, opts implementOptions
 // printProposal renders what a dry run would have created.
 //
 // It does not lead with the task's key, because the draft it was resolved on has
-// been discarded: what this describes is a task, not a record that exists.
+// been discarded. What this describes is a task rather than a record that exists.
 func printProposal(out io.Writer, plan api.DraftPlan) {
 	printf(out, "would create in project %s  %s\n", plan.Task.ProjectID, plan.Task.Title)
 	renderTaskRepositories(out, plan.Task)

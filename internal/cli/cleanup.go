@@ -70,8 +70,8 @@ func newCleanupCommand(env *environment) *cobra.Command {
 // printCleanupPlan renders the inventory.
 //
 // Every target is listed rather than counted. A user deciding whether to remove
-// three worktrees needs to see which three, and FR-CLEAN-001 is about the
-// inventory being exact rather than about it being short.
+// three worktrees needs to see which three, and FR-CLEAN-001 asks for an exact
+// inventory rather than a short one.
 func printCleanupPlan(out io.Writer, plan api.CleanupPlan) {
 	printf(out, "Task %s in project %s is %s.\n", plan.TaskKey, plan.ProjectID, plan.Workflow)
 
@@ -102,9 +102,9 @@ func printCleanupPlan(out io.Writer, plan api.CleanupPlan) {
 // warning.
 //
 // One question per class is FR-CLEAN-002's "separate choices" taken literally,
-// and the second question is FR-CLEAN-003's explicit confirmation. The warnings
-// a user accepts are echoed back in the request, so the daemon refuses a
-// confirmation that no longer covers what is true (ADR-037).
+// and the second question is FR-CLEAN-003's explicit confirmation. The request
+// echoes back the warnings a user accepted, so the daemon refuses a confirmation
+// that no longer covers what is true (ADR-037).
 func askCleanup(in io.Reader, out io.Writer, plan api.CleanupPlan) (api.CleanupSelection, bool, error) {
 	reader := bufio.NewReader(in)
 	selection := api.CleanupSelection{Token: plan.Token}
@@ -140,9 +140,9 @@ func askCleanup(in io.Reader, out io.Writer, plan api.CleanupPlan) (api.CleanupS
 		return api.CleanupSelection{}, false, nil
 	}
 
-	// Archiving is offered only when everything the plan names was chosen,
-	// because the daemon refuses it otherwise: an archived task that still owns a
-	// running container is exactly the orphan reconciliation exists to report.
+	// Archiving is offered only when everything the plan names was chosen, because
+	// the daemon refuses it otherwise. An archived task that still owns a running
+	// container is the orphan reconciliation exists to report.
 	if len(selection.Classes) == len(plan.Classes) && plan.Archivable {
 		archive, err := ask(reader, out, "\nArchive the task's metadata? Its record and history are kept.")
 		if err != nil {
@@ -178,9 +178,8 @@ func title(plan api.CleanupPlan, class string) string {
 // ask puts one question, reading from a reader shared across the whole
 // conversation.
 //
-// The reader is shared because a new buffered reader per question discards
-// whatever the previous one buffered, which for a sequence of prompts means
-// losing the answers a user typed ahead.
+// A new buffered reader per question discards what the previous one buffered,
+// which over a sequence of prompts loses the answers a user typed ahead.
 func ask(reader *bufio.Reader, out io.Writer, question string) (bool, error) {
 	printf(out, "%s [y/N]: ", question)
 
@@ -196,7 +195,7 @@ func ask(reader *bufio.Reader, out io.Writer, question string) (bool, error) {
 	}
 }
 
-// printCleanupResult reports what went.
+// printCleanupResult reports which of the selected resources were removed.
 func printCleanupResult(out io.Writer, status api.CleanupStatus) {
 	printf(out, "\n")
 	for _, removal := range status.Removed {

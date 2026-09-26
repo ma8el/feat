@@ -12,10 +12,10 @@ import (
 
 // machineHost answers the wizard's questions about this machine.
 //
-// It is the one place the flow's questions meet the host: Git is run here,
-// Compose files are read here, and paths are expanded here. The flow itself
-// names none of it, which is what lets the dashboard drive the same questions
-// without reaching an adapter of its own (ADR-031, ADR-063).
+// It is the one place the wizard's questions meet the host. Git runs here,
+// Compose files are read here, and paths are expanded here. The flow names none
+// of it, so the dashboard drives the same questions without an adapter of its
+// own (ADR-031, ADR-063).
 type machineHost struct {
 	process paths.Environment
 	runner  project.Runner
@@ -47,9 +47,8 @@ func (h *machineHost) ComposeServices(files ...string) []string {
 
 // Compose reads what Compose files propose about one repository.
 //
-// The reading is internal/project's, and the shape is the wizard's: a
-// proposal's whole job is to be put back to the user in the terms of the
-// question, and the flow names no adapter of its own.
+// The reading is internal/project's and the shape is the wizard's, because a
+// proposal is put back to the user in the terms of the question it answers.
 func (h *machineHost) Compose(projectDir, repository string, files ...string) wizard.Composition {
 	composition := project.ComposeReader{
 		// The user's own environment, because a "~" in a Compose file means this
@@ -67,10 +66,9 @@ func (h *machineHost) Compose(projectDir, repository string, files ...string) wi
 	}
 	proposed.ContainerPath, _ = composition.SourceTarget(services)
 	for _, service := range composition.Services {
-		// The two ways a service runs this repository's code, kept apart because
-		// they mean different things to the questions that follow: a mounted
-		// service has a container path to agree with, and a baked one has a build
-		// context Feat redirects instead (ADR-065 evidence 4).
+		// The two ways a service runs this repository's code. A mounted service
+		// has a container path to agree with, a baked one a build context Feat
+		// redirects instead (ADR-065 evidence 4).
 		if len(service.SourceTargets) > 0 {
 			proposed.Mounted = append(proposed.Mounted, service.Name)
 		}
@@ -88,8 +86,8 @@ func (h *machineHost) Exists(path string) bool {
 }
 
 // Absolute expands a leading "~" and resolves a relative path against the
-// directory the wizard was started in, so that an answer typed the way a shell
-// would take it is the path Feat records.
+// directory the wizard was started in, so an answer typed the way a shell would
+// take it is the path Feat records.
 func (h *machineHost) Absolute(value string) (string, error) {
 	expanded, err := h.process.Expand(value)
 	if err != nil {
@@ -101,9 +99,9 @@ func (h *machineHost) Absolute(value string) (string, error) {
 	return filepath.Join(h.WorkingDirectory(), expanded), nil
 }
 
-// WorkingDirectory returns the directory the process was started in, or the home
-// directory when it cannot be read — which happens when it has been removed
-// underneath the process, and is not a reason to refuse to configure a project.
+// WorkingDirectory returns the directory the process was started in. It falls
+// back to the home directory when that directory has been removed underneath the
+// process, which is no reason to refuse to configure a project.
 func (h *machineHost) WorkingDirectory() string {
 	if dir, err := os.Getwd(); err == nil {
 		return dir

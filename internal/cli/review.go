@@ -51,10 +51,9 @@ func newReviewCommand(env *environment) *cobra.Command {
 			defer caller.Close()
 
 			// A run with no terminal reports what it observed rather than
-			// opening a screen nobody can read, which is what `feat` itself
-			// does (ADR-027). Asking for a document says the same thing about a
-			// run that has a terminal: a caller who wants the comparison parsed
-			// is not asking for the screen.
+			// opening a screen nobody can read (ADR-027). --json asks for the
+			// same from a run that has one, because a caller parsing the
+			// comparison is not asking for the screen.
 			if !env.interactive || wantsJSON(cmd) {
 				status, err := caller.Review(cmd.Context(), args[0], api.ReviewObserve)
 				if err != nil {
@@ -83,13 +82,13 @@ func newReviewCommand(env *environment) *cobra.Command {
 // The daemon expanded it from the project's own configuration and refused
 // anything that could leave the task's worktrees. It is checked again here for
 // the reason `feat runtime logs` checks the Compose command it is handed: the
-// daemon is the same user, and a client that ran whatever it received would be
-// one nobody could reason about.
+// daemon runs as the same user, and a client that ran whatever it received would
+// be one nobody could reason about.
 //
-// What cannot be checked here is which program it is — a review command is
-// whatever the user configured, `git` or `nvim` or something of their own — so
-// what is checked is everything else: an argument that would not survive a
-// vector, and a working directory that is not an absolute path.
+// Which program it is cannot be checked, because a review command is whatever
+// the user configured, `git` or `nvim` or something of their own. Everything
+// else is: an argument that would not survive a vector, and a working directory
+// that is not an absolute path.
 func reviewCommand(command api.ReviewCommand) (*exec.Cmd, error) {
 	if strings.TrimSpace(command.Program) == "" {
 		return nil, fmt.Errorf("the daemon returned no program for the %s command", command.Kind)
@@ -110,8 +109,8 @@ func reviewCommand(command api.ReviewCommand) (*exec.Cmd, error) {
 	}
 
 	// #nosec G204 -- the program and its arguments are the project's own
-	// configuration, expanded and checked by the daemon and checked again above;
-	// every element is one argument and nothing reaches a shell.
+	// configuration, expanded and checked by the daemon and checked again above.
+	// Every element is one argument and nothing reaches a shell.
 	process := exec.Command(command.Program, command.Arguments...)
 	process.Dir = command.Directory
 	return process, nil
@@ -119,13 +118,13 @@ func reviewCommand(command api.ReviewCommand) (*exec.Cmd, error) {
 
 // printReview renders a review for a terminal that cannot show the screen.
 //
-// The repositories come first because they are what review is: each against its
+// The repositories come first because they are what review is, each against its
 // own recorded base commit, with the commands that open it.
 func printReview(out io.Writer, status api.ReviewStatus) {
 	printf(out, "%s  %s\n", status.Task.Key, status.Task.Title)
-	// The workflow is the whole of where the task has got to. There is no second
-	// record of it to print (ADR-047), and since the decisions went there is no
-	// decision either: a review is left by attaching or by publishing (ADR-086).
+	// The workflow is the whole of where the task has got to. No second record of
+	// it exists to print (ADR-047), and there is no decision to print either,
+	// because a review is left by attaching or by publishing (ADR-086).
 	printf(out, "workflow  %s\n", status.Task.Workflow)
 	if status.Review.Summary != "" {
 		printf(out, "the agent says  %s\n", status.Review.Summary)
@@ -190,9 +189,8 @@ func repositoryState(repository api.ReviewRepository) string {
 	return strings.Join(parts, ", ")
 }
 
-// reporter says who produced a check result, in words rather than in a term
-// only Feat uses. The distinction is the point: one was enforced and the other
-// was claimed.
+// reporter says who produced a check result, in words rather than a term only
+// Feat uses. One result was enforced and the other was claimed.
 func reporter(value string) string {
 	if value == "provider" {
 		return "feat"

@@ -38,10 +38,10 @@ func (m *wizardMachine) flow(t *testing.T) *wizard.Wizard {
 // TestTheAskerIsChosenByTheReaderAndByTerm checks the rule at each of its two
 // clauses (ADR-084).
 //
-// The terminal is passed in rather than borrowed. A test cannot make one
-// portably — the master side of a pseudo-terminal answers isatty on Linux and
-// not on macOS, which is a fact about Darwin's ptys and not about this rule —
-// and what the rule is about is which asker the two facts choose.
+// The terminal is passed in rather than borrowed, because a test cannot make one
+// portably. The master side of a pseudo-terminal answers isatty on Linux and not
+// on macOS, which is a fact about Darwin's ptys rather than about this rule, and
+// the rule is about which asker the two facts choose.
 func TestTheAskerIsChosenByTheReaderAndByTerm(t *testing.T) {
 	for _, want := range []struct {
 		name     string
@@ -84,11 +84,10 @@ func TestTheAskerIsChosenByTheReaderAndByTerm(t *testing.T) {
 // TestTheReaderAskedAboutIsTheOneTheCommandHolds is the other half of the input
 // clause, and the half that can be wrong.
 //
-// Whether a reader is a terminal is a question only an *os.File can be asked,
-// so what matters is that the command holds one in a real run and holds the
-// test's script in a scripted one. A reader wrapping the process's stdin would
-// answer no to the type question and leave the widget unreachable however good
-// the terminal was.
+// Whether a reader is a terminal is a question only an *os.File can be asked, so
+// what matters is that the command holds one in a real run and the test's script
+// in a scripted one. A reader wrapping the process's stdin would answer no to the
+// type question and leave the widget unreachable however good the terminal was.
 func TestTheReaderAskedAboutIsTheOneTheCommandHolds(t *testing.T) {
 	if got := NewRootCommand(Options{}).InOrStdin(); got != os.Stdin {
 		t.Errorf("a real run reads its answers from %T, which is not the process's own stdin", got)
@@ -102,8 +101,8 @@ func TestTheReaderAskedAboutIsTheOneTheCommandHolds(t *testing.T) {
 		t.Error("a scripted conversation was taken for a terminal")
 	}
 
-	// A file is the first question and not the last: a pipe is an *os.File and
-	// nobody presses a key into one.
+	// A file is the first question and not the last, because a pipe is an
+	// *os.File and nobody presses a key into one.
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("opening a pipe: %v", err)
@@ -114,9 +113,9 @@ func TestTheReaderAskedAboutIsTheOneTheCommandHolds(t *testing.T) {
 	}
 }
 
-// TestTheWidgetLeavesTheAnsweredQuestionBehind is what makes the widget inline
-// rather than a screen: the transcript accumulates in the scrollback exactly as
-// it does under the line asker, and this is the line it accumulates (ADR-062).
+// TestTheWidgetLeavesTheAnsweredQuestionBehind covers what makes the widget
+// inline rather than a screen. The transcript accumulates in the scrollback as it
+// does under the line asker, and this is the line it accumulates (ADR-062).
 func TestTheWidgetLeavesTheAnsweredQuestionBehind(t *testing.T) {
 	for _, want := range []struct {
 		name     string
@@ -190,9 +189,9 @@ func TestTheWidgetStopsDrawingOnceItIsAnswered(t *testing.T) {
 	}
 }
 
-// TestEscStepsBackOnlyWhereThereIsSomethingBehind checks the key on both kinds
-// of question the widget draws: the flow's, which have an answer before them,
-// and the conversation's own offers, which have not.
+// TestEscStepsBackOnlyWhereThereIsSomethingBehind checks the key on both kinds of
+// question the widget draws: the flow's, which have an answer before them, and
+// the conversation's own offers, which have not.
 func TestEscStepsBackOnlyWhereThereIsSomethingBehind(t *testing.T) {
 	question := wizard.Question{Kind: wizard.KindText, Prompt: "Project identifier"}
 
@@ -225,7 +224,7 @@ func pressed(t *testing.T, model asking, key tea.KeyMsg) asking {
 }
 
 // TestLeavingAQuestionIsNotAnAnswer checks the one key that ends the command
-// where it stands: what it leaves is a transcript, and what it must never leave
+// where it stands. What it leaves is a transcript, and what it must never leave
 // is an answer nobody gave.
 func TestLeavingAQuestionIsNotAnAnswer(t *testing.T) {
 	question := wizard.Question{Kind: wizard.KindConfirm, Prompt: "Write it?", Proposed: "y"}
@@ -247,12 +246,12 @@ func TestLeavingAQuestionIsNotAnAnswer(t *testing.T) {
 
 // scriptedAsker answers with a written script and records what it was asked.
 //
-// It stands in for the widget so that the conversation's own half of stepping
-// back — the marker, and asking the flow to undo an answer — can be driven
-// without a terminal.
+// It stands in for the widget, so the conversation's own half of stepping back,
+// the marker and asking the flow to undo an answer, can be driven without a
+// terminal.
 type scriptedAsker struct {
-	// out is where it leaves the answered question, as the widget does, so that
-	// a test about the shape of the transcript is about the real shape of it.
+	// out is where it leaves the answered question, as the widget does, so a
+	// test about the shape of the transcript is about the real shape of it.
 	out     io.Writer
 	replies []reply
 	asked   []string
@@ -278,9 +277,9 @@ func (s *scriptedAsker) question(_ context.Context, question wizard.Question, in
 
 func (s *scriptedAsker) offer(context.Context, string, bool) (bool, error) { return false, nil }
 
-// TestSteppingBackReopensTheQuestionBeforeIt is the capability the conversation
-// dropped: Wizard.Back has existed since the flow was written and only the
-// dashboard ever called it (ADR-084).
+// TestSteppingBackReopensTheQuestionBeforeIt covers the conversation's own half
+// of stepping back, which the dashboard's dialog drives through the same
+// Wizard.Back (ADR-084).
 func TestSteppingBackReopensTheQuestionBeforeIt(t *testing.T) {
 	m := prepareWizard(t)
 
@@ -323,9 +322,9 @@ func TestSteppingBackReopensTheQuestionBeforeIt(t *testing.T) {
 	}
 
 	// The restored question is announced below what is already there, under a
-	// marker naming what it returned to. Nothing above it is rewritten: a
-	// transcript holding two answers to one question has to read as a
-	// correction rather than as a contradiction.
+	// marker naming what it returned to. Nothing above it is rewritten, because a
+	// transcript holding two answers to one question has to read as a correction
+	// rather than as a contradiction.
 	transcript := out.String()
 	if !strings.Contains(transcript, "↩ back to: Add another repository?") {
 		t.Errorf("the transcript does not say what the step back returned to:\n%s", transcript)
@@ -344,10 +343,10 @@ func TestSteppingBackReopensTheQuestionBeforeIt(t *testing.T) {
 // TestEachPartOfTheTranscriptIsSeparatedFromTheLast is what a conversation
 // needs once every question in it has been answered rather than asked.
 //
-// A heading is a bare line at the left margin, and so is the path of the file
-// the answers composed; the answered questions above them are indented lines
-// that look much like them. The blank line that used to be the only boundary is
-// what the transcript is already full of.
+// A heading is a bare line at the left margin, and so is the path of the file the
+// answers composed. The answered questions above them are indented lines that
+// look much like them, and a blank line cannot be the boundary because the
+// transcript is already full of blank lines.
 func TestEachPartOfTheTranscriptIsSeparatedFromTheLast(t *testing.T) {
 	m := prepareWizard(t)
 
@@ -382,13 +381,13 @@ func TestEachPartOfTheTranscriptIsSeparatedFromTheLast(t *testing.T) {
 		}
 	}
 
-	// And what explains a decision is parted from the decisions themselves,
-	// which is the same break the dialog draws under a question's detail.
+	// And what explains a decision is parted from the decisions themselves, the
+	// same break the dialog draws under a question's detail.
 	if !strings.Contains(transcript, "the task.\n\n  Execution mode: host\n") {
 		t.Errorf("a section's detail runs into the answers under it:\n%s", transcript)
 	}
-	// One blank line and never two. A second is not twice the separator; it is
-	// a gap that reads as something dropped.
+	// One blank line and never two. A second is not twice the separator but a gap
+	// that reads as something dropped.
 	questions, _, _ := strings.Cut(transcript, rule+"\n"+m.layout.ProjectConfigDir())
 	if strings.Contains(questions, "\n\n\n") {
 		t.Errorf("the questions are separated by more blank line than one:\n%s", questions)

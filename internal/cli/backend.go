@@ -23,22 +23,22 @@ import (
 
 // fallbackEditor is used when the environment names none.
 //
-// FR-REV-003 makes $EDITOR the default; a machine that sets neither $VISUAL nor
-// $EDITOR still needs something that exists, and vi is specified by POSIX.
+// FR-REV-003 makes $EDITOR the default. A machine that sets neither $VISUAL nor
+// $EDITOR still needs something that exists, and POSIX specifies vi.
 const fallbackEditor = "vi"
 
 // backend adapts the daemon client to what the dashboard needs.
 //
-// It exists in internal/cli rather than in internal/ui because of the commands
-// it builds: native tmux attach, a task shell, the user's editor, and the
-// project wizard. Constructing them here keeps os/exec out of the TUI, which is
-// the boundary ADR-031 records, and puts the terminal-yielding commands beside
-// the `feat attach` implementation they share (ADR-030).
+// It lives in internal/cli rather than internal/ui because of the commands it
+// builds: native tmux attach, a task shell, the user's editor, and the project
+// wizard. Constructing them here keeps os/exec out of the TUI, the boundary
+// ADR-031 records, and puts the terminal-yielding commands beside the `feat
+// attach` implementation they share (ADR-030).
 //
 // It holds the process environment rather than the resolved paths, because the
-// wizard needs what a project command needs — the configuration directory, what
-// paths resolve against, and the runner it inspects checkouts with — and those
-// are the same values `feat project init` asks the environment for.
+// wizard needs what a project command needs: the configuration directory, what
+// paths resolve against, and the runner it inspects checkouts with. Those are
+// the values `feat project init` asks the environment for.
 type backend struct {
 	client *client.Client
 	env    *environment
@@ -58,8 +58,8 @@ func (b *backend) Tasks(ctx context.Context) ([]api.Task, error) {
 //
 // The daemon runs it rather than this process, because that is where every
 // credentialed provider call is made and where the answer becomes a task
-// (ADR-070). `feat doctor` is the exception and says why: it validates a
-// project's configuration before a daemon exists.
+// (ADR-070). `feat doctor` is the exception, because it validates a project's
+// configuration before a daemon exists.
 func (b *backend) Tickets(ctx context.Context, project string) (api.TicketList, error) {
 	return b.client.Tickets(ctx, project)
 }
@@ -80,9 +80,9 @@ func (b *backend) Resources(ctx context.Context) (api.ResourceReport, error) {
 // TUI reaches the daemon over the socket rather than in process.
 //
 // A daemon that is already answering is left alone and reported as success. Two
-// clients can be asking at once — the periodic read that discovered the absence
-// and the key the user pressed — and Spawn's own answer to that race is that the
-// loser's child exits reporting the winner; this is the cheaper half of it.
+// clients can be asking at once, the periodic read that found the absence and
+// the key the user pressed, and Spawn answers that race by having the loser's
+// child exit reporting the winner. This is the cheaper half of it.
 func (b *backend) StartDaemon(ctx context.Context) error {
 	layout, err := b.env.resolve()
 	if err != nil {
@@ -230,10 +230,10 @@ func (b *backend) tmux(ctx context.Context, info api.AttachInfo) (tea.ExecComman
 
 // EditorCommand opens a file in the user's editor.
 //
-// $VISUAL is preferred over $EDITOR where both are set, which is the
-// convention: $VISUAL names the full-screen editor and $EDITOR may be a line
-// editor. The value may carry arguments, as `code -w` does, so it is split
-// rather than treated as one program name.
+// $VISUAL is preferred over $EDITOR where both are set, by convention: $VISUAL
+// names the full-screen editor and $EDITOR may be a line editor. The value may
+// carry arguments, as `code -w` does, so it is split rather than treated as one
+// program name.
 func (b *backend) EditorCommand(path string) (tea.ExecCommand, error) {
 	fields := strings.Fields(b.editor())
 	if len(fields) == 0 {
@@ -241,7 +241,7 @@ func (b *backend) EditorCommand(path string) (tea.ExecCommand, error) {
 	}
 
 	// #nosec G204 -- the program comes from the user's own environment and the
-	// file is one Feat just created; every part is a separate argument and
+	// file is one Feat just created. Every part is a separate argument and
 	// nothing reaches a shell.
 	command := exec.Command(fields[0], append(fields[1:], path)...)
 	return execCommand{command}, nil
@@ -262,11 +262,11 @@ func (b *backend) ApplyPublication(
 // EditPublication writes the draft of a plan and returns it on its way to the
 // editor.
 //
-// It is the document `feat task publish` writes, through the same constructor:
-// the file, the parser, and the read-back are shared, and what differs is that
-// the dashboard has to release the terminal before the editor runs and is told
-// afterwards. Closing it is the caller's, which for the dashboard is the
-// callback Bubble Tea runs when the editor exits.
+// It is the document `feat task publish` writes, through the same constructor,
+// so the file, the parser, and the read-back are shared. What differs is that
+// the dashboard releases the terminal before the editor runs and is told
+// afterwards. Closing the draft is the caller's job, which for the dashboard is
+// the callback Bubble Tea runs when the editor exits.
 func (b *backend) EditPublication(plan api.PublicationStatus) (ui.PublicationEditor, error) {
 	draft, err := newPublicationDraft(plan, b.env)
 	if err != nil {
@@ -288,19 +288,17 @@ func (d *publicationDraft) Command() tea.ExecCommand { return execCommand{d.comm
 //
 // It is built here because of what it needs: the configuration directory, what
 // paths resolve against, and a host that runs Git and reads Compose files. The
-// dashboard has none of those and is not meant to — it drives the questions and
-// draws them, and everything underneath them is this side of the interface
-// (ADR-063).
+// dashboard drives the questions and draws them, and everything underneath them
+// is on this side of the interface (ADR-063).
 func (b *backend) NewWizard() (*wizard.Wizard, error) {
 	return b.env.wizard("")
 }
 
 // WriteProject writes the configuration the wizard composed.
 //
-// The dashboard asks for it rather than doing it, so that the exclusive create
-// that protects an existing configuration is the same one `feat project init`
-// writes through, in the same package, with no second implementation to keep
-// honest.
+// The dashboard asks for it rather than doing it, so the exclusive create that
+// protects an existing configuration is the one `feat project init` writes
+// through, with no second implementation to keep honest.
 func (b *backend) WriteProject(flow *wizard.Wizard) (string, error) {
 	return flow.Write()
 }
@@ -309,10 +307,10 @@ func (b *backend) WriteProject(flow *wizard.Wizard) (string, error) {
 //
 // The checks run here, in the process the user is in front of, for the reason
 // `feat doctor` does: diagnosis works before a daemon or a registration exists
-// (ADR-028), so making it a daemon request would be a second implementation of
-// the same checks — and the second one would answer about a different process's
-// environment. What crosses to the dashboard is data, so the screen that draws
-// it reaches no adapter (ADR-031, ADR-064).
+// (ADR-028). A daemon request would be a second implementation of the same
+// checks, answering about a different process's environment. What crosses to the
+// dashboard is data, so the screen that draws it reaches no adapter (ADR-031,
+// ADR-064).
 func (b *backend) Diagnose(ctx context.Context, id string) (api.Diagnosis, error) {
 	_, options, err := b.env.diagnostics()
 	if err != nil {
@@ -340,7 +338,7 @@ func projectList(id string) []string {
 // dashboard is already talking to.
 //
 // A failed read reports every project as unregistered rather than failing the
-// diagnosis: the daemon is one of the things being diagnosed.
+// diagnosis, because the daemon is one of the things being diagnosed.
 func (b *backend) registered(ctx context.Context) func(string) bool {
 	projects, err := b.client.Projects(ctx)
 	if err != nil {
@@ -384,9 +382,9 @@ func findings(found []project.Finding) []api.Finding {
 
 // RegisterProject registers a written project with the running daemon.
 //
-// It is the request `feat project add` makes, and it is made only when the user
-// asks for it: a file on disk and a project the daemon knows about stay
-// different things (ADR-028).
+// It is the request `feat project add` makes, and only when the user asks for
+// it. A file on disk and a project the daemon knows about stay different things
+// (ADR-028).
 func (b *backend) RegisterProject(ctx context.Context, id string) (api.Registration, error) {
 	return b.client.RegisterProject(ctx, id)
 }
@@ -402,8 +400,8 @@ func (b *backend) editor() string {
 }
 
 func (b *backend) lookup(name string) string {
-	// An environment that cannot be resolved is not a reason to have no editor:
-	// the process's own is what a resolved one would have read anyway.
+	// An environment that cannot be resolved is no reason to have no editor,
+	// because the process's own is what a resolved one would have read.
 	current, err := b.env.current()
 	if err != nil || current.Getenv == nil {
 		return os.Getenv(name)
@@ -420,9 +418,8 @@ type execCommand struct{ command *exec.Cmd }
 //
 // Ctrl-C is how a user leaves `docker compose logs --follow`, and Compose exits
 // 130 when they do. Reporting that as an error would put a failure banner on the
-// dashboard for a key the user meant to press — the state that cries wolf on the
-// ordinary path, which ADR-034 evidence 9 refused for a stopped container and
-// which is the same mistake here (ADR-049).
+// dashboard for a key the user meant to press, which ADR-034 evidence 9 refused
+// for a stopped container and is the same mistake here (ADR-049).
 const interruptedExit = 130
 
 func (c execCommand) Run() error {

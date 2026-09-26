@@ -15,9 +15,9 @@ import (
 
 // absent is what a field this build cannot fill renders as.
 //
-// It is never a zero or a blank. A list that prints "0 files changed" where it
-// has not looked is making a claim it did not measure, which is the rule
-// `feat doctor` follows for a check it could not run (ADR-028, ADR-031).
+// It is never a zero or a blank. A list printing "0 files changed" where it has
+// not looked claims something it did not measure, which is the rule `feat
+// doctor` follows for a check it could not run (ADR-028, ADR-031).
 const absent = "-"
 
 const taskListLong = `List tasks across every registered project.
@@ -38,16 +38,13 @@ tasks there are whether or not it shows them.`
 
 // taskArgument says what <task> is, wherever a command takes one.
 //
-// It is repeated rather than stated once somewhere else, because the command a
-// user is reading is where they need it: the defect this answers was a user
-// reading `feat attach <task>` with nowhere to get the argument from.
+// It is repeated on every such command rather than stated once elsewhere,
+// because the command a user is reading is where they need it.
 //
-// One line, because it is appended to fourteen commands and was most of what the
-// shortest of them said — `feat runtime start` was eight words about starting
-// services and thirty-five about task identifiers. What it lost is the rule that
-// an ambiguous prefix is refused rather than guessed at, which the refusal itself
-// states better: it names every task the reference matched, which a sentence here
-// could only describe.
+// One line, because fourteen commands carry it and more would outweigh what the
+// shortest of them says about itself. It leaves out that an ambiguous prefix is
+// refused rather than guessed at, because the refusal names every task the
+// reference matched and a sentence here could only describe that.
 const taskArgument = `<task> is a short key, a full identifier, or a prefix of one.`
 
 // withTaskArgument appends that sentence to a command's help.
@@ -74,9 +71,9 @@ func newTaskCommand(env *environment, attach, review *cobra.Command) *cobra.Comm
 		Short: "Work with existing tasks",
 		Long:  taskLong,
 
-		// Cleanup was a top-level command until ADR-040 and is the one that did
-		// not keep an alias, so a user who types the old name is answered with
-		// the noun that now holds it rather than with "unknown command".
+		// ADR-040 moved cleanup under this noun and left it no top-level alias,
+		// so a user who types the bare name is answered with where it went
+		// rather than with "unknown command".
 		SuggestFor: []string{"cleanup"},
 	}
 	cmd.AddCommand(
@@ -135,16 +132,14 @@ func newTaskListCommand(env *environment) *cobra.Command {
 // listedTasks is what a list shows, in the order it shows them, and how many
 // archived tasks there are.
 //
-// It is one rule with two renderings, so that the table a person reads and the
-// document a script parses are the same answer to the same question. They
-// disagreed once: the table hid archived tasks and counted them, and the
-// document carried every one. Archived is terminal and nothing prunes it, so
-// that document grew without bound while the table stayed the same size.
+// One rule with two renderings, so the table a person reads and the document a
+// script parses answer the same question the same way. Archived is terminal and
+// nothing prunes it, so a document that carried every archived task would grow
+// without bound while the table stayed the same size.
 //
-// The count is of every archived task, whether or not this list shows them. It
-// is a fact about the tasks rather than about the rendering, which is what lets
-// it mean the same thing in both: with --all it says how many of these are
-// archived, and without it how many are not here.
+// The count covers every archived task, shown or not. It is a fact about the
+// tasks rather than about the rendering, so with --all it says how many of these
+// are archived and without it how many are not here.
 func listedTasks(tasks []api.Task, all bool) (shown []api.Task, archived int) {
 	shown = make([]api.Task, 0, len(tasks))
 	for _, task := range tasks {
@@ -168,13 +163,13 @@ func listedTasks(tasks []api.Task, all bool) (shown []api.Task, archived int) {
 
 // printTasks renders the task list.
 //
-// The columns are the v0 task row (FR-UI-002). Verification state comes from
-// the Claude adapter and resource usage from the resource monitor; either is
-// shown as absent rather than dropped when there is nothing to report. PR state
-// is not required in v0.
+// The columns are the v0 task row (FR-UI-002). Verification state comes from the
+// Claude adapter and resource usage from the resource monitor. Either is shown
+// as absent rather than dropped when there is nothing to report. PR state is not
+// required in v0.
 func printTasks(out io.Writer, tasks []api.Task, archived int, all bool, now time.Time) {
-	// The line below is about what is missing, so it appears only when
-	// something is: a run that asked for every task is not missing any.
+	// The line below is about what is missing, so it appears only when something
+	// is. A run that asked for every task is missing none.
 	missing := 0
 	if !all {
 		missing = archived
@@ -215,8 +210,8 @@ func printTasks(out io.Writer, tasks []api.Task, archived int, all bool, now tim
 
 // process is the observed state of the task's agent session.
 //
-// A task with no session reports nothing rather than "stopped": nothing has
-// been started, which is a different answer.
+// A task with no session reports nothing rather than "stopped", because nothing
+// has been started and that is a different answer.
 func process(task api.Task) string {
 	if task.Session == nil {
 		return absent

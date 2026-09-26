@@ -14,9 +14,8 @@ import (
 const helperEnv = "FEAT_TEST_EXEC_ENDING"
 
 // TestExecHelperProcess is not a test. It is the program the test below runs,
-// re-executed from this binary so that an ending can be arranged without
-// spawning a shell, which internal/guard forbids and which would be a
-// convenience here rather than the subject.
+// re-executed from this binary so an ending can be arranged without spawning a
+// shell, which internal/guard forbids.
 func TestExecHelperProcess(t *testing.T) {
 	switch os.Getenv(helperEnv) {
 	case "":
@@ -43,12 +42,12 @@ func TestExecHelperProcess(t *testing.T) {
 // TestLeavingAProgramTheDashboardLentTheTerminalToIsNotAFailure covers the way
 // out of the Compose logs.
 //
-// `docker compose logs --follow` ends when the user interrupts it, which is the
-// only way it ends: it has no other exit. Reporting the status that produced —
-// 130, or the signal itself for a program that installs no handler — would put a
-// failure banner on the dashboard for a key the user meant to press. A status
-// that is not an interrupt is still reported, because a diff tool that could not
-// open is something the user needs to know about (ADR-049).
+// `docker compose logs --follow` ends when the user interrupts it, and has no
+// other exit. Reporting the status that produces, 130 or the signal itself for a
+// program that installs no handler, would put a failure banner on the dashboard
+// for a key the user meant to press. A status that is not an interrupt is still
+// reported, because a diff tool that could not open is something the user needs
+// to know about (ADR-049).
 func TestLeavingAProgramTheDashboardLentTheTerminalToIsNotAFailure(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		ending  string

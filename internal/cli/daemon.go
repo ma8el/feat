@@ -23,9 +23,9 @@ func foregroundCommand(level string) []string {
 
 // printf writes one line of command output.
 //
-// A failed write to standard output is not something a command can act on, and
-// reporting it would need another write to the stream that just failed, so the
-// error is dropped deliberately here rather than at each call.
+// A command cannot act on a failed write to standard output, and reporting one
+// would need another write to the stream that just failed. The error is dropped
+// here rather than at every call site.
 func printf(out io.Writer, format string, args ...any) {
 	_, _ = fmt.Fprintf(out, format, args...)
 }
@@ -77,9 +77,9 @@ after checking that nothing is serving on it.`,
 					printf(out, "a feat daemon is already running: pid %d on %s\n",
 						status.Endpoint.PID, status.Endpoint.Socket)
 				} else {
-					// It is answering, so it is not starting up; its record was
-					// removed while it ran. Saying which commands still reach it
-					// is the actionable part (ADR-101).
+					// It is answering, so it is not starting up, and its record
+					// was removed while it ran. Saying which commands still
+					// reach it is the actionable part (ADR-101).
 					printf(out, "a feat daemon is already answering on %s, and its endpoint record is missing\n",
 						layout.Socket)
 					printf(out, "it is running normally; `feat daemon stop` and `feat daemon restart` ask the daemon itself\n")
@@ -155,9 +155,9 @@ running, it starts one rather than failing.`,
 			}
 			out := cmd.OutOrStdout()
 
-			// A daemon that is not running is not an obstacle to starting one.
+			// A daemon that is not running is no obstacle to starting one.
 			// Anything else is: a record this could not read is a question about
-			// ownership, and spawning a second daemon is not the answer to it.
+			// ownership, and a second daemon is not the answer to it.
 			switch stopped, err := daemon.Stop(cmd.Context(), layout, 0); {
 			case err == nil:
 				printf(out, "daemon stopped: pid %d\n", stopped.PID)
@@ -171,9 +171,9 @@ running, it starts one rather than failing.`,
 				Args: foregroundCommand(level.String()),
 			})
 			if err != nil {
-				// The old one is already gone, so this left the machine without a
-				// daemon. Said plainly: the user asked for a restart and has to
-				// know they now have none.
+				// The old one is already gone, so this left the machine without
+				// a daemon. The user asked for a restart and has to know they
+				// now have none.
 				return fmt.Errorf("the daemon was stopped and the new one did not start, "+
 					"so none is running now: %w", err)
 			}
@@ -239,9 +239,9 @@ tell the two apart without reading the output.`,
 			}
 			if status.RecordMissing() {
 				// Everything above came from the daemon over the socket, so the
-				// report is complete and correct; what is missing is the file a
-				// client would otherwise read. Diagnose is not reached from
-				// here, because this branch is the running one (ADR-101).
+				// report is complete. What is missing is the file a client would
+				// otherwise read. Diagnose is not reached from here, because
+				// this branch is the running one (ADR-101).
 				if status.EndpointError != nil {
 					printf(out, "\nthe endpoint record %s is not readable (%v),\n",
 						layout.EndpointFile(), status.EndpointError)
@@ -339,15 +339,15 @@ func uptime(startedAt time.Time) string {
 	}
 	elapsed := time.Since(startedAt).Round(time.Second)
 	if elapsed < 0 {
-		// The daemon's clock and this one disagree; reporting a negative uptime
-		// would be worse than admitting it.
+		// The daemon's clock and this one disagree, and a negative uptime would
+		// be worse than admitting that.
 		return "unknown"
 	}
 	return elapsed.String()
 }
 
 // buildSkew reports a running daemon built from a different version than the
-// client asking, which during development is the difference between "my change
+// client asking. During development that is the difference between "my change
 // does nothing" and "my change is not running yet".
 func buildSkew(env *environment, daemonVersion string) string {
 	if daemonVersion == "" || daemonVersion == env.build.Version {
@@ -361,10 +361,9 @@ func buildSkew(env *environment, daemonVersion string) string {
 // daemonSummary is what the root command learned about the daemon.
 //
 // The failure is carried separately from the line because the two are read by
-// different callers and cut to different lengths. The line is one row of a
-// health summary; startErr is why a daemon could not be started, and a spawn
-// that failed says so in a quoted daemon log, which is several lines and all of
-// them worth showing.
+// different callers at different lengths. The line is one row of a health
+// summary. startErr is why a daemon could not be started, which for a failed
+// spawn is a quoted daemon log worth showing in full.
 type daemonSummary struct {
 	// line is the one-line rendering for the health summary.
 	line string
@@ -378,8 +377,8 @@ type daemonSummary struct {
 // the dashboard is interactive.
 //
 // Opening the dashboard starts the daemon it needs (ADR-008). A non-interactive
-// `feat`, in a pipe or in CI, reports what it observes instead: printing a
-// summary should not start a background process as a side effect.
+// `feat`, in a pipe or in CI, reports what it observes instead, because printing
+// a summary must not start a background process as a side effect.
 func (e *environment) describeDaemon(cmd *cobra.Command) daemonSummary {
 	layout, err := e.resolve()
 	if err != nil {

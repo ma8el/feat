@@ -52,9 +52,9 @@ func newProjectInitCommand(env *environment) *cobra.Command {
 				return err
 			}
 
-			// The command is a conversation, and there is nobody to converse
-			// with in a pipe. Saying so beats asking questions into a stream
-			// that cannot answer them, and the hand-written route still exists.
+			// The command is a conversation, and a pipe has nobody to converse
+			// with. Refusing beats asking questions into a stream that cannot
+			// answer them, and the hand-written route stays open.
 			if !env.interactive {
 				return fmt.Errorf(
 					"`feat project init` needs a terminal, because it works by asking questions: "+
@@ -94,7 +94,7 @@ func newProjectInitCommand(env *environment) *cobra.Command {
 
 // wizard builds the project wizard for this machine.
 //
-// It is on the environment because both askers need one built the same way: the
+// It is on the environment because two callers need one built the same way: the
 // command below, and the dashboard through its backend (ADR-063).
 func (e *environment) wizard(id string) (*wizard.Wizard, error) {
 	layout, options, err := e.project()
@@ -117,10 +117,10 @@ func (e *environment) wizard(id string) (*wizard.Wizard, error) {
 // one at a time down a terminal.
 //
 // It owns the presentation and nothing else. Which question comes next, what it
-// proposes, and whether an answer is acceptable are the wizard's; the headings,
-// the indentation, the marker over a question stepped back to, and the offers
-// at the end are this file's. How a question is drawn and how its answer is
-// taken are the asker's (ADR-084).
+// proposes, and whether an answer is acceptable are the wizard's. The headings,
+// the indentation, the marker over a question stepped back to, and the offers at
+// the end are this file's. How a question is drawn and how its answer is taken
+// are the asker's (ADR-084).
 type conversation struct {
 	prompter
 
@@ -132,21 +132,21 @@ type conversation struct {
 	layout paths.Layout
 	dryRun bool
 
-	// section is the last section a heading was printed for, so that each is
-	// announced once however many questions it turns out to hold.
+	// section is the last section a heading was printed for, so each is announced
+	// once however many questions it turns out to hold.
 	section wizard.Section
 	// blank reports that the transcript ends in an empty line, which is what
 	// separate reads before adding one. It is tracked rather than observed
-	// because the widget writes its own line to the same stream and what it
-	// leaves there is not a byte this file can see.
+	// because the widget writes to the same stream and this file cannot see
+	// what it left there.
 	blank bool
 }
 
 // say writes one line of the conversation.
 //
-// Every caller ends its text with a newline, so what is written leaves the
-// cursor at the start of a line and a blank line at the end of the transcript
-// is a newline with nothing before it since the last one.
+// Every caller ends its text with a newline, so the cursor is left at the start
+// of a line and a blank line at the end of the transcript is a newline with
+// nothing before it since the last one.
 func (c *conversation) say(format string, args ...any) {
 	text := fmt.Sprintf(format, args...)
 	if text == "" {
@@ -158,9 +158,9 @@ func (c *conversation) say(format string, args ...any) {
 
 // separate opens a blank line, unless the transcript ends in one already.
 //
-// A conversation is a column of text with nothing but space to punctuate it,
-// and a second blank line is not twice the separator: it is a gap that reads as
-// something dropped.
+// A conversation is a column of text punctuated by nothing but space. A second
+// blank line is not twice the separator but a gap that reads as something
+// dropped.
 func (c *conversation) separate() {
 	if !c.blank {
 		c.say("\n")
@@ -170,11 +170,10 @@ func (c *conversation) separate() {
 
 // rule opens a new part of the transcript.
 //
-// Once every question above it has been answered, what opens a part is a bare
-// line at the left margin in a column of indented lines that look much like it:
-// a section's heading, and the path of the file the answers composed. A blank
-// line was the only thing marking either, and a blank line is what the
-// transcript is already full of.
+// A section's heading and the path of the composed file each open a part with a
+// bare line at the left margin, in a column of indented lines that look much
+// like them. A blank line marks neither, because the transcript is already full
+// of blank lines.
 func (c *conversation) rule() {
 	c.separate()
 	c.say("%s\n", strings.Repeat("─", ruleWidth))
@@ -182,11 +181,10 @@ func (c *conversation) rule() {
 
 // ruleWidth is how wide that rule is drawn.
 //
-// It measures the text it separates rather than the terminal. The flow wraps
-// its own detail to seventy-six columns and the conversation indents by two, so
-// this is the width of the widest paragraph a rule sits over — and a rule taken
-// from the terminal would be three times that on a wide screen while still
-// being a rule on a narrow one.
+// It measures the text it separates rather than the terminal. The flow wraps its
+// own detail to seventy-six columns and the conversation indents by two, so this
+// is the width of the widest paragraph a rule sits over. A rule taken from the
+// terminal would be three times that on a wide screen.
 const ruleWidth = 78
 
 // errAnswersEnded reports input that stopped before the conversation did.
@@ -223,12 +221,10 @@ func (c *conversation) run(ctx context.Context) error {
 // recall reopens a question the user stepped back to.
 //
 // It is printed below what is already there, under a marker naming what it
-// returned to, and nothing above it is erased or rewritten. Scrollback is the
-// property this command's shape exists to protect, and rewriting lines an
-// inline program has already emitted is the part of terminal handling that
-// breaks differently on every emulator — so the marker is what makes a
-// transcript holding two answers to one question read as a correction rather
-// than a contradiction (ADR-084).
+// returned to, and nothing above it is erased or rewritten. Rewriting lines an
+// inline program has already emitted breaks differently on every emulator, so
+// the marker is what makes a transcript holding two answers to one question read
+// as a correction rather than a contradiction (ADR-084).
 func (c *conversation) recall(question wizard.Question) {
 	c.separate()
 	c.say("%s↩ back to: %s\n", indentFor(question), question.Prompt)
@@ -268,10 +264,11 @@ func (c *conversation) put(ctx context.Context, question wizard.Question) (bool,
 
 // introduce says what a question is asked in light of, before it is asked.
 //
-// What the last answer established, and what this question found out about what
-// it is proposing, said under the answer they follow and before the question
-// they are the context for. They are read off the question, as the dialog reads
-// them, so that a sentence the flow writes reaches both askers or neither.
+// The notes say what the last answer established and what this question found
+// out about what it proposes, printed under the answer they follow and before
+// the question they are the context for. They are read off the question, as the
+// dialog reads them, so a sentence the flow writes reaches both askers or
+// neither.
 func (c *conversation) introduce(question wizard.Question) {
 	for _, note := range question.Notes {
 		c.say("    %s\n", note)
@@ -281,15 +278,14 @@ func (c *conversation) introduce(question wizard.Question) {
 
 // announce opens a section, or a group of questions inside one.
 //
-// The rule, the blank line, and the heading are what separate the parts of the
-// file from each other on a terminal that has only one column to say it in: a
-// section is announced once however many questions it turns out to hold, and a
-// group inside one — a second repository, the mount points — is separated from
-// what came before it.
+// The rule, the blank line, and the heading separate the parts of the file from
+// each other on a terminal with one column to say it in. A section is announced
+// once however many questions it turns out to hold, and a group inside one, a
+// second repository or the mount points, is separated from what came before it.
 func (c *conversation) announce(question wizard.Question) {
-	// A heading whenever there is one, rather than once per section: a section
+	// A heading whenever there is one, rather than once per section. A section
 	// can hold more than one headed group, and the flow sets a heading on the
-	// first question of a group for exactly that reason.
+	// first question of a group for that reason.
 	switch {
 	case question.Heading != "":
 		c.rule()
@@ -311,9 +307,8 @@ func (c *conversation) announce(question wizard.Question) {
 	if len(question.Detail) > 0 {
 		// What is above this line explains what is being decided and what is
 		// below it is the deciding, which the dialog separates the same way. It
-		// matters more here: there, one question is on the screen at a time, and
-		// here the answers pile up under the paragraph until they look like more
-		// of it.
+		// matters more here, because the dialog holds one question on screen at
+		// a time while here the answers pile up under the paragraph.
 		c.separate()
 	}
 }
@@ -321,9 +316,9 @@ func (c *conversation) announce(question wizard.Question) {
 // read puts one question and returns what the user did with it.
 //
 // The project's own two questions are unindented and the rest are indented under
-// their section's heading, which is the shape the conversation has: the first
-// two are about the file itself, and everything after them is about a part of
-// it. How the question is drawn and how the answer is taken are the asker's.
+// their section's heading, because the first two are about the file itself and
+// everything after them is about a part of it. How the question is drawn and how
+// the answer is taken are the asker's.
 func (c *conversation) read(ctx context.Context, question wizard.Question) (reply, error) {
 	return c.asker.question(ctx, question, indentFor(question))
 }
@@ -366,10 +361,10 @@ func (c *conversation) finish(ctx context.Context) error {
 		return err
 	}
 	c.say("\nwrote %s\n", file)
-	// Said where the file has just been written, and said once. The wizard asks
-	// nothing about verification, so this is the only place a user learns the
-	// feature exists — and it is opt-in rather than hidden precisely because the
-	// gates worth having are the ones somebody opened the file for (ADR-078).
+	// Said once, where the file has just been written. The wizard asks nothing
+	// about verification, so this is the only place a user learns the feature
+	// exists, and it is opt-in because the gates worth having are the ones
+	// somebody opened the file for (ADR-078).
 	c.say("\nNo verification checks are configured. Add a `checks:` block to that file\n")
 	c.say("for a gate that has to pass before work is reviewed; " +
 		"docs/examples/project.yaml\n")
@@ -383,11 +378,10 @@ func (c *conversation) finish(ctx context.Context) error {
 
 // diagnose offers to check the new project against this machine.
 //
-// It is offered rather than done, because it runs commands and can take a
-// moment, and it is offered at all because the questions could not ask the
-// host anything: whether the Compose service exists, whether the agent is
-// installed, and whether a remote resolves are exactly the answers this file
-// now depends on.
+// It is offered rather than done, because it runs commands and takes a moment.
+// It is offered at all because the questions could not ask the host whether the
+// Compose service exists, whether the agent is installed, or whether a remote
+// resolves, which are the answers this file now depends on.
 func (c *conversation) diagnose(ctx context.Context) error {
 	c.say("\n")
 	checkNow, err := c.asker.offer(ctx, "Check it against this machine now?", true)
@@ -409,8 +403,8 @@ func (c *conversation) diagnose(ctx context.Context) error {
 	printReport(c.out, report, layout.ProjectConfigDir())
 
 	if report.Failed() {
-		// The findings are on the screen, and the file exists: this is not a
-		// failed command, it is a project with work left to do on it.
+		// The findings are on the screen and the file exists. This is a project
+		// with work left to do on it rather than a failed command.
 		c.say("\nFix what is marked ERROR, then run `feat doctor` again.\n")
 	}
 	return nil
@@ -418,9 +412,9 @@ func (c *conversation) diagnose(ctx context.Context) error {
 
 // register offers to register the project with a running daemon.
 //
-// Registration is a separate act with a command of its own, and it stays that
-// way: what is offered here is the next step, not a step the wizard takes
-// because it was already talking to the user.
+// Registration is a separate act with a command of its own. What is offered here
+// is the next step, not a step the wizard takes because it was already talking
+// to the user.
 func (c *conversation) register(ctx context.Context) error {
 	id := c.wizard.ID()
 	if status := daemon.Inspect(c.layout); !status.Running() {

@@ -10,8 +10,8 @@ import (
 	"golang.org/x/term"
 )
 
-// Process exit codes. They are part of the CLI contract: callers and tests may
-// rely on them to distinguish a real failure from an unimplemented command.
+// Process exit codes, part of the CLI contract. Callers and tests rely on them
+// to tell a real failure from an unimplemented command.
 const (
 	// ExitOK reports success.
 	ExitOK = 0
@@ -25,8 +25,8 @@ const (
 	ExitNotImplemented = 3
 	// ExitNotRunning reports that a command needed a daemon and none was
 	// running. It is separate from ExitError because an absent daemon is a state
-	// a script may want to act on, not a failure of the command: `systemctl
-	// is-active` makes the same distinction (ADR-027).
+	// a script may want to act on rather than a failed command, the same
+	// distinction `systemctl is-active` makes (ADR-027).
 	ExitNotRunning = 4
 	// ExitInterrupted reports that the process was cancelled by a signal.
 	ExitInterrupted = 130
@@ -34,7 +34,7 @@ const (
 
 // Execute runs the feat command tree and returns the process exit code.
 //
-// It never calls os.Exit so that tests can drive the whole command surface in
+// It never calls os.Exit, so a test can drive the whole command surface in
 // process.
 func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	return execute(ctx, Options{Interactive: interactive()}, args, stdout, stderr)
@@ -42,9 +42,8 @@ func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 // execute runs the command tree with explicit options.
 //
-// It exists so that a test can supply its own path layout and command runner
-// instead of the process's, and still go through the exit-code mapping the real
-// binary uses.
+// A test supplies its own path layout and command runner instead of the
+// process's, and still goes through the exit-code mapping the real binary uses.
 func execute(ctx context.Context, opts Options, args []string, stdout, stderr io.Writer) int {
 	root := NewRootCommand(opts)
 	root.SetArgs(args)
@@ -70,8 +69,8 @@ func execute(ctx context.Context, opts Options, args []string, stdout, stderr io
 
 	var diagnosis *diagnosisError
 	if errors.As(err, &diagnosis) {
-		// The report is already on stdout. What is added here is the one line
-		// that says the exit code was deliberate.
+		// The report is already on stdout. This adds the one line saying the
+		// exit code was deliberate.
 		reportf(stderr, "feat: %v\n", diagnosis)
 		return ExitError
 	}
@@ -92,15 +91,15 @@ func execute(ctx context.Context, opts Options, args []string, stdout, stderr io
 	return ExitError
 }
 
-// reportf writes a diagnostic to the error stream. Failing to report a failure
-// is not itself actionable, so the write error is deliberately dropped.
+// reportf writes a diagnostic to the error stream. A failed write is dropped
+// because failing to report a failure is not itself actionable.
 func reportf(stderr io.Writer, format string, args ...any) {
 	_, _ = fmt.Fprintf(stderr, format, args...)
 }
 
 // interactive reports whether the real process streams are attached to a
-// terminal. The TUI needs both directions; without them the root command falls
-// back to a plain-text rendering so that `feat` stays usable in pipes and CI.
+// terminal. The TUI needs both directions. Without them the root command falls
+// back to a plain-text rendering, so `feat` stays usable in pipes and CI.
 func interactive() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 }

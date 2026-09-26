@@ -35,9 +35,9 @@ func runtimeStatus() api.RuntimeStatus {
 // the user whether or not the project named it.
 //
 // Compose starts what a configured service depends on, and Feat stops and
-// removes those with the rest. Printing only the configured ones is what let a
-// database run on unnoticed; printing them without saying where they came from
-// would leave a user wondering what Feat had invented.
+// removes those with the rest. Printing only the configured ones lets a database
+// run on unnoticed, and printing them without saying where they came from would
+// leave a user wondering what Feat had invented.
 func TestADependencyIsShownAndSaidToBeOne(t *testing.T) {
 	status := runtimeStatus()
 	status.Services = append(status.Services, api.RuntimeService{
@@ -66,7 +66,7 @@ func TestADependencyIsShownAndSaidToBeOne(t *testing.T) {
 // TestTheRuntimeSummaryNamesWhatIsRetained keeps a resource nobody removed in
 // front of the user.
 //
-// Volumes survive every destroy in v0, so they are printed by name: a resource a
+// Volumes survive every destroy in v0, so they are printed by name. A resource a
 // user cannot see is one they will not think to clean up (FR-CLEAN-001,
 // FR-CLEAN-004).
 func TestTheRuntimeSummaryNamesWhatIsRetained(t *testing.T) {
@@ -89,16 +89,16 @@ func TestTheRuntimeSummaryNamesWhatIsRetained(t *testing.T) {
 // TestThePortsSaySomethingTheAddressCannot keeps a wide binding from reading as
 // a narrow one.
 //
-// `feat runtime status` printed the address alone, and the address of a port on
-// every interface is localhost, exactly as it is for a port on the loopback
-// address. A user reading "localhost:21000" over a publication a repository's own
-// Compose file opened on 0.0.0.0 was told their service answers here, about a
-// port every network this machine is joined to can open. The binding is
-// therefore a second column rather than a value folded into the first.
+// The address of a port on every interface is localhost, exactly as it is for a
+// port on the loopback address. A user reading "localhost:21000" over a
+// publication a repository's own Compose file opened on 0.0.0.0 would be told
+// their service answers here, about a port every network this machine is joined
+// to can reach. The binding is a second column rather than a value folded into
+// the first.
 func TestThePortsSaySomethingTheAddressCannot(t *testing.T) {
 	status := runtimeStatus()
 	status.Task.Runtime.Allocations = []api.PortAllocation{
-		// The project's configured default: it named no address, so the bind
+		// The project's configured default. It named no address, so the bind
 		// address was filled in.
 		{Service: "api", ContainerPort: 8000, HostPort: 21000, Protocol: "tcp",
 			HostIP: "127.0.0.1", Address: "localhost:21000"},
@@ -119,7 +119,8 @@ func TestThePortsSaySomethingTheAddressCannot(t *testing.T) {
 		"every network this machine is joined to",
 		"on the bridge every container is on",
 		// Naming both sources, because the surface cannot tell which of them
-		// produced this address and a user changing the wrong one changes nothing.
+		// produced this address and a user changing the wrong one changes
+		// nothing.
 		"runtime.bind_address",
 	} {
 		if !strings.Contains(printed, required) {
@@ -132,10 +133,10 @@ func TestThePortsSaySomethingTheAddressCannot(t *testing.T) {
 // wide binding attached to one.
 //
 // The binding is printed for every publication, because a fact stated only when
-// it is alarming is a silence a user has to interpret. What is not printed is the
-// explanation: a project whose ports all answer on this machine alone has nothing
-// to act on, and a paragraph it never applies to is one that stops being read
-// before the day it does.
+// it is alarming is a silence a user has to interpret. The explanation is not
+// printed: a project whose ports all answer on this machine alone has nothing to
+// act on, and a paragraph that never applies stops being read before the day it
+// does.
 func TestAConfinedPortIsNotGivenAWarningItHasNotEarned(t *testing.T) {
 	status := runtimeStatus()
 	status.Task.Runtime.Allocations = []api.PortAllocation{
@@ -172,7 +173,7 @@ func TestANoteIsPrintedWhereTheUserWillSeeIt(t *testing.T) {
 // TestDestroyingNeedsAnAnswer keeps a removal behind something the user typed.
 //
 // Anything other than an explicit yes is a no, including an empty line and an
-// unreadable answer: a command that removes something must never proceed because
+// unreadable answer. A command that removes something must never proceed because
 // it could not tell what it was told.
 func TestDestroyingNeedsAnAnswer(t *testing.T) {
 	for answer, want := range map[string]bool{
@@ -202,9 +203,9 @@ func TestDestroyingNeedsAnAnswer(t *testing.T) {
 // daemon follows in the other direction.
 //
 // The daemon builds the command and this process runs it, exactly as `feat
-// attach` runs native tmux. They are the same user, so this is not a security
-// boundary — it is what keeps the client something anybody can reason about, and
-// it fails loudly rather than executing whatever arrived.
+// attach` runs native tmux. Both run as the same user, so this is not a security
+// boundary. It keeps the client something anybody can reason about, and it fails
+// loudly rather than executing whatever arrived.
 func TestTheLogsCommandIsCheckedBeforeItIsRun(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		command  api.RuntimeCommand
@@ -242,7 +243,7 @@ func TestTheLogsCommandIsCheckedBeforeItIsRun(t *testing.T) {
 //
 // The daemon runs Compose and this command holds one request open until it
 // answers, which for a first start is minutes (ADR-034 evidence 14). The notice
-// goes to the error stream, so that anything reading this command's output still
+// goes to the error stream, so anything reading this command's output still
 // reads the summary and nothing else.
 func TestASlowActionSaysItHasBegun(t *testing.T) {
 	for action, want := range map[api.RuntimeAction]bool{

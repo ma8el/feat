@@ -18,8 +18,8 @@ import (
 )
 
 // workingHost answers diagnostic commands as a machine with everything
-// installed, so that a test of `feat doctor`'s output does not depend on which
-// tools happen to be on the machine running it.
+// installed, so a test of `feat doctor`'s output does not depend on which tools
+// happen to be on the machine running it.
 type workingHost struct{}
 
 func (workingHost) Look(name string) (string, error) { return "/usr/bin/" + name, nil }
@@ -101,7 +101,7 @@ type machine struct {
 	input io.Reader
 	// tracker answers a project's ticket command for the daemon serve starts.
 	// A nil runner would run the configured command on this host, which no test
-	// should reach either: it would ask the running user's tracker.
+	// should reach either, because it would ask the running user's tracker.
 	tracker tracker.Runner
 }
 
@@ -334,8 +334,8 @@ func TestProjectShowPrintsResolvedConfiguration(t *testing.T) {
 		"/srv/store",
 		"read_write",
 		"selectable",
-		// Defaults have to be visible: one you cannot see is one you cannot
-		// check.
+		// Defaults have to be visible, because one you cannot see is one you
+		// cannot check.
 		"base_policy",
 		"remote",
 		"feat/{task_key}-{slug}",
@@ -384,14 +384,11 @@ func TestDoctorReportsAHealthyMachine(t *testing.T) {
 
 // TestDoctorDescribesTheSkipsItActuallyProduces is F5-09.
 //
-// The long help said the agent-environment checks are skipped "because nothing
-// starts that environment yet", and the summary said each skipped check "says
-// which slice delivers it" — a pointer into a plan document that no longer
-// exists. Neither has been true since the checks moved inside a live container:
-// what a skip names is the condition — no container of this project is running —
-// and what it offers is launching a task. A user read the header saying the
-// capability does not exist, the finding saying to start a task, and the footer
-// sending them to look for something no finding carries.
+// The agent-environment checks run inside a live container, so what a skip names
+// is the condition, that no container of this project is running, and what it
+// offers is launching a task. Help text saying the capability does not exist, or
+// a summary pointing at a plan document, would send a reader looking for
+// something no finding carries.
 func TestDoctorDescribesTheSkipsItActuallyProduces(t *testing.T) {
 	m := prepare(t)
 	m.configure(t, "app", projectFixture)
@@ -429,10 +426,9 @@ func TestDoctorDescribesTheSkipsItActuallyProduces(t *testing.T) {
 // TestReportColumnsSurviveLongPaths checks that the tables align against real
 // data rather than only against short fixtures.
 //
-// The widest cell in these tables is a filesystem path, and a fixed column
-// width lets one long path push every following column out of line. Both bugs
-// this test covers were found by running `feat doctor` against real
-// repositories, not by the fixtures above.
+// The widest cell in these tables is a filesystem path, and a fixed column width
+// lets one long path push every following column out of line. The fixtures above
+// are too short to show it, so this one is not.
 func TestReportColumnsSurviveLongPaths(t *testing.T) {
 	m := prepare(t)
 	// A repository whose path is far wider than any guessed column.
@@ -472,8 +468,8 @@ func TestReportColumnsSurviveLongPaths(t *testing.T) {
 	}
 }
 
-// TestSummaryCountsReadAsEnglish covers the other formatting bug real data
-// found: "6 skippeds" and "45 oks".
+// TestSummaryCountsReadAsEnglish covers the other thing real data produces:
+// "6 skippeds" and "45 oks".
 func TestSummaryCountsReadAsEnglish(t *testing.T) {
 	m := prepare(t)
 	m.configure(t, "app", projectFixture)
@@ -642,8 +638,8 @@ func TestDoctorNeverPrintsSecretFileContents(t *testing.T) {
 	}
 }
 
-// TestDoctorChangesNothing checks that diagnostics are diagnostics: no daemon
-// is started, and no state is written.
+// TestDoctorChangesNothing checks that diagnostics change nothing: no daemon is
+// started, and no state is written.
 func TestDoctorChangesNothing(t *testing.T) {
 	m := prepare(t)
 	m.configure(t, "app", projectFixture)
@@ -692,10 +688,10 @@ func TestDoctorReportsRegistrationWhenADaemonIsRunning(t *testing.T) {
 	}
 }
 
-// TestProjectSchemaAndExamplePrintTheEmbeddedDocuments pins the two emitters
-// to what the build embedded, byte for byte: a user pointing an editor at the
-// printed schema, or starting a file from the printed example, is working from
-// the repository's own documents with nothing added or dropped (ADR-093).
+// TestProjectSchemaAndExamplePrintTheEmbeddedDocuments pins the two emitters to
+// what the build embedded, byte for byte. A user pointing an editor at the
+// printed schema, or starting a file from the printed example, works from the
+// repository's own documents with nothing added or dropped (ADR-093).
 //
 // Neither command needs a daemon, a configuration, or a terminal, because the
 // machines that need them most have none of the three.
@@ -719,8 +715,8 @@ func TestProjectSchemaAndExamplePrintTheEmbeddedDocuments(t *testing.T) {
 		if stdout != string(emitter.want) {
 			t.Errorf("`feat project %s` does not print the embedded document verbatim", emitter.command)
 		}
-		// The anchor guards the fixture itself: an embed of the wrong file
-		// would still equal itself.
+		// The anchor guards the fixture itself, because an embed of the wrong
+		// file would still equal itself.
 		if !strings.Contains(stdout, emitter.anchor) {
 			t.Errorf("`feat project %s` output does not contain %q:\n%.200s",
 				emitter.command, emitter.anchor, stdout)
