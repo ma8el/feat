@@ -101,7 +101,8 @@ Registering a project that is already registered is not an error: its
 configuration is re-read and the record updated, which is what to run after
 editing the file. Tasks that are already running keep the configuration they
 were launched with.`,
-		Args: checkArgs(cobra.ExactArgs(1)),
+		Args:              checkArgs(cobra.ExactArgs(1)),
+		ValidArgsFunction: env.completeProjectArg,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			layout, options, err := env.project()
 			if err != nil {
@@ -231,7 +232,8 @@ and every repository's place on the host and in the execution environment.
 
 It is the resolved configuration rather than the text of the file. Files that may
 hold secrets are listed by path; their contents are never read.`,
-		Args: checkArgs(cobra.ExactArgs(1)),
+		Args:              checkArgs(cobra.ExactArgs(1)),
+		ValidArgsFunction: env.completeProjectArg,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			layout, options, err := env.project()
 			if err != nil {
@@ -343,10 +345,11 @@ it validates the output without a running daemon.`
 
 func newProjectTicketsCommand(env *environment) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "tickets <project> [<ticket>]",
-		Short: "List the project's tickets, or show one",
-		Long:  projectTicketsLong,
-		Args:  checkArgs(cobra.RangeArgs(1, 2)),
+		Use:               "tickets <project> [<ticket>]",
+		Short:             "List the project's tickets, or show one",
+		Long:              projectTicketsLong,
+		Args:              checkArgs(cobra.RangeArgs(1, 2)),
+		ValidArgsFunction: env.completeProjectArg,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			layout, err := env.resolve()
 			if err != nil {

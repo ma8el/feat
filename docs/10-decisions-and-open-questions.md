@@ -524,6 +524,17 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   evidence 1 argues for and the lock its evidence 3 makes the authority on
   liveness.
 
+- **[ADR-102 — The project and output schemas are published with a compatibility promise, and shell completion is supported](decisions/ADR-102-the-project-and-output-schemas-are-published-with-a.md)** · accepted  
+  `schema/feat-project.schema.json` and `schema/feat-output.schema.json` are
+  published at their raw URLs on `main`, and each tag holds that release's copy.
+  A field may be added in any release, optional in the configuration. Removing,
+  renaming, or retyping one is a breaking change, never in a patch release. A
+  validation error's wording is not promised. A recorded list of each schema's
+  names, types, required fields, and values makes the promise a test.
+  `feat output schema` prints the output schema from the binary. Completion is
+  supported in bash, zsh, and fish; project arguments complete without a daemon,
+  and task identifiers do not complete. It settles what ADR-099 deferred.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is

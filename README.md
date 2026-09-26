@@ -95,6 +95,15 @@ exists or authoring one from scratch; `feat project schema` and `feat project
 example` print the schema and a commented example out of the binary, for writing
 the file by hand.
 
+Shell completion is supported in bash, zsh, and fish. It completes commands,
+flags, and project names; task identifiers do not complete. Bash needs the
+`bash-completion` package; add this to `~/.bashrc`, and see `feat completion zsh
+--help` or `feat completion fish --help` for the others:
+
+```sh
+source <(feat completion bash)
+```
+
 ## Preparing a task
 
 ```sh
@@ -454,8 +463,10 @@ necessarily on the daemon's.
 [`docs/examples/project.yaml`](docs/examples/project.yaml) is a commented
 example showing every field with its default; the semantics are in
 [docs/07-configuration-model.md](docs/07-configuration-model.md).
-[`schema/feat-project.schema.json`](schema/feat-project.schema.json) is a draft
-JSON Schema for editor support.
+[`schema/feat-project.schema.json`](schema/feat-project.schema.json) is the
+published JSON Schema for editor support, and `feat project schema` prints it.
+What it promises across releases is in
+[ADR-102](docs/decisions/ADR-102-the-project-and-output-schemas-are-published-with-a.md).
 
 ## Documentation
 
