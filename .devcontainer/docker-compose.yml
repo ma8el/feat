@@ -18,8 +18,6 @@ services:
       # golangci-lint from source before the gate reaches its first test.
       - go-modules:/go/pkg/mod
       - go-build:/home/dev/.cache/go-build
-      - ~/.claude:/home/dev/.claude
-      - ~/.claude.json:/home/dev/.claude.json
 
 volumes:
   go-modules:
