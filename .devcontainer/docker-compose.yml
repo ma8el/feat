@@ -18,8 +18,14 @@ services:
       # golangci-lint from source before the gate reaches its first test.
       - go-modules:/go/pkg/mod
       - go-build:/home/dev/.cache/go-build
-      - ~/.claude:/home/dev/.claude
-      - ~/.claude.json:/home/dev/.claude.json
+
+      # Nothing from a developer's home directory is mounted here. The agent's
+      # Claude configuration belongs in the volume agent.claude.config_volume
+      # names, which Feat mounts and points CLAUDE_CONFIG_DIR at
+      # (docs/05-security-model.md). Anything else you want in the container —
+      # a dotfiles directory, a host ~/.claude — goes in a second Compose file,
+      # listed after this one in agent.execution.compose_files and kept outside
+      # this repository.
 
 volumes:
   go-modules:
