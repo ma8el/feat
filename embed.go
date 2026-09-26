@@ -5,9 +5,11 @@
 // by tests in both directions (ADR-028). A user who installed a release binary
 // has the binary and none of the repository, so the binary carries both and
 // `feat project schema` and `feat project example` print them (ADR-093).
+// schema/feat-output.schema.json describes what --json prints, and
+// `feat output schema` prints it for the same reason (ADR-102).
 //
 // The package sits at the module root because go:embed resolves paths inside
-// the package's own directory, and these two files stay where every reference
+// the package's own directory, and these files stay where every reference
 // to them points: a copy under internal/ would be a second document to keep in
 // step, which is the drift ADR-093 refuses.
 package feat
@@ -27,6 +29,11 @@ var projectSchema []byte
 //go:embed docs/examples/project.yaml
 var projectExample []byte
 
+// outputSchema is schema/feat-output.schema.json, as this build shipped it.
+//
+//go:embed schema/feat-output.schema.json
+var outputSchema []byte
+
 // ProjectSchema returns the JSON Schema a project configuration file is
 // described by. It is returned as a copy, so what the build embedded is what
 // every caller prints.
@@ -35,3 +42,7 @@ func ProjectSchema() []byte { return bytes.Clone(projectSchema) }
 // ProjectExample returns the worked example of a project configuration file,
 // as a copy for the same reason.
 func ProjectExample() []byte { return bytes.Clone(projectExample) }
+
+// OutputSchema returns the JSON Schema the documents --json prints are described
+// by, as a copy for the same reason.
+func OutputSchema() []byte { return bytes.Clone(outputSchema) }

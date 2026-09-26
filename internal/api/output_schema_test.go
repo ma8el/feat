@@ -13,10 +13,8 @@ import (
 // outputSchemaFile describes the documents `feat` prints when it is asked for one
 // with --json.
 //
-// It is not a compatibility promise. It says what this build prints, in one place
-// a person can read, so changing the shape is a decision somebody made rather
-// than a consequence of editing a struct. What is promised about it is a later
-// decision (ADR-099).
+// This test holds it to what this build prints. What it promises across
+// releases is ADR-102, and TestThePublishedSchemasKeepTheirPromise holds that.
 const outputSchemaFile = "../../schema/feat-output.schema.json"
 
 // documents are the printed shapes, by the name each carries in the schema.

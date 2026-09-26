@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/ma8el/feat/main/schema/feat-output.schema.json",
   "title": "Feat command output",
-  "description": "The documents `feat` prints when it is asked for one with --json. It describes what this build prints and is held to the Go types by a test in both directions; what is promised about it is a separate decision (ADR-099).",
+  "description": "The documents `feat` prints when it is asked for one with --json. It describes what this build prints and is held to the Go types by a test in both directions; what is promised about it across releases is ADR-102.",
   "$defs": {
     "configuration_field": {
       "type": "object",

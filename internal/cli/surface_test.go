@@ -106,10 +106,15 @@ func TestPlaceholdersSayWhatIsMissing(t *testing.T) {
 		// their tickets, under either name.
 		"feat project tickets": true,
 		"feat tickets":         true,
-		// The two emitters print documents embedded in the binary and read
-		// nothing from the machine at all.
+		// The emitters print documents embedded in the binary and read nothing
+		// from the machine at all.
 		"feat project schema":  true,
 		"feat project example": true,
+		"feat output schema":   true,
+		// Cobra generates the completion scripts (ADR-102).
+		"feat completion bash": true,
+		"feat completion zsh":  true,
+		"feat completion fish": true,
 		// Installing the skill writes into the running user's own ~/.claude.
 		// Show prints the embedded document and reads nothing.
 		"feat skill install": true,

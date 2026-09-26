@@ -727,3 +727,32 @@ func TestProjectSchemaAndExamplePrintTheEmbeddedDocuments(t *testing.T) {
 		}
 	}
 }
+
+// TestCompletionOffersConfiguredProjects checks what a shell is given for a
+// project argument and for a task argument, with no daemon running.
+func TestCompletionOffersConfiguredProjects(t *testing.T) {
+	m := prepare(t)
+	m.configure(t, "app", projectFixture)
+	m.configure(t, "web", projectFixture)
+
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"__complete", "project", "show", ""}, "app\nweb\n:4\n"},
+		{[]string{"__complete", "tickets", ""}, "app\nweb\n:4\n"},
+		{[]string{"__complete", "implement", "--project", ""}, "app\nweb\n:4\n"},
+		// Task identifiers live in the daemon, so a task argument offers nothing
+		// rather than the file names a shell falls back to.
+		{[]string{"__complete", "attach", ""}, ":4\n"},
+	}
+	for _, c := range cases {
+		code, stdout, stderr := m.run(t, c.args...)
+		if code != 0 {
+			t.Fatalf("%v exited %d: %s", c.args, code, stderr)
+		}
+		if stdout != c.want {
+			t.Errorf("%v offered %q, want %q", c.args, stdout, c.want)
+		}
+	}
+}

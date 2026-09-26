@@ -172,6 +172,9 @@ func newImplementCommand(env *environment) *cobra.Command {
 	// adapter already declines to carry a brief that way (ADR-099).
 	cmd.Flags().String("brief", "", "the task brief itself; it appears in ps output, so a script should use --file - instead")
 	cmd.Flags().String("project", "", "prepare the task in this project")
+	_ = cmd.RegisterFlagCompletionFunc("project", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return env.configuredProjects()
+	})
 	// The reference is the tracker's own, exactly as its command printed it.
 	// Feat parses no part of one: it re-runs the command and matches (ADR-071).
 	cmd.Flags().String("ticket", "", "compose the brief from this ticket of the project's tracker")

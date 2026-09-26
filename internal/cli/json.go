@@ -6,6 +6,8 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
+
+	feat "github.com/ma8el/feat"
 )
 
 // jsonFlagName is the flag every command that can print a document offers.
@@ -55,4 +57,29 @@ func emitJSON(out io.Writer, document any) error {
 		return fmt.Errorf("writing the JSON document: %w", err)
 	}
 	return nil
+}
+
+// newOutputCommand groups what describes --json's documents. It sits beside
+// `feat project schema` in the same noun-then-schema form (ADR-102).
+func newOutputCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "output",
+		Short: "Describe the documents --json prints",
+		Long:  `Describe the documents Feat's commands print when given --json.`,
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "schema",
+		Short: "Print the JSON Schema for --json output",
+		Long: `Print the JSON Schema every document --json prints is described by.
+
+It is schema/feat-output.schema.json from Feat's repository, embedded so an
+installation without a checkout still has it. What it promises across releases
+is recorded in ADR-102.`,
+		Args: checkArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			_, err := cmd.OutOrStdout().Write(feat.OutputSchema())
+			return err
+		},
+	})
+	return cmd
 }

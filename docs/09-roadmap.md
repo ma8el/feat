@@ -49,11 +49,9 @@ which says so where it appears:
   task. What a public reader still needs is a worked pair of Compose files and
   troubleshooting entries for the two failures that are silent: a service
   serving the ordinary checkout, and a second task that will not start.
-- **A finalized JSON Schema and shell completion.** The schema in
-  `schema/feat-project.schema.json` is kept in step with the Go types by a test
-  that compares field names in both directions; publishing it is what makes it a
-  compatibility surface. The generated completion command is registered and
-  hidden until it is supported.
+- **A finalized JSON Schema and shell completion.** Delivered: the project and
+  output schemas are published with a compatibility promise a test enforces, and
+  completion is supported in bash, zsh, and fish (ADR-102).
 - **A Homebrew formula and tap.** The release binaries and the `go install`
   instructions belong to `v0.1.0`, because they are what a tag emits. A tap is a
   second repository with a formula to keep in step, and it waits here for the

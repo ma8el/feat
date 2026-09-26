@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/ma8el/feat/schema/feat-project.schema.json",
+  "$id": "https://raw.githubusercontent.com/ma8el/feat/main/schema/feat-project.schema.json",
   "title": "Feat project configuration",
-  "description": "One project's configuration, as authored in ~/.config/feat/projects/<project-id>.yaml. The file name must match project.id. This schema is a draft for editor support; feat doctor performs the semantic validation, and some of its rules cannot be expressed here.",
+  "description": "One project's configuration, as authored in ~/.config/feat/projects/<project-id>.yaml. The file name must match project.id. What this schema promises across releases is ADR-102; feat doctor performs the semantic validation, and some of its rules cannot be expressed here.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "project", "repositories", "agent"],

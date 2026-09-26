@@ -184,10 +184,6 @@ func NewRootCommand(opts Options) *cobra.Command {
 		root.SetIn(opts.Input)
 	}
 
-	// Shell completion is not supported yet. Hiding the generated command
-	// keeps `feat --help` equal to the documented v0 command surface.
-	root.CompletionOptions.DisableDefaultCmd = true
-
 	// This applies to the whole tree, because cobra walks to the parent when a
 	// command has no flag error function of its own.
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
@@ -213,10 +209,59 @@ func NewRootCommand(opts Options) *cobra.Command {
 		newRuntimeCommand(env),
 		newDoctorCommand(env),
 		newDaemonCommand(env),
+		newOutputCommand(),
 		newVersionCommand(),
 	)
 
+	// ADR-102: bash, zsh and fish are supported, and PowerShell is removed
+	// because Feat targets macOS and Linux. Building the command here, rather
+	// than at Execute, lets the golden surface pin it.
+	root.InitDefaultCompletionCmd()
+	if completion, _, err := root.Find([]string{"completion"}); err == nil {
+		for _, shell := range completion.Commands() {
+			if shell.Name() == "powershell" {
+				completion.RemoveCommand(shell)
+			}
+		}
+	}
+	withoutFileCompletion(root)
+
 	return root
+}
+
+// withoutFileCompletion stops the shell offering file names where no Feat
+// command takes a file as an argument. A command that completes something of
+// its own has set its function already.
+func withoutFileCompletion(cmd *cobra.Command) {
+	if cmd.ValidArgsFunction == nil {
+		cmd.ValidArgsFunction = cobra.NoFileCompletions
+	}
+	for _, child := range cmd.Commands() {
+		withoutFileCompletion(child)
+	}
+}
+
+// configuredProjects completes a project's identifier from the configuration
+// directory rather than the daemon's registry, so it works with no daemon.
+func (e *environment) configuredProjects() ([]string, cobra.ShellCompDirective) {
+	layout, err := e.resolve()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveError
+	}
+	ids, err := config.List(layout.ProjectConfigDir())
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveError
+	}
+	return ids, cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeProjectArg completes the first argument, which is a project on every
+// command that uses it.
+func (e *environment) completeProjectArg(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return e.configuredProjects()
 }
 
 // aliasOf gives a command a second name at the top level.
@@ -240,9 +285,10 @@ func aliasOf(canonical *cobra.Command, path string) *cobra.Command {
 		Short: canonical.Short,
 		Long: canonical.Long + "\n\n" +
 			"`feat " + canonical.Name() + "` is a shorter name for `" + path + "`.",
-		Args:   canonical.Args,
-		Hidden: true,
-		RunE:   canonical.RunE,
+		Args:              canonical.Args,
+		ValidArgsFunction: canonical.ValidArgsFunction,
+		Hidden:            true,
+		RunE:              canonical.RunE,
 	}
 	alias.Flags().AddFlagSet(canonical.LocalFlags())
 	return alias

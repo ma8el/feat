@@ -23,6 +23,7 @@ func TestTheEmittedDocumentsAreTheRepositorysOwn(t *testing.T) {
 	}{
 		{"project schema", "schema/feat-project.schema.json", feat.ProjectSchema()},
 		{"project example", "docs/examples/project.yaml", feat.ProjectExample()},
+		{"output schema", "schema/feat-output.schema.json", feat.OutputSchema()},
 	}
 
 	for _, document := range documents {

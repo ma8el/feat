@@ -1,0 +1,110 @@
+# What schema/feat-project.schema.json promises (ADR-102). Append; delete only in a breaking release.
+$defs.agent type=object
+$defs.agent.capabilities ref=capabilities
+$defs.agent.claude ref=claude
+$defs.agent.execution ref=execution
+$defs.agent.execution required
+$defs.agent.provider = "claude"
+$defs.capabilities type=object
+$defs.capabilities.docker = "denied"
+$defs.check type=object
+$defs.check.command required
+$defs.check.command type=array
+$defs.check.command[] type=string
+$defs.check.execution = "agent"
+$defs.check.execution = "host"
+$defs.check.execution required
+$defs.check.id ref=safeIdentifier
+$defs.check.id required
+$defs.claude type=object
+$defs.claude.config_path ref=containerPath
+$defs.claude.config_volume type=string
+$defs.claude.idle_grace_period ref=duration
+$defs.containerPath type=string
+$defs.duration type=string
+$defs.execution type=object
+$defs.execution.compose_files type=array
+$defs.execution.compose_files[] ref=path
+$defs.execution.control_path ref=containerPath
+$defs.execution.mode = "devcontainer"
+$defs.execution.mode = "host"
+$defs.execution.mode required
+$defs.execution.service type=string
+$defs.execution.user type=string
+$defs.execution.working_directory ref=containerPath
+$defs.git type=object
+$defs.git.base_policy = "current"
+$defs.git.base_policy = "explicit"
+$defs.git.base_policy = "local"
+$defs.git.base_policy = "remote"
+$defs.git.branch_template type=string
+$defs.git.fetch_before_task type=boolean
+$defs.git.worktree_root type=string
+$defs.path type=string
+$defs.project type=object
+$defs.project.id ref=safeIdentifier
+$defs.project.id required
+$defs.project.name type=string
+$defs.project.primary_repository ref=safeIdentifier
+$defs.project.primary_repository required
+$defs.repository type=object
+$defs.repository.agent ref=repositoryAgent
+$defs.repository.default_access = "omitted"
+$defs.repository.default_access = "read_only"
+$defs.repository.default_access = "read_write"
+$defs.repository.default_access = "selectable"
+$defs.repository.default_access = "stable_read_only"
+$defs.repository.default_access required
+$defs.repository.default_branch type=string
+$defs.repository.forge ref=repositoryForge
+$defs.repository.host_path ref=path
+$defs.repository.host_path required
+$defs.repository.name type=string
+$defs.repository.remote type=string
+$defs.repository.runtime ref=repositoryRuntime
+$defs.repositoryAgent type=object
+$defs.repositoryAgent.container_path ref=containerPath
+$defs.repositoryForge type=object
+$defs.repositoryForge.kind = "github"
+$defs.repositoryForge.kind = "gitlab"
+$defs.repositoryForge.kind required
+$defs.repositoryRuntime type=object
+$defs.repositoryRuntime.compose_files type=array
+$defs.repositoryRuntime.compose_files[] ref=path
+$defs.repositoryRuntime.container_path ref=containerPath
+$defs.repositoryRuntime.reachable type=array
+$defs.repositoryRuntime.reachable[] type=string
+$defs.repositoryRuntime.services type=array
+$defs.repositoryRuntime.services[] type=string
+$defs.runtime type=object
+$defs.runtime.bind_address type=string
+$defs.runtime.env_files type=array
+$defs.runtime.env_files[] ref=path
+$defs.runtime.port_range type=string
+$defs.runtime.project_name_template type=string
+$defs.runtime.provider = "compose"
+$defs.runtime.start_policy = "manual"
+$defs.runtime.static_overrides type=array
+$defs.runtime.static_overrides[] ref=path
+$defs.safeIdentifier type=string
+$defs.tracker type=object
+$defs.tracker.command required
+$defs.tracker.command type=array
+$defs.tracker.command[] type=string
+$defs.tracker.kind = "command"
+(root) type=object
+agent ref=agent
+agent required
+checks type=object
+checks.* type=array
+checks.*[] ref=check
+git ref=git
+project ref=project
+project required
+repositories required
+repositories type=object
+repositories.* ref=repository
+runtime ref=runtime
+tracker ref=tracker
+version = 1
+version required

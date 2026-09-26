@@ -1,5 +1,9 @@
 feat
 feat attach <task>
+feat completion
+feat completion bash [--no-descriptions]
+feat completion fish [--no-descriptions]
+feat completion zsh [--no-descriptions]
 feat daemon
 feat daemon restart [--log-level]
 feat daemon run [--log-level]
@@ -8,6 +12,8 @@ feat daemon status
 feat daemon stop
 feat doctor
 feat implement [--brief] [--dry-run] [--file] [--json] [--plan] [--project] [--repository] [--ticket] [--tui]
+feat output
+feat output schema
 feat project
 feat project add <project>
 feat project example
