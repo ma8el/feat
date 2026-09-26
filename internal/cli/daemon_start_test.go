@@ -14,12 +14,10 @@ import (
 // when it could not start the daemon it needs.
 //
 // Opening the dashboard starts a daemon (ADR-008). When that fails there is
-// nothing to show, and what the user gets instead is this error. It used to be
-// the generic one — "no feat daemon is running on …; start one with `feat daemon
-// start`" — which names the command that had just been run on their behalf and
-// failed, and drops the reason: a *daemon.StartupError carries the end of the
-// daemon log, which is where a spawn that never began serving says what stopped
-// it.
+// nothing to show, and this error is what the user gets instead. The generic
+// message would name the command that had just been run on their behalf and
+// failed, and drop the reason: a *daemon.StartupError carries the end of the
+// daemon log, where a spawn that never began serving says what stopped it.
 func TestAFailedAutoStartReportsWhy(t *testing.T) {
 	socket := "/run/feat/feat.sock"
 	cause := &daemon.StartupError{
@@ -43,7 +41,7 @@ func TestAFailedAutoStartReportsWhy(t *testing.T) {
 
 // TestAFailedAutoStartStaysMatchable keeps the exit-code contract working.
 //
-// Exit code 4 means "no daemon is running", and a failed start is still that: a
+// Exit code 4 means "no daemon is running", and a failed start is still that. A
 // script that starts one only when it has to must not have to tell the two
 // apart. The cause stays reachable through errors.As for a caller that wants it.
 func TestAFailedAutoStartStaysMatchable(t *testing.T) {
@@ -76,8 +74,8 @@ func TestAnAbsentDaemonStillAdvisesTheCommand(t *testing.T) {
 //
 // It is the branch that must not spawn, and the one that reports what it
 // observed rather than what it did. The interactive branch spawns a process, so
-// it is exercised where processes are: the binary lifecycle test in
-// internal/daemon.
+// it is exercised where processes are, in internal/daemon's binary lifecycle
+// test.
 func TestANonInteractiveRunStartsNothingAndSaysSo(t *testing.T) {
 	layout := isolate(t)
 

@@ -10,13 +10,13 @@ import (
 )
 
 // The task list is a client-side rendering of what arrives over the socket, so
-// its fixtures are wire payloads rather than domain objects: what is under test
+// its fixtures are wire payloads rather than domain objects. What is under test
 // is how the CLI renders a response, not how the daemon produced one.
 var (
 	// created is when the fixture tasks were created.
 	created = time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
-	// listTime is when the list is rendered, an hour later, so that elapsed
-	// columns do not change between runs.
+	// listTime is when the list is rendered, an hour later, so elapsed columns
+	// do not change between runs.
 	listTime = created.Add(time.Hour)
 )
 
@@ -68,8 +68,8 @@ func draftTask() api.Task {
 	}
 }
 
-// listed renders tasks the way `feat task list` does, through the same
-// selection the document goes through.
+// listed renders tasks the way `feat task list` does, through the same selection
+// the document goes through.
 func listed(tasks []api.Task) string {
 	var out bytes.Buffer
 	shown, archived := listedTasks(tasks, false)
@@ -81,8 +81,8 @@ func listed(tasks []api.Task) string {
 // required v0 fields.
 //
 // FR-UI-002 lists nine fields plus two this build cannot measure. The two are
-// checked separately, in TestUnmeasuredFieldsAreNotReportedAsValues: what must
-// never happen is a plausible-looking number where nothing was measured.
+// checked in TestUnmeasuredFieldsAreNotReportedAsValues, which guards against a
+// plausible-looking number where nothing was measured.
 func TestTaskListContainsRequiredV0Fields(t *testing.T) {
 	task := launchedTask()
 	output := listed([]api.Task{task})
@@ -140,7 +140,7 @@ func TestUnmeasuredFieldsAreNotReportedAsValues(t *testing.T) {
 		t.Errorf("no field is marked as unmeasured:\n%s", output)
 	}
 
-	// The runtime is genuinely absent rather than unmeasured: v0 starts
+	// The runtime is genuinely absent rather than unmeasured, because v0 starts
 	// application services only when the user asks.
 	if !strings.Contains(output, "absent") {
 		t.Errorf("the runtime state is missing:\n%s", output)

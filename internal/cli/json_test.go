@@ -18,7 +18,7 @@ import (
 // only the whole document shows it.
 //
 // The fixtures are the same wire payloads the table tests render, so the two
-// renderings of one response cannot drift apart in a way no test notices.
+// renderings of one response cannot drift apart unnoticed.
 
 // archivedTask is a draft that was abandoned before anything was created.
 func archivedTask() api.Task {
@@ -33,7 +33,7 @@ func archivedTask() api.Task {
 // TestTaskListDocument pins what `feat task list --json` prints.
 //
 // The archived task in the fixture is left out and counted, which is what the
-// table does with it: one selection, two renderings.
+// table does with it. One selection, two renderings.
 func TestTaskListDocument(t *testing.T) {
 	shown, archived := listedTasks([]api.Task{launchedTask(), draftTask(), archivedTask()}, false)
 
@@ -44,9 +44,9 @@ func TestTaskListDocument(t *testing.T) {
 	compareDocument(t, "task-list.json", out.String())
 }
 
-// TestTheDocumentAndTheTableShowTheSameTasks is the property the count exists
-// to keep: what a script parses and what a person reads are the same answer to
-// the same question, including which tasks are in it.
+// TestTheDocumentAndTheTableShowTheSameTasks is the property the count exists to
+// keep. What a script parses and what a person reads are the same answer to the
+// same question, including which tasks are in it.
 func TestTheDocumentAndTheTableShowTheSameTasks(t *testing.T) {
 	fixture := []api.Task{launchedTask(), draftTask(), archivedTask()}
 
@@ -100,9 +100,8 @@ func TestArchivedTasksAreLeftOutAndCounted(t *testing.T) {
 	if len(shown) != 3 {
 		t.Errorf("--all carries %d tasks, want every one", len(shown))
 	}
-	// The same number either way. It counts archived tasks rather than the
-	// list's own omissions, so a document carrying three of them never reports
-	// that there are none.
+	// The same number either way. It counts archived tasks rather than the list's
+	// own omissions, so a document carrying three of them never reports none.
 	if archived != 1 {
 		t.Errorf("--all reports %d archived tasks while carrying one", archived)
 	}
@@ -120,9 +119,9 @@ func TestTheListIsNewestFirstInBothRenderings(t *testing.T) {
 	}
 }
 
-// TestAnEmptyTaskListIsAnEmptyList checks the shape a machine reads when a
-// person would be told "no tasks": a document with nothing in it, rather than
-// the advice that follows the table or a null the caller has to guard.
+// TestAnEmptyTaskListIsAnEmptyList checks the shape a machine reads when a person
+// would be told "no tasks": a document with nothing in it, rather than the advice
+// that follows the table or a null the caller has to guard.
 func TestAnEmptyTaskListIsAnEmptyList(t *testing.T) {
 	shown, archived := listedTasks(nil, false)
 
@@ -153,10 +152,10 @@ func TestRuntimeStatusDocument(t *testing.T) {
 	compareDocument(t, "runtime-status.json", out.String())
 }
 
-// TestProjectShowDocumentDescribesTheResolvedConfiguration runs the real
-// command against a real configuration file, because that is the only way to
-// see that the values are resolved: a fixture built in Go would have the "~"
-// already expanded by whoever wrote it.
+// TestProjectShowDocumentDescribesTheResolvedConfiguration runs the real command
+// against a real configuration file, because that is the only way to see that
+// the values are resolved. A fixture built in Go would have the "~" already
+// expanded by whoever wrote it.
 //
 // It is checked field by field rather than against a golden, because the paths
 // in it are a temporary directory's and no golden can hold those.
@@ -206,7 +205,7 @@ func TestProjectShowDocumentDescribesTheResolvedConfiguration(t *testing.T) {
 		t.Errorf("runtime_path = %q, want /app", primary.RuntimePath)
 	}
 
-	// A repository whose code no service runs still carries every key, so that a
+	// A repository whose code no service runs still carries every key, so a
 	// caller reads it without asking whether the field is there.
 	store, ok := byID["store"]
 	if !ok {
@@ -231,12 +230,12 @@ func TestProjectShowDocumentDescribesTheResolvedConfiguration(t *testing.T) {
 	}
 }
 
-// TestAFailureLeavesTheDocumentStreamEmpty is what an error looks like in the
-// document: it does not appear in one.
+// TestAFailureLeavesTheDocumentStreamEmpty checks that an error never appears in
+// the document.
 //
 // A parser reading standard output gets a document or nothing, never prose and
-// never a document describing a failure. What says a command failed is the exit
-// code, which ADR-027 already made the machine-readable answer.
+// never a document describing a failure. The exit code is what says a command
+// failed, which ADR-027 already made the machine-readable answer.
 func TestAFailureLeavesTheDocumentStreamEmpty(t *testing.T) {
 	machine := prepare(t)
 

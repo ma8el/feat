@@ -67,9 +67,9 @@ replaces it anyway.`,
 			out := cmd.OutOrStdout()
 
 			if dryRun {
-				// The same decision the install runs, including the same
-				// refusal with the same exit code — what a dry run must not
-				// share is only the writing.
+				// The same decision the install makes, including the same
+				// refusal with the same exit code. Only the writing is left
+				// out.
 				planned, err := claude.PlanSkillInstall(dir, force)
 				if err != nil {
 					return err

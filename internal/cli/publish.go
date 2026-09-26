@@ -43,9 +43,8 @@ func newPublishCommand(env *environment) *cobra.Command {
 		Args:  checkArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Publishing is interactive because reading the draft is the whole
-			// control: agent-authored text bound for somewhere durable is read
-			// by a person before it is sent, and there is nobody to read it in a
-			// pipe (ADR-070).
+			// control. A person reads agent-authored text before it reaches a
+			// durable destination, and a pipe has nobody to read it (ADR-070).
 			if !env.interactive {
 				return errors.New("`feat task publish` needs a terminal, because nothing is sent until you " +
 					"have read and approved what the agent wrote")
@@ -71,10 +70,9 @@ func newPublishCommand(env *environment) *cobra.Command {
 
 // publisher is what publishing needs from the daemon.
 //
-// It is an interface so that the document, the editor, and the confirmation can
-// be tested without a socket: what this command is mostly made of is the
-// round trip from what the daemon composed, through a file the user edits, to
-// what is sent back.
+// It is an interface so a test can drive the document, the editor, and the
+// confirmation without a socket. Most of this command is the round trip from
+// what the daemon composed, through a file the user edits, to what is sent back.
 type publisher interface {
 	PlanPublication(ctx context.Context, id string) (api.PublicationStatus, error)
 	ApplyPublication(ctx context.Context, id string, request api.PublishRequest) (api.PublicationStatus, error)
@@ -93,9 +91,8 @@ func publish(cmd *cobra.Command, caller publisher, env *environment, task string
 	if len(api.OfferedDrafts(plan.Drafts)) == 0 {
 		// Either the task has nothing to publish, or everything it has is
 		// already on a forge or describes a commit that is no longer current.
-		// The table above says which, per repository, and none of the three is
-		// something a user can edit their way out of: there is no document to
-		// open, and saying they removed one would blame them for it.
+		// The table above says which, per repository, and no editing fixes any
+		// of the three, so there is no document to open.
 		printf(out, "\nnothing to publish\n")
 		return nil
 	}
@@ -112,10 +109,9 @@ func publish(cmd *cobra.Command, caller publisher, env *environment, task string
 		// Reported and never resolved. Feat does not re-compose a draft on the
 		// user's behalf, because they would be publishing words they never read
 		// (ADR-031's rule for a changed draft, ADR-070's for a stale one). The
-		// document does not offer a stale repository, so this is what a document
-		// that disagrees with its plan reaches — before the confirmation rather
-		// than after it, so the answer is not spent on something that cannot
-		// happen.
+		// document offers no stale repository, so only a document that disagrees
+		// with its plan reaches this. It is checked before the confirmation, so
+		// the answer is not spent on something that cannot happen.
 		return fmt.Errorf("the agent's draft for %s describes a commit that is no longer current, "+
 			"so nothing was published. Ask the agent for a fresh draft with the commit each one describes",
 			strings.Join(stale, ", "))
@@ -213,17 +209,17 @@ func printPublicationRecord(out io.Writer, publication *api.Publication) {
 
 // publicationDraft is one draft document on its way through an editor.
 //
-// It is what both clients use. The file, the editor command, and the read-back
-// are the same in a terminal and on the dashboard, and the only difference is
-// who runs the editor: this process, which has the terminal, or Bubble Tea,
-// which has to release it first. One document, one parser, and no second way for
-// the two clients to disagree about what the user approved.
+// Both clients use it. The file, the editor command, and the read-back are the
+// same in a terminal and on the dashboard, and the only difference is who runs
+// the editor: this process, which has the terminal, or Bubble Tea, which has to
+// release it first. One document and one parser leave the two clients no way to
+// disagree about what the user approved.
 //
 // The directory is this process's, in a place only this user can read, and Close
-// removes it: it holds the description of somebody's change, which is theirs and
-// belongs nowhere durable. A caller that never closes — a process killed while
-// the editor is still open — leaves it to the system, as it leaves any editor's
-// own temporary file.
+// removes it, because it holds the description of somebody's change and that
+// belongs nowhere durable. A caller that never closes, such as a process killed
+// while the editor is still open, leaves it to the system as it leaves any
+// editor's own temporary file.
 type publicationDraft struct {
 	directory string
 	path      string
@@ -241,8 +237,8 @@ func newPublicationDraft(plan api.PublicationStatus, env *environment) (*publica
 	draft := &publicationDraft{
 		directory: directory,
 		// Named from the task's own key rather than from what the caller was
-		// given, which may be a full identifier or a key depending on what the
-		// user typed.
+		// given, which is a full identifier or a key depending on what the user
+		// typed.
 		path:   filepath.Join(directory, "publication-"+publicationSlug(plan.Task.Key)+".md"),
 		drafts: plan.Drafts,
 	}
@@ -275,8 +271,8 @@ func (d *publicationDraft) Close() { _ = os.RemoveAll(d.directory) }
 // editPublication opens the draft in the user's editor and returns what they
 // approved.
 //
-// This process runs the editor and waits: `feat task publish` holds the terminal
-// already, where the dashboard has to hand it over and be told afterwards.
+// This process runs the editor and waits, because `feat task publish` already
+// holds the terminal. The dashboard has to hand it over and be told afterwards.
 func editPublication(
 	cmd *cobra.Command, plan api.PublicationStatus, env *environment,
 ) ([]api.ApprovedPublication, error) {
@@ -296,13 +292,13 @@ func editPublication(
 
 // documentEditor builds the process that opens one document.
 //
-// The configured editor keeps its own flags — `code -w` has to stay `code -w`,
-// or the editor returns before the user has typed anything — and the document is
-// appended as the thing to open. A machine that configures none falls back to
-// this process's own environment, which is where $EDITOR is and where the daemon
+// The configured editor keeps its own flags, because `code -w` that loses its
+// flag returns before the user has typed anything, and the document is appended
+// as the thing to open. A machine that configures none falls back to this
+// process's own environment, which is where $EDITOR is and where the daemon
 // cannot look (FR-REV-003).
 //
-// It is shared by the publication draft and the settings file, which are the two
+// The publication draft and the settings file share it, which are the two
 // documents Feat asks somebody to edit.
 func documentEditor(configured api.EditorCommand, env *environment, path string) (*exec.Cmd, error) {
 	program, arguments := configured.Program, configured.Arguments
@@ -319,7 +315,7 @@ func documentEditor(configured api.EditorCommand, env *environment, path string)
 
 	// #nosec G204 -- the program is the machine's own configuration or the
 	// user's own $EDITOR, every argument is one vector element, and the file is
-	// one this process just created or already owns; nothing reaches a shell.
+	// one this process just created or already owns. Nothing reaches a shell.
 	return exec.Command(program, append(append([]string(nil), arguments...), path)...), nil
 }
 
@@ -343,10 +339,10 @@ const publicationFenceWidth = 3
 // publicationMarker reports the repository a line names, if the line is one of
 // this document's section markers.
 //
-// The marker is the only structure the document has: everything under it is the
-// words, exactly as they will be sent. What decides a marker is therefore the
-// fence the document was written with rather than the shape alone, because a
-// description is prose and prose can contain the shape.
+// The marker is the only structure the document has, and everything under it is
+// the words exactly as they will be sent. The fence the document was written
+// with decides a marker, rather than the shape alone, because a description is
+// prose and prose can contain the shape.
 func publicationMarker(line, fence string) (string, bool) {
 	id, found := strings.CutPrefix(line, fence+" ")
 	if !found {
@@ -360,7 +356,7 @@ func publicationMarker(line, fence string) (string, bool) {
 }
 
 // publicationName reports whether a marker names something that could be a
-// repository, so that ordinary prose between two runs of "=" stays prose.
+// repository, so ordinary prose between two runs of "=" stays prose.
 func publicationName(id string) bool {
 	for i, r := range id {
 		switch {
@@ -377,15 +373,14 @@ func publicationName(id string) bool {
 //
 // It widens until no line of any draft is one, the way a Markdown code fence
 // widens around a snippet containing backticks. The agent wrote those lines and
-// they can carry anything it read, including a line shaped exactly like a
-// marker; a fixed marker would let that line become structure, which is the one
-// thing the words must never become — it would cut a description short at the
-// injected line, refuse the whole publication because a repository then appears
+// they can carry anything it read, including a line shaped exactly like a marker.
+// Under a fixed marker such a line would become structure: it would cut a
+// description short, refuse the publication because a repository then appears
 // twice, or manufacture a section for a repository the user never approved. The
 // fence makes all three unreachable from words alone.
 //
 // The reader computes it from the same drafts the writer did, so the document
-// does not have to declare it and an edited document cannot lie about it.
+// need not declare it and an edited document cannot lie about it.
 func publicationFence(drafts []api.PublicationDraft) string {
 	fence := strings.Repeat("=", publicationFenceWidth)
 	for publicationMarked(drafts, fence) {
@@ -432,8 +427,8 @@ func publicationDocument(plan api.PublicationStatus) string {
 	// What is left out is what editing cannot change: a repository already on the
 	// forge, where saving different words would suggest they replace what was
 	// sent, and one whose draft is stale, which is refused for the commit it
-	// describes however it is rewritten. Both are named in the plan the user read
-	// before this opened, with what to do about them.
+	// describes however it is rewritten. The plan the user read before this
+	// opened names both, with what to do about them.
 	for _, draft := range api.OfferedDrafts(plan.Drafts) {
 		fmt.Fprintf(&b, "\n%s\n", publicationSection(fence, draft.RepositoryID))
 		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(draft.Title))
@@ -452,16 +447,16 @@ func publicationSection(fence, id string) string {
 // readPublicationDocument reads the edited draft back.
 //
 // What it returns is what the user approved, word for word, together with the
-// commit the plan composed each section against — so that the daemon can refuse
-// a repository whose branch moved while the editor was open.
+// commit the plan composed each section against, so the daemon can refuse a
+// repository whose branch moved while the editor was open.
 //
 // The title is the line under the marker rather than the first non-empty line of
-// the section. A section can arrive with its title slot empty — the agent wrote
-// no draft for that repository, and the plan said so — and the forgiving rule
-// would then promote whatever stands below it: the agent's first sentence, or
-// the ticket line Feat itself added, sent as a merge request title with the
-// description missing the line it took. A slot that is left empty is refused
-// instead, which is what the plan already told the user would happen.
+// the section. A section can arrive with its title slot empty, because the agent
+// wrote no draft for that repository and the plan said so. The forgiving rule
+// would then promote whatever stands below it, the agent's first sentence or the
+// ticket line Feat added, and send it as a title with the description missing
+// that line. An empty slot is refused instead, which the plan already told the
+// user would happen.
 func readPublicationDocument(document string, drafts []api.PublicationDraft) ([]api.ApprovedPublication, error) {
 	known := make(map[string]api.PublicationDraft, len(drafts))
 	for _, draft := range drafts {

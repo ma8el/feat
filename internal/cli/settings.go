@@ -38,9 +38,9 @@ func newSettingsCommand(env *environment) *cobra.Command {
 	return cmd
 }
 
-// Permissions for the settings file, which are the ones the wizard uses for a
-// project's: a file naming paths in the user's home and the programs they run
-// is nobody else's business.
+// Permissions for the settings file, the ones the wizard uses for a project's.
+// A file naming paths in the user's home and the programs they run is nobody
+// else's business.
 const (
 	settingsDirPerm  os.FileMode = 0o700
 	settingsFilePerm os.FileMode = 0o600
@@ -63,9 +63,9 @@ An existing file is never overwritten.`,
 				return err
 			}
 
-			// Both extensions, so that `init` beside an existing settings.yml
-			// refuses rather than writing a second file Feat would then refuse to
-			// choose between.
+			// Both extensions, so `init` beside an existing settings.yml refuses
+			// rather than writing a second file Feat would then refuse to choose
+			// between.
 			found, err := config.FindSettings(layout.Config)
 			if err != nil {
 				return err
@@ -91,9 +91,9 @@ An existing file is never overwritten.`,
 
 // writeSettingsTemplate writes the commented default and returns its path.
 //
-// The create is exclusive, and that is the whole of the check: a file that
-// appeared between the search above and this line is still a file somebody
-// wrote. It is the rule `feat project init` follows for the same reason.
+// The create is exclusive, and that is the whole check. A file that appeared
+// between the search above and this line is still a file somebody wrote, which
+// is the rule `feat project init` follows for the same reason.
 func writeSettingsTemplate(dir string) (string, error) {
 	if err := os.MkdirAll(dir, settingsDirPerm); err != nil {
 		return "", fmt.Errorf("creating the configuration directory %s: %w", dir, err)
@@ -101,7 +101,7 @@ func writeSettingsTemplate(dir string) (string, error) {
 	path := config.SettingsFile(dir)
 
 	// #nosec G304 -- the path is the resolved configuration directory joined
-	// with a constant file name; nothing here comes from a caller.
+	// with a constant file name. Nothing here comes from a caller.
 	handle, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, settingsFilePerm)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
@@ -111,7 +111,7 @@ func writeSettingsTemplate(dir string) (string, error) {
 	}
 	if _, err := handle.WriteString(config.SettingsTemplate); err != nil {
 		_ = handle.Close()
-		// Half a settings file is worse than none: the next command would read
+		// Half a settings file is worse than none. The next command would read
 		// it and report a parse error about a file the user never wrote.
 		if removeErr := os.Remove(path); removeErr != nil {
 			return "", fmt.Errorf("writing %s: %w (and it could not be removed either: %w)",
@@ -154,8 +154,9 @@ A file that does not parse is still opened, in $EDITOR.`,
 				printf(out, "wrote %s, with every value commented out\n", path)
 			}
 
-			// Loaded for the editor alone, and a failure is not one: a file that
-			// does not parse is exactly the file somebody runs this to fix.
+			// Loaded for the editor alone, and a failure to load is not one
+			// here: a file that does not parse is the file somebody runs this
+			// to fix.
 			var configured []string
 			if settings, err := config.LoadSettings(layout.Config, options); err == nil {
 				configured = settings.Review.DocumentEditor()
@@ -170,7 +171,7 @@ A file that does not parse is still opened, in $EDITOR.`,
 				return fmt.Errorf("the editor did not finish: %w", err)
 			}
 
-			// Read back rather than trusted: an editor that exited cleanly says
+			// Read back rather than trusted. An editor that exited cleanly says
 			// nothing about what is now in the file, and finding out here beats
 			// finding out from the next daemon that fails to start.
 			settings, err := config.LoadSettings(layout.Config, options)
@@ -178,9 +179,9 @@ A file that does not parse is still opened, in $EDITOR.`,
 				return configFailure(err)
 			}
 			printf(out, "%s is valid\n", settings.Path())
-			// The file was just written, so a running daemon is certainly behind
-			// it. Said the same way `feat settings show` says it, rather than as
-			// a rule to remember: it is the same question, asked a moment later.
+			// The file was just written, so a running daemon is behind it. Said
+			// the same way `feat settings show` says it, because it is the same
+			// question asked a moment later.
 			printSettingsPendingRestart(out, layout, settings)
 			return nil
 		},
@@ -190,23 +191,20 @@ A file that does not parse is still opened, in $EDITOR.`,
 // printSettingsPendingRestart says that a running daemon has not read the file
 // this command just read, and says nothing otherwise.
 //
-// It exists because settings are resolved once, when the daemon starts, so these
-// commands can print values a running daemon is not working from — and editing a
-// setting and watching nothing happen is the confusion one line prevents
-// (ADR-079).
+// Settings are resolved once, when the daemon starts, so these commands can
+// print values a running daemon is not working from. Editing a setting and
+// watching nothing happen is the confusion this one line prevents (ADR-079).
 //
-// One line, and only where there is something to do about it. Saying that a
-// restart is *not* needed is a sentence a reader can act on in no way, and a
-// check with nothing to report reports nothing (ADR-028). So a machine with no
-// daemon is silent — nothing is holding an older copy, and whatever starts next
-// reads the file as it is — and so is a daemon that started after the last
-// write.
+// It prints only where there is something to do about it. Saying that a restart
+// is *not* needed is a sentence a reader can act on in no way, and a check with
+// nothing to report reports nothing (ADR-028). A machine with no daemon is
+// silent, because nothing there is holding an older copy, and so is a daemon
+// that started after the last write.
 //
 // The comparison is of times rather than of what the daemon read, because times
-// are what it can know: the endpoint record carries when the daemon took
-// ownership and the file carries when it was last written. Neither needs the
-// daemon to be asked anything, so this works on the same terms as the rest of
-// the command.
+// are what it can know. The endpoint record carries when the daemon took
+// ownership and the file carries when it was last written, so neither needs the
+// daemon to be asked anything.
 //
 // A missing file is not compared. There is nothing to stat, and a file deleted
 // while a daemon was running would leave that daemon holding what it read with
@@ -219,8 +217,8 @@ func printSettingsPendingRestart(out io.Writer, layout paths.Layout, settings *c
 	info, err := os.Stat(settings.Path())
 	if err != nil {
 		// The file was read a moment ago, so this is a race or a permission
-		// change rather than the ordinary case, and it is not this line's to
-		// report: the command that could not read the file says so itself.
+		// change rather than the ordinary case. Reporting it is not this line's
+		// job: the command that could not read the file says so itself.
 		return
 	}
 
@@ -289,10 +287,9 @@ else names one.`,
 // printSettingsSource says which file the values came from, or that there is
 // none.
 //
-// A machine with no file is the normal case rather than a problem, so it is
-// reported as what it is — everything below is a default — and the path it
-// would be written at is named, since that is the next thing somebody wanting
-// to change one needs.
+// A machine with no file is the normal case rather than a problem. The line says
+// what that means, that everything below is a default, and names the path a file
+// would be written at, which is what somebody wanting to change one needs next.
 func printSettingsSource(out io.Writer, settings *config.Settings, expected string) {
 	if settings.Path() == "" {
 		printf(out, "no settings file: every value below is a default\n")

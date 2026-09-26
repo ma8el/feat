@@ -45,7 +45,7 @@ func plannedStatus() api.PublicationStatus {
 // rests on.
 //
 // What is sent is what the user had open, so the document has to come back
-// carrying the same words — including a description whose own lines begin with
+// carrying the same words. That includes a description whose own lines begin with
 // "#", which are Markdown headings rather than comments (ADR-070).
 func TestTheDraftDocumentSurvivesBeingReadBack(t *testing.T) {
 	document := publicationDocument(plannedStatus())
@@ -68,9 +68,8 @@ func TestTheDraftDocumentSurvivesBeingReadBack(t *testing.T) {
 		if approved[i].Body != strings.TrimSpace(want.Body) {
 			t.Errorf("body %d is %q, want %q", i, approved[i].Body, want.Body)
 		}
-		// The commit comes from the plan rather than from the document: it is
-		// what the words were composed against, and it is not the user's to
-		// edit.
+		// The commit comes from the plan rather than from the document. It is
+		// what the words were composed against, and not the user's to edit.
 		if approved[i].Commit != want.Commit {
 			t.Errorf("commit %d is %q, want the one the plan composed against", i, approved[i].Commit)
 		}
@@ -106,9 +105,9 @@ func TestTheHeaderIsCommentsAndTheBodyIsNot(t *testing.T) {
 // TestADescriptionThatLooksLikeAMarkerStaysDescription is what the widening
 // fence is for.
 //
-// The description is the agent's, and it can carry anything the agent read —
-// including a line shaped exactly like a section marker, out of a dependency's
-// changelog or an issue body. A fixed marker would let that line become
+// The description is the agent's, and it can carry anything the agent read,
+// including a line shaped exactly like a section marker out of a dependency's
+// changelog or an issue body. Under a fixed marker that line would become
 // structure: the description above it cut short, and the publication either
 // refused because a repository now appears twice or sent under a name the user
 // never approved. The words stay words (ADR-070).
@@ -147,8 +146,8 @@ func TestADescriptionThatLooksLikeAMarkerStaysDescription(t *testing.T) {
 //
 // A repository that already published is named in the plan and left out of the
 // document. A marker for it inside somebody else's description would then be the
-// only section it has — an approval, with the agent's own words, that no person
-// ever read.
+// only section it has: an approval, in the agent's own words, that no person ever
+// read.
 func TestAnInjectedMarkerCannotApproveARepositoryTheDocumentLeftOut(t *testing.T) {
 	drafts := plannedDrafts()
 	drafts[1].Published = &api.MergeRequest{
@@ -173,11 +172,11 @@ func TestAnInjectedMarkerCannotApproveARepositoryTheDocumentLeftOut(t *testing.T
 // TestASectionWithNoTitleIsRefusedRatherThanPromotingTheLineBelowIt is the
 // no-draft case.
 //
-// The agent writes no draft for every repository, and the plan says so: write a
-// title before approving. What stands in the section is then the description
-// alone — the agent's first sentence, or the ticket line Feat itself added — and
-// a rule that took the first non-empty line would send that as the title of the
-// merge request, with the description missing the line it took.
+// The agent does not write a draft for every repository, and the plan says so:
+// write a title before approving. What stands in the section is then the
+// description alone, the agent's first sentence or the ticket line Feat added,
+// and a rule that took the first non-empty line would send that as the merge
+// request's title with the description missing the line it took.
 func TestASectionWithNoTitleIsRefusedRatherThanPromotingTheLineBelowIt(t *testing.T) {
 	ticket := "Task 7f3a1c2e — https://tracker.example.invalid/stories/482"
 	drafts := plannedDrafts()
@@ -305,7 +304,7 @@ func TestAnAlreadyPublishedRepositoryIsNotInTheDocument(t *testing.T) {
 
 // fakePublisher answers what the daemon would and records what reached it.
 //
-// It is what the publisher interface exists for: the document, the editor, and
+// It is what the publisher interface exists for. The document, the editor, and
 // the confirmation are most of this command, and none of them needs a socket.
 type fakePublisher struct {
 	plan     api.PublicationStatus
@@ -327,12 +326,12 @@ func (f *fakePublisher) ApplyPublication(
 // runPublish drives the whole command: plan, editor, confirmation, apply.
 //
 // The editor is a program rather than a person, so the document comes back
-// exactly as it was written — which is what a user who reads it and saves does.
+// exactly as it was written, which is what a user who reads it and saves does.
 //
 // The answers are a file rather than a reader, because the editor is handed this
-// process's own input the way it is handed a terminal: os/exec passes a file
-// descriptor through and copies anything else, and a copy would drain the
-// answers into a program that never reads them.
+// process's own input the way it is handed a terminal. os/exec passes a file
+// descriptor through and copies anything else, and a copy would drain the answers
+// into a program that never reads them.
 func runPublish(t *testing.T, caller publisher, answer string) (string, error) {
 	t.Helper()
 
@@ -360,12 +359,12 @@ func runPublish(t *testing.T, caller publisher, answer string) (string, error) {
 // TestOneStaleDraftLeavesTheOtherRepositoriesPublishable is what a publication
 // refuses and what it does not.
 //
-// A stale draft is one repository's problem: the agent described a commit that
-// is no longer current there, and no edit resolves it, because the refusal is
-// about the commit rather than about the words. Refusing the whole publication
-// for it would leave a user waiting on a fresh draft for a repository they were
-// not publishing — while the daemon, which only ever asked about the
-// repositories in the request, would have taken the others.
+// A stale draft is one repository's problem. The agent described a commit that is
+// no longer current there, and no edit resolves it, because the refusal is about
+// the commit rather than about the words. Refusing the whole publication for it
+// would leave a user waiting on a fresh draft for a repository they were not
+// publishing, while the daemon, which only asks about the repositories in the
+// request, would have taken the others.
 func TestOneStaleDraftLeavesTheOtherRepositoriesPublishable(t *testing.T) {
 	plan := plannedStatus()
 	plan.Editor = api.EditorCommand{Program: "true"}
@@ -386,9 +385,9 @@ func TestOneStaleDraftLeavesTheOtherRepositoriesPublishable(t *testing.T) {
 	if len(sent) != 1 || sent[0].RepositoryID != "api" {
 		t.Fatalf("what was sent is %+v, want only api", sent)
 	}
-	// And the one that was left out is still named, with the state that says
-	// why: it is not offered for editing, and the plan is where a user learns
-	// that rather than from a document that silently has one section.
+	// And the one that was left out is still named, with the state that says why.
+	// It is not offered for editing, and the plan is where a user learns that
+	// rather than from a document that silently has one section.
 	if !strings.Contains(printed, "stale draft") {
 		t.Errorf("the plan does not say store is stale:\n%s", printed)
 	}
@@ -396,9 +395,9 @@ func TestOneStaleDraftLeavesTheOtherRepositoriesPublishable(t *testing.T) {
 
 // TestAStaleSectionIsNotOfferedForEditing is the other half of the same rule.
 //
-// The words cannot be made publishable by rewriting them, so offering them for
-// rewriting would be offering something that cannot happen: a user would edit,
-// save, and be refused for a reason their edit could not touch.
+// Rewriting the words cannot make them publishable, so offering them for
+// rewriting would offer something that cannot happen. A user would edit, save,
+// and be refused for a reason their edit could not touch.
 func TestAStaleSectionIsNotOfferedForEditing(t *testing.T) {
 	status := plannedStatus()
 	status.Drafts[1].Stale = true
@@ -422,8 +421,8 @@ func TestAStaleSectionIsNotOfferedForEditing(t *testing.T) {
 
 // TestNothingLeftToPublishOpensNoEditorAndBlamesNobody is the empty case.
 //
-// Every repository has published or has a stale draft, so there is no document:
-// opening an editor on nothing and then reporting that the user removed every
+// Every repository has published or has a stale draft, so there is no document.
+// Opening an editor on nothing and then reporting that the user removed every
 // repository would blame them for a state they did not make. The editor here is
 // `false`, so running it at all would fail the command.
 func TestNothingLeftToPublishOpensNoEditorAndBlamesNobody(t *testing.T) {
@@ -457,11 +456,10 @@ func TestNothingLeftToPublishOpensNoEditorAndBlamesNobody(t *testing.T) {
 
 // TestBothClientsGetTheSameDraftFile is the machinery the two share.
 //
-// The terminal and the dashboard differ only in who runs the editor, so the
-// file, its permissions, the parser, and the cleanup are one constructor's:
-// two copies of this would be two ways for the clients to disagree about what
-// the user approved, and they had already come apart over who removes the
-// directory.
+// The terminal and the dashboard differ only in who runs the editor, so the file,
+// its permissions, the parser, and the cleanup belong to one constructor. Two
+// copies would be two ways for the clients to disagree about what the user
+// approved, starting with who removes the directory.
 func TestBothClientsGetTheSameDraftFile(t *testing.T) {
 	plan := plannedStatus()
 	plan.Editor = api.EditorCommand{Program: "true"}
@@ -483,8 +481,8 @@ func TestBothClientsGetTheSameDraftFile(t *testing.T) {
 		t.Errorf("the draft is at %q, and its name does not say which task it is for", draft.path)
 	}
 
-	// Unedited, which is a user who read it and saved: what comes back is what
-	// the plan composed.
+	// Unedited, which is a user who read it and saved, so what comes back is
+	// what the plan composed.
 	approved, err := draft.Read()
 	if err != nil {
 		t.Fatalf("reading the draft back: %v", err)

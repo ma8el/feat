@@ -32,10 +32,8 @@ Feat owns no process there to stop.`
 
 // newResumeCommand continues a task's recorded agent session.
 //
-// It exists as a command because reconciliation tells users to resume a task and
-// the dashboard was the only place they could: a recovery a user reads about in
-// one surface and cannot perform there is not a recovery the product offers
-// (ADR-057).
+// Reconciliation tells users to resume a task, and a recovery a user reads about
+// in one surface has to be performable there (ADR-057).
 func newResumeCommand(env *environment) *cobra.Command {
 	return &cobra.Command{
 		Use:   "resume <task>",
@@ -80,9 +78,8 @@ func newStopCommand(env *environment) *cobra.Command {
 
 // describeSession says what a task's agent session and its environment are now.
 //
-// Both, because they are two facts and a user who just changed one wants to read
-// the other beside it: an agent process and the container it lives in are what
-// this pair of commands moves together.
+// Both, because resume and stop move the agent process and its container
+// together, and a user who just changed one wants to read the other beside it.
 func describeSession(task api.Task) string {
 	if task.Session == nil {
 		return "no agent session"

@@ -29,8 +29,8 @@ the host without registering anything.`
 
 // newProjectCommand groups the commands that register and inspect a project.
 //
-// Tickets is passed in rather than built here because it also appears at the
-// top level under a shorter name, and an alias holds the body of the command it
+// Tickets is passed in rather than built here because it also appears at the top
+// level under a shorter name, and an alias holds the body of the command it
 // stands for rather than a second one of its own (ADR-040).
 func newProjectCommand(env *environment, tickets *cobra.Command) *cobra.Command {
 	cmd := &cobra.Command{
@@ -111,8 +111,8 @@ were launched with.`,
 
 			// Validating here first turns the common failure into a message with
 			// the offending line in it, rather than one flattened through the
-			// socket. The daemon validates it again regardless: it is the one
-			// that writes.
+			// socket. The daemon validates it again anyway, because it is the
+			// one that writes.
 			if _, err := config.Load(layout.ProjectConfigDir(), id, options); err != nil {
 				return configFailure(err)
 			}
@@ -138,9 +138,9 @@ were launched with.`,
 
 // printRegistration reports what the daemon recorded.
 //
-// It is shared with `feat project init`, which registers through the same call:
-// a user who registered from the wizard and a user who ran the command are
-// looking at the same thing, and should be told it the same way.
+// It is shared with `feat project init`, which registers through the same call.
+// A user who registered from the wizard and a user who ran the command are
+// looking at the same thing and are told it the same way.
 func printRegistration(out io.Writer, registration api.Registration) {
 	verb := "updated"
 	if registration.Created {
@@ -274,10 +274,10 @@ hold secrets are listed by path; their contents are never read.`,
 // prints.
 //
 // The mapping is here rather than in internal/api because this is the package
-// that loads a configuration: the transport describes the shape and does not
-// take a dependency on the configuration package to fill it in.
+// that loads a configuration. The transport describes the shape and takes no
+// dependency on the configuration package to fill it in.
 //
-// It is the same two things the table shows, in the same order — the mount
+// It carries the two things the table shows, in the same order: the mount
 // mapping, which is what a task depends on, and the resolved values beneath it.
 func describeProject(cfg *config.Config) api.ProjectConfiguration {
 	described := api.ProjectConfiguration{
@@ -291,8 +291,8 @@ func describeProject(cfg *config.Config) api.ProjectConfiguration {
 	for _, mount := range cfg.Mounts() {
 		services := mount.RuntimeServices
 		if services == nil {
-			// A list rather than null, so that a caller can iterate every
-			// repository's services without a nil check.
+			// A list rather than null, so a caller can iterate every repository's
+			// services without a nil check.
 			services = []string{}
 		}
 		described.Repositories = append(described.Repositories, api.ConfiguredRepository{
@@ -363,9 +363,9 @@ func newProjectTicketsCommand(env *environment) *cobra.Command {
 
 			// The daemon runs the tracker command, because that is where every
 			// credentialed provider call is made and where a ticket becomes a
-			// task (ADR-070). Reading changes nothing, and it still does not
-			// start a daemon: a command that reaches somebody's tracker should
-			// not start a background process to do it.
+			// task (ADR-070). Reading changes nothing and still starts no
+			// daemon: a command that reaches somebody's tracker must not start
+			// a background process to do it.
 			if status := daemon.Inspect(layout); !status.Running() {
 				return &NotRunningError{Socket: layout.Socket}
 			}
@@ -381,8 +381,8 @@ func newProjectTicketsCommand(env *environment) *cobra.Command {
 
 // ticketLister is what reading a project's tickets needs from the daemon.
 //
-// It is an interface so that what the command prints can be tested against a
-// list arranged in the test, without a socket or a tracker.
+// It is an interface so a test can check what the command prints against a list
+// it arranged, without a socket or a tracker.
 type ticketLister interface {
 	Tickets(ctx context.Context, id string) (api.TicketList, error)
 }
@@ -390,10 +390,10 @@ type ticketLister interface {
 // runTickets reads a project's tickets once and prints the list, or the one
 // ticket a reference names.
 //
-// Both forms run the same command once: there is no endpoint for one ticket,
+// Both forms run the same command once. There is no endpoint for one ticket,
 // because the tracker command prints a list and Feat matches within it
 // (ADR-071). A reference that is not among what it printed is an error, and an
-// error is never on standard output: the document is there or nothing is.
+// error never reaches standard output: the document is there or nothing is.
 func runTickets(ctx context.Context, out io.Writer, caller ticketLister, id, reference string, asJSON bool) error {
 	list, err := caller.Tickets(ctx, id)
 	if err != nil {
@@ -413,8 +413,8 @@ func runTickets(ctx context.Context, out io.Writer, caller ticketLister, id, ref
 		return err
 	}
 	// The reference a task from this ticket would record, snapshot and all, so
-	// that the document printed here and the brief the preparation screen
-	// composes are one document rather than two renderings (ADR-070).
+	// the document printed here and the brief the preparation screen composes
+	// are one document rather than two renderings (ADR-070).
 	found := api.NewTicketReference(ticket, list.ReadAt)
 	if asJSON {
 		return emitJSON(out, found)
@@ -426,8 +426,8 @@ func runTickets(ctx context.Context, out io.Writer, caller ticketLister, id, ref
 
 // printTickets renders what a tracker printed.
 //
-// The tracker column is shown only where a ticket carries one, because a project
-// drawing on one tracker has nothing to disambiguate and a column of blanks says
+// The tracker column is shown only where a ticket carries one. A project drawing
+// on a single tracker has nothing to disambiguate, and a column of blanks says
 // less than no column at all (ADR-071).
 func printTickets(out io.Writer, id string, list api.TicketList) {
 	if len(list.Tickets) == 0 {
@@ -468,8 +468,8 @@ func printTickets(out io.Writer, id string, list api.TicketList) {
 func printConfigured(out io.Writer, ids []string, dir string) {
 	if len(ids) == 0 {
 		// A machine with no configuration and no daemon is a first run, and the
-		// error that follows this asks for the daemon. The wizard comes before
-		// that: it writes a file without one, and ends by saying to start it.
+		// error that follows this asks for the daemon. The wizard comes first:
+		// it writes a file without one and ends by saying to start it.
 		printf(out, "no projects are configured in %s\n", dir)
 		printf(out, "run `feat project init` to write one\n")
 		return
@@ -493,7 +493,7 @@ func configFailure(err error) error {
 // registeredProjects reports which projects the daemon knows about.
 //
 // A daemon that is not running produces no answer rather than a wrong one, so
-// that `feat doctor` can run before one exists and say that it does not know.
+// `feat doctor` can run before one exists and say that it does not know.
 func registeredProjects(ctx context.Context, layout paths.Layout) func(string) bool {
 	if status := daemon.Inspect(layout); !status.Running() {
 		return nil

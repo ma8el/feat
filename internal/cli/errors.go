@@ -11,18 +11,16 @@ import (
 // command surface but does not do its work yet.
 //
 // Placeholder commands return this error rather than printing a success
-// message, so that scripts and tests can never mistake an unimplemented
-// command for a working one.
+// message, so scripts and tests never mistake an unimplemented command for a
+// working one.
 //
-// No command uses it today: every entry in the documented surface does its
-// work. The type stays because the exit-code contract in Execute reads it and
-// because anything deferred later needs it — reintroducing the two-line
-// constructor beside its one caller is less than the cost of a dead helper
-// nobody can see the shape of.
+// No command uses it today, because every entry in the documented surface does
+// its work. The type stays because Execute's exit-code contract reads it and
+// because anything deferred later needs it.
 type NotImplementedError struct {
 	// Command is the full command path, such as "feat daemon start".
 	Command string
-	// Outcome names what the command will do once it does anything, so that the
+	// Outcome names what the command will do once it does anything, so the
 	// error says what is missing rather than only that something is.
 	Outcome string
 }
@@ -38,7 +36,7 @@ func (e *NotImplementedError) Error() string {
 // none.
 //
 // It carries its own exit code because "nothing is running" is a state rather
-// than a failure: a script that starts a daemon only when it has to should not
+// than a failure. A script that starts a daemon only when it has to should not
 // have to parse output to find that out.
 type NotRunningError struct {
 	// Detail explains the situation when there is more to say than that no
@@ -48,11 +46,10 @@ type NotRunningError struct {
 	Socket string
 	// Cause is why starting one failed, when Feat tried and could not.
 	//
-	// It replaces the advice rather than joining it: telling a user to run
-	// `feat daemon start` after the dashboard has just run it for them and been
-	// refused is advice that has already been taken. What they need instead is
-	// the reason, which for a spawn that never began serving is the end of the
-	// daemon log.
+	// It replaces the advice rather than joining it. Telling a user to run
+	// `feat daemon start` after the dashboard has just tried it for them is
+	// advice already taken; what they need is the reason, which for a spawn that
+	// never began serving is the end of the daemon log.
 	Cause error
 }
 
@@ -66,11 +63,11 @@ func (e *NotRunningError) Error() string {
 	return "no feat daemon is running on " + e.Socket + "; start one with `feat daemon start`"
 }
 
-// Unwrap exposes the failed start, so that a caller can ask what kind it was.
+// Unwrap exposes the failed start, so a caller can ask what kind it was.
 func (e *NotRunningError) Unwrap() error { return e.Cause }
 
-// usageError marks an argument or flag error so that Execute can report the
-// usage exit code and print the command's usage text.
+// usageError marks an argument or flag error, so Execute reports the usage exit
+// code and prints the command's usage text.
 type usageError struct {
 	cmd *cobra.Command
 	err error
@@ -80,9 +77,9 @@ func (e *usageError) Error() string { return e.err.Error() }
 
 func (e *usageError) Unwrap() error { return e.err }
 
-// checkArgs wraps a positional-argument validator so that violations become
-// usage errors. cobra.NoArgs also produces the "unknown command" message, so
-// wrapping it gives unknown subcommands the usage exit code too.
+// checkArgs wraps a positional-argument validator so violations become usage
+// errors. cobra.NoArgs also produces the "unknown command" message, so wrapping
+// it gives unknown subcommands the usage exit code too.
 func checkArgs(validator cobra.PositionalArgs) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if err := validator(cmd, args); err != nil {
@@ -95,10 +92,10 @@ func checkArgs(validator cobra.PositionalArgs) cobra.PositionalArgs {
 // suggest names the subcommands a rejected word was probably meant to be.
 //
 // Cobra builds this itself, but only on the path it takes for a command with no
-// Args of its own, and every command here has one. So every unknown word was
-// answered with "unknown command" and nothing else (ADR-040). It is done here,
-// where a rejection already passes through, so that a name that moved and a name
-// that was mistyped get the same answer.
+// Args of its own, and every command here has one. Without this, an unknown word
+// is answered with "unknown command" and nothing else (ADR-040). It runs where a
+// rejection already passes through, so a name that moved and a name that was
+// mistyped get the same answer.
 func suggest(cmd *cobra.Command, args []string, err error) error {
 	if len(args) == 0 || !cmd.HasAvailableSubCommands() {
 		return err

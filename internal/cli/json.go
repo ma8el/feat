@@ -11,13 +11,13 @@ import (
 // jsonFlagName is the flag every command that can print a document offers.
 //
 // It is a local flag on each of them rather than a persistent one on the root,
-// so that `feat --help` and the golden command surface say which commands have
-// a document to print. A global flag would claim every command does.
+// so `feat --help` and the golden command surface say which commands have a
+// document to print. A global flag would claim every command does.
 const jsonFlagName = "json"
 
-// Printing a document is opt-in, and a person at a terminal is the default
-// reader: the table is for them, and a command that printed JSON by default
-// would be answering the rarer question (ADR-099).
+// Printing a document is opt-in because a person at a terminal is the default
+// reader. A command that printed JSON by default would answer the rarer
+// question (ADR-099).
 const jsonFlagUsage = "print the result as a JSON document instead of a table"
 
 // addJSONFlag offers the flag on one command.
@@ -37,17 +37,16 @@ func wantsJSON(cmd *cobra.Command) bool {
 
 // emitJSON writes one document and nothing else.
 //
-// What a failure looks like in the document is that it does not appear in one:
-// stdout carries the document or nothing, the message goes to standard error,
-// and the exit code is the one the command would have used anyway. Those codes
-// are already the machine-readable error surface — ADR-027 gave an absent daemon
-// its own code so that a script would not have to parse output — and an error
-// object on stdout would be a second surface saying the same thing.
+// A failure never appears in the document. Stdout carries the document or
+// nothing, the message goes to standard error, and the exit code is the one the
+// command would have used anyway. Those codes are already the machine-readable
+// error surface — ADR-027 gave an absent daemon its own code so a script need
+// not parse output — and an error object on stdout would say the same thing
+// twice.
 //
-// HTML escaping is off because a brief is Markdown a person wrote, and
-// rewriting its angle brackets and ampersands as numeric escapes would make the
-// document harder to read for the benefit of a browser that is not going to
-// render it.
+// HTML escaping is off because a brief is Markdown a person wrote. Rewriting its
+// angle brackets and ampersands as numeric escapes would make the document
+// harder to read for a browser that is never going to render it.
 func emitJSON(out io.Writer, document any) error {
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")

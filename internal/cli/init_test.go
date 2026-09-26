@@ -17,7 +17,7 @@ import (
 // checkoutHost answers the Git questions the wizard asks a directory.
 //
 // It answers by directory, because that is what the wizard's proposals are
-// derived from: a test that answered the same thing everywhere could not tell a
+// derived from. A test that answered the same thing everywhere could not tell a
 // repository that was inspected from one that was assumed.
 type checkoutHost struct {
 	workingHost
@@ -148,8 +148,8 @@ func (m *wizardMachine) load(t *testing.T, id string) *config.Config {
 // them. An empty string is somebody pressing Enter.
 func answers(lines ...string) string { return strings.Join(lines, "\n") + "\n" }
 
-// TestProjectInitWritesAConfigurationThatLoads is the whole point of the
-// command: the answers become a file that every other command can read.
+// TestProjectInitWritesAConfigurationThatLoads is the whole point of the command.
+// The answers become a file that every other command can read.
 func TestProjectInitWritesAConfigurationThatLoads(t *testing.T) {
 	m := prepareWizard(t)
 
@@ -213,8 +213,8 @@ func TestProjectInitWritesAConfigurationThatLoads(t *testing.T) {
 	}
 
 	// Every group of questions is announced. A conversation is one column of
-	// text, so the headings are the only thing that says which part of the file
-	// is being answered.
+	// text, so the headings are the only thing saying which part of the file is
+	// being answered.
 	for _, heading := range []string{
 		"Repositories", "Where the agent runs", "Application services",
 	} {
@@ -225,14 +225,14 @@ func TestProjectInitWritesAConfigurationThatLoads(t *testing.T) {
 }
 
 // TestProjectInitPrintsTheFlowsOwnLines is the transcript's half of the fold the
-// dashboard's dialog gained.
+// dashboard's dialog performs.
 //
 // The widget folds a question's prose into the width its caller gives it, and
-// this asker gives none. It prints these fields itself so that they stay in the
-// scrollback after the widget has exited, and the rule that opens a section is
-// measured against the width the flow wrote them to rather than against the
-// terminal (ADR-084, ruleWidth). So the flow's own breaks have to arrive here
-// exactly as they were written: two source lines, on two lines, unjoined.
+// this asker gives none. The conversation prints these fields itself, so they
+// stay in the scrollback after the widget has exited, and the rule that opens a
+// section is measured against the width the flow wrote them to rather than
+// against the terminal (ADR-084, ruleWidth). The flow's own breaks therefore have
+// to arrive here as written: two source lines, on two lines, unjoined.
 func TestProjectInitPrintsTheFlowsOwnLines(t *testing.T) {
 	m := prepareWizard(t)
 
@@ -276,8 +276,8 @@ func TestProjectInitPrintsTheFlowsOwnLines(t *testing.T) {
 }
 
 // TestProjectInitConfiguresADevcontainerFromWhatItFinds checks the mode with
-// something to discover: the Compose file beside the repository, and the
-// services that file defines.
+// something to discover: the Compose file beside the repository, and the services
+// that file defines.
 func TestProjectInitConfiguresADevcontainerFromWhatItFinds(t *testing.T) {
 	m := prepareWizard(t)
 
@@ -349,21 +349,21 @@ func TestProjectInitConfiguresADevcontainerFromWhatItFinds(t *testing.T) {
 	if !strings.Contains(stdout, "services defined there: dev, worker") {
 		t.Errorf("the wizard does not report the services it found:\n%s", stdout)
 	}
-	// And the loop names what it is asking for the second time. It used to ask
-	// for "Compose file" twice, with "(blank to finish)" appended the second
-	// time and nothing saying what a further file would be.
+	// And the loop names what it is asking for the second time. Asking for
+	// "Compose file" twice, with "(blank to finish)" appended, says nothing
+	// about what a further file would be.
 	if !strings.Contains(stdout, "Compose override file (blank to finish)") {
 		t.Errorf("the repeated Compose question does not say what it asks for:\n%s", stdout)
 	}
 }
 
-// TestProjectInitSaysWhatElseItFoundBesideTheProposal is the sentence that was
-// written and never printed (ADR-077).
+// TestProjectInitSaysWhatElseItFoundBesideTheProposal covers the second half of
+// the Compose discovery (ADR-077).
 //
 // A repository brings a base Compose file and the overlays that layer over it.
 // The flow proposes the first and says what else it found, and the conversation
-// dropped the second half on the way out: the notes were read from the flow's
-// own state, and a note the question itself had added was not there.
+// prints both. Notes read from the flow's own state alone would drop a note the
+// question itself added.
 func TestProjectInitSaysWhatElseItFoundBesideTheProposal(t *testing.T) {
 	m := prepareWizard(t)
 
@@ -402,13 +402,13 @@ func TestProjectInitSaysWhatElseItFoundBesideTheProposal(t *testing.T) {
 		t.Errorf("the conversation does not name the other file it found:\n%s", stdout)
 	}
 	// And again where the file would be added, which is the question after the
-	// one that named it: a prompt about finishing, with a bracket-less field,
+	// one that named it. A prompt about finishing, with a bracket-less field,
 	// otherwise reads as a loop that has nothing left in it.
 	if !strings.Contains(stdout, "others found beside it: "+overlay) {
 		t.Errorf("the repeat does not say what is left to add:\n%s", stdout)
 	}
-	// And what the previous answer established still reaches the same place,
-	// which is what the notes were doing before this one joined them.
+	// And what the previous answer established reaches the same place, which is
+	// the other thing the notes carry.
 	if !strings.Contains(stdout, "remote origin, default branch main") {
 		t.Errorf("the conversation no longer reports what Git answered:\n%s", stdout)
 	}
@@ -586,8 +586,8 @@ func TestProjectInitStopsWhenTheAnswersRunOut(t *testing.T) {
 }
 
 // TestProjectInitChecksTheProjectAgainstTheMachine checks the offer the wizard
-// makes once the file exists: the questions could not ask the host anything,
-// and this is where that is answered.
+// makes once the file exists. The questions could not ask the host anything, and
+// this is where that is answered.
 func TestProjectInitChecksTheProjectAgainstTheMachine(t *testing.T) {
 	m := prepareWizard(t)
 
@@ -637,13 +637,13 @@ func TestProjectInitRegistersWithARunningDaemon(t *testing.T) {
 }
 
 // TestTheBackendBuildsTheWizardTheDashboardAsks checks the dashboard's half of
-// the wiring: it drives the questions itself, and everything underneath them —
-// the configuration directory, the host that runs Git, the file that gets
-// written — is built here (ADR-063).
+// the wiring. It drives the questions itself, and everything underneath them,
+// the configuration directory, the host that runs Git, and the file that gets
+// written, is built here (ADR-063).
 //
-// The questions themselves are internal/wizard's and are tested there. What
-// this checks is that a wizard built the way the dashboard builds one composes
-// a configuration this machine can load.
+// The questions themselves are internal/wizard's and are tested there. This
+// checks that a wizard built the way the dashboard builds one composes a
+// configuration this machine can load.
 func TestTheBackendBuildsTheWizardTheDashboardAsks(t *testing.T) {
 	m := prepareWizard(t)
 	dashboard := &backend{env: &environment{
@@ -726,14 +726,14 @@ func TestInspectAndComposeDiscoveryFeedTheProposals(t *testing.T) {
 }
 
 // TestTheDashboardGetsTheChecksTheCommandRuns is the other half of the
-// dashboard's diagnosis: the checks are `feat doctor`'s, and what crosses to the
+// dashboard's diagnosis. The checks are `feat doctor`'s, and what crosses to the
 // screen is data (ADR-064).
 func TestTheDashboardGetsTheChecksTheCommandRuns(t *testing.T) {
 	m := prepareWizard(t)
 	m.configure(t, "app", projectFixture)
 
 	// A client for a socket no daemon is listening on, which is the machine a
-	// first diagnosis runs on: registration is one of the things being checked,
+	// first diagnosis runs on. Registration is one of the things being checked,
 	// so a daemon that cannot be reached is an answer rather than a failure.
 	caller := client.New(m.layout.Socket)
 	defer caller.Close()
@@ -783,12 +783,11 @@ func TestTheDashboardGetsTheChecksTheCommandRuns(t *testing.T) {
 // TestTheDashboardDiagnosisReadsTheMachinesSettings is the other half of that:
 // the checks are the command's, and so is the machine they are asked about.
 //
-// The dashboard's run left the settings directory unset, so the host section
-// looked for a settings file relative to whatever directory the process happened
-// to be started in. On every machine that was not the configuration directory,
-// which is all of them, the report said there was no settings file and that the
-// defaults applied — of a user who had written one, and of a daemon that was
-// reading it.
+// A run that left the settings directory unset would have the host section look
+// for a settings file relative to whatever directory the process was started in.
+// On every machine but one, the report would then say there is no settings file
+// and that the defaults apply, of a user who has written one and of a daemon that
+// is reading it.
 func TestTheDashboardDiagnosisReadsTheMachinesSettings(t *testing.T) {
 	m := prepareWizard(t)
 	m.configure(t, "app", projectFixture)

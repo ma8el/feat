@@ -22,30 +22,28 @@ type Options struct {
 	// false, the root command renders a plain-text health summary instead.
 	Interactive bool
 	// Layout locates the daemon's socket, state, and runtime directories. A nil
-	// value resolves them from the process environment, which is what the real
-	// binary wants; a test supplies its own so that it never reaches the
-	// developer's own daemon.
+	// value resolves them from the process environment. A test supplies its own
+	// so it never reaches the developer's own daemon.
 	Layout *paths.Layout
 	// Environment is what a leading "~" in project configuration expands
 	// against, and where a default such as $EDITOR is read from. A nil value
 	// uses the process environment.
 	Environment *paths.Environment
 	// Runner runs the commands `feat doctor` uses to inspect the host. A nil
-	// value runs them on the real host; a test supplies its own so that its
-	// result does not depend on which tools happen to be installed.
+	// value runs them on the real host. A test supplies its own so its result
+	// does not depend on which tools happen to be installed.
 	Runner project.Runner
 	// Attacher yields this process's terminal to native tmux. A nil value runs
-	// the installed tmux client; tests inject one so they never take over the
+	// the installed tmux client. A test injects one so it never takes over the
 	// test process's terminal.
 	Attacher TerminalAttacher
 	// Now supplies the current time, which elapsed columns are measured
-	// against. A nil value reads the wall clock; a test supplies its own so
-	// that its output does not change between runs.
+	// against. A nil value reads the wall clock. A test supplies its own so its
+	// output does not change between runs.
 	Now func() time.Time
 	// Input is where a command that asks questions reads its answers. A nil
-	// value reads the process's standard input, which is what the real binary
-	// wants; a test supplies a script so that a conversation can be driven
-	// without a terminal.
+	// value reads the process's standard input. A test supplies a script so a
+	// conversation can be driven without a terminal.
 	Input io.Reader
 }
 
@@ -91,8 +89,8 @@ func (e *environment) current() (paths.Environment, error) {
 	return paths.Current()
 }
 
-// project returns everything a project command needs: where the configuration
-// lives, and what its paths and defaults resolve against.
+// project returns what a project command needs: where the configuration lives,
+// and what its paths and defaults resolve against.
 func (e *environment) project() (paths.Layout, config.Options, error) {
 	layout, err := e.resolve()
 	if err != nil {
@@ -135,14 +133,14 @@ func NewRootCommand(opts Options) *cobra.Command {
 		Long:  rootLong,
 		Args:  checkArgs(cobra.NoArgs),
 
-		// Errors are rendered by Execute so that exit codes stay under our
-		// control and usage text is printed only for usage errors.
+		// Execute renders errors, so exit codes stay under Feat's control and
+		// usage text is printed only for usage errors.
 		SilenceUsage:  true,
 		SilenceErrors: true,
 
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			// Opening the dashboard starts the daemon when none is running
-			// (ADR-008); see describeDaemon for what a non-interactive run does
+			// (ADR-008). describeDaemon holds what a non-interactive run does
 			// instead.
 			summary := env.describeDaemon(cmd)
 			if !opts.Interactive {
@@ -163,11 +161,10 @@ func NewRootCommand(opts Options) *cobra.Command {
 				return err
 			}
 			if status := daemon.Inspect(layout); !status.Running() {
-				// describeDaemon starts one; if there still is none, the
-				// dashboard has nothing to show and says why. A failed start
-				// used to be reported as "no daemon is running; start one with
-				// `feat daemon start`", which is the command that had just
-				// failed, and the reason — a quoted daemon log — was dropped.
+				// describeDaemon starts one. If there still is none, the
+				// dashboard has nothing to show, and the cause carries why:
+				// advising `feat daemon start` on its own would advise the
+				// command that has just failed.
 				return &NotRunningError{Socket: layout.Socket, Cause: summary.startErr}
 			}
 
@@ -191,16 +188,16 @@ func NewRootCommand(opts Options) *cobra.Command {
 	// keeps `feat --help` equal to the documented v0 command surface.
 	root.CompletionOptions.DisableDefaultCmd = true
 
-	// Applies to the whole tree: cobra walks to the parent when a command has
-	// no flag error function of its own.
+	// This applies to the whole tree, because cobra walks to the parent when a
+	// command has no flag error function of its own.
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
 		return &usageError{cmd: cmd, err: err}
 	})
 
-	// Attaching and reviewing are typed all day, so they keep the short names
-	// they had before ADR-040 moved them under `feat task`. Reading tickets is
-	// typed the same way, while looking for the next piece of work, and earns a
-	// short name by the same rule.
+	// Attaching and reviewing are typed all day, so they keep short top-level
+	// names beside their homes under `feat task` (ADR-040). Reading tickets is
+	// typed as often, while looking for the next piece of work, and earns one by
+	// the same rule.
 	attach, review := newAttachCommand(env), newReviewCommand(env)
 	tickets := newProjectTicketsCommand(env)
 
@@ -224,21 +221,19 @@ func NewRootCommand(opts Options) *cobra.Command {
 
 // aliasOf gives a command a second name at the top level.
 //
-// The alias holds the same RunE value as the command it stands for, so there is
-// one implementation under two names rather than two that drift. Cobra sets a
-// parent in AddCommand, so the same command value cannot hold both positions and
-// a second one has to exist; what that second one must not have is a body of its
-// own.
+// The alias holds the same RunE value as the command it stands for, so one
+// implementation carries two names rather than two that drift. Cobra sets a
+// parent in AddCommand, so a single command value cannot hold both positions and
+// a second one has to exist; what it must not have is a body of its own.
 //
 // It is hidden for the reason `feat daemon run` is (ADR-027): `feat --help`
 // stays equal to the documented command surface, while the golden file, which
 // walks hidden commands, still pins it.
 //
-// The flags come across too, and they are the same flags rather than copies of
-// them: pflag's AddFlagSet carries the pointers, so a value parsed on the alias
-// is the value the shared RunE reads. Without this, one name would answer
-// `--json` and the other would call it unknown — an alias that is a second
-// implementation in the one place it is easiest not to notice.
+// The flags come across as the same flags rather than copies. pflag's AddFlagSet
+// carries the pointers, so a value parsed on the alias is the value the shared
+// RunE reads. Without it, one name would answer `--json` and the other would
+// call it unknown.
 func aliasOf(canonical *cobra.Command, path string) *cobra.Command {
 	alias := &cobra.Command{
 		Use:   canonical.Use,

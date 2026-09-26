@@ -19,7 +19,7 @@ import (
 // isolate points path resolution at a temporary directory.
 //
 // Without it these tests would read, and `feat daemon` would write, the
-// directories of whoever is running them: a unit test must never reach the
+// directories of whoever is running them. A unit test must never reach the
 // developer's own daemon.
 func isolate(t *testing.T) paths.Layout {
 	t.Helper()
@@ -43,8 +43,8 @@ func isolate(t *testing.T) paths.Layout {
 // shortDir returns a temporary directory with a short path.
 //
 // t.TempDir() embeds the test's name, which on macOS pushes a socket path past
-// the platform's limit — the limit paths.Resolve checks, so this would otherwise
-// fail before the test began.
+// the platform's limit. paths.Resolve checks that limit, so a test would fail
+// before it began.
 func shortDir(t *testing.T) string {
 	t.Helper()
 
@@ -83,7 +83,7 @@ func TestExecuteExitCodes(t *testing.T) {
 		// Review, attach, and cleanup all reach the daemon, so an absent one is
 		// the state each reports rather than a failure of the command. The two
 		// short names ADR-040 kept are exercised beside the canonical ones,
-		// because an alias that stops working is an alias nobody notices.
+		// because nobody notices an alias that stops working.
 		{"review without a daemon", []string{"task", "review", "abc123"}, ExitNotRunning},
 		{"attach without a daemon", []string{"task", "attach", "abc123"}, ExitNotRunning},
 		{"cleanup without a daemon", []string{"task", "cleanup", "abc123"}, ExitNotRunning},
@@ -100,9 +100,9 @@ func TestExecuteExitCodes(t *testing.T) {
 		{"runtime destroy without a daemon", []string{"runtime", "destroy", "abc123", "--yes"}, ExitNotRunning},
 
 		// Preparation and the task list need a daemon, which is a state rather
-		// than a failure. Preparation additionally needs a terminal, because
-		// nothing is created until the user confirms it, and the test process
-		// has none: an absent daemon is found first either way.
+		// than a failure. Preparation also needs a terminal, because nothing is
+		// created until the user confirms it, and the test process has none. An
+		// absent daemon is found first either way.
 		{"implement without a daemon", []string{"implement"}, ExitError},
 		{"task list without a daemon", []string{"task", "list"}, ExitNotRunning},
 
@@ -138,10 +138,10 @@ func TestExecuteExitCodes(t *testing.T) {
 // failed.
 //
 // It exercises the error rather than a command, because no command is
-// unimplemented: every entry in the documented surface does its work. The rule
-// still has to hold for whatever is deferred later, and
-// TestPlaceholdersSayWhatIsMissing is what would catch a placeholder that
-// stopped saying what is missing.
+// unimplemented and every entry in the documented surface does its work. The
+// rule still has to hold for whatever is deferred later, and
+// TestPlaceholdersSayWhatIsMissing would catch a placeholder that stopped saying
+// what is missing.
 func TestNotImplementedErrorIsActionable(t *testing.T) {
 	isolate(t)
 
@@ -162,7 +162,7 @@ func TestNotImplementedErrorIsActionable(t *testing.T) {
 //
 // The case that matters is `feat cleanup`, which ADR-040 moved under `feat task`
 // without leaving an alias, so the name a user may still type has to lead
-// somewhere. A typo is the same question asked by accident.
+// somewhere. A typo asks the same question by accident.
 func TestAnUnknownCommandNamesTheOnesItMightBe(t *testing.T) {
 	isolate(t)
 
@@ -192,18 +192,18 @@ func TestAnUnknownCommandNamesTheOnesItMightBe(t *testing.T) {
 // TestEveryDocumentedCommandIsImplemented records that the documented surface is
 // whole.
 //
-// It is the counterpart of TestPlaceholdersSayWhatIsMissing: that one requires a
+// It is the counterpart of TestPlaceholdersSayWhatIsMissing. That one requires a
 // placeholder to say what is missing, and this one requires there to be no
-// placeholder left. Deferring something later has to change this test
-// deliberately, which is the point.
+// placeholder left, so deferring something later has to change this test
+// deliberately.
 func TestEveryDocumentedCommandIsImplemented(t *testing.T) {
 	isolate(t)
 
 	var placeholders []string
 	var walk func(cmd *cobra.Command)
 	walk = func(cmd *cobra.Command) {
-		// The handler is read rather than invoked: invoking one would reach the
-		// running user's daemon, which is what surface_test.go's own exemption
+		// The handler is read rather than invoked, because invoking one would
+		// reach the running user's daemon, which surface_test.go's own exemption
 		// list exists to avoid.
 		if cmd.RunE != nil && strings.Contains(handlerName(cmd), "notImplemented") {
 			placeholders = append(placeholders, cmd.CommandPath())

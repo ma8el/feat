@@ -47,7 +47,7 @@ func reviewStatus() api.ReviewStatus {
 // where there is no terminal to open a screen in.
 //
 // Every repository appears with its own recorded base, and the check results say
-// who produced each one: the distinction between an enforced result and a
+// who produced each one. The distinction between an enforced result and a
 // claimed one has to survive being printed as much as being rendered.
 func TestAPrintedReviewNamesEveryRepositoryAndItsBase(t *testing.T) {
 	var out bytes.Buffer
@@ -68,9 +68,9 @@ func TestAPrintedReviewNamesEveryRepositoryAndItsBase(t *testing.T) {
 		}
 	}
 
-	// The workflow is the decision, and it is stated once. There was a second
-	// line reading it back off the review record, which was the same fact under
-	// another name and could disagree with this one (ADR-047).
+	// The workflow is the decision, and it is stated once. A second line reading
+	// it back off the review record would be the same fact under another name,
+	// free to disagree with this one (ADR-047).
 	if got := strings.Count(printed, "verification_failed"); got != 1 {
 		t.Errorf("the workflow appears %d times, want once:\n%s", got, printed)
 	}
@@ -84,8 +84,8 @@ func TestAPrintedReviewNamesEveryRepositoryAndItsBase(t *testing.T) {
 //
 // The daemon expanded the command and refused anything that could leave the
 // task's worktrees. This checks it again, for the reason `feat runtime logs`
-// checks the Compose command it is handed: they are the same user, and a client
-// that ran whatever it received would be one nobody could reason about.
+// checks the Compose command it is handed: the daemon runs as the same user, and
+// a client that ran whatever it received would be one nobody could reason about.
 func TestAReviewCommandIsCheckedBeforeItRuns(t *testing.T) {
 	for _, test := range []struct {
 		name    string

@@ -13,12 +13,12 @@ import (
 	"github.com/ma8el/feat/internal/tracker"
 )
 
-// ticketsReadAt is when the fixture list was read. It is fixed so that the
-// documents pinned below carry one timestamp rather than the test's clock.
+// ticketsReadAt is when the fixture list was read. It is fixed so the documents
+// pinned below carry one timestamp rather than the test's clock.
 var ticketsReadAt = time.Date(2026, time.September, 17, 8, 42, 3, 0, time.UTC)
 
-// ticketFixture is what a project's tracker printed: one ticket with a body,
-// as a tracker reached through a web form returns it, and one filed without.
+// ticketFixture is what a project's tracker printed: one ticket with a body, as
+// a tracker reached through a web form returns it, and one filed without.
 func ticketFixture() api.TicketList {
 	return api.TicketList{
 		ReadAt: ticketsReadAt,
@@ -54,9 +54,9 @@ func (f *fakeTicketLister) Tickets(_ context.Context, id string) (api.TicketList
 	return f.list, f.err
 }
 
-// TestTicketsShowPrintsTheComposedBrief is the whole of the second argument:
-// the document printed is the one `feat implement --ticket` would put in the
-// brief field, and nothing is printed with it (ADR-070).
+// TestTicketsShowPrintsTheComposedBrief is the whole of the second argument. The
+// document printed is the one `feat implement --ticket` would put in the brief
+// field, and nothing is printed with it (ADR-070).
 func TestTicketsShowPrintsTheComposedBrief(t *testing.T) {
 	caller := &fakeTicketLister{list: ticketFixture()}
 
@@ -96,9 +96,9 @@ func TestTicketsShowPrintsTheComposedBrief(t *testing.T) {
 	}
 }
 
-// TestTicketsShowSaysWhenATicketHasNoDescription checks the other shape a
-// ticket has, so that an empty body reads as a fact rather than as a document
-// that ends early.
+// TestTicketsShowSaysWhenATicketHasNoDescription checks the other shape a ticket
+// has, so an empty body reads as a fact rather than as a document that ends
+// early.
 func TestTicketsShowSaysWhenATicketHasNoDescription(t *testing.T) {
 	var out bytes.Buffer
 	if err := runTickets(context.Background(), &out, &fakeTicketLister{list: ticketFixture()}, "app", "151", false); err != nil {
@@ -114,7 +114,7 @@ func TestTicketsShowSaysWhenATicketHasNoDescription(t *testing.T) {
 
 // TestTicketsShowRefusesWhatTheCommandDidNotPrint checks the two ways a
 // reference fails to name one ticket, and that neither leaves anything on
-// standard output: the document is there or nothing is (ADR-099).
+// standard output. The document is there or nothing is (ADR-099).
 func TestTicketsShowRefusesWhatTheCommandDidNotPrint(t *testing.T) {
 	t.Run("not among them", func(t *testing.T) {
 		var out bytes.Buffer
@@ -167,8 +167,8 @@ func TestTicketsShowRefusesWhatTheCommandDidNotPrint(t *testing.T) {
 }
 
 // TestTicketDocument pins what `feat tickets <project> <ticket> --json` prints:
-// the reference a task from the ticket would record, snapshot and all, so that
-// a caller reads the same shape a task carries.
+// the reference a task from the ticket would record, snapshot and all, so a
+// caller reads the same shape a task carries.
 func TestTicketDocument(t *testing.T) {
 	var out bytes.Buffer
 	if err := runTickets(context.Background(), &out, &fakeTicketLister{list: ticketFixture()}, "app", "142", true); err != nil {
@@ -213,22 +213,22 @@ func TestTicketsListStillPrintsTheTable(t *testing.T) {
 			t.Errorf("the table does not contain %q:\n%s", want, out.String())
 		}
 	}
-	// The table is a list, not a body: a description stays out of it.
+	// The table is a list rather than a body, so a description stays out of it.
 	if strings.Contains(out.String(), "worker pool") {
 		t.Errorf("the table carries a ticket's description:\n%s", out.String())
 	}
 }
 
-// trackerFixture is the project fixture with a tracker section, so that the
-// daemon has a command to run.
+// trackerFixture is the project fixture with a tracker section, so the daemon
+// has a command to run.
 const trackerFixture = projectFixture + `
 tracker:
   kind: command
   command: ["tickets-for-me", "--assigned"]
 `
 
-// fakeTracker stands in for the configured command, so that the daemon the
-// harness starts asks nobody's tracker for anything.
+// fakeTracker stands in for the configured command, so the daemon the harness
+// starts asks nobody's tracker for anything.
 type fakeTracker struct {
 	output []byte
 }
@@ -237,7 +237,7 @@ func (f *fakeTracker) Run(context.Context, tracker.Command) ([]byte, error) {
 	return f.output, nil
 }
 
-// TestTicketsReachTheDaemonUnderBothNames runs the whole path once: the command
+// TestTicketsReachTheDaemonUnderBothNames runs the whole path once. The command
 // asks the daemon, the daemon runs the tracker, and the reference is matched
 // against what it printed. `feat tickets` is the same command under a shorter
 // name, so its output is the same bytes (ADR-040).

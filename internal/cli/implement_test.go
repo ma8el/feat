@@ -17,9 +17,9 @@ import (
 
 // recordingDrafter is a daemon that records what a run asked it to do.
 //
-// It is what the drafter interface exists for: what creating a task from a
-// command line is mostly made of is the order of four requests and what happens
-// when one of them fails, and neither needs a socket to check.
+// It is what the drafter interface exists for. Creating a task from a command
+// line is mostly the order of four requests and what happens when one of them
+// fails, and neither needs a socket to check.
 type recordingDrafter struct {
 	project api.Project
 
@@ -153,8 +153,8 @@ func runCreate(t *testing.T, caller drafter, opts implementOptions, document str
 }
 
 // TestACompleteInvocationCreatesTheTaskItDescribes is the whole point of the
-// headless path: a project and a brief are enough, and what comes back names
-// the task that now exists.
+// headless path. A project and a brief are enough, and what comes back names the
+// task that now exists.
 func TestACompleteInvocationCreatesTheTaskItDescribes(t *testing.T) {
 	caller := newDrafter()
 
@@ -213,9 +213,9 @@ func TestTheConfirmationIsTheFingerprintTheRunWasJustGiven(t *testing.T) {
 	}
 }
 
-// TestPlanModeTravelsWithTheConfirmation checks the one decision that is
-// deliberately not part of the digest: a value carried in the request that
-// confirms cannot have drifted since it was displayed.
+// TestPlanModeTravelsWithTheConfirmation checks the one decision deliberately
+// left out of the digest. A value carried in the request that confirms cannot
+// have drifted since it was displayed.
 func TestPlanModeTravelsWithTheConfirmation(t *testing.T) {
 	caller := newDrafter()
 
@@ -284,7 +284,7 @@ func TestADryRunThatCannotDiscardItsDraftSaysSoInsteadOfPrinting(t *testing.T) {
 //
 // Planning creates nothing, so the draft owns nothing, and a headless run has no
 // screen to go back to and edit it on. Leaving it would put a row in
-// `feat task list` for every failed attempt — and the command that removes one
+// `feat task list` for every failed attempt, and the command that removes one
 // asks per class of resource and needs a terminal, so a script could not clear
 // them up afterwards.
 func TestAPlanThatDoesNotHoldLeavesNoTaskBehind(t *testing.T) {
@@ -368,7 +368,7 @@ func TestADocumentIsPrintedWhenOneIsAskedFor(t *testing.T) {
 	}
 }
 
-// TestADryRunPrintsThePlanAsADocument checks the other half: what a caller reads
+// TestADryRunPrintsThePlanAsADocument checks the other half. What a caller reads
 // to decide is the resolved plan, fingerprint and all.
 func TestADryRunPrintsThePlanAsADocument(t *testing.T) {
 	caller := newDrafter()
@@ -391,7 +391,7 @@ func TestADryRunPrintsThePlanAsADocument(t *testing.T) {
 	}
 }
 
-// TestASelectionReplacesTheProjectsDefaults checks --repository end to end: the
+// TestASelectionReplacesTheProjectsDefaults checks --repository end to end. The
 // explicit form is taken as given, and a bare identifier takes what the project
 // configured.
 func TestASelectionReplacesTheProjectsDefaults(t *testing.T) {
@@ -444,9 +444,9 @@ func TestNoSelectionLeavesTheProjectsDefaultsAlone(t *testing.T) {
 
 // TestARepositoryTheProjectLeavesOpenIsRefusedRatherThanChosen.
 //
-// selectable, stable_read_only, and omitted are not task accesses: each is the
-// project saying the choice belongs to the task. Picking one on the caller's
-// behalf would be Feat making a decision the configuration deliberately left.
+// selectable, stable_read_only, and omitted are not task accesses. Each is the
+// project saying the choice belongs to the task, so picking one on the caller's
+// behalf would make a decision the configuration deliberately left open.
 func TestARepositoryTheProjectLeavesOpenIsRefusedRatherThanChosen(t *testing.T) {
 	caller := newDrafter()
 
@@ -502,9 +502,9 @@ func TestAnAccessThatIsNotOneIsRefusedWithTheTwoThatAre(t *testing.T) {
 	}
 }
 
-// TestWhatOneInvocationMeans pins the rule the command is built on: an
-// invocation that says what the task is creates it, and one that does not opens
-// the screen with whatever it was given.
+// TestWhatOneInvocationMeans pins the rule the command is built on. An invocation
+// that says what the task is creates it, and one that does not opens the screen
+// with whatever it was given.
 func TestWhatOneInvocationMeans(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -614,8 +614,8 @@ func TestAnInvocationThatCannotMeanWhatItSaysIsRefused(t *testing.T) {
 	}
 }
 
-// TestAnInvocationThatMeansSomethingIsAccepted is the other half, so that the
-// refusals above cannot quietly grow to cover a run somebody relies on.
+// TestAnInvocationThatMeansSomethingIsAccepted is the other half, so the refusals
+// above cannot quietly grow to cover a run somebody relies on.
 func TestAnInvocationThatMeansSomethingIsAccepted(t *testing.T) {
 	for _, test := range []struct {
 		name        string
@@ -649,7 +649,7 @@ func TestAnInvocationThatMeansSomethingIsAccepted(t *testing.T) {
 	}
 }
 
-// TestABriefFromAFlagOrAPipeIsRecordedAsOne: a brief the caller typed and one
+// TestABriefFromAFlagOrAPipeIsRecordedAsOne. A brief the caller typed and one
 // they piped are both text they supplied, and only a file has a path worth
 // recording as where the brief came from.
 func TestABriefFromAFlagOrAPipeIsRecordedAsOne(t *testing.T) {
@@ -671,19 +671,17 @@ func TestABriefFromAFlagOrAPipeIsRecordedAsOne(t *testing.T) {
 }
 
 // TestABlankBriefIsRefusedWhateverNamedIt goes through the real flag parsing,
-// because the defect it guards is about the difference between a flag that was
-// not passed and one that was passed nothing — which only cobra can tell.
+// because the defect it guards is the difference between a flag that was not
+// passed and one that was passed nothing, which only cobra can tell.
 //
-// The guard was written for `--file -` and applied there alone, while every
-// check downstream compares against the empty string exactly: the daemon's
-// before it creates anything, the domain's before a task may leave draft, and
-// the screen's, which trims but is a screen. So a brief of spaces was a brief,
-// and `--brief "$DESC"` meant two things — with DESC unset it asked for a
-// terminal, and with DESC set to a space it created branches and worktrees.
-// Two nearly identical invocations diverged, and the quiet one was the one that
-// wrote.
+// Every check downstream compares against the empty string exactly: the daemon's
+// before it creates anything, the domain's before a task may leave draft, and the
+// screen's, which trims but is a screen. Without one guard covering every source,
+// a brief of spaces is a brief, and `--brief "$DESC"` means two things: with DESC
+// unset it asks for a terminal, and with DESC set to a space it creates branches
+// and worktrees.
 //
-// These run without a daemon on purpose: the brief is read before one is looked
+// These run without a daemon on purpose. The brief is read before one is looked
 // for, so the exit code being the ordinary failure rather than the absent
 // daemon's is how this test knows the refusal came from the brief.
 func TestABlankBriefIsRefusedWhateverNamedIt(t *testing.T) {
@@ -717,8 +715,9 @@ func TestABlankBriefIsRefusedWhateverNamedIt(t *testing.T) {
 			want: "is blank",
 		},
 		{
-			// This one reached the daemon, which refused it after a draft had
-			// been created and archived: the right refusal in the wrong place.
+			// Without the guard this one reaches the daemon, which refuses it
+			// after a draft has been created and archived: the right refusal in
+			// the wrong place.
 			name: "an empty file",
 			args: []string{"implement", "--project", "app", "--file", empty},
 			want: "is blank",
@@ -742,8 +741,8 @@ func TestABlankBriefIsRefusedWhateverNamedIt(t *testing.T) {
 	}
 }
 
-// TestAPipedBlankBriefIsRefused is the guard on the source that had it first,
-// kept so that moving the rule does not lose the case it was written for.
+// TestAPipedBlankBriefIsRefused is the guard on the source the rule was written
+// for, kept so that widening the rule does not lose that case.
 func TestAPipedBlankBriefIsRefused(t *testing.T) {
 	machine := prepare(t)
 	machine.input = strings.NewReader("   \n\n")
@@ -757,9 +756,9 @@ func TestAPipedBlankBriefIsRefused(t *testing.T) {
 	}
 }
 
-// TestABriefThatSaysSomethingIsNotRefused, so that the guard above cannot
-// quietly grow to cover a brief somebody wrote. It gets as far as looking for a
-// daemon, which is the step after the brief is read.
+// TestABriefThatSaysSomethingIsNotRefused, so the guard above cannot quietly grow
+// to cover a brief somebody wrote. It gets as far as looking for a daemon, which
+// is the step after the brief is read.
 func TestABriefThatSaysSomethingIsNotRefused(t *testing.T) {
 	machine := prepare(t)
 
@@ -770,9 +769,9 @@ func TestABriefThatSaysSomethingIsNotRefused(t *testing.T) {
 	}
 }
 
-// TestANamedSourceIsNotAnAbsentOne pins the distinction the fix rests on: a
-// flag that was passed nothing is a source that holds nothing, not a source
-// nobody named.
+// TestANamedSourceIsNotAnAbsentOne pins the distinction the guard rests on. A
+// flag that was passed nothing is a source that holds nothing, rather than a
+// source nobody named.
 func TestANamedSourceIsNotAnAbsentOne(t *testing.T) {
 	if (implementOptions{project: "app"}).complete() {
 		t.Error("an invocation naming no brief source is complete")
@@ -780,8 +779,8 @@ func TestANamedSourceIsNotAnAbsentOne(t *testing.T) {
 	if !(implementOptions{project: "app", briefGiven: true}).complete() {
 		t.Error("`--brief \"\"` names a source, and the invocation it completes is refused for the blank")
 	}
-	// A value carries the same meaning as the flag that would have set it, so
-	// that a value built in a test cannot turn the guard off by omission.
+	// A value carries the same meaning as the flag that would have set it, so a
+	// value built in a test cannot turn the guard off by omission.
 	if !(implementOptions{project: "app", brief: "  "}).complete() {
 		t.Error("a brief of spaces does not name a source")
 	}

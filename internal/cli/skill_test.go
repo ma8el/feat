@@ -13,7 +13,7 @@ func (m *machine) installedSkill() string {
 }
 
 // TestSkillInstallWritesWhereClaudeDiscoversIt covers the install a fresh
-// machine runs: the document lands under the user's own ~/.claude, beside the
+// machine runs. The document lands under the user's own ~/.claude, beside the
 // record of what was written, and the command says where it put it.
 func TestSkillInstallWritesWhereClaudeDiscoversIt(t *testing.T) {
 	m := prepare(t)
@@ -44,8 +44,8 @@ func TestSkillInstallWritesWhereClaudeDiscoversIt(t *testing.T) {
 }
 
 // TestSkillInstallFollowsClaudeConfigDir covers a machine where Claude Code's
-// configuration has been moved: writing to ~/.claude there would install a
-// skill Claude Code never reads.
+// configuration has been moved. Writing to ~/.claude there would install a skill
+// Claude Code never reads.
 func TestSkillInstallFollowsClaudeConfigDir(t *testing.T) {
 	m := prepare(t)
 	moved := filepath.Join(m.home, "claude-elsewhere")
@@ -69,9 +69,9 @@ func TestSkillInstallFollowsClaudeConfigDir(t *testing.T) {
 	}
 }
 
-// TestSkillInstallRefusesAnEditedSkillWithoutForce is the command-level half
-// of the reinstall rule: the refusal reaches the user with the reason and the
-// way out, the file is untouched, and --force replaces it (ADR-093).
+// TestSkillInstallRefusesAnEditedSkillWithoutForce is the command-level half of
+// the reinstall rule. The refusal reaches the user with the reason and the way
+// out, the file is untouched, and --force replaces it (ADR-093).
 func TestSkillInstallRefusesAnEditedSkillWithoutForce(t *testing.T) {
 	m := prepare(t)
 
@@ -120,9 +120,9 @@ func TestSkillInstallRefusesAnEditedSkillWithoutForce(t *testing.T) {
 }
 
 // TestSkillShowPrintsWhatInstallWrites pins `feat skill show` to the install,
-// byte for byte and as the whole output: what a user reads before installing,
-// and what they diff an installed copy against after a refusal, has to be
-// exactly the document the install writes.
+// byte for byte and as the whole output. What a user reads before installing,
+// and what they diff an installed copy against after a refusal, has to be the
+// document the install writes.
 func TestSkillShowPrintsWhatInstallWrites(t *testing.T) {
 	m := prepare(t)
 
@@ -146,9 +146,9 @@ func TestSkillShowPrintsWhatInstallWrites(t *testing.T) {
 	}
 }
 
-// TestSkillInstallDryRunReportsWithoutWriting covers the three answers a dry
-// run gives — would install, would replace, and the refusal — and the promise
-// common to all of them: the machine is left exactly as it was found.
+// TestSkillInstallDryRunReportsWithoutWriting covers the three answers a dry run
+// gives, would install, would replace, and the refusal, and the promise common
+// to all of them: the machine is left exactly as it was found.
 func TestSkillInstallDryRunReportsWithoutWriting(t *testing.T) {
 	t.Run("a fresh machine", func(t *testing.T) {
 		m := prepare(t)
@@ -226,7 +226,7 @@ func TestSkillInstallDryRunReportsWithoutWriting(t *testing.T) {
 }
 
 // TestSkillInstallReplacesItsOwnEarlierInstallSilently is the upgrade path a
-// user actually takes: install, upgrade Feat, install again, no questions.
+// user takes: install, upgrade Feat, install again, no questions.
 func TestSkillInstallReplacesItsOwnEarlierInstallSilently(t *testing.T) {
 	m := prepare(t)
 

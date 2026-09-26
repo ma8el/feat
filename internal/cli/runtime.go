@@ -33,10 +33,9 @@ func newRuntimeCommand(env *environment) *cobra.Command {
 		Short: "Control a task's application services",
 		Long:  runtimeLong,
 	}
-	// Status is the reading action, and the only one of the four given a
-	// document to print. The other three are asked to change something, and what
-	// a caller does with the answer is check that it worked; the exit code says
-	// that already.
+	// Status is the reading action and the only one of the four given a document
+	// to print. A caller of the other three checks that the change worked, which
+	// the exit code already says.
 	status := newRuntimeActionCommand(env, api.RuntimeObserve, "status <task>",
 		"Show the state of the task's application services")
 	addJSONFlag(status)
@@ -58,7 +57,7 @@ func newRuntimeCommand(env *environment) *cobra.Command {
 // newRuntimeActionCommand builds the four actions that need no confirmation.
 //
 // The document branch below is reachable only from the one its caller gives the
-// flag to: wantsJSON answers false for a command that does not offer it.
+// flag to, because wantsJSON answers false for a command that does not offer it.
 func newRuntimeActionCommand(env *environment, action api.RuntimeAction, use, short string) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
@@ -85,15 +84,15 @@ func newRuntimeActionCommand(env *environment, action api.RuntimeAction, use, sh
 
 // announce says that a slow action has begun.
 //
-// Compose is not asked to narrate: the daemon runs it and this command holds one
-// request open until it answers, which for a first create or start is the images
-// being pulled and the builds being run — minutes, against about a second for
-// every start after it (ADR-034 evidence 14). A command that printed nothing for
-// that long would read as a hang, and interrupting it is how a user would leave
-// Compose stopped part way through creating their application.
+// Compose is not asked to narrate. The daemon runs it and this command holds one
+// request open until it answers, which for a first create or start means images
+// pulled and builds run: minutes, against about a second for every start after
+// it (ADR-034 evidence 14). A command that printed nothing for that long would
+// read as a hang, and interrupting it would leave Compose stopped part way
+// through creating the application.
 //
-// On the error stream, so that whatever parses this command's output reads the
-// same thing it always did.
+// It goes on the error stream, so whatever parses this command's output is
+// unaffected.
 func announce(err io.Writer, action api.RuntimeAction, task string) {
 	if action != api.RuntimeCreate && action != api.RuntimeStart {
 		return
@@ -193,17 +192,17 @@ func withRuntimeClient(env *environment, cmd *cobra.Command, action func(*client
 
 // logsProgram is the only executable this command will run.
 //
-// The daemon builds the command and this process runs it, which is the same
-// division `feat attach` uses for native tmux. The client still checks what it
-// was handed: they are the same user, and a client that ran whatever it received
-// would be one nobody could reason about.
+// The daemon builds the command and this process runs it, the same division
+// `feat attach` uses for native tmux. The client still checks what it was
+// handed: the daemon runs as the same user, and a client that ran whatever it
+// received would be one nobody could reason about.
 const logsProgram = "docker"
 
 // logsCommand checks what the daemon returned and builds the process.
 //
-// It is shared by `feat runtime logs` and by the dashboard's logs action, so
-// that there is one place where a returned command becomes a process and one
-// place where it is checked — the division `feat attach` uses for tmux targets.
+// `feat runtime logs` and the dashboard's logs action share it, so one place
+// turns a returned command into a process and one place checks it, the division
+// `feat attach` uses for tmux targets.
 func logsCommand(ctx context.Context, command api.RuntimeCommand) (*exec.Cmd, error) {
 	if base := filepath.Base(command.Program); base != logsProgram {
 		return nil, fmt.Errorf("the daemon returned the program %q for the task's logs, and this command runs "+
@@ -219,8 +218,8 @@ func logsCommand(ctx context.Context, command api.RuntimeCommand) (*exec.Cmd, er
 	}
 
 	// #nosec G204 -- the program is checked above to be the absolute path of the
-	// container tool, and every argument is one vector element that never reaches
-	// a shell.
+	// container tool. Every argument is one vector element that never reaches a
+	// shell.
 	process := exec.CommandContext(ctx, command.Program, command.Arguments...)
 	process.Dir = command.Directory
 	return process, nil
@@ -251,9 +250,9 @@ func runLogs(ctx context.Context, command api.RuntimeCommand, stdout, stderr io.
 
 // confirm asks a yes-or-no question, defaulting to no.
 //
-// Anything other than an explicit yes is a no, including an unreadable answer: a
-// command that removes something should never proceed because it could not tell
-// what it was told.
+// Anything other than an explicit yes is a no, including an unreadable answer. A
+// command that removes something must not proceed because it could not tell what
+// it was told.
 func confirm(in io.Reader, out io.Writer, question string) (bool, error) {
 	printf(out, "%s [y/N]: ", question)
 
@@ -271,9 +270,9 @@ func confirm(in io.Reader, out io.Writer, question string) (bool, error) {
 
 // printRuntime renders what an action observed.
 //
-// The services are listed one per line rather than as a summary, because a
-// runtime is degraded exactly when they disagree with each other, and a user
-// looking at a degraded runtime wants to know which one.
+// The services are listed one per line rather than summarised, because a runtime
+// is degraded exactly when they disagree with each other and the reader wants to
+// know which one.
 func printRuntime(out io.Writer, status api.RuntimeStatus) {
 	runtime := status.Task.Runtime
 	if runtime == nil {
@@ -289,9 +288,9 @@ func printRuntime(out io.Writer, status api.RuntimeStatus) {
 	printf(out, "compose project  %s\n", runtime.Identity)
 
 	if len(status.Services) > 0 {
-		// The source column appears only when there is something to say: most
+		// The source column appears only when there is something to say. Most
 		// projects manage every service they define, and a column reading
-		// "configured" all the way down would be a column nobody reads.
+		// "configured" all the way down is a column nobody reads.
 		dependencies := dependencies(status.Services)
 
 		rows := &table{}
@@ -317,18 +316,18 @@ func printRuntime(out io.Writer, status api.RuntimeStatus) {
 		}
 	}
 
-	// The allocations rather than the observed publications: they are the same
+	// The allocations rather than the observed publications. They are the same
 	// ports once the services are up, and they exist before anything is started,
 	// which is when a user most wants to know where their application will be.
-	// What was observed is the answer to a different question and is printed
-	// only when it disagrees.
+	// What was observed answers a different question and is printed only when it
+	// disagrees.
 	if len(runtime.Allocations) > 0 {
 		printf(out, "\nports, allocated for this task\n")
 		for _, allocation := range runtime.Allocations {
 			// Two answers, because they are two questions and one value cannot
-			// carry both. The address is where to dial from this machine, which
-			// for a binding on every interface is still localhost; the binding is
-			// what the port is open to, which localhost says nothing about.
+			// carry both. The address is where to dial from this machine, still
+			// localhost for a binding on every interface. The binding is what the
+			// port is open to, which localhost says nothing about.
 			printf(out, "  %s  %d -> %s  bound on %s\n",
 				allocation.Service, allocation.ContainerPort, allocation.Address, allocation.Binding())
 		}
@@ -347,8 +346,8 @@ func printRuntime(out io.Writer, status api.RuntimeStatus) {
 		printf(out, "them. Recreating the runtime writes the generated override again.\n")
 	}
 	if len(runtime.Volumes) > 0 {
-		// Named because they are retained: a resource nobody can see is a
-		// resource nobody will remove (FR-CLEAN-004).
+		// Named because they are retained, and a resource nobody can see is one
+		// nobody will remove (FR-CLEAN-004).
 		printf(out, "\nvolumes, retained\n")
 		for _, volume := range runtime.Volumes {
 			printf(out, "  %s\n", volume)
@@ -362,10 +361,9 @@ func printRuntime(out io.Writer, status api.RuntimeStatus) {
 // unallocated are the observed publications Feat did not allocate.
 //
 // A container from before this build, or one started from a generated override
-// that has since been rewritten, can still hold a port of the project's own —
-// and a host port is global to the machine, so that is exactly what stops the
-// next task. Saying it is the difference between a user who recreates the
-// runtime and one who wonders why their second task will not start.
+// since rewritten, can still hold a port of the project's own. A host port is
+// global to the machine, so that container is what stops the next task, and
+// naming it is what tells a user to recreate the runtime.
 func unallocated(runtime *api.Runtime) []api.Port {
 	allocated := make(map[string]bool, len(runtime.Allocations))
 	for _, allocation := range runtime.Allocations {
@@ -392,7 +390,7 @@ func dependencies(services []api.RuntimeService) bool {
 	return false
 }
 
-// source says where a service came from, in the user's terms: the project's
+// source says where a service came from in the user's terms: the project's
 // configuration, or another service's needs.
 func source(service api.RuntimeService) string {
 	if service.Managed {

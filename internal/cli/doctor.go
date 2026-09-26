@@ -37,14 +37,12 @@ fail the run.`
 // diagnostics returns the options every diagnostic run shares, and the layout
 // they were resolved from.
 //
-// The checks are run from three places — this command, the wizard's offer at the
-// end of `feat project init`, and the dashboard — and what differs between them
-// is which projects they cover and whether a daemon can be asked about
-// registration. Where the files are is not one of those differences, so it is
-// assembled once here rather than at each call site: the dashboard's run left
-// the settings directory unset, and the host section reported every machine as
-// having no settings file, of users who had written one and of a daemon that was
-// reading it.
+// The checks run from three places: this command, the wizard's offer at the end
+// of `feat project init`, and the dashboard. What differs between them is which
+// projects they cover and whether a daemon can be asked about registration.
+// Where the files are is not one of those differences, so it is assembled once
+// here. A call site that left the settings directory unset would have the host
+// section report no settings file on a machine whose daemon is reading one.
 func (e *environment) diagnostics() (paths.Layout, project.Options, error) {
 	layout, options, err := e.project()
 	if err != nil {
@@ -95,9 +93,9 @@ var errFailedDiagnosis = &diagnosisError{}
 
 // diagnosisError is the failure of `feat doctor` itself.
 //
-// It carries no detail because the report above it carries all of it; what it
-// adds is the exit code, so that a script can tell a clean machine from one
-// that needs work without reading the output.
+// It carries no detail because the report above it carries all of it. What it
+// adds is the exit code, so a script can tell a clean machine from one that
+// needs work without reading the output.
 type diagnosisError struct{}
 
 func (e *diagnosisError) Error() string {
@@ -110,9 +108,9 @@ func printReport(out io.Writer, report project.Report, configDir string) {
 	printFindings(out, report.Host)
 
 	for _, diagnosis := range report.Projects {
-		// The configuration file is not printed separately: the first finding
-		// is about that file and names it, so a line above would only be the
-		// same path twice.
+		// The configuration file is not printed separately. The first finding
+		// is about that file and names it, so a line above would repeat the
+		// path.
 		printf(out, "\nproject %s\n", diagnosis.ID)
 		printFindings(out, diagnosis.Findings)
 		printDiagnosisMounts(out, diagnosis)
@@ -130,8 +128,8 @@ func printReport(out io.Writer, report project.Report, configDir string) {
 //
 // The check column is padded to the widest check in the section, so the
 // summaries line up and the section can be scanned down. An action goes on its
-// own line under the finding it belongs to, indented past both columns, so it
-// reads as an answer to the line above rather than as another finding.
+// own line under its finding, indented past both columns, so it reads as an
+// answer to the line above rather than as another finding.
 func printFindings(out io.Writer, findings []project.Finding) {
 	width := 0
 	for _, finding := range findings {
@@ -149,8 +147,8 @@ func printFindings(out io.Writer, findings []project.Finding) {
 	}
 }
 
-// markerWidth is the width of the severity column: the longest label plus
-// nothing, since the labels are known here rather than discovered.
+// markerWidth is the width of the severity column. The labels are known here
+// rather than discovered, so it is simply the longest of them.
 const markerWidth = 7
 
 // printDiagnosisMounts prints the repository-to-container path mapping for a
@@ -167,8 +165,7 @@ func printDiagnosisMounts(out io.Writer, diagnosis project.Diagnosis) {
 	mounts.render(out, "  ")
 }
 
-// printSummary counts the findings, so that a long report ends with something
-// readable.
+// printSummary counts the findings, so a long report ends with something readable.
 func printSummary(out io.Writer, report project.Report) {
 	counts := report.Counts()
 	order := []project.Severity{
@@ -188,9 +185,8 @@ func printSummary(out io.Writer, report project.Report) {
 	printf(out, "\n%s\n", join(parts))
 
 	if counts[project.SeveritySkipped] > 0 {
-		// What a skipped check says is the reason it could not run. Naming the
-		// condition is what lets a reader act on it, and it is what the findings
-		// actually carry (ADR-033).
+		// A skipped check carries the reason it could not run, and naming that
+		// condition is what lets a reader act on it (ADR-033).
 		printf(out, "skipped checks are not passing checks; each one says why it did not run\n")
 	}
 }
@@ -213,7 +209,7 @@ func marker(severity project.Severity) string {
 
 // label renders a count of findings at one severity.
 //
-// "error" and "warning" are nouns and take a plural; "ok" and "skipped"
+// "error" and "warning" are nouns and take a plural. "ok" and "skipped"
 // describe the checks and do not, so the summary reads "2 errors, 6 skipped"
 // rather than "2 errors, 6 skippeds".
 func label(count int, severity project.Severity) string {

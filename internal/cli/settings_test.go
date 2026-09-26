@@ -20,10 +20,10 @@ func (m *machine) settings(t *testing.T, body string) string {
 // TestSettingsShowRunsWithoutAFileOrADaemon covers the state every machine
 // starts in.
 //
-// There is no file and no daemon, and the command still prints the settings
-// Feat will act on, because every one of them has a default. It also has to say
-// that they are defaults and where a file would go, or a user wanting to change
-// one is left with values and no way to reach them.
+// There is no file and no daemon, and the command still prints the settings Feat
+// will act on, because every one of them has a default. It also has to say that
+// they are defaults and where a file would go, or a user wanting to change one is
+// left with values and no way to reach them.
 func TestSettingsShowRunsWithoutAFileOrADaemon(t *testing.T) {
 	machine := prepare(t)
 
@@ -89,10 +89,10 @@ resources:
 // TestSettingsInitWritesAFileThatChangesNothing is the property that makes
 // running it safe.
 //
-// Every value in what it writes is commented out, so a machine that ran `init`
-// is configured exactly as one that did not, and `feat settings show` says so of
-// each value. A file full of live defaults would be a file that stops following
-// Feat when Feat's own change.
+// Every value in what it writes is commented out, so a machine that ran `init` is
+// configured exactly as one that did not, and `feat settings show` says so of
+// each value. A file full of live defaults would stop following Feat when Feat's
+// own defaults change.
 func TestSettingsInitWritesAFileThatChangesNothing(t *testing.T) {
 	machine := prepare(t)
 	expected := filepath.Join(machine.layout.Config, "settings.yaml")
@@ -132,9 +132,9 @@ func TestSettingsInitWritesAFileThatChangesNothing(t *testing.T) {
 
 // TestSettingsInitNeverOverwrites covers the one thing this command must not do.
 //
-// There is no force flag: the settings file is authored by hand, and losing it
-// to a mistyped command is not a trade Feat makes — the same rule the project
-// wizard follows.
+// There is no force flag. The settings file is authored by hand, and losing it to
+// a mistyped command is not a trade Feat makes, which is the rule the project
+// wizard follows too.
 func TestSettingsInitNeverOverwrites(t *testing.T) {
 	machine := prepare(t)
 	existing := machine.settings(t, "version: 1\n\nresources:\n  sample_interval: 42s\n")
@@ -178,11 +178,11 @@ func TestSettingsInitRefusesBesideTheOtherExtension(t *testing.T) {
 }
 
 // editor points the machine's $EDITOR at a command that runs to completion
-// without a terminal, so that `settings edit` can be driven by a test.
+// without a terminal, so a test can drive `settings edit`.
 //
 // `cp <source>` with the settings path appended is an editor that replaces the
-// file, which is what makes "the editor ran" something a test can observe rather
-// than assume.
+// file, which makes "the editor ran" something a test can observe rather than
+// assume.
 func (m *machine) editor(t *testing.T, command string) {
 	t.Helper()
 	m.env.Getenv = func(key string) string {
@@ -204,7 +204,7 @@ func (m *machine) sourceFile(t *testing.T, name, body string) string {
 }
 
 // TestSettingsEditCreatesTheFileItOpens covers a machine that has never written
-// one: what opens is the commented default rather than an empty buffer.
+// one, where what opens is the commented default rather than an empty buffer.
 func TestSettingsEditCreatesTheFileItOpens(t *testing.T) {
 	machine := prepare(t)
 	machine.editor(t, "true")
@@ -289,8 +289,8 @@ review:
   editor:
     command: ["cp", "`+fixed+`", "{repository_path}"]
 `)
-	// $EDITOR would open a terminal editor; the configured command must be what
-	// runs, so this is set to something that would fail loudly if it were used.
+	// $EDITOR would open a terminal editor. The configured command has to be
+	// what runs, so this is something that would fail loudly if it were used.
 	machine.editor(t, "false")
 
 	code, stdout, stderr := machine.run(t, "settings", "edit")
@@ -313,10 +313,10 @@ review:
 // TestSettingsShowAsksForARestartOnlyWhenOneIsNeeded is what the resolve-once
 // rule costs, paid where somebody meets it.
 //
-// A daemon holds settings from the moment it started, so this command can print
-// a file the daemon is not working from. Both states are asserted, and the
-// silent one is the point of the pair: a line saying a restart is *not* needed
-// is a line nobody can act on (ADR-028, ADR-079).
+// A daemon holds settings from the moment it started, so this command can print a
+// file the daemon is not working from. Both states are asserted, and the silent
+// one is the point of the pair: a line saying a restart is *not* needed is a line
+// nobody can act on (ADR-028, ADR-079).
 func TestSettingsShowAsksForARestartOnlyWhenOneIsNeeded(t *testing.T) {
 	machine := prepare(t)
 	machine.settings(t, "version: 1\n\nresources:\n  sample_interval: 10s\n")
@@ -366,8 +366,8 @@ func TestSettingsEditAsksForARestartAfterItChangedSomething(t *testing.T) {
 	}
 }
 
-// settingsRow returns the printed row for one field name, so that a test asserts
-// about a value and its marker together rather than about column widths.
+// settingsRow returns the printed row for one field name, so a test asserts about
+// a value and its marker together rather than about column widths.
 func settingsRow(out, name string) string {
 	for _, line := range strings.Split(out, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), name+" ") {
@@ -377,8 +377,8 @@ func settingsRow(out, name string) string {
 	return ""
 }
 
-// TestSettingsShowReportsABrokenFileInPlace covers the failure a hand-edited
-// file actually produces, where the line it is on is most of the fix.
+// TestSettingsShowReportsABrokenFileInPlace covers the failure a hand-edited file
+// produces, where the line it is on is most of the fix.
 func TestSettingsShowReportsABrokenFileInPlace(t *testing.T) {
 	machine := prepare(t)
 	machine.settings(t, `version: 1
@@ -430,7 +430,7 @@ func TestSettingsPathPrintsThePathWhetherOrNotItExists(t *testing.T) {
 	}
 }
 
-// TestSettingsPathFindsTheOtherExtension covers a user who writes ".yml": the
+// TestSettingsPathFindsTheOtherExtension covers a user who writes ".yml". The
 // command has to print the file that exists rather than the one Feat would have
 // created.
 func TestSettingsPathFindsTheOtherExtension(t *testing.T) {

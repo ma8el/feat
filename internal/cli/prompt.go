@@ -10,9 +10,9 @@ import (
 
 // prompter asks questions and reads answers.
 //
-// The reader is held for the whole conversation rather than built per question,
-// because a new buffered reader discards what the previous one buffered, which
-// for a sequence of prompts loses the answers a user typed ahead.
+// The reader is held for the whole conversation rather than built per question.
+// A new buffered reader discards what the previous one buffered, which over a
+// sequence of prompts loses the answers a user typed ahead.
 type prompter struct {
 	in  *bufio.Reader
 	out io.Writer
@@ -38,8 +38,7 @@ func (p *prompter) ask(question, proposed string) (string, error) {
 	if answer == "" {
 		if errors.Is(err, io.EOF) {
 			// Input that ran out is not somebody accepting every remaining
-			// proposal. There are more questions, and there is nobody left to
-			// answer them.
+			// proposal. More questions follow and nobody is left to answer them.
 			return "", errAnswersEnded
 		}
 		return proposed, nil
@@ -50,9 +49,8 @@ func (p *prompter) ask(question, proposed string) (string, error) {
 // confirm puts a yes-or-no question.
 //
 // An answer that is neither is asked again rather than read as the proposal.
-// Half of these questions propose "yes", and one of them writes a file: a word
-// the prompt did not offer is somebody answering a different question, and
-// taking it as agreement is the one reading that cannot be taken back.
+// Half of these questions propose "yes" and one of them writes a file, so a word
+// the prompt did not offer must not be taken as agreement.
 func (p *prompter) confirm(question string, proposed bool) (bool, error) {
 	hint := "y/N"
 	if proposed {
@@ -73,9 +71,7 @@ func (p *prompter) confirm(question string, proposed bool) (bool, error) {
 			return false, nil
 		case "":
 			if errors.Is(err, io.EOF) {
-				// An answer that is only the end of the input is not the default
-				// being accepted: a question nobody answered must not be read as
-				// permission.
+				// A question nobody answered must not be read as permission.
 				return false, errAnswersEnded
 			}
 			return proposed, nil
