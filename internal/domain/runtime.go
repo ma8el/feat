@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -153,7 +152,12 @@ type PortAllocation struct {
 // particular address is said as itself. A client that needs the literal address
 // reads HostIP rather than parsing this.
 func (p PortAllocation) Address() string {
-	return net.JoinHostPort(p.host(), strconv.Itoa(p.HostPort))
+	host := p.host()
+	// net.JoinHostPort, without the import the no-network rule in .golangci.yml denies.
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return host + ":" + strconv.Itoa(p.HostPort)
 }
 
 // URL is the address as a client would open it, and whether there is one. Only

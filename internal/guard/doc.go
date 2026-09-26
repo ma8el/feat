@@ -11,6 +11,8 @@
 //     identifier is compiled into the binary (CLAUDE.md scope rule 3);
 //   - Git, tmux, and Docker Compose are invoked as argument vectors rather than
 //     through an interpolated shell (CLAUDE.md architectural rules).
+//   - no package linked into the binary outside the socket and its client
+//     imports one that can reach a network host (ADR-103).
 //
 // Import boundaries are enforced separately by depguard in .golangci.yml.
 package guard

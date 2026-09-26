@@ -619,6 +619,33 @@ linters:
           allow:
             - $gostd
 
+        # ADR-103: Feat reaches no network host, so only the socket and its
+        # client may import a package that dials one. This sees direct imports;
+        # TestOnlyTheSocketReachesTheNetwork follows them through dependencies.
+        # Neither sees a subprocess (os/exec) or a raw syscall socket.
+        network-stays-in-the-socket:
+          files:
+            - $all
+            - "!$test"
+            - "!**/internal/api/**"
+            - "!**/internal/client/**"
+            - "!**/internal/daemon/**"
+          deny:
+            - pkg: net$
+              desc: only the Unix-domain socket and its client reach the network (ADR-103)
+            - pkg: net/http
+              desc: only the Unix-domain socket and its client reach the network (ADR-103)
+            - pkg: net/rpc
+              desc: only the Unix-domain socket and its client reach the network (ADR-103)
+            - pkg: net/smtp
+              desc: only the Unix-domain socket and its client reach the network (ADR-103)
+            - pkg: crypto/tls
+              desc: only the Unix-domain socket and its client reach the network (ADR-103)
+            - pkg: log/syslog
+              desc: syslog.Dial reaches a network host (ADR-103)
+            - pkg: golang.org/x/net
+              desc: only the Unix-domain socket and its client reach the network (ADR-103)
+
         # ADR-013: invoke the Docker Compose CLI. Linking a Docker SDK would
         # make it far easier to accidentally grant the agent Docker reach.
         no-docker-sdk:

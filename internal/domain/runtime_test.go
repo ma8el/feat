@@ -189,6 +189,12 @@ func TestAnAllocationSaysWhereItIsReached(t *testing.T) {
 			url:         "http://192.168.64.7:21004",
 			addressable: true,
 		},
+		"one the project chose, in IPv6": {
+			allocation:  PortAllocation{HostPort: 21007, Protocol: "tcp", HostIP: "fd00::7"},
+			address:     "[fd00::7]:21007",
+			url:         "http://[fd00::7]:21007",
+			addressable: true,
+		},
 		// A record written before Feat had a bind address of its own. Its
 		// containers were given every interface, which is reached at localhost.
 		"a record from before there was one": {

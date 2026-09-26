@@ -493,10 +493,11 @@ func TestTheBindAddressDefaultsToThisMachineAlone(t *testing.T) {
 // their service was at, and one resolving to several would not be one binding.
 func TestABindAddressThatIsNotAnAddressIsRefused(t *testing.T) {
 	for name, value := range map[string]string{
-		"a host name":           "localhost",
-		"an address and a port": "127.0.0.1:8080",
-		"a range":               "127.0.0.0/8",
-		"nonsense":              "everywhere",
+		"a host name":            "localhost",
+		"an address and a port":  "127.0.0.1:8080",
+		"a range":                "127.0.0.0/8",
+		"nonsense":               "everywhere",
+		"an address with a zone": "fe80::1%eth0",
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := loadReplacing(t,

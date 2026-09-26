@@ -3,7 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
-	"net"
+	"net/netip"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -575,7 +575,8 @@ func (c *Config) validateBindAddress(found *problems) {
 	const field = "runtime.bind_address"
 	address := c.Runtime.BindAddress
 
-	if net.ParseIP(address) == nil {
+	// net.ParseIP's answer, without the import the no-network rule denies: no zone.
+	if ip, err := netip.ParseAddr(address); err != nil || ip.Zone() != "" {
 		found.add(field, fmt.Sprintf(
 			"is %q, and Feat publishes an allocated port on a literal IP address: %q binds this machine "+
 				"alone, and %q binds every interface it has",
