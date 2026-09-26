@@ -1,9 +1,9 @@
-// Command feat is the process entrypoint for the Feat development control
-// plane. One binary provides the daemon, the TUI client, and the CLI clients;
-// see docs/06-technical-architecture.md for the process model.
+// Command feat is the process entrypoint for the Feat development control plane.
+// One binary provides the daemon, the TUI client, and the CLI clients; see
+// docs/06-technical-architecture.md for the process model.
 //
-// This file stays deliberately thin. The command tree lives in internal/cli so
-// that it can be constructed and exercised by tests without a process boundary.
+// The command tree lives in internal/cli, so a test can construct and exercise it
+// without a process boundary.
 package main
 
 import (

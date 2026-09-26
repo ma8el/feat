@@ -16,8 +16,8 @@ func terminalPath(suffix string) string {
 	return "/v1/tasks/" + storetest.TaskID.String() + "/terminal" + suffix
 }
 
-// TestATerminalFrameCarriesWhatTmuxDrew checks the endpoint returns the rendered
-// pane, colour and all, rather than anything derived from it.
+// TestATerminalFrameCarriesWhatTmuxDrew checks that the endpoint returns the
+// rendered pane, colour and all, rather than anything derived from it.
 func TestATerminalFrameCarriesWhatTmuxDrew(t *testing.T) {
 	service := newFakeService()
 	handler := NewHandler(Options{Service: service})
@@ -41,7 +41,7 @@ func TestATerminalFrameCarriesWhatTmuxDrew(t *testing.T) {
 	}
 }
 
-// TestATerminalViewMustNameASizeItWillDraw is why the request is validated
+// TestATerminalViewMustNameASizeItWillDraw covers why the request is validated
 // rather than trusted: asking for a frame resizes the agent's own pane.
 func TestATerminalViewMustNameASizeItWillDraw(t *testing.T) {
 	for name, view := range map[string]TerminalView{
@@ -98,8 +98,8 @@ func TestTerminalInputIsBoundedAndNamed(t *testing.T) {
 	}
 }
 
-// TestRefusedInputNeverReachesTheDaemon checks the transport rejects rather than
-// passing a bad request through for the daemon to interpret.
+// TestRefusedInputNeverReachesTheDaemon checks that the transport rejects a bad
+// request rather than passing it through for the daemon to interpret.
 func TestRefusedInputNeverReachesTheDaemon(t *testing.T) {
 	service := newFakeService()
 	handler := NewHandler(Options{Service: service})
@@ -115,9 +115,10 @@ func TestRefusedInputNeverReachesTheDaemon(t *testing.T) {
 	}
 }
 
-// TestAcceptedInputReachesTheDaemonWhole checks nothing is dropped between the
-// transport and the service, and that text and keys arrive together: a user who
-// typed a line and pressed Enter sends both, and the Enter submits the text.
+// TestAcceptedInputReachesTheDaemonWhole checks that nothing is dropped between
+// the transport and the service, and that text and keys arrive together: a user
+// who typed a line and pressed Enter sends both, and the Enter submits the
+// text.
 func TestAcceptedInputReachesTheDaemonWhole(t *testing.T) {
 	service := newFakeService()
 	handler := NewHandler(Options{Service: service})
@@ -136,11 +137,12 @@ func TestAcceptedInputReachesTheDaemonWhole(t *testing.T) {
 	}
 }
 
-// TestAMissingTerminalIsItsOwnRefusal is what lets a client offer the recovery.
+// TestAMissingTerminalIsItsOwnRefusal covers what lets a client offer the
+// recovery.
 //
 // A task whose tmux window was killed and a task identifier that names nothing
-// are both absences, and only one of them can be acted on. The narrower code
-// says which, without a client reading the message — the one part of an error
+// are both absences, and only one of them can be acted on. The narrower code says
+// which, so no client has to read the message, which is the one part of an error
 // this package reserves the right to change.
 func TestAMissingTerminalIsItsOwnRefusal(t *testing.T) {
 	service := newFakeService()
@@ -174,9 +176,9 @@ func TestAMissingTerminalIsItsOwnRefusal(t *testing.T) {
 // TestAMissingShellIsItsOwnRefusalToo is the same narrowing for the pane a task
 // is given on demand.
 //
-// A task with no shell has nothing wrong with it, and the client that draws the
-// shell view needs to say so and name the key that opens one rather than
-// repeating a resolver's sentence.
+// A task with no shell has nothing wrong with it, so the client that draws the
+// shell view says so and names the key that opens one rather than repeating a
+// resolver's sentence.
 func TestAMissingShellIsItsOwnRefusalToo(t *testing.T) {
 	service := newFakeService()
 	service.failWith = fmt.Errorf("%w: task %s has not been given a shell pane yet",

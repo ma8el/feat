@@ -12,8 +12,7 @@ import (
 //
 // It is the wire half of the rule ADR-028 established for diagnostics: a value
 // nothing measured is never published as one. A client reading zero would draw a
-// dashboard claiming a machine with no free memory and tasks using no processor,
-// which is worse than a dashboard with gaps in it.
+// machine with no free memory and tasks using no processor.
 func TestAnUnmeasuredFigureIsNullRatherThanZero(t *testing.T) {
 	service := newFakeService()
 	service.resources = ResourceReport{
@@ -43,7 +42,7 @@ func TestAnUnmeasuredFigureIsNullRatherThanZero(t *testing.T) {
 // sampled yet answers rather than failing.
 //
 // It is the state of every session's first seconds, and a dashboard that could
-// not draw during them would be a dashboard that flickered on every start.
+// not draw during them would flicker on every start.
 func TestAReportWithNoSampleIsStillAReport(t *testing.T) {
 	service := newFakeService()
 	service.resources = ResourceReport{Notes: []string{"no resource sample has been taken yet"}}

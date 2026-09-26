@@ -20,15 +20,13 @@ import (
 
 var update = flag.Bool("update", false, "rewrite golden files")
 
-// fakeService answers the API from fixtures.
-//
-// The transport is tested against it rather than against a daemon, which is the
-// point of the Service interface: a response shape can be pinned without a
-// socket, a store, or a lock.
-// fixedTime is when every fixture in this file happened, so a golden file pins
-// a document rather than a clock.
+// fixedTime is when every fixture in this file happened, so a golden file pins a
+// document rather than a clock.
 var fixedTime = time.Date(2026, 8, 7, 9, 44, 22, 0, time.UTC)
 
+// fakeService answers the API from fixtures. The transport is tested against it
+// rather than against a daemon, so a response shape can be pinned without a
+// socket, a store, or a lock.
 type fakeService struct {
 	health   HealthReport
 	projects []*domain.Project
@@ -44,16 +42,16 @@ type fakeService struct {
 	unregistrable map[domain.ProjectID]bool
 	// verifications are what each task's agent reported about its own checks.
 	verifications map[domain.TaskID]Verification
-	// actions records every runtime action the transport passed through, so a
-	// test can assert that an endpoint reached the one its path names.
+	// actions records every runtime action the transport passed through, so a test
+	// can assert that an endpoint reached the one its path names.
 	actions []string
-	// resources replaces the fixed sample below, so that a test can arrange a
-	// machine that measured nothing while the golden keeps its own.
+	// resources replaces the fixed sample below, so a test can arrange a machine
+	// that measured nothing while the golden keeps its own.
 	resources ResourceReport
 	// reconciliation is the last pass, absent until one has been run.
 	reconciliation *Reconciliation
-	// selections records every cleanup selection the transport passed through,
-	// so a test can assert what reached the daemon rather than what was sent.
+	// selections records every cleanup selection the transport passed through, so
+	// a test can assert what reached the daemon rather than what was sent.
 	selections []CleanupSelection
 	// confirmation is what the last launch carried, for the same reason.
 	confirmation Confirmation
@@ -82,9 +80,8 @@ func newFakeService() *fakeService {
 		},
 		projects: []*domain.Project{storetest.Project()},
 		tasks:    []*domain.Task{storetest.Task()},
-		// The fixtures populate every field a payload can carry, so that a
-		// mapping the DTO forgets shows up as a zero value rather than as
-		// nothing at all.
+		// The fixtures populate every field a payload can carry, so a mapping the
+		// DTO forgets shows up as a zero value rather than as nothing at all.
 		verifications: map[domain.TaskID]Verification{
 			storetest.TaskID: verificationFixture(),
 		},
@@ -96,9 +93,9 @@ func newFakeService() *fakeService {
 	}
 }
 
-// ticketsFixture is what a project's tracker command printed. Both a labelled
-// and an unlabelled ticket are here, so that the optional source is exercised in
-// the golden rather than only described.
+// ticketsFixture is what a project's tracker command printed. Both a labelled and
+// an unlabelled ticket are here, so the golden exercises the optional source
+// rather than only describing it.
 func ticketsFixture() TicketList {
 	return TicketList{
 		ReadAt: fixedTime,
@@ -122,8 +119,8 @@ func ticketsFixture() TicketList {
 	}
 }
 
-// Tickets answers with what a project's tracker printed, so that the transport
-// can be tested without a tracker, an account, or a network.
+// Tickets answers with what a project's tracker printed, so the transport can be
+// tested without a tracker, an account, or a network.
 func (f *fakeService) Tickets(_ context.Context, id domain.ProjectID) (TicketList, error) {
 	if err := f.check(); err != nil {
 		return TicketList{}, err
@@ -168,8 +165,8 @@ func (f *fakeService) Project(_ context.Context, id domain.ProjectID) (*domain.P
 	return nil, fmt.Errorf("%w: no project %s is registered", ErrNotFound, id)
 }
 
-// RegisterProject records a project from a fixture, so that the transport can
-// be tested without a configuration directory or a store.
+// RegisterProject records a project from a fixture, so the transport can be
+// tested without a configuration directory or a store.
 func (f *fakeService) RegisterProject(_ context.Context, id domain.ProjectID) (RegisteredProject, error) {
 	if err := f.check(); err != nil {
 		return RegisteredProject{}, err
@@ -210,9 +207,9 @@ func (f *fakeService) Task(_ context.Context, id domain.TaskID) (*domain.Task, e
 	return nil, fmt.Errorf("%w: no task %s in any registered project", ErrNotFound, id)
 }
 
-// ResolveTask resolves the way the daemon does, over the fake's own tasks, so
-// that the transport is tested against the addressing rule rather than against a
-// second implementation of it.
+// ResolveTask resolves the way the daemon does, over the fake's own tasks, so the
+// transport is tested against the addressing rule rather than against a second
+// implementation of it.
 func (f *fakeService) ResolveTask(_ context.Context, ref domain.TaskRef) (domain.TaskID, error) {
 	if err := f.check(); err != nil {
 		return "", err
@@ -232,8 +229,8 @@ func (f *fakeService) Verification(_ context.Context, id domain.TaskID) (Verific
 	return reported, ok, nil
 }
 
-// verificationFixture is a fully populated agent report, so that every field of
-// the payload is exercised by the golden files and the mapping check.
+// verificationFixture is a fully populated agent report, so the golden files and
+// the mapping check exercise every field of the payload.
 func verificationFixture() Verification {
 	return Verification{
 		Source:     "agent",
@@ -333,9 +330,9 @@ func (f *fakeService) Runtime(_ context.Context, id domain.TaskID, action Runtim
 					{Name: "api", Container: "c0ffee", State: "running", Status: "Up 2 seconds",
 						Health: "unknown", Managed: true},
 					// A service the project does not name, which Compose started
-					// because a managed one depends on it. It is in the published
-					// body because it is in the task's Compose project, and Feat
-					// stops and removes it with the rest.
+					// because a managed one depends on it. It is published because
+					// it belongs to the task's Compose project, and Feat stops and
+					// removes it with the rest.
 					{Name: "postgres", Container: "cafe", State: "running", Status: "Up 12 seconds",
 						Health: "healthy"},
 				},
@@ -345,7 +342,6 @@ func (f *fakeService) Runtime(_ context.Context, id domain.TaskID, action Runtim
 	return RuntimeResult{}, fmt.Errorf("%w: no task %s", ErrNotFound, id)
 }
 
-// RuntimeLogs returns the command the client would run.
 func (f *fakeService) Review(_ context.Context, id domain.TaskID, action ReviewAction) (ReviewResult, error) {
 	if err := f.check(); err != nil {
 		return ReviewResult{}, err
@@ -414,7 +410,7 @@ func (f *fakeService) ApplyPublication(
 	for _, task := range f.tasks {
 		if task.ID == id {
 			// The partial publication fixture, which is what a user meets after
-			// one repository published and another did not: a recorded state
+			// one repository published and another did not. It is a recorded state
 			// rather than one to be undone (ADR-073).
 			published := storetest.Published()
 			published.ID = task.ID
@@ -567,8 +563,8 @@ func (f *fakeService) RuntimeLogs(_ context.Context, id domain.TaskID) (RuntimeC
 	return RuntimeCommand{}, fmt.Errorf("%w: no task %s", ErrNotFound, id)
 }
 
-// Resources returns a fixed sample, so that the transport's own shape is what
-// the golden file pins rather than the machine the test happens to run on.
+// Resources returns a fixed sample, so the golden file pins the transport's own
+// shape rather than the machine the test happens to run on.
 func (f *fakeService) Resources(_ context.Context) (ResourceReport, error) {
 	if err := f.check(); err != nil {
 		return ResourceReport{}, err
@@ -719,9 +715,9 @@ func requestBody(
 
 // TestResponseBodies pins every payload against a golden file.
 //
-// The wire format is a published surface (ADR-027): renaming a Go field, or
-// mapping one differently, has to fail here rather than in a client somebody
-// else wrote.
+// The wire format is a published surface (ADR-027), so renaming a Go field or
+// mapping one differently has to fail here rather than in a client somebody else
+// wrote.
 func TestResponseBodies(t *testing.T) {
 	handler := NewHandler(Options{Service: newFakeService()})
 
@@ -777,9 +773,9 @@ func TestShellResponseUsesStableTmuxIDs(t *testing.T) {
 
 // TestDraftResponseBodies pins the task-draft surface.
 //
-// The four requests are the preparation lifecycle in order: record a draft,
-// edit it, resolve it, and confirm it. Each response is a published surface for
-// the same reason the rest are (ADR-027).
+// The requests are the preparation lifecycle in order: record a draft, edit it,
+// resolve it, confirm it, and abandon it. Each response is a published surface
+// for the reason the rest are (ADR-027).
 func TestDraftResponseBodies(t *testing.T) {
 	draft := storetest.DraftID.String()
 
@@ -838,9 +834,8 @@ func TestDraftResponseBodies(t *testing.T) {
 // TestLaunchingWithoutTheDisplayedPlanIsRefused is the transport half of
 // FR-TASK-003's rule that confirming launches the snapshot that was displayed.
 //
-// The daemon compares the fingerprint; what the transport has to get right is
-// that a refusal is a request error the user can act on rather than a failure
-// they cannot.
+// The daemon compares the fingerprint. The transport has to report a refusal as
+// a request error the user can act on rather than as a failure they cannot.
 func TestLaunchingWithoutTheDisplayedPlanIsRefused(t *testing.T) {
 	service := newFakeService()
 	service.tasks = append(service.tasks, storetest.Draft())
@@ -861,8 +856,8 @@ func TestLaunchingWithoutTheDisplayedPlanIsRefused(t *testing.T) {
 // the daemon is the one the body asked for.
 //
 // The mode is consumed once, at launch, so a transport that dropped it would
-// produce a task that started editing while the screen had promised a plan —
-// and nothing afterwards would say why.
+// produce a task that started editing after the screen promised a plan, with
+// nothing afterwards to say why.
 func TestLaunchCarriesThePlanFirstDecision(t *testing.T) {
 	const fingerprint = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0"
 
@@ -898,9 +893,9 @@ func TestLaunchCarriesThePlanFirstDecision(t *testing.T) {
 // TestShellTakesNoCommandFromTheCaller checks that the endpoint carries an
 // identifier rather than something to execute.
 //
-// The daemon runs commands on its owner's behalf, so a body naming a program
-// must be rejected rather than ignored: a client that asked for something Feat
-// did not do should be told.
+// The daemon runs commands on its owner's behalf, so a body naming a program is
+// rejected rather than ignored and a client that asked for something Feat does
+// not do is told.
 func TestShellTakesNoCommandFromTheCaller(t *testing.T) {
 	handler := NewHandler(Options{Service: newFakeService()})
 
@@ -1003,9 +998,9 @@ func TestErrorResponses(t *testing.T) {
 // where it applies to the whole command surface at once.
 //
 // The endpoints below are what `feat attach`, `feat review`, `feat runtime`, and
-// `feat task cleanup` call, and every one of them took an identifier no list printed.
-// They come through one resolution point, so the check is that each of them
-// reached the daemon with the identifier the key abbreviates.
+// `feat task cleanup` call, and each once took an identifier no list printed.
+// They share one resolution point, so this checks that every one of them reaches
+// the daemon with the identifier the key abbreviates.
 func TestEveryTaskEndpointTakesTheKeyTheListsPrint(t *testing.T) {
 	key := storetest.TaskID.Key().String()
 
@@ -1048,8 +1043,8 @@ func TestEveryTaskEndpointTakesTheKeyTheListsPrint(t *testing.T) {
 }
 
 // TestAnAmbiguousTaskReferenceIsRefusedRatherThanChosen checks that the transport
-// carries the refusal rather than one of the candidates, and that what it carries
-// is actable on.
+// carries the refusal rather than one of the candidates, and that the refusal is
+// one a user can act on.
 func TestAnAmbiguousTaskReferenceIsRefusedRatherThanChosen(t *testing.T) {
 	service := newFakeService()
 	second, err := domain.NewTask(
@@ -1085,8 +1080,8 @@ func TestAnAmbiguousTaskReferenceIsRefusedRatherThanChosen(t *testing.T) {
 }
 
 // TestATaskReferenceThatNamesNothingIsNotFound keeps the two failures apart. A
-// reference nothing answers to is a missing task, not a malformed request, and a
-// client that branches on the code should be able to tell them apart.
+// reference nothing answers to is a missing task rather than a malformed request,
+// and a client that branches on the code can tell them apart.
 func TestATaskReferenceThatNamesNothingIsNotFound(t *testing.T) {
 	handler := NewHandler(Options{Service: newFakeService()})
 
@@ -1097,8 +1092,8 @@ func TestATaskReferenceThatNamesNothingIsNotFound(t *testing.T) {
 	}
 }
 
-// TestMethodNotAllowedNamesTheAllowedMethod keeps the 405 useful rather than
-// merely correct.
+// TestMethodNotAllowedNamesTheAllowedMethod checks that the 405 names what the
+// endpoint does serve.
 func TestMethodNotAllowedNamesTheAllowedMethod(t *testing.T) {
 	handler := NewHandler(Options{Service: newFakeService()})
 
@@ -1110,8 +1105,8 @@ func TestMethodNotAllowedNamesTheAllowedMethod(t *testing.T) {
 }
 
 // TestServiceFailureIsNotExplainedToTheClient checks that an unexplained failure
-// becomes a plain 500. The daemon's log holds the cause; a client cannot act on
-// it and should not be handed internals.
+// becomes a plain 500. The daemon's log holds the cause, which a client cannot
+// act on and should not be handed.
 func TestServiceFailureIsNotExplainedToTheClient(t *testing.T) {
 	service := newFakeService()
 	service.failWith = errors.New("the disk is on fire in /srv/secret-project")
@@ -1127,9 +1122,9 @@ func TestServiceFailureIsNotExplainedToTheClient(t *testing.T) {
 	}
 }
 
-// TestPanicDoesNotEscapeTheHandler covers the property that keeps one bad
-// request from ending the sessions of every running task: the daemon serves
-// several clients and owns all task state.
+// TestPanicDoesNotEscapeTheHandler covers the property that keeps one bad request
+// from ending the sessions of every running task. The daemon serves several
+// clients and owns all task state.
 func TestPanicDoesNotEscapeTheHandler(t *testing.T) {
 	service := newFakeService()
 	service.panicWith = "a nil map in a handler"
@@ -1176,16 +1171,15 @@ func TestDegradedHealthIsReportedNotFailed(t *testing.T) {
 	}
 }
 
-// TestTaskPayloadCarriesNoUnmappedField checks the mapping rather than the
-// fields somebody remembered: the fixtures populate every domain field, so a
-// field the DTO forgets shows up as a zero value here.
+// TestTaskPayloadCarriesNoUnmappedField checks the mapping rather than the fields
+// somebody remembered. The fixtures populate every domain field, so a field the
+// DTO forgets shows up as a zero value here.
 func TestTaskPayloadCarriesNoUnmappedField(t *testing.T) {
 	service := newFakeService()
-	// Three tasks, because some of a task's fields exclude each other: the
-	// reason it failed travels only with a failed task, the fixture that has
-	// reached review cannot also be one, and a brief comes from one source, so
-	// a task imported from Markdown never also holds the ticket it was composed
-	// from.
+	// Three tasks, because some of a task's fields exclude each other: the reason
+	// it failed travels only with a failed task, which the fixture that reached
+	// review is not, and a brief comes from one source, so a task imported from
+	// Markdown never also holds the ticket it was composed from.
 	service.tasks = append(service.tasks, storetest.Failed(), storetest.Published())
 	handler := NewHandler(Options{Service: service})
 

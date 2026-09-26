@@ -25,7 +25,7 @@ type frame struct {
 	// data is the JSON payload.
 	data string
 	// comment is set for a comment frame, such as a heartbeat, which is not an
-	// event at all.
+	// event.
 	comment bool
 }
 
@@ -38,8 +38,8 @@ type stream struct {
 
 // openStream serves the handler on a Unix socket and connects to /v1/events.
 //
-// The socket is real, because the framing, the flushing, and the headers are the
-// thing being tested; a recorder would answer questions about a buffer instead.
+// The socket is real, because the framing, the flushing, and the headers are what
+// is being tested. A recorder would answer questions about a buffer instead.
 func openStream(t *testing.T, heartbeat time.Duration, header http.Header) *stream {
 	t.Helper()
 

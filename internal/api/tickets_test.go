@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// TestFindTicketMatchesWhatTheCommandEmitted is the whole of the matching
-// rule: the reference is compared as the command printed it, and nothing in it
-// is parsed (ADR-071).
+// TestFindTicketMatchesWhatTheCommandEmitted is the whole of the matching rule:
+// the reference is compared as the command printed it, and nothing in it is
+// parsed (ADR-071).
 func TestFindTicketMatchesWhatTheCommandEmitted(t *testing.T) {
 	tickets := []Ticket{
 		{Reference: "ACME-14", Title: "Rotate the signing key"},
@@ -75,8 +75,8 @@ func TestFindTicketBoundsWhatItRepeatsBack(t *testing.T) {
 }
 
 // TestFindTicketRefusesToChooseBetweenTrackers checks a merged command that
-// labelled two tickets with the same key. Feat picks neither, and says which
-// trackers they came from so that the user can.
+// labelled two tickets with the same key. Feat picks neither, and names the
+// trackers they came from so the user can.
 func TestFindTicketRefusesToChooseBetweenTrackers(t *testing.T) {
 	tickets := []Ticket{
 		{Reference: "42", Source: "github"},
@@ -94,8 +94,8 @@ func TestFindTicketRefusesToChooseBetweenTrackers(t *testing.T) {
 		}
 	}
 
-	// A merged command that forgot to label one of them is named for what it is,
-	// so the message still says two trackers rather than one and a blank.
+	// A merged command that left one ticket unlabelled is still described as two
+	// trackers rather than as one and a blank.
 	_, err = FindTicket([]Ticket{{Reference: "7", Source: "jira"}, {Reference: "7"}}, "7")
 	if err == nil || !strings.Contains(err.Error(), "jira and an unlabelled tracker") {
 		t.Errorf("an unlabelled ticket is not named as such: %v", err)

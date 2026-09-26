@@ -2,31 +2,26 @@ package api
 
 import "time"
 
-// Reconciliation is the response of GET and POST /v1/reconciliation.
+// Reconciliation is the response of GET and POST /v1/reconciliation: what Feat
+// found when it compared every persisted task with the machine. Nothing was
+// repaired, and a finding names what a user can do (FR-STATE-003, FR-STATE-004).
 //
-// It is what Feat found when it compared every persisted task with what the
-// machine actually has. Nothing in it was repaired: a finding names a resource
-// and, where there is one, the action a user can take (FR-STATE-003,
-// FR-STATE-004).
-//
-// It is a wire type of its own rather than fields on health, because health is
-// about the daemon and this is about the state directory: one answers "is Feat
-// running", and the other "does what Feat recorded still exist".
+// It is separate from health because health describes the daemon and this
+// describes the state directory.
 type Reconciliation struct {
-	// Ran reports whether a pass has been performed. A daemon answers this
-	// before its first pass only in a test; in production the pass runs before
-	// anything can be served.
+	// Ran reports whether a pass has been performed. Only a test sees false: in
+	// production the pass runs before anything is served.
 	Ran bool `json:"ran"`
 	// StartedAt and FinishedAt bound the pass.
 	StartedAt  time.Time `json:"started_at,omitzero"`
 	FinishedAt time.Time `json:"finished_at,omitzero"`
 	// Findings are what was looked at, most serious first.
 	Findings []ReconciliationFinding `json:"findings"`
-	// Problems are the enumerations that failed. A pass that could not ask a
-	// question says so rather than reporting the answer as "nothing".
+	// Problems are the enumerations that failed, so a pass that could not look
+	// says so rather than reporting that it found nothing.
 	Problems []ReconciliationProblem `json:"problems"`
-	// NeedsAttention reports whether anything was not simply present, which is
-	// what decides whether a user is shown a recovery band at all.
+	// NeedsAttention reports whether anything was not simply present, which
+	// decides whether a user is shown a recovery band.
 	NeedsAttention bool `json:"needs_attention"`
 	// PreviousRunEndedCleanly reports whether the last daemon to own this state
 	// directory stopped rather than died.
@@ -41,8 +36,8 @@ type ReconciliationFinding struct {
 	Class string `json:"class"`
 	// Status is present, missing, orphaned, inconsistent, or damaged.
 	Status string `json:"status"`
-	// ProjectID and TaskID own the resource. A task identifier is absent for an
-	// orphan that names none.
+	// ProjectID and TaskID own the resource, and a task identifier is absent for
+	// an orphan that names none.
 	ProjectID string `json:"project_id,omitempty"`
 	TaskID    string `json:"task_id,omitempty"`
 	// TaskKey is the short key the task is shown by.
@@ -51,8 +46,7 @@ type ReconciliationFinding struct {
 	Identity string `json:"identity,omitempty"`
 	// Detail says what was found.
 	Detail string `json:"detail"`
-	// Action names what the user can do about it, absent when nothing is
-	// offered.
+	// Action names what the user can do about it, absent when nothing is offered.
 	Action string `json:"action,omitempty"`
 }
 
@@ -64,6 +58,6 @@ type ReconciliationProblem struct {
 	// ProjectID and TaskID narrow the failure when it was scoped to one.
 	ProjectID string `json:"project_id,omitempty"`
 	TaskID    string `json:"task_id,omitempty"`
-	// Reason is why.
+	// Reason is why the enumeration failed.
 	Reason string `json:"reason"`
 }

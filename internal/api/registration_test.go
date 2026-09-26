@@ -40,9 +40,9 @@ func TestRegisterProjectResponses(t *testing.T) {
 	t.Run("updated", func(t *testing.T) {
 		handler := NewHandler(Options{Service: newFakeService()})
 
-		// Registering a project Feat already has re-reads its configuration.
-		// That is a 200 rather than a 201, so that a user running the command
-		// twice can tell which of the two happened.
+		// Registering a project Feat already has re-reads its configuration. That
+		// is a 200 rather than a 201, so a user running the command twice can tell
+		// which happened.
 		response := post(t, handler, "/v1/projects",
 			`{"project_id":"`+storetest.ProjectID.String()+`"}`)
 
@@ -66,8 +66,8 @@ func TestRegisterProjectRejectsBadRequests(t *testing.T) {
 			body: `not json`, status: http.StatusBadRequest, code: CodeInvalid,
 		},
 		"unknown field": {
-			// A client that asked for something Feat did not do should be told,
-			// not left to assume it worked.
+			// A client that asked for something Feat does not do is told rather
+			// than left to assume it worked.
 			body: `{"project_id":"app","force":true}`, status: http.StatusBadRequest, code: CodeInvalid,
 		},
 		"two documents": {
@@ -117,8 +117,8 @@ func TestRegisterProjectRejectsBadRequests(t *testing.T) {
 	}
 }
 
-// TestMalformedIdentifierNeverReachesTheDaemon checks that an identifier which
-// could be joined into a path is rejected by the transport.
+// TestMalformedIdentifierNeverReachesTheDaemon checks that the transport rejects
+// an identifier which could be joined into a path.
 func TestMalformedIdentifierNeverReachesTheDaemon(t *testing.T) {
 	service := newFakeService()
 	handler := NewHandler(Options{Service: service})
