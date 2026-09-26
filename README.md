@@ -475,6 +475,10 @@ in order, starting with [`docs/README.md`](docs/README.md).
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) before sending a change, and
+[SECURITY.md](SECURITY.md) for what Feat does not protect against and how to
+report a vulnerability.
+
 Requirements: Go as pinned in [`go.mod`](go.mod), `make`, Git, and tmux. Projects
 that use a devcontainer or application runtime also need the Docker Compose CLI.
 `feat doctor` checks the tools required by a project's configuration.
