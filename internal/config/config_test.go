@@ -437,3 +437,20 @@ func equal(got, want []string) bool {
 	}
 	return true
 }
+
+// TestComposeExampleIsValid keeps docs/examples/compose/notes.yaml loadable. It
+// is the configuration a reader copies beside the example Compose files.
+func TestComposeExampleIsValid(t *testing.T) {
+	const example = "../../docs/examples/compose/notes.yaml"
+
+	body, err := os.ReadFile(example)
+	if err != nil {
+		t.Fatalf("reading %s: %v", example, err)
+	}
+	dir := write(t, "notes.yaml", string(body))
+	opts, _ := testOptions(t, nil)
+
+	if _, err := config.Load(dir, "notes", opts); err != nil {
+		t.Fatalf("the Compose example's configuration does not validate:\n%v", err)
+	}
+}

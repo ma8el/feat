@@ -233,9 +233,9 @@ to stop its services rather than doing it. Destroying removes that task's
 containers and networks; volumes are always retained, and a resource the project
 declares external — a shared staging database, for instance — is never touched.
 
-Feat allocates no ports in this version, so two tasks that both publish the same
-host port cannot both be up; the second one says so in those words rather than
-passing a Docker error through.
+Feat publishes each reachable service on a host port it allocates for the task,
+so several tasks can run the same application at once. A second task that still
+will not start is in [Troubleshooting](#troubleshooting).
 
 ## Reviewing the work
 
@@ -452,10 +452,103 @@ it was checked from your terminal: a tool on this terminal's PATH is not
 necessarily on the daemon's.
 
 [`docs/examples/project.yaml`](docs/examples/project.yaml) is a commented
-example showing every field with its default; the semantics are in
+example showing every field with its default, and
+[`docs/examples/compose`](docs/examples/compose) is a worked pair of Compose
+files with the configuration that runs them per task. The semantics are in
 [docs/07-configuration-model.md](docs/07-configuration-model.md).
 [`schema/feat-project.schema.json`](schema/feat-project.schema.json) is a draft
 JSON Schema for editor support.
+
+## Troubleshooting
+
+Each heading is what you see. The first two fail silently: the application
+looks broken, and it is the Compose files that need changing.
+[`docs/examples/compose`](docs/examples/compose) is a worked pair of Compose
+files that avoids all four.
+
+### A task's changes do not show up in its running application
+
+The service is running your ordinary checkout, or the image it was built from,
+rather than the task's worktree. Nothing fails, so check each cause in turn:
+
+- **The change is in your checkout, not the task's worktree.** The agent edits
+  the worktree Feat created for the task. An edit in your own checkout never
+  reaches a task's services.
+- **`container_path` disagrees with the Compose file's mount.** Feat mounts the
+  worktree at `repositories.<id>.runtime.container_path`, and Compose replaces
+  your own mount only when the targets match. Otherwise both are mounted and
+  the service reads yours. `feat runtime create` and `start` print a note when
+  they find it: "… the ordinary checkout … rather than this task's worktree".
+  Set `container_path` to the target your Compose file already uses.
+- **The service bakes its code into the image.** Feat builds it from the
+  worktree, but a change appears only once the image is built again, which the
+  same note says. Add the development overlay that mounts the source to
+  `compose_files`, or run `feat runtime create <task>` after each change.
+- **The server does not reload.** A mounted source needs a server started in
+  its reload mode, which is usually what the overlay's `command:` does.
+
+### A second task's application will not start, or reaches the first task's
+
+Feat replaces every `container_name` and every published port for each task,
+so a collision now comes from something those two do not cover:
+
+- **Every host port in `runtime.port_range` is held.** Feat says so and names
+  the tasks holding them. Destroy the runtime of a task you have finished with,
+  or widen the range.
+- **A host port is already taken.** Something on this machine that is not a
+  task listens inside `runtime.port_range`, or a service uses
+  `network_mode: host` and binds its port directly. Move the range, or drop
+  `network_mode: host`.
+- **A volume or network has a fixed `name:`.** A literal name is one resource
+  that every task shares, so the second task's database uses the first one's
+  data. Remove the `name:`, and Compose makes one per task.
+- **A browser-facing address names a fixed port.** The second task starts and
+  its front end calls the first task's API, or nothing. Read the address from
+  `${FEAT_HOST_URL_<SERVICE>:-<your default>}` instead: the service name
+  upper-cased, with anything but a letter or digit replaced by `_`.
+- **Two tasks share an external resource.** A staging database on its own
+  server is one database for every task. Name each task's share with
+  `FEAT_TASK_KEY`.
+
+### `feat doctor` fails a mount "Git does not track", or a task fails with "is outside of rootfs"
+
+A Compose file mounts a file at a path inside where Feat mounts the worktree:
+`/dev/null:/app/.env` to mask an environment file, say, or `./.env:/app/.env`.
+The ordinary checkout has that `.env`. A worktree holds only what Git tracks,
+so the container runtime has to create the file there itself.
+
+Docker Desktop refuses, and the task fails at container creation with
+`create mountpoint for … mount: mountpoint "…/.env" is outside of rootfs`. A
+native Linux daemon creates an empty file instead. `feat doctor` reports the
+mount under `repositories.<id>.runtime.mounts` or
+`repositories.<id>.agent.mounts`. It is an error where the runtime is known to
+refuse, and a warning elsewhere. A project configured before this check
+existed meets the launch error first.
+
+Commit the file, or drop the mount. In a worktree an ignored `.env` does not
+exist, so a mask over it has nothing to mask. A build step or a
+`postCreateCommand` cannot supply the file, because no command in a container
+runs before its mounts. Mounting a directory, a named volume, or a tmpfs there
+is fine: the runtime creates a directory. A retry of a failed launch may start,
+because the runtime left an empty file behind, but that masks nothing either.
+
+### `feat doctor` says "claude is not installed"
+
+Feat launches Claude Code and has no agent of its own, so a fresh machine needs
+it installed and signed in. Follow the [Claude Code setup
+guide](https://code.claude.com/docs/en/setup), then run `claude` once to sign
+in. Where it has to be depends on `agent.execution.mode`:
+
+- **`host`**: on this machine, on the `PATH` of the shell that runs `feat
+  daemon start`. The daemon inherits that `PATH`, and a tool on your terminal's
+  `PATH` is not necessarily on the daemon's.
+- **`devcontainer`**: inside the agent's image, on the `PATH` of
+  `agent.execution.user`. `feat doctor` checks this only while a task's
+  container is running, and a launch checks it before starting the agent.
+  Set `agent.claude.config_volume` so one sign-in is shared by every task.
+
+The same message ends "or change agent.provider". Claude is the only provider
+in this version, so installing it is the fix.
 
 ## Documentation
 

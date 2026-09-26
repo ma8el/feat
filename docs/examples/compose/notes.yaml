@@ -1,0 +1,34 @@
+# The Feat project configuration for the Compose files beside it. Save it as
+# ~/.config/feat/projects/notes.yaml and change host_path to your checkout.
+
+version: 1
+
+project:
+  id: notes
+  primary_repository: notes
+
+repositories:
+  notes:
+    host_path: ~/src/notes
+    default_access: read_write
+    runtime:
+      # Both files, in this order: compose.yaml alone serves what the image was
+      # built from.
+      compose_files:
+        - compose.yaml
+        - compose.dev.yaml
+      # The target of the source mount in compose.dev.yaml, exactly.
+      container_path: /app
+      # db is not listed: Compose starts it because api depends on it, and it
+      # belongs to the task all the same.
+      services:
+        - api
+      reachable:
+        - api
+
+agent:
+  execution:
+    mode: host
+
+runtime:
+  provider: compose
