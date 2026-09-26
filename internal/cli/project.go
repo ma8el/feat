@@ -322,24 +322,24 @@ func describeProject(cfg *config.Config) api.ProjectConfiguration {
 const projectTicketsLong = `Run the project's configured tracker command and show what it printed.
 
 With a project alone, list the tickets. The command decides which tickets are
-yours. Feat passes it no filter and parses no part of what comes back beyond
-checking it against the shape it publishes, which is why a state here is the
-tracker's own word rather than one of Feat's.
+yours. Feat passes it no filter and parses nothing beyond checking the output
+against the shape it publishes. A state here is therefore the tracker's own word
+rather than one of Feat's.
 
 With a ticket as well, print that one ticket as the brief Feat would compose
 from it: its title, a line naming the ticket, its state, and where it can be
-read, and then its description under a heading that marks where the ticket's
-own words begin. It is the document ` + "`feat implement --ticket`" + ` puts in the
+read. The description follows, under a heading marking where the ticket's own
+words begin. It is the document ` + "`feat implement --ticket`" + ` puts in the
 brief field, and nothing else is printed with it.
 
-The reference is matched exactly as the command printed it, which is what the
-first column of the list shows. ` + "`feat implement --ticket`" + ` runs this same
+The reference is matched exactly as the command printed it, which the first
+column of the list shows. ` + "`feat implement --ticket`" + ` runs this same
 command again and matches the same way.
 
 --json prints the list, or the one ticket, as a JSON document instead.
 
-Nothing is created by reading. Run ` + "`feat doctor`" + ` to check the command itself,
-which validates its output without a running daemon.`
+Nothing is created by reading. Run ` + "`feat doctor`" + ` to check the command itself;
+it validates the output without a running daemon.`
 
 func newProjectTicketsCommand(env *environment) *cobra.Command {
 	cmd := &cobra.Command{

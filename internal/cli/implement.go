@@ -26,23 +26,23 @@ commit, and proposes the branches and worktree paths it would create.
 
 An invocation that says what the task is creates it, terminal or not: pass
 --project and either --brief or --file. One that does not opens the preparation
-screen with whatever it was given, which is what --tui asks for when the
-invocation would otherwise have been enough.
+screen with whatever it was given. --tui opens that screen even when the
+invocation would have been enough on its own.
 
-Where the brief comes from is a question preparation asks, after the project and
-before the brief itself: type it here, compose it from one of the project's
-tickets, or import a Markdown file you have already written. --ticket and --file
-are answers to that question, so a run that passes one skips it. --brief is the
-text itself, and --file - reads it from standard input.
+Preparation asks where the brief comes from, after the project and before the
+brief itself: type it here, compose it from one of the project's tickets, or
+import a Markdown file you have already written. --ticket and --file answer that
+question, so a run passing one skips it. --brief is the text itself, and
+--file - reads it from standard input.
 
-A brief given to --brief is in this process's argument vector, where every user
-on the machine can read it in ps output. Pipe it to --file - instead where that
-matters, which for a script it usually does.
+A brief given to --brief sits in this process's argument vector, where every
+user on the machine can read it in ps output. Pipe it to --file - instead where
+that matters, which for a script it usually does.
 
 --ticket runs the project's configured tracker command and matches the reference
 it names against the ones that command printed. Feat composes a brief from the
-ticket into the field you are editing, and what you confirm is that composed
-brief rather than the ticket it came from. That reading is the whole control, so
+ticket into the field you are editing, and you confirm that composed brief
+rather than the ticket it came from. Reading it is the only control there is, so
 --ticket needs a terminal and never creates a task on its own.
 
 The review step also chooses how the session begins: straight into the work, or
@@ -51,9 +51,10 @@ to change it, or pass --plan to arrive with it already on. Either way the plan i
 approved in the task's own terminal, between you and the agent.
 
 Nothing is created until you confirm that proposal, and confirming creates
-exactly what was displayed: a draft that changed in between is refused rather
-than launched. On the screen the confirmation is a key press; without one it is
-the invocation, and --dry-run prints the same proposal and creates nothing.`
+exactly what was displayed. A draft that changed in between is refused rather
+than launched. On the screen the confirmation is a key press; without a screen
+the invocation is the confirmation, and --dry-run prints the same proposal and
+creates nothing.`
 
 // implementOptions is what one run of `feat implement` was asked for.
 //

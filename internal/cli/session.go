@@ -9,9 +9,9 @@ import (
 
 const resumeLong = `Continue a task's recorded agent session.
 
-The session is continued rather than restarted: Feat hands the agent the session
+The session is continued rather than restarted. Feat hands the agent the session
 identifier it reported when it started, so the conversation carries on with its
-history rather than opening an empty one that looks the same. For a task that
+history instead of opening an empty one that looks the same. For a task that
 runs its agent in a container, this brings that container back up first.
 
 It is refused while there is still a live agent to attach to, because a second
@@ -21,11 +21,11 @@ const stopLong = `Stop the container a task's agent runs in.
 
 Everything else the task owns is kept: its worktrees, its branches, its control
 workspace, its volumes, and its tmux window, whose pane holds the output of the
-session that ran. The task's application services are not touched — those have
+session that ran. The task's application services are not touched; those have
 their own verbs under ` + "`feat runtime`" + `.
 
-It is the reversible half of a pair. Bring the task back with ` + "`feat task resume`" + `,
-which starts the same containers again and continues the same agent session.
+It is reversible. Bring the task back with ` + "`feat task resume`" + `, which
+starts the same containers again and continues the same agent session.
 
 A task whose agent runs on this machine rather than in a container is refused:
 Feat owns no process there to stop.`

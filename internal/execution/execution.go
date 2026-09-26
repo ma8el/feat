@@ -487,7 +487,7 @@ func (s Spec) validateMounts() error {
 		}
 		if previous, taken := targets[mount.Target]; taken {
 			return fmt.Errorf("two mounts of task %s target %s: %s and %s. "+
-				"One would hide the other, and which one is not something Feat should decide",
+				"One would hide the other, and Feat will not choose between them",
 				s.Task, mount.Target, previous, mount.Source)
 		}
 		targets[mount.Target] = mount.Source

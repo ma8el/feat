@@ -514,8 +514,8 @@ func (s Spec) validatePublications(managed map[string]bool) error {
 
 		key := fmt.Sprintf("%s/%d/%s", publication.HostIP, publication.HostPort, publication.Protocol)
 		if previous, held := taken[key]; held {
-			return fmt.Errorf("services %s and %s of task %s are both published on host port %d: a host "+
-				"port carries one service, and which is not something Feat should decide",
+			return fmt.Errorf("services %s and %s of task %s are both published on host port %d, and a "+
+				"host port carries one service; Feat will not choose between them",
 				previous, publication.Service, s.Task, publication.HostPort)
 		}
 		taken[key] = publication.Service
@@ -546,8 +546,8 @@ func (s Spec) validateBuilds(managed map[string]bool) error {
 			return err
 		}
 		if previous, taken := seen[build.Service]; taken {
-			return fmt.Errorf("service %s of task %s is given two build contexts, %s and %s: a service "+
-				"builds from one, and which is not something Feat should decide",
+			return fmt.Errorf("service %s of task %s is given two build contexts, %s and %s, and a "+
+				"service builds from one; Feat will not choose between them",
 				build.Service, s.Task, previous, build.Context)
 		}
 		seen[build.Service] = build.Context
@@ -632,7 +632,7 @@ func (s Spec) validateMounts() error {
 			}
 			if previous, taken := targets[service][mount.Target]; taken {
 				return fmt.Errorf("two mounts of service %s of task %s target %s: %s and %s. One would "+
-					"hide the other, and which one is not something Feat should decide",
+					"hide the other, and Feat will not choose between them",
 					service, s.Task, mount.Target, previous, mount.Source)
 			}
 			targets[service][mount.Target] = mount.Source
