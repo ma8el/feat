@@ -878,20 +878,16 @@ func (w *world) composeFile(t *testing.T, path, body string) {
 // TestAMountAWorktreeCannotSatisfyIsReported is the pre-flight the container
 // runtime's own error message arrives too late to be.
 //
-// A task works in a worktree, and a worktree holds only what Git tracks, so a
-// devcontainer binding an ignored `.env` out of a repository names something
-// that will not be there. What that costs depends on where the mount writes,
-// and the two halves are what this pins.
+// A task works in a worktree, and a worktree holds only what Git tracks, so a mount
+// that has to create a mount point inside one names something that will not be there.
+// Where the mount writes is the whole of it: a target inside the container path is
+// refused, because the container runtime cannot create that mount point and never
+// starts the container at all.
 //
-// A mount landing somewhere Feat does not touch is reported and not refused:
-// the bind succeeds, an empty file is created, the application misbehaves with
-// nothing naming the cause — and a file a build step creates is a legitimate
-// absence Feat cannot tell from that one. A mount landing inside the container
-// path is refused, because the container runtime has to create that mount point
-// inside the worktree, cannot, and never starts the container at all.
-//
-// One entry produces one finding. The same `.env` is written to both places
-// here, so the entry rather than the file is what each finding is about.
+// The same ignored `.env` is bound to both places here, and only the entry writing into
+// the container path is reported. The one writing outside it is a mount whose source
+// resolves into the ordinary checkout, where the file is, so nothing about it is
+// reported at all (ADR-104, measurement 1).
 func TestAMountAWorktreeCannotSatisfyIsReported(t *testing.T) {
 	w := arrange(t)
 	api := filepath.Join(w.home, "repos", "app", "api")
@@ -930,14 +926,14 @@ func TestAMountAWorktreeCannotSatisfyIsReported(t *testing.T) {
 			reported = append(reported, found)
 		}
 	}
-	if len(reported) != 2 {
-		t.Fatalf("%d mounts were reported, want the two entries Git does not track:%s",
+	if len(reported) != 1 {
+		t.Fatalf("%d mounts were reported, want only the entry writing into the container path:%s",
 			len(reported), render(findings))
 	}
 
 	// The entry writing into the container path. It fails before any command in
-	// the container could have supplied the file, so the remedy the softer
-	// finding offers is named as one that cannot work here.
+	// the container could have supplied the file, so the remedy that would work
+	// elsewhere is named as one that cannot work here.
 	fatal := severity(t, reported, project.SeverityError)
 	if !strings.Contains(fatal.Summary, "/srv/api/.env") {
 		t.Errorf("the finding does not name the target: %q", fatal.Summary)
@@ -948,14 +944,19 @@ func TestAMountAWorktreeCannotSatisfyIsReported(t *testing.T) {
 			"container runs first: %q", fatal.Action)
 	}
 
-	// And the entry writing anywhere else keeps the softer finding, because a
-	// build step really may create that file before anything reads it.
-	soft := severity(t, reported, project.SeverityWarning)
-	if !strings.Contains(soft.Summary, filepath.Join(api, ".env")) {
-		t.Errorf("the finding does not name the path: %q", soft.Summary)
-	}
-	if !strings.Contains(soft.Action, "worktree") {
-		t.Errorf("the action does not say why it will not be there: %q", soft.Action)
+	// And the same file bound outside the container path is nothing to act on
+	// anywhere, by its host path or its target: Feat rewrites no bind source, so that
+	// entry mounts the ordinary checkout, where the file is present. Only what passed
+	// may name it, which the environment-file check does.
+	for _, found := range findings {
+		if found.Severity == project.SeverityOK {
+			continue
+		}
+		for _, quiet := range []string{filepath.Join(api, ".env"), "/etc/app/env"} {
+			if strings.Contains(found.Summary, quiet) {
+				t.Errorf("a mount resolving into the ordinary checkout was reported: %q", found.Summary)
+			}
+		}
 	}
 
 	// And the entry Feat could not read is reported as unchecked rather than
@@ -979,20 +980,18 @@ func TestAMountAWorktreeCannotSatisfyIsReported(t *testing.T) {
 // TestARepositorysOwnMountsAreCheckedAgainstItsWorktree is the same question
 // asked of the application's files.
 //
-// A repository's own services get the task's worktree too, so a mount of
-// something inside the checkout is exactly as unsatisfiable there, and the same
-// split applies. The repository itself is neither half: that mount is the
-// container path, and Feat's generated override replaces it.
+// A repository's own services get the task's worktree too, so a mount writing into it
+// is exactly as unsatisfiable there. The repository itself is neither: that mount is
+// the container path, and Feat's generated override replaces it.
 //
 // The two container paths are different fields answering different questions, so
 // this asks against `/app` where the agent's side asks against `/srv/api`.
 //
-// Both entries here write into the container path and only one is refused, which
-// is the discriminator rather than an accident of the fixture: the environment
-// file exists on disk, so its mount point would have to be a file and the
-// container never starts; `node_modules` does not, so the runtime creates a
-// directory for it, the container starts, and the application finds an empty
-// directory — which is exactly the soft failure the warning is for.
+// Both entries here write into the container path and only one is reported, which is
+// the discriminator rather than an accident of the fixture: the environment file exists
+// on disk, so its mount point would have to be a file and the container never starts,
+// while `node_modules` does not, so the runtime creates a directory for it and the
+// container starts.
 func TestARepositorysOwnMountsAreCheckedAgainstItsWorktree(t *testing.T) {
 	w := arrange(t)
 	api := filepath.Join(w.home, "repos", "app", "api")
@@ -1016,17 +1015,21 @@ func TestARepositorysOwnMountsAreCheckedAgainstItsWorktree(t *testing.T) {
 			reported = append(reported, found)
 		}
 	}
-	if len(reported) != 2 {
-		t.Fatalf("%d mounts were reported, want the two entries Git does not track:%s",
+	if len(reported) != 1 {
+		t.Fatalf("%d mounts were reported, want only the entry needing a file mount point:%s",
 			len(reported), render(findings))
 	}
 	if fatal := severity(t, reported, project.SeverityError); !strings.Contains(
 		fatal.Summary, "/app/.env") {
 		t.Errorf("the error does not name the target inside the container path: %q", fatal.Summary)
 	}
-	if soft := severity(t, reported, project.SeverityWarning); !strings.Contains(
-		soft.Summary, filepath.Join(api, "node_modules")) {
-		t.Errorf("the warning does not name the directory beside it: %q", soft.Summary)
+	// The directory beside it is not reported by either half: the runtime creates its
+	// mount point, and its source mounts the ordinary checkout, which has it.
+	for _, found := range findings {
+		if strings.Contains(found.Summary, filepath.Join(api, "node_modules")) ||
+			strings.Contains(found.Summary, "/app/node_modules") {
+			t.Errorf("a mount the runtime creates a directory for was reported: %q", found.Summary)
+		}
 	}
 }
 
@@ -1095,10 +1098,9 @@ func TestAMaskingMountIsReportedByItsTarget(t *testing.T) {
 // of what the check asks. Judging it would report a project that works as
 // broken, which is the failure the comment on checkRuntime already warns about.
 //
-// Both mount questions are silent, not only the one about targets: every word
-// either of them says is about a worktree, and this repository is given a
-// checkout. So the last two entries here, whose sources are inside it and which
-// Git does not track, are not warned about either.
+// The build-context question is silent for the same reason and by the same predicate:
+// nothing redirects a build context of a repository a task gives no worktree, so the
+// untracked context below builds from the checkout, which has it (ADR-104).
 //
 // And both sides are asked, because a repository declares its container paths
 // for the agent and for the runtime separately and the same rule governs both.
@@ -1129,12 +1131,12 @@ func TestAStableReadOnlyCheckoutIsNotJudgedByTheWorktreeRule(t *testing.T) {
       - /dev/null:/srv/infra/.env:ro
       - ./.env:/etc/infra/env:ro
   proxy:
-    image: alpine
+    build: ./generated
     volumes:
       - /dev/null:/opt/infra/.env:ro
       - ./node_modules:/var/cache/node_modules
 `)
-	for _, path := range []string{".env", "node_modules"} {
+	for _, path := range []string{".env", "node_modules", "generated"} {
 		w.runner.failing["git ls-files --error-unmatch -- "+path] = true
 	}
 
@@ -1145,7 +1147,7 @@ func TestAStableReadOnlyCheckoutIsNotJudgedByTheWorktreeRule(t *testing.T) {
 	}
 	for _, found := range findings {
 		if !strings.HasPrefix(found.Check, "repositories.infra.") ||
-			!strings.HasSuffix(found.Check, ".mounts") {
+			(!strings.HasSuffix(found.Check, ".mounts") && !strings.HasSuffix(found.Check, ".builds")) {
 			continue
 		}
 		// An entry Feat could not read is still disclosed: that is a statement
@@ -1155,6 +1157,100 @@ func TestAStableReadOnlyCheckoutIsNotJudgedByTheWorktreeRule(t *testing.T) {
 		}
 		t.Errorf("a mount of the ordinary checkout was judged against a worktree: %s %s %q",
 			found.Check, found.Severity, found.Summary)
+	}
+}
+
+// TestAnUntrackedBuildContextIsReported is the question ADR-081 asked where its
+// premise failed, asked where it holds.
+//
+// A service whose image bakes the repository in has no mount to replace, so Feat points
+// its build context at the task's worktree instead. That redirect makes the worktree's
+// contents decide the build: `docker compose build` resolves the context before any
+// layer runs, and a directory Git does not track is not in a worktree, so the build
+// fails with "path not found" (ADR-104, measurement 2).
+//
+// It warns rather than fails, for the reason ADR-081 gave the check it replaces and
+// which is true of a build context: a generated or vendored directory is created in the
+// worktree on the host, and a task's services start after the agent has worked.
+func TestAnUntrackedBuildContextIsReported(t *testing.T) {
+	api := filepath.Join("repos", "app", "api")
+
+	for _, testCase := range []struct {
+		name string
+		// build is what the api repository's `app` service declares.
+		build string
+		// says is what the one warning has to name, empty where there is none.
+		says string
+		// why is what a silent case is silent for.
+		why string
+	}{
+		{
+			name: "a context Git does not track", build: "./generated",
+			says: filepath.Join(api, "generated"),
+		},
+		{
+			name: "a context Git tracks", build: "./tools",
+			why: "a worktree holds what Git tracks, so the redirect finds it",
+		},
+		{
+			name: "the repository's own root", build: ".",
+			why: "a worktree always has a root",
+		},
+		{
+			name: "a context outside the repository", build: "../infra/generated",
+			why: "it is not this task's code and Feat redirects nothing at it",
+		},
+		{
+			name: "a context that interpolates", build: "${BUILD_ROOT}/generated",
+			why: "an unread context is not redirected, so the service builds from its checkout",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			w := arrange(t)
+			w.composeFile(t, filepath.Join(w.home, api, "docker-compose.yml"),
+				"services:\n  app:\n    build: "+testCase.build+"\n")
+			// Only `generated` is untracked, wherever it is written: the difference
+			// between the cases is which path the check resolves, not what Git says.
+			w.runner.failing["git ls-files --error-unmatch -- generated"] = true
+			w.runner.failing["git ls-files --error-unmatch -- ../infra/generated"] = true
+
+			report := w.diagnose(t)
+			findings := w.only(t, report).Findings
+			if report.Failed() {
+				t.Errorf("a build context failed the diagnosis, which no severity here does:%s",
+					render(findings))
+			}
+
+			var reported []project.Finding
+			for _, found := range findings {
+				if found.Check == "repositories.api.runtime.builds" {
+					reported = append(reported, found)
+				}
+			}
+			if testCase.says == "" {
+				if len(reported) != 0 {
+					t.Fatalf("%q was reported, and %s:%s", testCase.build, testCase.why,
+						render(reported))
+				}
+				return
+			}
+			if len(reported) != 1 {
+				t.Fatalf("%d build contexts were reported, want the one Git does not track:%s",
+					len(reported), render(findings))
+			}
+			if reported[0].Severity != project.SeverityWarning {
+				t.Errorf("an untracked build context is %q, want a warning: something on the host "+
+					"may create it before the services start", reported[0].Severity)
+			}
+			if !strings.Contains(reported[0].Summary, testCase.says) ||
+				!strings.Contains(reported[0].Summary, `"app"`) {
+				t.Errorf("the finding does not name the context and its service: %q",
+					reported[0].Summary)
+			}
+			if !strings.Contains(reported[0].Action, "worktree") {
+				t.Errorf("the action does not say why the build fails: %q", reported[0].Action)
+			}
+		})
 	}
 }
 

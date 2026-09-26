@@ -127,21 +127,6 @@ func TestTheMountsWritingIntoAWorktreeAreCollected(t *testing.T) {
 		}
 	}
 
-	// One entry, one finding: a source inside the repository that writes into
-	// the container path is not also a path the mount needs, because the softer
-	// question is not the one it raises.
-	var paths []string
-	for _, mount := range composition.Mounts {
-		paths = append(paths, mount.Path)
-	}
-	want := []string{
-		filepath.Join(repository, "node_modules"),
-		filepath.Join(repository, "absent"),
-		filepath.Join(repository, ".env"),
-	}
-	if !slices.Equal(paths, want) {
-		t.Errorf("the paths a mount needs are %v, want %v", paths, want)
-	}
 	if dev, _ := composition.Service("dev"); !slices.Equal(dev.SourceTargets, []string{"/srv/api"}) {
 		t.Errorf("the repository's own mount is %v, want [/srv/api]", dev.SourceTargets)
 	}
@@ -163,21 +148,10 @@ func TestWithoutAContainerPathNoMountIsJudgedByItsTarget(t *testing.T) {
 		t.Errorf("a reader with no container path judged %d mounts by their target",
 			len(composition.Targets))
 	}
-	// And every entry coming out of the repository is a path a mount needs,
-	// including the two the container path would have claimed.
-	var paths []string
-	for _, mount := range composition.Mounts {
-		paths = append(paths, mount.Path)
-	}
-	want := []string{
-		filepath.Join(repository, "config.yml"),
-		filepath.Join(repository, "other.yml"),
-		filepath.Join(repository, "node_modules"),
-		filepath.Join(repository, "absent"),
-		filepath.Join(repository, ".env"),
-	}
-	if !slices.Equal(paths, want) {
-		t.Errorf("the paths a mount needs are %v, want %v", paths, want)
+	// And the reading those callers do ask for is unaffected: the repository's own
+	// mount is still the container-path candidate the wizard proposes from.
+	if dev, _ := composition.Service("dev"); !slices.Equal(dev.SourceTargets, []string{"/srv/api"}) {
+		t.Errorf("the repository's own mount is %v, want [/srv/api]", dev.SourceTargets)
 	}
 }
 
@@ -661,14 +635,14 @@ func TestABuildContextInsideTheRepositoryIsTheRepositorys(t *testing.T) {
 	}
 }
 
-// TestTheMountsIntoARepositoryAreCollected covers the mounts that name something
-// other than the repository root.
+// TestAMountNamingAPathInsideTheRepositoryIsNotCollected is the reading ADR-104
+// removed, pinned so that it does not come back.
 //
-// Such a path is no candidate for the container path, and it is still a path the
-// mount needs: a task works in a worktree and a worktree holds only what Git tracks,
-// so a bind of an ignored file is a bind of something that will not be there. Whether
-// it is tracked is Git's answer and `feat doctor`'s question; this reads the paths.
-func TestTheMountsIntoARepositoryAreCollected(t *testing.T) {
+// A bind source is never rewritten, so it resolves against the ordinary checkout even
+// for a task, and the untracked file it names is there. Two of the entries below point
+// inside the repository and neither produces anything: what the reader still has to say
+// about this file is the repository's own mount and the entry it could not read.
+func TestAMountNamingAPathInsideTheRepositoryIsNotCollected(t *testing.T) {
 	root := t.TempDir()
 	repository := filepath.Join(root, "api")
 	devcontainer := filepath.Join(root, "devcontainer")
@@ -695,29 +669,17 @@ func TestTheMountsIntoARepositoryAreCollected(t *testing.T) {
 
 	composition := reading(devcontainer, repository).Read(file)
 
-	var paths []string
-	for _, mount := range composition.Mounts {
-		paths = append(paths, mount.Path)
-	}
-	// The two that come out of the repository, and nothing else. The repository
-	// itself is the container path question and is answered by SourceTargets; the
-	// Dockerfile beside the Compose file and the named volume are not this
-	// repository's at all; and the home-relative source resolves against the home
-	// directory, which is where Compose resolves it and is nowhere near this
-	// repository.
-	want := []string{filepath.Join(repository, ".env"), filepath.Join(repository, "node_modules")}
-	if !slices.Equal(paths, want) {
-		t.Errorf("the paths a mount needs are %v, want %v", paths, want)
-	}
+	// The repository itself is the container-path question and is answered by
+	// SourceTargets. The `.env` and the `node_modules` beside it are answered by
+	// nothing, which is the whole of what changed.
 	if dev, _ := composition.Service("dev"); !slices.Equal(dev.SourceTargets, []string{"/srv/api"}) {
 		t.Errorf("the repository's own mount is %v, want [/srv/api]", dev.SourceTargets)
 	}
-	// And each is attributed, because a reader sent to look at one has to know
-	// which file and which service wrote it.
-	for _, mount := range composition.Mounts {
-		if !strings.Contains(mount.Where, file) || !strings.Contains(mount.Where, "dev") {
-			t.Errorf("the mount of %s is attributed to %q", mount.Path, mount.Where)
-		}
+	// No container path was given, so no entry is judged by its target either, and
+	// nothing here is reported at all.
+	if len(composition.Targets) != 0 {
+		t.Errorf("%d mounts were judged by their target without a container path",
+			len(composition.Targets))
 	}
 
 	// The interpolated entry is named as unread rather than passed over: a report
@@ -782,16 +744,6 @@ func TestATildeIsResolvedTheWayComposeResolvesIt(t *testing.T) {
 			dev.BuildContext, dev.BuildsFromSource)
 	}
 
-	// The file inside the repository is a path the mount needs; the home
-	// directory is not this repository's business at all.
-	var paths []string
-	for _, mount := range composition.Mounts {
-		paths = append(paths, mount.Path)
-	}
-	if !slices.Equal(paths, []string{filepath.Join(repository, ".env")}) {
-		t.Errorf("the paths a mount needs are %v, want only the file inside the repository", paths)
-	}
-
 	// And another user's home is refused rather than resolved, so the mount that
 	// names one is reported as unread: a report that passed over it silently would
 	// claim to have checked a mount nobody looked at.
@@ -843,8 +795,8 @@ func TestComposeExampleReadsAsDocumented(t *testing.T) {
 	if !api.BuildsFromSource {
 		t.Error("api is not read as built from the repository")
 	}
-	if len(composition.Mounts)+len(composition.Targets)+len(composition.Undecided) > 0 {
-		t.Errorf("the example has mounts Feat would report: mounts %v, targets %v, undecided %v",
-			composition.Mounts, composition.Targets, composition.Undecided)
+	if len(composition.Targets)+len(composition.Undecided) > 0 {
+		t.Errorf("the example has mounts Feat would report: targets %v, undecided %v",
+			composition.Targets, composition.Undecided)
 	}
 }

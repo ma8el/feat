@@ -512,18 +512,18 @@ func (c *checker) checkRuntime(ctx context.Context) {
 			Repository:    repository.HostPath,
 			ContainerPath: containerPath,
 		}.Read(contribution.ComposeFiles...)
-		c.checkMounts(ctx, field+".mounts", repository, composition.Mounts)
 		c.checkMountTargets(ctx, field+".mounts", repository, containerPath, composition.Targets)
+		c.checkBuildContexts(ctx, field+".builds", repository, contribution.Services, composition)
 		c.reportUnreadMounts(field+".mounts", composition.UnreadMounts)
 	}
 }
 
-// checkAgentMounts reports what the agent's own Compose files bind out of each
-// repository.
+// checkAgentMounts reports what the agent's own Compose files write into each
+// repository's worktree.
 //
 // The files are read once per repository, because they are asked a question
 // about a repository: a devcontainer holds every repository a task takes, and a
-// mount naming something inside one of them says nothing about the others.
+// mount writing into one of them says nothing about the others.
 // Their project directory is the first configured file's own directory, which
 // is what the daemon gives Compose when it starts the agent (ADR-033), so a
 // relative source resolves here exactly as it will resolve there.
@@ -548,7 +548,6 @@ func (c *checker) checkAgentMounts(ctx context.Context) {
 			Env: c.env, ProjectDir: directory, Repository: repository.HostPath,
 			ContainerPath: containerPath,
 		}.Read(execution.ComposeFiles...)
-		c.checkMounts(ctx, "repositories."+id+".agent.mounts", repository, composition.Mounts)
 		c.checkMountTargets(ctx, "repositories."+id+".agent.mounts", repository,
 			containerPath, composition.Targets)
 		for _, entry := range composition.UnreadMounts {
@@ -564,44 +563,52 @@ func (c *checker) checkAgentMounts(ctx context.Context) {
 	c.reportUnreadMounts("agent.execution.compose_files.mounts", unread)
 }
 
-// checkMounts reports the bind mounts of one repository that a task's worktree
-// will not be able to satisfy.
+// checkBuildContexts reports the build contexts a task's worktree will not hold.
 //
-// A task works in a worktree, and a worktree holds only what Git tracks: an ignored
-// `.env`, a `node_modules` built in place, or a file a colleague has and nobody
-// committed is not there. Feat explains this class once the container runtime has
-// failed over it (internal/runtime/compose/explain.go), and one shape never reaches a
-// runtime error at all: a mount over a file that is created empty, which is a running
-// application misbehaving with nothing naming the cause.
+// A service whose image copies the repository in has no mount to replace, so Feat
+// points its build context at the task's own worktree instead
+// (internal/daemon/runtime.go, runtimeBuilds). That redirect is what puts the
+// worktree's contents in front of the build: `docker compose build` resolves the
+// context before any layer runs, and a directory Git does not track is not in the
+// worktree, so the build fails with "path not found" (ADR-104, measurement 2).
 //
-// It reports and refuses nothing, for the reason that explanation does: a file a
-// build step creates, or one that arrives with a `postCreateCommand`, is a legitimate
-// absence, and Feat cannot tell it from the one that will hurt.
+// It warns rather than fails, for the reason ADR-081 gave the source-side mount check
+// and which is true here rather than there. A generated or vendored directory is
+// created in the worktree on the host, and a task's services are started manually
+// after the agent has worked, so an absence a diagnosis sees may be gone by then.
 //
-// An entry whose target lands where Feat mounts the worktree never reaches here. The
-// reader has classified it as a Target instead and checkMountTargets refuses it, so
-// it gets one finding at the severity its own failure has.
+// Only a context Feat read and would redirect is asked about, which makes this
+// check's population the redirect's own. An entry that interpolates is left unread,
+// an unread context is not redirected, and such a service builds from its own
+// checkout — so there is nothing to report and no coverage to disclose.
 //
-// A repository a task mounts no worktree of is not asked at all, because every
-// word above is about a worktree (mountsNoWorktree).
-func (c *checker) checkMounts(
-	ctx context.Context, check string, repository config.Repository, mounts []MountedPath,
+// Each repository's files are read against its own checkout, which is the boundary
+// the target-side check already draws (ADR-098). A context above the checkout is
+// somebody else's code and is left alone, and the repository's own root is skipped
+// because a worktree always has one.
+func (c *checker) checkBuildContexts(
+	ctx context.Context, check string,
+	repository config.Repository, services []string, composition Composition,
 ) {
-	if len(mounts) == 0 || mountsNoWorktree(repository) {
+	if mountsNoWorktree(repository) {
 		return
 	}
-	// A repository Git cannot answer about has already been reported by
-	// checkRepositories, and asking it once per mount would report every one of
-	// them as untracked on the strength of that same single failure.
+	// checkMountTargets's reason, unchanged: a repository Git cannot answer about has
+	// already been reported by checkRepositories, and asking it once per context would
+	// report every one of them on the strength of that same single failure.
 	if _, err := c.runner.Run(ctx, repository.HostPath, gitExecutable, "rev-parse", "--git-dir"); err != nil {
 		return
 	}
 
-	for _, mount := range mounts {
-		// Asked as the repository sees it: a pathspec relative to the checkout
-		// Git is being run in, rather than an absolute path that would have to
-		// survive whatever symbolic links stand between the two.
-		relative, err := filepath.Rel(repository.HostPath, mount.Path)
+	for _, name := range services {
+		service, known := composition.Service(name)
+		if !known || !service.BuildsFromSource {
+			continue
+		}
+		// Asked as the repository sees it: a pathspec relative to the checkout Git is
+		// being run in, rather than an absolute path that would have to survive
+		// whatever symbolic links stand between the two.
+		relative, err := filepath.Rel(repository.HostPath, service.BuildContext)
 		if err != nil || relative == "" || relative == "." || strings.HasPrefix(relative, "..") {
 			continue
 		}
@@ -609,9 +616,12 @@ func (c *checker) checkMounts(
 			"ls-files", "--error-unmatch", "--", relative); err == nil {
 			continue
 		}
-		c.warn(check, fmt.Sprintf("%s binds %s, and Git does not track it", mount.Where, mount.Path),
-			"a task works in a worktree, which holds only what Git tracks, so that path will not be "+
-				"there: commit it, have the container create it, or drop the mount")
+		c.warn(check, fmt.Sprintf("service %q builds from %s, and Git does not track it",
+			name, service.BuildContext),
+			fmt.Sprintf("Feat points that context at this task's worktree, which holds only what Git "+
+				"tracks, so the build fails before any layer runs: commit %s, have something create "+
+				"it in the worktree before the services start, or build from a path Git tracks",
+				relative))
 	}
 }
 
@@ -676,11 +686,11 @@ func (c *checker) refusesFileMountPoint(ctx context.Context) bool {
 
 // mountsNoWorktree reports whether a task mounts no worktree of a repository.
 //
-// Both mount checks rest on a task working in a worktree, so both are silent
-// about a repository no task gives one. Two default access modes qualify, for
-// different reasons and with the same consequence — the project's own mounts
-// stand exactly as they are written, against the ordinary checkout, which holds
-// the untracked files a worktree does not:
+// The mount check and the build-context check both rest on a task working in a
+// worktree, so both are silent about a repository no task gives one. Two default
+// access modes qualify, for different reasons and with the same consequence — the
+// project's own mounts and build contexts stand exactly as they are written, against
+// the ordinary checkout, which holds the untracked files a worktree does not:
 //
 //   - omitted, which puts the repository in no task at all, and which
 //     checkRepositories already reports as out of scope;
@@ -726,12 +736,13 @@ func worktreeContainerPath(repository config.Repository, containerPath string) s
 // checkMountTargets reports the bind mounts that will stop a task's container
 // from being created at all.
 //
-// It is the other side of checkMounts, asked about the same repository in the
-// same checkout, and it is the side that hurts. The container runtime has to
-// create the mount point, and on a runtime whose binds cross a virtual machine
-// that path resolves outside the container's rootfs and it will not create a
-// file there. An ordinary checkout satisfies such a mount because the file is
-// simply there, and a worktree holds only what Git tracks, so it is not.
+// It is the one mount question a worktree substitution actually raises. The container
+// runtime has to create the mount point, and on a runtime whose binds cross a virtual
+// machine that path resolves outside the container's rootfs and it will not create a
+// file there. An ordinary checkout satisfies such a mount because the file is simply
+// there, and a worktree holds only what Git tracks, so it is not. A mount's *source* is
+// never rewritten, so it resolves into the ordinary checkout and raises no such question
+// (ADR-104).
 //
 // Which entries reach here is decided in the reader and is narrower than the
 // error message suggests (project.mountPointFor): only a source that is not a
@@ -743,16 +754,18 @@ func worktreeContainerPath(repository config.Repository, containerPath string) s
 // creates the file. So this refuses only where RefusesFileMountPoint established that
 // the runtime will, and warns elsewhere rather than failing a project that works.
 //
-// It refuses where checkMounts reports, because the reason checkMounts warns does not
-// survive the crossing: no command in the container runs before its mounts, so there
-// is no build step and no `postCreateCommand` that could have supplied this one. Feat
-// explains the same failure after the fact (internal/runtime/compose/explain.go), and
-// saying it before a task exists is what this is for.
+// It refuses rather than warning because there is no legitimate absence to allow for:
+// no command in the container runs before its mounts, so no build step and no
+// `postCreateCommand` could have supplied this one. That is the difference from
+// checkBuildContexts, which warns because something on the host may yet create what it
+// names. Feat explains the same failure after the fact
+// (internal/runtime/compose/explain.go), and saying it before a task exists is what
+// this is for.
 //
-// The question Git is asked is checkMounts's exactly, about a different path:
-// the target under the container path is the path a worktree would have to hold,
-// and the ordinary checkout answers for the worktree. No worktree path is built,
-// because none exists yet and none needs to.
+// The path Git is asked about is the target under the container path: the
+// repository-relative path a worktree would have to hold for the mount point to be
+// creatable, and the ordinary checkout answers for the worktree. No worktree path is
+// built, because none exists yet and none needs to.
 func (c *checker) checkMountTargets(
 	ctx context.Context, check string,
 	repository config.Repository, containerPath string, targets []MountedTarget,
@@ -760,9 +773,9 @@ func (c *checker) checkMountTargets(
 	if len(targets) == 0 {
 		return
 	}
-	// checkMounts's reason, unchanged: a repository Git cannot answer about has
-	// already been reported by checkRepositories, and asking it once per mount
-	// would report every one of them on the strength of that same failure.
+	// A repository Git cannot answer about has already been reported by
+	// checkRepositories, and asking it once per mount would report every one of
+	// them on the strength of that same single failure.
 	if _, err := c.runner.Run(ctx, repository.HostPath, gitExecutable, "rev-parse", "--git-dir"); err != nil {
 		return
 	}

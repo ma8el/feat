@@ -292,9 +292,8 @@ func serviceNames(file string) []string {
 //
 // Five things are read and nothing else: service keys, the bind mounts of the
 // repository — the container targets of those whose source is the repository itself,
-// the paths inside it that others name, and the ones writing into where Feat mounts a
-// task's worktree — whether a service is built from the repository, and the container
-// ports it publishes to the host.
+// and the ones writing into where Feat mounts a task's worktree — whether a service is
+// built from the repository, and the container ports it publishes to the host.
 //
 // No `environment` value, no `build.args` entry, and no `env_file` is opened. An
 // entry containing a "${...}" is left unread rather than resolved, because Feat could
@@ -302,25 +301,15 @@ func serviceNames(file string) []string {
 type Composition struct {
 	// Services are what the files declare, in name order.
 	Services []ComposeService
-	// Mounts are the paths inside the repository that a bind mount names one at a time,
-	// rather than mounting the repository itself, which is what SourceTargets holds.
-	//
-	// They are the mounts a task cannot take for granted. A task works in a worktree,
-	// and a worktree holds only what Git tracks, so a mount naming an ignored `.env` or
-	// a `node_modules` built in place names something that will not be there. A file a
-	// build step creates is a legitimate absence, so this is read to report and never to
-	// refuse (internal/runtime/compose/explain.go).
-	Mounts []MountedPath
 	// Targets are the bind mounts that write into where Feat mounts a task's worktree,
-	// rather than out of the repository, which is what Mounts holds.
+	// rather than mounting the repository itself, which is what SourceTargets holds.
 	//
 	// The container runtime has to create the mount point, and on a runtime whose binds
 	// cross a virtual machine that path resolves outside the container's rootfs and it
-	// will not create a file there. Unlike a mount in Mounts, which a build step may yet
-	// satisfy, nothing in the container can repair this one: the failure precedes every
-	// command in it, and the container is never created. Which runtimes do that is not
-	// settled here, so the severity is taken from the runtime where the check runs
-	// (ADR-098).
+	// will not create a file there. Nothing in the container can repair it: the failure
+	// precedes every command in it, and the container is never created. Which runtimes do
+	// that is not settled here, so the severity is taken from the runtime where the check
+	// runs (ADR-098).
 	//
 	// Only the entries whose mount point would have to be a file are here, which is what
 	// mountPointFor establishes. What is bound over it decides nothing, because a
@@ -336,17 +325,6 @@ type Composition struct {
 	// Undecided names the entries left unread because they interpolate, so "Feat
 	// proposed nothing" comes with somewhere to look.
 	Undecided []string
-}
-
-// MountedPath is one path inside the repository that a bind mount names.
-type MountedPath struct {
-	// Path is the absolute host path the mount's source resolves to, resolved
-	// the way Compose will resolve it.
-	Path string
-	// Where is the file and the service that wrote the entry, in the words the unread
-	// entries are named in, because a reader sent to look at one has the same problem
-	// either way.
-	Where string
 }
 
 // MountedTarget is one container path a bind mount writes to, inside where Feat
@@ -365,8 +343,9 @@ type MountedTarget struct {
 	// masking a file and the file itself fail alike, but that it is not a directory is
 	// why this entry is here at all (mountPointFor).
 	Source string
-	// Where is the file and the service that wrote the entry, as MountedPath
-	// names it.
+	// Where is the file and the service that wrote the entry, in the words the unread
+	// entries are named in, because a reader sent to look at one has the same problem
+	// either way.
 	Where string
 }
 
@@ -604,18 +583,8 @@ func (r ComposeReader) mergeService(c *Composition, position int, file string, r
 				// below make of it.
 			}
 		}
-		if resolved == filepath.Clean(r.Repository) {
-			if !contains(service.SourceTargets, target) {
-				service.SourceTargets = append(service.SourceTargets, target)
-			}
-			continue
-		}
-		// Everything else that comes out of the repository. A mount of one file or
-		// one directory inside it is not a candidate for the container path, because a
-		// whole worktree mounted at one target would not replace it, but it is still a
-		// path the mount needs to be there.
-		if within(r.Repository, resolved) {
-			c.mounted(MountedPath{Path: resolved, Where: where})
+		if resolved == filepath.Clean(r.Repository) && !contains(service.SourceTargets, target) {
+			service.SourceTargets = append(service.SourceTargets, target)
 		}
 	}
 
@@ -660,21 +629,6 @@ func (c *Composition) unread(entry string) {
 	if !contains(c.UnreadMounts, entry) {
 		c.UnreadMounts = append(c.UnreadMounts, entry)
 	}
-}
-
-// mounted records one path a bind mount needs, once.
-//
-// By path rather than by entry: Compose files that layer over one another repeat
-// a service's volumes, and the same path bound by a base and by the overlay
-// beside it is one path a worktree either holds or does not. The first place it
-// was written is the one named, because that is where a reader starts looking.
-func (c *Composition) mounted(one MountedPath) {
-	for _, existing := range c.Mounts {
-		if existing.Path == one.Path {
-			return
-		}
-	}
-	c.Mounts = append(c.Mounts, one)
 }
 
 // targeted records one mount point a bind mount needs created, once.
