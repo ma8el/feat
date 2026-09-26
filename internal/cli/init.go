@@ -18,22 +18,22 @@ import (
 
 const initLong = `Write a project's configuration by answering questions.
 
-A project is one YAML file. This asks what has to be decided — which
+A project is one YAML file. This asks only what has to be decided: which
 repositories take part and where they publish, whether a task runs application
-services, where the agent runs, and where your tickets come from — and fills in
-everything Feat has a default for, so the file it produces states your decisions
-and nothing else. Every question proposes an answer, so a project that needs
-none of the optional parts is a run of pressing Enter.
+services, where the agent runs, and where your tickets come from. Everything
+Feat has a default for is filled in, so the file states your decisions and
+nothing else. Every question proposes an answer, so a project that needs none of
+the optional parts is answered entirely with Enter.
 
-What it can find out, it finds out rather than asking: whether a directory is a
-Git repository, which remote and default branch it has, which Compose files are
-beside it, and which services they define. What it proposes is offered as the
-answer, and pressing Enter accepts it.
+It finds out what it can rather than asking: whether a directory is a Git
+repository, which remote and default branch it has, which Compose files are
+beside it, and which services they define. Each proposal arrives as the answer,
+and Enter accepts it.
 
-The whole file is displayed before anything is written, and it has already been
-loaded and validated by then: what you are shown is a configuration Feat
-accepts. Nothing is written until you say so, an existing configuration is never
-overwritten, and no project is registered without being asked.
+The whole file is displayed before anything is written, loaded and validated by
+then, so what you see is a configuration Feat accepts. Nothing is written until
+you say so, an existing configuration is never overwritten, and no project is
+registered without being asked.
 
 The dashboard asks the same questions on ` + "`p`" + `, for a machine that is already
 running Feat.`
