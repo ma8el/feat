@@ -499,6 +499,11 @@ sections above.
   mounted over it, so a project that keeps a development overlay beside it brings
   the overlay.
 
+[`docs/examples/compose`](examples/compose) is a worked pair of Compose files
+that meets all five, with the project configuration that runs them. The
+README's [Troubleshooting](../README.md#troubleshooting) section starts from
+what a user sees when one of them is missing.
+
 What a project should *not* write is as load-bearing, because a workaround left
 in place reads as a requirement. Feat resets `container_name` on every service in
 the task's Compose project, replaces every published port, gives the project a

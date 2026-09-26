@@ -1,0 +1,47 @@
+# The application as it runs anywhere: an API and the database it keeps its data
+# in. Read README.md beside this file first; it says which parts Feat replaces
+# for a task and which parts this file has to get right.
+
+services:
+  api:
+    # The image copies the source in, so this file alone serves whatever the
+    # image was built from. compose.dev.yaml mounts the source over it instead.
+    build: .
+    environment:
+      # A call to a sibling names the Compose service and the container port.
+      # Neither differs per task, so nothing here needs Feat's variables.
+      DATABASE_URL: postgres://notes:notes@db:5432/notes
+      # What a browser uses to reach this API: here, the base of the links the
+      # API returns. The port differs per task, so it is read from Feat's
+      # variable, with a default so the file still works run by hand.
+      PUBLIC_URL: ${FEAT_HOST_URL_API:-http://localhost:8000}
+    ports:
+      # Written plainly, so Feat can read the container port. Feat publishes
+      # it on a host port it allocates for each task; the 8000 is yours alone.
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: notes
+      POSTGRES_PASSWORD: notes
+      POSTGRES_DB: notes
+    volumes:
+      # No `name:` on the volume below: Compose prefixes it with the project
+      # name, so each task gets a database of its own.
+      - db-data:/var/lib/postgresql/data
+    ports:
+      # For psql from this machine when you run the file by hand. Feat removes
+      # it for a task, because a fixed host port is one task at a time.
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notes -d notes"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+volumes:
+  db-data:

@@ -1,0 +1,14 @@
+# The development overlay. Compose merges it over compose.yaml, and it is the
+# file that makes a task's edits appear: the source is mounted rather than
+# baked, and the server reloads when it changes.
+
+services:
+  api:
+    volumes:
+      # The repository's source, at the one path Feat's runtime.container_path
+      # names. Feat's override mounts the task's worktree at the same target,
+      # and Compose replaces a mount by target, so the task's code wins.
+      - .:/app
+    # The image installs its dependencies outside /app, in /opt/venv, so this
+    # mount does not hide them.
+    command: ["/opt/venv/bin/uvicorn", "notes.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

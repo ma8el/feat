@@ -818,3 +818,33 @@ func TestAFileThatCannotBeReadProposesNothing(t *testing.T) {
 		}
 	}
 }
+
+// TestComposeExampleReadsAsDocumented keeps docs/examples/compose in step with
+// what Feat reads out of a project's Compose files. notes.yaml there names /app
+// and a reachable api, and each is an answer this reader has to give.
+func TestComposeExampleReadsAsDocumented(t *testing.T) {
+	example, err := filepath.Abs("../../docs/examples/compose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	composition := readingInto(example, example, "/app").Read(
+		filepath.Join(example, "compose.yaml"), filepath.Join(example, "compose.dev.yaml"))
+
+	if target, agreed := composition.SourceTarget([]string{"api"}); !agreed || target != "/app" {
+		t.Errorf("api mounts its source at %q (agreed %t), want /app", target, agreed)
+	}
+	if published := composition.Published([]string{"api", "db"}); !slices.Equal(published, []string{"api", "db"}) {
+		t.Errorf("the services publishing a port are %v, want api and db", published)
+	}
+	api, _ := composition.Service("api")
+	if len(api.Ports) != 1 || api.Ports[0].ContainerPort != 8000 {
+		t.Errorf("api publishes %+v, want container port 8000", api.Ports)
+	}
+	if !api.BuildsFromSource {
+		t.Error("api is not read as built from the repository")
+	}
+	if len(composition.Mounts)+len(composition.Targets)+len(composition.Undecided) > 0 {
+		t.Errorf("the example has mounts Feat would report: mounts %v, targets %v, undecided %v",
+			composition.Mounts, composition.Targets, composition.Undecided)
+	}
+}
