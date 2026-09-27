@@ -15,7 +15,8 @@ setup skill and its two emitters — `feat project schema` and `feat project
 example` — come with them, because a user who installed a binary has none of the
 repository that the schema and example rules point at. The Homebrew tap, any apt
 path, and Linux support stay in `v0.2`; Linux is built and tested on every
-commit and has never been run, so `v0.1.0` claims macOS. See ADR-090.
+commit and has never been run, so `v0.1.0` claims macOS. See ADR-090. `v0.2.0`
+delivered the Linux archives and the tap; an apt path is still unscheduled.
 
 The first milestone is allowed to use manually authored project YAML and project-specific configuration. It must not hard-code the reference project's paths, repository names, or services into the domain model.
 
@@ -220,9 +221,18 @@ Included:
 - JSON Schema and shell completion
 - public diagnostics and troubleshooting
 - Homebrew tap
-- Linux desktop notification where supported
 - Apache 2.0 license and contribution documentation
 - no telemetry
+
+`v0.2.0` ships that list with two departures. **Linux is supported**: archives are
+built for both platforms, and a task has been launched, reviewed, and cleaned up on
+Linux by somebody sitting at the machine. **Linux desktop notification has left
+this list and is scheduled nowhere** — no machine here can confirm a delivery and
+no Linux user has asked (ADR-107); the dashboard's attention badges are rendered
+from task state and work on every platform. The tap carries a cask rather than a
+formula, so `brew install` is a macOS route and a Linux user installs with
+`go install` or an archive, which is the tool's constraint rather than a choice
+(ADR-108).
 
 Publication and the ticket adapter arrive before this milestone rather than inside it, in that order, because the dogfood cannot finish a task without the first (ADR-072). Host-native agent execution has left this list because it was delivered in v0.1, and release binaries and `go install` because `v0.1.0` publishes them (ADR-090). The second pass over the onboarding wizard and the machine-readable output of the reading commands, with the two-phase `feat implement` that prints the same shape, arrive in `v0.1.1` for a reason of the same shape: they change what Feat does, and this milestone's documentation is written against runs of a build that already has them (ADR-095). What is left of *clearer project registration* here is the manual path and its documentation, and what the *JSON Schema* line still finalizes is `schema/feat-project.schema.json`, which describes configuration a user writes rather than output Feat prints. This replaces the condition recorded here previously, which admitted Shortcut into v0.2 only if core reliability was already complete and required that it not delay public preview.
 

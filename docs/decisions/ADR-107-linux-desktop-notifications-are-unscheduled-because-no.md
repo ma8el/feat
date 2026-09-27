@@ -59,3 +59,10 @@ Consequence: item 1 of the public-preview milestone loses the notification claus
 from its done-when, leaving the run in anger and the archives. The `Notifier`
 interface is untouched, so the backend remains a file to add rather than a design
 to revisit, which is what ADR-028's rule about an absent capability bought.
+
+[04-functional-specification.md](04-functional-specification.md) FR-UI-004 said
+Linux desktop notifications "are required for public v0 where supported", which
+this decision removes; it now states that the badges are what every platform gets
+and that a platform Feat does not deliver on must say so. That amendment was missed
+when this decision was first recorded and added when the release was prepared —
+`docs/08-v0-scope.md` lost the bullet in the same pass.

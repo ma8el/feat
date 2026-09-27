@@ -19,10 +19,10 @@ runtime, and review — without replacing the underlying tools.
 One task owns one agent session, one set of Git worktrees, and one feature
 environment. A task may span several repositories.
 
-> **Status: alpha.** The v0.1 scope is complete and Feat is being used on real
-> work, on macOS, with Claude in a devcontainer or on the host. The first
-> release, `v0.1.1`, packages that scope for its author and is marked
-> pre-release.
+> **Status: public preview.** `v0.2.0` is the first release offered to somebody
+> who has never seen Feat. It is used on real work on macOS and has been run on
+> Linux, with Claude in a devcontainer or on the host. Expect the rough edges of a
+> `0.x`: the interfaces it drives are stable, its own are not yet.
 
 ## Installing
 
@@ -42,21 +42,32 @@ Feat needs these on the machine:
 
 `feat doctor` checks all of this and says what to do about what it finds.
 
-There are three ways to get the binary.
+There are four ways to get the binary.
 
-**A release archive.** The [releases
-page](https://github.com/ma8el/feat/releases) has one `tar.gz` per macOS
-architecture — `arm64` for Apple Silicon, `amd64` for an Intel Mac:
+**Homebrew**, on macOS:
 
 ```sh
-curl -LO https://github.com/ma8el/feat/releases/download/v0.1.1/feat_0.1.1_darwin_arm64.tar.gz
-tar xzf feat_0.1.1_darwin_arm64.tar.gz
-mv feat_0.1.1_darwin_arm64/feat /usr/local/bin/   # or anywhere on your PATH
+brew install ma8el/feat/feat
+```
+
+It brings Git and tmux with it, and is the one route that needs no `xattr` below.
+A cask rather than a formula, which is why it is macOS only; Homebrew on Linux
+does not install casks.
+
+**A release archive.** The [releases
+page](https://github.com/ma8el/feat/releases) has one `tar.gz` per platform and
+architecture — `darwin_arm64` for Apple Silicon, `darwin_amd64` for an Intel Mac,
+`linux_arm64` and `linux_amd64`:
+
+```sh
+curl -LO https://github.com/ma8el/feat/releases/download/v0.2.0/feat_0.2.0_darwin_arm64.tar.gz
+tar xzf feat_0.2.0_darwin_arm64.tar.gz
+mv feat_0.2.0_darwin_arm64/feat /usr/local/bin/   # or anywhere on your PATH
 feat version
 ```
 
-The archives are not notarized, so an archive taken through a browser rather
-than with the `curl` above is quarantined: clear it with
+The archives are not notarized, so on macOS an archive taken through a browser
+rather than with the `curl` above is quarantined: clear it with
 `xattr -d com.apple.quarantine feat`.
 
 **`go install`**, with the Go toolchain [`go.mod`](go.mod) pins:

@@ -228,22 +228,24 @@ changelog:
   disable: true
 
 release:
-  # v0.1.0 packages the finished dogfood for its author. The repository is
-  # public, so the choice is not between visible and hidden but between
-  # advertised and unadvertised, and pre-release is what says unadvertised to
-  # somebody deciding whether to install.
+  # `v0.1.x` was visible and unadvertised, which is what pre-release says to
+  # somebody deciding whether to install. `v0.2.0` is the public preview and is
+  # announced, so it is published as a release and resolves as /releases/latest.
   #
-  # It is marked here rather than written into the tag, which stays a plain
-  # `v0.1.0`. A tag carrying the pre-release instead — `v0.1.0-alpha.1` — would
-  # be reached by `go install ...@latest` only through Go's fallback for modules
-  # that have no release version at all, and would stop being reached the moment
-  # any plain tag existed. So the marking belongs on the release, and this file
-  # is the only place that can put it there: `goreleaser release` has a --draft
-  # flag and no --prerelease, so no workflow can pass it.
+  # `auto` rather than `false`, and the difference is a foot-gun rather than a
+  # preference: it takes the flag from the tag, so a plain `v0.2.0` publishes as a
+  # release and a `v0.3.0-rc.1` publishes as a pre-release without anybody
+  # remembering to come back here. `false` would announce an rc as stable. The
+  # cask's `skip_upload: auto` draws the same line, so the two agree by
+  # construction.
   #
-  # Not `auto`, which infers the flag from a pre-release segment in the tag.
-  # `v0.1.0` has none, so `auto` would publish it as a normal release.
-  prerelease: true
+  # The flag belongs on the release rather than in the tag either way: a tag
+  # carrying a pre-release segment is reached by `go install ...@latest` only
+  # through Go's fallback for modules that have no release version at all, and
+  # stops being reached the moment any plain tag exists. And this file is the only
+  # place that can set it: `goreleaser release` has a --draft flag and no
+  # --prerelease, so no workflow can pass it.
+  prerelease: auto
 
   # The section for this tag alone: everything between its own `## <tag>`
   # heading and the next one, with the heading put back on the front.

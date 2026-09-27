@@ -120,11 +120,19 @@ against runs (ADR-095).
   hand. It also has to precede the first-task documentation above rather than
   follow it, or that documentation publishes the hand-editing as the path.
 
-Done when the public-v0 definition of done passes on macOS and Linux, host-native
-and devcontainer modes use the same task domain, the installation and first-task
-documentation is reproducible on a machine that has never run Feat, and the known
-security limitations are stated where somebody deciding to run Feat on their own
-work will read them.
+Done when the public-v0 definition of done passes as
+[08-v0-scope.md](08-v0-scope.md) states it — a new macOS *or* Linux user, with
+host-native *or* devcontainer tasks — host-native and devcontainer modes use the
+same task domain, the installation and first-task documentation is reproducible on
+a machine that has never run Feat, and the known security limitations are stated
+where somebody deciding to run Feat on their own work will read them.
+
+**Met by `v0.2.0`**, and worth recording as what it covers rather than what it
+implies. Feat ships archives for macOS and Linux and a task has been launched,
+reviewed, and cleaned up on both. The definition of done was followed cold on a
+fresh macOS machine in host-native mode, which is the "or" the criterion offers;
+the Linux run was driven by somebody who knows the product. The devcontainer mode
+is what the dogfood uses daily and is not what the cold follow exercised.
 
 ## Phase 2 — automated runtime lifecycle
 

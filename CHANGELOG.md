@@ -4,6 +4,47 @@ Written by hand, one section per tag, newest first. Each section is the body of
 its own GitHub release: `.goreleaser.yaml` publishes the section for the tag it
 is building, so what is written here is what a reader sees on the release page.
 
+## v0.2.0 — 2026-09-27
+
+The first release offered to somebody who has never seen Feat. What it adds is
+not capability but the things that make capability usable by a stranger: a second
+platform, worked examples, a published compatibility surface, a packaging route,
+the stated limits, and documentation somebody can follow without opening the
+source.
+
+**Linux is supported.** A task has been launched, reviewed, and cleaned up on it
+by somebody sitting at the machine, and every archive is built for both platforms.
+That run found two defects and both are fixed: the review diff released the
+terminal as soon as a short diff fitted one screen, and cleanup stopped on files an
+application container had written into a worktree as root. Neither was a Linux
+defect in the end — the first happens wherever `LESS` is unset, which is every
+machine but the one this was written on. Desktop notifications stay macOS-only and
+are not scheduled; the dashboard's attention badges work everywhere.
+
+**`brew install ma8el/feat/feat`** installs it on macOS from a tap, and is the one
+install route that needs no `xattr` afterwards.
+
+**Two schemas are published with a promise.** `feat-project` and `feat-output` now
+have stable locations, a statement of what may change between releases, and a test
+that fails when the statement is broken. `feat output schema` prints the output
+one from the binary, as `feat project schema` already did. Shell completion is
+supported in bash, zsh, and fish.
+
+**A worked pair of Compose files** shows what a project's own files have to get
+right for per-task runtimes, with a troubleshooting section keyed on what you see
+rather than on what caused it. `CONTRIBUTING.md` and `SECURITY.md` state the known
+security limits where somebody deciding whether to run Feat on their own work will
+read them: what a standard container does and does not protect against, no
+hostile-kernel isolation, no network data-loss prevention.
+
+**No telemetry, checked rather than claimed.** A lint rule and a test over the
+linked binary fail if any package outside the local socket and its client gains a
+way to reach a network host.
+
+One diagnostic was wrong and is now right: the mount pre-flight asked Git about
+bind sources, whose premise never held, and asks about build contexts instead,
+where it does.
+
 ## v0.1.1 — 2026-09-15
 
 Four fixes and four additions. The fixes are all things that happened while using
