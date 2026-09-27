@@ -592,6 +592,19 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   and the README says what a Linux user loses. Triggers: a Linux desktop somebody
   here uses, or a user who asks.
 
+- **[ADR-108 — The tap carries a cask, so `brew install` is a macOS route](decisions/ADR-108-the-tap-carries-a-cask-so-brew-install-is-a-macos-route.md)** · accepted  
+  The milestone asked for a formula and GoReleaser has deprecated the mechanism
+  that writes one: `goreleaser check` refuses `brews`, so the gate does too. Its
+  replacement is a cask, and Homebrew does not install casks on Linux, so
+  `brew install ma8el/feat/feat` is macOS and a Linux user keeps `go install` or an
+  archive. The narrowing is the tool's rather than a choice. A cask clears the
+  quarantine attribute in `postflight`, which no other install route does, so this
+  is the one that needs no `xattr` by hand. `git` and `tmux` are declared
+  dependencies and Claude Code is a caveat, being the one Homebrew cannot deliver.
+  No completions stanza: a cask's takes a path inside the archive, not a command.
+  `brew install` itself is only exercisable after a tag, so item 5 closes after
+  item 9.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is

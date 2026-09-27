@@ -45,6 +45,12 @@ builds:
     # reproducible by somebody rebuilding on the platform the release was built
     # on, and is a bare integrity check for everybody else. Do not widen that
     # claim without a macOS and a Linux build that actually match.
+    #
+    # The release runs on macOS and cross-compiles the Linux archives, so "the
+    # platform the release was built on" is macOS for all four. Building each on
+    # its own runner would make the sentence above true per platform and costs a
+    # split-and-merge release; nothing promises reproducibility, so it waits for
+    # somebody who wants it.
     flags:
       - -trimpath
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -135,6 +141,64 @@ archives:
 
 checksum:
   name_template: checksums.txt
+
+# The Homebrew tap. homebrew-core has notability thresholds and does not take
+# alpha software, so a tap of our own is the only route, and `ma8el/homebrew-feat`
+# is what lets `brew install ma8el/feat/feat` resolve.
+#
+# A cask and not a formula, which is not a preference: `brews` is deprecated and
+# `goreleaser check` refuses it, so the gate refuses it too. Homebrew on Linux does
+# not install casks, so `brew install` is a macOS route whatever the generated file
+# says about Linux, and a Linux user installs with `go install` or an archive
+# (ADR-108).
+homebrew_casks:
+  - name: feat
+    ids:
+      - feat
+    binaries:
+      - feat
+    description: >-
+      Terminal-native control plane for running several coding agents at once
+    homepage: https://github.com/ma8el/feat
+
+    repository:
+      owner: ma8el
+      name: homebrew-feat
+      branch: main
+      # GITHUB_TOKEN creates the release in this repository and cannot write to
+      # another one, so the tap has a token of its own.
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+
+    # Feat drives both for every task, so an install that brought neither would
+    # hand somebody a binary its own `feat doctor` refuses.
+    dependencies:
+      - formula: git
+      - formula: tmux
+
+    # The archives are not notarized, so macOS quarantines what it downloaded and
+    # the binary will not run. Doing it here is why a `brew install` needs no
+    # `xattr` by hand, unlike the archive the README documents.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"], print_stderr: false).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/feat"]
+          end
+
+    # No completions stanza. A cask's takes a path to a file inside the archive,
+    # and these archives hold the binary, the README and the licence; pointing it
+    # at `feat completion bash` would make Homebrew look for a file of that name
+    # and fail the install. The README says how to source them (ADR-102).
+
+    # The one tool without which nothing runs is the one Homebrew cannot deliver.
+    caveats: |
+      Feat launches Claude Code and has no agent of its own. Install it and sign
+      in, then run `feat doctor`:
+        https://code.claude.com/docs/en/setup
+
+    # `auto` keeps a pre-release out of the tap, so `brew install` never hands
+    # somebody an -rc while the last stable tag exists.
+    skip_upload: auto
 
 # What the release page shows is the entry CHANGELOG.md holds for the tag.
 #
