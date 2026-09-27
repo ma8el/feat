@@ -1138,3 +1138,49 @@ func TestCleanupRemovesTheGeneratedRuntimeInput(t *testing.T) {
 		t.Errorf("the cleanup removed %s without reporting it: %+v", directory, result.Removed)
 	}
 }
+
+// TestCleanupWithVolumesKeepsTheGeneratedRuntimeInputRemoved is the same removal
+// with the class that comes after it in the order (ADR-106).
+//
+// Removing a volume needs Docker and not the generated include, but the adapter
+// that asks Docker used to write one as it was built, so the directory the step
+// above had just removed came back with a file in it. The sibling test passes
+// without volumes in the selection, which is why this went unnoticed: it is the
+// second class that undoes the first one's work.
+func TestCleanupWithVolumesKeepsTheGeneratedRuntimeInputRemoved(t *testing.T) {
+	arranged := arrangeConfigured(t, runtimeFixture)
+	task := arranged.launched(t)
+	arranged.answerFor(task, "running", "Up 2 seconds")
+	arranged.act(t, task.ID, api.RuntimeStart)
+
+	directory, err := arranged.service.runtimeDirectory(task)
+	if err != nil {
+		t.Fatalf("resolving the runtime directory: %v", err)
+	}
+	if _, err := os.Stat(directory); err != nil {
+		t.Fatalf("the start generated no runtime input, so there is nothing to remove: %v", err)
+	}
+
+	arranged.runtimes.Answer("ps --all --format json", "")
+	plan := arranged.planOf(t, arranged.reload(t, task.ID))
+	volumes, ok := classOf(plan, reconcile.ClassVolumes)
+	if !ok || len(volumes.Targets) == 0 {
+		t.Fatalf("the fixture named no volumes, so this test would pass without removing one: %+v", plan.Classes)
+	}
+	// Both fakes, because removeVolumes asks the agent's adapter first and the
+	// runtime's for whatever it did not remove: a volume belongs to one of the two
+	// Compose projects and neither adapter knows about the other's.
+	for _, target := range volumes.Targets {
+		arranged.docker.Answer("volume rm "+target.Identity, "")
+		arranged.runtimes.Answer("volume rm "+target.Identity, "")
+	}
+
+	if _, err := arranged.service.Cleanup(context.Background(), task.ID,
+		selectAll(plan, reconcile.ClassRuntimeContainers, reconcile.ClassVolumes)); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+
+	if _, err := os.Stat(directory); !os.IsNotExist(err) {
+		t.Errorf("the generated runtime input %s came back after the volumes were removed: %v", directory, err)
+	}
+}

@@ -1017,6 +1017,13 @@ func (s *service) runtimes(spec runtime.Spec) (runtime.Runtime, error) {
 	return compose.New(spec, compose.Options{Runner: s.runtimeDocker})
 }
 
+// runtimesForRemoval builds the adapter for a caller that only clears up after a
+// runtime. ADR-106: removing a volume needs Docker and not the generated include,
+// and writing one after cleanup removed it put the file back.
+func (s *service) runtimesForRemoval(spec runtime.Spec) (runtime.Runtime, error) {
+	return compose.New(spec, compose.Options{Runner: s.runtimeDocker, Removing: true})
+}
+
 // pollRuntimes observes every task that owns a runtime. Only tasks with a runtime
 // record are asked, only `ps` is run for a runtime with nothing in it, and
 // nothing is written or published unless the observation differs from the record.
