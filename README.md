@@ -75,6 +75,11 @@ cd feat
 make build   # ./bin/feat
 ```
 
+A **project** is what Feat calls the set of repositories a task may work in,
+together with how its agent runs and how its work is verified. It is one YAML file
+you write once; `myproject` below is its identifier. Most projects are one
+repository, and a task may span several.
+
 Then, in one of your project's checkouts:
 
 ```sh
@@ -246,6 +251,11 @@ Feat publishes each reachable service on a host port it allocates for the task,
 so several tasks can run the same application at once. A second task that still
 will not start is in [Troubleshooting](#troubleshooting).
 
+What your own Compose files have to get right for this to work — where the source
+is mounted, what must not carry a fixed name, and why a service that writes into
+the worktree must not run as root — is a worked pair of files with its own notes in
+[`docs/examples/compose`](docs/examples/compose).
+
 ## Reviewing the work
 
 ```sh
@@ -261,10 +271,20 @@ untracked, because counting its lines would mean adding it to your index.
 Feat renders no diff of its own. It opens the commands you configured, in the
 worktree of the repository you selected, and takes the terminal back when they
 return — so a command you read from has to hold the terminal until you leave it.
-That is what `-+F` does below: git otherwise tells `less` to quit on a diff that
-fits one screen, and the dashboard repaints over it before you can read it.
+The defaults below already do; if you replace one and your diff flashes past, see
+[Troubleshooting](#troubleshooting).
+
+These are yours rather than a project's — one person opens a diff the same way
+whichever repository it is in — so they live in a settings file for the machine,
+not in a project's file:
+
+```sh
+feat settings edit   # ~/.config/feat/settings.yaml, created commented-out
+feat settings show   # every value, and whether you set it or Feat defaulted it
+```
 
 ```yaml
+# ~/.config/feat/settings.yaml
 review:
   diff:
     command: ["git", "-c", "core.pager=less -+F", "diff", "{base_commit}"]
@@ -273,6 +293,9 @@ review:
   status:
     command: ["git", "status", "--short", "--branch"]
 ```
+
+Changing one takes a `feat daemon restart`, which `feat settings show` says when
+a daemon is running.
 
 If the project configures `checks`, Feat runs them itself when the agent asks for
 review — in the environment the agent works in, or on your host where the check
@@ -373,9 +396,12 @@ from your configuration. It is headed by Feat's own mark:
 the agent asked for review — Add a scheduled export job
 ```
 
-What a project decides about being interrupted:
+What you decide about being interrupted. Whether a machine may interrupt you is
+about you and that machine rather than about any one project, so this is in the
+same settings file the review commands are:
 
 ```yaml
+# ~/.config/feat/settings.yaml
 notifications:
   desktop: true                  # macOS in this version; Linux arrives with v0.2
   idle_grace_period: 5s          # how long idle before you are told
@@ -562,6 +588,29 @@ in. Where it has to be depends on `agent.execution.mode`:
 
 The same message ends "or change agent.provider". Claude is the only provider
 in this version, so installing it is the fix.
+
+### The diff appears for an instant and vanishes
+
+Your diff command returned instead of waiting, and the dashboard repainted over
+what it printed. Feat gives a review command the whole terminal and takes it back
+when the command exits, so a command you read from has to hold it.
+
+With git, this is the pager. Git tells `less` to quit as soon as the content fits
+one screen — it sets `LESS=FRX` wherever you have not set `LESS` yourself — so a
+short diff is gone before you see it. Feat's default command pins the pager
+against that, and a command you wrote yourself does not:
+
+```yaml
+# ~/.config/feat/settings.yaml
+review:
+  diff:
+    command: ["git", "-c", "core.pager=less -+F", "diff", "{base_commit}"]
+```
+
+`-+F` cancels that one flag and leaves the rest of git's pager alone. `feat
+settings show` tells you whether the command Feat is using is yours or the
+default. A diff tool that opens its own window is meant to return at once and
+needs none of this.
 
 ### Cleanup stopped with "Permission denied" on a worktree
 
