@@ -103,6 +103,11 @@ jobs:
       # --clean empties dist/ first, so what is uploaded is what this run
       # produced. GITHUB_TOKEN is what creates the release and uploads to it,
       # and is what the contents: write above is for.
+      #
+      # HOMEBREW_TAP_TOKEN writes the formula into ma8el/homebrew-feat, which
+      # GITHUB_TOKEN cannot reach: its permissions stop at this repository. A tag
+      # cut without that secret fails after the archives are uploaded, so the
+      # release exists and the formula is a release behind.
       - name: Build and publish the release
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -110,3 +115,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
