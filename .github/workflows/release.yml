@@ -16,8 +16,9 @@ permissions:
 jobs:
   release:
     name: release
-    # .goreleaser.yaml builds darwin/amd64 and darwin/arm64 and nothing else, so
-    # the archives are built on the platform they are for.
+    # macOS builds all four archives, cross-compiling the Linux pair: the binary
+    # is pure Go with CGO_ENABLED=0. What that costs a Linux user is in
+    # .goreleaser.yaml, beside the reproducibility it costs them.
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5

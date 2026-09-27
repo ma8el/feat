@@ -45,6 +45,12 @@ builds:
     # reproducible by somebody rebuilding on the platform the release was built
     # on, and is a bare integrity check for everybody else. Do not widen that
     # claim without a macOS and a Linux build that actually match.
+    #
+    # The release runs on macOS and cross-compiles the Linux archives, so "the
+    # platform the release was built on" is macOS for all four. Building each on
+    # its own runner would make the sentence above true per platform and costs a
+    # split-and-merge release; nothing promises reproducibility, so it waits for
+    # somebody who wants it.
     flags:
       - -trimpath
     mod_timestamp: "{{ .CommitTimestamp }}"
