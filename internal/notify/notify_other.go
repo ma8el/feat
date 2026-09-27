@@ -12,7 +12,7 @@ import (
 // is supported, under the rule ADR-028 established for a diagnostic a build cannot
 // run: an absent capability says so rather than reporting success it has not earned.
 // The TUI's attention badges work everywhere and are unaffected.
-const unavailable = "Feat delivers desktop notifications on macOS only; support for this platform is v0.2 work"
+const unavailable = "Feat delivers desktop notifications on macOS only; the dashboard's badges work everywhere"
 
 // Absent is the notifier of a platform Feat does not deliver on yet.
 type Absent struct{}

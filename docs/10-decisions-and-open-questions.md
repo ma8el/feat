@@ -571,6 +571,16 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   the commands are configured. The decidable half of a `feat doctor` check is
   named and deferred.
 
+- **[ADR-107 — Linux desktop notifications are unscheduled, because no machine here can confirm one arrives](decisions/ADR-107-linux-desktop-notifications-are-unscheduled-because-no.md)** · accepted  
+  Nothing is half-built: `internal/notify` has no Linux backend and says so. What
+  is missing is a machine on which a delivery can be seen — the Linux run happened
+  on a headless box — and a notifier is the thing that must not ship unverified,
+  because its whole behaviour is a side effect on a desktop. No Linux user has
+  asked. So it leaves Phase 1 and is scheduled nowhere, and nothing in the product
+  names a version for it any more. The dashboard's badges work on every platform
+  and the README says what a Linux user loses. Triggers: a Linux desktop somebody
+  here uses, or a user who asks.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is

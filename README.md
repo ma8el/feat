@@ -403,14 +403,21 @@ same settings file the review commands are:
 ```yaml
 # ~/.config/feat/settings.yaml
 notifications:
-  desktop: true                  # macOS in this version; Linux arrives with v0.2
+  desktop: true                  # macOS only; the badges below work everywhere
   idle_grace_period: 5s          # how long idle before you are told
   suppress_while_attached: true
 ```
 
-Desktop delivery is macOS-only in v0.1. Feat can tell you it handed a
-notification over; it cannot tell you one was shown, because macOS decides that
-per application and drops an unauthorised notification without saying so.
+Desktop delivery is macOS-only, and Linux delivery is not scheduled: nobody on
+this project has a Linux desktop session to confirm one arrives on, and a notifier
+whose delivery has never been seen is not something to ship. The dashboard's
+attention badges are rendered from task state and work on every platform, so a
+Linux user still sees which task wants them; `feat doctor` and the daemon's log say
+the platform delivers none.
+
+Feat can tell you it handed a notification over; it cannot tell you one was shown,
+because macOS decides that per application and drops an unauthorised notification
+without saying so.
 
 A notification Feat sends is attributed to **Script Editor**, which is what
 `osascript` posts as, and the icon beside it is Script Editor's for the same
