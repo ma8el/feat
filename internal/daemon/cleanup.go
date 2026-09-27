@@ -665,7 +665,7 @@ func (s *service) removeVolumes(
 		}
 	}
 	if task.Runtime != nil {
-		services, err := s.runtimeAdapterFor(task)
+		services, err := s.runtimeAdapterForRemoval(task)
 		if err != nil {
 			return volumeRemovals(names, removed), err
 		}
@@ -975,22 +975,42 @@ func (s *service) archiveTask(ctx context.Context, task *domain.Task, removed []
 // attaches or refreshes a runtime record as part of an action: a cleanup plan
 // must not create a runtime record for a task that has none.
 func (s *service) runtimeAdapterFor(task *domain.Task) (runtime.Runtime, error) {
+	spec, err := s.runtimeAdapterSpec(task)
+	if err != nil {
+		return nil, err
+	}
+	return s.runtimes(spec)
+}
+
+// runtimeAdapterForRemoval is runtimeAdapterFor for a caller that asks Docker to
+// drop what the runtime left rather than to drive it. It writes no generated
+// include, because a cleanup step above has already removed that file (ADR-106).
+func (s *service) runtimeAdapterForRemoval(task *domain.Task) (runtime.Runtime, error) {
+	spec, err := s.runtimeAdapterSpec(task)
+	if err != nil {
+		return nil, err
+	}
+	return s.runtimesForRemoval(spec)
+}
+
+// runtimeAdapterSpec resolves the recorded inputs both of those build from.
+func (s *service) runtimeAdapterSpec(task *domain.Task) (runtime.Spec, error) {
 	if task.Runtime == nil {
-		return nil, fmt.Errorf("task %s records no application runtime", task.ID)
+		return runtime.Spec{}, fmt.Errorf("task %s records no application runtime", task.ID)
 	}
 	cfg, err := config.Load(s.layout.ProjectConfigDir(), task.ProjectID.String(), s.configOptions())
 	if err != nil {
-		return nil, translateConfig(err)
+		return runtime.Spec{}, translateConfig(err)
 	}
 	if !cfg.HasRuntime() {
-		return nil, ErrRuntimeUnconfigured
+		return runtime.Spec{}, ErrRuntimeUnconfigured
 	}
 
 	spec, err := s.runtimeSpec(cfg, task, readComposition(s.env, cfg))
 	if err != nil {
-		return nil, err
+		return runtime.Spec{}, err
 	}
-	return s.runtimes(recordedInputs(spec, task.Runtime, cfg.Runtime.BindAddress))
+	return recordedInputs(spec, task.Runtime, cfg.Runtime.BindAddress), nil
 }
 
 // forgetWorkspace drops the cached control workspace of a task whose workspace

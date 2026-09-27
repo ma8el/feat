@@ -571,6 +571,17 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   the commands are configured. The decidable half of a `feat doctor` check is
   named and deferred.
 
+- **[ADR-106 — A cleanup step that only removes does not write the generated input a step before it deleted](decisions/ADR-106-a-cleanup-step-that-only-removes-does-not-write-the.md)** · accepted  
+  Cleanup removed a task's generated runtime input and a later step put it back
+  176 milliseconds later: building the Compose adapter writes the include, and
+  removing the volumes builds one to ask Docker for them although
+  `docker volume rm` needs no Compose file. So a construction whose only purpose
+  is to remove now writes nothing, through `compose.Options.Removing`. ADR-037
+  evidence 16's "after the destroy and never before" constrained the step that
+  removes and not the steps after it, and is amended. Removing the directory last
+  instead was rejected: it splits the act from the class that reports it, in the
+  subsystem that deletes things. The agent root's leftover is evidence 16's own
+  accepted residual and not this defect.
 - **[ADR-107 — Linux desktop notifications are unscheduled, because no machine here can confirm one arrives](decisions/ADR-107-linux-desktop-notifications-are-unscheduled-because-no.md)** · accepted  
   Nothing is half-built: `internal/notify` has no Linux backend and says so. What
   is missing is a machine on which a delivery can be seen — the Linux run happened

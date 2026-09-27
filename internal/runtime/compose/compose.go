@@ -45,6 +45,10 @@ var _ runtime.Runtime = (*Runtime)(nil)
 type Options struct {
 	// Runner executes Docker commands. A nil value uses the host.
 	Runner runtime.Runner
+	// Removing says this runtime is built to clear up after itself rather than to
+	// drive anything, so no generated include is written. ADR-106: cleanup removes
+	// that file, and a construction after the removal put it straight back.
+	Removing bool
 }
 
 // New returns the Compose runtime for one task. It validates the specification
@@ -71,8 +75,10 @@ func New(spec runtime.Spec, opts Options) (*Runtime, error) {
 		return nil, fmt.Errorf("task %s runs its application services through Docker Compose, and %w. "+
 			"Install Docker, or remove the runtime section from the project's configuration", spec.Task, err)
 	}
-	if err := writeInclude(spec); err != nil {
-		return nil, err
+	if !opts.Removing {
+		if err := writeInclude(spec); err != nil {
+			return nil, err
+		}
 	}
 	return &Runtime{spec: spec, runner: runner, docker: docker}, nil
 }
