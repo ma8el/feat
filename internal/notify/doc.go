@@ -1,8 +1,8 @@
 // Package notify holds the notification policy and its platform adapters.
 //
 // The policy is domain-driven and the delivery is platform-specific: macOS
-// desktop notifications in v0.1, Linux where a standard notifier exists in
-// v0.2, plus TUI badges the dashboard renders from task state.
+// desktop notifications, plus TUI badges the dashboard renders from task state on
+// every platform. Linux delivery is not scheduled and ADR-107 says why.
 //
 // Notifiable conditions:
 //

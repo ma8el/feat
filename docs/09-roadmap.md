@@ -36,9 +36,6 @@ project. One of these comes last within the milestone, because it waits on
 dogfood runs rather than on anything listed here — the first-task documentation,
 which says so where it appears:
 
-- **Linux notifications.** `internal/notify` reports its own absence on Linux
-  rather than pretending to deliver. The attention badges in the dashboard work
-  on every platform and are unaffected.
 - **Generalized configuration and diagnostics**, including a documented
   installation of the Claude adapter itself, so that `feat doctor` on a fresh
   machine says what is missing rather than what is broken.
@@ -88,6 +85,15 @@ implementation behind the execution interface left to write, because host
 execution is the absence of a container environment rather than another kind of
 one. The bullet that said otherwise was written in the project skeleton, before
 the capability existed (ADR-090).
+
+**Linux notifications have left this milestone and are not scheduled**, which
+ADR-107 records. `internal/notify` reports its own absence on Linux rather than
+pretending to deliver, and the dashboard's attention badges are rendered from task
+state and work on every platform, so a Linux user still sees which task wants
+them. Nobody on this project has a Linux desktop session to confirm a delivery on,
+and shipping a notifier whose delivery has never been seen is what the definition
+of complete forbids. It returns when somebody has that machine, or when a Linux
+user asks.
 
 Two more items have left this milestone, and the release they left for is the
 reason. `v0.1.1` carries the functional changes of the public preview ahead of
