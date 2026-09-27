@@ -360,3 +360,9 @@ of them was reachable from this repository's own fixtures:
     closing the last case would mean making a generated file a target, which is
     what this decision declines to do. As with evidence 15, the machines that have
     this residue already keep it until somebody removes it by hand.
+
+    Amended by ADR-106: "after the destroy and never before" constrains the step
+    that removes the directory and not the steps after it, and removing the volumes
+    put the runtime's include back by building an adapter to ask Docker for them.
+    A construction whose only purpose is to remove now writes nothing. The residual
+    above is unchanged and is still this decision's.
