@@ -437,6 +437,10 @@ func dropRuntimeSection(t *testing.T, w *world) {
 // repository is asked whether it tracks something, that an ignored file answers
 // the way the check assumes, and that the pathspec survives the symbolic links
 // between a temporary directory and where it really is.
+//
+// The same ignored file is bound to two targets and only the one inside the container
+// path is reported. Its twin outside is a mount of the ordinary checkout, where the
+// file is, which is why the source-side question went (ADR-104).
 func TestRealWorktreeMountsAreAskedOfGit(t *testing.T) {
 	requireRealTools(t)
 	if _, err := exec.LookPath("git"); err != nil {
@@ -482,24 +486,17 @@ func TestRealWorktreeMountsAreAskedOfGit(t *testing.T) {
 			reported = append(reported, found)
 		}
 	}
-	if len(reported) != 2 {
-		t.Fatalf("real Git reported %d mounts, want the ignored one twice:%s",
-			len(reported), render(findings))
+	if len(reported) != 1 {
+		t.Fatalf("real Git reported %d mounts, want the ignored one written into the container "+
+			"path:%s", len(reported), render(findings))
 	}
-
-	// The two findings are told apart by the path each names, not by severity.
-	// This test demands Git and not Docker, so the runtime that decides the
-	// target side's severity may be absent or not answering here, and asserting
-	// an error would be asserting something about a machine this test says
-	// nothing about. Only the container path appears in the target finding, and
-	// only the resolved host path in the source one.
 	target := naming(t, reported, "/srv/api/.env")
-	source := naming(t, reported, filepath.Join(api, ".env"))
 
-	// Inside the container path: real Git says the path is not tracked, so a
-	// worktree would not hold it. Whether that stops a task is the runtime's to
-	// say, and Feat's expectation of the runtime in front of this test is what
-	// its severity has to match.
+	// Real Git says the path is not tracked, so a worktree would not hold it. Whether
+	// that stops a task is the runtime's to say, and Feat's expectation of the runtime
+	// in front of this test is what its severity has to match. This test demands Git
+	// and not Docker, so asserting an error outright would assert something about a
+	// machine it says nothing about.
 	want := project.SeverityWarning
 	if project.RefusesFileMountPoint(t.Context(), project.HostRunner{}) {
 		want = project.SeverityError
@@ -508,11 +505,15 @@ func TestRealWorktreeMountsAreAskedOfGit(t *testing.T) {
 		t.Errorf("the target finding is %q, want %q for the runtime Feat sees here",
 			target.Severity, want)
 	}
-	// And outside it, where the same ignored file is only a path the mount needs.
-	// That severity is the runtime's business nowhere: no mount point is created
-	// inside a worktree for it.
-	if source.Severity != project.SeverityWarning {
-		t.Errorf("the source finding is %q, want warning", source.Severity)
+	// And the same ignored file bound outside the container path is nothing to act on,
+	// with real Git answering: the entry mounts the ordinary checkout, which has it.
+	for _, found := range findings {
+		if found.Severity == project.SeverityOK {
+			continue
+		}
+		if strings.Contains(found.Summary, "/etc/app/env") {
+			t.Errorf("a mount resolving into the ordinary checkout was reported: %q", found.Summary)
+		}
 	}
 	// The tracked file is recognised by its path in the repository rather than
 	// by its base name, so neither finding is about it — by its source and by
@@ -596,6 +597,119 @@ func writeTrackerScript(t *testing.T, prints string) string {
 		t.Fatalf("writing the tracker command: %v", err)
 	}
 	return path
+}
+
+// TestRealABindSourceReachesTheOrdinaryCheckout measures the premise ADR-081's
+// source-side mount check rested on, and which ADR-104 removed the check over.
+//
+// That check said a bind of an untracked path names something a task's worktree will
+// not hold. Feat rewrites no bind source, so such an entry resolves against the
+// ordinary checkout, where the untracked file is. The two cases are the two places the
+// entry can write and neither is the failure the check described:
+//
+//   - outside the container path, the container starts and the application reads the
+//     checkout's own file. Nothing is absent and nothing is empty;
+//   - inside it, the entry is the target-side finding ADR-098 already makes. This is
+//     also the shape ADR-081's evidence 5 described — "a mount over a file that is
+//     simply created empty succeeds, and the application then misbehaves" — reached on
+//     a second attempt rather than by a mechanism of its own: the attempt that is
+//     refused leaves the mount point behind, and what the application then reads is the
+//     empty file the mask itself created.
+//
+// It asserts no platform, for the reason its sibling below does not. A runtime Feat
+// expects to refuse a file mount point needs two attempts to reach that state and one
+// that does not needs one; the state reached is the same either way.
+func TestRealABindSourceReachesTheOrdinaryCheckout(t *testing.T) {
+	requireRealTools(t)
+	if _, err := exec.LookPath("docker"); err != nil {
+		integrationtest.Unavailable(t, integrationtest.Docker, "docker is not installed")
+	}
+
+	// A checkout holding a tracked file and an ignored one beside it, and a worktree
+	// holding only the tracked one, which is what Git would have given a task.
+	root := t.TempDir()
+	// A mount point the runtime created belongs to the container's user, so the test's
+	// own cleanup cannot remove it. This runs first, because TempDir registered its
+	// cleanup before this one and they unwind in reverse.
+	t.Cleanup(func() {
+		_ = exec.Command("docker", "run", "--rm", "--volume", root+":/scratch",
+			"alpine:3", "sh", "-c", "rm -rf /scratch/*").Run()
+	})
+	checkout, worktree := filepath.Join(root, "api"), filepath.Join(root, "worktree")
+	for _, dir := range []string{checkout, worktree} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("creating %s: %v", dir, err)
+		}
+	}
+	const secret = "SECRET=from-the-ordinary-checkout"
+	for path, body := range map[string]string{
+		filepath.Join(checkout, ".env"):         secret + "\n",
+		filepath.Join(checkout, "tracked.conf"): "x\n",
+		filepath.Join(worktree, "tracked.conf"): "x\n",
+	} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatalf("writing %s: %v", path, err)
+		}
+	}
+
+	t.Run("a target outside the container path", func(t *testing.T) {
+		// The entry the removed check warned about, with the worktree mounted beside
+		// it exactly as a task mounts one.
+		output, err := exec.Command("docker", "run", "--rm",
+			"--volume", worktree+":/srv/api",
+			"--volume", filepath.Join(checkout, ".env")+":/etc/app/env:ro",
+			"alpine:3", "cat", "/etc/app/env").CombinedOutput()
+		if err != nil {
+			t.Fatalf("a bind of an untracked path beside a worktree did not start: %s", output)
+		}
+		if strings.TrimSpace(string(output)) != secret {
+			t.Errorf("the application read %q, want the ordinary checkout's own file: the source "+
+				"resolves there and Feat rewrites it nowhere, so there is nothing for a worktree "+
+				"to fail to hold", strings.TrimSpace(string(output)))
+		}
+	})
+
+	t.Run("a target inside the container path", func(t *testing.T) {
+		// Its own worktree, because the first attempt may leave a mount point in it.
+		masked := filepath.Join(root, "masked")
+		if err := os.MkdirAll(masked, 0o700); err != nil {
+			t.Fatalf("creating %s: %v", masked, err)
+		}
+		refuses := project.RefusesFileMountPoint(t.Context(), project.HostRunner{})
+		t.Logf("Feat expects this runtime to refuse a file mount point: %t", refuses)
+
+		read := func() (string, error) {
+			output, err := exec.Command("docker", "run", "--rm",
+				"--volume", masked+":/srv/api",
+				"--volume", "/dev/null:/srv/api/.env:ro",
+				"alpine:3", "cat", "/srv/api/.env").CombinedOutput()
+			return string(output), err
+		}
+
+		output, err := read()
+		if refuses != (err != nil) {
+			t.Fatalf("Feat expects this runtime to refuse a file mount point (%t) and it did not "+
+				"agree, so what the mount check says about it is wrong in one direction or the "+
+				"other: %s", refuses, output)
+		}
+		if err != nil {
+			// The refusal is not inert: the daemon created the mount point on its way
+			// to failing, which is what makes evidence 5's state reachable at all and
+			// what makes resuming a task enough to recover.
+			if _, statErr := os.Stat(filepath.Join(masked, ".env")); statErr != nil {
+				t.Fatalf("the refused attempt left no mount point behind, so evidence 5's shape "+
+					"is not this one after all: %v", statErr)
+			}
+			if output, err = read(); err != nil {
+				t.Fatalf("the second attempt with the same entry did not start: %s", output)
+			}
+		}
+		// Evidence 5's misbehaviour, named: the mask is over the empty file it caused
+		// to exist, so the application reads nothing where the checkout has content.
+		if strings.TrimSpace(output) != "" {
+			t.Errorf("the application read %q through the mask, want nothing", strings.TrimSpace(output))
+		}
+	})
 }
 
 // TestRealFileMountPointBehaviourIsWhatFeatExpects holds the target-side mount

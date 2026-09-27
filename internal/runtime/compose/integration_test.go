@@ -379,6 +379,63 @@ func TestRealABakedServiceRunsTheTaskWorktree(t *testing.T) {
 	}
 }
 
+// TestRealARedirectedBuildContextTheWorktreeLacksFailsTheBuild is the half of the
+// mount question whose premise actually holds.
+//
+// A bind source is never rewritten, so it resolves into the ordinary checkout and an
+// untracked path is there. A build context is rewritten: a service that bakes its code
+// has no mount to replace, so Feat points its context at the task's worktree instead
+// (internal/daemon/runtime.go, runtimeBuilds). A worktree holds only what Git tracks, so
+// a context Git does not track is a context that is not there, and this measures what
+// that costs (ADR-104, measurement 2).
+//
+// The failure is the build client resolving the context before any layer runs, so it is
+// not a mount and owes nothing to what the container runtime does with mount points.
+// `internal/project/checks.go`, checkBuildContexts, is what says so before a task exists.
+func TestRealARedirectedBuildContextTheWorktreeLacksFailsTheBuild(t *testing.T) {
+	realDocker(t)
+
+	// The arranged runtime is discarded and rebuilt below with the redirect, as its
+	// sibling above does and for the same reason. Its cleanup is registered against
+	// the specification, so it still removes anything this starts.
+	_, spec, _ := realRuntime(t, domain.NewTaskID())
+	root := filepath.Dir(spec.Directory)
+
+	// The worktree exists and the directory inside it does not, which is what Git
+	// gives a task for a build context in `.gitignore`. The checkout's own copy is
+	// beside it and is not what the redirect names.
+	worktree := filepath.Join(root, "worktrees", "web")
+	generated := filepath.Join(worktree, "generated")
+	if err := os.MkdirAll(worktree, 0o700); err != nil {
+		t.Fatalf("creating the web worktree: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "web", "generated"), 0o700); err != nil {
+		t.Fatalf("creating the checkout's own copy: %v", err)
+	}
+	copyFixture(t, "web.Dockerfile", filepath.Join(root, "web", "generated", "Dockerfile"))
+
+	spec.Builds = []runtime.Build{{
+		Service: "web", Repository: "web", Context: generated,
+		Description: "the web task worktree, generated",
+	}}
+	redirected, err := compose.New(spec, compose.Options{})
+	if err != nil {
+		t.Fatalf("building the runtime: %v", err)
+	}
+
+	output, err := redirected.Start(context.Background())
+	if err == nil {
+		t.Fatalf("a build context the worktree does not hold built anyway, so nothing is lost by "+
+			"pointing one at an untracked directory: %v", output)
+	}
+	// Measured: "unable to prepare context: path %q not found". The path is what a
+	// reader has to see, because the redirect is the only thing that put it there and
+	// the checkout's own copy exists.
+	if !strings.Contains(err.Error(), generated) {
+		t.Errorf("the failure does not name the context Feat redirected the build at: %v", err)
+	}
+}
+
 // mustObserve reads a runtime's state or fails the test.
 func mustObserve(t *testing.T, services *compose.Runtime) runtime.State {
 	t.Helper()

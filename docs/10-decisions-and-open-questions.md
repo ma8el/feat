@@ -541,6 +541,24 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   Subprocesses, raw syscall sockets and an HTTP client inside the socket
   packages are outside the promise. It makes ADR-022's "no telemetry" checkable.
 
+- **[ADR-104 — A bind source is never rewritten, so the source-side mount question goes and the same question is asked of build contexts](decisions/ADR-104-a-bind-source-is-never-rewritten-so-the-source-side-mount.md)** · accepted  
+  ADR-081's source-side mount check rested on a bind source resolving into a
+  task's worktree. Nothing rewrites a source, so it resolves against the ordinary
+  checkout: measured, a bind of an ignored `.env` whose target is outside the
+  container path starts the container and hands the application the checkout's own
+  file. The check is removed rather than narrowed, because every member of its
+  population is a mount that works, and the reader's `Mounts` goes with it.
+  ADR-081's evidence 5 was reconstructed and is ADR-098's shape on its second
+  attempt — the refused attempt creates the empty mount point the mask then masks
+  — rather than a mechanism nobody had named. The premise holds for build
+  contexts, which Feat does redirect into the worktree and nothing asked Git
+  about, and a build from an untracked directory fails with "path not found"; that
+  gets the check, warning for the reason ADR-081 gave, because something on the
+  host may create the directory before the services start. The working-copy leak a
+  bind source carries is recorded with triggers rather than checked: its
+  population is every bind a project writes. It amends ADR-081 and leaves ADR-098
+  intact.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is
