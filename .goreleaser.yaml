@@ -20,11 +20,9 @@ builds:
     env:
       - CGO_ENABLED=0
 
-    # macOS only. The Linux build compiles and CI tests it on ubuntu-latest, but
-    # nobody has run Feat there yet, and a published archive claims more than
-    # that. v0.2 adds Linux once it has been run (docs/08-v0-scope.md).
     goos:
       - darwin
+      - linux
     goarch:
       - amd64
       - arm64

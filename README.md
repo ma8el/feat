@@ -26,10 +26,8 @@ environment. A task may span several repositories.
 
 ## Installing
 
-This version is end-to-end tested on macOS only. Linux compiles and CI runs the
-whole suite on `ubuntu-latest` on every commit, but nobody has run a task on a
-Linux machine yet, which is why there is no Linux archive below. `go install`
-and `make build` build it there; expect bugs.
+Desktop notifications are macOS-only; the dashboard's attention badges work
+everywhere, which [Knowing when to look](#knowing-when-to-look) covers.
 
 Feat needs these on the machine:
 
