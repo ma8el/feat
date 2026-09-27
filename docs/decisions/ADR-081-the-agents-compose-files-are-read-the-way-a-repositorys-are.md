@@ -43,7 +43,9 @@ Evidence:
    file or directory inside the repository. Those are the mounts a task cannot
    take for granted: a task works in a worktree, and a worktree holds only what
    Git tracks, so a bind of an ignored `.env` or of a `node_modules` built in
-   place names something that will not be there.
+   place names something that will not be there. Amended by ADR-104: nothing
+   rewrites a bind source, so it resolves against the ordinary checkout, where
+   the ignored file is. The entry described here is a mount that works.
 5. **The explanation for that failure existed and was wired to the wrong
    trigger.** `internal/runtime/compose/explain.go` says it almost exactly —
    "a worktree holds only what Git tracks, so a file that mount expects to find —
@@ -52,7 +54,10 @@ Evidence:
    system`. The shape the reference project uses produces neither: a mount over a
    file that is simply created empty succeeds, and the application then misbehaves
    with nothing anywhere naming the cause. A post-mortem on an error string cannot
-   reach it; a pre-flight can.
+   reach it; a pre-flight can. Amended by ADR-104, which reconstructed this shape
+   whole: its target is inside the container path, and the empty file is the mount
+   point a refused first attempt left behind. It is ADR-098's failure seen from
+   its second half rather than a mechanism of its own.
 
 Decisions:
 
@@ -71,7 +76,9 @@ Decisions:
 - **`Composition` gains the paths a mount needs**, as `Mounts`, and the bind
   entries left unread as `UnreadMounts`. The second exists so that a report about
   mounts can disclose what it did not read; the same entries stay in `Undecided`,
-  which is the wizard's list and is unchanged.
+  which is the wizard's list and is unchanged. Amended by ADR-104, which removes
+  `Mounts` and `MountedPath` with the check that read them. `UnreadMounts`,
+  `Undecided` and the disclosure they carry are untouched.
 - **`feat doctor` asks Git whether each of those paths is tracked**, for the
   agent's Compose files against every repository a task takes by default, and for
   each repository's own runtime contribution. It asks with
@@ -80,7 +87,11 @@ Decisions:
   container writes on first start, is a legitimate absence, and Feat cannot tell
   it from the one that will hurt. A bind entry that interpolates is reported as
   not checked rather than passed over, because a report that listed only what it
-  checked would read as a report on everything.
+  checked would read as a report on everything. Amended twice. ADR-098 silences
+  both mount questions for a repository a task mounts no worktree of. ADR-104
+  removes this one and asks Git about build contexts instead, which Feat does
+  redirect into a worktree, keeping the report-rather-than-refuse reason stated
+  here.
 - **The masking case is known and not built.** A mount whose source is outside
   every checkout and whose target is inside a container path — `/dev/null` bound
   over a `.env` to blank it — is the shape the reference project actually uses,
