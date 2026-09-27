@@ -315,7 +315,7 @@ looks. See ADR-060.
 
 ### FR-UI-004 — Notifications
 
-v0.1 MUST support TUI attention badges and macOS desktop notifications for significant idle/failure/review transitions. Linux desktop notifications are required for public v0 where supported.
+v0.1 MUST support TUI attention badges and macOS desktop notifications for significant idle/failure/review transitions. TUI attention badges MUST work on every platform, because they are rendered from task state. Linux desktop notifications are NOT required: ADR-107 removes them from public v0 and schedules them nowhere, because no machine available to this project can confirm a delivery and a notifier whose delivery has never been seen is not something to ship. A platform Feat does not deliver on MUST report that rather than appear to deliver.
 
 ### FR-UI-005 — Resource metrics
 
