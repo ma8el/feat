@@ -211,7 +211,7 @@ version: 1
 
 review:
   diff:
-    command: ["git", "diff", "{base_commit}"]
+    command: ["git", "-c", "core.pager=less -+F", "diff", "{base_commit}"]
   editor:
     command: ["nvim", "{repository_path}"]
   status:

@@ -40,7 +40,12 @@ const (
 
 // defaultDiffCommand compares a repository against the base commit recorded for
 // this task, which is the only comparison review is allowed to make.
-func defaultDiffCommand() []string { return []string{"git", "diff", "{base_commit}"} }
+//
+// ADR-105: the pager is pinned because the dashboard repaints over a command that
+// returns, and git's own default quits on a diff that fits one screen.
+func defaultDiffCommand() []string {
+	return []string{"git", "-c", "core.pager=less -+F", "diff", "{base_commit}"}
+}
 
 // defaultStatusCommand shows the working tree and branch of one repository.
 func defaultStatusCommand() []string { return []string{"git", "status", "--short", "--branch"} }

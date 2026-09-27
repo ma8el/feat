@@ -39,7 +39,7 @@ func TestSettingsShowRunsWithoutAFileOrADaemon(t *testing.T) {
 		"sample_interval", "2s",
 		"idle_grace_period", "5s",
 		"suppress_while_attached",
-		"git diff {base_commit}",
+		"git -c core.pager=less -+F diff {base_commit}",
 		// $EDITOR is set on the test machine, and the row says so rather than
 		// reading as a value somebody configured.
 		"from $EDITOR",
