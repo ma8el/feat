@@ -259,13 +259,15 @@ cover tracked changes; an untracked file is counted as changed and said to be
 untracked, because counting its lines would mean adding it to your index.
 
 Feat renders no diff of its own. It opens the commands you configured, in the
-worktree of the repository you selected, and takes the terminal back when you
-leave them:
+worktree of the repository you selected, and takes the terminal back when they
+return — so a command you read from has to hold the terminal until you leave it.
+That is what `-+F` does below: git otherwise tells `less` to quit on a diff that
+fits one screen, and the dashboard repaints over it before you can read it.
 
 ```yaml
 review:
   diff:
-    command: ["git", "diff", "{base_commit}"]
+    command: ["git", "-c", "core.pager=less -+F", "diff", "{base_commit}"]
   editor:
     command: ["nvim", "{repository_path}"]   # or leave it out and Feat uses $EDITOR
   status:

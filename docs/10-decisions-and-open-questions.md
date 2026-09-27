@@ -559,6 +559,18 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   population is every bind a project writes. It amends ADR-081 and leaves ADR-098
   intact.
 
+- **[ADR-105 — The default diff command pins its pager, because the dashboard repaints over a command that returns](decisions/ADR-105-the-default-diff-command-pins-its-pager-because-the.md)** · accepted  
+  Git exports `LESS=FRX` to its pager when `LESS` is unset, so `less` quits on a
+  diff that fits one screen, and `tea.Exec` restores the dashboard over what it
+  left behind. Measured on two machines: the platforms never differed, and the
+  dogfood machine only held the terminal because `LESS=-R` was set in its
+  environment. The default becomes
+  `git -c core.pager=less -+F diff {base_commit}`, set with `-c` because the
+  vector is Feat's own and a user's configured command must keep its environment.
+  That a review command which reads has to hold the terminal is now stated where
+  the commands are configured. The decidable half of a `feat doctor` check is
+  named and deferred.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is

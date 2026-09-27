@@ -32,9 +32,15 @@ version: 1
 # The first element is the program and is never templated. Arguments may use
 # {repository_path}, {base_commit}, {branch}, {project_id}, {repository_id},
 # {task_id}, and {task_key}, and each expands into one argument.
+#
+# A command that reads has to hold the terminal until you leave it, because the
+# dashboard repaints as soon as it returns. That is what -+F is for below: git
+# tells less to quit on a diff that fits one screen, and a diff you cannot read
+# is the same as no diff (ADR-105). A command that opens its own window is free
+# to return at once.
 #review:
 #  diff:
-#    command: ["git", "diff", "{base_commit}"]
+#    command: ["git", "-c", "core.pager=less -+F", "diff", "{base_commit}"]
 #  # Defaults to $EDITOR with {repository_path}.
 #  editor:
 #    command: ["nvim", "{repository_path}"]

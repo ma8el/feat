@@ -43,7 +43,7 @@
       "additionalProperties": false,
       "properties": {
         "diff": {
-          "description": "Compares a repository against its recorded base commit. Defaults to git diff {base_commit}.",
+          "description": "Compares a repository against its recorded base commit. Defaults to git -c core.pager=less -+F diff {base_commit}: a command that reads must hold the terminal, because the dashboard repaints when it returns.",
           "$ref": "#/$defs/command"
         },
         "editor": {

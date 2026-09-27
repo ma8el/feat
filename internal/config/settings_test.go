@@ -56,7 +56,9 @@ func TestSettingsAreDefaultedWhenNoFileExists(t *testing.T) {
 	if !settings.Notifications.DesktopEnabled() || !settings.Notifications.SuppressedWhileAttached() {
 		t.Error("the notification defaults must be on: unset means true")
 	}
-	if got := strings.Join(settings.Review.Diff.Command, " "); got != "git diff {base_commit}" {
+	// The pinned pager is part of the default, not decoration: without it the
+	// dashboard repaints over a diff that fits one screen (ADR-105).
+	if got := strings.Join(settings.Review.Diff.Command, " "); got != "git -c core.pager=less -+F diff {base_commit}" {
 		t.Errorf("review.diff.command = %q", got)
 	}
 	if got := strings.Join(settings.Review.Editor.Command, " "); got != "hx {repository_path}" {
