@@ -561,6 +561,30 @@ in. Where it has to be depends on `agent.execution.mode`:
 The same message ends "or change agent.provider". Claude is the only provider
 in this version, so installing it is the fix.
 
+### Cleanup stopped with "Permission denied" on a worktree
+
+A container wrote files into the task's worktree as another user, and Git cannot
+delete what it does not own. On Linux this is what a service running as root
+does: a container writes host files as whatever user it runs as, nothing remaps
+them, and a `__pycache__` or a build directory is enough. Docker Desktop on macOS
+maps ownership to you, so the same project does this on Linux only.
+
+Find them, remove them, and ask again. Removal stops where it fails and what it
+already removed stays removed, so a second run continues from there:
+
+```sh
+find <worktree> ! -user "$(id -un)" | head       # what Feat cannot delete
+sudo rm -rf <those paths>
+feat task cleanup <task>
+```
+
+The fix is in the project's own Compose files: a service that mounts the worktree
+should not write to it as root. See the `user:` entry in
+[`docs/examples/compose/compose.dev.yaml`](docs/examples/compose/compose.dev.yaml).
+Feat does not chown or delete these files for you — it would be escalating
+privilege to remove files it cannot read, inside a worktree that may hold work
+you have not committed.
+
 ## Documentation
 
 The specification in [`docs/`](docs/) is authoritative and is meant to be read

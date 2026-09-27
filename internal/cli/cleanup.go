@@ -58,7 +58,12 @@ func newCleanupCommand(env *environment) *cobra.Command {
 
 				status, err := caller.Cleanup(cmd.Context(), args[0], selection)
 				if err != nil {
-					return err
+					// Removal stops where it fails and what went stays gone, so the
+					// way out is to fix the cause and ask again. Without this the
+					// user has a resource Feat named and no reason to believe a
+					// second run would behave differently.
+					return fmt.Errorf("%w\nremoval stopped here; fix the cause and run `feat task cleanup %s` again",
+						err, args[0])
 				}
 				printCleanupResult(out, status)
 				return nil

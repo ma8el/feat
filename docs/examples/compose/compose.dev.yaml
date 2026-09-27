@@ -9,6 +9,14 @@ services:
       # names. Feat's override mounts the task's worktree at the same target,
       # and Compose replaces a mount by target, so the task's code wins.
       - .:/app
+    # Not root, because this service writes into the mount above. On Linux a
+    # container writes host files as whatever user it runs as, so a root process
+    # leaves root-owned files in your worktree and `git worktree remove` cannot
+    # delete them. Replace these with your own `id -u` and `id -g`, or put UID
+    # and GID in a file named by runtime.env_files: Compose interpolates from
+    # the environment of whatever runs it, which is Feat's daemon and not your
+    # shell.
+    user: "${UID:-1000}:${GID:-1000}"
     # The image installs its dependencies outside /app, in /opt/venv, so this
     # mount does not hide them.
     command: ["/opt/venv/bin/uvicorn", "notes.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

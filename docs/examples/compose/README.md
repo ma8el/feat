@@ -79,6 +79,13 @@ wrong:
 - **Dependencies live outside the mount.** The image this example assumes
   installs its virtualenv at `/opt/venv`. Anything the image puts inside `/app`
   is hidden once a worktree is mounted there.
+- **A service that writes into the worktree does not run as root.** On Linux a
+  container writes host files as whatever user it runs as, and nothing remaps
+  them, so a root process leaves root-owned files in your worktree — a
+  `__pycache__` is enough — and `git worktree remove` then cannot delete them.
+  Cleanup stops there. `compose.dev.yaml` sets `user:` for this reason; a service
+  whose image already creates a user needs nothing. Docker Desktop on macOS maps
+  ownership to you, so this costs nothing there and is invisible until Linux.
 - **Every environment file used for interpolation is in
   `runtime.env_files`.** Compose's implicit `.env` beside the repository is not
   read, because Feat's Compose project directory is its own. A service's own
