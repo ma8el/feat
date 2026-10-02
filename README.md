@@ -11,6 +11,10 @@
   through several coding-agent sessions in parallel.
 </p>
 
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="Two Feat tasks launched from the CLI; the dashboard starts one task's runtime and curl reaches its new endpoint">
+</p>
+
 Feat connects a task to the things needed to implement and review it — task
 context, selected repositories, branches and worktrees, one native coding-agent
 session, an optional isolated agent environment, an optional application
