@@ -4,12 +4,17 @@ export default defineNuxtConfig({
   site: {
     name: 'Feat',
   },
-  // A screenshot of the hero stands in for the generated preview images turned off below.
+  // A screenshot of the hero stands in for the generated preview images turned off below;
+  // app/plugins/favicon.ts removes the icon link Docus adds.
   app: {
     head: {
       meta: [
         { property: 'og:image', content: `${process.env.NUXT_SITE_URL ?? ''}/og.png` },
         { name: 'twitter:image', content: `${process.env.NUXT_SITE_URL ?? ''}/og.png` },
+      ],
+      link: [
+        { rel: 'icon', type: 'image/svg+xml', href: `${process.env.NUXT_APP_BASE_URL ?? '/'}assets/feat-favicon.svg` },
+        { rel: 'apple-touch-icon', href: `${process.env.NUXT_APP_BASE_URL ?? '/'}apple-touch-icon.png` },
       ],
     },
   },
