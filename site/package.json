@@ -1,0 +1,13 @@
+{
+  "name": "feat-site",
+  "private": true,
+  "description": "A terminal control plane for running feature work through several coding-agent sessions in parallel.",
+  "scripts": {
+    "dev": "nuxt dev",
+    "generate": "nuxt generate"
+  },
+  "dependencies": {
+    "docus": "5.13.0",
+    "nuxt": "^4.4.8"
+  }
+}
