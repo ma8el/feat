@@ -52,7 +52,8 @@ There are four ways to get the binary.
 **Homebrew**, on macOS:
 
 ```sh
-brew install ma8el/feat/feat
+brew tap ma8el/feat
+brew install --cask feat
 ```
 
 It brings Git and tmux with it, and is the one route that needs no `xattr` below.
