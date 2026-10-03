@@ -176,14 +176,14 @@ homebrew_casks:
       - formula: tmux
 
     # The archives are not notarized, so macOS quarantines what it downloaded and
-    # the binary will not run. Doing it here is why a `brew install` needs no
-    # `xattr` by hand, unlike the archive the README documents.
-    hooks:
-      post:
-        install: |
-          if system_command("/usr/bin/xattr", args: ["-h"], print_stderr: false).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/feat"]
-          end
+    # the binary will not run. Clearing it here is why a `brew install` needs no
+    # `xattr` by hand. ADR-109: GoReleaser cannot write `postflight_steps` yet.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{" }}staged_path{{ "}}" }}/feat"], must_succeed: false
+        end
+      end
 
     # No completions stanza. A cask's takes a path to a file inside the archive,
     # and these archives hold the binary, the README and the licence; pointing it

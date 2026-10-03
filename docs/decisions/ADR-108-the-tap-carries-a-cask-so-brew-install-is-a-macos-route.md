@@ -32,6 +32,8 @@ Evidence:
    not run — which is why the README tells an archive user to run
    `xattr -d com.apple.quarantine feat` by hand. A `postflight` block does it, so
    this is the one install route that needs no such step.
+   Amended by ADR-109: Homebrew deprecated the `postflight` block, and the cask
+   now clears the attribute in `postflight_steps`.
 
 Decisions:
 
