@@ -14,7 +14,7 @@ ui:
   links: justify-center
 ---
 #top
-  :::hero-grid
+  :::hero-lanes
   :::
 
 #title
