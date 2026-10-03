@@ -6,8 +6,8 @@ const src = computed(() => joinURL(useRuntimeConfig().app.baseURL, props.src))
 </script>
 
 <template>
-  <!-- The frame is the GIF's Catppuccin Mocha background, so frame and recording read as one window. -->
-  <div class="mx-auto w-full max-w-3xl overflow-hidden rounded-xl bg-[#1e1e2e] shadow-2xl shadow-black/60 ring-1 ring-white/10">
+  <!-- The frame is the background of demo.tape's theme, so frame and recording read as one window. -->
+  <div class="mx-auto w-full max-w-3xl overflow-hidden rounded-xl bg-[#121318] shadow-2xl shadow-black/60 ring-1 ring-white/10">
     <div class="flex items-center gap-1.5 px-4 py-3">
       <span class="size-2.5 rounded-full bg-white/15" />
       <span class="size-2.5 rounded-full bg-white/15" />
