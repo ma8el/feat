@@ -4,6 +4,15 @@ export default defineNuxtConfig({
   site: {
     name: 'Feat',
   },
+  // A screenshot of the hero stands in for the generated preview images turned off below.
+  app: {
+    head: {
+      meta: [
+        { property: 'og:image', content: `${process.env.NUXT_SITE_URL ?? ''}/og.png` },
+        { name: 'twitter:image', content: `${process.env.NUXT_SITE_URL ?? ''}/og.png` },
+      ],
+    },
+  },
   // GitHub Pages serves files only, so there is no image server to resize through.
   image: {
     provider: 'none',

@@ -1,8 +1,8 @@
 ---
 seo:
-  title: Feat — a terminal control plane for parallel coding agents
+  title: Run Claude Code agents in parallel from your terminal
   description: Feat gives each task its own Git worktrees, Claude Code session, and
-    application runtime, so several agents work on one codebase at once.
+    running application, so you can implement, review, and run several features at once.
 ---
 
 ::u-page-hero
