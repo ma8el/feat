@@ -9,7 +9,8 @@ Set FontSize 14
 Set Width 1400
 Set Height 800
 Set Padding 20
-Set Theme "Catppuccin Mocha"
+# Feat's own colours: the website's amber and the dashboard's palette in internal/ui/ask.
+Set Theme { "name": "Feat", "background": "#121318", "foreground": "#e9edf7", "cursor": "#f5a623", "selection": "#2a2e3a", "black": "#1a1c22", "red": "#ff6287", "green": "#7fd99a", "yellow": "#f5a623", "blue": "#53a0ff", "magenta": "#c49bff", "cyan": "#6fd3e0", "white": "#c9ced9", "brightBlack": "#4a5270", "brightRed": "#ff8aa5", "brightGreen": "#a3e8b6", "brightYellow": "#ffc35c", "brightBlue": "#8cbfff", "brightMagenta": "#d9bfff", "brightCyan": "#9fe5ee", "brightWhite": "#ffffff" }
 Set TypingSpeed 40ms
 
 Hide

@@ -2,6 +2,9 @@ module github.com/ma8el/feat
 
 go 1.26.0
 
+// The website's node_modules ships Go files of its own.
+ignore ./site
+
 require (
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10

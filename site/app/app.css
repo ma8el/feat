@@ -1,0 +1,4 @@
+/* A near-black ground lets the hero's grid and glow carry the colour. */
+.dark {
+  --ui-bg: #0b0b0c;
+}

@@ -38,8 +38,9 @@ instead of nothing at all.
 
 ## Where they are used
 
-The README shows the wordmark. Nothing in the binary reads any of these: Feat is
-a terminal program, and a desktop notification carries the icon of whichever
-application posted it rather than one the sender chooses, so the notifications
-carry the mark's chevron as text instead. The mark and the favicon are here as
-the logo's other two forms.
+The README and the website header show the wordmark; `site/public/assets` links
+to this directory. Nothing in the binary reads any of these: Feat is a terminal
+program, and a desktop notification carries the icon of whichever application
+posted it rather than one the sender chooses, so the notifications carry the
+mark's chevron as text instead. The mark and the favicon are here as the logo's
+other two forms.

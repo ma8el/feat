@@ -1,0 +1,56 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', 'docs/assets/**', '.github/workflows/pages.yml']
+  pull_request:
+    paths: ['site/**', 'docs/assets/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - run: npm ci
+
+      - run: npx nuxt generate
+        env:
+          NUXT_APP_BASE_URL: /feat/
+          NUXT_SITE_URL: https://ma8el.github.io/feat
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site/.output/public
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

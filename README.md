@@ -8,7 +8,8 @@
 
 <p align="center">
   A terminal-native development control plane for running feature work<br>
-  through several coding-agent sessions in parallel.
+  through several coding-agent sessions in parallel.<br>
+  <a href="https://ma8el.github.io/feat/">Website and documentation</a>
 </p>
 
 <p align="center">
