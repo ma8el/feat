@@ -398,16 +398,17 @@ reported with the class that removed them and are not targets of their own, for
 the reason the directories above a worktree are not. See ADR-037.
 
 The enumeration is also what every surface offering the choice shows.
-`feat task cleanup` and the dashboard's cleanup screen present the same targets,
-each with what it is and whether it is still there, and a warning that is true of
-some of a class's resources is shown against those resources rather than against
-the class. A surface too small for the inventory scrolls rather than dropping the
-end of it: a choice made against a summary is a choice made against something
-other than the plan that will be executed.
+`feat task cleanup` prints the targets, each with what it is and whether it is
+still there. Both it and the dashboard's cleanup dialog list every warning under
+the one question they ask, naming the resource it is true of. See ADR-110.
 
 ### FR-CLEAN-002 — Separate destructive classes
 
-Stopping/removing containers, removing volumes, removing worktrees, and deleting branches MUST be separate choices.
+Containers, volumes, worktrees, and branches MUST be resolved, reported, and warned about as separate classes.
+
+Cleanup removes every class and archives the task, confirmed by one question.
+Separate per-class choices were the original requirement, and every finished
+task ticked all of them to reach the archive. See ADR-110.
 
 Cleanup separates the agent's containers from the application's, because they
 are distinct concepts everywhere else in the product, and adds two classes this
@@ -417,8 +418,8 @@ seven classes are removed in a fixed order — terminal, agent containers,
 application containers, volumes, worktrees, branches, control workspace — so that
 whatever holds a file is stopped before the file is removed. See ADR-037.
 
-Because the classes are independent choices, the order alone does not establish
-that. Removing the control workspace therefore asks first whether any container
+Because the local API still accepts any subset of the classes, the order alone
+does not establish that. Removing the control workspace therefore asks first whether any container
 of the task's agent Compose project is still running, and refuses rather than
 removing a directory that is an active bind-mount source. A container that has
 stopped has released what it mounted, and `feat task stop` keeps a task's
@@ -430,15 +431,9 @@ the same way an answer of "still there" does. See ADR-059.
 
 Dirty worktrees, unpushed commits, and unmerged branches MUST produce explicit warnings and confirmation.
 
-The warning and the confirmation are separate obligations, and a surface satisfies
-them where each belongs. The warning is shown against the resource it is true of,
-for as long as that resource is on the screen. The confirmation is of the removal:
-it names what would go, lists every warning of everything selected, and defaults
-to no. A surface that can display a selection before acting on it MUST NOT ask
-per selection — a question raised while the user is still choosing interrupts a
-decision that has not been made, and consent given that early is consent to
-something the eventual removal may not match. A surface with no selection to
-display, such as a sequence of prompts on a terminal, asks as it goes.
+The confirmation is of the removal. It is one question, it lists every warning
+of everything the plan names against the resource it is true of, and it defaults
+to no. See ADR-110.
 
 The confirmation MUST be put against a freshly resolved plan. A task being
 cleaned up may still have an agent working in its resources, so the warnings a
@@ -458,6 +453,9 @@ from a confirmation, which is this requirement unchanged. See ADR-097.
 ### FR-CLEAN-004 — Volume retention
 
 Volumes MUST be retained by default in initial versions.
+
+The cleanup confirmation defaults to no, and always names the volumes it would
+remove. A volume is removed only by a yes to that question. See ADR-110.
 
 ### FR-CLEAN-005 — No age deletion
 

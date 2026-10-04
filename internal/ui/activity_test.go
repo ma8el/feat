@@ -75,10 +75,6 @@ func TestARemovalInFlightSaysSoAndTakesTheKeyboard(t *testing.T) {
 	// dialog's key map: the two say different things and both are read.
 	model := sized(openCleanupScreen(t, backend), 120, 34)
 
-	updated, _ := model.Update(key(" "))
-	model = updated.(Model)
-	model = requestCleanup(t, model, backend.cleanupPlan)
-
 	updated, cmd := model.Update(key("y"))
 	model = updated.(Model)
 	runCommands(t, cmd)
@@ -88,7 +84,7 @@ func TestARemovalInFlightSaysSoAndTakesTheKeyboard(t *testing.T) {
 			model.cleanup.removing, model.activity.running)
 	}
 	view := content(model)
-	if !strings.Contains(flowed(view), "removing what you selected") {
+	if !strings.Contains(flowed(view), "removing everything task") {
 		t.Errorf("the screen does not say a removal is running:\n%s", view)
 	}
 	if !spinning(view) {
@@ -137,9 +133,6 @@ func TestAFailedRemovalGoesBackToWaitingForTheNewInventory(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
 
-	updated, _ := model.Update(key(" "))
-	model = updated.(Model)
-	model = requestCleanup(t, model, backend.cleanupPlan)
 	updated, cmd := model.Update(key("y"))
 	model = updated.(Model)
 	runCommands(t, cmd)
@@ -157,7 +150,7 @@ func TestAFailedRemovalGoesBackToWaitingForTheNewInventory(t *testing.T) {
 		t.Errorf("working=%v running=%v, want the re-read of the inventory shown",
 			model.cleanup.working, model.activity.running)
 	}
-	if flowed := flowed(content(model)); strings.Contains(flowed, "removing what you selected") {
+	if flowed := flowed(content(model)); strings.Contains(flowed, "removing everything task") {
 		t.Errorf("the screen still says it is removing:\n%s", content(model))
 	}
 }

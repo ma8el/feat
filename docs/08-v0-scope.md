@@ -189,8 +189,8 @@ Included:
 Included:
 
 - exact resource inventory;
-- separate stop/remove/volume/worktree/branch choices;
-- volumes retained by default;
+- one confirmation that names every resource class and every risk (ADR-110);
+- volumes retained unless that confirmation is answered yes;
 - dirty/unmerged warnings;
 - explicit confirmations;
 - archived metadata;

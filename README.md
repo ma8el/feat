@@ -373,11 +373,11 @@ machine, you can push by hand instead.
 
 ## Cleaning up
 
-`C` on the dashboard and `feat task cleanup` show the same inventory of what a
-task owns — every resource, what it is, and whether it is still there — and
-remove only what you select, one class at a time, with volumes retained unless
-chosen. Anything that would lose work says so beside the resource it would lose
-it on, and again in the confirmation that removes it. Feat also compares what it
+`C` on the dashboard and `feat task cleanup` ask one question: clean up and
+archive the task? A yes removes everything the task owns — its terminal,
+containers, volumes, worktrees, branches, and control workspace — and archives
+it. Anything that would lose work is listed under the question, one line per
+resource, and nothing is removed unless you answer yes. Feat also compares what it
 recorded with what the machine actually has and reports whatever is missing,
 orphaned, or inconsistent, repairing none of it on its own.
 

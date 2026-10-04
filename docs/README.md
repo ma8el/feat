@@ -155,11 +155,11 @@ open, still attempts the last two, and publishing again skips whatever already
 has a merge request. It needs a terminal, because reading the draft is the whole
 of the control. See ADR-070 and ADR-073.
 
-`feat task cleanup <task>` prints the exact inventory of what a task owns and removes
-only what is selected. Each class is a separate choice, dirty or unmerged work
-needs a second confirmation naming what would be lost, and volumes are retained
-unless chosen. There is deliberately no flag that answers every question; outside
-a terminal the inventory is printed and nothing is removed. See ADR-037.
+`feat task cleanup <task>` prints the exact inventory of what a task owns and asks
+once whether to remove all of it and archive the task. The question lists
+everything that would lose work: dirty worktrees, unpushed or unmerged branches,
+and volumes. There is deliberately no flag that answers it; outside a terminal
+the inventory is printed and nothing is removed. See ADR-037 and ADR-110.
 
 `feat daemon restart` stops the running daemon and starts a new one, and starts one when nothing is running rather than failing. It is safe as one command because stopping already waits for the socket to stop answering and the process to exit, so the new daemon never races the old one. It is how a changed settings file takes effect, since settings are read once at startup, but it is the daemon's own verb rather than the settings': a new build is the same command. See ADR-079.
 
