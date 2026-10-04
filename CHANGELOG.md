@@ -4,6 +4,26 @@ Written by hand, one section per tag, newest first. Each section is the body of
 its own GitHub release: `.goreleaser.yaml` publishes the section for the tag it
 is building, so what is written here is what a reader sees on the release page.
 
+## v0.3.0 — 2026-10-04
+
+Cleanup asks one question, and the Homebrew cask installs without a warning.
+
+**Cleanup is one confirmation.** `C` on the dashboard and `feat task cleanup` ask
+whether to clean up and archive the task. A yes removes everything the task
+owns — its terminal, containers, volumes, worktrees, branches, and control
+workspace — and archives it. Anything that would lose work is listed under the
+question, one line per resource: a dirty worktree, an unpushed or unmerged branch,
+a volume. The answer defaults to no. Before, archiving meant ticking every class
+of resource first. The per-class choices are gone from both the dashboard and the
+command line (ADR-110).
+
+**`brew install` no longer warns.** Homebrew deprecated the `postflight` block the
+cask used to clear macOS quarantine, and every install said so. The cask now uses
+`postflight_steps` (ADR-109).
+
+The README and the new website at <https://ma8el.github.io/feat/> install through
+an explicit `brew tap`, and the README shows a recorded demo.
+
 ## v0.2.0 — 2026-09-27
 
 The first release offered to somebody who has never seen Feat. What it adds is
