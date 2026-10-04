@@ -605,6 +605,13 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   `brew install` itself is only exercisable after a tag, so item 5 closes after
   item 9.
 
+- **[ADR-109 — The cask clears quarantine with `postflight_steps`](decisions/ADR-109-the-cask-clears-quarantine-with-postflight-steps.md)** · accepted  
+  Homebrew deprecated Ruby flight blocks, and every install of the cask printed a
+  warning. GoReleaser cannot write the replacement yet, so `custom_block` carries
+  `postflight_steps`, with `{{staged_path}}` escaped past GoReleaser's templates.
+  Move to `hooks.post.install_steps` once goreleaser/goreleaser#6873 ships. A real
+  install checks it only after the next tag.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is
