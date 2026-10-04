@@ -66,9 +66,9 @@ architecture — `darwin_arm64` for Apple Silicon, `darwin_amd64` for an Intel M
 `linux_arm64` and `linux_amd64`:
 
 ```sh
-curl -LO https://github.com/ma8el/feat/releases/download/v0.2.0/feat_0.2.0_darwin_arm64.tar.gz
-tar xzf feat_0.2.0_darwin_arm64.tar.gz
-mv feat_0.2.0_darwin_arm64/feat /usr/local/bin/   # or anywhere on your PATH
+curl -LO https://github.com/ma8el/feat/releases/download/v0.3.0/feat_0.3.0_darwin_arm64.tar.gz
+tar xzf feat_0.3.0_darwin_arm64.tar.gz
+mv feat_0.3.0_darwin_arm64/feat /usr/local/bin/   # or anywhere on your PATH
 feat version
 ```
 
