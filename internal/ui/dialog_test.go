@@ -132,39 +132,6 @@ func TestTheDiagnosisReportKeepsItsWidthWhileItIsRead(t *testing.T) {
 	scrollingKeepsItsWidth(t, "report", widest, top, bottom)
 }
 
-// TestTheCleanupInventoryKeepsItsWidthWhileItIsRead is the same defect in the
-// inventory, where the long line is a resource identity.
-func TestTheCleanupInventoryKeepsItsWidthWhileItIsRead(t *testing.T) {
-	plan := longCleanupPlan(6)
-	// A class at the foot whose target is named at length, which is what a
-	// container or a worktree path looks like next to `class0/one`.
-	plan.Classes = append(plan.Classes, api.CleanupClass{
-		Class: "containers", Title: "containers",
-		Targets: []api.CleanupTarget{{
-			Identity: "feat-agent-example-7f3a1c2e-dev-run-a1b2c3d4e5f6",
-			Detail:   "created when the task was launched", Present: true,
-		}},
-	})
-
-	backend := newFakeBackend()
-	model := sized(openCleanupPlan(t, backend, plan), 120, 32)
-
-	width, height := model.cleanupInventorySize()
-	lines := model.cleanupLines(width)
-	// One line of the region belongs to the note that says there is more, so the
-	// window is that much shorter than the space.
-	widest := requireScrollable(t, lines, width, height-1)
-
-	model.cleanup.scroll = 0
-	top := model.cleanupInventory(width, height)
-	// Past the end; the inventory clamps it to the last window, which is the
-	// scroller this slice leaves alone.
-	model.cleanup.scroll = len(lines)
-	bottom := model.cleanupInventory(width, height)
-
-	scrollingKeepsItsWidth(t, "inventory", widest, top, bottom)
-}
-
 // TestTheWizardReviewKeepsItsWidthWhileItIsRead guards the lift. The wizard is
 // where this rule was written, and moving the measurement into dialog.go so
 // three other bodies could share it must not cost the body it came from.

@@ -612,6 +612,12 @@ anywhere in the repository to resolving to exactly one file (ADR-089).
   Move to `hooks.post.install_steps` once goreleaser/goreleaser#6873 ships. A real
   install checks it only after the next tag.
 
+- **[ADR-110 — Cleanup is one confirmation that removes everything and archives](decisions/ADR-110-cleanup-is-one-confirmation-that-removes-everything-and-archives.md)** · accepted  
+  Every finished task ticked every class to reach the archive. Cleanup now asks
+  one question that lists each warning, then removes everything and archives.
+  The wire format and the stale-warning refusal are unchanged. Amends ADR-037
+  and ADR-061.
+
 ## Open questions
 
 These are recorded so that they are not answered in passing. An open question is

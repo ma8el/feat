@@ -1,6 +1,7 @@
 package api
 
 import (
+	"slices"
 	"time"
 
 	"github.com/ma8el/feat/internal/domain"
@@ -25,7 +26,7 @@ type CleanupPlan struct {
 	// Token names exactly the resources below. An execution that carries a
 	// different one is refused rather than performed.
 	Token string `json:"token"`
-	// Classes are the independent choices, in the order they would be removed.
+	// Classes are the classes of resource, in the order they would be removed.
 	Classes []CleanupClass `json:"classes"`
 	// Problems are recorded resources the plan refuses to name as targets, with
 	// the reason. They are not removable, and listing them explains why they are
@@ -40,7 +41,52 @@ type CleanupPlan struct {
 	ResolvedAt time.Time `json:"resolved_at"`
 }
 
-// CleanupClass is one independent choice.
+// Everything is the selection that removes every class the plan names and
+// archives the task, confirming each warning the plan carries (ADR-110).
+func (p CleanupPlan) Everything() CleanupSelection {
+	selection := CleanupSelection{Token: p.Token, Archive: true}
+	for _, class := range p.Classes {
+		selection.Classes = append(selection.Classes, CleanupChoice{
+			Class:             class.Class,
+			ConfirmedWarnings: class.Warnings,
+		})
+	}
+	return selection
+}
+
+// Risks is every warning the plan carries, one line per resource it is true of.
+// A warning no target carries, such as the volumes' standing one, is named by
+// its class.
+func (p CleanupPlan) Risks() []string {
+	var risks []string
+	add := func(line string) {
+		if !slices.Contains(risks, line) {
+			risks = append(risks, line)
+		}
+	}
+	for _, class := range p.Classes {
+		for _, warning := range class.Warnings {
+			named := false
+			for _, target := range class.Targets {
+				if !slices.Contains(target.Warnings, warning) {
+					continue
+				}
+				named = true
+				label := target.Repository
+				if label == "" {
+					label = target.Identity
+				}
+				add(class.Title + " of " + label + ": " + warning)
+			}
+			if !named {
+				add(class.Title + ": " + warning)
+			}
+		}
+	}
+	return risks
+}
+
+// CleanupClass is one class of resource the plan names.
 type CleanupClass struct {
 	// Class is the class identifier a selection names.
 	Class string `json:"class"`

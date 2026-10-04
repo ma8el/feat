@@ -247,10 +247,9 @@ session rather than opening an empty one. It is offered and never automatic.
 1. The user selects Cleanup.
 2. Feat resolves every task-owned resource.
 3. It displays dirty repositories, unpushed commits, unmerged branches, running services, and retained volumes.
-4. Stopping services and removing containers/networks are separate from removing volumes, worktrees, or branches. The task's terminal and its control workspace are two further separate choices.
-5. Dirty or unmerged worktrees require explicit confirmation. The confirmation names the warning the user was shown, and is re-checked against what is true at the moment of removal.
-6. Volumes are retained by default.
-7. Task metadata is archived so Feat can explain what happened later. Nothing is deleted from the state directory: the snapshot keeps what the task was, and the event log keeps what became of what it owned. Archiving is refused while the task still owns resources the cleanup leaves behind.
+4. Feat asks one question: clean up and archive the task? Under it, one line per resource that would lose work: a dirty worktree, an unpushed or unmerged branch, a volume.
+5. The answer defaults to no, and volumes are retained unless it is yes. The warnings the user was shown are re-checked against what is true at the moment of removal.
+6. A yes removes everything the task owns and archives its metadata, so Feat can explain what happened later. Nothing is deleted from the state directory: the snapshot keeps what the task was, and the event log keeps what became of what it owned. See ADR-110.
 
 No age-based automatic deletion exists in initial versions.
 

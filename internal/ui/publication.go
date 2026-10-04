@@ -832,3 +832,8 @@ func wrapLines(text string, width, indent int) []string {
 // publicationNarrowest is the measure prose is folded to whatever the terminal
 // says, below which words break more than they wrap.
 const publicationNarrowest = 20
+
+// drawnLines is how many lines a newline-terminated block occupies. Counted by
+// its terminators rather than by splitting it, so a block with nothing in it
+// measures nought lines rather than one.
+func drawnLines(block string) int { return strings.Count(block, "\n") }

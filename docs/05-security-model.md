@@ -255,9 +255,9 @@ Before destructive cleanup, Feat MUST:
 1. resolve resources from persisted task ownership and observed state;
 2. reject broad or unresolved paths, and re-check every path against the directory Feat owns immediately before deleting it;
 3. display dirty, unpushed, and unmerged Git state;
-4. separate containers/networks, volumes, worktrees, and branches;
-5. retain volumes by default;
-6. require explicit confirmation for dirty/unmerged work;
+4. report containers/networks, volumes, worktrees, and branches separately, each with what removing it would cost;
+5. retain volumes unless the confirmation is answered yes;
+6. require explicit confirmation naming every dirty, unmerged, or volume-held loss;
 7. archive task metadata.
 
 ## Remote privacy target

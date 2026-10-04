@@ -13,13 +13,11 @@ import (
 	"github.com/ma8el/feat/internal/client"
 )
 
-const cleanupLong = `Produce an exact inventory of the resources a task owns and remove only what you
-select.
+const cleanupLong = `Produce an exact inventory of the resources a task owns, then ask once whether to
+remove all of it and archive the task.
 
-Each class of resource is a separate choice, asked in the order Feat would remove
-them: what holds a file is stopped before the file is removed. Volumes are
-retained unless you choose them. Dirty worktrees, unpushed commits, and unmerged
-branches are shown and need a second, explicit confirmation.
+Dirty worktrees, unpushed or unmerged branches, and volumes are listed under the
+question. Nothing is removed unless you answer yes.
 
 Outside a terminal the inventory is printed and nothing is removed, so this is
 safe in a pipe or a script that only wants to see what a task owns.`
@@ -40,10 +38,12 @@ func newCleanupCommand(env *environment) *cobra.Command {
 				printCleanupPlan(out, plan)
 
 				if !interactive() {
-					printf(out, "\nNothing was removed: cleanup asks per class of resource and needs a terminal.\n")
+					printf(out, "\nNothing was removed: cleanup asks for confirmation and needs a terminal.\n")
 					return nil
 				}
-				if len(plan.Classes) == 0 {
+				if !plan.Archivable {
+					printf(out, "\nNothing was removed: task %s cannot be archived until the problems above are fixed.\n",
+						plan.TaskKey)
 					return nil
 				}
 
@@ -103,81 +103,24 @@ func printCleanupPlan(out io.Writer, plan api.CleanupPlan) {
 	}
 }
 
-// askCleanup asks once per class, in removal order, and again for every
-// warning.
-//
-// One question per class is FR-CLEAN-002's "separate choices" taken literally,
-// and the second question is FR-CLEAN-003's explicit confirmation. The request
-// echoes back the warnings a user accepted, so the daemon refuses a confirmation
-// that no longer covers what is true (ADR-037).
+// askCleanup asks once whether to remove everything and archive the task,
+// listing every risk under the question (ADR-110). The request echoes the
+// warnings shown, so the daemon refuses one that no longer covers what is true
+// (ADR-037).
 func askCleanup(in io.Reader, out io.Writer, plan api.CleanupPlan) (api.CleanupSelection, bool, error) {
-	reader := bufio.NewReader(in)
-	selection := api.CleanupSelection{Token: plan.Token}
-
-	for _, class := range plan.Classes {
-		chosen, err := ask(reader, out, fmt.Sprintf("\nRemove the %s of task %s?", class.Title, plan.TaskKey))
-		if err != nil {
-			return api.CleanupSelection{}, false, err
+	question := fmt.Sprintf("\nClean up and archive task %s?", plan.TaskKey)
+	if risks := plan.Risks(); len(risks) > 0 {
+		question = "\nThis would lose work:\n"
+		for _, risk := range risks {
+			question += "  ! " + risk + "\n"
 		}
-		if !chosen {
-			continue
-		}
-
-		choice := api.CleanupChoice{Class: class.Class}
-		for _, warning := range class.Warnings {
-			accepted, err := ask(reader, out, "  "+warning+".\n  Remove it anyway?")
-			if err != nil {
-				return api.CleanupSelection{}, false, err
-			}
-			if !accepted {
-				printf(out, "  Leaving the %s alone.\n", class.Title)
-				choice.Class = ""
-				break
-			}
-			choice.ConfirmedWarnings = append(choice.ConfirmedWarnings, warning)
-		}
-		if choice.Class != "" {
-			selection.Classes = append(selection.Classes, choice)
-		}
+		question += fmt.Sprintf("Clean up and archive task %s anyway?", plan.TaskKey)
 	}
-
-	if len(selection.Classes) == 0 {
-		return api.CleanupSelection{}, false, nil
-	}
-
-	// Archiving is offered only when everything the plan names was chosen, because
-	// the daemon refuses it otherwise. An archived task that still owns a running
-	// container is the orphan reconciliation exists to report.
-	if len(selection.Classes) == len(plan.Classes) && plan.Archivable {
-		archive, err := ask(reader, out, "\nArchive the task's metadata? Its record and history are kept.")
-		if err != nil {
-			return api.CleanupSelection{}, false, err
-		}
-		selection.Archive = archive
-	}
-
-	printf(out, "\nAbout to remove:\n")
-	for _, choice := range selection.Classes {
-		printf(out, "  - %s\n", title(plan, choice.Class))
-	}
-	if selection.Archive {
-		printf(out, "  - and archive the task's metadata\n")
-	}
-	confirmed, err := ask(reader, out, "Go ahead?")
+	confirmed, err := ask(bufio.NewReader(in), out, question)
 	if err != nil {
 		return api.CleanupSelection{}, false, err
 	}
-	return selection, confirmed, nil
-}
-
-// title renders a class the way the plan named it.
-func title(plan api.CleanupPlan, class string) string {
-	for _, entry := range plan.Classes {
-		if entry.Class == class {
-			return entry.Title
-		}
-	}
-	return class
+	return plan.Everything(), confirmed, nil
 }
 
 // ask puts one question, reading from a reader shared across the whole

@@ -3,12 +3,9 @@ package ui
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ma8el/feat/internal/api"
 )
@@ -31,10 +28,11 @@ func cleanupFixture() api.CleanupPlan {
 			{
 				Class: "worktrees", Title: "worktrees",
 				Targets: []api.CleanupTarget{{
-					Identity: "/state/feat/worktrees/example/7f3a1c2e/api",
-					Detail:   "the task worktree of api",
-					Present:  true,
-					Warnings: []string{"the worktree has uncommitted or untracked changes"},
+					Identity:   "/state/feat/worktrees/example/7f3a1c2e/api",
+					Repository: "api",
+					Detail:     "the task worktree of api",
+					Present:    true,
+					Warnings:   []string{"the worktree has uncommitted or untracked changes"},
 				}},
 				Warnings: []string{"the worktree has uncommitted or untracked changes"},
 			},
@@ -42,30 +40,13 @@ func cleanupFixture() api.CleanupPlan {
 	}
 }
 
-// openCleanupScreen opens the cleanup screen over the fixture.
+// openCleanupScreen opens the cleanup dialog over the fixture.
 func openCleanupScreen(t *testing.T, backend *fakeBackend) Model {
 	t.Helper()
 	return openCleanupPlan(t, backend, cleanupFixture())
 }
 
-// requestCleanup presses enter and answers the resolve it fires. Enter asks the
-// daemon what the task owns before it asks the user anything, so the
-// confirmation appears only once a plan has come back, and the plan given here
-// is what comes back.
-func requestCleanup(t *testing.T, model Model, plan api.CleanupPlan) Model {
-	t.Helper()
-
-	updated, cmd := model.Update(key("enter"))
-	model = updated.(Model)
-	if !model.cleanup.pending {
-		t.Fatal("enter did not ask what the task owns before asking the user")
-	}
-	runCommands(t, cmd)
-	updated, _ = model.Update(cleanupPlanMsg{plan: plan})
-	return updated.(Model)
-}
-
-// openCleanupPlan opens the cleanup screen over a plan.
+// openCleanupPlan opens the cleanup dialog over a plan.
 func openCleanupPlan(t *testing.T, backend *fakeBackend, plan api.CleanupPlan) Model {
 	t.Helper()
 
@@ -83,659 +64,136 @@ func openCleanupPlan(t *testing.T, backend *fakeBackend, plan api.CleanupPlan) M
 	return updated.(Model)
 }
 
-// TestOpeningCleanupResolvesAndRemovesNothing keeps the screen safe to reach
-// with one key press.
-func TestOpeningCleanupResolvesAndRemovesNothing(t *testing.T) {
+// TestCleanupAsksOneQuestionAndRemovesEverything is ADR-110: one question,
+// every risk under it, and a yes removes every class and archives the task.
+func TestCleanupAsksOneQuestionAndRemovesEverything(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
 
-	if len(backend.cleanupCalls) != 1 {
-		t.Errorf("opening the screen resolved %d plans, want 1", len(backend.cleanupCalls))
-	}
 	if len(backend.cleanupSelections) != 0 {
-		t.Errorf("opening the screen removed something: %+v", backend.cleanupSelections)
-	}
-
-	view := content(model)
-	for _, want := range []string{"terminal", "worktrees", "uncommitted"} {
-		if !strings.Contains(view, want) {
-			t.Errorf("the screen does not show %q:\n%s", want, view)
-		}
-	}
-}
-
-// TestRemovingIsOneConfirmationCarryingWhatItWouldCost is FR-CLEAN-002 and
-// FR-CLEAN-003 at the screen. Pressing enter with nothing selected removes
-// nothing, and selecting asks nothing, because a tick is a decision being
-// assembled and the screen already draws what each class would cost beside the
-// resources it is true of. The one question is the removal's, and it carries
-// the warnings of everything chosen (ADR-061).
-func TestRemovingIsOneConfirmationCarryingWhatItWouldCost(t *testing.T) {
-	backend := newFakeBackend()
-	model := openCleanupScreen(t, backend)
-
-	// Nothing selected.
-	updated, _ := model.Update(key("enter"))
-	model = updated.(Model)
-	if len(backend.cleanupSelections) != 0 {
-		t.Fatal("enter removed something with nothing selected")
-	}
-	if !strings.Contains(model.status, "select") {
-		t.Errorf("status = %q, want it to say there is nothing selected", model.status)
-	}
-
-	// Selecting the class that would lose work interrupts nothing.
-	updated, _ = model.Update(key("down"))
-	model = updated.(Model)
-	updated, _ = model.Update(key(" "))
-	model = updated.(Model)
-	if !model.cleanup.chosen["worktrees"] {
-		t.Fatal("space did not select the class under the cursor")
-	}
-	if model.cleanup.executing || strings.Contains(content(model), "[y/N]") {
-		t.Errorf("selecting a class put a question on the screen:\n%s", content(model))
-	}
-
-	// Enter asks once, naming what will go and what that costs.
-	model = requestCleanup(t, model, backend.cleanupPlan)
-	if !model.cleanup.executing {
-		t.Fatal("enter removed without a confirmation")
-	}
-	if len(backend.cleanupSelections) != 0 {
-		t.Fatal("the confirmation was skipped")
+		t.Fatalf("opening the dialog removed something: %+v", backend.cleanupSelections)
 	}
 	view := flowed(content(model))
-	for _, want := range []string{"Remove the worktrees", "[y/N]", "uncommitted or untracked"} {
+	for _, want := range []string{
+		"Clean up and archive task " + liveTask().Key + "? [y/N]",
+		"worktrees of api: the worktree has uncommitted or untracked changes (potential data loss)",
+	} {
 		if !strings.Contains(view, want) {
-			t.Errorf("the confirmation does not carry %q:\n%s", want, content(model))
+			t.Errorf("the dialog does not carry %q:\n%s", want, content(model))
 		}
 	}
 
-	// Anything other than a yes removes nothing and leaves the selection alone,
-	// so a mistyped answer does not cost the user their choices.
-	updated, cmd := model.Update(key("n"))
-	model = updated.(Model)
-	runCommands(t, cmd)
-	if len(backend.cleanupSelections) != 0 {
-		t.Fatal("declining the confirmation removed something anyway")
-	}
-	if !model.cleanup.chosen["worktrees"] {
-		t.Error("declining the confirmation discarded the selection")
-	}
-
-	model = requestCleanup(t, model, backend.cleanupPlan)
-	updated, cmd = model.Update(key("y"))
-	model = updated.(Model)
+	_, cmd := model.Update(key("y"))
 	runCommands(t, cmd)
 
 	if len(backend.cleanupSelections) != 1 {
 		t.Fatalf("the daemon received %d selections, want 1", len(backend.cleanupSelections))
 	}
 	selection := backend.cleanupSelections[0]
-	if selection.Token != "0f1e2d3c" {
-		t.Errorf("token = %q, want the token of the plan the user was shown", selection.Token)
+	if selection.Token != "0f1e2d3c" || !selection.Archive {
+		t.Errorf("token=%q archive=%v, want the plan's token and an archive", selection.Token, selection.Archive)
 	}
-	if len(selection.Classes) != 1 || selection.Classes[0].Class != "worktrees" {
-		t.Fatalf("classes = %+v, want only the worktrees", selection.Classes)
+	if len(selection.Classes) != 2 || selection.Classes[0].Class != "terminal" || selection.Classes[1].Class != "worktrees" {
+		t.Fatalf("classes = %+v, want every class of the plan", selection.Classes)
 	}
-	// The warnings still go back as the plan's own strings, so the daemon can
-	// refuse a confirmation that what is true has overtaken (ADR-037).
-	if len(selection.Classes[0].ConfirmedWarnings) != 1 {
-		t.Errorf("confirmations = %+v, want the warning the user was shown", selection.Classes[0])
+	// The warnings go back as the plan's own strings, so the daemon can refuse a
+	// confirmation that what is true has overtaken (ADR-037).
+	if len(selection.Classes[1].ConfirmedWarnings) != 1 {
+		t.Errorf("confirmations = %+v, want the warning the user was shown", selection.Classes[1])
 	}
 }
 
-// TestTheConfirmationCollectsTheWarningsOfEverythingChosen keeps a removal of
-// several risky classes from putting only one of their costs to the user.
-func TestTheConfirmationCollectsTheWarningsOfEverythingChosen(t *testing.T) {
-	backend := newFakeBackend()
+// TestASafeCleanupAsksOnlyTheQuestion keeps the dialog to one line when nothing
+// can be lost.
+func TestASafeCleanupAsksOnlyTheQuestion(t *testing.T) {
 	plan := cleanupFixture()
-	plan.Classes[0].Warnings = []string{"removing a volume discards whatever it holds"}
-	plan.Classes[0].Targets[0].Warnings = plan.Classes[0].Warnings
-
-	model := openCleanupPlan(t, backend, plan)
-	for _, press := range []string{" ", "down", " "} {
-		updated, _ := model.Update(key(press))
-		model = updated.(Model)
-	}
-	model = requestCleanup(t, model, plan)
-
-	view := flowed(content(model))
-	for _, want := range []string{"discards whatever it holds", "uncommitted or untracked"} {
-		if !strings.Contains(view, want) {
-			t.Errorf("the confirmation does not carry %q:\n%s", want, content(model))
-		}
-	}
-}
-
-// TestArchivingIsARowLikeAnyOther is the archive choice reached the way
-// everything else on the screen is: down to it, space to tick it. A key of its
-// own made it the one checkbox the cursor could not land on, and a key that did
-// nothing for most of the interaction (ADR-061).
-func TestArchivingIsARowLikeAnyOther(t *testing.T) {
-	backend := newFakeBackend()
-	model := openCleanupScreen(t, backend)
-
-	// It is after the classes, and the cursor reaches it.
-	classes := len(model.cleanup.plan.Classes)
-	for range classes {
-		updated, _ := model.Update(key("down"))
-		model = updated.(Model)
-	}
-	if model.cleanup.cursor != classes {
-		t.Fatalf("cursor = %d after %d downs, want the archive row at %d",
-			model.cleanup.cursor, classes, classes)
-	}
-	if updated, _ := model.Update(key("down")); updated.(Model).cleanup.cursor != classes {
-		t.Error("the cursor moved past the last row of the screen")
-	}
-	if !strings.Contains(flowed(content(model)), "> [ ] archive") {
-		t.Errorf("the archive row does not show the cursor on it:\n%s", content(model))
-	}
-
-	// Space on it says why, while a class is still unselected.
-	updated, _ := model.Update(key(" "))
-	model = updated.(Model)
-	if model.cleanup.archive {
-		t.Error("archiving was set while a class was unselected")
-	}
-	if !strings.Contains(model.status, "every class") {
-		t.Errorf("status = %q, want it to say why archiving is not offered", model.status)
-	}
-	// And the row says it too, so the answer is written where the press happened.
-	if !strings.Contains(flowed(content(model)), "select every class") {
-		t.Errorf("the screen does not say what archiving is waiting for:\n%s", content(model))
-	}
-
-	// Selecting every class makes the same press take.
-	for range classes {
-		updated, _ = model.Update(key("up"))
-		model = updated.(Model)
-	}
-	for range classes {
-		updated, _ = model.Update(key(" "))
-		model = updated.(Model)
-		updated, _ = model.Update(key("down"))
-		model = updated.(Model)
-	}
-	if !model.cleanup.archivable() {
-		t.Fatal("archiving was not offered with every class selected")
-	}
-
-	updated, _ = model.Update(key(" "))
-	model = updated.(Model)
-	if !model.cleanup.archive {
-		t.Error("space on the archive row did not set it when it was offered")
-	}
-
-	// Deselecting anything takes the archive with it, because it would no
-	// longer be removing everything the plan names.
-	updated, _ = model.Update(key("up"))
-	model = updated.(Model)
-	updated, _ = model.Update(key(" "))
-	model = updated.(Model)
-	if model.cleanup.archive {
-		t.Error("deselecting a class left the archive set")
-	}
-}
-
-// TestTheArchiveRowDoesNotMoveTheInventoryAboveIt is why it is drawn whether or
-// not it may be taken. It sits under the inventory, and the inventory is sized
-// by what the tail takes, so a row appearing when the last class is ticked
-// moves the list being ticked and moves a cursor stop in and out of existence
-// underneath the user.
-func TestTheArchiveRowDoesNotMoveTheInventoryAboveIt(t *testing.T) {
-	backend := newFakeBackend()
-	model := openCleanupScreen(t, backend)
-
-	width, _ := model.cleanupInventorySize()
-	unselected := drawnLines(model.cleanupTail(width))
-
-	for range len(model.cleanup.plan.Classes) {
-		updated, _ := model.Update(key(" "))
-		model = updated.(Model)
-		updated, _ = model.Update(key("down"))
-		model = updated.(Model)
-	}
-	if !model.cleanup.archivable() {
-		t.Fatal("the fixture does not reach an archivable selection")
-	}
-
-	if got := drawnLines(model.cleanupTail(width)); got != unselected {
-		t.Errorf("the tail is %d lines with everything selected and %d with nothing: "+
-			"the inventory above it moves as classes are ticked", got, unselected)
-	}
-}
-
-// TestTheInventoryOnTheScreenIsTheInventoryTheCommandPrints is FR-CLEAN-001 at
-// the dashboard. Drawing each target's identity alone leaves a worktree saying
-// a path, a volume a name beginning with a Compose project, and a tmux window
-// `@3`. What makes those readable — the sentence the plan writes for each
-// target, and the project and workflow the removal is happening in — was in
-// `feat task cleanup` alone.
-func TestTheInventoryOnTheScreenIsTheInventoryTheCommandPrints(t *testing.T) {
-	backend := newFakeBackend()
-	plan := cleanupFixture()
-	plan.Classes[0].Targets[0].Present = false
-
-	model := openCleanupPlan(t, backend, plan)
-	view := flowed(content(model))
-
-	for _, want := range []string{
-		// What is being cleaned up: a task still working on something is a
-		// different decision from an approved one.
-		"project example", "approved",
-		// And what each target is, beside what it is called.
-		"@3", "the task's tmux window",
-		"/state/feat/worktrees/example/7f3a1c2e/api", "the task worktree of api",
-		// A target that is already gone still says so.
-		"(already gone)",
-	} {
-		if !strings.Contains(view, want) {
-			t.Errorf("the inventory does not show %q:\n%s", want, view)
-		}
-	}
-}
-
-// TestAWarningIsDrawnBesideTheTargetItIsTrueOf keeps a class of several
-// resources from saying only that one of them would lose work. The class's
-// warnings are the distinct set of its targets', so a class of three worktrees
-// with one dirty one carries a single line saying a worktree has uncommitted
-// changes; beside the worktree, it says which.
-func TestAWarningIsDrawnBesideTheTargetItIsTrueOf(t *testing.T) {
-	backend := newFakeBackend()
-	plan := cleanupFixture()
-	plan.Classes[1].Targets = append(plan.Classes[1].Targets, api.CleanupTarget{
-		Identity: "/state/feat/worktrees/example/7f3a1c2e/web",
-		Detail:   "the task worktree of web",
-		Present:  true,
-	})
-
-	model := openCleanupPlan(t, backend, plan)
-	lines := strings.Split(ansi.Strip(content(model)), "\n")
-
-	dirty := lineWith(t, lines, "/7f3a1c2e/api")
-	warning := lineWith(t, lines, "! the worktree has uncommitted")
-	clean := lineWith(t, lines, "/7f3a1c2e/web")
-	if dirty >= warning || warning >= clean {
-		t.Errorf("the warning is not beside the worktree it is true of:\n%s",
-			strings.Join(lines, "\n"))
-	}
-
-	// The title says it too, because the title is what stays visible when the
-	// window is scrolled to the foot of a long class.
-	if !strings.Contains(flowed(content(model)), "worktrees (would lose work)") {
-		t.Errorf("the class title does not say it would lose work:\n%s", content(model))
-	}
-}
-
-// lineWith is the index of the one line holding a fragment.
-func lineWith(t *testing.T, lines []string, want string) int {
-	t.Helper()
-
-	found := -1
-	for i, line := range lines {
-		if strings.Contains(line, want) {
-			if found >= 0 {
-				t.Fatalf("%q is on more than one line:\n%s", want, strings.Join(lines, "\n"))
-			}
-			found = i
-		}
-	}
-	if found < 0 {
-		t.Fatalf("%q is on no line:\n%s", want, strings.Join(lines, "\n"))
-	}
-	return found
-}
-
-// longCleanupPlan is an inventory taller than any dialog it is drawn in, which
-// is what a task with several repositories owns.
-func longCleanupPlan(classes int) api.CleanupPlan {
-	plan := api.CleanupPlan{
-		TaskID: liveTask().ID, TaskKey: liveTask().Key,
-		ProjectID: "example", Workflow: "approved", Token: "0f1e2d3c",
-	}
-	for i := range classes {
-		name := "class" + strconv.Itoa(i)
-		plan.Classes = append(plan.Classes, api.CleanupClass{
-			Class: name, Title: name,
-			Targets: []api.CleanupTarget{
-				{Identity: name + "/one", Detail: "the first of " + name, Present: true},
-				{Identity: name + "/two", Detail: "the second of " + name, Present: true},
-			},
-		})
-	}
-	return plan
-}
-
-// TestALongInventoryScrollsRatherThanBeingClipped keeps every class reachable
-// on a terminal smaller than the plan. An overlay that cut what did not fit and
-// left a note counting the dropped lines, with nothing to move the window, can
-// be read only by running `feat task cleanup`, and a class the cursor was on
-// could be selected without ever having been drawn.
-func TestALongInventoryScrollsRatherThanBeingClipped(t *testing.T) {
-	backend := newFakeBackend()
-	backend.cleanupPlan = longCleanupPlan(6)
-
-	model := sized(dashboard(backend, liveTask()), 90, 20)
-	updated, cmd := model.Update(key("C"))
-	model = updated.(Model)
-	runCommands(t, cmd)
-	updated, _ = model.Update(cleanupPlanMsg{plan: backend.cleanupPlan})
-	model = updated.(Model)
-
-	view := flowed(content(model))
-	if !strings.Contains(view, "class0") {
-		t.Fatalf("the first class is not drawn:\n%s", content(model))
-	}
-	if !strings.Contains(view, "lines below") {
-		t.Errorf("the screen does not say there is more of the inventory:\n%s", content(model))
-	}
-	if strings.Contains(view, "class5") {
-		t.Fatalf("the whole inventory fits, so this proves nothing:\n%s", content(model))
-	}
-
-	// Moving to the last class brings the window with it.
-	for range 5 {
-		updated, _ = model.Update(key("down"))
-		model = updated.(Model)
-	}
-	view = flowed(content(model))
-	if !strings.Contains(view, "class5") || !strings.Contains(view, "the second of class5") {
-		t.Errorf("moving the cursor did not bring the class it is on into view:\n%s", content(model))
-	}
-	if !strings.Contains(view, "lines above") {
-		t.Errorf("the screen does not say what it scrolled past:\n%s", content(model))
-	}
-
-	// And the page keys move the window without moving the choice, which is what
-	// reaches a class whose own targets are more than the region holds.
-	cursor := model.cleanup.cursor
-	updated, _ = model.Update(key("pgup"))
-	model = updated.(Model)
-	if model.cleanup.cursor != cursor {
-		t.Errorf("cursor = %d, want the page key to leave the choice where it was", model.cleanup.cursor)
-	}
-	if model.cleanup.scroll == 0 {
-		t.Fatal("pgup left the window at the top of an inventory it was at the bottom of")
-	}
-	if !strings.Contains(flowed(content(model)), "lines below") {
-		t.Errorf("paging up did not move the window:\n%s", content(model))
-	}
-}
-
-// TestTheConfirmationSurvivesATerminalTooSmallForTheInventory is the worst case
-// the one-question design has to hold in. Six risky classes on a terminal at
-// the layout's minimum: the confirmation and every warning it collected are
-// more than the region has, so the inventory gives up its lines rather than the
-// question. The inventory it displaced is still counted rather than dropped in
-// silence.
-func TestTheConfirmationSurvivesATerminalTooSmallForTheInventory(t *testing.T) {
-	backend := newFakeBackend()
-	plan := longCleanupPlan(6)
-	for i := range plan.Classes {
-		plan.Classes[i].Warnings = []string{"removing " + plan.Classes[i].Class + " loses something"}
-		plan.Classes[i].Targets[0].Warnings = plan.Classes[i].Warnings
-	}
-	backend.cleanupPlan = plan
-
-	model := sized(dashboard(backend, liveTask()), 90, 20)
-	updated, cmd := model.Update(key("C"))
-	model = updated.(Model)
-	runCommands(t, cmd)
-	updated, _ = model.Update(cleanupPlanMsg{plan: plan})
-	model = updated.(Model)
-
-	for range len(plan.Classes) {
-		updated, _ = model.Update(key(" "))
-		model = updated.(Model)
-		updated, _ = model.Update(key("down"))
-		model = updated.(Model)
-	}
-	model = requestCleanup(t, model, plan)
+	plan.Classes = plan.Classes[:1]
+	model := openCleanupPlan(t, newFakeBackend(), plan)
 
 	view := flowed(content(model))
 	if !strings.Contains(view, "[y/N]") {
-		t.Fatalf("the question did not survive the region:\n%s", content(model))
+		t.Errorf("the dialog does not ask:\n%s", content(model))
 	}
-	for _, class := range plan.Classes {
-		if !strings.Contains(view, "removing "+class.Class+" loses something") {
-			t.Errorf("the confirmation dropped the warning of %s:\n%s", class.Class, content(model))
-		}
-	}
-	if !strings.Contains(view, "lines above") || !strings.Contains(view, "lines below") {
-		t.Errorf("the displaced inventory is not counted:\n%s", content(model))
-	}
-	// And it stops offering the keys it took. Every key answers the question
-	// while it is up, so a note naming pgup is a note about nothing.
-	if strings.Contains(view, "pgup to") || strings.Contains(view, "pgdn to") {
-		t.Errorf("the scroll note offers a key the confirmation has taken:\n%s", content(model))
-	}
-	if !strings.Contains(flowed(model.View()), "y remove") {
-		t.Errorf("the key map does not answer the question that is up:\n%s", model.View())
+	if strings.Contains(view, "potential data loss") {
+		t.Errorf("a safe plan lists a risk:\n%s", content(model))
 	}
 }
 
-// TestTheKeyMapSaysWhatEnterActsOnAndFitsSayingIt is the hint line at the width
-// it has least of. Enter takes the whole selection and not the row the cursor
-// is on, and the screen has to say which without spending more than a dialog
-// has: this line has been truncated before, and a hint cut in half is a key
-// nobody finds.
-func TestTheKeyMapSaysWhatEnterActsOnAndFitsSayingIt(t *testing.T) {
-	backend := newFakeBackend()
-	model := sized(openCleanupScreen(t, backend), minimumWidth, 32)
-
-	hints := ansi.Strip(model.cleanupHints())
-	if !strings.Contains(hints, "cleanup selected") {
-		t.Errorf("the key map does not say what enter acts on: %q", hints)
-	}
-
-	// Every hint intact in the dialog as it is actually drawn, not merely in the
-	// line before the box clamps it.
-	widest, _ := model.dialogLimits()
-	if got := ansi.StringWidth(hints); got > widest-dialogChrome {
-		t.Errorf("the key map is %d cells in a dialog of %d: %q",
-			got, widest-dialogChrome, hints)
-	}
-	view := flowed(model.View())
-	for _, want := range []string{"space select", "enter cleanup selected", "esc back"} {
-		if !strings.Contains(view, want) {
-			t.Errorf("%q is not on the screen at %d cells:\n%s", want, minimumWidth, model.View())
-		}
-	}
-}
-
-// TestTheInventorySaysTheMomentItWasTaken is what makes the screen an
-// observation rather than a claim about now.
-func TestTheInventorySaysTheMomentItWasTaken(t *testing.T) {
-	backend := newFakeBackend()
-	model := openCleanupScreen(t, backend)
-
-	if !strings.Contains(flowed(content(model)), "resolved "+
-		cleanupFixture().ResolvedAt.Local().Format("15:04:05")) {
-		t.Errorf("the screen does not say when the inventory was taken:\n%s", content(model))
-	}
-
-	// And says so while it is taking another, which enter does before it asks.
-	updated, _ := model.Update(key(" "))
-	model = updated.(Model)
-	updated, _ = model.Update(key("enter"))
-	model = updated.(Model)
-	if !strings.Contains(flowed(content(model)), "resolving…") {
-		t.Errorf("the screen does not say a request is in flight:\n%s", content(model))
-	}
-}
-
-// TestEnterResolvesBeforeItAsks is the freshness the screen has instead of a
-// re-resolve key. `r` was a key a user had to know to press to find out
-// something they could not know they needed. Freshness is worth something at
-// the moment consent is given, so that is when Feat looks: enter resolves, and
-// the question is put against what came back.
-func TestEnterResolvesBeforeItAsks(t *testing.T) {
-	backend := newFakeBackend()
-	model := openCleanupScreen(t, backend)
-
-	updated, _ := model.Update(key(" "))
-	model = updated.(Model)
-
-	before := len(backend.cleanupCalls)
-	updated, cmd := model.Update(key("enter"))
-	model = updated.(Model)
-	if model.cleanup.executing {
-		t.Fatal("the question went up before the plan it is about came back")
-	}
-	runCommands(t, cmd)
-	if len(backend.cleanupCalls) != before+1 {
-		t.Fatalf("enter made %d requests in total, want %d", len(backend.cleanupCalls), before+1)
-	}
-
-	// A tick landing while the resolve is in flight would put a class into the
-	// question that the plan under it was never checked for.
-	updated, _ = model.Update(key("down"))
-	model = updated.(Model)
-	updated, _ = model.Update(key(" "))
-	model = updated.(Model)
-	if model.cleanup.chosen["worktrees"] {
-		t.Error("a class was selected while the question was being prepared")
-	}
-
-	updated, _ = model.Update(cleanupPlanMsg{plan: backend.cleanupPlan})
-	model = updated.(Model)
-	if !model.cleanup.executing {
-		t.Fatal("the plan came back and no question was asked")
-	}
-}
-
-// TestACostThatMovedIsInTheQuestionItMoved is the case the token cannot see,
-// and the likeliest one to happen. The token covers what a plan would remove
-// and deliberately not what removing it would cost, so an agent writing a file
-// is not reported as a stale plan (ADR-037) — and an agent writing a file is
-// exactly what changes under an open cleanup screen: a worktree clean when it
-// was ticked is dirty by the time enter is pressed. Resolving on enter puts
-// that warning in front of the user instead of in the daemon's refusal.
-func TestACostThatMovedIsInTheQuestionItMoved(t *testing.T) {
-	backend := newFakeBackend()
-	model := openCleanupScreen(t, backend)
-
-	// The same resources, one of which has become dirty since the screen opened.
-	// The token is unchanged by construction, because nothing was gained or lost.
-	dirtied := cleanupFixture()
-	dirtied.ResolvedAt = dirtied.ResolvedAt.Add(time.Minute)
-	dirtied.Classes[0].Targets[0].Warnings = []string{"the window has a process still running in it"}
-	dirtied.Classes[0].Warnings = dirtied.Classes[0].Targets[0].Warnings
-	if dirtied.Token != cleanupFixture().Token {
-		t.Fatal("the fixture changed the token, so this proves nothing about the other axis")
-	}
-
-	updated, _ := model.Update(key(" "))
-	model = updated.(Model)
-	model = requestCleanup(t, model, dirtied)
-
-	if !model.cleanup.executing {
-		t.Fatal("a cost that moved under the same resources stopped the question")
-	}
-	view := flowed(content(model))
-	if !strings.Contains(view, "still running in it") {
-		t.Errorf("the warning that appeared is not in the question:\n%s", content(model))
-	}
-	if !strings.Contains(model.status, "cost has changed since you looked") {
-		t.Errorf("status = %q, want it to say the cost moved", model.status)
-	}
-}
-
-// TestAChangedResourceSetStopsShortOfTheQuestion keeps a confirmation from
-// covering something nobody has read. A gained or lost resource is a different
-// plan, and the confirmation names classes rather than targets, so a class that
-// quietly grew a third worktree would be confirmed by a user who had seen two.
-// The inventory is replaced and the question waits for another enter, which is
-// FR-CLEAN-001's rule about choosing against a summary.
-func TestAChangedResourceSetStopsShortOfTheQuestion(t *testing.T) {
-	backend := newFakeBackend()
-	model := openCleanupScreen(t, backend)
-
-	gained := cleanupFixture()
-	gained.Token = "5c4b3a29"
-	gained.ResolvedAt = gained.ResolvedAt.Add(time.Minute)
-	gained.Classes[1].Targets = append(gained.Classes[1].Targets, api.CleanupTarget{
-		Identity: "/state/feat/worktrees/example/7f3a1c2e/web",
-		Detail:   "the task worktree of web",
-		Present:  true,
+// TestAVolumeIsAlwaysARisk keeps the volumes' standing warning, which no target
+// carries, in the question.
+func TestAVolumeIsAlwaysARisk(t *testing.T) {
+	plan := cleanupFixture()
+	plan.Classes = append(plan.Classes, api.CleanupClass{
+		Class: "volumes", Title: "volumes",
+		Targets:  []api.CleanupTarget{{Identity: "feat-example-7f3a1c2e_db", Present: true}},
+		Warnings: []string{"removing a volume discards whatever it holds"},
 	})
+	model := openCleanupPlan(t, newFakeBackend(), plan)
 
-	updated, _ := model.Update(key("down"))
-	model = updated.(Model)
-	updated, _ = model.Update(key(" "))
-	model = updated.(Model)
-	model = requestCleanup(t, model, gained)
-
-	if model.cleanup.executing {
-		t.Fatal("a plan that gained a resource was confirmed without being read")
-	}
-	if !strings.Contains(model.status, "press enter again") {
-		t.Errorf("status = %q, want it to say what to do about the change", model.status)
-	}
-	view := flowed(content(model))
-	if !strings.Contains(view, "/7f3a1c2e/web") {
-		t.Errorf("the resource that appeared is not in the inventory:\n%s", content(model))
-	}
-	if !strings.Contains(view, "resolved "+gained.ResolvedAt.Local().Format("15:04:05")) {
-		t.Errorf("the screen still says the old moment:\n%s", content(model))
-	}
-	// The selection survives, so pressing enter again is one press and not four.
-	if !model.cleanup.chosen["worktrees"] {
-		t.Error("the selection was discarded by the change it was warned about")
+	if view := flowed(content(model)); !strings.Contains(view, "volumes: removing a volume discards whatever it holds") {
+		t.Errorf("the question does not name the volumes:\n%s", content(model))
 	}
 }
 
-// TestASelectionOutlivedByItsResourcesIsForgotten is the other half of that. A
-// tick is a choice about a resource, and a resource that has gone takes its
-// choice with it: left behind, it is a selection the screen cannot draw and the
-// daemon refuses.
-func TestASelectionOutlivedByItsResourcesIsForgotten(t *testing.T) {
+// TestAnythingButYesRemovesNothing is the default of [y/N].
+func TestAnythingButYesRemovesNothing(t *testing.T) {
+	for _, pressed := range []string{"n", "enter", "esc", " "} {
+		backend := newFakeBackend()
+		model := openCleanupScreen(t, backend)
+
+		updated, cmd := model.Update(key(pressed))
+		model = updated.(Model)
+		runCommands(t, cmd)
+
+		if len(backend.cleanupSelections) != 0 {
+			t.Errorf("%q removed something", pressed)
+		}
+		if model.screen == screenCleanup {
+			t.Errorf("%q left the dialog open", pressed)
+		}
+		if model.status != "nothing was removed" {
+			t.Errorf("%q: status = %q, want it to say nothing was removed", pressed, model.status)
+		}
+	}
+}
+
+// TestAPlanWithProblemsAsksNothing keeps a task with a path Feat refuses to
+// touch from being archived over it.
+func TestAPlanWithProblemsAsksNothing(t *testing.T) {
+	plan := cleanupFixture()
+	plan.Archivable = false
+	plan.Problems = []string{"the recorded worktree /etc is outside the worktree root"}
 	backend := newFakeBackend()
-	model := openCleanupScreen(t, backend)
+	model := openCleanupPlan(t, backend, plan)
 
-	gone := cleanupFixture()
-	gone.Token = "5c4b3a29"
-	gone.Classes = gone.Classes[:1]
-
-	updated, _ := model.Update(key("down"))
-	model = updated.(Model)
-	updated, _ = model.Update(key(" "))
-	model = updated.(Model)
-	model = requestCleanup(t, model, gone)
-
-	if model.cleanup.chosen["worktrees"] {
-		t.Error("a class the plan no longer names is still selected")
+	view := flowed(content(model))
+	if !strings.Contains(view, "outside the worktree root") {
+		t.Errorf("the problem is not on the screen:\n%s", content(model))
 	}
-	if model.cleanup.executing {
-		t.Fatal("a question was asked about a selection that is empty")
+	if strings.Contains(view, "[y/N]") {
+		t.Errorf("the dialog asks a question it cannot act on:\n%s", content(model))
 	}
-	if !strings.Contains(model.status, "nothing you selected is still there") {
-		t.Errorf("status = %q, want it to say the selection outlived its resources", model.status)
+
+	_, cmd := model.Update(key("y"))
+	runCommands(t, cmd)
+	if len(backend.cleanupSelections) != 0 {
+		t.Error("y removed something from a plan that cannot be archived")
 	}
 }
 
-// TestAFinishedCleanupClosesTheDialog is the transaction ending with the screen
-// that was opened for it. A screen left open lists what was left rather than
-// what was asked about, and for an archived task one the daemon will not
-// resolve again, an archived task being one Feat has stopped tracking. What the
-// user needs afterwards is whether it worked, which is a line and not a screen.
+// TestAFinishedCleanupClosesTheDialog closes the dialog once the task is
+// archived, because the daemon will not resolve an archived task again.
 func TestAFinishedCleanupClosesTheDialog(t *testing.T) {
 	backend := newFakeBackend()
 	model := openCleanupScreen(t, backend)
 
-	updated, _ := model.Update(key(" "))
-	model = updated.(Model)
-	model = requestCleanup(t, model, backend.cleanupPlan)
 	updated, cmd := model.Update(key("y"))
 	model = updated.(Model)
 	runCommands(t, cmd)
 
 	updated, cmd = model.Update(cleanupDoneMsg{status: api.CleanupStatus{
-		Removed: []api.CleanupRemoval{
-			{Class: "terminal", Identity: "@3", Removed: true},
-		},
+		Removed:  []api.CleanupRemoval{{Class: "terminal", Identity: "@3", Removed: true}},
+		Archived: true,
 	}})
 	model = updated.(Model)
 	runCommands(t, cmd)
@@ -743,15 +201,8 @@ func TestAFinishedCleanupClosesTheDialog(t *testing.T) {
 	if model.screen == screenCleanup {
 		t.Fatalf("the dialog stayed open after the cleanup it was opened for:\n%s", model.View())
 	}
-	if strings.Contains(model.View(), "clean up task") {
-		t.Errorf("the cleanup dialog is still drawn:\n%s", model.View())
-	}
-	// What it did survives the closing, by the classes the user chose.
-	if !strings.Contains(model.status, "removed the terminal") {
-		t.Errorf("status = %q, want it to say what the cleanup removed", model.status)
-	}
-	if !strings.Contains(model.status, liveTask().Key) {
-		t.Errorf("status = %q, want it to name the task", model.status)
+	if !strings.Contains(model.status, "removed the terminal") || !strings.Contains(model.status, "archived") {
+		t.Errorf("status = %q, want it to say what was removed and that the task is archived", model.status)
 	}
 }
 
@@ -801,55 +252,15 @@ func TestASummaryCountsWhatWasAlreadyGoneAndSaysWhenATaskIsArchived(t *testing.T
 	}
 }
 
-// TestACleanupThatFailedHalfwayKeepsTheDialogAndReReadsThePlan is the other
-// side of closing on success. The classes are removed in a fixed order, so a
-// failure partway means some of them went. The screen is the account of that,
-// and the inventory on it is read again so it names what is left rather than
-// what was there (ADR-029).
-func TestACleanupThatFailedHalfwayKeepsTheDialogAndReReadsThePlan(t *testing.T) {
-	backend := newFakeBackend()
-	model := openCleanupScreen(t, backend)
-
-	updated, _ := model.Update(key(" "))
-	model = updated.(Model)
-	model = requestCleanup(t, model, backend.cleanupPlan)
-
-	before := len(backend.cleanupCalls)
-	updated, cmd := model.Update(cleanupDoneMsg{
-		err: errors.New("removing the worktrees of task 7f3a1c2e: the worktree is locked"),
-	})
-	model = updated.(Model)
-	runCommands(t, cmd)
-
-	if model.screen != screenCleanup {
-		t.Fatal("a cleanup that failed halfway closed the screen that explains it")
-	}
-	if !strings.Contains(flowed(content(model)), "the worktree is locked") {
-		t.Errorf("the failure is not on the screen:\n%s", content(model))
-	}
-	if len(backend.cleanupCalls) != before+1 {
-		t.Errorf("the plan was read %d times, want %d: the inventory still names what went",
-			len(backend.cleanupCalls), before+1)
-	}
-	// The selection goes with it, because part of what it named is gone and the
-	// rest is about to be renamed by the plan coming back.
-	if model.cleanup.chosen["terminal"] {
-		t.Error("a selection survived the cleanup that acted on it")
-	}
-}
-
-// failCleanup answers the confirmation with y and lets the removal fail. The
-// whole path rather than the message it ends in: y sends the removal, the
-// failure comes back as the daemon's answer to it, and the resolve that failure
-// fires is answered as the daemon answers it — the step the account of the
-// failure used to be lost in.
+// failCleanup answers the question with y, lets the removal fail with the
+// backend's error, and answers the resolve that failure fires.
 func failCleanup(t *testing.T, model Model, backend *fakeBackend) Model {
 	t.Helper()
 
 	updated, cmd := model.Update(key("y"))
 	model = updated.(Model)
 	if !model.cleanup.removing {
-		t.Fatal("y did not send the removal it authorised")
+		t.Fatal("y did not send the removal")
 	}
 	runCommands(t, cmd)
 
@@ -860,50 +271,46 @@ func failCleanup(t *testing.T, model Model, backend *fakeBackend) Model {
 	return updated.(Model)
 }
 
-// TestAFailedCleanupIsStillOnTheScreenOnceTheResolveComesBack is what a user
-// saw instead of an error. A failure re-reads the plan so the inventory names
-// what is left rather than what was there, and the answer to that read carries
-// an error field of its own. One field for both lets a resolve that succeeded —
-// the ordinary case, because the daemon is reachable and the resources are
-// still there — write nil over the account of what had just gone wrong, leaving
-// a fresh inventory, an unticked selection, and nothing to say why any of it
-// was still listed.
-func TestAFailedCleanupIsStillOnTheScreenOnceTheResolveComesBack(t *testing.T) {
+// TestAFailedCleanupAsksAgainAboutWhatIsLeft covers a removal that stopped
+// halfway and one the daemon refused because a warning appeared after the
+// question. Both re-resolve and ask again, with the failure beside the question.
+func TestAFailedCleanupAsksAgainAboutWhatIsLeft(t *testing.T) {
 	backend := newFakeBackend()
 	backend.cleanupErr = errors.New("removing the worktrees of task 7f3a1c2e: the worktree is locked")
 	model := openCleanupScreen(t, backend)
 
-	updated, _ := model.Update(key(" "))
-	model = updated.(Model)
-	model = requestCleanup(t, model, backend.cleanupPlan)
+	before := len(backend.cleanupCalls)
 	model = failCleanup(t, model, backend)
 
 	if model.screen != screenCleanup {
-		t.Fatal("the resolve after a failed cleanup closed the screen that explains it")
+		t.Fatal("a failed cleanup closed the dialog that explains it")
 	}
-	if !strings.Contains(flowed(content(model)), "the worktree is locked") {
-		t.Errorf("the failure was written over by the resolve it fired:\n%s", content(model))
+	if len(backend.cleanupCalls) != before+1 {
+		t.Errorf("the plan was read %d times, want %d", len(backend.cleanupCalls), before+1)
 	}
-	// And the inventory is drawn beside it: the failure says what stopped, the
-	// list says what is left, and a screen with only one of the two is half an
-	// account (ADR-029).
-	if !strings.Contains(flowed(content(model)), "the task's tmux window") {
-		t.Errorf("the re-read inventory is not on the screen beside the failure:\n%s", content(model))
+	view := flowed(content(model))
+	for _, want := range []string{"the worktree is locked", "[y/N]"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the dialog does not carry %q:\n%s", want, content(model))
+		}
+	}
+
+	// Asking again clears the account of the attempt it supersedes.
+	updated, _ := model.Update(key("y"))
+	model = updated.(Model)
+	if !model.cleanup.removing {
+		t.Fatal("y did not send the second removal")
+	}
+	if strings.Contains(flowed(content(model)), "the worktree is locked") {
+		t.Errorf("the previous failure is drawn over the removal that supersedes it:\n%s", content(model))
 	}
 }
 
 // TestAResolveThatFailedIsDrawnBesideTheRemovalThatDid keeps the two apart.
-// They answer different requests and the second does not replace the first: the
-// removal broke, and then the read that would have said what is left broke as
-// well.
 func TestAResolveThatFailedIsDrawnBesideTheRemovalThatDid(t *testing.T) {
 	backend := newFakeBackend()
 	backend.cleanupErr = errors.New("removing the worktrees of task 7f3a1c2e: the worktree is locked")
 	model := openCleanupScreen(t, backend)
-
-	updated, _ := model.Update(key(" "))
-	model = updated.(Model)
-	model = requestCleanup(t, model, backend.cleanupPlan)
 
 	updated, cmd := model.Update(key("y"))
 	model = updated.(Model)
@@ -915,21 +322,19 @@ func TestAResolveThatFailedIsDrawnBesideTheRemovalThatDid(t *testing.T) {
 	model = updated.(Model)
 
 	body := flowed(content(model))
-	if !strings.Contains(body, "the worktree is locked") {
-		t.Errorf("the removal's failure is gone:\n%s", content(model))
+	for _, want := range []string{"the worktree is locked", "no feat daemon is listening"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the dialog lost %q:\n%s", want, content(model))
+		}
 	}
-	if !strings.Contains(body, "no feat daemon is listening") {
-		t.Errorf("the resolve's failure is gone:\n%s", content(model))
+	if strings.Contains(body, "[y/N]") {
+		t.Errorf("the dialog asks about a plan it could not read:\n%s", content(model))
 	}
 }
 
-// TestTheDialogSaysWhatWentWrongRatherThanThatSomethingDid is what one
-// truncated line cost. The daemon puts the wire's classification at the front
-// of its answer and names the task by the identifier the request carried, with
-// the cause at the end, so a line cut to the dialog's width got as far as
-// "invalid request: removing the worktrees of task 7f3a1c2e-2b1a-…" and
-// stopped. The border above already names the task, so what is left of the
-// sentence is what happened.
+// TestTheDialogSaysWhatWentWrongRatherThanThatSomethingDid strips the wire's
+// classification, because the cause is at the end of the daemon's sentence. The
+// worktree path keeps the task identifier, since rewriting it names no real path.
 func TestTheDialogSaysWhatWentWrongRatherThanThatSomethingDid(t *testing.T) {
 	backend := newFakeBackend()
 	task := liveTask()
@@ -940,33 +345,22 @@ func TestTheDialogSaysWhatWentWrongRatherThanThatSomethingDid(t *testing.T) {
 			"fatal: cannot remove a locked working tree, lock reason: held by a demo",
 		api.ErrInvalid, task.ID, worktree, worktree)
 
-	model := sized(openCleanupScreen(t, backend), 120, 32)
-	updated, _ := model.Update(key(" "))
-	model = updated.(Model)
-	model = requestCleanup(t, model, backend.cleanupPlan)
-	model = failCleanup(t, model, backend)
+	model := failCleanup(t, sized(openCleanupScreen(t, backend), 120, 32), backend)
 
 	body := flowed(content(model))
 	if !strings.Contains(body, "cannot remove a locked working tree") {
-		t.Errorf("the end of the message, which is the only part that says what went wrong, "+
-			"did not survive:\n%s", content(model))
+		t.Errorf("the end of the message did not survive:\n%s", content(model))
 	}
 	if strings.Contains(body, api.ErrInvalid.Error()) {
 		t.Errorf("the wire's classification is still leading the line:\n%s", content(model))
 	}
-	// The identifier stays, because here it is part of a path. A screen about a
-	// task's resources that shortened one would be printing a path that is not on
-	// disk, which is worse than printing a long one.
 	if !strings.Contains(body, worktree) {
-		t.Errorf("the worktree path was rewritten, so the message names a path "+
-			"nothing is at:\n%s", content(model))
+		t.Errorf("the worktree path was rewritten:\n%s", content(model))
 	}
 }
 
-// TestAPlanThatCouldNotBeReadSaysWhyTheSameWay keeps the dialog's two failures
-// legible in the same way. The screen holds one for the removal and one for the
-// read, they arrive from the same daemon in the same shape, and shortening one
-// while cutting the other would be two screens.
+// TestAPlanThatCouldNotBeReadSaysWhyTheSameWay shortens a failed read the way it
+// shortens a failed removal.
 func TestAPlanThatCouldNotBeReadSaysWhyTheSameWay(t *testing.T) {
 	backend := newFakeBackend()
 	task := liveTask()
@@ -988,59 +382,6 @@ func TestAPlanThatCouldNotBeReadSaysWhyTheSameWay(t *testing.T) {
 	}
 	if strings.Contains(body, api.ErrInvalid.Error()) {
 		t.Errorf("the wire's classification is still leading the line:\n%s", content(model))
-	}
-}
-
-// TestAnotherRemovalClearsTheFailureItSupersedes keeps the account to the
-// removal it is about. A red line above an indicator saying a removal is in
-// flight is a line about a different request from the one the screen is waiting
-// for.
-func TestAnotherRemovalClearsTheFailureItSupersedes(t *testing.T) {
-	backend := newFakeBackend()
-	backend.cleanupErr = errors.New("removing the worktrees of task 7f3a1c2e: the worktree is locked")
-	model := openCleanupScreen(t, backend)
-
-	updated, _ := model.Update(key(" "))
-	model = updated.(Model)
-	model = requestCleanup(t, model, backend.cleanupPlan)
-	model = failCleanup(t, model, backend)
-
-	updated, _ = model.Update(key(" "))
-	model = updated.(Model)
-	model = requestCleanup(t, model, backend.cleanupPlan)
-	updated, _ = model.Update(key("y"))
-	model = updated.(Model)
-
-	if !model.cleanup.removing {
-		t.Fatal("y did not send the removal it authorised")
-	}
-	if strings.Contains(flowed(content(model)), "the worktree is locked") {
-		t.Errorf("the previous failure is drawn over the removal that supersedes it:\n%s",
-			content(model))
-	}
-}
-
-// TestOpeningAndCleaningUpAskNoQuestion keeps the confirmation to the key that
-// asks for it. Both resolve plans and neither is a user pressing enter, so a
-// screen that put a removal question up because a cleanup had just finished
-// would be asking about something nobody requested.
-func TestOpeningAndCleaningUpAskNoQuestion(t *testing.T) {
-	backend := newFakeBackend()
-	model := openCleanupScreen(t, backend)
-
-	if model.cleanup.executing || model.status != "" {
-		t.Errorf("opening the screen asked something: executing=%v status=%q",
-			model.cleanup.executing, model.status)
-	}
-
-	updated, cmd := model.Update(cleanupDoneMsg{status: api.CleanupStatus{}})
-	model = updated.(Model)
-	runCommands(t, cmd)
-	updated, _ = model.Update(cleanupPlanMsg{plan: backend.cleanupPlan})
-	model = updated.(Model)
-
-	if model.cleanup.executing {
-		t.Error("a finished cleanup put a removal question up")
 	}
 }
 
