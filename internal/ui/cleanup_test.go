@@ -759,3 +759,18 @@ func TestStoppingAHostNativeAgentIsRefusedBeforeTheDaemon(t *testing.T) {
 		t.Errorf("the dashboard does not say why nothing happened:\n%s", view)
 	}
 }
+
+// TestALongProblemKeepsItsReason is the bug a truncated problem hid: a Compose
+// project name fills the dialog on its own, and the reason after it is the only
+// part that says what to do.
+func TestALongProblemKeepsItsReason(t *testing.T) {
+	plan := cleanupFixture()
+	plan.Archivable = false
+	plan.Problems = []string{"Compose project feat-agent-maciq-64f2a3bd-23d7-4ca3-bc5f-f4a031c643bc " +
+		"could not be observed: docker could not be reached"}
+	model := openCleanupPlan(t, newFakeBackend(), plan)
+
+	if view := flowed(content(model)); !strings.Contains(view, "docker could not be reached") {
+		t.Errorf("the reason was cut off the screen:\n%s", content(model))
+	}
+}
