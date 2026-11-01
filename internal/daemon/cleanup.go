@@ -165,75 +165,18 @@ func (s *service) resolveTerminalCleanup(ctx context.Context, task *domain.Task,
 	}
 }
 
-// resolveEnvironmentCleanup fills the agent container and volume targets.
+// resolveEnvironmentCleanup names the containers, networks, and volumes of a
+// task's agent Compose project.
+//
+// It asks by project name and reads no Compose file, recorded session or not.
+// Cleanup removes the generated override before the classes after it run, so a
+// cleanup that stopped on a later class leaves a project whose --file is gone
+// (ADR-033, ADR-059). A launch that failed before recording a session is found
+// the same way, because the name derives from the task's two identifiers.
 func (s *service) resolveEnvironmentCleanup(ctx context.Context, task *domain.Task, plan *reconcile.Plan) {
-	if task.Session == nil || task.Session.Execution == nil {
-		s.resolveUnrecordedEnvironmentCleanup(ctx, task, plan)
-		return
-	}
-	recorded := task.Session.Execution
-
-	environment, err := s.environmentFor(task)
-	if err != nil {
-		plan.Problems = append(plan.Problems,
-			"the task's agent environment could not be resolved, so its containers cannot be removed: "+err.Error())
-		return
-	}
-	state, err := environment.Observe(ctx)
-	if err != nil {
-		plan.Problems = append(plan.Problems, fmt.Sprintf(
-			"Compose project %s could not be observed: %s", recorded.Identity, err))
-		return
-	}
-	plan.Targets = append(plan.Targets, reconcile.Target{
-		Class:    reconcile.ClassAgentContainers,
-		Identity: recorded.Identity,
-		Detail:   "the containers and networks of the agent's Compose project",
-		Present:  state.Present,
-	})
-
-	volumes, err := environment.Volumes(ctx)
-	if err != nil {
-		plan.Problems = append(plan.Problems, fmt.Sprintf(
-			"the volumes of Compose project %s could not be listed: %s", recorded.Identity, err))
-		return
-	}
-	for _, volume := range volumes {
-		plan.Targets = append(plan.Targets, reconcile.Target{
-			Class:    reconcile.ClassVolumes,
-			Identity: volume,
-			Detail:   "a volume of the agent's Compose project",
-			Present:  true,
-			// The warning is the policy's own, because the volume class is removable
-			// only when this exact warning was confirmed. Retention by default does
-			// not depend on the daemon remembering to attach it (FR-CLEAN-004).
-			Warnings: []string{reconcile.WarningVolume},
-		})
-	}
-}
-
-// resolveUnrecordedEnvironmentCleanup names the containers, networks, and volumes
-// of a task whose record carries no environment.
-//
-// A launch that fails after its container exists leaves exactly that: the
-// container and its network are on the machine and the session that would have
-// recorded them was never created. Without this, `cleanup/execute` planned
-// nothing, reported success, and archived the task over resources nothing could
-// then remove.
-//
-// It is a derivation and not a scan. The Compose project name comes from this
-// task's own two identifiers, so what it finds belongs to this task by
-// construction, which is the exactness FR-CLEAN-001 asks for. Nothing else on the
-// machine is looked at.
-func (s *service) resolveUnrecordedEnvironmentCleanup(
-	ctx context.Context, task *domain.Task, plan *reconcile.Plan,
-) {
 	project, err := s.agentProject(task)
 	if err != nil {
-		// Not silence, and not an empty plan. The question that could not be asked
-		// is carried as a problem, which renders the plan un-archivable, so the
-		// user reads what Feat could not see rather than an empty plan reporting
-		// success (ADR-059).
+		// ADR-059: a question that could not be asked makes the plan un-archivable.
 		plan.Problems = append(plan.Problems, err.Error())
 		return
 	}
@@ -247,15 +190,14 @@ func (s *service) resolveUnrecordedEnvironmentCleanup(
 			"Compose project %s could not be observed: %s", project.Identity(), err))
 		return
 	}
-	if !remains.Empty() {
-		plan.Targets = append(plan.Targets, reconcile.Target{
-			Class:    reconcile.ClassAgentContainers,
-			Identity: project.Identity(),
-			Detail: "the containers and networks of the agent's Compose project, which a launch left behind " +
-				"and no session records: " + remains.Describe(),
-			Present: true,
-		})
-	}
+	// Named even when empty, so removing the class still tidies the generated
+	// override and the session's observation (ADR-037 evidence 16).
+	plan.Targets = append(plan.Targets, reconcile.Target{
+		Class:    reconcile.ClassAgentContainers,
+		Identity: project.Identity(),
+		Detail:   "the containers and networks of the agent's Compose project: " + remains.Describe(),
+		Present:  !remains.Empty(),
+	})
 
 	volumes, err := project.Volumes(ctx)
 	if err != nil {
@@ -269,6 +211,9 @@ func (s *service) resolveUnrecordedEnvironmentCleanup(
 			Identity: volume,
 			Detail:   "a volume of the agent's Compose project",
 			Present:  true,
+			// The warning is the policy's own, because the volume class is removable
+			// only when this exact warning was confirmed. Retention by default does
+			// not depend on the daemon remembering to attach it (FR-CLEAN-004).
 			Warnings: []string{reconcile.WarningVolume},
 		})
 	}
@@ -445,10 +390,8 @@ func (s *service) removeTerminal(
 }
 
 // removeAgentContainers destroys the agent's Compose project and removes what
-// Feat generated to define it. The two are one act, in the order the resource and
-// its definition were created: the generated override is the document the destroy
-// runs against, so it goes once the project it described is gone (ADR-037
-// evidence 16).
+// Feat generated to define it. The override goes once the project it described is
+// gone (ADR-037 evidence 16).
 func (s *service) removeAgentContainers(
 	ctx context.Context, task *domain.Task, plan *reconcile.Plan,
 ) ([]api.CleanupRemoval, error) {
@@ -470,6 +413,8 @@ func (s *service) removeAgentContainers(
 	return removed, err
 }
 
+// destroyAgentContainers removes the agent's Compose project by name, for the
+// reason resolveEnvironmentCleanup asks by name.
 func (s *service) destroyAgentContainers(
 	ctx context.Context, task *domain.Task, plan *reconcile.Plan,
 ) ([]api.CleanupRemoval, error) {
@@ -477,52 +422,27 @@ func (s *service) destroyAgentContainers(
 	if len(targets) == 0 {
 		return nil, nil
 	}
-	if task.Session == nil || task.Session.Execution == nil {
-		return s.removeUnrecordedAgentContainers(ctx, task, targets)
-	}
-	environment, err := s.environmentFor(task)
-	if err != nil {
-		return nil, err
-	}
-	state, err := environment.Destroy(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if task.Session != nil && task.Session.Execution != nil {
-		task.Session.Execution.Observe(state.Container, state.Running, state.Status, state.Health, s.now())
-		if err := s.store.Tasks().Save(ctx, task); err != nil {
-			return nil, err
-		}
-	}
-	return []api.CleanupRemoval{{
-		Class: string(reconcile.ClassAgentContainers), Identity: targets[0].Identity, Removed: true,
-	}}, nil
-}
-
-// removeUnrecordedAgentContainers removes what a launch left behind, by name.
-// There is no record to update afterwards, because the session that would carry
-// the observation does not exist. recordCleanup writes what happened to the event
-// log as it does for every other class, so the account survives the archive.
-func (s *service) removeUnrecordedAgentContainers(
-	ctx context.Context, task *domain.Task, targets []reconcile.Target,
-) ([]api.CleanupRemoval, error) {
 	project, err := s.agentProject(task)
 	if err != nil {
 		return nil, fmt.Errorf("%s was not removed: %w", targets[0].Identity, err)
 	}
 	if project == nil {
-		// The plan is re-resolved immediately before this runs and its token
-		// compared, so a target exists only because this same call answered a moment
-		// ago. Reaching here means the project stopped being resolvable in between,
-		// and reporting a removal that did not happen is the outcome to avoid.
+		// The plan was re-resolved and its token compared a moment ago, so the
+		// project stopped being resolvable in between. Don't report a removal.
 		return nil, fmt.Errorf("the agent Compose project of task %s can no longer be resolved, "+
 			"so %s was not removed; ask for the plan again", task.ID, targets[0].Identity)
 	}
 	if err := project.Destroy(ctx); err != nil {
 		return nil, err
 	}
+	if task.Session != nil && task.Session.Execution != nil {
+		task.Session.Execution.Observe("", false, "", "", s.now())
+		if err := s.store.Tasks().Save(ctx, task); err != nil {
+			return nil, err
+		}
+	}
 	return []api.CleanupRemoval{{
-		Class: string(reconcile.ClassAgentContainers), Identity: targets[0].Identity, Removed: true,
+		Class: string(reconcile.ClassAgentContainers), Identity: targets[0].Identity, Removed: targets[0].Present,
 	}}, nil
 }
 
@@ -632,36 +552,19 @@ func (s *service) removeVolumes(
 		names = append(names, target.Identity)
 	}
 
+	// By project name, for the reason resolveEnvironmentCleanup asks by name. A
+	// question that could not be asked fails the removal rather than skipping it,
+	// so a confirmed selection is never reported unremoved without a reason.
 	var removed []string
-	switch {
-	case task.Session != nil && task.Session.Execution != nil:
-		environment, err := s.environmentFor(task)
-		if err != nil {
-			return nil, err
-		}
-		gone, err := environment.RemoveVolumes(ctx, names)
+	project, err := s.agentProject(task)
+	if err != nil {
+		return volumeRemovals(names, removed), err
+	}
+	if project != nil {
+		gone, err := project.RemoveVolumes(ctx, names)
 		removed = append(removed, gone...)
 		if err != nil {
 			return volumeRemovals(names, removed), err
-		}
-	default:
-		// A volume of a launch that left no record. It is asked by name for the same
-		// reason its containers are: a volume the launch created carries the
-		// project's label whether or not anything wrote the project down.
-		//
-		// A question that could not be asked fails the removal rather than skipping
-		// it. Reporting a confirmed selection as not removed, with no error and no
-		// problem, says the choice was declined and not why.
-		project, err := s.agentProject(task)
-		if err != nil {
-			return volumeRemovals(names, removed), err
-		}
-		if project != nil {
-			gone, err := project.RemoveVolumes(ctx, names)
-			removed = append(removed, gone...)
-			if err != nil {
-				return volumeRemovals(names, removed), err
-			}
 		}
 	}
 	if task.Runtime != nil {
