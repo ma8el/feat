@@ -563,6 +563,26 @@ func TestAServiceNothingDefinesIsRefusedByName(t *testing.T) {
 	}
 }
 
+// TestAMissingBuildContextIsNamedWhenBakeRefusesIt is Buildx 0.38 through Compose:
+// a redirected context the worktree lacks is refused as a permission Feat cannot
+// grant, before Docker says the path is missing (ADR-104 evidence 6).
+func TestAMissingBuildContextIsNamedWhenBakeRefusesIt(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "generated")
+	docker := runtimetest.New().Fail("up --detach api",
+		`additional privileges requested: pass "--allow=fs.read=.." to grant requested privileges`, 1)
+	services, _ := arrangeWith(t, docker, func(spec *runtime.Spec) {
+		spec.Builds[0].Context = missing
+	})
+
+	_, err := services.Start(context.Background())
+	if err == nil {
+		t.Fatal("a refused build started anyway")
+	}
+	if !strings.Contains(err.Error(), missing) {
+		t.Errorf("the failure does not name the missing build context: %v", err)
+	}
+}
+
 // TestAskingARuntimeThatWasNeverCreated covers the first thing a user does.
 //
 // Every command carries the generated override, and that document does not exist
