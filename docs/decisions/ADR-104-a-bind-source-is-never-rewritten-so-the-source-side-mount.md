@@ -84,6 +84,26 @@ Evidence:
    and `checkMounts` could not have been re-reasoned into asking it. It would be a
    different check, on a different set, with a different oracle.
 
+6. **Added 2026-11-05: evidence 4's message depends on the Buildx version.** CI
+   failed on the GitHub `ubuntu-24.04` image `20261101.360`, with Docker Compose
+   2.38.2 and Buildx 0.38.1:
+
+   ```
+   additional privileges requested: pass "--allow=fs.read=../worktrees/web" to grant requested privileges
+   ```
+
+   Compose builds through Bake and grants `--allow fs.read=<context>`. Up to Buildx
+   0.37.1, Bake skipped the filesystem check under `--progress rawjson`, which is
+   how Compose runs it. Buildx 0.38 runs the check there too (`commands/bake.go`,
+   `exp.Check`). It shortens a requested path to its nearest existing parent but
+   keeps a granted path whole. A grant for a missing `…/web/generated` therefore
+   does not cover `…/web`, and Bake refuses before the context is resolved. A
+   context that exists is unaffected. This was read from the Buildx source, not
+   run against 0.38: Docker Desktop's Buildx 0.34 still reports evidence 4's
+   message. The runtime's post-mortem now names the missing context when Bake
+   refuses, so the failure still carries the path, as the decision below
+   promises.
+
 Decisions:
 
 - **The source-side mount check goes, and this amends ADR-081.** `checkMounts` is
