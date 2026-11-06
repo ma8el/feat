@@ -2,6 +2,7 @@ package compose
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -54,6 +55,19 @@ func (r *Runtime) explain(reported string) string {
 					"application's own Compose files write inside it. Select the repository read-write for "+
 					"this task, or move that path out of %s",
 				mount.Target, mount.Target)
+		}
+
+	// Buildx 0.38 checks Bake's file access before the context is resolved, so a
+	// missing redirected context is refused as a permission rather than reported
+	// as not found (ADR-104 evidence 6).
+	case strings.Contains(lowered, "additional privileges requested"):
+		for _, build := range r.spec.Builds {
+			if _, err := os.Stat(build.Context); err == nil {
+				continue
+			}
+			return fmt.Sprintf(". The build context %s of service %q is not in this task's worktree, "+
+				"which holds only what Git tracks. Commit it, or create it before the services start",
+				build.Context, build.Service)
 		}
 
 	case strings.Contains(lowered, "is outside of rootfs"), strings.Contains(lowered, "no such file or directory"):
