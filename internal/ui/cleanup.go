@@ -236,8 +236,11 @@ func (m Model) cleanupBody() string {
 	case m.cleanup.err != nil:
 		out.WriteString(m.cleanupMessage(m.cleanup.err, width) + "\n")
 	case !m.cleanup.plan.Archivable:
+		// Wrapped rather than truncated, as the failure above it is. A problem
+		// names its resource first and its reason last, and a Compose project
+		// name is long enough to push the reason off a dialog on 132 columns.
 		for _, problem := range m.cleanup.plan.Problems {
-			out.WriteString(failureStyle.Render(truncate(plainLine("! "+problem), width)) + "\n")
+			out.WriteString(failureStyle.Render(wrapNote(plainLine("! "+problem), width)) + "\n")
 		}
 		out.WriteString("\n" + mutedStyle.Render(wrapNote(
 			"Feat cannot archive this task until these are resolved; nothing was removed.", width)) + "\n")

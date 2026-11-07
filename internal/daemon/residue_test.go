@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -508,6 +509,43 @@ func TestATaskWithNoContainerIsNotAskedAbout(t *testing.T) {
 	}
 	if asked := arranged.docker.Calls()[before:]; len(asked) != 0 {
 		t.Errorf("reconciliation asked Docker about a draft: %v", asked)
+	}
+}
+
+// TestARecordedTaskWithoutItsOverrideIsStillRemovable is a task stranded by an
+// earlier cleanup: the agent class removed the generated override, and a later
+// class failed before the archive. Every Compose command carrying that --file
+// failed, so the plan could never be built again.
+func TestARecordedTaskWithoutItsOverrideIsStillRemovable(t *testing.T) {
+	arranged := arrangeDrafting(t)
+	task := arranged.launched(t)
+	if err := os.Remove(task.Session.Execution.GeneratedOverridePath); err != nil {
+		t.Fatalf("removing the generated override: %v", err)
+	}
+	arranged.leftBehind(task)
+
+	plan := arranged.planOf(t, task)
+	if len(plan.Problems) > 0 {
+		t.Fatalf("the plan reports problems: %v", plan.Problems)
+	}
+	containers, ok := classOf(plan, reconcile.ClassAgentContainers)
+	if !ok || !containers.Targets[0].Present {
+		t.Fatalf("the plan does not name the agent containers as present: %+v", plan.Classes)
+	}
+
+	if _, err := arranged.service.Cleanup(context.Background(), task.ID,
+		selectAll(plan, reconcile.ClassAgentContainers)); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	down, ran := arranged.docker.Vector("down")
+	if !ran {
+		t.Fatalf("nothing removed the Compose project: %v", arranged.docker.Calls())
+	}
+	if slices.Contains(down, "--file") {
+		t.Errorf("the removal still names a Compose file: %v", down)
+	}
+	if after := arranged.reload(t, task.ID); after.Session.Execution.Running {
+		t.Error("the session still records a running container after its removal")
 	}
 }
 
